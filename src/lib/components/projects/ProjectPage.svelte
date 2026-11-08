@@ -61,6 +61,7 @@
 	import ProjectMemorySection from "./ProjectMemorySection.svelte";
 	import ProjectDocumentsSection from "./ProjectDocumentsSection.svelte";
 	import ProjectAgentSection from "./ProjectAgentSection.svelte";
+	import ProjectPastChatsIndex from "./ProjectPastChatsIndex.svelte";
 	import type { ProjectView } from "$lib/types/Project";
 	import * as s from "$lib/components/overlay/styles";
 	import IconAddLarge from "~icons/carbon/add-large";
@@ -877,13 +878,18 @@
 									/>
 									<p class={s.HINT}>{m["projects.page.limit.hint"]()}</p>
 								</div>
+								{#if !creating && project}
+									{#key project.id}
+										<ProjectPastChatsIndex projectId={project.id} />
+									{/key}
+								{/if}
 							</div>
 						</SettingsSection>
 					</SettingsGroup>
 				{/if}
 
 				<SettingsGroup id="project-group-new" title={m["projects.page.group.new_chats"]()}>
-					<div class="grid items-start gap-4 lg:grid-cols-2 [&>*]:min-w-0">
+					<div class="space-y-4">
 						<SettingsSection title={m["projects.page.defaults.title"]()}>
 							<div class="flex items-center gap-2">
 								<Switch

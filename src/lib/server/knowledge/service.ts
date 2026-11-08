@@ -123,6 +123,54 @@ function configReady(config: KnowledgeConfig): boolean {
 	return Boolean(config.embeddingModel);
 }
 
+/**
+ * The embedding models this caller may use: the gateway's catalogue for their
+ * own token, kept to embeddings. `null` when the catalogue could not be read
+ * (no token, gateway down), which callers treat as "cannot tell" rather than
+ * "none".
+ */
+export async function embeddingModelsFor(token: string | undefined): Promise<string[] | null> {
+	if (!token) return null;
+	try {
+		const models = await gateway.get<{ data: { id: string; kind?: string }[] }>(
+			token,
+			"models?include=embedding"
+		);
+		return models.data.filter((model) => model.kind === "embedding").map((model) => model.id);
+	} catch (err) {
+		logger.warn({ err }, "knowledge_embedding_models_probe_failed");
+		return null;
+	}
+}
+
+/**
+ * A model a user asked for, checked against what they may use. `""` or absent
+ * means the deployment's default. A name outside their list is a 400; when the
+ * catalogue cannot be read the request is refused too, since a name nobody
+ * could check would fail on first use.
+ */
+async function resolveChosenModel(
+	requested: string | null | undefined,
+	token: string | undefined,
+	config: KnowledgeConfig
+): Promise<{ model: string; chosen: boolean; passagePrefix: string; queryPrefix: string }> {
+	const name = (requested ?? "").trim();
+	if (!name || name === config.embeddingModel) {
+		return {
+			model: config.embeddingModel ?? "",
+			chosen: false,
+			passagePrefix: config.passagePrefix ?? "",
+			queryPrefix: config.queryPrefix ?? "",
+		};
+	}
+	const allowed = await embeddingModelsFor(token);
+	if (!allowed?.includes(name)) {
+		throw new KnowledgeError(400, `“${name}” is not an embedding model you can use.`);
+	}
+	// The deployment's prefixes belong to its default model, not to this one.
+	return { model: name, chosen: true, passagePrefix: "", queryPrefix: "" };
+}
+
 // -- reach -------------------------------------------------------------------
 
 export interface Caller {
@@ -261,6 +309,8 @@ export async function storeObject(
 	file_counts: { in_progress: number; completed: number; failed: number; total: number };
 	dimensions: number | null;
 	embedding_model: string | null;
+	/** The owner chose this model; it does not follow the deployment's default. */
+	embedding_chosen: boolean;
 	/** Indexed with another model or passage prefix than the deployment uses now. */
 	stale: boolean;
 	owned: boolean;
@@ -284,8 +334,10 @@ export async function storeObject(
 		file_counts: await fileCounts(base._id),
 		dimensions: base.dimensions ?? null,
 		embedding_model: base.embeddingModel ?? null,
+		embedding_chosen: base.embeddingChosen === true,
 		// The admin screen's rule: a base with nothing indexed is not stale.
 		stale:
+			!base.embeddingChosen &&
 			base.dimensions !== null &&
 			((base.embeddingModel || null) !== deployment.embeddingModel ||
 				passagePrefixChanged(base.passagePrefix, deployment.passagePrefix)),
@@ -329,31 +381,28 @@ export async function statusObject(
 	enabled: boolean;
 	ready: boolean;
 	embedding_model: string | null;
+	/** The embedding models this user may choose among, for the per-base selector. */
+	embedding_models: string[];
 	max_upload_bytes: number;
 	detail: string | null;
 }> {
 	const config = await readConfig();
 	let detail: string | null = null;
-	if (!config.embeddingModel) {
-		detail =
-			"No embedding model has been chosen. An administrator sets one on the Knowledge screen.";
-	} else if (config.embeddingModel && token) {
+	const mine = await embeddingModelsFor(token);
+	if (config.embeddingModel && mine && !mine.includes(config.embeddingModel)) {
 		// The model must exist in the caller's catalogue: a name the gateway
 		// does not know would fail on first use, and saying so now is kinder.
-		try {
-			const models = await gateway.get<{ data: { id: string }[] }>(token, "models");
-			const exists = models.data.some((m) => m.id === config.embeddingModel);
-			if (!exists) {
-				detail = `The configured embedding model “${config.embeddingModel}” is not in this deployment's catalogue.`;
-			}
-		} catch (err) {
-			logger.warn({ err }, "knowledge_status_model_probe_failed");
-		}
+		detail = `The default embedding model “${config.embeddingModel}” is not in this deployment's catalogue.`;
+	} else if (!config.embeddingModel && !(mine && mine.length > 0)) {
+		// Only when there is neither a default nor anything to choose per base.
+		detail =
+			"No embedding model has been chosen. An administrator sets a default on the Knowledge screen.";
 	}
 	return {
 		enabled: true,
-		ready: configReady(config) && !detail,
+		ready: !detail,
 		embedding_model: config.embeddingModel,
+		embedding_models: mine ?? [],
 		max_upload_bytes: MAX_UPLOAD_BYTES,
 		detail,
 	};
@@ -443,7 +492,7 @@ export async function adminStatus(token: string | undefined): Promise<{
 	let extractorCandidates: ExtractorCandidate[] = [];
 	if (!pipeline.embeddingModel) {
 		detail =
-			"No embedding model has been chosen. An administrator sets one on the Knowledge screen.";
+			"No default embedding model has been chosen. Users can still choose one for each base.";
 	}
 	// Listed either way: with no model chosen yet, the pickers are how one gets chosen.
 	if (token) {
@@ -459,7 +508,7 @@ export async function adminStatus(token: string | undefined): Promise<{
 				.filter((model) => model.kind === "ocr")
 				.map((model) => ({ id: model.id, local: model.local === true }));
 			if (pipeline.embeddingModel && !ids.includes(pipeline.embeddingModel)) {
-				detail = `The configured embedding model “${pipeline.embeddingModel}” is not in this deployment's catalogue.`;
+				detail = `The default embedding model “${pipeline.embeddingModel}” is not in this deployment's catalogue.`;
 			}
 		} catch (err) {
 			logger.warn({ err }, "knowledge_status_model_probe_failed");
@@ -503,8 +552,9 @@ export async function adminStatus(token: string | undefined): Promise<{
 		// A base with nothing indexed is not stale: it has no vectors to be
 		// comparable with the current model, and calling it stale would send
 		// somebody to re-embed an empty base.
-		const modelStale = (base.embeddingModel || null) !== pipeline.embeddingModel;
-		const prefixStale = passagePrefixChanged(base.passagePrefix, pipeline.passagePrefix);
+		const chosen = base.embeddingChosen === true;
+		const modelStale = !chosen && (base.embeddingModel || null) !== pipeline.embeddingModel;
+		const prefixStale = !chosen && passagePrefixChanged(base.passagePrefix, pipeline.passagePrefix);
 		const stale = base.dimensions !== null && (modelStale || prefixStale);
 		return {
 			id: base._id.toString(),
@@ -586,10 +636,12 @@ export async function listStores(
 
 export async function createStore(
 	caller: Caller,
-	body: { name: string; description?: string }
+	body: { name: string; description?: string; embedding_model?: string | null },
+	token?: string
 ): Promise<Awaited<ReturnType<typeof storeObject>>> {
 	const config = await readConfig();
 	if (!body.name?.trim()) throw new KnowledgeError(400, "A name is required.");
+	const choice = await resolveChosenModel(body.embedding_model, token, config);
 	// The geometry is copied onto the row, not read at ingestion time: a later
 	// change to the deployment's defaults cannot re-chunk half of an existing
 	// base (ADR 0070).
@@ -598,9 +650,10 @@ export async function createStore(
 		name: body.name.trim().slice(0, 200),
 		description: body.description?.slice(0, 2000),
 		ownerId: caller.userId,
-		embeddingModel: config.embeddingModel ?? "",
-		passagePrefix: config.passagePrefix ?? "",
-		queryPrefix: config.queryPrefix ?? "",
+		embeddingModel: choice.model,
+		...(choice.chosen ? { embeddingChosen: true } : {}),
+		passagePrefix: choice.passagePrefix,
+		queryPrefix: choice.queryPrefix,
 		dimensions: null,
 		chunkChars: config.chunkChars,
 		chunkOverlap: config.chunkOverlap,
@@ -1027,7 +1080,7 @@ export async function attachFile(
 ): Promise<ReturnType<typeof documentObject>> {
 	const base = await reachableStore(storeId, caller, "editor");
 	const config = await readConfig();
-	if (!configReady(config)) {
+	if (!base.embeddingModel && !configReady(config)) {
 		throw new KnowledgeError(
 			400,
 			"No search model is set up yet, so documents cannot be made searchable. Ask your administrator."
@@ -1127,7 +1180,7 @@ export async function addText(
 ): Promise<ReturnType<typeof documentObject>> {
 	const base = await reachableStore(storeId, caller, "editor");
 	const config = await readConfig();
-	if (!configReady(config)) {
+	if (!base.embeddingModel && !configReady(config)) {
 		throw new KnowledgeError(
 			400,
 			"No embedding model has been configured, so text cannot be indexed yet."
@@ -1411,7 +1464,7 @@ export async function retryDocument(
 	const base = await reachableStore(storeId, caller, "editor");
 	if (!/^[0-9a-f]{24}$/.test(documentId)) throw new KnowledgeError(404, "No such document.");
 	const config = await readConfig();
-	if (!configReady(config)) {
+	if (!base.embeddingModel && !configReady(config)) {
 		throw new KnowledgeError(
 			400,
 			"No search model is set up yet, so documents cannot be made searchable. Ask your administrator."
@@ -1431,6 +1484,11 @@ export async function retryDocument(
 	}
 	const current = await collections.knowledgeDocuments.findOne({ _id: document._id });
 	return documentObject(current ?? document, null);
+}
+
+/** What a reader sees for a base whose embedding model is not in their catalogue. */
+export function unavailableModelMessage(model: string): string {
+	return `This knowledge base uses ${model}, which isn't available to you.`;
 }
 
 /** What a base built with an older embedding model says when it cannot be searched. */
@@ -1535,9 +1593,18 @@ export async function search(
 		// A base built with another embedding model than the deployment's now
 		// uses may not be searchable at all (the old model can be gone, or
 		// answer at another width). Say what to do rather than the raw error.
+		if (err instanceof GatewayCallFailed) {
+			// A shared base's model the reader is not granted: say so, not the
+			// gateway's refusal. The query is never embedded with the owner's
+			// grant (no owner credential is held here), and the base is skipped.
+			const mine = await embeddingModelsFor(token);
+			if (mine && base.embeddingModel && !mine.includes(base.embeddingModel)) {
+				throw new KnowledgeError(409, unavailableModelMessage(base.embeddingModel));
+			}
+		}
 		if (err instanceof GatewayCallFailed || (err instanceof KnowledgeError && err.status === 400)) {
 			const current = (await readConfig()).embeddingModel;
-			if (current && base.embeddingModel !== current) {
+			if (!base.embeddingChosen && current && base.embeddingModel !== current) {
 				throw new KnowledgeError(409, OLD_MODEL_MESSAGE);
 			}
 		}
@@ -1580,22 +1647,40 @@ export async function reindex(
 	storeId: string,
 	caller: Caller,
 	token: string,
-	opts: { asAdmin?: boolean } = {}
+	opts: { asAdmin?: boolean; embeddingModel?: string | null } = {}
 ): Promise<{ data: ReturnType<typeof documentObject>[] }> {
 	const base = await reindexTarget(storeId, caller, opts);
 	const config = await readConfig();
-	if (!configReady(config)) {
+	// What the base moves to. An explicit model (`""` is the default) is the
+	// owner's choice and is checked against what they may use; with none given,
+	// a base the owner chose a model for keeps it, and any other follows the
+	// deployment's default, the one place that moves a base along with it.
+	let target: Awaited<ReturnType<typeof resolveChosenModel>>;
+	if (opts.embeddingModel !== undefined) {
+		target = await resolveChosenModel(opts.embeddingModel, token, config);
+	} else if (base.embeddingChosen && base.embeddingModel) {
+		target = {
+			model: base.embeddingModel,
+			chosen: true,
+			passagePrefix: base.passagePrefix ?? "",
+			queryPrefix: base.queryPrefix ?? "",
+		};
+	} else {
+		target = await resolveChosenModel("", token, config);
+	}
+	if (!target.model) {
 		throw new KnowledgeError(400, "No embedding model has been configured.");
 	}
-	// The base moves to the deployment's current model — the one place that
-	// changes it, so a base's model only ever changes as a deliberate act.
+	// `dimensions: null` lets the first new vector set the width, so a model of
+	// another width is accepted; documents are re-embedded below.
 	await collections.vectorStores.updateOne(
 		{ _id: base._id },
 		{
 			$set: {
-				embeddingModel: config.embeddingModel ?? "",
-				passagePrefix: config.passagePrefix ?? "",
-				queryPrefix: config.queryPrefix ?? "",
+				embeddingModel: target.model,
+				embeddingChosen: target.chosen,
+				passagePrefix: target.passagePrefix,
+				queryPrefix: target.queryPrefix,
 				dimensions: null,
 				updatedAt: new Date(),
 			},

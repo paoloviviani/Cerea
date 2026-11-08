@@ -43,6 +43,21 @@ function stubApi() {
 		vi.fn(async (input: RequestInfo | URL) => {
 			const url = String(input);
 			if (url.endsWith("/api/v2/mcp/connectors")) return Response.json({ data: [] });
+			if (url.endsWith("/past-chats"))
+				return Response.json({
+					data: {
+						state: "indexed",
+						indexed: 4,
+						indexing: 0,
+						failed: 0,
+						error: null,
+						canManage: true,
+						embeddingModel: "bge-m3",
+						embeddingChosen: false,
+						models: ["bge-m3", "e5-large"],
+						defaultModel: "bge-m3",
+					},
+				});
 			if (url.includes("/api/v2/gateway/vector_stores"))
 				return Response.json({
 					data: [
@@ -117,6 +132,8 @@ const ALLOWED: (string | RegExp)[] = [
 	"Staging resets on Monday",
 	"Budget questions",
 	"ana@example.org",
+	// Embedding model names are catalogue data, not messages.
+	"e5-large",
 	// A date, formatted by `Intl` in the page's language rather than spelled by a message.
 	/^[A-Z][a-z]{2} \d{1,2}, \d{4}$/,
 ];

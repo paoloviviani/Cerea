@@ -31,7 +31,16 @@ that is not text fails its own document with the same reason.
 - A file that **cannot be read** says why, in the same words to you and to the assistant: no reader is configured for that format, the reader refused the file (and what it said), the reader could not be reached, or the file holds no text. Only a PDF with no text layer is called a scan.
 - Your bases are **yours to own and to share**. Sharing a base lets somebody
   read it; only you can change it.
-- **After an administrator changes the embedding model**, your bases keep working on the old one and show that they are on an older model. **Reindex** brings a base up to date; it is billed to whoever presses it. The same holds after a change to the embedding **passage prefix** (see [Embedding prefixes](chat-admin.md#embedding-prefixes)).
+- **You choose the embedding model for each base.** A new base follows the
+  administrator's default, shown as "Default (name)". The selector lists the
+  embedding models you can use; with only one it is plain text. On an existing
+  base, picking another asks first ("Changing the embedder reindexes all N
+  documents"), then reindexes with the new model, billed to you. Only the owner
+  can change it; other members see the model's name. A base on a model you chose
+  never counts as "older" when the administrator moves the default. A base
+  shared with you may use a model you are not granted: it is skipped in search
+  with "This knowledge base uses <model>, which isn't available to you."
+- **After an administrator changes the default embedding model**, your bases keep working on the old one and show that they are on an older model. **Reindex** brings a base up to date; it is billed to whoever presses it. The same holds after a change to the embedding **passage prefix** (see [Embedding prefixes](chat-admin.md#embedding-prefixes)).
 
 Indexing is billed to the user indexing, like any other call.
 
@@ -155,6 +164,10 @@ searchable store, and that is a decision worth making rather than discovering.
   visible on the Knowledge tab and deletable there. The transcripts are
   somewhere you can look.
 - Each chat is kept once: as it grows, its copy in the memory base is replaced, never duplicated.
+- The project's settings show the index's state (indexed, indexing, failed or
+  not indexed). The project's owner can **Reindex** it, or **Retry** the chats
+  that failed; a failure says why in plain words. The owner can also pick
+  the index's embedding model there, with the same confirmation as on a base.
 
 This is a different thing from [personal memory](chat.md#memory), a short list
 of facts about you that goes into every chat, and from the project's
@@ -201,7 +214,7 @@ group (by name).
 | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Switch           | `CHAT_KNOWLEDGE_ENABLED`: on unless set to `false`; `false` hides the Knowledge tab and the project and composer affordances                                                                  |
 | Passage store    | PostgreSQL with pgvector, as `CHAT_PG_URL`. the deploy kit creates this database on the stack's Postgres. Use **pgvector 0.8.2 or later** (0.8.2 fixed CVE-2026-3172 in parallel HNSW builds) |
-| Embeddings       | an embedding model in the gateway's catalogue (`POST /v1/embeddings`), chosen on the Knowledge screen by an administrator                                                                     |
+| Embeddings       | an embedding model in the gateway's catalogue (`POST /v1/embeddings`), the default is chosen on the Knowledge screen by an administrator; each base can use another the user chooses          |
 | Document reading | the gateway's extraction endpoint (`POST /v1/ocr`). The stack's own extractor runs locally, so documents do not leave the deployment unless an operator configures an external OCR model      |
 
 **Which reader takes which file.** The document reader you choose on the
