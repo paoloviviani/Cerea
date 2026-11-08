@@ -1285,6 +1285,7 @@ docker compose up -d
 dev/build.sh --reset   # back to the published images
 dev/build.sh --pystino-ref main --cerea-ref main   # other commits
 dev/build.sh --ner     # the NER redaction image, needed by the enterprise preset (never published)
+dev/build.sh --ner --ner-models "it_core_news_md" --redaction-only   # only the NER image, with the medium Italian model; gateway and chat stay on the pinned images
 ```
 
 An image is built only when `local/<name>:sha-<commit>` is missing. The

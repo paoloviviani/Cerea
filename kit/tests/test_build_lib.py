@@ -97,5 +97,29 @@ class ProfileImagesTest(unittest.TestCase):
         self.assertEqual(p.stdout.strip(), "1")
 
 
+class BuildScriptArgsTest(unittest.TestCase):
+    """dev/build.sh --dry-run: argument parsing and the planned build, no docker, no network."""
+
+    def plan(self, *args):
+        return run("bash", str(KIT / "dev/build.sh"), "--dry-run", *args)
+
+    def test_redaction_only_builds_neither_gateway_nor_chat(self):
+        p = self.plan("--ner", "--ner-models", "it_core_news_md", "--redaction-only")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("gateway=0", p.stdout)
+        self.assertIn("cerea=0", p.stdout)
+        self.assertIn("NER models: it_core_news_md", p.stdout)
+        self.assertIn("only REDACTION_IMAGE", p.stdout)
+
+    def test_models_default_to_the_large_english_one(self):
+        p = self.plan("--ner")
+        self.assertIn("NER models: en_core_web_lg", p.stdout)
+        self.assertIn("gateway=1", p.stdout)
+
+    def test_models_without_ner_are_refused(self):
+        p = self.plan("--ner-models", "it_core_news_md")
+        self.assertNotEqual(p.returncode, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
