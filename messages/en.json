@@ -2033,6 +2033,9 @@
 	"admin.web_search.hint.unchosen": "None chosen: the gateway's billing-group search policy decides, and a group without one cannot search. Choose a backend to be sure web search works.",
 	"admin.web_search.saved": "Saved. It applies to the next search.",
 	"admin.web_search.title": "Web search",
+	"error.not_found.chat_link": "Go to the chat",
+	"error.not_found.text": "There's nothing at this address.",
+	"error.not_found.title": "Page not found",
 	"knowledge.manager.add.files": [
 		{
 			"declarations": ["input count", "local countPlural = count: plural"],

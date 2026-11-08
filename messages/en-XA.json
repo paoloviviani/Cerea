@@ -2196,6 +2196,9 @@
 	"admin.web_search.hint.unchosen": "[Ńóńé ćȟóśéń: ťȟé ǧáťéŵáý'ś ƀíľľíńǧ-ǧŕóúþ śéáŕćȟ þóľíćý ďéćíďéś, áńď á ǧŕóúþ ŵíťȟóúť óńé ćáńńóť śéáŕćȟ. Ćȟóóśé á ƀáćķéńď ťó ƀé śúŕé ŵéƀ śéáŕćȟ ŵóŕķś.]",
 	"admin.web_search.saved": "[Śáǚéď. Íť áþþľíéś ťó ťȟé ńéẋť śéáŕćȟ.]",
 	"admin.web_search.title": "[Ŵéƀ śéáŕćȟ]",
+	"error.not_found.chat_link": "[Ǧó ťó ťȟé ćȟáť]",
+	"error.not_found.text": "[Ťȟéŕé'ś ńóťȟíńǧ áť ťȟíś áďďŕéśś.]",
+	"error.not_found.title": "[Þáǧé ńóť ƒóúńď]",
 	"knowledge.manager.add.files": [
 		{
 			"declarations": [
