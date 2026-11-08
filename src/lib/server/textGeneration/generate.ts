@@ -10,6 +10,7 @@ import type { EndpointMessage } from "../endpoints/endpoints";
 import { generateFromDefaultEndpoint } from "../generateFromDefaultEndpoint";
 import { generateSummaryOfReasoning } from "./reasoning";
 import { logger } from "../logger";
+import { TurnStatsCollector, mergeCallReport, redactionFromError } from "../turnStats";
 
 type GenerateContext = Omit<TextGenerationContext, "messages"> & { messages: EndpointMessage[] };
 
@@ -51,19 +52,38 @@ export async function* generate(
 		};
 	}
 
-	const stream = await endpoint({
-		messages,
-		preprompt,
-		// Per-model user override for multimodal, winning in both directions
-		isMultimodal: forceMultimodal ?? model.multimodal,
-		conversationId: conv._id,
-		locals,
-		abortSignal: abortController.signal,
-		reasoningEffort,
-		reasoningOverride,
-	});
+	const turnStats = new TurnStatsCollector({ model: model.displayName });
+	const call = turnStats.begin();
+
+	let stream: Awaited<ReturnType<typeof endpoint>>;
+	try {
+		stream = await endpoint({
+			messages,
+			preprompt,
+			// Per-model user override for multimodal, winning in both directions
+			isMultimodal: forceMultimodal ?? model.multimodal,
+			conversationId: conv._id,
+			locals,
+			abortSignal: abortController.signal,
+			reasoningEffort,
+			reasoningOverride,
+		});
+	} catch (err) {
+		// A refused request still says what the gateway did: the dot turns red.
+		const refused = redactionFromError(err);
+		if (refused) {
+			call.report = { redaction: refused };
+			yield { type: MessageUpdateType.TurnStats, stats: turnStats.snapshot() };
+		}
+		throw err;
+	}
 
 	for await (const output of stream) {
+		if (output.callReport) {
+			call.report = mergeCallReport(call.report, output.callReport);
+			continue;
+		}
+		if (!output.token.special && output.token.text) call.token();
 		// Check if this output contains router metadata. Emit if either:
 		// 1) route+model are present (router models), or
 		// 2) provider-only is present (non-router models exposing x-inference-provider)
@@ -251,4 +271,6 @@ export async function* generate(
 		// no output check
 		if (!output) break;
 	}
+
+	yield { type: MessageUpdateType.TurnStats, stats: turnStats.snapshot() };
 }

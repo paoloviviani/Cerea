@@ -36,6 +36,22 @@ describe("POST /settings (legacy save path)", () => {
 		expect(stored?.toolApprovalPolicy).toBe("always-allow");
 	});
 
+	it("persists showRedactionValues instead of stripping it", async () => {
+		const { user, locals } = await createTestUser();
+
+		const res = await testRequest(legacySettingsPOST, {
+			path: "/settings",
+			locals,
+			method: "POST",
+			body: JSON.stringify({ activeModel: "test-model", showRedactionValues: true }),
+			headers: { "Content-Type": "application/json" },
+		});
+		expect(res.status).toBe(200);
+
+		const stored = await collections.settings.findOne({ userId: user._id });
+		expect(stored?.showRedactionValues).toBe(true);
+	});
+
 	it("rejects an unknown policy value", async () => {
 		const { locals } = await createTestUser();
 

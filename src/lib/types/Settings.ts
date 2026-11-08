@@ -107,6 +107,14 @@ export interface Settings extends Timestamps {
 	memoryEnabled?: boolean;
 
 	/**
+	 * Whether the gateway sends back the values its redaction hid, so the turn
+	 * details can list them. Off by default and stored as absent: the values
+	 * are kept with the chat, next to the original text, and only when this
+	 * was on while the answer was made. Never exported or shared.
+	 */
+	showRedactionValues?: boolean;
+
+	/**
 	 * Opt-in location for the assistant (C18). Absent means `"off"`. `"place"`
 	 * shares `locationPlace` (typed text); `"device"` shares the browser's
 	 * coordinates, which are sent with each turn and never stored here. While

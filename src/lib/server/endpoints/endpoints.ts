@@ -4,6 +4,7 @@ import { z } from "zod";
 import { endpointOAIParametersSchema, endpointOai } from "./openai/endpointOai";
 import type { BackendModel } from "$lib/server/models";
 import type { ObjectId } from "mongodb";
+import type { CallReport } from "$lib/server/turnStats";
 
 export type EndpointMessage = Omit<Message, "id">;
 
@@ -50,6 +51,8 @@ export interface TextGenerationStreamOutput {
 export type TextGenerationStreamOutputSimplified = TextGenerationStreamOutput & {
 	token: TextGenerationStreamToken;
 	routerMetadata?: { route?: string; model?: string; provider?: string };
+	/** One per call, after the text: what the gateway reported (tokens, cost, redaction). */
+	callReport?: CallReport;
 };
 // type signature for the endpoint
 export type Endpoint = (

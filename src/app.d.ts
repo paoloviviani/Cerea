@@ -19,6 +19,8 @@ declare global {
 			authTime?: Date;
 			/** Organization to bill inference requests to (from settings) */
 			billingOrganization?: string;
+			/** The user's "Show hidden values" setting, read for the turn's gateway calls. */
+			showRedactionValues?: boolean;
 			/** The browser's IANA timezone for this request (conversation route). */
 			timezone?: string;
 			/** Rounded device coordinates for this turn; used only if the setting is "device". */
