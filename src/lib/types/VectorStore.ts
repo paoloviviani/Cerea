@@ -17,6 +17,15 @@ export interface VectorStore extends Timestamps {
 	ownerId: ObjectId;
 	/** The gateway model the vectors come from, by catalogue name. */
 	embeddingModel: string;
+	/**
+	 * The passage prefix the vectors were made with, recorded with the model:
+	 * a different one makes them stale, as a different model does. Absent on
+	 * older bases, which means empty.
+	 */
+	passagePrefix?: string;
+	/** The query prefix in force when the base was indexed; used for searches
+	 * while the base is still on a model other than the current one. */
+	queryPrefix?: string;
 	/** How wide that model's vectors are; null until the first embedding. */
 	dimensions: number | null;
 	chunkChars: number;
@@ -69,6 +78,10 @@ export interface KnowledgeConfig extends Timestamps {
 	/** Off is the honest default: the pipeline needs an embedding model to be useful. */
 	enabled: boolean;
 	embeddingModel: string | null;
+	/** Prefix for a text indexed for search (e5 `passage: `); empty by default. */
+	passagePrefix?: string;
+	/** Prefix for a search input (e5 `query: `); empty by default. */
+	queryPrefix?: string;
 	/**
 	 * Which model reads documents, as the Knowledge screen chose. Only a
 	 * non-empty string is a choice: `null` (the screen's "Automatic" option)
@@ -108,6 +121,8 @@ export interface KnowledgeConfig extends Timestamps {
 export interface KnowledgeConfigChange {
 	_id?: ObjectId;
 	embeddingModel: string | null;
+	passagePrefix?: string;
+	queryPrefix?: string;
 	extractorModel: string | null;
 	chunkChars: number;
 	chunkOverlap: number;

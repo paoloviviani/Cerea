@@ -1917,9 +1917,10 @@
 	"admin.knowledge.bases.none": "No knowledge bases yet. They are created by users, not here.",
 	"admin.knowledge.bases.not_indexed": "not indexed",
 	"admin.knowledge.bases.older_model": "older model",
+	"admin.knowledge.bases.older_prefix": "older prefix",
 	"admin.knowledge.bases.reindex": "Reindex",
 	"admin.knowledge.bases.reindexing": "Reindexing…",
-	"admin.knowledge.bases.stale": "{stale} of {total} were indexed with a different embedding model. They still answer searches, from their own vectors.",
+	"admin.knowledge.bases.stale": "{stale} of {total} were indexed with a different embedding model or passage prefix. They still answer searches, from their own vectors.",
 	"admin.knowledge.bases.title": "Knowledge bases",
 	"admin.knowledge.chunk.chars": "Characters per passage",
 	"admin.knowledge.chunk.hint": "Each base snapshots these when it is created, so a change applies to new bases only. Overlap is capped at a third of the passage size.",
@@ -1927,6 +1928,12 @@
 	"admin.knowledge.description": "How documents become searchable: what reads them, what embeds them, and where the vectors live. A change here affects the next base built, never one that already exists.",
 	"admin.knowledge.embedding.hint": "Existing bases keep the model they were indexed with. Vectors from two models are not comparable, so a base only moves when it is reindexed.",
 	"admin.knowledge.embedding.label": "Embedding model",
+	"admin.knowledge.prefix.help": "Optional. Some models are trained with a prefix and are more accurate with it. Changing the passage prefix means reindexing; the query prefix does not.",
+	"admin.knowledge.prefix.passage": "Passage prefix",
+	"admin.knowledge.prefix.preset": "Use the prefixes this model expects",
+	"admin.knowledge.prefix.query": "Query prefix",
+	"admin.knowledge.prefix.too_long": "At most {max} characters.",
+	"admin.knowledge.prefix.control": "No control characters.",
 	"admin.knowledge.embedding.none": "This service has no embedding model at all. One has to be created in the gateway's own console first, then chosen here.",
 	"admin.knowledge.erased": "erased",
 	"admin.knowledge.extractor.env_hint": "Set with {#code}{name}{/code} in the environment; this service's operator decided, not this screen.",
@@ -1954,8 +1961,8 @@
 			"declarations": ["input count", "local countPlural = count: plural"],
 			"selectors": ["countPlural"],
 			"match": {
-				"countPlural=one": "Saved. {count} base now on an older embedding model — they still answer searches, from their own vectors.",
-				"countPlural=other": "Saved. {count} bases now on an older embedding model — they still answer searches, from their own vectors."
+				"countPlural=one": "Saved. {count} base now on an older embedding setup — they still answer searches, from their own vectors.",
+				"countPlural=other": "Saved. {count} bases now on an older embedding setup — they still answer searches, from their own vectors."
 			}
 		}
 	],
