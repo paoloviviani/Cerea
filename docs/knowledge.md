@@ -31,7 +31,7 @@ that is not text fails its own document with the same reason.
 - A file that **cannot be read** says why, in the same words to you and to the assistant: no reader is configured for that format, the reader refused the file (and what it said), the reader could not be reached, or the file holds no text. Only a PDF with no text layer is called a scan.
 - Your bases are **yours to own and to share**. Sharing a base lets somebody
   read it; only you can change it.
-- **After an administrator changes the embedding model**, your bases keep working on the old one and show that they are on an older model. **Reindex** brings a base up to date; it is billed to whoever presses it.
+- **After an administrator changes the embedding model**, your bases keep working on the old one and show that they are on an older model. **Reindex** brings a base up to date; it is billed to whoever presses it. The same holds after a change to the embedding **passage prefix** (see [Embedding prefixes](chat-admin.md#embedding-prefixes)).
 
 Indexing is billed to the user indexing, like any other call.
 

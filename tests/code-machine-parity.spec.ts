@@ -14,6 +14,7 @@ import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { Page } from "playwright/test";
+import { paneButton } from "./codePanes";
 import { test, expect, E2E_APP_BASE } from "./fixtures";
 import {
 	opencodeAvailable,
@@ -296,7 +297,7 @@ test.describe("owned machine agent: parity", () => {
 		await expect(page.getByTestId("approval-title")).toHaveCount(0);
 		expect(existsSync(join(m.workspace, "out.txt"))).toBe(true);
 
-		await page.getByRole("button", { name: "Changes" }).click();
+		await (await paneButton(page, "Changes", false)).click();
 		await expect(page.getByText("out.txt").first()).toBeVisible({ timeout: 20_000 });
 	});
 
@@ -475,7 +476,7 @@ test.describe("owned machine agent: parity", () => {
 		writeFileSync(join(m.workspace, "server.key"), "PRIVATE=hunter2\n");
 		symlinkSync("/etc/hostname", join(m.workspace, "escape"));
 
-		await page.getByRole("button", { name: "Files" }).click();
+		await (await paneButton(page, "Files", false)).click();
 		const tree = page.getByRole("tree", { name: "Workspace files" });
 		await expect(tree).toBeVisible({ timeout: 30_000 });
 		const row = (name: string) => tree.getByRole("button", { name: new RegExp(`^${name}`) });
@@ -550,7 +551,7 @@ test.describe("owned machine agent: parity", () => {
 		const files = page.getByTestId("code-files");
 		const editor = files.locator(".cm-content");
 
-		await page.getByRole("button", { name: "Files" }).click();
+		await (await paneButton(page, "Files", false)).click();
 		const tree = page.getByRole("tree", { name: "Workspace files" });
 		await expect(tree).toBeVisible({ timeout: 30_000 });
 		await tree.getByRole("button", { name: /^notes\.txt/ }).click();
@@ -642,7 +643,7 @@ test.describe("owned machine agent: parity", () => {
 		// title, which would otherwise show the same text in the sidebar first.
 		const transcript = page.locator('[data-message-role="assistant"]');
 		const settle = () =>
-			expect(page.getByText("done", { exact: true }).first()).toBeVisible({ timeout: 60_000 });
+			expect(page.getByRole("img", { name: "done", exact: true })).toBeVisible({ timeout: 60_000 });
 		await mockOpenAI.setDefaultScenario({ content: ["Answer", " one."], chunkDelayMs: 5 });
 		await send(page, "first question");
 		await expect(transcript.getByText("Answer one.")).toBeVisible({ timeout: 60_000 });

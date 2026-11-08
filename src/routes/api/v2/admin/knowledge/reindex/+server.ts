@@ -37,7 +37,8 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	const { callerFrom, reindex, adminStatus } = await import("$lib/server/knowledge/service");
 	const caller = await callerFrom(locals);
 	try {
-		await reindex(body.base_id, caller, locals.token);
+		// Any user's base: this screen lists them all (requireAdmin above).
+		await reindex(body.base_id, caller, locals.token, { asAdmin: true });
 	} catch (err) {
 		if (err instanceof KnowledgeError) {
 			error(err.status, err.message);

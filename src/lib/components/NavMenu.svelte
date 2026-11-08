@@ -98,7 +98,7 @@
 		"flex h-8 flex-none items-center gap-1.5 rounded-lg px-2 text-left bg-gray-100 font-semibold text-gray-900 max-sm:h-10 dark:bg-gray-700 dark:text-white";
 
 	const NEW_BUTTON =
-		"flex h-8 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2 text-sm font-medium text-gray-800 shadow-xs hover:bg-gray-50 max-sm:h-10 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700";
+		"flex h-8 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2 text-sm font-medium text-gray-800 shadow-xs hover:bg-gray-50 max-sm:h-9 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700";
 
 	const publicConfig = usePublicConfig();
 	const client = useAPIClient();
@@ -270,65 +270,67 @@
 </script>
 
 <div class="sticky top-0 flex flex-none touch-none flex-col gap-2 px-1.5 pt-3.5 pb-2 max-sm:pt-0">
-	<a
-		class="flex items-center rounded-xl pl-2.5 text-lg font-semibold select-none"
-		href="{publicConfig.PUBLIC_ORIGIN}{base}/"
-	>
-		<!-- The ridge and the name beside it: the product's name has to appear
-		     somewhere in the chrome. The mark's alt already says it, so the
-		     visible word is hidden from screen readers to avoid a double read. -->
-		<Logo variant="small" classNames="h-[27px] w-auto" />
-		<span
-			class="ml-2 text-lg font-semibold tracking-tight"
-			aria-hidden="true"
-			data-testid="sidebar-wordmark"
+	<!-- The logo and the panel switch share one row: the mark links home and
+	     carries the product's name as its accessible name. -->
+	<div class="flex items-center gap-2" data-testid="sidebar-head">
+		<a
+			class="flex flex-none items-center rounded-xl pl-2.5 select-none"
+			href="{publicConfig.PUBLIC_ORIGIN}{base}/"
+			aria-label={publicConfig.PUBLIC_APP_NAME}
+			title={publicConfig.PUBLIC_APP_NAME}
+			data-testid="sidebar-logo"
 		>
-			{publicConfig.PUBLIC_APP_NAME}
-		</span>
-	</a>
-
-	{#if codeAgentsEnabled}
-		<!-- The panel switch: chats and coding agents are two contents of the same
+			<Logo variant="small" classNames="h-[27px] w-auto" />
+		</a>
+		{#if codeAgentsEnabled}
+			<!-- The panel switch: chats and coding agents are two contents of the same
 		     list, not two destinations. It decides what the button below makes.
 		     Two boxes of padding rather than margins: +layout.svelte pins every
 		     NavMenu child to the nav's column (`--nav-width`), so horizontal insets
 		     must be padding inside that box. -->
-		<div class="flex rounded-lg bg-gray-100 p-0.5 dark:bg-gray-800">
-			<button
-				data-testid="sidebar-view-chats"
-				class="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors {effectiveView ===
-				'chats'
-					? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600/60 dark:text-white'
-					: 'text-ink-muted hover:text-ink'}"
-				onclick={() => (codeNav.view = "chats")}
+			<div
+				class="@container flex h-8 min-w-0 flex-1 rounded-lg bg-gray-100 p-0.5 max-sm:h-9 dark:bg-gray-800"
+				data-testid="sidebar-switch"
 			>
-				<CarbonChat class="size-3.5" />
-				{m["app.nav.chats"]()}
-			</button>
-			<button
-				data-testid="sidebar-view-agents"
-				class="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors {effectiveView ===
-				'agents'
-					? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600/60 dark:text-white'
-					: 'text-ink-muted hover:text-ink'}"
-				aria-label={needsYouCount > 0
-					? m["app.nav.agents_needs_you"]({ count: needsYouCount })
-					: undefined}
-				onclick={() => (codeNav.view = "agents")}
-			>
-				<CarbonCode class="size-3.5" />
-				{m["app.nav.agents"]()}
-				{#if needsYouCount > 0}
-					<span
-						data-testid="sidebar-agents-badge"
-						aria-hidden="true"
-						class="min-w-4 rounded-full bg-amber-500 px-1 text-center text-[10px] leading-4 font-semibold text-white"
-						>{needsYouCount}</span
-					>
-				{/if}
-			</button>
-		</div>
-	{/if}
+				<button
+					data-testid="sidebar-view-chats"
+					class="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors {effectiveView ===
+					'chats'
+						? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600/60 dark:text-white'
+						: 'text-ink-muted hover:text-ink'}"
+					aria-label={m["app.nav.chats"]()}
+					title={m["app.nav.chats"]()}
+					onclick={() => (codeNav.view = "chats")}
+				>
+					<CarbonChat class="size-3.5 shrink-0" />
+					<span class="hidden @[9rem]:inline">{m["app.nav.chats"]()}</span>
+				</button>
+				<button
+					data-testid="sidebar-view-agents"
+					class="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors {effectiveView ===
+					'agents'
+						? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600/60 dark:text-white'
+						: 'text-ink-muted hover:text-ink'}"
+					aria-label={needsYouCount > 0
+						? m["app.nav.agents_needs_you"]({ count: needsYouCount })
+						: undefined}
+					title={m["app.nav.agents"]()}
+					onclick={() => (codeNav.view = "agents")}
+				>
+					<CarbonCode class="size-3.5 shrink-0" />
+					<span class="hidden @[9rem]:inline">{m["app.nav.agents"]()}</span>
+					{#if needsYouCount > 0}
+						<span
+							data-testid="sidebar-agents-badge"
+							aria-hidden="true"
+							class="min-w-4 rounded-full bg-amber-500 px-1 text-center text-[10px] leading-4 font-semibold text-white"
+							>{needsYouCount}</span
+						>
+					{/if}
+				</button>
+			</div>
+		{/if}
+	</div>
 
 	<!-- Follows the switch. The same bordered, quiet button in both modes so the
 	     top of the panel does not jump when you flip it. -->

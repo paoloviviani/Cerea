@@ -86,6 +86,8 @@ export interface VectorStore {
 	file_counts: { in_progress: number; completed: number; failed: number; total: number };
 	dimensions: number | null;
 	embedding_model: string | null;
+	/** Built with another embedding model or passage prefix than the deployment's now. */
+	stale?: boolean;
 	owned: boolean;
 	role: string;
 	/** Set when this is a project's chat memory (not attachable; shown apart). */

@@ -21,6 +21,7 @@ import { isMrlModel, tooWideMessage, truncateRenormalise } from "./mrl";
 import { fromUuid } from "./db";
 import { deleteDerived } from "./deleteDerived";
 import { embed } from "./embed";
+import { passagePrefixChanged, prefixFor } from "$lib/embeddingPrefix";
 import { memoryBaseOwner, memoryBaseOwners, type MemoryBaseOwner } from "./memoryBases";
 import {
 	resolveExtractor,
@@ -28,6 +29,7 @@ import {
 	type ExtractorSource,
 } from "./extractorResolution";
 import type { KnowledgeConfig, KnowledgeDocument, VectorStore } from "$lib/types/VectorStore";
+import { indexErrorForUser } from "./indexError";
 
 export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 
@@ -44,6 +46,8 @@ export class KnowledgeError extends Error {
 const DEFAULT_CONFIG: Omit<KnowledgeConfig, "_id" | "createdAt" | "updatedAt"> = {
 	enabled: false,
 	embeddingModel: null,
+	passagePrefix: "",
+	queryPrefix: "",
 	chunkChars: 1200,
 	chunkOverlap: 150,
 };
@@ -86,6 +90,8 @@ export async function writeConfig(
 	const changed =
 		saved.enabled !== current.enabled ||
 		saved.embeddingModel !== current.embeddingModel ||
+		(saved.passagePrefix ?? "") !== (current.passagePrefix ?? "") ||
+		(saved.queryPrefix ?? "") !== (current.queryPrefix ?? "") ||
 		saved.extractorModel !== current.extractorModel ||
 		saved.chunkChars !== current.chunkChars ||
 		saved.chunkOverlap !== current.chunkOverlap;
@@ -94,6 +100,8 @@ export async function writeConfig(
 		// this as the audit trail of decisions, and a no-op save is not one.
 		await collections.knowledgeConfigHistory.insertOne({
 			embeddingModel: saved.embeddingModel ?? null,
+			passagePrefix: saved.passagePrefix ?? "",
+			queryPrefix: saved.queryPrefix ?? "",
 			extractorModel: saved.extractorModel ?? null,
 			chunkChars: saved.chunkChars,
 			chunkOverlap: saved.chunkOverlap,
@@ -253,11 +261,14 @@ export async function storeObject(
 	file_counts: { in_progress: number; completed: number; failed: number; total: number };
 	dimensions: number | null;
 	embedding_model: string | null;
+	/** Indexed with another model or passage prefix than the deployment uses now. */
+	stale: boolean;
 	owned: boolean;
 	role: string;
 	/** Set when this is a project's chat memory: not attachable, not editable here. */
 	memory_of: { project_id: string; project_name: string } | null;
 }> {
+	const deployment = await readConfig();
 	const owner = memoryOf === undefined ? await memoryBaseOwner(base._id.toString()) : memoryOf;
 	const owned = base.ownerId.equals(caller.userId);
 	const share = base.shares.find(
@@ -273,6 +284,11 @@ export async function storeObject(
 		file_counts: await fileCounts(base._id),
 		dimensions: base.dimensions ?? null,
 		embedding_model: base.embeddingModel ?? null,
+		// The admin screen's rule: a base with nothing indexed is not stale.
+		stale:
+			base.dimensions !== null &&
+			((base.embeddingModel || null) !== deployment.embeddingModel ||
+				passagePrefixChanged(base.passagePrefix, deployment.passagePrefix)),
 		owned,
 		role: owned ? "owner" : (share?.role ?? "viewer"),
 		memory_of: owner ? { project_id: owner.projectId, project_name: owner.projectName } : null,
@@ -302,7 +318,7 @@ function documentObject(
 		file_id: document.fileId?.toString() ?? null,
 		source_ref: document.sourceRef ?? null,
 		chunk_count: document.chunkCount,
-		error: document.error || null,
+		error: indexErrorForUser(document.error),
 	};
 }
 
@@ -364,6 +380,8 @@ export async function adminStatus(token: string | undefined): Promise<{
 	enabled: boolean;
 	ready: boolean;
 	embedding_model: string | null;
+	passage_prefix: string;
+	query_prefix: string;
 	extractor_model: string | null;
 	/** Why `extractor_model` is what it is: `"env"` and the picker is fixed
 	 * and read-only; `"stored"` an administrator's own choice; the other two
@@ -390,6 +408,8 @@ export async function adminStatus(token: string | undefined): Promise<{
 		chunk_count: number;
 		failed_count: number;
 		stale: boolean;
+		/** Stale because of the passage prefix alone (the model matches). */
+		prefix_stale: boolean;
 		/** The project whose chat memory this base is, if it is one. */
 		memory_of: { project_id: string; project_name: string } | null;
 		share_count: number;
@@ -399,6 +419,8 @@ export async function adminStatus(token: string | undefined): Promise<{
 	history: {
 		id: string;
 		embedding_model: string | null;
+		passage_prefix: string;
+		query_prefix: string;
 		extractor_model: string | null;
 		chunk_chars: number;
 		chunk_overlap: number;
@@ -481,8 +503,9 @@ export async function adminStatus(token: string | undefined): Promise<{
 		// A base with nothing indexed is not stale: it has no vectors to be
 		// comparable with the current model, and calling it stale would send
 		// somebody to re-embed an empty base.
-		const stale =
-			base.dimensions !== null && (base.embeddingModel || null) !== pipeline.embeddingModel;
+		const modelStale = (base.embeddingModel || null) !== pipeline.embeddingModel;
+		const prefixStale = passagePrefixChanged(base.passagePrefix, pipeline.passagePrefix);
+		const stale = base.dimensions !== null && (modelStale || prefixStale);
 		return {
 			id: base._id.toString(),
 			name: base.name,
@@ -495,6 +518,7 @@ export async function adminStatus(token: string | undefined): Promise<{
 			chunk_count: row?.chunks ?? 0,
 			failed_count: row?.failed ?? 0,
 			stale,
+			prefix_stale: stale && !modelStale,
 			memory_of: memoryOf
 				? { project_id: memoryOf.projectId, project_name: memoryOf.projectName }
 				: null,
@@ -508,6 +532,8 @@ export async function adminStatus(token: string | undefined): Promise<{
 	).map((entry) => ({
 		id: (entry._id ?? new ObjectId()).toString(),
 		embedding_model: entry.embeddingModel ?? null,
+		passage_prefix: entry.passagePrefix ?? "",
+		query_prefix: entry.queryPrefix ?? "",
 		extractor_model: entry.extractorModel ?? null,
 		chunk_chars: entry.chunkChars,
 		chunk_overlap: entry.chunkOverlap,
@@ -520,6 +546,8 @@ export async function adminStatus(token: string | undefined): Promise<{
 		enabled: true,
 		ready: configReady(pipeline) && !detail,
 		embedding_model: pipeline.embeddingModel,
+		passage_prefix: pipeline.passagePrefix ?? "",
+		query_prefix: pipeline.queryPrefix ?? "",
 		// What extraction will actually use — env, then the stored choice, then
 		// this deployment's own local extractor, then the first reader, then
 		// none (`resolveExtractor`) — so the screen never shows a reader that
@@ -571,6 +599,8 @@ export async function createStore(
 		description: body.description?.slice(0, 2000),
 		ownerId: caller.userId,
 		embeddingModel: config.embeddingModel ?? "",
+		passagePrefix: config.passagePrefix ?? "",
+		queryPrefix: config.queryPrefix ?? "",
 		dimensions: null,
 		chunkChars: config.chunkChars,
 		chunkOverlap: config.chunkOverlap,
@@ -592,7 +622,12 @@ export async function deleteStore(storeId: string, caller: Caller): Promise<void
 
 // -- ingestion ---------------------------------------------------------------
 
-async function embedChunks(token: string, base: VectorStore, texts: string[]): Promise<number[][]> {
+async function embedChunks(
+	token: string,
+	base: VectorStore,
+	texts: string[],
+	kind: "passage" | "query" = "passage"
+): Promise<number[][]> {
 	const model = base.embeddingModel;
 	if (!model) {
 		throw new KnowledgeError(400, "This base has no embedding model configured.");
@@ -600,9 +635,13 @@ async function embedChunks(token: string, base: VectorStore, texts: string[]): P
 	// Batched: one call per document, in slices the gateway will accept. A base
 	// that has indexed before knows its width — every embed for it asks for
 	// exactly that, so a query vector and the stored ones are comparable.
+	const prefix =
+		kind === "passage" ? (base.passagePrefix ?? "") : prefixFor(kind, base, await readConfig());
 	const out: number[][] = [];
 	for (let i = 0; i < texts.length; i += 32) {
-		out.push(...(await embed(token, model, texts.slice(i, i + 32), base.dimensions ?? undefined)));
+		out.push(
+			...(await embed(token, model, texts.slice(i, i + 32), base.dimensions ?? undefined, prefix))
+		);
 	}
 	// A provider that ignores `dimensions` answers at the native width. For a
 	// known MRL model the vector is cut and renormalised here, so documents and
@@ -1351,6 +1390,52 @@ export async function deleteDocument(
 	await deleteDerived({ documentIds: document._id });
 }
 
+/**
+ * Index one failed document again. Same permission as uploading (editor or
+ * owner), scoped to the base so a document id from another base is a 404. The
+ * row is claimed (`failed` -> `pending`) before the work starts, so two quick
+ * clicks pay once; the ingest then runs behind the response and the status is
+ * the progress record.
+ *
+ * It does not move the base to the current model or prefixes: that is
+ * reindex's deliberate act, and the document is embedded with what the base
+ * was indexed with (model and passage prefix), so it matches the base's
+ * other vectors. A stale base is brought forward by Reindex.
+ */
+export async function retryDocument(
+	storeId: string,
+	documentId: string,
+	caller: Caller,
+	token: string
+): Promise<ReturnType<typeof documentObject>> {
+	const base = await reachableStore(storeId, caller, "editor");
+	if (!/^[0-9a-f]{24}$/.test(documentId)) throw new KnowledgeError(404, "No such document.");
+	const config = await readConfig();
+	if (!configReady(config)) {
+		throw new KnowledgeError(
+			400,
+			"No search model is set up yet, so documents cannot be made searchable. Ask your administrator."
+		);
+	}
+	const document = await collections.knowledgeDocuments.findOne({
+		_id: new ObjectId(documentId),
+		storeId: base._id,
+	});
+	if (!document) throw new KnowledgeError(404, "No such document.");
+	if (document.status === "failed") {
+		const claimed = await collections.knowledgeDocuments.updateOne(
+			{ _id: document._id, status: "failed" },
+			{ $set: { status: "pending", error: "", updatedAt: new Date() } }
+		);
+		if (claimed.modifiedCount === 1) startIngest(document._id, token);
+	}
+	const current = await collections.knowledgeDocuments.findOne({ _id: document._id });
+	return documentObject(current ?? document, null);
+}
+
+/** What a base built with an older embedding model says when it cannot be searched. */
+export const OLD_MODEL_MESSAGE = "Built with an older embedding model. Reindex to search it.";
+
 export async function search(
 	storeId: string,
 	caller: Caller,
@@ -1379,7 +1464,7 @@ export async function search(
 	// credential, and a search charged to whoever asks is visible in the
 	// ledger and cannot be a hidden cost on a shared base's owner.
 	try {
-		const [vector] = await embedChunks(token, base, [body.query]);
+		const [vector] = await embedChunks(token, base, [body.query], "query");
 		const dims = base.dimensions;
 		// A provider that ignores `dimensions`, for a model that is not a known
 		// MRL one, answers at its native width, which is not the base's
@@ -1447,6 +1532,15 @@ export async function search(
 				}),
 		};
 	} catch (err) {
+		// A base built with another embedding model than the deployment's now
+		// uses may not be searchable at all (the old model can be gone, or
+		// answer at another width). Say what to do rather than the raw error.
+		if (err instanceof GatewayCallFailed || (err instanceof KnowledgeError && err.status === 400)) {
+			const current = (await readConfig()).embeddingModel;
+			if (current && base.embeddingModel !== current) {
+				throw new KnowledgeError(409, OLD_MODEL_MESSAGE);
+			}
+		}
 		if (err instanceof GatewayCallFailed) {
 			throw new KnowledgeError(502, `Search is unavailable: ${err.message}`);
 		}
@@ -1454,15 +1548,41 @@ export async function search(
 	}
 }
 
+/**
+ * The base a reindex acts on. A user may reindex only a base they own (the
+ * share rules decide whether they even see it). An administrator, from
+ * Admin → Knowledge, may reindex any base: that screen lists every user's
+ * bases and moves them to the deployment's model, and the embeddings carry the
+ * administrator's own token, so the ledger shows who paid. The caller's admin
+ * right is checked by the route (`requireAdmin`), not here.
+ */
+export async function reindexTarget(
+	storeId: string,
+	caller: Caller,
+	opts: { asAdmin?: boolean } = {}
+): Promise<VectorStore> {
+	if (!opts.asAdmin) {
+		const base = await reachableStore(storeId, caller, "editor");
+		if (!base.ownerId.equals(caller.userId)) {
+			throw new KnowledgeError(403, "Only the owner can reindex a vector store.");
+		}
+		return base;
+	}
+	if (!/^[0-9a-f]{24}$/.test(storeId)) {
+		throw new KnowledgeError(404, `No such vector store: ${storeId}`);
+	}
+	const base = await collections.vectorStores.findOne({ _id: new ObjectId(storeId) });
+	if (!base) throw new KnowledgeError(404, `No such vector store: ${storeId}`);
+	return base;
+}
+
 export async function reindex(
 	storeId: string,
 	caller: Caller,
-	token: string
+	token: string,
+	opts: { asAdmin?: boolean } = {}
 ): Promise<{ data: ReturnType<typeof documentObject>[] }> {
-	const base = await reachableStore(storeId, caller, "editor");
-	if (!base.ownerId.equals(caller.userId)) {
-		throw new KnowledgeError(403, "Only the owner can reindex a vector store.");
-	}
+	const base = await reindexTarget(storeId, caller, opts);
 	const config = await readConfig();
 	if (!configReady(config)) {
 		throw new KnowledgeError(400, "No embedding model has been configured.");
@@ -1474,6 +1594,8 @@ export async function reindex(
 		{
 			$set: {
 				embeddingModel: config.embeddingModel ?? "",
+				passagePrefix: config.passagePrefix ?? "",
+				queryPrefix: config.queryPrefix ?? "",
 				dimensions: null,
 				updatedAt: new Date(),
 			},
