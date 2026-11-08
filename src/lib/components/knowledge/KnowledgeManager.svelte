@@ -356,13 +356,9 @@
 	}
 
 	const canEdit = $derived(current !== null && (current.owned || current.role === "editor"));
-	// Built with another embedding model than the deployment uses now. Nothing
-	// to compare while the deployment's own model is unknown.
-	const olderModel = $derived(
-		current !== null &&
-			Boolean(status?.embedding_model) &&
-			current.embedding_model !== status?.embedding_model
-	);
+	// Built with another embedding model or passage prefix than the deployment
+	// uses now: the server applies the admin screen's rule.
+	const olderModel = $derived(current?.stale === true);
 	const anyFailed = $derived(
 		documents.some((document) => document.status === "failed") ||
 			(current?.file_counts.failed ?? 0) > 0

@@ -14,6 +14,8 @@ interface Setup {
 	baseModel?: string;
 	deploymentModel?: string;
 	statuses?: string[];
+	/** Overrides the model comparison, e.g. a changed passage prefix on the same model. */
+	stale?: boolean;
 }
 
 function stub({
@@ -22,6 +24,7 @@ function stub({
 	baseModel = "embed-1",
 	deploymentModel = "embed-1",
 	statuses = ["ready"],
+	stale = baseModel !== deploymentModel,
 }: Setup = {}) {
 	const calls: { url: string; method: string }[] = [];
 	const store = {
@@ -31,6 +34,7 @@ function stub({
 		owned,
 		role,
 		embedding_model: baseModel,
+		stale,
 		file_counts: {
 			total: statuses.length,
 			completed: statuses.filter((s) => s === "ready").length,
@@ -104,6 +108,12 @@ describe("Reindex", () => {
 		expect(document.body.textContent).toContain(
 			"Built with an older embedding model. Reindex to search it."
 		);
+	});
+
+	it("is a button, with the notice, when only the passage prefix moved", async () => {
+		await open({ stale: true });
+		expect(byText("Reindex")).toBeDefined();
+		expect(document.body.textContent).toContain("Built with an older embedding model.");
 	});
 
 	it("is a button when a document failed", async () => {
