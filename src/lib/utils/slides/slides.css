@@ -201,9 +201,12 @@ body {
 	font:
 		14px/1.5 system-ui,
 		sans-serif;
-	background: var(--cerea-surface);
-	color: var(--r-main-color);
-	border-top: 2px solid var(--cerea-accent);
+	/* The drawer is the presenter's, not part of the deck: its own opaque
+	   palette, so it reads the same over any deck (a model's dark design sets
+	   its own colours and leaves --r-main-color at reveal's dark default). */
+	background: rgba(17, 20, 28, 0.96);
+	color: #e8ebf2;
+	border-top: 2px solid var(--cerea-accent, #7c5cff);
 	white-space: pre-wrap;
 }
 .cerea-notes[hidden] {
