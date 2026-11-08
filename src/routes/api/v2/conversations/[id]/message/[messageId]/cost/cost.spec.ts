@@ -4,6 +4,16 @@ import superjson from "superjson";
 
 const { turnGatewayCost } = vi.hoisted(() => ({ turnGatewayCost: vi.fn() }));
 vi.mock("$lib/server/turnCost", () => ({ turnGatewayCost }));
+const cfg = vi.hoisted(() => ({ USE_USER_TOKEN: "true", OPENAI_API_KEY: "" }));
+vi.mock("$lib/server/config", async (orig) => {
+	const real = await orig<typeof import("$lib/server/config")>();
+	return {
+		...real,
+		config: new Proxy(real.config, {
+			get: (t, k) => (k in cfg ? cfg[k as keyof typeof cfg] : Reflect.get(t, k)),
+		}),
+	};
+});
 
 import { collections, ready } from "$lib/server/database";
 import {
@@ -20,7 +30,11 @@ const USER_MSG = "11111111-1111-4111-8111-111111111111";
 beforeAll(async () => {
 	await ready;
 }, 30000);
-beforeEach(() => turnGatewayCost.mockReset());
+beforeEach(() => {
+	turnGatewayCost.mockReset();
+	cfg.USE_USER_TOKEN = "true";
+	cfg.OPENAI_API_KEY = "";
+});
 afterEach(cleanupTestData);
 
 async function setup(stats?: Record<string, unknown>) {
@@ -76,6 +90,15 @@ describe("GET .../message/:messageId/cost", () => {
 			cost: "0.0042",
 			costCurrency: "EUR",
 		});
+	});
+
+	it("uses the deployment's key when personal tokens are off", async () => {
+		const { owner, chat } = await setup();
+		cfg.USE_USER_TOKEN = "false";
+		cfg.OPENAI_API_KEY = "sk-shared";
+		turnGatewayCost.mockResolvedValue({ status: "pending" });
+		await ask(chat, { ...owner.locals, token: undefined });
+		expect(turnGatewayCost).toHaveBeenCalledWith("sk-shared", ASSISTANT);
 	});
 
 	it("stores the cost on a message that had no stats at all", async () => {

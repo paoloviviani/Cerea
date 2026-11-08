@@ -11,6 +11,7 @@ import { requireAuth } from "$lib/server/api/utils/requireAuth";
 import { resolveConversation } from "$lib/server/api/utils/resolveConversation";
 import { collections } from "$lib/server/database";
 import { authCondition } from "$lib/server/auth";
+import { config } from "$lib/server/config";
 import { turnGatewayCost } from "$lib/server/turnCost";
 
 export const GET: RequestHandler = async ({ locals, params }) => {
@@ -29,9 +30,13 @@ export const GET: RequestHandler = async ({ locals, params }) => {
 			currency: message.stats.costCurrency ?? null,
 		});
 	}
-	if (!locals.token) return superjsonResponse({ available: false });
+	// The credential the turn's own requests used: the user's token, or the
+	// deployment's key when it does not use personal tokens (the tag is unique
+	// to the turn either way).
+	const token = config.USE_USER_TOKEN === "true" ? locals.token : config.OPENAI_API_KEY;
+	if (!token) return superjsonResponse({ available: false });
 
-	const result = await turnGatewayCost(locals.token, messageId);
+	const result = await turnGatewayCost(token, messageId);
 	if (result.status === "unavailable") return superjsonResponse({ available: false });
 	if (result.status === "pending") return superjsonResponse({ available: true, cost: null });
 
