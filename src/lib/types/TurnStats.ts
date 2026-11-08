@@ -52,8 +52,14 @@ export type TurnStats = {
 	firstTokenMs?: number;
 	/** Output tokens per second, from the first token to the end. */
 	tokensPerSecond?: number;
-	/** As the gateway wrote it ("0.0042 USD"), never parsed. */
+	/**
+	 * What the turn cost. Either as the gateway wrote it in the stream
+	 * ("0.0042 USD", never parsed), or a plain decimal ("0.0042") read later
+	 * from the gateway's usage by tag, with its currency in `costCurrency`.
+	 */
 	cost?: string;
+	/** The ISO currency of `cost` when it is a plain decimal. */
+	costCurrency?: string;
 	/** Epoch milliseconds when the turn started. */
 	at?: number;
 	/** Present only when the gateway ran redaction for this turn. */

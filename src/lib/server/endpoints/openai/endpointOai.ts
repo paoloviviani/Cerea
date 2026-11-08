@@ -13,6 +13,7 @@ import { buildPrompt } from "$lib/buildPrompt";
 import { config } from "$lib/server/config";
 import { billToHeader } from "$lib/server/billTo";
 import { redactionRequestHeaders } from "$lib/server/turnStats";
+import { turnTagHeader } from "$lib/server/turnCost";
 import type { Endpoint } from "../endpoints";
 import type OpenAI from "openai";
 import { createImageProcessorOptionsValidator, makeImageProcessor } from "../images";
@@ -128,6 +129,7 @@ export async function endpointOai(
 			preprompt,
 			generateSettings,
 			conversationId,
+			messageId,
 			locals,
 			abortSignal,
 		}) => {
@@ -162,6 +164,7 @@ export async function endpointOai(
 						: {}),
 					// Which group pays, when the person chose one (ADR 0061).
 					...billToHeader(locals?.billingOrganization),
+					...turnTagHeader(messageId),
 				},
 				signal: req.signal,
 			});
@@ -176,6 +179,7 @@ export async function endpointOai(
 			preprompt,
 			generateSettings,
 			conversationId,
+			messageId,
 			isMultimodal,
 			locals,
 			abortSignal,
@@ -264,6 +268,7 @@ export async function endpointOai(
 							// Which group pays, when the person chose one (ADR 0061).
 							...billToHeader(locals?.billingOrganization),
 							...redactionRequestHeaders(locals),
+							...turnTagHeader(messageId),
 						},
 						signal: req.signal,
 					}
@@ -285,6 +290,7 @@ export async function endpointOai(
 							// Which group pays, when the person chose one (ADR 0061).
 							...billToHeader(locals?.billingOrganization),
 							...redactionRequestHeaders(locals),
+							...turnTagHeader(messageId),
 						},
 						signal: abortSignal,
 					}

@@ -15,6 +15,8 @@ export interface EndpointParameters {
 	generateSettings?: Partial<BackendModel["parameters"]>;
 	isMultimodal?: boolean;
 	conversationId?: ObjectId;
+	/** The assistant message this call answers: its calls are tagged `turn:<id>` for the turn's cost. */
+	messageId?: string;
 	locals: App.Locals | undefined;
 	abortSignal?: AbortSignal;
 	/** Optional thinking-effort, forwarded as OpenAI `reasoning_effort` when set */

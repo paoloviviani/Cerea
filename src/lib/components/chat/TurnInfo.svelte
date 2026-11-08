@@ -4,7 +4,9 @@
 	redaction hid. A popover on desktop, a sheet on a phone. The dot is grey,
 	yellow when values were hidden, red when the request was refused; the state
 	is always named in words too (aria-label, title, and a word in the overlay).
-	Everything comes from `message.stats`; a gap shows as "—".
+	Everything comes from `message.stats`; a gap shows as "—". The cost is the
+	one exception: when the message has none, it is read from the gateway the
+	first time the overlay opens ("…" meanwhile).
 -->
 <script lang="ts">
 	import { m } from "$lib/paraglide/messages";
@@ -13,6 +15,7 @@
 	import CarbonInformationFilled from "~icons/carbon/information-filled";
 	import CarbonClose from "~icons/carbon/close";
 	import { page } from "$app/state";
+	import { useAPIClient, handleResponse } from "$lib/APIClient";
 	import type { Message } from "$lib/types/Message";
 	import type { RedactionEntity } from "$lib/types/TurnStats";
 	import { REDACTIONS_CONSOLE_PATH } from "$lib/utils/redactionConsole";
@@ -23,6 +26,7 @@
 		formatCount,
 		formatDuration,
 		formatSpeed,
+		formatTurnCost,
 		modeLabel,
 		redactionSummary,
 		sourceLabel,
@@ -31,13 +35,51 @@
 
 	interface Props {
 		message: Pick<Message, "stats" | "createdAt" | "id">;
+		/** The conversation the answer belongs to; the open chat's, when not given. */
+		conversationId?: string;
 	}
-	let { message }: Props = $props();
+	let { message, conversationId: conversationIdProp }: Props = $props();
 
 	let open = $state(false);
 	let root: HTMLDivElement | undefined = $state();
 
+	const apiClient = useAPIClient();
+	// The cost is settled by the gateway after the answer, so it is read the
+	// first time the overlay opens (and stored by the server on the message).
+	let fetched = $state<{ cost: string; currency: string | null } | null>(null);
+	let costLoading = $state(false);
+	// Asked at most once per message here, whatever the answer: no gateway, no
+	// accounting, or nothing settled all read "—".
+	let costAsked = false;
+	async function loadCost(conversationId: string) {
+		costAsked = true;
+		costLoading = true;
+		try {
+			const res = (await apiClient
+				.conversations({ id: conversationId })
+				.message({ messageId: message.id })
+				.cost.get()
+				.then(handleResponse)) as {
+				available?: boolean;
+				cost?: string | null;
+				currency?: string | null;
+			};
+			if (res?.available && res.cost) fetched = { cost: res.cost, currency: res.currency ?? null };
+		} catch {
+			// a failed read is a gap, not an error to show
+		} finally {
+			costLoading = false;
+		}
+	}
+
 	const stats = $derived(message.stats);
+	const costText = $derived(
+		stats?.cost
+			? formatTurnCost(stats.cost, stats.costCurrency)
+			: costLoading
+				? "…"
+				: formatTurnCost(fetched?.cost, fetched?.currency)
+	);
 	const dot = $derived(dotState(stats));
 	const redaction = $derived(stats?.redaction);
 	const hasConsole = $derived((page.data as { consoleEnabled?: boolean }).consoleEnabled === true);
@@ -73,6 +115,8 @@
 				: `--ti-top:auto;--ti-bottom:${window.innerHeight - rect.top + 8}px;--ti-left:${left}px`;
 		}
 		open = !open;
+		const conversationId = conversationIdProp ?? page.params.id;
+		if (open && !costAsked && !stats?.cost && conversationId) void loadCost(conversationId);
 	}
 	let button: HTMLButtonElement | undefined = $state();
 	const blank = (v: string | undefined) => (v && v !== "" ? v : "—");
@@ -180,7 +224,7 @@
 					<dt class="text-ink-muted">{m["chat.turn_details.speed"]()}</dt>
 					<dd class="text-right">{formatSpeed(stats?.tokensPerSecond)}</dd>
 					<dt class="text-ink-muted">{m["chat.turn_details.cost"]()}</dt>
-					<dd class="text-right">{blank(stats?.cost)}</dd>
+					<dd class="text-right" data-testid="turn-info-cost">{costText}</dd>
 					<dt class="text-ink-muted">{m["chat.turn_details.time"]()}</dt>
 					<dd class="text-right">{when}</dd>
 				</dl>

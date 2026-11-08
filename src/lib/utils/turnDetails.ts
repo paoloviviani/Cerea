@@ -3,6 +3,7 @@
  * component so they can be tested without rendering it.
  */
 import { m } from "$lib/paraglide/messages";
+import { formatCost } from "$lib/utils/gatewayUsage";
 import type { RedactionEntity, TurnRedaction, TurnStats } from "$lib/types/TurnStats";
 
 export type DotState = "neutral" | "applied" | "blocked";
@@ -154,4 +155,18 @@ export function formatSpeed(tokensPerSecond: number | null | undefined): string 
 
 export function formatCount(n: number | null | undefined): string {
 	return n == null ? "—" : new Intl.NumberFormat().format(n);
+}
+
+/**
+ * The turn's cost for the overlay. A plain decimal (read later from the
+ * gateway's usage) is formatted in the deployment's currency, as the quota
+ * summary does; a cost the gateway wrote itself ("0.0042 USD") is shown as it
+ * came. Nothing known shows "—".
+ */
+export function formatTurnCost(
+	cost: string | null | undefined,
+	currency: string | null | undefined
+): string {
+	if (!cost) return "—";
+	return /^\d+(\.\d+)?$/.test(cost) ? formatCost(cost, currency ?? null) : cost;
 }

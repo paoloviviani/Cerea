@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import superjson from "superjson";
 import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
 import ChatMessage from "./ChatMessage.svelte";
 import TurnInfo from "./TurnInfo.svelte";
@@ -183,5 +184,69 @@ describe("under an answer", () => {
 	it("sits in ChatMessage's action row for an assistant answer", async () => {
 		const screen = renderWithApp(ChatMessage, { message: msg(STATS) });
 		await expect.element(screen.getByTestId("turn-info-dot")).toBeInTheDocument();
+	});
+});
+
+describe("the cost, read lazily", () => {
+	const CONV = "0123456789abcdef01234567";
+	const { cost: _cost, ...NO_COST } = STATS;
+	void _cost;
+	const answer = (body: unknown) => new Response(superjson.stringify(body), { status: 200 });
+	afterEach(() => vi.unstubAllGlobals());
+
+	it("shows … while it is read, then the cost in the deployment's currency", async () => {
+		let release!: (r: Response) => void;
+		const fetchMock = vi.fn(
+			(_url: RequestInfo | URL) => new Promise<Response>((r) => (release = r))
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		const screen = renderWithApp(TurnInfo, {
+			message: msg(NO_COST),
+			conversationId: CONV,
+		});
+		await screen.getByTestId("turn-info-dot").click();
+		await expect.element(screen.getByTestId("turn-info-cost")).toHaveTextContent("…");
+		expect(String(fetchMock.mock.calls[0][0])).toContain(
+			`/conversations/${CONV}/message/${msg(NO_COST).id}/cost`
+		);
+		release(answer({ available: true, cost: "0.0042", currency: "EUR" }));
+		await expect.element(screen.getByTestId("turn-info-cost")).toHaveTextContent("€0.0042");
+	});
+
+	it("shows — when there is no gateway, or nothing settled", async () => {
+		for (const body of [{ available: false }, { available: true, cost: null }]) {
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(async () => answer(body))
+			);
+			const screen = renderWithApp(TurnInfo, { message: msg(NO_COST), conversationId: CONV });
+			await screen.getByTestId("turn-info-dot").click();
+			await expect.poll(() => screen.getByTestId("turn-info-cost").element().textContent).toBe("—");
+			await screen.unmount();
+		}
+	});
+
+	it("asks once per message, however often the overlay is opened", async () => {
+		const fetchMock = vi.fn(async () => answer({ available: false }));
+		vi.stubGlobal("fetch", fetchMock);
+		const screen = renderWithApp(TurnInfo, { message: msg(NO_COST), conversationId: CONV });
+		for (let i = 0; i < 3; i++) {
+			await screen.getByTestId("turn-info-dot").click();
+			await expect.element(screen.getByTestId("turn-info-panel")).toBeInTheDocument();
+			document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+		}
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not ask when the message already has a cost", async () => {
+		const fetchMock = vi.fn(async () => answer({ available: false }));
+		vi.stubGlobal("fetch", fetchMock);
+		const screen = renderWithApp(TurnInfo, {
+			message: msg({ ...STATS, cost: "0.0042", costCurrency: "USD" }),
+			conversationId: CONV,
+		});
+		await screen.getByTestId("turn-info-dot").click();
+		await expect.element(screen.getByTestId("turn-info-cost")).toHaveTextContent("$0.0042");
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 });

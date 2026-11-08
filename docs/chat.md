@@ -526,10 +526,24 @@ Under each answer, next to the copy and retry icons, a small **i** opens the
 **turn details**: a popover on a computer, a sheet on a phone. It shows the
 model's name, the input, output and reasoning tokens, the time to the first
 token, the speed (output tokens per second, from the first token to the end),
-the cost where the gateway reports one, and the time of the turn. Anything not
-known shows "—". The numbers are measured where Cerea reads the answer and are
-kept with it, so they are there after a reload. In a turn with tools, the
-tokens and the cost add up over the model's calls.
+the cost, and the time of the turn. Anything not known shows "—". The numbers
+are measured where Cerea reads the answer and are kept with it, so they are
+there after a reload. In a turn with tools, the tokens add up over the model's
+calls.
+
+The **cost** is not known while the answer streams: the gateway settles it a
+moment afterwards. So Cerea reads it the first time you open the details of an
+answer, showing "…" meanwhile, in the deployment's currency, and keeps it with
+the answer, so it is asked for once. Every request of the turn is labelled
+`turn:<answer id>` for the gateway (`x-pystino-tag`), and the cost is the
+gateway's total for that label, the figure that counts toward your quota. It
+adds up the model's calls of the answer, every round of a tool turn included,
+and images the model generated during it. It does not include the conversation's
+title (made beside the answer), a coding agent's work, or anything not metered
+by the gateway (your own provider keys). If nothing has settled yet, Cerea
+asks once more after about two seconds; if there is still nothing, or the
+deployment has no gateway or its accounting is off, the cost shows "—" and
+it is asked for again the next time the page is loaded.
 
 The **i** is grey. When the gateway's redaction
 hid values from the model it turns **yellow** and the overlay says "Values

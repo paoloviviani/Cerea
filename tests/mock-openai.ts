@@ -125,6 +125,12 @@ export interface ScenarioScript {
 	/** `pystino_cost`, sent next to the usage. */
 	cost?: string;
 	/**
+	 * What the gateway settles for this request under its `x-pystino-tag`, read
+	 * back through `GET /v1/pystino/usage/tags` (a decimal, "0.0042"). Left out,
+	 * the tag has no usage, as with a gateway that meters nothing.
+	 */
+	tagCost?: string;
+	/**
 	 * The `pystino_redaction` object. Sent only when the request carries
 	 * `x-pystino-redaction-summary: 1`; its `values` only when it also carries
 	 * `x-pystino-redaction-values: 1`, as the gateway does.
@@ -307,6 +313,8 @@ export async function startMockOpenAI(port: number = MOCK_OPENAI_PORT): Promise<
 	/** conversation id (or "default") -> scenario */
 	const overrides = new Map<string, ScenarioScript>();
 	const recorded: RecordedRequest[] = [];
+	/** `x-pystino-tag` -> what the gateway has settled under it (`ScenarioScript.tagCost`). */
+	const tagUsage = new Map<string, { requests: number; cost: number }>();
 	/** The image model in the catalogue, and how it answers: drawn, or refused by the provider. */
 	const image = { enabled: false, mode: "ok" as "ok" | "refuse" };
 	/**
@@ -383,6 +391,7 @@ export async function startMockOpenAI(port: number = MOCK_OPENAI_PORT): Promise<
 			image.mode = "ok";
 			overrides.clear();
 			recorded.length = 0;
+			tagUsage.clear();
 			json(res, 200, { ok: true });
 			return;
 		}
@@ -457,6 +466,30 @@ export async function startMockOpenAI(port: number = MOCK_OPENAI_PORT): Promise<
 				return;
 			}
 			json(res, 200, MODELS_FIXTURE);
+			return;
+		}
+
+		// ── Usage by tag — Pystino's `GET /v1/pystino/usage/tags?tag=…` (the turn's cost).
+		if (url.pathname === "/v1/pystino/usage/tags" && req.method === "GET") {
+			const tags = url.searchParams.getAll("tag").flatMap((tag) => {
+				const used = tagUsage.get(tag);
+				return used
+					? [
+							{
+								tag,
+								requests: used.requests,
+								prompt_tokens: 0,
+								completion_tokens: 0,
+								cached_prompt_tokens: 0,
+								cost: used.cost.toFixed(4),
+								currency: "EUR",
+								first_at: new Date().toISOString(),
+								last_at: new Date().toISOString(),
+							},
+						]
+					: [];
+			});
+			json(res, 200, { tags });
 			return;
 		}
 
@@ -614,6 +647,14 @@ export async function startMockOpenAI(port: number = MOCK_OPENAI_PORT): Promise<
 				headers: pystinoHeaders(req),
 				at: Date.now(),
 			});
+			const tag = pystinoHeaders(req)["x-pystino-tag"];
+			if (tag && script.tagCost) {
+				const have = tagUsage.get(tag) ?? { requests: 0, cost: 0 };
+				tagUsage.set(tag, {
+					requests: have.requests + 1,
+					cost: have.cost + Number(script.tagCost),
+				});
+			}
 
 			if (script.errorStatus) {
 				json(res, script.errorStatus, {

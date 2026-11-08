@@ -8,6 +8,7 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 ## Unreleased
 
 - **Turn details under each answer.** A small **i** next to the copy and retry icons opens the model's name, the tokens, the time to the first token, the speed, the cost and the time of the turn. It turns yellow when the gateway's redaction hid values from the model and red when it refused the request, and then lists what was hidden, with a link to the console's redactions page. A new setting, **Show hidden values in the turn details** (Settings, Application, off by default), also lists the values themselves; they are kept with the chat and never exported. Needs a gateway that reports redaction (Pystino); without one, only the numbers show. Cost shows only where the gateway reports it, else "—". Coding agent sessions are not covered.
+- **The cost in the turn details.** The **i** under an answer now shows what the turn cost, in your deployment's currency, read from the gateway the first time you open it ("…" while it loads) and kept with the answer. Every request of the turn is labelled `turn:<answer id>` (`x-pystino-tag`), so the total adds up the model's calls, the rounds of a tool turn and images the model generated; the conversation's title is not included. Shows "—" when the deployment has no gateway, its accounting is off, or nothing has settled yet. Needs no gateway change (Pystino's usage by tag).
 
 ## v0.46.0 — 2026-11-08
 

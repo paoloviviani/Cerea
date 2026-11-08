@@ -107,7 +107,18 @@ export function useAPIClient({
 			(params: { id: string }) => ({
 				...endpoint(fetcher, `${baseUrl}/conversations/${params.id}`),
 				message: (msgParams: { messageId: string }) =>
-					endpoint(fetcher, `${baseUrl}/conversations/${params.id}/message/${msgParams.messageId}`),
+					Object.assign(
+						endpoint(
+							fetcher,
+							`${baseUrl}/conversations/${params.id}/message/${msgParams.messageId}`
+						),
+						{
+							cost: endpoint(
+								fetcher,
+								`${baseUrl}/conversations/${params.id}/message/${msgParams.messageId}/cost`
+							),
+						}
+					),
 			}),
 			// client.conversations.get(), .delete()
 			{
