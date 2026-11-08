@@ -261,11 +261,14 @@ describe("the collapsed card's thumbnail strip", () => {
 		const rect = () => strip(view)?.getBoundingClientRect().toJSON();
 		const before = rect();
 		const img = thumbs(view)[0];
-		await new Promise<void>((resolve) => {
-			if (img.complete) resolve();
+		// The thumbnail is lazy: a browser that has not scrolled it into view may never fetch it, and
+		// then neither load nor error fires. Ask for it now so the wait below always ends.
+		const settled = new Promise<void>((resolve) => {
 			img.addEventListener("load", () => resolve());
 			img.addEventListener("error", () => resolve());
 		});
+		img.loading = "eager";
+		if (!img.complete) await settled;
 		expect(rect()).toEqual(before);
 		expect(before?.height).toBe(48);
 	});
