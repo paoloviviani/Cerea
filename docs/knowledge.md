@@ -40,6 +40,11 @@ that is not text fails its own document with the same reason.
   never counts as "older" when the administrator moves the default. A base
   shared with you may use a model you are not granted: it is skipped in search
   with "This knowledge base uses <model>, which isn't available to you."
+- **A reindex runs in the background.** The base shows its documents as
+  indexing, and a second Reindex is refused until the first finishes. The old
+  passages are removed when it starts, so the base searches as empty until the
+  first documents are re-embedded; a document that fails on the new model stays
+  out of search rather than being answered from the old vectors.
 - **After an administrator changes the default embedding model**, your bases keep working on the old one and show that they are on an older model. **Reindex** brings a base up to date; it is billed to whoever presses it. The same holds after a change to the embedding **passage prefix** (see [Embedding prefixes](chat-admin.md#embedding-prefixes)).
 
 Indexing is billed to the user indexing, like any other call.
@@ -167,7 +172,10 @@ searchable store, and that is a decision worth making rather than discovering.
 - The project's settings show the index's state (indexed, indexing, failed or
   not indexed). The project's owner can **Reindex** it, or **Retry** the chats
   that failed; a failure says why in plain words. The owner can also pick
-  the index's embedding model there, with the same confirmation as on a base.
+  the index's embedding model there, with the same confirmation as on a base. In a shared project, a
+  member who is not granted the model you chose does not add their chats to
+  the index, and cannot search it. The chat is skipped, and the index does not
+  show as failed.
 
 This is a different thing from [personal memory](chat.md#memory), a short list
 of facts about you that goes into every chat, and from the project's

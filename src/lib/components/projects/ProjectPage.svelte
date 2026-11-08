@@ -880,7 +880,10 @@
 								</div>
 								{#if !creating && project}
 									{#key project.id}
-										<ProjectPastChatsIndex projectId={project.id} />
+										<ProjectPastChatsIndex
+											projectId={project.id}
+											shared={project.shares.length > 0}
+										/>
 									{/key}
 								{/if}
 							</div>

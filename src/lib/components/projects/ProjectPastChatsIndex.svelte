@@ -16,9 +16,11 @@
 
 	interface Props {
 		projectId: string;
+		/** The project has been shared: members may lack the index's model. */
+		shared?: boolean;
 	}
 
-	let { projectId }: Props = $props();
+	let { projectId, shared = false }: Props = $props();
 
 	let index = $state<(PastChatsIndex & { canManage: boolean }) | null>(null);
 	let working = $state(false);
@@ -60,6 +62,15 @@
 			working = false;
 		}
 	}
+
+	// A reindex runs behind the request: follow it until nothing is indexing.
+	$effect(() => {
+		if (index?.state !== "indexing" || working) return;
+		const timer = setInterval(() => {
+			void call("", "GET").catch(() => undefined);
+		}, 3000);
+		return () => clearInterval(timer);
+	});
 
 	const label = $derived.by(() => {
 		if (working) return m["projects.past_index.indexing"]();
@@ -122,6 +133,9 @@
 					confirmCount={index.indexed + index.indexing + index.failed}
 					onconfirm={(choice) => run("", { embedding_model: choice })}
 				/>
+			{/if}
+			{#if shared && index.embeddingChosen}
+				<p class={s.HINT}>{m["projects.past_index.shared_model_note"]()}</p>
 			{/if}
 			{#if index.state === "failed" && index.error}
 				<p class={s.HINT}>{index.error}</p>

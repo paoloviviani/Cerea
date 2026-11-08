@@ -26,6 +26,8 @@
 		current?: string | null;
 		readonly?: boolean;
 		disabled?: boolean;
+		/** No deployment default to follow: a model must be chosen, so no "Default" option. */
+		required?: boolean;
 		/** Set on an existing index: the number of documents a change re-embeds. */
 		confirmCount?: number;
 		onconfirm?: (choice: string) => void;
@@ -39,15 +41,22 @@
 		current = null,
 		readonly = false,
 		disabled = false,
+		required = false,
 		confirmCount,
 		onconfirm,
 	}: Props = $props();
 
 	let pending = $state<string | null>(null);
 
-	const others = $derived(models.filter((model) => model !== defaultModel));
+	const others = $derived(required ? models : models.filter((model) => model !== defaultModel));
+	// A model chosen for the base that this viewer cannot list: shown as itself,
+	// never as "Default".
+	const unlisted = $derived(
+		value && !models.includes(value) && value !== defaultModel ? value : null
+	);
 	const single = $derived(
-		models.length + (defaultModel && !models.includes(defaultModel) ? 1 : 0) <= 1
+		!unlisted &&
+			models.length + (!required && defaultModel && !models.includes(defaultModel) ? 1 : 0) <= 1
 	);
 	const defaultLabel = $derived(
 		defaultModel
@@ -78,8 +87,20 @@
 	{#if readonly || single}
 		<p {id} class="text-sm text-ink">{plain}</p>
 	{:else}
-		<select {id} class={s.INPUT} {disabled} value={pending ?? value} onchange={pick}>
-			<option value="">{defaultLabel}</option>
+		<select
+			{id}
+			class={s.INPUT}
+			{disabled}
+			title={(pending ?? value) === "" ? m["knowledge.embedder.follows_default"]() : undefined}
+			value={pending ?? value}
+			onchange={pick}
+		>
+			{#if !required}
+				<option value="" title={m["knowledge.embedder.follows_default"]()}>{defaultLabel}</option>
+			{/if}
+			{#if unlisted}
+				<option value={unlisted}>{unlisted}</option>
+			{/if}
 			{#each others as model (model)}
 				<option value={model}>{model}</option>
 			{/each}

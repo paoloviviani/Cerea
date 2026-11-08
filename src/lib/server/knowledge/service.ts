@@ -21,7 +21,7 @@ import { isMrlModel, tooWideMessage, truncateRenormalise } from "./mrl";
 import { fromUuid } from "./db";
 import { deleteDerived } from "./deleteDerived";
 import { embed } from "./embed";
-import { passagePrefixChanged, prefixFor } from "$lib/embeddingPrefix";
+import { detectPreset, passagePrefixChanged, prefixFor } from "$lib/embeddingPrefix";
 import { memoryBaseOwner, memoryBaseOwners, type MemoryBaseOwner } from "./memoryBases";
 import {
 	resolveExtractor,
@@ -167,8 +167,15 @@ async function resolveChosenModel(
 	if (!allowed?.includes(name)) {
 		throw new KnowledgeError(400, `“${name}” is not an embedding model you can use.`);
 	}
-	// The deployment's prefixes belong to its default model, not to this one.
-	return { model: name, chosen: true, passagePrefix: "", queryPrefix: "" };
+	// The deployment's prefixes belong to its default model, not to this one:
+	// a chosen model takes its own card's, where it is one we know (e5, nomic).
+	const preset = detectPreset(name);
+	return {
+		model: name,
+		chosen: true,
+		passagePrefix: preset?.passage ?? "",
+		queryPrefix: preset?.query ?? "",
+	};
 }
 
 // -- reach -------------------------------------------------------------------
@@ -784,7 +791,7 @@ async function upsertChunks(
  */
 export const BACKGROUND_INGEST_CONCURRENCY = 2;
 
-const backgroundQueue: { id: ObjectId; token: string }[] = [];
+const backgroundQueue: { id: ObjectId; token: string; done?: () => void | Promise<void> }[] = [];
 let backgroundRunning = 0;
 
 async function pumpBackgroundIngest(): Promise<void> {
@@ -796,11 +803,19 @@ async function pumpBackgroundIngest(): Promise<void> {
 	await ingestDocument(next.id, next.token).catch((err: unknown) =>
 		logger.warn({ err, document: next.id.toString() }, "knowledge_background_ingest_failed")
 	);
+	// Settled, however it ended: a reindex counts these to release its claim.
+	await Promise.resolve(next.done?.()).catch((err: unknown) =>
+		logger.warn({ err }, "knowledge_background_done_failed")
+	);
 	void pumpBackgroundIngest();
 }
 
-export function startIngest(documentId: ObjectId, token: string): void {
-	backgroundQueue.push({ id: documentId, token });
+export function startIngest(
+	documentId: ObjectId,
+	token: string,
+	done?: () => void | Promise<void>
+): void {
+	backgroundQueue.push({ id: documentId, token, done });
 	if (backgroundRunning < BACKGROUND_INGEST_CONCURRENCY) {
 		backgroundRunning++;
 		void pumpBackgroundIngest();
@@ -827,6 +842,18 @@ export async function failInterruptedIngests(bootedAt: Date): Promise<number> {
 	);
 	return res.modifiedCount;
 }
+
+/** Has a reindex moved this base on since `base` was read? */
+async function baseMovedOn(base: VectorStore): Promise<boolean> {
+	const live = await collections.vectorStores.findOne(
+		{ _id: base._id },
+		{ projection: { embeddingGeneration: 1 } }
+	);
+	return (live?.embeddingGeneration ?? 0) !== (base.embeddingGeneration ?? 0);
+}
+
+const currentRow = (document: KnowledgeDocument) =>
+	collections.knowledgeDocuments.findOne({ _id: document._id });
 
 /**
  * Index one document's text: chunk, embed, store.
@@ -901,6 +928,7 @@ export async function ingestDocument(
 
 		const chunks = chunkMarkdown(text, base.chunkChars, base.chunkOverlap);
 		if (chunks.length === 0) {
+			if (await baseMovedOn(base)) return (await currentRow(document)) ?? document;
 			// Nothing to keep, and the old passages must not outlive the text
 			// they came from: the replace happens in the same transaction as
 			// every other one, with no rows to write.
@@ -935,6 +963,10 @@ export async function ingestDocument(
 		// and the base's recorded width is what every later embed — search
 		// included — asks for. A model without MRL refuses the parameter and
 		// the refusal lands on the row, which is the honest answer.
+		// A reindex that began while this was embedding moved the base to
+		// another model: these vectors belong to the old one and are dropped,
+		// the document being the new run's to index.
+		if (await baseMovedOn(base)) return (await currentRow(document)) ?? document;
 		const width = vectors[0]?.length ?? 0;
 		if (!INDEXED_DIMENSIONS.includes(width as (typeof INDEXED_DIMENSIONS)[number])) {
 			const target = Math.max(...INDEXED_DIMENSIONS.filter((d) => d < width));
@@ -959,6 +991,7 @@ export async function ingestDocument(
 				chunks.map((chunk) => chunk.text)
 			);
 		}
+		if (await baseMovedOn(base)) return (await currentRow(document)) ?? document;
 		await upsertChunks(base.embeddingModel ?? "", base._id, document._id, chunks, vectors);
 		// The source may have been deleted while it was being embedded (a
 		// conversation deleted mid-index, a base dropped mid-reindex). The
@@ -1609,7 +1642,8 @@ export async function search(
 			}
 		}
 		if (err instanceof GatewayCallFailed) {
-			throw new KnowledgeError(502, `Search is unavailable: ${err.message}`);
+			logger.warn({ err, base: base._id.toString() }, "knowledge_search_gateway_failed");
+			throw new KnowledgeError(502, "Search is unavailable right now. Try again.");
 		}
 		throw err;
 	}
@@ -1643,6 +1677,9 @@ export async function reindexTarget(
 	return base;
 }
 
+/** A reindex claim older than this is a crashed one, and may be taken over. */
+const REINDEX_CLAIM_MS = 30 * 60 * 1000;
+
 export async function reindex(
 	storeId: string,
 	caller: Caller,
@@ -1653,12 +1690,23 @@ export async function reindex(
 	const config = await readConfig();
 	// What the base moves to. An explicit model (`""` is the default) is the
 	// owner's choice and is checked against what they may use; with none given,
-	// a base the owner chose a model for keeps it, and any other follows the
-	// deployment's default, the one place that moves a base along with it.
+	// a base the owner chose a model for keeps it (checked again: the grant may
+	// have gone, and a base re-embedded with a model nobody can call would end
+	// up empty), and any other follows the deployment's default, the one place
+	// that moves a base along with it.
 	let target: Awaited<ReturnType<typeof resolveChosenModel>>;
 	if (opts.embeddingModel !== undefined) {
 		target = await resolveChosenModel(opts.embeddingModel, token, config);
 	} else if (base.embeddingChosen && base.embeddingModel) {
+		const allowed = await embeddingModelsFor(token);
+		if (!allowed?.includes(base.embeddingModel)) {
+			throw new KnowledgeError(
+				400,
+				opts.asAdmin
+					? `This base uses ${base.embeddingModel}, which its owner chose and you can't use. Its owner can reindex it.`
+					: `This base uses ${base.embeddingModel}, which isn't available to you. Choose another embedding model.`
+			);
+		}
 		target = {
 			model: base.embeddingModel,
 			chosen: true,
@@ -1671,38 +1719,94 @@ export async function reindex(
 	if (!target.model) {
 		throw new KnowledgeError(400, "No embedding model has been configured.");
 	}
-	// `dimensions: null` lets the first new vector set the width, so a model of
-	// another width is accepted; documents are re-embedded below.
-	await collections.vectorStores.updateOne(
-		{ _id: base._id },
+
+	// One reindex at a time per base: claimed atomically, so a second click (or
+	// a retry after a proxy timeout) is refused rather than racing the first.
+	const now = new Date();
+	const claimed = await collections.vectorStores.updateOne(
 		{
-			$set: {
-				embeddingModel: target.model,
-				embeddingChosen: target.chosen,
-				passagePrefix: target.passagePrefix,
-				queryPrefix: target.queryPrefix,
-				dimensions: null,
-				updatedAt: new Date(),
-			},
-		}
+			_id: base._id,
+			$or: [
+				{ reindexingSince: { $exists: false } },
+				{ reindexingSince: null },
+				{ reindexingSince: { $lt: new Date(now.getTime() - REINDEX_CLAIM_MS) } },
+			],
+		},
+		{ $set: { reindexingSince: now } }
 	);
-	const rows = await collections.knowledgeDocuments
-		.find({
-			storeId: base._id,
-			$or: [{ text: { $exists: true, $type: "string" } }, { fileId: { $exists: true } }],
-		})
-		.toArray();
-	await collections.knowledgeDocuments.updateMany(
-		{ _id: { $in: rows.map((row) => row._id) } },
-		{
-			$set: { status: "pending", error: "", indexedAt: null, updatedAt: new Date() },
-		}
-	);
-	const out: ReturnType<typeof documentObject>[] = [];
-	for (const row of rows) {
-		out.push(documentObject(await ingestDocument(row._id, token), null));
+	if (claimed.modifiedCount === 0) {
+		throw new KnowledgeError(409, "This base is already being reindexed. Wait for it to finish.");
 	}
-	return { data: out };
+	const release = () =>
+		collections.vectorStores.updateOne({ _id: base._id }, { $unset: { reindexingSince: "" } });
+
+	let rows: KnowledgeDocument[];
+	try {
+		rows = await collections.knowledgeDocuments
+			.find({
+				storeId: base._id,
+				$or: [{ text: { $exists: true, $type: "string" } }, { fileId: { $exists: true } }],
+			})
+			.toArray();
+		// `dimensions: null` lets the first new vector set the width, so a model
+		// of another width is accepted. The generation moves with it, so an
+		// ingest already in flight for the old model drops its write.
+		await collections.vectorStores.updateOne(
+			{ _id: base._id },
+			{
+				$set: {
+					embeddingModel: target.model,
+					embeddingChosen: target.chosen,
+					passagePrefix: target.passagePrefix,
+					queryPrefix: target.queryPrefix,
+					dimensions: null,
+					updatedAt: new Date(),
+				},
+				$inc: { embeddingGeneration: 1 },
+			}
+		);
+		// The old vectors go now. Searching filters by store and width only, so
+		// leaving them would rank them against queries from the new model (same
+		// width, different space) for as long as any document is still being
+		// re-embedded, or for good if one fails. With `dimensions` null the base
+		// searches as empty until the first new vector arrives.
+		if (rows.length > 0) {
+			await withClient(async (client) => {
+				const { ensureSchema } = await import("./db");
+				await ensureSchema();
+				await client.query("DELETE FROM knowledge_chunks WHERE store_id = $1", [
+					toUuid(base._id.toString()),
+				]);
+			});
+		}
+		await collections.knowledgeDocuments.updateMany(
+			{ _id: { $in: rows.map((row) => row._id) } },
+			{ $set: { status: "pending", error: "", indexedAt: null, updatedAt: new Date() } }
+		);
+	} catch (err) {
+		await release();
+		throw err;
+	}
+
+	// The work runs behind the response, on the same queue as an upload: a big
+	// base no longer holds the request open past the proxy's timeout. The claim
+	// is released when the last document settles.
+	if (rows.length === 0) {
+		await release();
+	} else {
+		let remaining = rows.length;
+		for (const row of rows) {
+			startIngest(row._id, token, async () => {
+				remaining--;
+				if (remaining === 0) await release();
+			});
+		}
+	}
+	return {
+		data: rows.map((row) =>
+			documentObject({ ...row, status: "pending", error: "", indexedAt: undefined } as never, null)
+		),
+	};
 }
 
 // -- shares -------------------------------------------------------------------

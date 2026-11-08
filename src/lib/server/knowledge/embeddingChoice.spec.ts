@@ -158,6 +158,47 @@ describe("choosing the embedding model", () => {
 		});
 	});
 
+	it("refuses a plain reindex of a chosen base whose model the caller can no longer use", async () => {
+		const made = await createStore(owner, { name: "r", embedding_model: "other-embed" }, "tok");
+		getMock.mockResolvedValue(catalogue("default-embed"));
+		expect(await status(reindex(made.id, owner, "tok"))).toBe(400);
+		expect((await row(made.id)).reindexingSince ?? null).toBeNull();
+		// An administrator reindexing with their own token is refused the same way.
+		const admin: Caller = { ...reader, isAdmin: true };
+		expect(await status(reindex(made.id, admin, "admin-tok", { asAdmin: true }))).toBe(400);
+		expect((await row(made.id)).embeddingModel).toBe("other-embed");
+	});
+
+	it("refuses a second reindex while one holds the claim, and takes over a stale claim", async () => {
+		const made = await createStore(owner, { name: "c" }, "tok");
+		const id = new ObjectId(made.id);
+		await collections.vectorStores.updateOne(
+			{ _id: id },
+			{ $set: { reindexingSince: new Date() } }
+		);
+		expect(await status(reindex(made.id, owner, "tok"))).toBe(409);
+		await collections.vectorStores.updateOne(
+			{ _id: id },
+			{ $set: { reindexingSince: new Date(Date.now() - 60 * 60 * 1000) } }
+		);
+		expect(await status(reindex(made.id, owner, "tok"))).toBe("ok");
+		expect((await row(made.id)).embeddingGeneration).toBe(1);
+		expect((await row(made.id)).reindexingSince ?? null).toBeNull();
+	});
+
+	it("gives a chosen model its own known prefixes", async () => {
+		getMock.mockResolvedValue(catalogue("default-embed", "multilingual-e5-large"));
+		const made = await createStore(
+			owner,
+			{ name: "p", embedding_model: "multilingual-e5-large" },
+			"tok"
+		);
+		expect(await row(made.id)).toMatchObject({
+			passagePrefix: "passage: ",
+			queryPrefix: "query: ",
+		});
+	});
+
 	it("is never stale for a chosen model, and offers the user's models in the status", async () => {
 		const made = await createStore(owner, { name: "f", embedding_model: "other-embed" }, "tok");
 		await collections.vectorStores.updateOne(

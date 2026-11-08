@@ -59,4 +59,26 @@ describe("EmbeddingModelPicker", () => {
 		await page.getByRole("button", { name: "Change and reindex" }).click();
 		expect(onconfirm).toHaveBeenCalledExactlyOnceWith("e5-large");
 	});
+
+	it("shows the real name of a chosen model the viewer cannot list, not Default", async () => {
+		renderWithApp(EmbeddingModelPicker, {
+			models: ["bge-m3", "e5-large"],
+			defaultModel: "bge-m3",
+			value: "private-embed",
+			current: "private-embed",
+		});
+		await expect.element(page.getByRole("combobox")).toHaveDisplayValue("private-embed");
+	});
+
+	it("offers no Default option when there is no deployment default", async () => {
+		renderWithApp(EmbeddingModelPicker, {
+			models: ["bge-m3", "e5-large"],
+			defaultModel: null,
+			value: "bge-m3",
+			required: true,
+		});
+		const options = await page.getByRole("combobox").getByRole("option").all();
+		expect(options).toHaveLength(2);
+		await expect.element(page.getByRole("combobox")).toHaveDisplayValue("bge-m3");
+	});
 });

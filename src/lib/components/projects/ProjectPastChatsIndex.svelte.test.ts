@@ -32,7 +32,8 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-const mount = () => renderWithApp(ProjectPastChatsIndex, { projectId: "691111111111111111111aaa" });
+const mount = (shared = false) =>
+	renderWithApp(ProjectPastChatsIndex, { projectId: "691111111111111111111aaa", shared });
 
 describe("ProjectPastChatsIndex", () => {
 	it("shows the friendly failure, and Retry then Reindex call the owner routes", async () => {
@@ -130,5 +131,23 @@ describe("ProjectPastChatsIndex", () => {
 		mount();
 		await expect.element(page.getByText("Not indexed")).toBeVisible();
 		await expect.element(page.getByRole("button", { name: "Reindex" })).toBeDisabled();
+	});
+
+	it("warns in a shared project that members without the chosen model do not take part", async () => {
+		state = {
+			state: "indexed",
+			indexed: 2,
+			indexing: 0,
+			failed: 0,
+			error: null,
+			canManage: true,
+			...MODELS,
+			embeddingChosen: true,
+			embeddingModel: "e5-large",
+		};
+		mount(true);
+		await expect
+			.element(page.getByText(/Members who can't use this model won't add their chats/))
+			.toBeVisible();
 	});
 });

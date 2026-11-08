@@ -146,6 +146,12 @@
 		failure = null;
 	}
 
+	// With no deployment default there is nothing to follow: a model is required.
+	$effect(() => {
+		const first = status?.embedding_models?.[0];
+		if (status && !status.embedding_model && !embeddingChoice && first) embeddingChoice = first;
+	});
+
 	async function create(event: SubmitEvent) {
 		event.preventDefault();
 		if (!name.trim()) return;
@@ -809,6 +815,7 @@
 					models={status?.embedding_models ?? []}
 					defaultModel={status?.embedding_model ?? null}
 					bind:value={embeddingChoice}
+					required={!status?.embedding_model}
 					disabled={busy}
 				/>
 
