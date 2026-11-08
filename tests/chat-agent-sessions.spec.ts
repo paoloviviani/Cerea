@@ -14,7 +14,7 @@
 import { randomUUID } from "node:crypto";
 import { ObjectId } from "mongodb";
 import superjson from "superjson";
-import type { Page } from "playwright/test";
+import type { Locator, Page } from "playwright/test";
 import { test, expect, E2E_APP_BASE, E2E_APP_URL, type MockOpenAIControl } from "./fixtures";
 import type { ScenarioSelector } from "./mock-openai";
 import { opencodeAvailable, seedUser, startMachine, type Machine } from "./machineHarness";
@@ -159,14 +159,21 @@ test.describe("chat drives agent sessions: real machine", () => {
 			}
 			return "";
 		};
+		// The card keeps "open" in its own state, and the message re-renders as the turn's stream
+		// settles, which can remount the card closed just after a click: open it until it stays open.
+		const showDetails = (card: Locator, toolName: string) =>
+			expect(async () => {
+				const show = card.getByRole("button", { name: "Show details" });
+				if (await show.isVisible()) await show.click();
+				await expect(card.getByText(`wants to call ${toolName}`)).toBeVisible({ timeout: 2_000 });
+			}).toPass({ timeout: 20_000 });
 		const approve = async (toolName: string) => {
 			const last = assistant(page).last();
 			await expect(last.getByRole("button", { name: "Allow once" })).toBeVisible({
 				timeout: 60_000,
 			});
 			// The tool's name sits behind "Show details" now.
-			await last.getByRole("button", { name: "Show details" }).click();
-			await expect(last.getByText(`wants to call ${toolName}`)).toBeVisible();
+			await showDetails(last, toolName);
 			await last.getByRole("button", { name: "Allow once" }).click();
 		};
 
@@ -203,8 +210,7 @@ test.describe("chat drives agent sessions: real machine", () => {
 		await expect(turnTwo.getByRole("button", { name: "Allow once" })).toBeVisible({
 			timeout: 60_000,
 		});
-		await turnTwo.getByRole("button", { name: "Show details" }).click();
-		await expect(turnTwo.getByText("wants to call agent_start")).toBeVisible();
+		await showDetails(turnTwo, "agent_start");
 		expect(await agents()).toHaveLength(0);
 		await turnTwo.getByRole("button", { name: "Allow once" }).click();
 		await expect(turnTwo).toContainText("Started the session.", { timeout: 60_000 });

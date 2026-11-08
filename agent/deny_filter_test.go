@@ -68,10 +68,18 @@ func TestDenyFilterRejectsARootAskWithNoCard(t *testing.T) {
 	if n := mc.mat.PendingPermissions("s1"); n != 0 {
 		t.Errorf("pending = %d, want 0: the ask must never be materialised", n)
 	}
+	// answerAsk audits after the reply went out (only a reply that landed is recorded), so the
+	// row can follow the reply by a moment: wait for it, then check there is exactly one.
 	var perms []map[string]any
-	for _, r := range auditRows(t, dir) {
-		if r["action"] == "permission" {
-			perms = append(perms, r)
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		perms = nil
+		for _, r := range auditRows(t, dir) {
+			if r["action"] == "permission" {
+				perms = append(perms, r)
+			}
+		}
+		if len(perms) > 0 || time.Now().After(deadline) {
+			break
 		}
 	}
 	if len(perms) != 1 {

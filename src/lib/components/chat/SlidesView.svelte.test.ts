@@ -6,7 +6,10 @@ const DECK = "---\ntheme: cerea\n---\n# One\n\n---\n\n# Two\n\nNote: hi\n";
 
 async function mount(props: Record<string, unknown> = {}) {
 	const screen = render(SlidesView, { content: DECK, ...props } as never);
-	await vi.waitFor(() => expect(document.querySelector("iframe")).toBeTruthy());
+	// The frame is built after a lazy import of the deck code, which can take seconds on a loaded runner
+	await vi.waitFor(() => expect(document.querySelector("iframe")).toBeTruthy(), {
+		timeout: 15_000,
+	});
 	const iframe = document.querySelector("iframe") as HTMLIFrameElement;
 	return { screen, iframe };
 }
@@ -432,6 +435,47 @@ describe("SlidesView", { timeout: 60_000 }, () => {
 			await vi.waitFor(() => expect(blobs.length).toBe(1));
 			expect(await blobs[0].text()).toBe("%PDF-1.7 vector");
 			expect(sent.length).toBe(0);
+		});
+
+		it("waits for the server's answer before the PDF button can be used, so an early click never opens the print tab", async () => {
+			let answer: (r: Response) => void = () => {};
+			const posts: string[] = [];
+			vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+				if (!String(url).endsWith("/api/v2/slides/pdf")) return realFetch(url, init);
+				if (init?.method === "POST") {
+					posts.push(String(url));
+					return new Response("%PDF-1.7 vector", { status: 200 });
+				}
+				return new Promise<Response>((resolve) => (answer = resolve));
+			});
+			vi.spyOn(URL, "createObjectURL").mockImplementation(() => "blob:test");
+			vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+			const sent = captureForm();
+			const { screen } = await mount({ content: "<section>One</section>" });
+			await expect.element(screen.getByTestId("slides-counter")).toHaveTextContent("1 / 1");
+			// The probe is still out: the button is not there to click yet
+			await expect.element(screen.getByRole("button", { name: "PDF", exact: true })).toBeDisabled();
+			expect(sent.length).toBe(0);
+			answer(new Response(JSON.stringify({ available: true }), { status: 200 }));
+			await expect.element(screen.getByRole("button", { name: "PDF", exact: true })).toBeEnabled();
+			await screen.getByRole("button", { name: "PDF", exact: true }).click();
+			await vi.waitFor(() => expect(posts.length).toBe(1));
+			expect(sent.length).toBe(0);
+		});
+
+		it("lets the print tab take over when the server's answer never comes", async () => {
+			vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+				if (String(url).endsWith("/api/v2/slides/pdf") && !init?.method) {
+					throw new TypeError("network down");
+				}
+				return realFetch(url, init);
+			});
+			const sent = captureForm();
+			const { screen } = await mount({ content: "<section>One</section>" });
+			await expect.element(screen.getByTestId("slides-counter")).toHaveTextContent("1 / 1");
+			await expect.element(screen.getByRole("button", { name: "PDF", exact: true })).toBeEnabled();
+			await screen.getByRole("button", { name: "PDF", exact: true }).click();
+			await vi.waitFor(() => expect(sent.length).toBe(1));
 		});
 
 		it("says so when the server cannot make it, and the print tab is still there", async () => {

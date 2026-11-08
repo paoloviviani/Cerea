@@ -119,6 +119,16 @@ func TestEditToolCallProducesDiff(t *testing.T) {
 		"sessionUpdate": "tool_call", "toolCallId": "e3", "title": "edit", "kind": "edit", "status": "pending",
 		"locations": []any{map[string]any{"path": ".env"}},
 	})
+	// The agent's updates reach galopin on its reader goroutine, and the snapshot is taken as each
+	// one is handled (before its part event goes out). The tool calls must not run before then, as
+	// they never do in a real agent: wait for all three to be seen.
+	seen := 0
+	drainEvents(t, events, sess.ID, 5*time.Second, func(ev backend.Event) bool {
+		if ev.Kind == backend.EventPart && ev.Part != nil && ev.Part.Type == backend.PartTool {
+			seen++
+		}
+		return seen == 3
+	})
 	// the tool calls run
 	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("one\nTWO\nthree\n"), 0o644); err != nil {
 		t.Fatal(err)

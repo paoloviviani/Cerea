@@ -43,8 +43,8 @@
 	let fullscreenNative = $state(false);
 	let pdfProgress = $state<{ done: number; total: number } | null>(null);
 	let pdfFailed = $state<"failed" | "large" | "server" | null>(null);
-	/** The server can make a vector PDF (the kit's fetch profile): found out on mount, false until then */
-	let serverPdf = $state(false);
+	/** The server can make a vector PDF (the kit's fetch profile): found out on mount; null while the question is still out */
+	let serverPdf = $state<boolean | null>(null);
 	let serverBusy = $state(false);
 	let pdfMenuOpen = $state(false);
 	let pdfErrorKinds:
@@ -165,7 +165,8 @@
 		fetch(`${base}/api/v2/slides/pdf`)
 			.then((r) => (r.ok ? r.json() : { available: false }))
 			.then((d: { available?: boolean }) => (serverPdf = d.available === true))
-			.catch(() => {});
+			// No answer means no server PDF; the button must not stay disabled for it
+			.catch(() => (serverPdf = false));
 	});
 
 	async function deckLogo(): Promise<string | undefined> {
@@ -399,7 +400,7 @@
 						? m["chat.slides.pdf_server"]()
 						: m["chat.slides.pdf_print"]()}
 				aria-label={m["chat.slides.pdf"]()}
-				disabled={!!pdfProgress || serverBusy || total === 0}
+				disabled={!!pdfProgress || serverBusy || total === 0 || serverPdf === null}
 				onclick={pdfDefault}
 			>
 				{#if pdfProgress || serverBusy}<EosIconsLoading />{:else}<CarbonDocumentPdf />{/if}
