@@ -89,6 +89,14 @@ export async function consumeMessageUpdates(
 			update.token = update.token.replaceAll("\0", "");
 		}
 
+		// Numbers for the info dot: kept on the message, never in its update log,
+		// so they cannot make the rendered turn rebuild (an open approval card
+		// would close under the user's finger).
+		if (update.type === MessageUpdateType.TurnStats) {
+			message.stats = update.stats;
+			continue;
+		}
+
 		const isKeepAlive =
 			update.type === MessageUpdateType.Status && update.status === MessageUpdateStatus.KeepAlive;
 
@@ -183,8 +191,6 @@ export async function consumeMessageUpdates(
 				...(message.files ?? []),
 				{ type: "hash", value: update.sha, mime: update.mime, name: update.name },
 			];
-		} else if (update.type === MessageUpdateType.TurnStats) {
-			message.stats = update.stats;
 		} else if (update.type === MessageUpdateType.RouterMetadata) {
 			message.routerMetadata = { route: update.route, model: update.model };
 		} else if (update.type === MessageUpdateType.Plan) {
