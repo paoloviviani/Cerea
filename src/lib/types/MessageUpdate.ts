@@ -10,6 +10,7 @@ import type {
 import type { RunOutcome } from "$lib/utils/execution/protocol";
 import type { PersistedDeliverableRef } from "$lib/types/ParkedCall";
 import type { AgentSessionCard } from "$lib/types/AgentSession";
+import type { TurnStats } from "$lib/types/TurnStats";
 
 export type MessageUpdate =
 	| MessageStatusUpdate
@@ -21,6 +22,7 @@ export type MessageUpdate =
 	| MessageFinalAnswerUpdate
 	| MessageReasoningUpdate
 	| MessageRouterMetadataUpdate
+	| MessageTurnStatsUpdate
 	| MessageElicitationUpdate
 	| MessagePlanUpdate
 	| MessageSubAgentUpdate
@@ -40,6 +42,7 @@ export enum MessageUpdateType {
 	FinalAnswer = "finalAnswer",
 	Reasoning = "reasoning",
 	RouterMetadata = "routerMetadata",
+	TurnStats = "turnStats",
 	Elicitation = "elicitation",
 	Plan = "plan",
 	SubAgent = "subAgent",
@@ -241,6 +244,15 @@ export interface MessageRouterMetadataUpdate {
 	model: string;
 	/** The upstream provider the gateway reported (a free-form header, not a closed set). */
 	provider?: string;
+}
+
+/**
+ * The numbers for the turn so far, cumulative over its model calls: each one
+ * replaces the last. Folded into `Message.stats`, never kept in `updates`.
+ */
+export interface MessageTurnStatsUpdate {
+	type: MessageUpdateType.TurnStats;
+	stats: TurnStats;
 }
 
 export enum MessageElicitationUpdateType {

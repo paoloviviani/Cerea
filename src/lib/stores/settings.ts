@@ -11,6 +11,7 @@ type SettingsStore = {
 	toolApprovalPolicy?: "always-allow" | "manual";
 	pyodidePyPiInstallEnabled?: boolean;
 	memoryEnabled?: boolean;
+	showRedactionValues?: boolean;
 	locationMode?: LocationMode;
 	locationPlace?: string;
 	activeModel: string;

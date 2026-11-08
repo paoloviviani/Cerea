@@ -12,6 +12,7 @@
 	import { finalAnswerAddition } from "$lib/utils/mergeFinalAnswer";
 
 	import CopyToClipBoardBtn from "../CopyToClipBoardBtn.svelte";
+	import TurnInfo from "./TurnInfo.svelte";
 	import CarbonRotate360 from "~icons/carbon/rotate-360";
 	// import CarbonDownload from "~icons/carbon/download";
 
@@ -1323,6 +1324,11 @@
 						>
 							<CarbonRotate360 />
 						</button>
+					{/if}
+					<!-- Not on the coding-agent panel's replay (it passes `messageActions`):
+					     agent requests show in the gateway log, not here. -->
+					{#if !messageActions}
+						<TurnInfo {message} />
 					{/if}
 					{#if messageActions && (messageActionsWhen ? messageActionsWhen(message) : turnStateOf(message)?.state === "done")}
 						{@render messageActions(message)}

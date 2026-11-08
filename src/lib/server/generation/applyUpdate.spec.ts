@@ -499,3 +499,23 @@ describe("sub-agent updates", () => {
 		expect(m.content).toBe("");
 	});
 });
+
+describe("applyUpdateToMessage turn stats", () => {
+	const stats = {
+		model: "Test",
+		inputTokens: 3,
+		redaction: { applied: true, blocked: false, entities: [] },
+	};
+
+	it("keeps the latest stats on the message, not in the replay log", () => {
+		const m = message();
+		const applied = applyUpdateToMessage({ type: MessageUpdateType.TurnStats, stats }, ctx(m));
+		applyUpdateToMessage(
+			{ type: MessageUpdateType.TurnStats, stats: { ...stats, inputTokens: 9 } },
+			ctx(m)
+		);
+		expect(applied.skipped).toBe(false);
+		expect(m.stats?.inputTokens).toBe(9);
+		expect(m.updates).toHaveLength(0);
+	});
+});

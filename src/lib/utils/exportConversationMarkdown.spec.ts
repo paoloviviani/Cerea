@@ -405,3 +405,31 @@ describe("exportConversationToMarkdown", () => {
 		expect(md).toContain("## Assistant\n");
 	});
 });
+
+describe("exportConversationToMarkdown and turn details", () => {
+	it("leaves the turn's stats, and the values the gateway hid, out of the file", () => {
+		const md = exportConversationToMarkdown({
+			title: "Names",
+			conversationId: "abc123",
+			model: "Test",
+			messages: [
+				userMessage("Write to Mario"),
+				assistantMessage("Dear Mario", {
+					stats: {
+						model: "Test",
+						inputTokens: 5,
+						redaction: {
+							applied: true,
+							blocked: false,
+							entities: [{ type: "PERSON", count: 1, sources: ["user"] }],
+							values: [{ type: "PERSON", original: "Mario Rossi", placeholder: "<PERSON_1>" }],
+						},
+					},
+				}),
+			],
+		});
+		expect(md).toContain("Dear Mario");
+		expect(md).not.toContain("Mario Rossi");
+		expect(md).not.toContain("PERSON");
+	});
+});

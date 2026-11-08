@@ -36,6 +36,9 @@ const settingsSchema = z.object({
 	// standing facts about themselves. The deployment flag
 	// (CHAT_MEMORY_ENABLED) can withdraw the feature over the top of it.
 	memoryEnabled: z.boolean().optional(),
+	// Off by default and stored as absent: asks the gateway to send the hidden
+	// values back with each answer, for the turn details.
+	showRedactionValues: z.boolean().optional(),
 	activeModel: z.string().default(DEFAULT_SETTINGS.activeModel),
 	// Unknown keys are stripped, so an old client still posting the retired
 	// per-model `customPrompts` / `customPromptsEnabled` is ignored, not refused.
@@ -104,6 +107,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 		toolApprovalPolicy: settings?.toolApprovalPolicy ?? undefined,
 		pyodidePyPiInstallEnabled: settings?.pyodidePyPiInstallEnabled ?? undefined,
 		memoryEnabled: settings?.memoryEnabled ?? undefined,
+		showRedactionValues: settings?.showRedactionValues ?? undefined,
 		locationMode: settings?.locationMode ?? undefined,
 		locationPlace: settings?.locationPlace ?? undefined,
 

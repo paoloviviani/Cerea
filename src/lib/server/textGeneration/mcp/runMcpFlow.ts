@@ -67,6 +67,7 @@ import { UNTRUSTED_SYSTEM_LINE } from "../untrusted";
 import { urlsInUserText } from "../builtinTools/webFetchTool";
 import { injectPlanState, PLAN_TOOL_NAME } from "../builtinTools/planTool";
 import { billToHeader } from "$lib/server/billTo";
+import { TurnStatsCollector, redactionRequestHeaders } from "$lib/server/turnStats";
 import { configuredBackend } from "$lib/server/fetching";
 import { getCapabilities as getDocumentCapabilities } from "$lib/server/documents/client";
 import { approvalStateFor, resolveToolApprovalPolicy } from "../toolApprovalPolicy";
@@ -224,6 +225,12 @@ function createReasoningMerger() {
 			return THINK_CLOSE;
 		},
 	};
+}
+
+/** Whether a chunk holds anything of what the gateway reports besides text. */
+function carriesReport(chunk: unknown): boolean {
+	const c = chunk as { usage?: unknown; pystino_redaction?: unknown; pystino_cost?: unknown };
+	return Boolean(c.usage || c.pystino_redaction || c.pystino_cost);
 }
 
 export async function* runMcpFlow({
@@ -652,8 +659,13 @@ export async function* runMcpFlow({
 				// gateway bills the tool loop's completions like any other, so
 				// leaving this off would silently bill the default.
 				...billToHeader(locals?.billingOrganization),
+				// Asks the gateway for the redaction summary (and the values, when
+				// the user opted in), reported on each call's usage chunk.
+				...redactionRequestHeaders(locals),
 			},
 		});
+		// Numbers for the answer's info dot, summed over every call of this turn.
+		const turnStats = new TurnStatsCollector({ model: model.displayName });
 
 		const mmEnabled = forceMultimodal ?? model.multimodal;
 		logger.info(
@@ -896,7 +908,9 @@ export async function* runMcpFlow({
 				tools: undefined,
 				tool_choice: undefined,
 				messages: rescueMessages(),
+				stream_options: { include_usage: true },
 			};
+			const rescueCall = turnStats.begin();
 			const rescueReq = linkedRequestSignal(abortSignal);
 			let stream: Stream<ChatCompletionChunk>;
 			try {
@@ -941,10 +955,12 @@ export async function* runMcpFlow({
 			let text = "";
 			try {
 				for await (const chunk of withIdleTimeout(stream, { onIdle: rescueReq.abort })) {
+					if (carriesReport(chunk)) rescueCall.absorb(chunk);
 					const delta = chunk.choices?.[0]?.delta;
 					if (!delta) continue;
 					const combined = merger.push(deltaText(delta), deltaReasoning(delta));
 					if (combined.length > 0) {
+						rescueCall.token();
 						text += combined;
 						producedOutput = true;
 						yield { type: MessageUpdateType.Stream, token: combined };
@@ -957,6 +973,7 @@ export async function* runMcpFlow({
 				logger.warn({ err: String(err) }, "[mcp] the no-tools answer was cut mid-stream");
 			}
 			text += merger.close();
+			yield { type: MessageUpdateType.TurnStats, stats: turnStats.snapshot() };
 			return text;
 		};
 
@@ -1007,7 +1024,9 @@ export async function* runMcpFlow({
 			const completionRequest: ChatCompletionCreateParamsStreaming = {
 				...completionBase,
 				messages: messagesOpenAI,
+				stream_options: { include_usage: true },
 			};
+			const roundCall = turnStats.begin();
 
 			// A turn several productive rounds deep must not die on one throttled
 			// request, or on a gateway that has no backend ready for a moment;
@@ -1079,6 +1098,7 @@ export async function* runMcpFlow({
 			// Throttle for ArtifactDraft emissions while arguments stream.
 			const ARTIFACT_DRAFT_THROTTLE_MS = 250;
 			for await (const chunk of withIdleTimeout(completionStream, { onIdle: roundReq.abort })) {
+				if (carriesReport(chunk)) roundCall.absorb(chunk);
 				const choice = chunk.choices?.[0];
 				// Before the delta guard: the terminal chunk can carry only a finish_reason.
 				if (choice?.finish_reason) finishReason = choice.finish_reason;
@@ -1087,6 +1107,7 @@ export async function* runMcpFlow({
 
 				const chunkToolCalls = delta.tool_calls ?? [];
 				if (chunkToolCalls.length > 0) {
+					roundCall.token();
 					sawToolCall = true;
 					for (const call of chunkToolCalls) {
 						const toolCall = call;
@@ -1172,6 +1193,7 @@ export async function* runMcpFlow({
 				const combined = reasoningMerger.push(deltaText(delta), deltaReasoning(delta));
 
 				if (combined.length > 0) {
+					roundCall.token();
 					lastAssistantContent += combined;
 					if (!sawToolCall) {
 						streamedContent = true;
@@ -1199,6 +1221,8 @@ export async function* runMcpFlow({
 				{ sawToolCalls: Object.keys(toolCallState).length > 0, tokens: tokenCount, loop },
 				"[mcp] completion stream closed"
 			);
+			// Cumulative, after every call: the last one stands however the turn ends.
+			yield { type: MessageUpdateType.TurnStats, stats: turnStats.snapshot() };
 
 			// Check abort after stream completes
 			if (checkAborted()) {
@@ -1349,6 +1373,9 @@ export async function* runMcpFlow({
 								),
 						}
 					);
+					const recoveryCall = turnStats.begin();
+					recoveryCall.absorb(nonStream);
+					yield { type: MessageUpdateType.TurnStats, stats: turnStats.snapshot() };
 					const tc = nonStream.choices?.[0]?.message?.tool_calls ?? [];
 					calls = tc.map((t) => ({
 						id: t.id,

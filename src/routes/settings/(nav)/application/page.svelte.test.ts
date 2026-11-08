@@ -132,3 +132,26 @@ describe("Settings > Application, About this server", () => {
 		if (/·/.test(version)) expect(version).toMatch(/\d\s·\s[0-9a-f]{7}$/);
 	});
 });
+
+describe("Settings > Application, hidden values in the turn details", () => {
+	it("is off by default, with its one line of help, and turning it on saves the setting", async () => {
+		const context = stores();
+		const settings = context.get("settings") as { update: ReturnType<typeof vi.fn> };
+		const screen = renderWithApp(ApplicationPage, {}, { context });
+		await expect.element(screen.getByText("Show hidden values in the turn details")).toBeVisible();
+		await expect
+			.element(
+				screen.getByText(
+					"The values come from the gateway for that answer only and are kept with the chat, where the original text already is."
+				)
+			)
+			.toBeVisible();
+		const input = document.querySelector<HTMLInputElement>('input[name="showRedactionValues"]');
+		expect(input?.checked).toBe(false);
+
+		(input?.nextElementSibling as HTMLElement).click();
+		const update = settings.update.mock.calls.at(-1)?.[0] as
+			((s: Record<string, unknown>) => Record<string, unknown>) | undefined;
+		expect(update?.({})).toMatchObject({ showRedactionValues: true });
+	});
+});

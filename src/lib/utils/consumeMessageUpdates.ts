@@ -183,6 +183,8 @@ export async function consumeMessageUpdates(
 				...(message.files ?? []),
 				{ type: "hash", value: update.sha, mime: update.mime, name: update.name },
 			];
+		} else if (update.type === MessageUpdateType.TurnStats) {
+			message.stats = update.stats;
 		} else if (update.type === MessageUpdateType.RouterMetadata) {
 			message.routerMetadata = { route: update.route, model: update.model };
 		} else if (update.type === MessageUpdateType.Plan) {

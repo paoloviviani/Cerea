@@ -262,6 +262,8 @@ export interface MockOpenAIControl {
 			conversationId: string | null;
 			stream: boolean;
 			body: Record<string, unknown>;
+			/** The `x-pystino-*` request headers, lower-cased. */
+			headers?: Record<string, string>;
 			at: number;
 		}>
 	>;

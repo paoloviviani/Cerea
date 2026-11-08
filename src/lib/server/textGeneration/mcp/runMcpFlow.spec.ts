@@ -39,6 +39,8 @@ const mocks = vi.hoisted(() => ({
 				unavailable: unknown[];
 		  }),
 	create: vi.fn(),
+	/** The default headers each OpenAI client was built with, newest last. */
+	ctorHeaders: [] as unknown[],
 	executeToolCalls: vi.fn(),
 	getAbortTime: vi.fn(() => undefined as number | undefined),
 	// Mutable so a test can strip the MCP tools.
@@ -86,6 +88,9 @@ vi.mock("openai", async (importOriginal) => ({
 	...(await importOriginal<typeof import("openai")>()),
 	OpenAI: class {
 		chat = { completions: { create: mocks.create } };
+		constructor(opts: { defaultHeaders?: unknown }) {
+			mocks.ctorHeaders.push(opts?.defaultHeaders);
+		}
 	},
 }));
 
@@ -190,6 +195,8 @@ type Round = {
 	finishReason?: string;
 	/** Throw instead of returning a stream, to script an upstream failure. */
 	error?: Error;
+	/** The gateway's closing chunk (no choices): usage, `pystino_cost`, `pystino_redaction`. */
+	report?: Record<string, unknown>;
 };
 
 function chunk(choice: Record<string, unknown>) {
@@ -202,6 +209,7 @@ function streamFor(round: Round) {
 		return (async function* () {
 			for (const delta of deltas) yield chunk({ delta });
 			yield chunk({ delta: {}, finish_reason: round.finishReason ?? "stop" });
+			if (round.report) yield { choices: [], ...round.report };
 		})();
 	}
 	return (async function* () {
@@ -220,6 +228,7 @@ function streamFor(round: Round) {
 			delta: {},
 			finish_reason: round.finishReason ?? (round.toolCalls?.length ? "tool_calls" : "stop"),
 		});
+		if (round.report) yield { choices: [], ...round.report };
 	})();
 }
 
@@ -407,6 +416,117 @@ describe("runMcpFlow", () => {
 			tool_call_id: "call_1",
 			content: "the tool output",
 		});
+	});
+});
+
+describe("runMcpFlow turn stats and redaction", () => {
+	const redaction = (count: number, extra: Record<string, unknown> = {}) => ({
+		applied: true,
+		request_id: "r",
+		blocked: false,
+		entities: [
+			{
+				type: "PERSON",
+				count,
+				mode: "restore",
+				rule: { id: "r1", name: "Cloud providers", owner: "admin" },
+				sources: ["user"],
+			},
+		],
+		...extra,
+	});
+	const statsOf = (updates: MessageUpdate[]) =>
+		updates
+			.filter((u) => u.type === MessageUpdateType.TurnStats)
+			.map((u) => (u.type === MessageUpdateType.TurnStats ? u.stats : undefined))
+			.at(-1);
+
+	it("sums tokens and redaction counts over a tool loop, and keeps the rule", async () => {
+		scriptRounds([
+			{
+				toolCalls: [{ id: "call_1", name: "do_thing", arguments: "{}" }],
+				report: {
+					usage: { prompt_tokens: 100, completion_tokens: 20 },
+					pystino_redaction: redaction(2),
+				},
+			},
+			{
+				content: "done",
+				report: {
+					usage: {
+						prompt_tokens: 140,
+						completion_tokens: 30,
+						completion_tokens_details: { reasoning_tokens: 7 },
+					},
+					pystino_cost: null,
+					pystino_redaction: redaction(1, {
+						entities: [
+							{
+								type: "PERSON",
+								count: 1,
+								mode: "restore",
+								rule: { id: "r1", name: "Cloud providers", owner: "admin" },
+								sources: ["tool"],
+							},
+						],
+					}),
+				},
+			},
+		]);
+
+		const { updates } = await runFlow();
+		const stats = statsOf(updates);
+
+		expect(stats?.inputTokens).toBe(240);
+		expect(stats?.outputTokens).toBe(50);
+		expect(stats?.reasoningTokens).toBe(7);
+		expect(stats?.model).toBeUndefined();
+		expect(stats?.redaction?.applied).toBe(true);
+		expect(stats?.redaction?.blocked).toBe(false);
+		expect(stats?.redaction?.entities).toEqual([
+			{
+				type: "PERSON",
+				count: 3,
+				mode: "restore",
+				rule: { id: "r1", name: "Cloud providers", owner: "admin" },
+				sources: ["user", "tool"],
+			},
+		]);
+		// One update per call, each cumulative: the last stands.
+		expect(updates.filter((u) => u.type === MessageUpdateType.TurnStats)).toHaveLength(2);
+	});
+
+	it("blocks the turn when any call was blocked", async () => {
+		scriptRounds([
+			{
+				toolCalls: [{ id: "call_1", name: "do_thing", arguments: "{}" }],
+				report: { pystino_redaction: redaction(1, { blocked: true }) },
+			},
+			{ content: "ok", report: { pystino_redaction: redaction(1) } },
+		]);
+		const { updates } = await runFlow();
+		expect(statsOf(updates)?.redaction?.blocked).toBe(true);
+	});
+
+	it("asks the gateway for the summary always, and the values only when the user opted in", async () => {
+		const headersOf = () => mocks.ctorHeaders.at(-1) as Record<string, string>;
+		scriptRounds([{ content: "a" }]);
+		await runFlow({ locals: {} } as never);
+		expect(headersOf()["x-pystino-redaction-summary"]).toBe("1");
+		expect(headersOf()["x-pystino-redaction-values"]).toBeUndefined();
+
+		scriptRounds([{ content: "b" }]);
+		await runFlow({ locals: { showRedactionValues: true } } as never);
+		expect(headersOf()["x-pystino-redaction-values"]).toBe("1");
+	});
+
+	it("sends no stats gaps as errors: a gateway without redaction leaves the object out", async () => {
+		scriptRounds([{ content: "plain" }]);
+		const { updates } = await runFlow();
+		const stats = statsOf(updates);
+		expect(stats).toBeDefined();
+		expect(stats?.redaction).toBeUndefined();
+		expect(stats?.inputTokens).toBeUndefined();
 	});
 });
 
