@@ -1057,7 +1057,7 @@ def compose_pin(root: Path, name: str) -> str:
 def resolve_extractor_image(choice: str, explicit: str | None, values: dict, root: Path) -> tuple:
     """(image, None) for a variant that exists, or (None, what to tell the operator).
 
-    The variants are never published, so the image has to be on this host: an
+    The variants are built locally for now, so the image has to be on this host: an
     explicit --extractor-image (a mirror, or one built elsewhere) is taken as
     given and compose pulls it if it must; otherwise the one the pinned version
     names, then one left by dev/build.sh. Nothing is built here.
@@ -1079,8 +1079,8 @@ def resolve_extractor_image(choice: str, explicit: str | None, values: dict, roo
         return built[0], None  # `docker images` lists the newest first
     flag = "--docling" if choice == "docling" else "--ocr"
     extra = (
-        " It prints a licence notice for the Docling model weights (the table-structure model is "
-        "CDLA-Permissive-2.0, which is not OSI-approved): read it before you accept." if choice == "docling" else ""
+        " The build prints the weights' licences (the table-structure model is under "
+        "CDLA-Permissive-2.0)." if choice == "docling" else ""
     )
     return None, (
         f"--extractor {choice} needs the locally built image pystino-redaction:<version>-{suffix}, "
@@ -1928,7 +1928,7 @@ def check_extractor(values: dict, report: Report) -> None:
         )
     elif variant not in ok:
         report.errors.append(
-            f"the {need} engine needs the {need} image, which is never published: run "
+            f"the {need} engine needs the {need} image, which is built locally: run "
             f"dev/build.sh {flag}, then ./configure --extractor "
             f"{'docling' if need == 'docling' else 'markitdown+ocr'} (or unset EXTRACTOR_ENGINE and EXTRACTOR_OCR)"
         )

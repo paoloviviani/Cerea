@@ -282,14 +282,15 @@ decks are previewed in the browser.
 The `extractor` service reads attached documents for the chat's knowledge base,
 for `/v1/ocr` and for redaction. The published image reads Word, Excel,
 PowerPoint and PDFs that have a text layer, and refuses scans. Two more readers
-are available; both are images you build on the host (the published release does
-not carry them), and the default is untouched.
+are available; both are images you build on the host for now (the published
+release does not carry them yet; the Docling one may be published later), and the
+default is untouched.
 
 | `./configure --extractor` | Reads | Build | Weights' licences |
 |---|---|---|---|
 | `markitdown` (default) | text PDFs, Word, Excel, PowerPoint, old `.doc`/`.xls` | none | none |
 | `markitdown+ocr` | the above, plus scanned PDF pages and PNG/JPEG pictures, by RapidOCR (Italian and English) | `dev/build.sh --ocr` (about 1.5 GB image) | Apache-2.0 throughout |
-| `docling` | PDFs with layout, reading order and tables kept as Markdown tables, scans by RapidOCR; Word, PowerPoint and Excel through Docling, with markitdown and antiword as fallbacks | `dev/build.sh --docling` (about 3.9 GB image) | Apache-2.0, except the table-structure model: CDLA-Permissive-2.0, which is not OSI-approved. The build prints a notice; read it, and do not publish the image |
+| `docling` | PDFs with layout, reading order and tables kept as Markdown tables, scans by RapidOCR; Word, PowerPoint and Excel through Docling, with markitdown and antiword as fallbacks | `dev/build.sh --docling` (about 3.9 GB image) | Apache-2.0, except the table-structure model: CDLA-Permissive-2.0 (permissive and redistributable, not OSI-approved). The build prints the licences; the image carries a `NOTICE.md` and the agreement's text |
 
 ```sh
 dev/build.sh --pystino-ref <ref with the extractor variants> --docling   # the image only: nothing else is built or changed

@@ -6,8 +6,8 @@
 #   dev/build.sh --ner                 also the NER redaction image (never published)
 #   dev/build.sh --ner --ner-models "it_core_news_md" --redaction-only
 #                                      only the NER redaction image, with other models
-#   dev/build.sh --docling             only the Docling extractor image (never published)
-#   dev/build.sh --ocr                 only the OCR extractor image (never published)
+#   dev/build.sh --docling             only the Docling extractor image (built locally)
+#   dev/build.sh --ocr                 only the OCR extractor image (built locally)
 #   dev/build.sh --dry-run ...         print what would be built and written, then stop
 #   dev/build.sh --reset               drop the overrides: back to the pinned images
 #
@@ -25,10 +25,11 @@
 # --docling  builds only the Docling document-reader image
 #   (pystino-redaction:<sha>-docling: layout, tables, RapidOCR; about 4 GB), from
 #   the Pystino ref compose.yaml pins, and writes only EXTRACTOR_IMAGE to .env.
-#   The build prints a licence notice: the table-structure weights are
-#   CDLA-Permissive-2.0, which is not OSI-approved, so the image is never
-#   published; read it. It is a separate image from the NER redaction one (the
-#   extractor needs no spaCy, and the redaction service no torch), so
+#   The build prints the weights' licences: the table-structure model is under
+#   CDLA-Permissive-2.0 (permissive, redistributable), and the image carries
+#   its text and a NOTICE.md. Built locally for now; it may be published later.
+#   It is a separate image from the NER redaction one (the extractor needs no
+#   spaCy, and the redaction service no torch), so
 #   `--docling --ner` builds both and writes both lines. Then
 #   `./configure --extractor docling` switches the engine on.
 # --ocr  the same for the OCR variant (RapidOCR for scans; all Apache-2.0).
@@ -133,7 +134,7 @@ only=0
 if [ "$dry_run" = 1 ]; then
   say "dry run: Pystino ref $pystino_ref, Cerea ref $cerea_ref"
   say "would build: gateway=$build_gateway redaction-pattern=$([ "$only" = 1 ] && echo 0 || echo "$build_redaction") ner=$ner docling=$docling ocr=$ocr cerea=$build_cerea documents=$build_documents"
-  [ "$docling" = 1 ] && say "would write EXTRACTOR_IMAGE=local/pystino-redaction:<sha>-docling into .env$([ "$ner" = 1 ] && echo " and REDACTION_IMAGE" || echo " and nothing else") (licence notice at build: CDLA-Permissive-2.0 table weights, never published)"
+  [ "$docling" = 1 ] && say "would write EXTRACTOR_IMAGE=local/pystino-redaction:<sha>-docling into .env$([ "$ner" = 1 ] && echo " and REDACTION_IMAGE" || echo " and nothing else") (weights licences printed at build)"
   [ "$ocr" = 1 ] && say "would write EXTRACTOR_IMAGE=local/pystino-redaction:<sha>-ocr into .env$([ "$ner" = 1 ] && echo " and REDACTION_IMAGE" || echo " and nothing else")"
   [ "$ner" = 1 ] && say "NER models: $ner_models"
   [ "$redaction_only" = 1 ] && say "would write only REDACTION_IMAGE=local/pystino-redaction:<sha>-ner into .env"
@@ -228,22 +229,22 @@ fi
 # which needs no torch (and the reader no spaCy). Built with no spaCy models.
 if [ "$ocr" = 1 ]; then
   ensure "local/pystino-redaction:$p_tag-ocr" "$p_sha" \
-    --build-arg SPACY_MODELS= --build-arg EXTRACTOR=ocr -f "$SRC/pystino/services/redaction/Dockerfile" "$SRC/pystino"
+    --build-arg SPACY_MODELS= --build-arg EXTRACTOR=ocr \
+    --build-arg WEIGHTS_LICENCES="Apache-2.0" -f "$SRC/pystino/services/redaction/Dockerfile" "$SRC/pystino"
 fi
 if [ "$docling" = 1 ]; then
   cat >&2 <<'NOTICE'
 
-  LICENCE NOTICE: the Docling image's model weights
+  The Docling image includes model weights under these licences:
     layout (docling-layout-heron) and RapidOCR / PP-OCRv6 ... Apache-2.0
-    table structure (docling-models, TableFormer) ... the pinned model card says
-      "CDLA-Permissive-2.0 OR Apache-2.0"; the revision Docling itself pins says
-      CDLA-Permissive-2.0 alone. CDLA-Permissive-2.0 is permissive but is not an
-      OSI-approved licence. Building this image means you accept that; never
-      publish it. See Pystino docs/extractor-engines.md.
+    table structure (docling-models, TableFormer) ... CDLA-Permissive-2.0
+      (permissive; its text and a NOTICE.md travel in the image)
+  See Pystino docs/extractor-engines.md.
 
 NOTICE
   ensure "local/pystino-redaction:$p_tag-docling" "$p_sha" \
-    --build-arg SPACY_MODELS= --build-arg EXTRACTOR=docling -f "$SRC/pystino/services/redaction/Dockerfile" "$SRC/pystino"
+    --build-arg SPACY_MODELS= --build-arg EXTRACTOR=docling \
+    --build-arg WEIGHTS_LICENCES="Apache-2.0; CDLA-Permissive-2.0 (TableFormer)" -f "$SRC/pystino/services/redaction/Dockerfile" "$SRC/pystino"
 fi
 
 env_items=()
