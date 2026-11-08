@@ -10,6 +10,7 @@
  */
 import { gateway, GatewayCallFailed } from "$lib/server/gatewayServer";
 import { logger } from "$lib/server/logger";
+import { applyPrefix } from "$lib/embeddingPrefix";
 
 export interface Embedding {
 	index: number;
@@ -24,18 +25,24 @@ export interface Embedding {
  * base has one: a model at its native width needs no parameter, and one
  * without MRL refuses it — which is the honest answer, landing on the
  * document row rather than being absorbed here.
+ *
+ * `prefix` is the model's instruction prefix (passage prefix for indexed
+ * text, query prefix for a search input). It is added here, the one place
+ * text goes to the route, and nowhere else: what is stored and shown never
+ * carries it.
  */
 export async function embed(
 	token: string,
 	model: string,
 	texts: string[],
-	dimensions?: number
+	dimensions?: number,
+	prefix?: string
 ): Promise<number[][]> {
 	if (texts.length === 0) return [];
 	try {
 		const answer = await gateway.post<{ data: Embedding[] }>(token, "embeddings", {
 			model,
-			input: texts,
+			input: prefix ? texts.map((text) => applyPrefix(prefix, text)) : texts,
 			...(dimensions === undefined ? {} : { dimensions }),
 		});
 		const byIndex = new Map(answer.data.map((row) => [row.index, row.embedding]));

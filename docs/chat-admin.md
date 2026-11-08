@@ -44,6 +44,27 @@ it was indexed with. So the screen shows which bases are now on an older model
 and would be re-embedded, and **Reindex** sits beside that tag rather than on a
 page of its own. See [Knowledge and projects](knowledge.md).
 
+### Embedding prefixes
+
+Under the embedding model, **Query prefix** and **Passage prefix** are optional
+text added before each search query and before each passage sent to be indexed.
+Both are empty by default, and then nothing changes. Some models are trained
+with these prefixes. Without them they still work (e5 does) but are less
+accurate. **Use the prefixes this model expects** fills the fields for a model
+whose id it recognises, and never applies them on its own:
+
+| Model                   | Query prefix                                                | Passage prefix      |
+| ----------------------- | ----------------------------------------------------------- | ------------------- |
+| e5                      | `query: `                                                   | `passage: `         |
+| bge v1.5 (`bge-*-v1.5`) | `Represent this sentence for searching relevant passages: ` | none                |
+| nomic-embed             | `search_query: `                                            | `search_document: ` |
+
+Each is at most 200 characters, with no control characters. The prefix goes only
+to the embedding model: it is not stored in passages and never appears in
+citations. Changing the **passage prefix** makes existing vectors stale, as a
+model change does: the base is tagged **older prefix** and **Reindex** brings it
+up to date. Changing the **query prefix** needs no reindex.
+
 **Web search** lists the backends the gateway offers you (`kind: search`,
 bounded by your own grants) and stores the choice in the chat's own database,
 like the document reader. With none offered it says so: add one in the gateway

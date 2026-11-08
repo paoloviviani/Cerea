@@ -21,6 +21,7 @@ import { isMrlModel, tooWideMessage, truncateRenormalise } from "./mrl";
 import { fromUuid } from "./db";
 import { deleteDerived } from "./deleteDerived";
 import { embed } from "./embed";
+import { passagePrefixChanged, prefixFor } from "$lib/embeddingPrefix";
 import { memoryBaseOwner, memoryBaseOwners, type MemoryBaseOwner } from "./memoryBases";
 import {
 	resolveExtractor,
@@ -44,6 +45,8 @@ export class KnowledgeError extends Error {
 const DEFAULT_CONFIG: Omit<KnowledgeConfig, "_id" | "createdAt" | "updatedAt"> = {
 	enabled: false,
 	embeddingModel: null,
+	passagePrefix: "",
+	queryPrefix: "",
 	chunkChars: 1200,
 	chunkOverlap: 150,
 };
@@ -86,6 +89,8 @@ export async function writeConfig(
 	const changed =
 		saved.enabled !== current.enabled ||
 		saved.embeddingModel !== current.embeddingModel ||
+		(saved.passagePrefix ?? "") !== (current.passagePrefix ?? "") ||
+		(saved.queryPrefix ?? "") !== (current.queryPrefix ?? "") ||
 		saved.extractorModel !== current.extractorModel ||
 		saved.chunkChars !== current.chunkChars ||
 		saved.chunkOverlap !== current.chunkOverlap;
@@ -94,6 +99,8 @@ export async function writeConfig(
 		// this as the audit trail of decisions, and a no-op save is not one.
 		await collections.knowledgeConfigHistory.insertOne({
 			embeddingModel: saved.embeddingModel ?? null,
+			passagePrefix: saved.passagePrefix ?? "",
+			queryPrefix: saved.queryPrefix ?? "",
 			extractorModel: saved.extractorModel ?? null,
 			chunkChars: saved.chunkChars,
 			chunkOverlap: saved.chunkOverlap,
@@ -364,6 +371,8 @@ export async function adminStatus(token: string | undefined): Promise<{
 	enabled: boolean;
 	ready: boolean;
 	embedding_model: string | null;
+	passage_prefix: string;
+	query_prefix: string;
 	extractor_model: string | null;
 	/** Why `extractor_model` is what it is: `"env"` and the picker is fixed
 	 * and read-only; `"stored"` an administrator's own choice; the other two
@@ -390,6 +399,8 @@ export async function adminStatus(token: string | undefined): Promise<{
 		chunk_count: number;
 		failed_count: number;
 		stale: boolean;
+		/** Stale because of the passage prefix alone (the model matches). */
+		prefix_stale: boolean;
 		/** The project whose chat memory this base is, if it is one. */
 		memory_of: { project_id: string; project_name: string } | null;
 		share_count: number;
@@ -399,6 +410,8 @@ export async function adminStatus(token: string | undefined): Promise<{
 	history: {
 		id: string;
 		embedding_model: string | null;
+		passage_prefix: string;
+		query_prefix: string;
 		extractor_model: string | null;
 		chunk_chars: number;
 		chunk_overlap: number;
@@ -481,8 +494,9 @@ export async function adminStatus(token: string | undefined): Promise<{
 		// A base with nothing indexed is not stale: it has no vectors to be
 		// comparable with the current model, and calling it stale would send
 		// somebody to re-embed an empty base.
-		const stale =
-			base.dimensions !== null && (base.embeddingModel || null) !== pipeline.embeddingModel;
+		const modelStale = (base.embeddingModel || null) !== pipeline.embeddingModel;
+		const prefixStale = passagePrefixChanged(base.passagePrefix, pipeline.passagePrefix);
+		const stale = base.dimensions !== null && (modelStale || prefixStale);
 		return {
 			id: base._id.toString(),
 			name: base.name,
@@ -495,6 +509,7 @@ export async function adminStatus(token: string | undefined): Promise<{
 			chunk_count: row?.chunks ?? 0,
 			failed_count: row?.failed ?? 0,
 			stale,
+			prefix_stale: stale && !modelStale,
 			memory_of: memoryOf
 				? { project_id: memoryOf.projectId, project_name: memoryOf.projectName }
 				: null,
@@ -508,6 +523,8 @@ export async function adminStatus(token: string | undefined): Promise<{
 	).map((entry) => ({
 		id: (entry._id ?? new ObjectId()).toString(),
 		embedding_model: entry.embeddingModel ?? null,
+		passage_prefix: entry.passagePrefix ?? "",
+		query_prefix: entry.queryPrefix ?? "",
 		extractor_model: entry.extractorModel ?? null,
 		chunk_chars: entry.chunkChars,
 		chunk_overlap: entry.chunkOverlap,
@@ -520,6 +537,8 @@ export async function adminStatus(token: string | undefined): Promise<{
 		enabled: true,
 		ready: configReady(pipeline) && !detail,
 		embedding_model: pipeline.embeddingModel,
+		passage_prefix: pipeline.passagePrefix ?? "",
+		query_prefix: pipeline.queryPrefix ?? "",
 		// What extraction will actually use — env, then the stored choice, then
 		// this deployment's own local extractor, then the first reader, then
 		// none (`resolveExtractor`) — so the screen never shows a reader that
@@ -571,6 +590,8 @@ export async function createStore(
 		description: body.description?.slice(0, 2000),
 		ownerId: caller.userId,
 		embeddingModel: config.embeddingModel ?? "",
+		passagePrefix: config.passagePrefix ?? "",
+		queryPrefix: config.queryPrefix ?? "",
 		dimensions: null,
 		chunkChars: config.chunkChars,
 		chunkOverlap: config.chunkOverlap,
@@ -592,7 +613,12 @@ export async function deleteStore(storeId: string, caller: Caller): Promise<void
 
 // -- ingestion ---------------------------------------------------------------
 
-async function embedChunks(token: string, base: VectorStore, texts: string[]): Promise<number[][]> {
+async function embedChunks(
+	token: string,
+	base: VectorStore,
+	texts: string[],
+	kind: "passage" | "query" = "passage"
+): Promise<number[][]> {
 	const model = base.embeddingModel;
 	if (!model) {
 		throw new KnowledgeError(400, "This base has no embedding model configured.");
@@ -600,9 +626,13 @@ async function embedChunks(token: string, base: VectorStore, texts: string[]): P
 	// Batched: one call per document, in slices the gateway will accept. A base
 	// that has indexed before knows its width — every embed for it asks for
 	// exactly that, so a query vector and the stored ones are comparable.
+	const prefix =
+		kind === "passage" ? (base.passagePrefix ?? "") : prefixFor(kind, base, await readConfig());
 	const out: number[][] = [];
 	for (let i = 0; i < texts.length; i += 32) {
-		out.push(...(await embed(token, model, texts.slice(i, i + 32), base.dimensions ?? undefined)));
+		out.push(
+			...(await embed(token, model, texts.slice(i, i + 32), base.dimensions ?? undefined, prefix))
+		);
 	}
 	// A provider that ignores `dimensions` answers at the native width. For a
 	// known MRL model the vector is cut and renormalised here, so documents and
@@ -1379,7 +1409,7 @@ export async function search(
 	// credential, and a search charged to whoever asks is visible in the
 	// ledger and cannot be a hidden cost on a shared base's owner.
 	try {
-		const [vector] = await embedChunks(token, base, [body.query]);
+		const [vector] = await embedChunks(token, base, [body.query], "query");
 		const dims = base.dimensions;
 		// A provider that ignores `dimensions`, for a model that is not a known
 		// MRL one, answers at its native width, which is not the base's
@@ -1474,6 +1504,8 @@ export async function reindex(
 		{
 			$set: {
 				embeddingModel: config.embeddingModel ?? "",
+				passagePrefix: config.passagePrefix ?? "",
+				queryPrefix: config.queryPrefix ?? "",
 				dimensions: null,
 				updatedAt: new Date(),
 			},
