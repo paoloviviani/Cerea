@@ -75,7 +75,10 @@ class ProfileImagesTest(unittest.TestCase):
 
     def test_documents_needs_the_redaction_image(self):
         m = self.mapping()
-        self.assertIn(("documents", "redaction-image"), m)
+        # The document reader's image defaults to the redaction one, so the
+        # documents profile still needs it built when nothing says otherwise.
+        self.assertIn(("documents", "extractor-image"), m)
+        self.assertIn(("redaction", "extractor-image"), m)
         self.assertIn(("redaction", "redaction-image"), m)
         self.assertIn(("chat", "cerea-image"), m)
         self.assertIn(("chat", "documents-image"), m)
@@ -92,7 +95,7 @@ class ProfileImagesTest(unittest.TestCase):
             'profiles=gateway,chat,documents; all=0; '
             'wants() { [ "$all" = 1 ] || [ -z "$profiles" ] || [[ ",$profiles," == *",$1,"* ]]; }; '
             'r=0; while read -r prof a; do wants "$prof" || continue; '
-            f'[ "$a" = redaction-image ] && r=1; done < <(profile_images "{KIT / "compose.yaml"}"); echo $r'
+            f'[ "$a" = extractor-image ] && r=1; done < <(profile_images "{KIT / "compose.yaml"}"); echo $r'
         )
         self.assertEqual(p.stdout.strip(), "1")
 
@@ -119,6 +122,40 @@ class BuildScriptArgsTest(unittest.TestCase):
     def test_models_without_ner_are_refused(self):
         p = self.plan("--ner-models", "it_core_news_md")
         self.assertNotEqual(p.returncode, 0)
+
+    def test_docling_builds_only_its_image_and_writes_only_the_extractor_line(self):
+        p = self.plan("--docling")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        for planned in ("gateway=0", "redaction-pattern=0", "ner=0", "docling=1", "cerea=0", "documents=0"):
+            self.assertIn(planned, p.stdout)
+        self.assertIn("EXTRACTOR_IMAGE=local/pystino-redaction:<sha>-docling", p.stdout)
+        self.assertIn("and nothing else", p.stdout)
+        self.assertNotIn("REDACTION_IMAGE", p.stdout.replace("EXTRACTOR_IMAGE", ""))
+
+    def test_docling_composes_with_ner_as_two_separate_images(self):
+        p = self.plan("--docling", "--ner")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("ner=1", p.stdout)
+        self.assertIn("docling=1", p.stdout)
+        self.assertIn("gateway=0", p.stdout)
+        self.assertIn("EXTRACTOR_IMAGE=local/pystino-redaction:<sha>-docling into .env and REDACTION_IMAGE", p.stdout)
+
+    def test_ocr_is_the_same_shape(self):
+        p = self.plan("--ocr")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("ocr=1", p.stdout)
+        self.assertIn("gateway=0", p.stdout)
+        self.assertIn("EXTRACTOR_IMAGE=local/pystino-redaction:<sha>-ocr", p.stdout)
+
+    def test_a_plain_build_does_not_build_the_variants(self):
+        p = self.plan()
+        self.assertIn("docling=0 ocr=0", p.stdout)
+        self.assertNotIn("EXTRACTOR_IMAGE", p.stdout)
+
+    def test_the_extractor_service_takes_the_extractor_image_anchor(self):
+        compose = (KIT / "compose.yaml").read_text()
+        self.assertIn("&extractor-image ${EXTRACTOR_IMAGE:-${REDACTION_IMAGE:-", compose)
+        self.assertIn(("documents", "extractor-image"), ProfileImagesTest.mapping(None))
 
 
 if __name__ == "__main__":

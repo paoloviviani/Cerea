@@ -5,6 +5,10 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **A better document reader, optional.** `./configure --extractor markitdown|markitdown+ocr|docling` selects the local document reader. `markitdown+ocr` reads scanned PDF pages and pictures with RapidOCR (all weights Apache-2.0); `docling` adds layout, reading order and tables kept as Markdown (its table-structure weights are under CDLA-Permissive-2.0, permissive and redistributable; the image carries a NOTICE.md and the agreement's text, and is built locally for now). `dev/build.sh --ocr` / `--docling` build only that image from the pinned Pystino ref and write only `EXTRACTOR_IMAGE`; they compose with `--ner` as separate images. The `extractor` service takes its own `EXTRACTOR_IMAGE` (default: the redaction image, so nothing changes), `EXTRACTOR_*` engine settings and `EXTRACTOR_MEM_LIMIT`; `markitdown+ocr` suggests a 2 GB cap and `docling` 4 GB with a longer gateway wait; `./configure --check` judges the image by its `dev.pystino.extractor-variant` label (so a mirror need not be tagged `-docling`). The variants need a Pystino release that carries them: `dev/build.sh` refuses the currently pinned 0.31.0 and takes `--pystino-ref`.
+
 ## v0.47.0 — 2026-11-08
 
 Pins: Cerea `0.47.0` (chat and `cerea-documents`), Pystino `0.31.0`.

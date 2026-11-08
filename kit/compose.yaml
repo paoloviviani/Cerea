@@ -27,6 +27,11 @@ name: ${COMPOSE_PROJECT_NAME:-cerea}
 # overrides them only for local builds (dev/build.sh) or a private registry.
 x-gateway-image: &gateway-image ${GATEWAY_IMAGE:-${PYSTINO_REGISTRY:-ghcr.io/paoloviviani}/pystino-gateway:${PYSTINO_VERSION:-0.31.0}}
 x-redaction-image: &redaction-image ${REDACTION_IMAGE:-${PYSTINO_REGISTRY:-ghcr.io/paoloviviani}/pystino-redaction:${PYSTINO_VERSION:-0.31.0}-pattern}
+# The document reader's image. Defaults to the redaction image, so a deployment
+# changes nothing; ./configure --extractor sets it to a locally built variant
+# (-ocr: scans read with RapidOCR; -docling: layout and tables too), which the
+# redaction service has no use for and so does not share.
+x-extractor-image: &extractor-image ${EXTRACTOR_IMAGE:-${REDACTION_IMAGE:-${PYSTINO_REGISTRY:-ghcr.io/paoloviviani}/pystino-redaction:${PYSTINO_VERSION:-0.31.0}-pattern}}
 x-cerea-image: &cerea-image ${CEREA_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea:${CEREA_VERSION:-0.47.0}}
 x-documents-image: &documents-image ${DOCUMENTS_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea-documents:${CEREA_VERSION:-0.47.0}}
 
@@ -216,6 +221,7 @@ services:
       GATEWAY_REDACTION__LANGUAGE: ${REDACTION_LANGUAGE:-en}
       GATEWAY_REDACTION__FAIL_OPEN: "false"
       GATEWAY_EXTRACTOR__ENDPOINT: ${GATEWAY_EXTRACTOR__ENDPOINT:-}
+      GATEWAY_EXTRACTOR__TIMEOUT_SECONDS: ${GATEWAY_EXTRACTOR__TIMEOUT_SECONDS:-180}
       GATEWAY_TRANSCRIPT_RETENTION_HOURS: ${GATEWAY_TRANSCRIPT_RETENTION_HOURS:-24}
       # Identity: OIDC only. The env seeds the first provider row;
       # after that the console owns it. INTERNAL_BASE_URL is the back-channel:
@@ -654,15 +660,24 @@ services:
       retries: 5
       start_period: 180s
 
-  # The local document reader (markitdown, antiword, page images). Its own
-  # profile so a deployment without redaction still reads Office files; the
-  # redaction profile brings it too.
+  # The local document reader (markitdown, antiword, page images; with a
+  # variant image, RapidOCR and Docling). Its own profile so a deployment
+  # without redaction still reads Office files; the redaction profile brings it
+  # too. EXTRACTOR_* are unset by default and then the image's own defaults
+  # apply (docs: Pystino docs/extractor-engines.md). EXTRACTOR_MEM_LIMIT is a
+  # hard cap (0 = none); ./configure --extractor docling sets 4g.
   extractor:
     profiles: [documents, redaction]
-    image: *redaction-image
+    image: *extractor-image
     restart: unless-stopped
+    mem_limit: ${EXTRACTOR_MEM_LIMIT:-0}
     environment:
       REDACTION_NLP_ENGINE: disabled
+      EXTRACTOR_ENGINE: ${EXTRACTOR_ENGINE:-}
+      EXTRACTOR_OCR: ${EXTRACTOR_OCR:-}
+      EXTRACTOR_THREADS: ${EXTRACTOR_THREADS:-}
+      EXTRACTOR_MAX_PAGES: ${EXTRACTOR_MAX_PAGES:-}
+      EXTRACTOR_TIMEOUT_SECONDS: ${EXTRACTOR_TIMEOUT_SECONDS:-}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=4).status == 200 else 1)"]
       interval: 10s
