@@ -198,6 +198,11 @@
 	});
 
 	onMount(async () => {
+		// The page is interactive: every component has mounted and its handlers are
+		// attached. Until now the server-rendered HTML is visible but a click on it
+		// is lost. `load` does not say so (nothing delays it once no image is in the
+		// shell), so the e2e fixtures wait for this attribute after a navigation.
+		document.documentElement.dataset.hydrated = "true";
 		// A lazily loaded chunk that 404s after a deploy: reload the page once.
 		const stopChunkWatch = watchChunkErrors();
 		// A tab or PWA that slept (or lost the network) re-reads what the
