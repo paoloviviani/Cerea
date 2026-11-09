@@ -124,21 +124,15 @@ describe("ChatIntroduction", () => {
 		});
 	});
 
-	it("shows the ridge mark through two theme variants, sized by height", async () => {
-		// The mark is 402×120 — a square box would stretch it. Each variant
-		// must be height-constrained with a free width, and the dark variant
-		// must arrive WITHOUT an invert filter (invert would land it at
-		// #e1e1e1, not the white it was drawn in).
+	it("shows the filled ridge mark, sized by height with a free width", async () => {
+		// The mark is ~3:1 — a square box would stretch it. One svg whose
+		// theme colours come from the .dark tokens, height-constrained.
 		const screen = renderWithApp(ChatIntroduction, { currentModel: model });
-		const imgs = screen.baseElement.querySelectorAll('img[alt$=" logo"], img[alt=""]');
-		expect(imgs).toHaveLength(2);
-		const classes = Array.from(imgs).map((img) => img.getAttribute("class") ?? "");
-		expect(classes.some((c) => c.includes("dark:hidden"))).toBe(true);
-		expect(classes.some((c) => c.includes("hidden") && c.includes("dark:block"))).toBe(true);
-		for (const c of classes) {
-			expect(c).not.toContain("invert");
-			expect(c).toContain("w-auto");
-		}
+		const marks = screen.baseElement.querySelectorAll("svg.ridge-mark");
+		expect(marks).toHaveLength(1);
+		const c = marks[0].getAttribute("class") ?? "";
+		expect(c).toContain("w-auto");
+		expect(c).not.toContain("invert");
 	});
 
 	it("adds a plain line under the greeting, by first name when known", async () => {
