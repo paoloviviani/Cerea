@@ -63,6 +63,8 @@ const INTERNAL = [
 	/^vector_stores\/[0-9a-f-]{24}\/files\/[0-9a-f-]{24}\/download$/,
 	// Index one failed document again (owner or editor, like an upload).
 	/^vector_stores\/[0-9a-f-]{24}\/files\/[0-9a-f-]{24}\/retry$/,
+	// Read one file document again with a chosen reader (owner or editor).
+	/^vector_stores\/[0-9a-f-]{24}\/files\/[0-9a-f-]{24}\/reread$/,
 	/^files$/,
 	/^files\/[0-9a-f-]{24}$/,
 ];
@@ -181,6 +183,17 @@ async function handleInternal(
 				const base = await service.reachableStore(storeMatch[1], caller);
 				return json(await service.storeObject(base, caller));
 			}
+			if (method === "POST") {
+				// `{ reader_model }`: the base's document reader (`""` for the
+				// deployment's default), applied to uploads from now on.
+				const body = (await event.request.json().catch(() => null)) as {
+					reader_model?: string | null;
+				} | null;
+				if (!body || !("reader_model" in body)) error(400, "Nothing to change.");
+				return json(
+					await service.updateStoreReader(storeMatch[1], caller, bearer, body.reader_model)
+				);
+			}
 			if (method === "DELETE") {
 				await service.deleteStore(storeMatch[1], caller);
 				return json({ id: storeMatch[1], object: "vector_store.deleted", deleted: true });
@@ -240,6 +253,24 @@ async function handleInternal(
 		const retryMatch = /^vector_stores\/([0-9a-f-]{24})\/files\/([0-9a-f-]{24})\/retry$/.exec(path);
 		if (retryMatch && method === "POST") {
 			return json(await service.retryDocument(retryMatch[1], retryMatch[2], caller, bearer));
+		}
+
+		const rereadMatch = /^vector_stores\/([0-9a-f-]{24})\/files\/([0-9a-f-]{24})\/reread$/.exec(
+			path
+		);
+		if (rereadMatch && method === "POST") {
+			const body = (await event.request.json().catch(() => null)) as {
+				reader_model?: string | null;
+			} | null;
+			return json(
+				await service.rereadDocument(
+					rereadMatch[1],
+					rereadMatch[2],
+					caller,
+					bearer,
+					body?.reader_model
+				)
+			);
 		}
 
 		const contentMatch = /^vector_stores\/([0-9a-f-]{24})\/files\/([0-9a-f-]{24})\/content$/.exec(

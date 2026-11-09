@@ -1126,3 +1126,110 @@ describe("the document reader's deadline", () => {
 		warn.mockRestore();
 	});
 });
+
+describe("a chosen reader (a user's default, or a knowledge base's)", () => {
+	const WITH_ENGINES = {
+		data: [
+			{ id: "mistral-ocr-4.1", kind: "ocr" },
+			{ id: "markitdown", kind: "ocr", local: true },
+			{ id: "docling", kind: "ocr", local: true },
+			{ id: "gpt-4o", kind: "chat" },
+		],
+	};
+
+	it("reads a PDF with the chosen model instead of the deployment's default", async () => {
+		readConfigMock.mockResolvedValue({ extractorModel: "markitdown" });
+		gatewayGetMock.mockResolvedValue(WITH_ENGINES);
+		gatewayPostMock.mockResolvedValue(OCR_OK);
+
+		const answer = await extractDocument({
+			bytes: BYTES,
+			mime: "application/pdf",
+			filename: "a.pdf",
+			token: "t",
+			readerModel: "mistral-ocr-4.1",
+		});
+
+		expect(answer.ok).toBe(true);
+		expect(gatewayPostMock.mock.calls[0][2]).toMatchObject({ model: "mistral-ocr-4.1" });
+	});
+
+	it("a chosen reader beats the CHAT_OCR_MODEL default too", async () => {
+		setEnvModel("markitdown");
+		gatewayGetMock.mockResolvedValue(WITH_ENGINES);
+		gatewayPostMock.mockResolvedValue(OCR_OK);
+
+		await extractDocument({
+			bytes: BYTES,
+			mime: "application/pdf",
+			filename: "a.pdf",
+			token: "t",
+			readerModel: "docling",
+		});
+
+		expect(gatewayPostMock.mock.calls[0][2]).toMatchObject({ model: "docling" });
+	});
+
+	it("without a choice the deployment's default still reads", async () => {
+		readConfigMock.mockResolvedValue({ extractorModel: "markitdown" });
+		gatewayGetMock.mockResolvedValue(WITH_ENGINES);
+		gatewayPostMock.mockResolvedValue(OCR_OK);
+
+		await extractDocument({
+			bytes: BYTES,
+			mime: "application/pdf",
+			filename: "a.pdf",
+			token: "t",
+			readerModel: null,
+		});
+
+		expect(gatewayPostMock.mock.calls[0][2]).toMatchObject({ model: "markitdown" });
+	});
+
+	it("a reader this user may not use falls back to the default, and says so in the log", async () => {
+		readConfigMock.mockResolvedValue({ extractorModel: "markitdown" });
+		gatewayGetMock.mockResolvedValue(WITH_ENGINES);
+		gatewayPostMock.mockResolvedValue(OCR_OK);
+		const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined as never);
+
+		const answer = await extractDocument({
+			bytes: BYTES,
+			mime: "application/pdf",
+			filename: "a.pdf",
+			token: "t",
+			readerModel: "revoked-ocr",
+		});
+
+		expect(answer.ok).toBe(true);
+		expect(gatewayPostMock.mock.calls[0][2]).toMatchObject({ model: "markitdown" });
+		expect(
+			warn.mock.calls.some((call) => String(call[1]).startsWith("document_reader_fallback"))
+		).toBe(true);
+		warn.mockRestore();
+	});
+
+	it("an Office file goes to the chosen reader when it is local, else the local default", async () => {
+		gatewayGetMock.mockResolvedValue(WITH_ENGINES);
+		gatewayPostMock.mockResolvedValue(OCR_OK);
+
+		await extractDocument({
+			bytes: BYTES,
+			mime: DOCX,
+			filename: "m.docx",
+			token: "t",
+			readerModel: "docling",
+		});
+		expect(gatewayPostMock.mock.calls[0][2]).toMatchObject({ model: "docling" });
+
+		gatewayPostMock.mockClear();
+		await extractDocument({
+			bytes: BYTES,
+			mime: DOCX,
+			filename: "m.docx",
+			token: "t",
+			readerModel: "mistral-ocr-4.1",
+		});
+		// An upstream OCR model is for page images: never sent a Word file.
+		expect(gatewayPostMock.mock.calls[0][2]).toMatchObject({ model: "markitdown" });
+	});
+});

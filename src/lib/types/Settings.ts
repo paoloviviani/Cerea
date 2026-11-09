@@ -45,6 +45,14 @@ export interface Settings extends Timestamps {
 	artifactsOverrides?: Record<string, boolean>;
 
 	/**
+	 * The user's default document reader for chat uploads: a gateway OCR model
+	 * they may use. Absent follows the deployment's default reader. Set through
+	 * `api/v2/user/document-reader`, which validates it. Knowledge bases carry
+	 * their own (`VectorStore.readerModel`); past chats are never extracted.
+	 */
+	documentReader?: string;
+
+	/**
 	 * Web search through the gateway's own backends (`POST /v1/search`,
 	 * ADR 0058's plan phase 2). On by default for new accounts
 	 * (`DEFAULT_SETTINGS.webSearchEnabled === true`): absent on older

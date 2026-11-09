@@ -88,6 +88,8 @@ export interface VectorStore {
 	embedding_model: string | null;
 	/** The owner chose this model; it does not follow the deployment's default. */
 	embedding_chosen?: boolean;
+	/** The document reader chosen for this base's uploads; null follows the default. */
+	reader_model?: string | null;
 	/** Built with another embedding model or passage prefix than the deployment's now. */
 	stale?: boolean;
 	owned: boolean;
@@ -126,6 +128,10 @@ export interface KnowledgeStatus {
 	embedding_model: string | null;
 	/** The embedding models this user may choose among. */
 	embedding_models?: string[] | null;
+	/** The document readers this user may choose among (the gateway's OCR models). */
+	reader_models?: string[] | null;
+	/** The deployment's default reader, when one resolves. */
+	reader_default?: string | null;
 	max_upload_bytes: number;
 	detail: string | null;
 }

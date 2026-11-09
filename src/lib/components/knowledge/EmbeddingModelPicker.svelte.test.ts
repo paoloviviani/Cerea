@@ -87,4 +87,18 @@ describe("EmbeddingModelPicker", () => {
 		expect(options).toHaveLength(2);
 		await expect.element(page.getByRole("combobox")).toHaveDisplayValue("bge-m3");
 	});
+
+	it("applies a change at once when nothing is indexed yet, with no confirm", async () => {
+		const onconfirm = vi.fn();
+		renderWithApp(EmbeddingModelPicker, {
+			models: ["bge-m3", "e5-large"],
+			defaultModel: "bge-m3",
+			value: "",
+			confirmCount: 0,
+			onconfirm,
+		});
+		await page.getByRole("combobox").selectOptions("e5-large");
+		expect(onconfirm).toHaveBeenCalledExactlyOnceWith("e5-large");
+		expect(page.getByTestId("embedding-confirm").elements()).toHaveLength(0);
+	});
 });

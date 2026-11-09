@@ -7,6 +7,7 @@
  * things a person names; the Postgres chunks carry only what a ranking query
  * reads.
  */
+import { readerModelsFor } from "./readers";
 import { sharingEmailFor } from "$lib/server/identity/sharingEmail";
 import { createHash, randomUUID } from "node:crypto";
 import { ObjectId } from "bson";
@@ -141,6 +142,25 @@ export async function embeddingModelsFor(token: string | undefined): Promise<str
 		logger.warn({ err }, "knowledge_embedding_models_probe_failed");
 		return null;
 	}
+}
+
+/**
+ * A document reader a user asked to save, checked against what they may use.
+ * `""`, null or absent means the deployment's default reader (returned as
+ * null). A name outside their list is a 400, and so is a catalogue that cannot
+ * be read: a name nobody could check would be refused or replaced at use.
+ */
+export async function validateReaderChoice(
+	requested: string | null | undefined,
+	token: string | undefined
+): Promise<string | null> {
+	const name = (requested ?? "").trim();
+	if (!name) return null;
+	const allowed = await readerModelsFor(token);
+	if (!allowed?.some((model) => model.id === name)) {
+		throw new KnowledgeError(400, `“${name}” is not a document reader you can use.`);
+	}
+	return name;
 }
 
 /**
@@ -318,6 +338,8 @@ export async function storeObject(
 	embedding_model: string | null;
 	/** The owner chose this model; it does not follow the deployment's default. */
 	embedding_chosen: boolean;
+	/** The document reader chosen for this base's uploads; null follows the default. */
+	reader_model: string | null;
 	/** Indexed with another model or passage prefix than the deployment uses now. */
 	stale: boolean;
 	owned: boolean;
@@ -342,6 +364,7 @@ export async function storeObject(
 		dimensions: base.dimensions ?? null,
 		embedding_model: base.embeddingModel ?? null,
 		embedding_chosen: base.embeddingChosen === true,
+		reader_model: base.readerModel ?? null,
 		// The admin screen's rule: a base with nothing indexed is not stale.
 		stale:
 			!base.embeddingChosen &&
@@ -390,10 +413,17 @@ export async function statusObject(
 	embedding_model: string | null;
 	/** The embedding models this user may choose among, for the per-base selector. */
 	embedding_models: string[];
+	/** The document readers this user may choose among (the gateway's OCR models). */
+	reader_models: string[];
+	/** The deployment's default reader, what "Default" resolves to; null when none. */
+	reader_default: string | null;
 	max_upload_bytes: number;
 	detail: string | null;
 }> {
 	const config = await readConfig();
+	const readers = await readerModelsFor(token);
+	const { resolveExtractorModel } = await import("$lib/server/files/extractDocument");
+	const readerDefault = token ? await resolveExtractorModel(token).catch(() => null) : null;
 	let detail: string | null = null;
 	const mine = await embeddingModelsFor(token);
 	if (config.embeddingModel && mine && !mine.includes(config.embeddingModel)) {
@@ -410,6 +440,8 @@ export async function statusObject(
 		ready: !detail,
 		embedding_model: config.embeddingModel,
 		embedding_models: mine ?? [],
+		reader_models: (readers ?? []).map((model) => model.id),
+		reader_default: readerDefault,
 		max_upload_bytes: MAX_UPLOAD_BYTES,
 		detail,
 	};
@@ -643,12 +675,19 @@ export async function listStores(
 
 export async function createStore(
 	caller: Caller,
-	body: { name: string; description?: string; embedding_model?: string | null },
+	body: {
+		name: string;
+		description?: string;
+		embedding_model?: string | null;
+		/** The document reader for this base's uploads; "" or absent follows the default. */
+		reader_model?: string | null;
+	},
 	token?: string
 ): Promise<Awaited<ReturnType<typeof storeObject>>> {
 	const config = await readConfig();
 	if (!body.name?.trim()) throw new KnowledgeError(400, "A name is required.");
 	const choice = await resolveChosenModel(body.embedding_model, token, config);
+	const reader = await validateReaderChoice(body.reader_model, token);
 	// The geometry is copied onto the row, not read at ingestion time: a later
 	// change to the deployment's defaults cannot re-chunk half of an existing
 	// base (ADR 0070).
@@ -659,6 +698,7 @@ export async function createStore(
 		ownerId: caller.userId,
 		embeddingModel: choice.model,
 		...(choice.chosen ? { embeddingChosen: true } : {}),
+		...(reader ? { readerModel: reader } : {}),
 		passagePrefix: choice.passagePrefix,
 		queryPrefix: choice.queryPrefix,
 		dimensions: null,
@@ -670,6 +710,30 @@ export async function createStore(
 	};
 	await collections.vectorStores.insertOne(base);
 	return storeObject(base, caller, null);
+}
+
+/**
+ * Change a base's document reader (`""` follows the deployment's default).
+ * Owners and editors, like uploading. It applies to files uploaded from now
+ * on: documents already read are left as they are (`rereadDocument` reads
+ * one again).
+ */
+export async function updateStoreReader(
+	storeId: string,
+	caller: Caller,
+	token: string | undefined,
+	readerModel: string | null | undefined
+): Promise<Awaited<ReturnType<typeof storeObject>>> {
+	const base = await reachableStore(storeId, caller, "editor");
+	const reader = await validateReaderChoice(readerModel, token);
+	await collections.vectorStores.updateOne(
+		{ _id: base._id },
+		reader
+			? { $set: { readerModel: reader, updatedAt: new Date() } }
+			: { $unset: { readerModel: "" }, $set: { updatedAt: new Date() } }
+	);
+	const live = (await collections.vectorStores.findOne({ _id: base._id })) ?? base;
+	return storeObject(live, caller);
 }
 
 export async function deleteStore(storeId: string, caller: Caller): Promise<void> {
@@ -791,7 +855,20 @@ async function upsertChunks(
  */
 export const BACKGROUND_INGEST_CONCURRENCY = 2;
 
-const backgroundQueue: { id: ObjectId; token: string; done?: () => void | Promise<void> }[] = [];
+/** What one queued ingest is asked to do beyond indexing the row's text. */
+export interface IngestOptions {
+	/** Read the stored original again instead of using the text on the row. */
+	reread?: boolean;
+	/** The document reader for this read; absent means the base's own choice. */
+	reader?: string | null;
+}
+
+const backgroundQueue: {
+	id: ObjectId;
+	token: string;
+	done?: () => void | Promise<void>;
+	opts?: IngestOptions;
+}[] = [];
 let backgroundRunning = 0;
 
 async function pumpBackgroundIngest(): Promise<void> {
@@ -800,7 +877,7 @@ async function pumpBackgroundIngest(): Promise<void> {
 		backgroundRunning--;
 		return;
 	}
-	await ingestDocument(next.id, next.token).catch((err: unknown) =>
+	await ingestDocument(next.id, next.token, next.opts).catch((err: unknown) =>
 		logger.warn({ err, document: next.id.toString() }, "knowledge_background_ingest_failed")
 	);
 	// Settled, however it ended: a reindex counts these to release its claim.
@@ -813,9 +890,10 @@ async function pumpBackgroundIngest(): Promise<void> {
 export function startIngest(
 	documentId: ObjectId,
 	token: string,
-	done?: () => void | Promise<void>
+	done?: () => void | Promise<void>,
+	opts?: IngestOptions
 ): void {
-	backgroundQueue.push({ id: documentId, token, done });
+	backgroundQueue.push({ id: documentId, token, done, opts });
 	if (backgroundRunning < BACKGROUND_INGEST_CONCURRENCY) {
 		backgroundRunning++;
 		void pumpBackgroundIngest();
@@ -864,7 +942,8 @@ const currentRow = (document: KnowledgeDocument) =>
  */
 export async function ingestDocument(
 	documentId: ObjectId,
-	token: string
+	token: string,
+	opts: IngestOptions = {}
 ): Promise<KnowledgeDocument> {
 	const document = await collections.knowledgeDocuments.findOne({ _id: documentId });
 	if (!document) throw new KnowledgeError(404, "No such document.");
@@ -878,7 +957,9 @@ export async function ingestDocument(
 	// the caller gets the row either way and the list says what happened.
 	try {
 		let text = document.text;
-		if (text === undefined || text === null) {
+		// A re-read ignores the text on the row and reads the stored original
+		// again, with the reader it was asked for.
+		if (opts.reread || text === undefined || text === null) {
 			if (!document.fileId) {
 				throw new KnowledgeError(400, "The document has no text and no file to read.");
 			}
@@ -913,6 +994,9 @@ export async function ingestDocument(
 					mime,
 					filename: document.filename ?? "document",
 					token,
+					// The reader asked for (a re-read), else the base's own choice;
+					// none means the deployment's default.
+					readerModel: opts.reader ?? base.readerModel ?? null,
 				});
 				// The reason travels verbatim: "no reader configured" and "this is
 				// a scan" are different problems with different fixes, and the row
@@ -1515,6 +1599,58 @@ export async function retryDocument(
 		);
 		if (claimed.modifiedCount === 1) startIngest(document._id, token);
 	}
+	const current = await collections.knowledgeDocuments.findOne({ _id: document._id });
+	return documentObject(current ?? document, null);
+}
+
+/**
+ * Read one file document again with a chosen reader, then re-embed it.
+ *
+ * The stored original (the GridFS `fileId`) is extracted afresh and the text
+ * on the row replaced; the work runs on the background ingest queue behind the
+ * response, and the row's status is the progress record. Owners and editors,
+ * like uploading. Claimed like a retry (`ready` or `failed` becomes
+ * `pending`, once), so two quick clicks pay once and a document already being
+ * indexed is a 409. A base moved to another embedding model while it runs
+ * drops this write as any ingest does (the generation check).
+ *
+ * Refused for a document with no stored file (pasted text, a past chat) and
+ * for a stored file that is plain text: nothing there is extracted.
+ */
+export async function rereadDocument(
+	storeId: string,
+	documentId: string,
+	caller: Caller,
+	token: string,
+	readerModel: string | null | undefined
+): Promise<ReturnType<typeof documentObject>> {
+	const base = await reachableStore(storeId, caller, "editor");
+	if (!/^[0-9a-f]{24}$/.test(documentId)) throw new KnowledgeError(404, "No such document.");
+	const document = await collections.knowledgeDocuments.findOne({
+		_id: new ObjectId(documentId),
+		storeId: base._id,
+	});
+	if (!document) throw new KnowledgeError(404, "No such document.");
+	if (!document.fileId) {
+		throw new KnowledgeError(
+			400,
+			"This document is text without an original file, so there is nothing to read again."
+		);
+	}
+	const { documentMime, isExtractableDocument } = await import("$lib/server/files/extractDocument");
+	const mime = documentMime(await storedFileMime(document.fileId), document.filename ?? "document");
+	if (!isExtractableDocument(mime)) {
+		throw new KnowledgeError(400, "This file is plain text, so there is nothing to read again.");
+	}
+	const reader = await validateReaderChoice(readerModel, token);
+	const claimed = await collections.knowledgeDocuments.updateOne(
+		{ _id: document._id, status: { $in: ["ready", "failed"] } },
+		{ $set: { status: "pending", error: "", updatedAt: new Date() } }
+	);
+	if (claimed.modifiedCount === 0) {
+		throw new KnowledgeError(409, "This document is already being indexed. Wait for it to finish.");
+	}
+	startIngest(document._id, token, undefined, { reread: true, reader });
 	const current = await collections.knowledgeDocuments.findOne({ _id: document._id });
 	return documentObject(current ?? document, null);
 }

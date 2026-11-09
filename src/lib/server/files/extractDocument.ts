@@ -56,6 +56,7 @@ import { config } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
 import { gateway, GatewayCallFailed, GatewayTimeout } from "$lib/server/gatewayServer";
 import { readConfig } from "$lib/server/knowledge/service";
+import { readerModelsFor } from "$lib/server/knowledge/readers";
 import {
 	resolveExtractor,
 	type ExtractorCandidate,
@@ -468,6 +469,30 @@ export async function resolveExtractorModel(token: string): Promise<string | nul
 	}
 }
 
+/**
+ * The reader a user (or a knowledge base) chose, when it is still one this
+ * caller may use. A choice is saved only after validation, but the gateway's
+ * grants move: a reader that has since gone, or that this caller (a member of
+ * a shared base) is not granted, falls back to the deployment's default with
+ * a log line — never silently, never as a failed upload. A direct OCR endpoint
+ * has no catalogue to choose from, so a choice is ignored there.
+ */
+async function chosenReader(
+	token: string,
+	chosen: string | null | undefined
+): Promise<{ id: string; local: boolean } | null> {
+	const name = chosen?.trim();
+	if (!name || directOcrBaseUrl()) return null;
+	const list = await readerModelsFor(token);
+	const found = list?.find((model) => model.id === name);
+	if (found) return found;
+	logger.warn(
+		{ model: name, listed: list !== null },
+		"document_reader_fallback: the chosen reader is not available to this user; using the default reader"
+	);
+	return null;
+}
+
 /** Nothing anywhere to read with — not the document's fault, the deployment's. */
 export const NO_READER_MESSAGE =
 	"No document reader is set up yet, so PDFs and Office files cannot be read. An administrator can pick one on the Knowledge screen.";
@@ -526,6 +551,12 @@ export async function extractDocument(options: {
 	 * knowledge base's text.
 	 */
 	pageImages?: boolean;
+	/**
+	 * The reader this user or knowledge base chose (a gateway OCR model id).
+	 * Absent or null is the deployment's default reader; one the caller may not
+	 * use falls back to it with a log line (`chosenReader`).
+	 */
+	readerModel?: string | null;
 }): Promise<Extraction> {
 	const { bytes, mime, filename, token } = options;
 	if (!token) {
@@ -540,8 +571,11 @@ export async function extractDocument(options: {
 
 	// PDFs and images go to the selected OCR model; every other format goes to
 	// the local reader, whatever is selected, or fails saying there is none.
+	const picked = await chosenReader(token, options.readerModel);
 	if (!isOcrNative(mime)) {
-		const reader = await resolveOfficeReader(token);
+		// An Office file goes to a local reader: the chosen one when it is local
+		// (the built-in extractor's engines), else the deployment's.
+		const reader = picked?.local ? picked.id : await resolveOfficeReader(token);
 		if (!reader) {
 			// A direct endpoint reads PDFs only and says so in its own words.
 			const baseUrl = directOcrBaseUrl();
@@ -564,7 +598,7 @@ export async function extractDocument(options: {
 		return extractViaGateway({ bytes, mime, filename, token, model: reader });
 	}
 
-	const model = await resolveExtractorModel(token);
+	const model = picked?.id ?? (await resolveExtractorModel(token));
 	if (!model) {
 		logger.info(
 			{ filename },

@@ -40,6 +40,12 @@ export interface VectorStore extends Timestamps {
 	/** The query prefix in force when the base was indexed; used for searches
 	 * while the base is still on a model other than the current one. */
 	queryPrefix?: string;
+	/**
+	 * The document reader (a gateway OCR model) this base's uploads are read
+	 * with, as its owner chose. Absent means the deployment's default reader.
+	 * Changing it applies to new uploads only.
+	 */
+	readerModel?: string;
 	/** How wide that model's vectors are; null until the first embedding. */
 	dimensions: number | null;
 	chunkChars: number;

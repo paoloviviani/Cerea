@@ -66,6 +66,8 @@ export interface UploadOptions {
 	 * sent them, now or after a switch.
 	 */
 	pageImages?: boolean;
+	/** The uploader's own default document reader; absent is the deployment's. */
+	readerModel?: string | null;
 }
 
 /**
@@ -187,6 +189,7 @@ export async function writeAttachment(
 			token,
 			// Page images are a chat feature: only there is there a model to read them.
 			pageImages: !tag && options?.pageImages,
+			readerModel: options?.readerModel,
 		});
 		// A failed extraction does not fail the upload — the attachment is stored
 		// without text either way, and carries the reason on its `MessageFile`.

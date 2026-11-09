@@ -48,6 +48,7 @@
 	import DeleteAllConversationsModal from "$lib/components/DeleteAllConversationsModal.svelte";
 	import SegmentedGroup from "$lib/components/settings/SegmentedGroup.svelte";
 	import ScheduleAccessSettings from "$lib/components/settings/ScheduleAccessSettings.svelte";
+	import DocumentReaderSetting from "$lib/components/settings/DocumentReaderSetting.svelte";
 
 	// The pattern is off under these system settings (appearance.css); say so.
 	const patternOff = new MediaQuery(
@@ -454,6 +455,8 @@
 						bind:checked={getShowRedactionValues, setShowRedactionValues}
 					/>
 				</div>
+
+				<DocumentReaderSetting />
 
 				<div class="flex items-start justify-between py-3">
 					<div>

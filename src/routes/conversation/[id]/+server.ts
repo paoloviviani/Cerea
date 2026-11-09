@@ -49,6 +49,7 @@ import { clampStoppedContent } from "$lib/server/stopTruncation";
 import { MetricsServer } from "$lib/server/metrics";
 import { randomUUID } from "$lib/utils/randomUuid";
 import { applyConversationSettings, saveGeneratedTitle } from "$lib/server/conversationSettings";
+import { userDocumentReader } from "$lib/server/files/userReader";
 
 // How long a stop marker is protected from the pre-flight cleanup of a new
 // generation. A marker younger than this may still be awaiting observation by
@@ -299,16 +300,21 @@ export async function POST({ request, locals, params, getClientAddress }) {
 	// gateway at upload, as the person who attached it, so what reads their
 	// document is a model they are allowed to use and the page is billed to
 	// them rather than to the deployment.
+	// The user's own default reader for these uploads (unset: the deployment's).
+	const readerModel =
+		b64Files.length + hashFiles.length > 0 ? await userDocumentReader(locals) : undefined;
 	const uploadedFiles = await Promise.all([
 		Promise.all(
-			b64Files.map((file) => uploadFile(file, conv, locals.token, { pageImages: true }))
+			b64Files.map((file) =>
+				uploadFile(file, conv, locals.token, { pageImages: true, readerModel })
+			)
 		).catch((err) => {
 			// Past its limit once the bytes say what it is (not what was declared).
 			if (err instanceof AttachmentTooLargeError) error(413, err.message);
 			throw err;
 		}),
 		// A file sent back by reference takes what the server recorded for it.
-		resolveHashFiles(hashFiles, conv, locals.token),
+		resolveHashFiles(hashFiles, conv, locals.token, readerModel),
 	]).then(([uploaded, resolved]) => [...uploaded, ...resolved]);
 
 	// we will append tokens to the content of this message

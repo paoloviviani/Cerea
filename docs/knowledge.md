@@ -225,27 +225,50 @@ group (by name).
 | Embeddings       | an embedding model in the gateway's catalogue (`POST /v1/embeddings`), the default is chosen on the Knowledge screen by an administrator; each base can use another the user chooses          |
 | Document reading | the gateway's extraction endpoint (`POST /v1/ocr`). The stack's own extractor runs locally, so documents do not leave the deployment unless an operator configures an external OCR model      |
 
-**Which reader takes which file.** The document reader you choose on the
-Knowledge screen (or fix with `CHAT_OCR_MODEL`) is for **PDFs and images**: an
-upstream OCR model such as Mistral's reads page pictures. Every other format
-(Word, Excel, PowerPoint, OpenDocument, e-books) always goes to this
-deployment's **local reader** (the gateway's model flagged `local`, the
-stack's markitdown), whatever OCR model is selected, and is never sent to an
-OCR model. With no local reader, an Office file fails with "No reader for Word
-documents is configured" rather than being sent somewhere that cannot read it.
+**Who chooses the reader.** The administrator sets only the **default reader**
+(Knowledge screen, or fix a default with `CHAT_OCR_MODEL`). The list of readers
+is the gateway's OCR models you may use, shown as the gateway lists them: the
+built-in extractor's engines and any remote OCR model alike.
 
-If you restrict the reader model to a group, users outside it get refused by
-that model. Leave the reader on automatic, or make sure everyone can use the
-chosen one; otherwise their PDFs fall back to the local reader when there is
-one, and are stored without text when there is not.
+- **Each knowledge base** has a **Read documents with** choice, on the create
+  form and in the base's settings, starting as the default. Changing it applies
+  to files added from then on; documents already read keep their text.
+- **Each user** has a default reader for **chat uploads** in their settings
+  (Application), starting as the administrator's default.
+- **Re-read with…** on a file document in a base reads the stored original again
+  with a reader you pick, then re-embeds that document. It runs in the
+  background like any indexing, with the same document states and errors.
+  Owners and editors only; not offered for pasted text or plain-text files,
+  which are never extracted. A base being reindexed, or a document still being
+  indexed, answers 409.
+- **Past chats** are text and are never extracted, so they have no reader
+  choice.
+
+A saved choice must be one you may use, or the save is refused (400). If a
+reader stops being available to you later (a revoked grant, a removed model),
+reading falls back to the default reader and logs
+`document_reader_fallback`; the upload is not failed.
+
+**Which reader takes which file.** The chosen reader is for **PDFs and
+images**: an upstream OCR model such as Mistral's reads page pictures. Every
+other format (Word, Excel, PowerPoint, OpenDocument, e-books) goes to a
+**local reader** (a gateway model flagged `local`: the chosen one when it is
+local, otherwise the deployment's default local reader), and is never sent to an
+upstream OCR model. With no local reader, an Office file fails with "No reader
+for Word documents is configured" rather than being sent somewhere that cannot
+read it.
+
+If you restrict a reader model to a group, users outside it cannot choose it,
+and their PDFs fall back to the local reader when there is one, and are stored
+without text when there is not.
 A legacy binary Office file saved under a `.docx` name (it sniffs as a
 compound file, not a zip) is sent to the local reader as `application/msword`;
 the reader looks at the bytes and either reads it or refuses with its own
 reason, which is shown. A deployment with `CHAT_OCR_BASE_URL` and no gateway
-reads PDFs only.
+reads PDFs only, with no choice to offer.
 
-Changing the reader needs no reason; one sent by an older client is still
-recorded in the change history.
+Changing the default reader needs no reason; one sent by an older client is
+still recorded in the change history.
 
 Bases, documents and sharing records live in the chat's MongoDB; passages and
 vectors live in PostgreSQL. Back up both (see the [deploy kit](deploy-kit.md) README). The
