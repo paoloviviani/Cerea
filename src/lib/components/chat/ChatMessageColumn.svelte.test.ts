@@ -225,12 +225,15 @@ describe("the column's failed-turn banners", () => {
 			children: [],
 			updates: [{ type: MessageUpdateType.TurnState, state: "failed", serverNow: 0, reason }],
 		});
+		// Long enough to overflow one line, so each banner is expandable.
+		const FIRST = "first failure: the provider's credits ran out. " + "x ".repeat(300);
+		const SECOND = "second failure: still exhausted. " + "y ".repeat(300);
 		const view = renderWithApp(ChatMessageColumnTestHost, {
 			initial: [
 				user("u1", "first prompt"),
-				failed("a1", "first failure: the provider's credits ran out"),
+				failed("a1", FIRST),
 				user("u2", "again"),
-				failed("a2", "second failure: still exhausted"),
+				failed("a2", SECOND),
 			],
 			page: [],
 		});
@@ -246,13 +249,9 @@ describe("the column's failed-turn banners", () => {
 		expect(expanded).toHaveLength(1);
 		// The open one is the newest failure; the older one keeps its whole
 		// reason in the collapsed line's tooltip.
-		expect(expanded[0]?.querySelector("span")?.getAttribute("title")).toBe(
-			"second failure: still exhausted"
-		);
+		expect(expanded[0]?.querySelector("[title]")?.getAttribute("title")).toBe(SECOND);
 		const older = view.container.querySelector('[data-testid="turn-failed-reason"]');
-		expect(older?.querySelector("span")?.getAttribute("title")).toBe(
-			"first failure: the provider's credits ran out"
-		);
+		expect(older?.querySelector("[title]")?.getAttribute("title")).toBe(FIRST);
 		expect(
 			older?.querySelector('[data-testid="turn-failed-toggle"]')?.getAttribute("aria-expanded")
 		).toBe("false");
