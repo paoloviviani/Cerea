@@ -50,6 +50,10 @@ test("create a project on its page, attach a base afterwards, add a document, re
 	await page.goto(`${E2E_APP_BASE}/projects/new`);
 	await page.getByLabel("Name").fill("E2E project");
 	await page.getByLabel("Instructions", { exact: true }).fill("Answer briefly.");
+	// Past chats: ticking the box brings the settings (the embedder shows too
+	// where the deployment lists models); no choice is stored for the default.
+	await page.getByLabel("Search this project's past chats").check();
+	await expect(page.getByLabel("Passages per reply")).toBeVisible();
 	await page.getByRole("button", { name: "Create project" }).click();
 	await page.waitForURL(/\/projects\/[a-f0-9]{24}$/);
 	const projectId = page.url().split("/").pop() ?? "";
@@ -57,6 +61,8 @@ test("create a project on its page, attach a base afterwards, add a document, re
 	const created = await db.collection("projects").findOne({ _id: new ObjectId(projectId) });
 	expect(created?.instructions).toBe("Answer briefly.");
 	expect(created?.knowledgeBaseIds).toEqual([]);
+	expect(created?.indexPastChats).toBe(true);
+	expect(created?.pastChatsEmbeddingModel).toBeUndefined();
 
 	// A new project opens on its conversations tab; the five levels, the
 	// knowledge bases and the documents are on the settings tab.

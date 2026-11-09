@@ -73,6 +73,13 @@ export interface Project extends Timestamps {
 	 */
 	indexPastChats: boolean;
 
+	/**
+	 * The embedding model the owner chose for the past-chats base when creating
+	 * the project, used when the base is first made. Absent: the deployment's
+	 * default. Once the base exists its own model is the truth.
+	 */
+	pastChatsEmbeddingModel?: string;
+
 	/** How many passages retrieval may put in front of the model per turn. */
 	retrievalLimit: number;
 

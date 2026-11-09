@@ -498,13 +498,55 @@ export async function createMemoryBase(
 			_id: project._id,
 			memoryBaseId: project.memoryBaseId ?? { $exists: false },
 		},
-		{ $set: { memoryBaseId: created.id, updatedAt: new Date() } }
+		// The create-time embedder choice has done its job: a later rebuild
+		// follows the index's own model or the default.
+		{
+			$set: { memoryBaseId: created.id, updatedAt: new Date() },
+			$unset: { pastChatsEmbeddingModel: "" },
+		}
 	);
 	if (claimed.modifiedCount === 1) return created.id;
 	const { deleteDerived } = await import("$lib/server/knowledge/deleteDerived");
 	await deleteDerived({ storeIds: new ObjectId(created.id), dropStores: true });
 	const current = await collections.projects.findOne({ _id: project._id });
 	return current?.memoryBaseId;
+}
+
+/**
+ * The embedder the project's first past-chats base is made with: the choice
+ * stored at creation, checked with the owner's access: the turn's token when
+ * the owner is speaking, else their schedule grant's when they have one, else
+ * the speaking member's own. A model that access cannot use falls back to the
+ * deployment default (the choice is cleared once the base is made), so a base
+ * is always made and the member's own turns can embed into it.
+ */
+async function storedEmbedder(
+	project: Project,
+	turn: { token: string; userId: ObjectId }
+): Promise<{ embeddingModel?: string; token?: string }> {
+	const stored = project.pastChatsEmbeddingModel;
+	if (!stored) return {};
+	let checkToken = turn.token;
+	let asOwnerAccess = turn.userId.equals(project.userId);
+	if (!asOwnerAccess) {
+		try {
+			const grants = await import("$lib/server/schedules/grants");
+			if (await grants.hasGrant(project.userId)) {
+				checkToken = (await grants.accessTokenFor(project.userId, { forSchedule: true })).value;
+				asOwnerAccess = true;
+			}
+		} catch (err) {
+			logger.warn({ err, project: project._id.toString() }, "project_owner_token_unavailable");
+		}
+	}
+	const { embeddingModelsFor } = await import("$lib/server/knowledge/service");
+	const allowed = await embeddingModelsFor(checkToken);
+	if (allowed?.includes(stored)) return { embeddingModel: stored, token: checkToken };
+	logger.warn(
+		{ project: project._id.toString(), model: stored, checkedAsOwner: asOwnerAccess },
+		"project_past_chats_embedder_unavailable: the chosen model cannot be used here; using the default"
+	);
+	return {};
 }
 
 /**
@@ -555,7 +597,10 @@ export async function indexConversation(options: {
 			// refills as you talk"), or a legacy base some member owns: make one
 			// the project's owner owns, and stop writing to the legacy one. The claim is conditional, so two
 			// members finishing a first turn together end up with one base.
-			baseId = await createMemoryBase(project);
+			baseId = await createMemoryBase(
+				project,
+				await storedEmbedder(project, { token, userId: locals.user._id })
+			);
 			writer = baseId ? await memoryCaller(baseId, project) : undefined;
 		}
 		if (!baseId || !writer) throw new Error("The project has no memory base to write to.");
