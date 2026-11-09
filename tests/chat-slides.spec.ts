@@ -89,10 +89,15 @@ test("a slides artifact renders, steps, presents and downloads a PDF", async ({
 	await expect(
 		frame.getByRole("heading", { name: "Fewer escalations, faster onboarding", level: 1 })
 	).toBeVisible();
-	// Leave: the browser's own full screen, or the overlay's exit button
-	await page.evaluate(() => (document.fullscreenElement ? document.exitFullscreen() : undefined));
+	// Leave: the browser's own full screen, or the overlay's exit button. The browser may grant the
+	// full screen late (the overlay shows first, then hands over to it), so look again until neither is up
 	const exit = page.getByRole("button", { name: "Exit presentation" });
-	if (await exit.isVisible()) await exit.click();
+	await expect(async () => {
+		await page.evaluate(() => (document.fullscreenElement ? document.exitFullscreen() : undefined));
+		if (await exit.isVisible()) await exit.click();
+		expect(await page.evaluate(() => document.fullscreenElement === null)).toBe(true);
+		await expect(exit).toBeHidden({ timeout: 500 });
+	}).toPass({ timeout: 15_000 });
 
 	// The stack has a renderer, so the PDF button makes the vector PDF on the server:
 	// a page per slide, with text that can be selected
