@@ -18,9 +18,15 @@ describe("EmbeddingModelPicker", () => {
 		await expect.element(page.getByRole("option", { name: "e5-large" })).toBeInTheDocument();
 	});
 
-	it("shows plain text, not a select, when there is only one model", async () => {
+	it("stays a picker with a single option", async () => {
 		renderWithApp(EmbeddingModelPicker, { models: ["bge-m3"], defaultModel: "bge-m3" });
-		await expect.element(page.getByText("bge-m3")).toBeVisible();
+		const select = page.getByRole("combobox", { name: "Embedding model" });
+		await expect.element(select).toHaveDisplayValue("Default (bge-m3)");
+		expect(await select.getByRole("option").all()).toHaveLength(1);
+	});
+
+	it("shows plain text only when there is nothing to offer", async () => {
+		renderWithApp(EmbeddingModelPicker, { models: [], defaultModel: null, required: true });
 		expect(page.getByRole("combobox").elements()).toHaveLength(0);
 	});
 
