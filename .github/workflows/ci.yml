@@ -385,7 +385,7 @@ jobs:
       - run: npm ci
       - run: npm run build
         env:
-          NODE_OPTIONS: --max-old-space-size=4096
+          NODE_OPTIONS: --max-old-space-size=6144
       - run: npx playwright test --project=chromium --grep @smoke
         env:
           E2E_SKIP_BUILD: "1"
@@ -472,7 +472,7 @@ jobs:
       - run: npm ci
       - run: npm run build
         env:
-          NODE_OPTIONS: --max-old-space-size=4096
+          NODE_OPTIONS: --max-old-space-size=6144
       - run: npx playwright test --project=chromium --shard=${{ matrix.shard }}/4 --reporter=list,blob
         env:
           E2E_SKIP_BUILD: "1"

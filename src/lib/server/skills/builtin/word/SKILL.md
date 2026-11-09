@@ -13,7 +13,7 @@ mix the two ways. If the tools are not in your tool list, jump to the last secti
 
 ## Creating a document
 
-Call `doc_create` with `format: "docx"` and a `spec`. The tool's description lists every block and property; the
+Call `doc_create` with `format: "docx"` and a `spec`. The full spec (every block and property) follows this skill's text under "The `doc_create` spec for docx"; the
 service checks the spec before it builds anything and, if something is wrong, answers with what is allowed.
 
 - **Blocks:** heading (levels 1-6), paragraph (runs: bold, italic, underline, code, colour, link), list (ordered or
@@ -25,7 +25,7 @@ service checks the spec before it builds anything and, if something is wrong, an
   `{page}` and `{pages}` for page numbers; `page` for size, orientation and margins; `language` for the text's
   language.
 - **Look:** the built-in style is neutral and complete. Set `theme` only for what the person asked: fonts from the
-  tool's list, `colors` and `accent` as hex, heading and body sizes, spacing, `table_style`. Never promise a font or
+  spec's list, `colors` and `accent` as hex, heading and body sizes, spacing, `table_style`. Never promise a font or
   a look the theme cannot express.
 - **Their template:** when the person uploaded a Word file whose look they want, give it as `theme.template`; the
   styles, headers, footers and page setup come from it. To fill a template that has `{{placeholders}}`, use

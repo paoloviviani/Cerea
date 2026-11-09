@@ -90,7 +90,7 @@ describe("applyPalette", () => {
 describe("sidebar and background", () => {
 	it("accepts only the listed values, so an unknown one is not chosen", () => {
 		expect([...SIDEBARS]).toEqual(["flat", "contrast"]);
-		expect([...BACKGROUNDS]).toEqual(["none", "dots", "mesh", "bold"]);
+		expect([...BACKGROUNDS]).toEqual(["none", "dots", "glow", "bold"]);
 		for (const v of SIDEBARS) expect(parseSidebar(v)).toBe(v);
 		for (const v of BACKGROUNDS) expect(parseBackground(v)).toBe(v);
 		for (const bad of ["stripes", "", null, undefined, 3, "Dots"]) {
@@ -117,12 +117,15 @@ describe("sidebar and background", () => {
 			setAttribute: (k: string, v: string) => void attrs.set(k, v),
 			removeAttribute: (k: string) => void attrs.delete(k),
 		} as unknown as HTMLElement;
-		applyPalette(el, { sidebar: "contrast", background: "mesh" });
+		applyPalette(el, { sidebar: "contrast", background: "glow" });
 		expect([...attrs]).toEqual([
 			["data-sidebar", "contrast"],
-			["data-background", "mesh"],
+			["data-background", "glow"],
 		]);
 		applyPalette(el, { sidebar: "flat", background: "bogus" });
 		expect(attrs.size).toBe(0);
+	});
+	it("reads the old test-build name mesh as glow", () => {
+		expect(parseBackground("mesh")).toBe("glow");
 	});
 });

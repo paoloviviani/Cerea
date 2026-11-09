@@ -78,7 +78,7 @@
 	const BACKGROUND_LABELS: Record<Background, () => string> = {
 		none: m["settings.application.background.option.none"],
 		dots: m["settings.application.background.option.dots"],
-		mesh: m["settings.application.background.option.mesh"],
+		glow: m["settings.application.background.option.glow"],
 		bold: m["settings.application.background.option.bold"],
 	};
 

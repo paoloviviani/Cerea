@@ -19,6 +19,7 @@ import {
 	describeSkillFiles,
 } from "./service";
 import { LOAD_SKILL_TOOL_NAME } from "./service";
+import { documentSpecSection, withDocumentSpec } from "./documentSpec";
 import type { ObjectId } from "mongodb";
 
 export interface SkillFrontmatter {
@@ -115,7 +116,10 @@ export async function assembleSkillsContext(
 		bodies.push({
 			name: resolved.name,
 			description: resolved.description,
-			body: resolved.body,
+			body: withDocumentSpec(
+				resolved.body,
+				await documentSpecSection(resolved.name, resolved.owner)
+			),
 			files: resolved.files,
 		});
 	}

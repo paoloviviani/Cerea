@@ -14,7 +14,7 @@ export const NEUTRALS = ["neutral", "cool", "warm"] as const;
 /** The sidebar's surface: flat (today's look) or a distinct, tone-following one. */
 export const SIDEBARS = ["flat", "contrast"] as const;
 /** The decoration behind the main area, drawn from the accent. */
-export const BACKGROUNDS = ["none", "dots", "mesh", "bold"] as const;
+export const BACKGROUNDS = ["none", "dots", "glow", "bold"] as const;
 
 export type Accent = (typeof ACCENTS)[number];
 export type Neutral = (typeof NEUTRALS)[number];
@@ -80,6 +80,8 @@ export function parseSidebar(value: unknown): Sidebar | undefined {
 }
 
 export function parseBackground(value: unknown): Background | undefined {
+	// "mesh" was Glow's name on test builds before 0.48.0; read it as Glow.
+	if (value === "mesh") return "glow";
 	return BACKGROUNDS.find((v) => v === value);
 }
 

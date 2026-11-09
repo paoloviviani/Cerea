@@ -30,7 +30,7 @@ type ChatMessageParam = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 type AssistantReplayMessage = ChatMessageParam & { reasoning_content?: string };
 
 /** Cap replayed tool outputs so old turns can't flood the context window. */
-const MAX_REPLAYED_TOOL_OUTPUT_CHARS = 8000;
+export const MAX_REPLAYED_TOOL_OUTPUT_CHARS = 8000;
 
 /**
  * Cumulative cap on the WHOLE outgoing history, not just the part replay

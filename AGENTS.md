@@ -1361,10 +1361,16 @@ files; the chat reaches it at `CHAT_DOCUMENTS_URL` with `CHAT_DOCUMENTS_SECRET`.
   (`$effect.pre`): a plain `$effect` runs after a child code card's run and the
   first run saw an empty `/mnt/data`.
 - Creation (step 3): `doc_create` and `doc_create_from_template` are offered
-  when the service reports `create` / `create_from_template`, and their text is
-  **generated from `create_schemas`** the same way (`describeSchema`; the theme,
-  a text run and a table cell are printed once as shared aliases; a format whose
-  schema equals an earlier one, PDF and Word, is printed as "the same"). The
+  when the service reports `create` / `create_from_template`. `doc_create`'s
+  definition is **short** (format, `spec` as an object, names the skill of each
+  format); the full per-format spec is **generated from `create_schemas`**
+  (`createFormatSpec`; `describeSchema`; the theme, a text run and a table cell
+  are printed once as shared aliases) and delivered two ways from the one
+  generator: appended to the `word`/`excel`/`powerpoint`/`pdf` skill's text when
+  loaded (`skills/documentSpec.ts`, in `load_skill` and `@name`), and in the
+  error of a `doc_create` the service rejected (422) or whose `spec` is not an
+  object. Nothing tracks what was loaded: a model that skips the skill is
+  corrected by the error. Sub-agents (`delegate`) have no document tools. The
   created file is stored under the requested or title-derived name (creating again
   under a name is the next version; `derivedFrom` records an uploaded template),
   and listed through an `Outputs` update like an edit. `theme.template` is a file

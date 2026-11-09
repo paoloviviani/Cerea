@@ -448,7 +448,7 @@ function over(bg: string, tint: string, alpha: number): string {
 }
 
 describe("palette contrast on the background patterns (WCAG AA, 4.5:1)", () => {
-	for (const pattern of ["dots", "mesh", "bold"]) {
+	for (const pattern of ["dots", "glow", "bold"]) {
 		for (const accent of accents) {
 			for (const neutral of neutrals) {
 				for (const dark of [false, true]) {
@@ -473,13 +473,13 @@ describe("palette contrast on the background patterns (WCAG AA, 4.5:1)", () => {
 		}
 	}
 
-	it("keeps Bold clearly stronger than Mesh", () => {
+	it("keeps Bold clearly stronger than Glow", () => {
 		for (const dark of [false, true]) {
 			const peak = (p: string) => {
 				const { radial, linear } = patternAlphas(p, dark);
 				return Math.max(...radial) + linear.reduce((a, b) => a + b, 0);
 			};
-			expect(peak("bold")).toBeGreaterThan(peak("mesh") * 1.3);
+			expect(peak("bold")).toBeGreaterThan(peak("glow") * 1.3);
 		}
 	});
 });

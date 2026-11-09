@@ -67,7 +67,7 @@
 		transparent 1.4px
 	);
 }
-:root[data-background="mesh"] body {
+:root[data-background="glow"] body {
 	background-image:
 		radial-gradient(
 			60vw 50vh at 85% 8%,
@@ -85,7 +85,7 @@
 			transparent 70%
 		);
 }
-:root.dark[data-background="mesh"] body {
+:root.dark[data-background="glow"] body {
 	background-image:
 		radial-gradient(
 			60vw 50vh at 85% 8%,
@@ -147,14 +147,42 @@
 :root[data-background] .solid-on-pattern {
 	background-color: var(--colour-surface);
 }
-/* The band behind the composer and the pinned search bar hide what scrolls under
-   them; with a pattern they fade instead of painting a slab across it. */
+/* The band behind the composer hides what scrolls under it. With a pattern any
+   fill there, even a fade, is a column-wide block with hard side edges across
+   the page's colour, so it paints nothing and the scrolled content is faded out
+   instead (mask on the scroller), vanishing about 2rem above the composer and
+   never reaching the footer row. A solid strip on each side keeps the classic
+   scrollbar visible. The composer box itself is solid. */
 :root[data-background] .composer-fade {
-	background-image: linear-gradient(
-		to top,
-		color-mix(in srgb, var(--colour-bg) 85%, transparent),
-		transparent
+	background: none;
+}
+:root[data-background] .chat-scroller {
+	--_fade: linear-gradient(
+		to bottom,
+		#000 calc(100% - var(--composer-h, 6rem) - 2rem),
+		transparent calc(100% - var(--composer-h, 6rem) + 0.5rem)
 	);
+	--_edge: linear-gradient(#000, #000);
+	-webkit-mask-image: var(--_fade), var(--_edge), var(--_edge);
+	mask-image: var(--_fade), var(--_edge), var(--_edge);
+	-webkit-mask-size:
+		100% 100%,
+		1.25rem 100%,
+		1.25rem 100%;
+	mask-size:
+		100% 100%,
+		1.25rem 100%,
+		1.25rem 100%;
+	-webkit-mask-position:
+		0 0,
+		left top,
+		right top;
+	mask-position:
+		0 0,
+		left top,
+		right top;
+	-webkit-mask-repeat: no-repeat;
+	mask-repeat: no-repeat;
 }
 :root[data-background] .chats-sticky {
 	background-color: color-mix(in srgb, var(--colour-bg) 80%, transparent);
@@ -174,5 +202,9 @@
 	:root[data-background] .chats-sticky {
 		background: var(--colour-bg);
 		backdrop-filter: none;
+	}
+	:root[data-background] .chat-scroller {
+		-webkit-mask-image: none;
+		mask-image: none;
 	}
 }

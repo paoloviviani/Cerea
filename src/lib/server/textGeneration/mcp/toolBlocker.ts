@@ -24,6 +24,8 @@ export interface ToolBlocker {
 }
 
 const IDENTICAL_FAILURES_BEFORE_BLOCK = 2;
+/** How much of the error the refusal quotes. */
+const ERROR_QUOTED_CHARS = 300;
 
 export function createToolBlocker(): ToolBlocker {
 	const failures = new Map<string, { message: string; count: number }>();
@@ -36,8 +38,10 @@ export function createToolBlocker(): ToolBlocker {
 
 		message(name) {
 			const seen = failures.get(name);
+			// an error can be long (doc_create's carries a spec): say its start, not all of it again
+			const said = (seen?.message ?? "unknown error").slice(0, ERROR_QUOTED_CHARS);
 			return (
-				`This tool is unavailable for the rest of this turn (same error twice: ${seen?.message ?? "unknown error"}). ` +
+				`This tool is unavailable for the rest of this turn (same error twice: ${said}). ` +
 				"Continue without it and tell the person."
 			);
 		},
