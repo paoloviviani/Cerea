@@ -147,6 +147,11 @@ function pairs(accent: string, neutral: string, dark: boolean): Pair[] {
 			bg: c("--colour-accent-subtle"),
 		},
 		{
+			name: "accent text on the contrast sidebar",
+			fg: c("--colour-accent"),
+			bg: c("--colour-sidebar-contrast"),
+		},
+		{
 			name: "accent hover on page",
 			fg: c("--colour-accent-hover"),
 			bg: c("--colour-bg"),
@@ -157,6 +162,8 @@ function pairs(accent: string, neutral: string, dark: boolean): Pair[] {
 				[
 					"--colour-bg",
 					"--colour-sidebar",
+					// The "Contrast" sidebar's own surface, per tone.
+					"--colour-sidebar-contrast",
 					"--colour-surface",
 					"--colour-surface-raised",
 					"--colour-surface-sunken",
@@ -400,5 +407,79 @@ describe("chat shell text goes through the tokens", () => {
 		const col = read("../lib/components/chat/ChatMessageColumn.svelte");
 		expect(col).not.toMatch(/from-white|via-white|dark:from-gray-900/);
 		expect(col).toMatch(/from-page[\s\S]*via-page[\s\S]*to-page\/0/);
+	});
+});
+
+/*
+ * Every ground the chat paints: the background patterns, composited. The
+ * strongest spot of a pattern is its largest radial glow over the full-page
+ * linear wash, so that is the worst ground text can meet; the pattern's own
+ * alphas are read from appearance.css. The second glow (`--bg-tint-2`) is a
+ * hue shift of the accent at similar lightness, so it is measured as the accent.
+ */
+const appearanceCss = strip(read("./appearance.css"));
+
+function patternAlphas(pattern: string, dark: boolean): { radial: number[]; linear: number[] } {
+	const sel = (d: boolean) => `:root${d ? ".dark" : ""}[data-background="${pattern}"] body`;
+	// The dark rule overrides the light one when it exists, as in the cascade.
+	const body = (d: boolean) =>
+		appearanceCss.match(
+			new RegExp(`${sel(d).replace(/[.[\]]/g, "\\$&")}\\s*\\{([\\s\\S]*?)\\n\\}`)
+		)?.[1];
+	const text = (dark && body(true)) || body(false);
+	if (!text) throw new Error(`no ${pattern} rule`);
+	const out = { radial: [] as number[], linear: [] as number[] };
+	let kind: "radial" | "linear" = "radial";
+	for (const m of text.matchAll(/(radial|linear)-gradient\(|--bg-tint(?:-2)?\)\s+([\d.]+)%/g)) {
+		if (m[1]) kind = m[1] as "radial" | "linear";
+		else out[kind].push(parseFloat(m[2]));
+	}
+	return out;
+}
+
+function over(bg: string, tint: string, alpha: number): string {
+	const ch = (i: number) =>
+		Math.round(
+			parseInt(bg.slice(i, i + 2), 16) * (1 - alpha) + parseInt(tint.slice(i, i + 2), 16) * alpha
+		)
+			.toString(16)
+			.padStart(2, "0");
+	return `#${ch(1)}${ch(3)}${ch(5)}`;
+}
+
+describe("palette contrast on the background patterns (WCAG AA, 4.5:1)", () => {
+	for (const pattern of ["dots", "mesh", "bold"]) {
+		for (const accent of accents) {
+			for (const neutral of neutrals) {
+				for (const dark of [false, true]) {
+					it(`${pattern}: ${accent} on ${neutral}, ${dark ? "dark" : "light"}`, () => {
+						const v = resolve(accent, neutral, dark);
+						const c = (name: string) => hexOf(v, name);
+						const tint = c(dark ? "--colour-accent" : "--colour-accent-solid");
+						const { radial, linear } = patternAlphas(pattern, dark);
+						let ground = c("--colour-bg");
+						for (const a of linear) ground = over(ground, tint, a / 100);
+						ground = over(ground, tint, Math.max(0, ...radial) / 100);
+						const failures = (
+							["--colour-text", "--colour-text-muted", "--colour-text-faint"] as const
+						)
+							.map((ink) => ({ ink, ratio: contrast(c(ink), ground) }))
+							.filter((p) => p.ratio < FLOOR)
+							.map((p) => `${p.ink}: ${p.ratio.toFixed(2)}:1 on ${ground}`);
+						expect(failures).toEqual([]);
+					});
+				}
+			}
+		}
+	}
+
+	it("keeps Bold clearly stronger than Mesh", () => {
+		for (const dark of [false, true]) {
+			const peak = (p: string) => {
+				const { radial, linear } = patternAlphas(p, dark);
+				return Math.max(...radial) + linear.reduce((a, b) => a + b, 0);
+			};
+			expect(peak("bold")).toBeGreaterThan(peak("mesh") * 1.3);
+		}
 	});
 });

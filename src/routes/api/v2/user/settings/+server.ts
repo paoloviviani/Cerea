@@ -12,7 +12,7 @@ import { isCustomModelId } from "$lib/utils/customModelId";
 import { GLOBAL_SYSTEM_PROMPT_MAX } from "$lib/types/CustomModel";
 import { DEFAULT_SETTINGS, type SettingsEditable } from "$lib/types/Settings";
 import { resolveStreamingMode } from "$lib/utils/messageUpdates";
-import { parseAccent, parseNeutral } from "$lib/utils/palettes";
+import { parseAccent, parseBackground, parseNeutral, parseSidebar } from "$lib/utils/palettes";
 import { z } from "zod";
 import { visibleAdminInstructions } from "$lib/server/adminInstructions";
 import { locationSettingsFields } from "$lib/utils/location";
@@ -130,6 +130,8 @@ export const GET: RequestHandler = async ({ locals }) => {
 		billingOrganization: settings?.billingOrganization ?? undefined,
 		accent: parseAccent(settings?.accent) ?? DEFAULT_SETTINGS.accent,
 		neutral: parseNeutral(settings?.neutral) ?? DEFAULT_SETTINGS.neutral,
+		sidebar: parseSidebar(settings?.sidebar) ?? DEFAULT_SETTINGS.sidebar,
+		background: parseBackground(settings?.background) ?? DEFAULT_SETTINGS.background,
 		locale: settings?.locale ?? undefined,
 	});
 };
@@ -151,7 +153,7 @@ export const POST: RequestHandler = async ({ locals, request, getClientAddress }
 			{ status: 400 }
 		);
 	}
-	const { accent, neutral, locale, ...parsedSettings } = parsed.data;
+	const { accent, neutral, sidebar, background, locale, ...parsedSettings } = parsed.data;
 	const streamingMode = resolveStreamingMode(parsedSettings);
 
 	const settings = {
@@ -165,7 +167,7 @@ export const POST: RequestHandler = async ({ locals, request, getClientAddress }
 		{
 			$set: {
 				...settings,
-				...palettePatch({ accent, neutral }),
+				...palettePatch({ accent, neutral, sidebar, background }),
 				...localePatch({ locale }),
 				updatedAt: new Date(),
 			},

@@ -1,0 +1,178 @@
+/*
+ * Appearance choices that are not a palette: the sidebar surface and the
+ * background pattern (Settings → Appearance). Like the palettes they are
+ * attributes on <html> (`data-sidebar`, `data-background`), set on the server so
+ * the first paint is right, and their absence is today's look: flat sidebar,
+ * no pattern. Plain CSS, unlayered, imported after palettes.css so these rules
+ * follow its per-tone tokens in the cascade.
+ */
+
+/*
+ * Sidebar: Contrast. The per-tone surface (`--colour-sidebar-contrast`, edge
+ * `--colour-sidebar-contrast-edge`) lives in palettes.css. Taking over
+ * `--colour-sidebar` turns the rows' own fade-to-page gradients into the same
+ * solid ground, and the nav itself paints it, with an edge.
+ */
+:root:root[data-sidebar="contrast"] {
+	--colour-sidebar: var(--colour-sidebar-contrast);
+}
+/* With a pattern behind, the sidebar is a clean solid ground (flat keeps the tone's own colour). */
+:root[data-background] nav.app-sidebar {
+	background: var(--colour-sidebar);
+}
+:root[data-sidebar="contrast"] nav.app-sidebar {
+	background: var(--colour-sidebar-contrast);
+	box-shadow: inset -1px 0 0 var(--colour-sidebar-contrast-edge);
+}
+
+/*
+ * Background pattern. Everything is drawn from the accent: `--bg-tint` is the
+ * accent's solid fill in light mode and its readable step in dark, so all six
+ * accents work in both. It paints the body, fixed to the viewport, behind the
+ * app; the sidebar, dialogs, cards, the composer and panels keep their own solid
+ * surfaces, and assistant messages get one (below) so no text sits on a pattern.
+ */
+:root[data-background] {
+	--bg-tint: var(--colour-accent-solid);
+	/* A second glow that is not the accent itself: lighter and hue-shifted, so
+	   every accent gets its own companion rather than a fixed colour. */
+	--bg-tint-2: color-mix(in oklch, var(--bg-tint) 55%, white);
+}
+:root.dark[data-background] {
+	--bg-tint: var(--colour-accent);
+	--bg-tint-2: color-mix(in oklch, var(--bg-tint) 55%, black);
+}
+@supports (color: oklch(from red l c h)) {
+	:root[data-background] {
+		--bg-tint-2: oklch(from var(--bg-tint) calc(l + 0.1) c calc(h + 45));
+	}
+	:root.dark[data-background] {
+		--bg-tint-2: oklch(from var(--bg-tint) calc(l - 0.12) c calc(h + 45));
+	}
+}
+
+:root[data-background] body {
+	background-attachment: fixed;
+}
+:root[data-background="dots"] body {
+	background-image: radial-gradient(
+		color-mix(in srgb, var(--bg-tint) 20%, transparent) 1.2px,
+		transparent 1.4px
+	);
+	background-size: 22px 22px;
+}
+:root.dark[data-background="dots"] body {
+	background-image: radial-gradient(
+		color-mix(in srgb, var(--bg-tint) 16%, transparent) 1.2px,
+		transparent 1.4px
+	);
+}
+:root[data-background="mesh"] body {
+	background-image:
+		radial-gradient(
+			60vw 50vh at 85% 8%,
+			color-mix(in srgb, var(--bg-tint) 16%, transparent),
+			transparent 70%
+		),
+		radial-gradient(
+			55vw 55vh at 35% 100%,
+			color-mix(in srgb, var(--bg-tint-2) 15%, transparent),
+			transparent 70%
+		),
+		radial-gradient(
+			45vw 45vh at 100% 85%,
+			color-mix(in srgb, var(--bg-tint-2) 11%, transparent),
+			transparent 70%
+		);
+}
+:root.dark[data-background="mesh"] body {
+	background-image:
+		radial-gradient(
+			60vw 50vh at 85% 8%,
+			color-mix(in srgb, var(--bg-tint) 16%, transparent),
+			transparent 70%
+		),
+		radial-gradient(
+			55vw 55vh at 35% 100%,
+			color-mix(in srgb, var(--bg-tint-2) 16%, transparent),
+			transparent 70%
+		),
+		radial-gradient(
+			45vw 45vh at 100% 85%,
+			color-mix(in srgb, var(--bg-tint-2) 12%, transparent),
+			transparent 70%
+		);
+}
+/* Bold: a saturated wash from the top-right corner and a deep glow bottom-left, with the middle left quiet. */
+:root[data-background="bold"] body {
+	background-image:
+		radial-gradient(
+			90vw 80vh at 100% 0%,
+			color-mix(in srgb, var(--bg-tint) 22%, transparent),
+			transparent 80%
+		),
+		radial-gradient(
+			80vw 75vh at 22% 100%,
+			color-mix(in srgb, var(--bg-tint-2) 22%, transparent),
+			transparent 80%
+		),
+		linear-gradient(160deg, color-mix(in srgb, var(--bg-tint) 5%, transparent), transparent 60%);
+}
+:root.dark[data-background="bold"] body {
+	background-image:
+		radial-gradient(
+			90vw 80vh at 100% 0%,
+			color-mix(in srgb, var(--bg-tint) 16%, transparent),
+			transparent 80%
+		),
+		radial-gradient(
+			80vw 75vh at 22% 100%,
+			color-mix(in srgb, var(--bg-tint-2) 18%, transparent),
+			transparent 80%
+		),
+		linear-gradient(160deg, color-mix(in srgb, var(--bg-tint) 6%, transparent), transparent 60%);
+}
+
+/* An answer is a card: solid over any pattern, so text never sits on it. */
+:root[data-background] .answer-card {
+	background-image: none;
+	background-color: var(--colour-surface);
+}
+/* The same for the bare states (waiting, error), which are otherwise just text. */
+:root[data-background] .answer-card-bare {
+	border-radius: var(--radius-2xl, 1rem);
+	padding-inline: 0.75rem;
+}
+/* Dialog-like pills over the page (the error toast) are solid too. */
+:root[data-background] .solid-on-pattern {
+	background-color: var(--colour-surface);
+}
+/* The band behind the composer and the pinned search bar hide what scrolls under
+   them; with a pattern they fade instead of painting a slab across it. */
+:root[data-background] .composer-fade {
+	background-image: linear-gradient(
+		to top,
+		color-mix(in srgb, var(--colour-bg) 85%, transparent),
+		transparent
+	);
+}
+:root[data-background] .chats-sticky {
+	background-color: color-mix(in srgb, var(--colour-bg) 80%, transparent);
+	backdrop-filter: blur(6px);
+}
+
+/* On the light contrast sidebar a hovered or selected row reads darker than the ground. */
+:root:not(.dark)[data-sidebar="contrast"] nav.app-sidebar {
+	--color-gray-100: color-mix(in srgb, var(--colour-sidebar-contrast) 93%, black);
+}
+
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+	:root[data-background] body {
+		background-image: none;
+	}
+	:root[data-background] .composer-fade,
+	:root[data-background] .chats-sticky {
+		background: var(--colour-bg);
+		backdrop-filter: none;
+	}
+}

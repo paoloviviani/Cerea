@@ -1,6 +1,6 @@
 import { browser } from "$app/environment";
 import { base } from "$app/paths";
-import type { Accent, Neutral } from "$lib/utils/palettes";
+import type { Accent, Background, Neutral, Sidebar } from "$lib/utils/palettes";
 import type { ReasoningEffort, StreamingMode } from "$lib/types/Settings";
 import type { LocationMode } from "$lib/utils/location";
 import { getContext, setContext } from "svelte";
@@ -31,6 +31,8 @@ type SettingsStore = {
 	billingOrganization?: string;
 	accent?: Accent;
 	neutral?: Neutral;
+	sidebar?: Sidebar;
+	background?: Background;
 	locale?: string;
 };
 

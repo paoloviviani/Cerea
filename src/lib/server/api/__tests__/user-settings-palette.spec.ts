@@ -158,6 +158,55 @@ describe("GET /api/v2/user/settings palette", () => {
 	});
 });
 
+describe.each([
+	["POST /api/v2/user/settings", post],
+	["POST /settings", legacyPost],
+])("sidebar and background on %s", (_name, save) => {
+	beforeEach(async () => {
+		await cleanupTestData();
+		await collections.settings.deleteMany({});
+	}, 20000);
+
+	it("persists valid values and reads them back", async () => {
+		const { locals } = await createTestUser();
+		expect((await save(locals, { sidebar: "contrast", background: "mesh" })).status).toBe(200);
+		const s = await stored(locals);
+		expect([s?.sidebar, s?.background]).toEqual(["contrast", "mesh"]);
+		expect(await paletteAttributesFor(locals)).toBe(
+			'data-sidebar="contrast" data-background="mesh"'
+		);
+	});
+
+	it("ignores unknown values and leaves a saved choice alone", async () => {
+		const { locals } = await createTestUser();
+		await save(locals, { sidebar: "contrast", background: "dots" });
+		expect((await save(locals, { sidebar: "wide", background: 9 })).status).toBe(200);
+		const s = await stored(locals);
+		expect([s?.sidebar, s?.background]).toEqual(["contrast", "dots"]);
+		// An older client that omits them changes nothing either.
+		await save(locals, { accent: "teal" });
+		const t = await stored(locals);
+		expect([t?.sidebar, t?.background]).toEqual(["contrast", "dots"]);
+	});
+});
+
+describe("sidebar and background defaults", () => {
+	beforeEach(async () => {
+		await cleanupTestData();
+		await collections.settings.deleteMany({});
+	}, 20000);
+
+	it("a user with settings saved before these fields existed reads flat / none", async () => {
+		const { locals } = await createTestUser();
+		await post(locals, { accent: "teal" });
+		const body = superjson.parse<{ sidebar: string; background: string }>(
+			await (await testRequest(GET, { path: "/api/v2/user/settings", locals })).text()
+		);
+		expect([body.sidebar, body.background]).toEqual(["flat", "none"]);
+		expect(await paletteAttributesFor(locals)).toBe('data-accent="teal"');
+	});
+});
+
 describe("paletteAttributesFor (the server-rendered <html>)", () => {
 	beforeEach(async () => {
 		await cleanupTestData();

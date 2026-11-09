@@ -197,4 +197,54 @@ test.describe("Appearance", () => {
 		);
 		await expect(page.locator("html")).toHaveAttribute("data-accent", "violet");
 	});
+
+	test("Sidebar and Background: instant, saved, in the server-rendered <html>, and gone on the defaults", async ({
+		page,
+	}) => {
+		await page.goto(SETTINGS);
+		const html = page.locator("html");
+		await expect(html).not.toHaveAttribute("data-sidebar", /.*/);
+		await expect(html).not.toHaveAttribute("data-background", /.*/);
+		await expect(page.getByRole("radio", { name: "Flat" })).toHaveAttribute("aria-checked", "true");
+		await expect(page.getByRole("radio", { name: "None" })).toHaveAttribute("aria-checked", "true");
+
+		let save = saved(page);
+		await page.getByRole("radio", { name: "Contrast" }).click();
+		await expect(html).toHaveAttribute("data-sidebar", "contrast");
+		await save;
+		save = saved(page);
+		await page.getByRole("radio", { name: "Mesh" }).click();
+		await expect(html).toHaveAttribute("data-background", "mesh");
+		await save;
+
+		// The document the server sends, before any script runs: no flash.
+		const served = await (await page.request.get(SETTINGS)).text();
+		expect(served).toMatch(/<html[^>]*data-sidebar="contrast"/);
+		expect(served).toMatch(/<html[^>]*data-background="mesh"/);
+		await page.reload();
+		await expect(html).toHaveAttribute("data-sidebar", "contrast");
+		await expect(html).toHaveAttribute("data-background", "mesh");
+		await expect(page.getByRole("radio", { name: "Contrast" })).toHaveAttribute(
+			"aria-checked",
+			"true"
+		);
+
+		// The pattern paints the body; the sidebar is a solid surface.
+		await page.goto(`${E2E_APP_BASE}/`);
+		await expect(page.locator("body")).not.toHaveCSS("background-image", "none");
+		await expect(page.locator("nav.app-sidebar:visible")).toHaveCSS(
+			"background-color",
+			"rgb(233, 233, 233)"
+		);
+
+		await page.goto(SETTINGS);
+		save = saved(page);
+		await page.getByRole("radio", { name: "Flat" }).click();
+		await save;
+		save = saved(page);
+		await page.getByRole("radio", { name: "None" }).click();
+		await save;
+		await expect(html).not.toHaveAttribute("data-sidebar", /.*/);
+		await expect(html).not.toHaveAttribute("data-background", /.*/);
+	});
 });

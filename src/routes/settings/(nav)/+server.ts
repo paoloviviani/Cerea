@@ -88,7 +88,8 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		error(400, "Invalid JSON");
 	}
 
-	const { accent, neutral, locale, ...parsedSettings } = settingsSchema.parse(body);
+	const { accent, neutral, sidebar, background, locale, ...parsedSettings } =
+		settingsSchema.parse(body);
 	const streamingMode = resolveStreamingMode(parsedSettings);
 
 	const settings = {
@@ -101,7 +102,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		{
 			$set: {
 				...settings,
-				...palettePatch({ accent, neutral }),
+				...palettePatch({ accent, neutral, sidebar, background }),
 				...localePatch({ locale }),
 				updatedAt: new Date(),
 			},

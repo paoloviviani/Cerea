@@ -2,7 +2,7 @@
  * The colour palettes a person can choose in Settings → Appearance.
  *
  * Two independent choices, stored on the person's settings and applied as
- * `data-accent` / `data-neutral` on `<html>` (the CSS is `src/styles/palettes.css`).
+ * `data-accent` / `data-neutral` / `data-sidebar` / `data-background` on `<html>` (the CSS is `src/styles/palettes.css`).
  * The defaults are the look the app has always had, and they are the
  * *absence* of an attribute — so a person who never opens the picker, and a
  * page rendered before their settings are known, is exactly the unthemed app.
@@ -11,11 +11,20 @@
 export const ACCENTS = ["blue", "violet", "teal", "green", "rose", "orange"] as const;
 export const NEUTRALS = ["neutral", "cool", "warm"] as const;
 
+/** The sidebar's surface: flat (today's look) or a distinct, tone-following one. */
+export const SIDEBARS = ["flat", "contrast"] as const;
+/** The decoration behind the main area, drawn from the accent. */
+export const BACKGROUNDS = ["none", "dots", "mesh", "bold"] as const;
+
 export type Accent = (typeof ACCENTS)[number];
 export type Neutral = (typeof NEUTRALS)[number];
+export type Sidebar = (typeof SIDEBARS)[number];
+export type Background = (typeof BACKGROUNDS)[number];
 
 export const DEFAULT_ACCENT: Accent = "blue";
 export const DEFAULT_NEUTRAL: Neutral = "neutral";
+export const DEFAULT_SIDEBAR: Sidebar = "flat";
+export const DEFAULT_BACKGROUND: Background = "none";
 
 /**
  * Swatch colours for the picker: the accent's solid fill and the tone's
@@ -66,27 +75,45 @@ export function parseNeutral(value: unknown): Neutral | undefined {
 	return NEUTRALS.find((n) => n === current);
 }
 
+export function parseSidebar(value: unknown): Sidebar | undefined {
+	return SIDEBARS.find((v) => v === value);
+}
+
+export function parseBackground(value: unknown): Background | undefined {
+	return BACKGROUNDS.find((v) => v === value);
+}
+
+type PaletteChoice = {
+	accent?: unknown;
+	neutral?: unknown;
+	sidebar?: unknown;
+	background?: unknown;
+};
+
 /** The attributes for `<html>`: nothing at all for the defaults. */
-export function paletteAttributes(settings: { accent?: unknown; neutral?: unknown }): string {
+export function paletteAttributes(settings: PaletteChoice): string {
 	const accent = parseAccent(settings.accent);
 	const neutral = parseNeutral(settings.neutral);
+	const sidebar = parseSidebar(settings.sidebar);
+	const background = parseBackground(settings.background);
 	return [
 		accent && accent !== DEFAULT_ACCENT ? `data-accent="${accent}"` : "",
 		neutral && neutral !== DEFAULT_NEUTRAL ? `data-neutral="${neutral}"` : "",
+		sidebar && sidebar !== DEFAULT_SIDEBAR ? `data-sidebar="${sidebar}"` : "",
+		background && background !== DEFAULT_BACKGROUND ? `data-background="${background}"` : "",
 	]
 		.filter(Boolean)
 		.join(" ");
 }
 
 /** The same choice applied live, from the picker. */
-export function applyPalette(
-	root: HTMLElement,
-	{ accent, neutral }: { accent?: unknown; neutral?: unknown }
-) {
-	const a = parseAccent(accent);
-	const n = parseNeutral(neutral);
-	if (a && a !== DEFAULT_ACCENT) root.setAttribute("data-accent", a);
-	else root.removeAttribute("data-accent");
-	if (n && n !== DEFAULT_NEUTRAL) root.setAttribute("data-neutral", n);
-	else root.removeAttribute("data-neutral");
+export function applyPalette(root: HTMLElement, choice: PaletteChoice) {
+	const set = (name: string, value: string | undefined, fallback: string) => {
+		if (value && value !== fallback) root.setAttribute(name, value);
+		else root.removeAttribute(name);
+	};
+	set("data-accent", parseAccent(choice.accent), DEFAULT_ACCENT);
+	set("data-neutral", parseNeutral(choice.neutral), DEFAULT_NEUTRAL);
+	set("data-sidebar", parseSidebar(choice.sidebar), DEFAULT_SIDEBAR);
+	set("data-background", parseBackground(choice.background), DEFAULT_BACKGROUND);
 }
