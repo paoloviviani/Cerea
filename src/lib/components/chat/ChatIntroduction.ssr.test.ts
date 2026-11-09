@@ -4,7 +4,7 @@ import ChatIntroduction from "./ChatIntroduction.svelte";
 import { getConfigManager } from "$lib/utils/PublicConfig.svelte";
 import type { Model } from "$lib/types/Model";
 
-// Logo reads publicConfig.assetPath, which touches $app/state's page.url —
+// The component tree reads $app/state (page.url, navigating), which is
 // meaningful only inside a live SvelteKit request. A static stand-in keeps
 // the component's own SSR behaviour under test without the runtime.
 vi.mock("$app/state", () => ({
