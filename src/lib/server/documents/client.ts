@@ -114,11 +114,17 @@ function headers(extra: Record<string, string> = {}): Record<string, string> {
 	return { "X-Cerea-Documents-Secret": documentsSecret(), ...extra };
 }
 
-let cached: { key: string; at: number; value: DocumentCapabilities | null } | undefined;
+let cached:
+	{ key: string; at: number; value: DocumentCapabilities | null; stale?: boolean } | undefined;
+/** The last answer that worked: a short outage serves it, so the tool list (the prompt-cache prefix) does not flap. */
+let lastGood: { key: string; at: number; value: DocumentCapabilities } | undefined;
+/** A failing service is answered with its last good capabilities for this long. */
+export const CAPABILITIES_STALE_MS = 30 * 60_000;
 
 /** Forget the cached capabilities (tests, and a settings change). */
 export function resetCapabilitiesCache(): void {
 	cached = undefined;
+	lastGood = undefined;
 }
 
 function parseCapabilities(raw: unknown): DocumentCapabilities | null {
@@ -186,7 +192,7 @@ export async function getCapabilities(
 	const key = `${documentsUrl()}|${documentsSecret()}`;
 	const now = Date.now();
 	if (cached && cached.key === key) {
-		const ttl = cached.value ? CAPABILITIES_TTL_MS : CAPABILITIES_FAILURE_TTL_MS;
+		const ttl = cached.value && !cached.stale ? CAPABILITIES_TTL_MS : CAPABILITIES_FAILURE_TTL_MS;
 		if (now - cached.at < ttl) return cached.value;
 	}
 	let value: DocumentCapabilities | null = null;
@@ -204,8 +210,16 @@ export async function getCapabilities(
 	} catch (err) {
 		logger.warn({ err }, "documents_capabilities_unreachable");
 	}
-	cached = { key, at: now, value };
-	return value;
+	if (value) lastGood = { key, at: now, value };
+	// An outage of minutes must not take the document tools out of the request and put them back: each
+	// change of the tool list breaks the model's prompt cache for the whole conversation. A call to a dead
+	// service fails with its own clear message, so keeping the tools costs nothing.
+	const stale =
+		!value && lastGood && lastGood.key === key && now - lastGood.at < CAPABILITIES_STALE_MS
+			? lastGood.value
+			: null;
+	cached = { key, at: now, value: stale ?? value, ...(stale ? { stale: true } : {}) };
+	return stale ?? value;
 }
 
 /** What a failed call looked like on the wire. */
