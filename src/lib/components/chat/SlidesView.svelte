@@ -136,6 +136,11 @@
 		try {
 			if (iframeEl?.requestFullscreen) {
 				await iframeEl.requestFullscreen();
+				// Left while the browser was still deciding: the full screen arrives late, so hand it back
+				if (!presenting) {
+					if (document.fullscreenElement) void document.exitFullscreen();
+					return;
+				}
 				fullscreenNative = true;
 			}
 		} catch {
