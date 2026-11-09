@@ -12,7 +12,7 @@ describe("Logo", () => {
 		expect(svgs[0].getAttribute("height")).toBe("32");
 		expect(svgs[0].getAttribute("role")).toBe("img");
 		expect(svgs[0].getAttribute("aria-label")).toMatch(/ logo$/);
-		expect(container.querySelector("rect.tile-bg")).not.toBeNull();
+		expect(container.querySelector("rect")).toBeNull();
 		expect(container.querySelector("path.ridge")?.getAttribute("stroke-linejoin")).toBe("round");
 	});
 
