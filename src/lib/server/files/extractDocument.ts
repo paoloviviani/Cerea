@@ -479,14 +479,23 @@ export async function resolveExtractorModel(token: string): Promise<string | nul
  * grants move: a reader that has since gone, or that this caller (a member of
  * a shared base) is not granted, falls back to the deployment's default with
  * a log line — never silently, never as a failed upload. A direct OCR endpoint
- * has no catalogue to choose from, so a choice is ignored there.
+ * has no catalogue to choose from, so a choice can never be honoured there: it
+ * counts as a fallback (unless the choice names the endpoint's own model).
  */
 async function chosenReader(
 	token: string,
 	chosen: string | null | undefined
 ): Promise<{ reader: { id: string; local: boolean } | null; fallback: boolean }> {
 	const name = chosen?.trim();
-	if (!name || directOcrBaseUrl()) return { reader: null, fallback: false };
+	if (!name) return { reader: null, fallback: false };
+	if (directOcrBaseUrl()) {
+		if (name === config.CHAT_OCR_MODEL?.trim()) return { reader: null, fallback: false };
+		logger.warn(
+			{ model: name },
+			"document_reader_fallback: a direct OCR endpoint is configured; the chosen reader is not used"
+		);
+		return { reader: null, fallback: true };
+	}
 	const list = await readerModelsFor(token);
 	const found = list?.find((model) => model.id === name);
 	if (found) return { reader: found, fallback: false };
@@ -638,7 +647,13 @@ async function extractDocumentTraced(
 
 	// A local reader was chosen and is gone: falling back to a remote OCR model
 	// would send the document off this deployment, which the choice meant to avoid.
-	if (choice.fallback && options.readerLocal && !(await isLocalReader(token, model))) {
+	// A direct endpoint cannot be known to be local (nothing says so), so it is
+	// treated as remote.
+	if (
+		choice.fallback &&
+		options.readerLocal &&
+		(directOcrBaseUrl() || !(await isLocalReader(token, model)))
+	) {
 		logger.warn(
 			{ filename, fallback: model },
 			"document_reader_refused: the chosen local reader is unavailable and the default is remote"

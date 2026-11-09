@@ -173,7 +173,11 @@ async function handleInternal(
 		if (path === "vector_stores") {
 			if (method === "GET") return json(await service.listStores(caller));
 			if (method === "POST") {
-				return json(await service.createStore(caller, await event.request.json(), bearer));
+				const body = await event.request.json().catch(() => null);
+				if (!body || typeof body !== "object" || Array.isArray(body)) {
+					error(400, "Expected a JSON object.");
+				}
+				return json(await service.createStore(caller, body, bearer));
 			}
 		}
 

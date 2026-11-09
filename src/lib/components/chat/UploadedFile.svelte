@@ -304,6 +304,10 @@
 					<p class="text-sm text-amber-700 dark:text-amber-400" data-testid="reader-fallback">
 						{m["chat.uploaded.reader_fallback"]({ name: file.readerModel ?? "" })}
 					</p>
+				{:else if file.type === "hash" && file.readerModel}
+					<p class="text-sm text-gray-500" data-testid="reader-used">
+						{m["chat.uploaded.reader_used"]({ name: file.readerModel })}
+					</p>
 				{/if}
 				<p class="text-sm text-gray-500">
 					{pdfFailed && officeError ? officeError : m["chat.uploaded.no_preview"]()}

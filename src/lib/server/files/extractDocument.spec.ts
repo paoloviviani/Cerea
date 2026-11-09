@@ -1328,3 +1328,51 @@ describe("recording the reader, and refusing a fallback that leaves the deployme
 		warn.mockRestore();
 	});
 });
+
+describe("direct OCR endpoint and a chosen reader", () => {
+	beforeEach(() => {
+		setEnvBaseUrl("https://api.mistral.ai/v1");
+		setEnvModel("mistral-ocr-latest");
+	});
+
+	it("records a fallback when a gateway reader was chosen but the direct endpoint reads", async () => {
+		fetchMock.mockResolvedValue(jsonResponse(200, OCR_OK));
+		const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined as never);
+		const answer = await extractDocument({
+			bytes: BYTES,
+			mime: "application/pdf",
+			filename: "a.pdf",
+			token: "t",
+			readerModel: "docling",
+			readerLocal: false,
+		});
+		expect(answer).toMatchObject({ ok: true, readerFallback: true });
+		warn.mockRestore();
+	});
+
+	it("refuses a local choice rather than sending the PDF to the direct endpoint", async () => {
+		const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined as never);
+		const answer = await extractDocument({
+			bytes: BYTES,
+			mime: "application/pdf",
+			filename: "a.pdf",
+			token: "t",
+			readerModel: "docling",
+			readerLocal: true,
+		});
+		expect(answer).toMatchObject({ ok: false, kind: "refused", status: 403 });
+		expect(fetchMock).not.toHaveBeenCalled();
+		warn.mockRestore();
+	});
+
+	it("no choice reads directly without a fallback flag", async () => {
+		fetchMock.mockResolvedValue(jsonResponse(200, OCR_OK));
+		const answer = await extractDocument({
+			bytes: BYTES,
+			mime: "application/pdf",
+			filename: "a.pdf",
+			token: "t",
+		});
+		expect(answer.ok && answer.readerFallback).toBeFalsy();
+	});
+});

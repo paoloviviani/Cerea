@@ -1739,6 +1739,7 @@
 	"chat.uploaded.paste_hint": "If you would rather paste long text straight into the chat, you can turn this off in the {#link}settings page{/link}.",
 	"chat.uploaded.pasted": "Pasted text",
 	"chat.uploaded.reader_fallback": "Read with {name}: the chosen document reader was not available to you.",
+	"chat.uploaded.reader_used": "Read with {name}",
 	"chat.uploaded.preparing": "Preparing preview…",
 	"chat.uploaded.preview_unavailable": "the preview is unavailable",
 	"chat.uploaded.unknown_kind": "Could not tell what kind of file this is",
