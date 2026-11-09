@@ -292,24 +292,24 @@
 		<meta property="og:site_name" content={publicConfig.PUBLIC_APP_NAME} />
 		<meta property="og:locale" content="en_US" />
 	{/if}
-	<link rel="icon" href="{publicConfig.assetPath}/icon.svg?v=3" type="image/svg+xml" />
+	<link rel="icon" href="{publicConfig.assetPath}/icon.svg?v=2" type="image/svg+xml" />
 	{#if publicConfig.PUBLIC_ORIGIN}
 		<link
 			rel="icon"
-			href="{publicConfig.assetPath}/favicon.svg?v=3"
+			href="{publicConfig.assetPath}/favicon.svg?v=2"
 			type="image/svg+xml"
 			media="(prefers-color-scheme: light)"
 		/>
 		<link
 			rel="icon"
-			href="{publicConfig.assetPath}/favicon-dark.svg?v=3"
+			href="{publicConfig.assetPath}/favicon-dark.svg?v=2"
 			type="image/svg+xml"
 			media="(prefers-color-scheme: dark)"
 		/>
 	{:else}
-		<link rel="icon" href="{publicConfig.assetPath}/favicon-dev.svg?v=3" type="image/svg+xml" />
+		<link rel="icon" href="{publicConfig.assetPath}/favicon-dev.svg?v=2" type="image/svg+xml" />
 	{/if}
-	<link rel="apple-touch-icon" href="{publicConfig.assetPath}/apple-touch-icon.png?v=3" />
+	<link rel="apple-touch-icon" href="{publicConfig.assetPath}/apple-touch-icon.png?v=2" />
 	<!-- The manifest is served from a route (base-aware URLs). -->
 	<link rel="manifest" href="{base}/manifest.webmanifest" />
 
