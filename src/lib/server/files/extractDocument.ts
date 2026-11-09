@@ -484,11 +484,14 @@ export async function resolveExtractorModel(token: string): Promise<string | nul
  */
 async function chosenReader(
 	token: string,
-	chosen: string | null | undefined
+	chosen: string | null | undefined,
+	mime: string
 ): Promise<{ reader: { id: string; local: boolean } | null; fallback: boolean }> {
 	const name = chosen?.trim();
 	if (!name) return { reader: null, fallback: false };
-	if (directOcrBaseUrl()) {
+	// Only page-image documents go to the direct endpoint; an Office file is
+	// read by a local reader, so its choice is still honoured below.
+	if (directOcrBaseUrl() && isOcrNative(mime)) {
 		if (name === config.CHAT_OCR_MODEL?.trim()) return { reader: null, fallback: false };
 		logger.warn(
 			{ model: name },
@@ -606,7 +609,7 @@ async function extractDocumentTraced(
 
 	// PDFs and images go to the selected OCR model; every other format goes to
 	// the local reader, whatever is selected, or fails saying there is none.
-	const choice = await chosenReader(token, options.readerModel);
+	const choice = await chosenReader(token, options.readerModel, mime);
 	const picked = choice.reader;
 	trace.fallback = choice.fallback;
 	if (!isOcrNative(mime)) {
@@ -668,7 +671,10 @@ async function extractDocumentTraced(
 	}
 
 	const baseUrl = directOcrBaseUrl();
-	if (baseUrl) return extractDocumentDirect({ bytes, mime, filename, baseUrl, model });
+	if (baseUrl) {
+		trace.model = model;
+		return extractDocumentDirect({ bytes, mime, filename, baseUrl, model });
+	}
 	// Page images are for the local reader only: a remote OCR model reads a scan
 	// itself, and is never sent the request. The same rule for the fallback below.
 	const wantsPages =

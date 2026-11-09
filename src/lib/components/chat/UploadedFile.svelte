@@ -549,6 +549,11 @@
 					{:else}
 						<dt class="text-xs text-gray-400">{file.mime}</dt>
 					{/if}
+					{#if file.type === "hash" && file.readerModel}
+						<dt class="max-w-full truncate text-xs text-gray-400" data-testid="reader-used-chip">
+							{m["chat.uploaded.reader_used"]({ name: file.readerModel })}
+						</dt>
+					{/if}
 				</dl>
 			</div>
 		{/if}

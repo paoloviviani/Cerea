@@ -1346,7 +1346,11 @@ describe("direct OCR endpoint and a chosen reader", () => {
 			readerModel: "docling",
 			readerLocal: false,
 		});
-		expect(answer).toMatchObject({ ok: true, readerFallback: true });
+		expect(answer).toMatchObject({
+			ok: true,
+			readerFallback: true,
+			readerModel: "mistral-ocr-latest",
+		});
 		warn.mockRestore();
 	});
 
@@ -1374,5 +1378,38 @@ describe("direct OCR endpoint and a chosen reader", () => {
 			token: "t",
 		});
 		expect(answer.ok && answer.readerFallback).toBeFalsy();
+	});
+
+	it("a choice equal to CHAT_OCR_MODEL is no fallback", async () => {
+		fetchMock.mockResolvedValue(jsonResponse(200, OCR_OK));
+		const answer = await extractDocument({
+			bytes: BYTES,
+			mime: "application/pdf",
+			filename: "a.pdf",
+			token: "t",
+			readerModel: "mistral-ocr-latest",
+			readerLocal: true,
+		});
+		expect(answer.ok).toBe(true);
+		expect(answer.ok && answer.readerFallback).toBeFalsy();
+	});
+
+	it("an Office file with a local choice is read by that reader, no fallback", async () => {
+		gatewayGetMock.mockResolvedValue({
+			data: [{ id: "docling", kind: "ocr", local: true }],
+		});
+		gatewayPostMock.mockResolvedValue(OCR_OK);
+		const answer = await extractDocument({
+			bytes: BYTES,
+			mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+			filename: "a.docx",
+			token: "t",
+			readerModel: "docling",
+			readerLocal: true,
+		});
+		expect(answer).toMatchObject({ ok: true, readerModel: "docling" });
+		expect(answer.ok && answer.readerFallback).toBeFalsy();
+		expect(gatewayPostMock.mock.calls[0][2]).toMatchObject({ model: "docling" });
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 });
