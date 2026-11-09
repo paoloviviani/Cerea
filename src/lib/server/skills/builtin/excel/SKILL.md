@@ -15,7 +15,7 @@ editing), and do not mix the two ways. If the tools are not in your tool list, j
 
 ## Creating a workbook
 
-Call `doc_create` with `format: "xlsx"` and a `spec` of `sheets`. The tool's description lists every property; the
+Call `doc_create` with `format: "xlsx"` and a `spec` of `sheets`. The full spec (every property) follows this skill's text under "The `doc_create` spec for xlsx"; the
 service checks the spec first and answers with what is allowed if something is off.
 
 - **Cells:** `rows` is the quick way to write a table of values from `start` (default A1); `cells` writes single
@@ -29,7 +29,7 @@ service checks the spec first and answers with what is allowed if something is o
 - **Charts:** `charts` with `chart_type`, `data_range` (first column categories, first row series names), an
   `anchor` cell, titles, and `render`: `"native"` (a real Excel chart that follows the data) or `"image"` (a PNG
   drawn from the values; it needs literal values, not formulas).
-- **Look:** neutral built-in style; `theme` only for what the person asked (fonts from the tool's list, colours,
+- **Look:** neutral built-in style; `theme` only for what the person asked (fonts from the spec's list, colours,
   accent, table style). A workbook the person uploaded for its named styles is given as `theme.template`, and
   cells then take `style: "<named style>"`. A template with `{{placeholders}}` or named ranges is filled with
   `doc_create_from_template`.
