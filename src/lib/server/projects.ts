@@ -470,6 +470,44 @@ async function memoryCaller(baseId: string, project: Project): Promise<Caller | 
 }
 
 /**
+ * Make the project's past-chats base, owned by the project's owner, and claim
+ * it on the project; the id of the base the project ends up with. The claim is
+ * conditional, so two callers (a first turn, the owner choosing an embedding
+ * model) end up with one base: the loser's is dropped. `embeddingModel` is the
+ * owner's choice (`""` or absent: the deployment's default), checked against
+ * what `token`'s holder may use.
+ */
+export async function createMemoryBase(
+	project: Project,
+	choice?: { embeddingModel?: string | null; token?: string }
+): Promise<string | undefined> {
+	const { createStore } = await import("$lib/server/knowledge/service");
+	const created = await createStore(
+		asOwner(project.userId),
+		{
+			name: `${project.name} — past chats`,
+			description:
+				"Transcripts of this project's own conversations, written by the chat " +
+				"and searched in later turns. Safe to empty; it refills as you talk.",
+			embedding_model: choice?.embeddingModel,
+		},
+		choice?.token
+	);
+	const claimed = await collections.projects.updateOne(
+		{
+			_id: project._id,
+			memoryBaseId: project.memoryBaseId ?? { $exists: false },
+		},
+		{ $set: { memoryBaseId: created.id, updatedAt: new Date() } }
+	);
+	if (claimed.modifiedCount === 1) return created.id;
+	const { deleteDerived } = await import("$lib/server/knowledge/deleteDerived");
+	await deleteDerived({ storeIds: new ObjectId(created.id), dropStores: true });
+	const current = await collections.projects.findOne({ _id: project._id });
+	return current?.memoryBaseId;
+}
+
+/**
  * Write a conversation's exchange into its project's memory base.
  *
  * Called after a turn finishes, and it is deliberately not awaited by the
@@ -507,7 +545,7 @@ export async function indexConversation(options: {
 		// The chat's own store, since ADR 0070: the memory base is created
 		// here, owned by the *project's* owner whoever is talking, and written
 		// in-process as its owner (see the header).
-		const { createStore, addText } = await import("$lib/server/knowledge/service");
+		const { addText } = await import("$lib/server/knowledge/service");
 		let writer = project.memoryBaseId
 			? await memoryCaller(project.memoryBaseId, project)
 			: undefined;
@@ -517,26 +555,7 @@ export async function indexConversation(options: {
 			// refills as you talk"), or a legacy base some member owns: make one
 			// the project's owner owns, and stop writing to the legacy one. The claim is conditional, so two
 			// members finishing a first turn together end up with one base.
-			const created = await createStore(asOwner(project.userId), {
-				name: `${project.name} — past chats`,
-				description:
-					"Transcripts of this project's own conversations, written by the chat " +
-					"and searched in later turns. Safe to empty; it refills as you talk.",
-			});
-			const claimed = await collections.projects.updateOne(
-				{
-					_id: project._id,
-					memoryBaseId: project.memoryBaseId ?? { $exists: false },
-				},
-				{ $set: { memoryBaseId: created.id, updatedAt: new Date() } }
-			);
-			baseId = created.id;
-			if (claimed.modifiedCount === 0) {
-				const { deleteDerived } = await import("$lib/server/knowledge/deleteDerived");
-				await deleteDerived({ storeIds: new ObjectId(created.id), dropStores: true });
-				const current = await collections.projects.findOne({ _id: project._id });
-				baseId = current?.memoryBaseId;
-			}
+			baseId = await createMemoryBase(project);
 			writer = baseId ? await memoryCaller(baseId, project) : undefined;
 		}
 		if (!baseId || !writer) throw new Error("The project has no memory base to write to.");

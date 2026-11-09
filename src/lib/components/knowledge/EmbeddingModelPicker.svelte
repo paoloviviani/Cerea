@@ -7,7 +7,8 @@
 	Two uses. On a create form, `value` is bound and nothing else happens. On
 	an existing index, pass `confirmCount`: picking another model then asks,
 	inline, before anything is re-embedded, and `onconfirm` runs the reindex
-	with the new choice. `readonly` (a member who may not manage the base) shows
+	with the new choice (with nothing indexed yet, `confirmCount` 0, the change
+	applies at once). `readonly` (a member who may not manage the base) shows
 	the name only.
 -->
 <script lang="ts">
@@ -68,6 +69,11 @@
 		const choice = (event.currentTarget as HTMLSelectElement).value;
 		if (confirmCount === undefined) {
 			value = choice;
+			return;
+		}
+		// Nothing indexed: there is nothing to re-embed, so nothing to confirm.
+		if (confirmCount === 0 && choice !== value) {
+			onconfirm?.(choice);
 			return;
 		}
 		pending = choice === value ? null : choice;

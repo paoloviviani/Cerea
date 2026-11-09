@@ -4,6 +4,12 @@
 	indexed, and, for the owner, Reindex and (after a failure) Retry. Both act
 	on the same knowledge base the Knowledge screen's Reindex does.
 
+	The embedding model picker is here, on the "Search this project's past
+	chats" card, whenever that box is ticked: before the first turn there is no
+	index yet, and choosing a model makes it (empty) with that model; after, it
+	moves the index (confirmed inline, then reindexed). Past chats are text and
+	are never extracted, so there is no document reader choice here.
+
 	Loads in `onMount`, like the other project sections, for the SSR reason.
 -->
 <script lang="ts">
@@ -18,9 +24,11 @@
 		projectId: string;
 		/** The project has been shared: members may lack the index's model. */
 		shared?: boolean;
+		/** The "Search this project's past chats" box is ticked: the embedding model shows. */
+		enabled?: boolean;
 	}
 
-	let { projectId, shared = false }: Props = $props();
+	let { projectId, shared = false, enabled = true }: Props = $props();
 
 	let index = $state<(PastChatsIndex & { canManage: boolean }) | null>(null);
 	let working = $state(false);
@@ -121,12 +129,12 @@
 					</button>
 				{/if}
 			</div>
-			{#if index.embeddingModel}
+			{#if enabled && (index.embeddingModel || index.models.length > 0 || index.defaultModel)}
 				<EmbeddingModelPicker
 					id="past-chats-embedder"
 					models={index.models}
 					defaultModel={index.defaultModel}
-					value={index.embeddingChosen ? index.embeddingModel : ""}
+					value={index.embeddingChosen ? (index.embeddingModel ?? "") : ""}
 					current={index.embeddingModel}
 					readonly={!index.canManage}
 					disabled={working}

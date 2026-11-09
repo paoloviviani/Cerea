@@ -883,6 +883,7 @@
 										<ProjectPastChatsIndex
 											projectId={project.id}
 											shared={project.shares.length > 0}
+											enabled={indexPastChats}
 										/>
 									{/key}
 								{/if}

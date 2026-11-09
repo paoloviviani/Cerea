@@ -778,6 +778,15 @@ served in-process by `src/lib/server/knowledge/`, behind the same forwarder
 and its allowlist; only the handling is local now. Projects are **ours**
 because a project groups _conversations_, and those live in Mongo.
 
+Document reader choice (C97): the admin sets only the default
+(`knowledgeConfig.extractorModel`); a base carries `VectorStore.readerModel`
+and a user `Settings.documentReader` (own route `api/v2/user/document-reader`).
+The list is `readerModelsFor` (`knowledge/readers.ts`: `/v1/models?include=ocr`
+as given); a choice is validated at save (400) and re-checked at use in
+`extractDocument`'s `chosenReader` (fallback to the default with a
+`document_reader_fallback` log). `rereadDocument` re-extracts a file document
+from its GridFS original through the background queue (`IngestOptions.reread`).
+
 `src/lib/server/projects.ts` and `src/lib/server/knowledge/` are the whole of
 it. Read the header of `src/lib/types/Project.ts` first; the parts that will
 bite:

@@ -161,6 +161,10 @@ export type MessageFile = {
 		kind: ExtractionFailureKind;
 		reason: string;
 	};
+	/** The reader that read this document, when known. */
+	readerModel?: string;
+	/** The chosen reader was unavailable, so the default reader read it. */
+	readerFallback?: boolean;
 	/**
 	 * For attached audio: what transcription reported, kept beside the
 	 * transcript (`extracted`, `pages: 0`). Both are optional — a provider

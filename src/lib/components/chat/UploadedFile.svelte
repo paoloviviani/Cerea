@@ -300,6 +300,11 @@
 					{file.mime || m["chat.uploaded.unknown_kind"]()}{#if fileBytes !== null}
 						· {formatSize(fileBytes)}{/if}
 				</p>
+				{#if file.type === "hash" && file.readerFallback}
+					<p class="text-sm text-amber-700 dark:text-amber-400" data-testid="reader-fallback">
+						{m["chat.uploaded.reader_fallback"]({ name: file.readerModel ?? "" })}
+					</p>
+				{/if}
 				<p class="text-sm text-gray-500">
 					{pdfFailed && officeError ? officeError : m["chat.uploaded.no_preview"]()}
 				</p>
