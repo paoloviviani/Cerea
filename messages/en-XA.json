@@ -1879,6 +1879,7 @@
 	"chat.uploaded.paste_hint": "[Íƒ ýóú ŵóúľď ŕáťȟéŕ þáśťé ľóńǧ ťéẋť śťŕáíǧȟť íńťó ťȟé ćȟáť, ýóú ćáń ťúŕń ťȟíś óƒƒ íń ťȟé {#link}śéťťíńǧś þáǧé{/link}.]",
 	"chat.uploaded.pasted": "[Þáśťéď ťéẋť]",
 	"chat.uploaded.reader_fallback": "[Ŕéáď ŵíťȟ {name}: ťȟé ćȟóśéń ďóćúḿéńť ŕéáďéŕ ŵáś ńóť áǚáíľáƀľé ťó ýóú.]",
+	"chat.uploaded.reader_used": "[Ŕéáď ŵíťȟ {name}]",
 	"chat.uploaded.preparing": "[Þŕéþáŕíńǧ þŕéǚíéŵ…]",
 	"chat.uploaded.preview_unavailable": "[ťȟé þŕéǚíéŵ íś úńáǚáíľáƀľé]",
 	"chat.uploaded.unknown_kind": "[Ćóúľď ńóť ťéľľ ŵȟáť ķíńď óƒ ƒíľé ťȟíś íś]",
