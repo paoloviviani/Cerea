@@ -7,6 +7,12 @@ body {
 	background: var(--r-background-color, #fff);
 	overflow: hidden;
 }
+/* reveal measures .reveal to scale the deck; a deck rule that happens to match
+ * one of the classes reveal puts on it (.slide, .overview, ...) must not size it. */
+.reveal {
+	width: 100% !important;
+	height: 100% !important;
+}
 /* Code colours (highlight.js classes, pre-rendered by the parent) */
 .hljs-comment,
 .hljs-quote {

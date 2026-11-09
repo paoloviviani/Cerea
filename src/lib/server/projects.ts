@@ -542,6 +542,26 @@ export async function indexConversation(options: {
 		if (!baseId || !writer) throw new Error("The project has no memory base to write to.");
 		failedInto = new ObjectId(baseId);
 
+		// A model the project's owner chose may be one this member is not granted.
+		// Their embedding call would be refused and the whole index would read as
+		// failed because of one member's turn: skip this turn instead, and say
+		// so in the log. The owner's own turns keep the index current.
+		const store = await collections.vectorStores.findOne(
+			{ _id: failedInto },
+			{ projection: { embeddingModel: 1, embeddingChosen: 1 } }
+		);
+		if (store?.embeddingChosen && store.embeddingModel) {
+			const { embeddingModelsFor } = await import("$lib/server/knowledge/service");
+			const mine = await embeddingModelsFor(token);
+			if (mine && !mine.includes(store.embeddingModel)) {
+				logger.info(
+					{ project: project.name, model: store.embeddingModel },
+					"project_memory_index_skipped: this member cannot use the index's embedding model"
+				);
+				return;
+			}
+		}
+
 		// The whole thread, not the last turn: a transcript is only useful as
 		// a unit, and `source_ref` makes rewriting it cheap and idempotent.
 		const transcript = messages

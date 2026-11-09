@@ -39,7 +39,9 @@ Seven tabs. The old addresses of the sections that were folded into **Web** and 
 | **Storage**    | How long files produced by code are kept: see below                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 
 **Knowledge** puts the configuration and its consequences together on purpose.
-Changing the embedding model touches **no existing base**: each pins the model
+The embedding model set here is the **default**: users can choose another for
+each base, and a base on a model its owner chose is never listed as older.
+Changing the default touches **no existing base**: each pins the model
 it was indexed with. So the screen shows which bases are now on an older model
 and would be re-embedded, and **Reindex** sits beside that tag rather than on a
 page of its own. See [Knowledge and projects](knowledge.md).

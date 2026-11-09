@@ -99,6 +99,24 @@ export type ProjectShare =
 	| { kind: "user"; email: string; createdAt: Date }
 	| { kind: "group"; name: string; createdAt: Date };
 
+/** The state of a project's past-chats index, for its settings page. */
+export interface PastChatsIndex {
+	state: "none" | "indexing" | "indexed" | "failed";
+	indexed: number;
+	indexing: number;
+	failed: number;
+	/** The friendly reason for the first failure, when there is one. */
+	error: string | null;
+	/** The embedding model the index is built with. */
+	embeddingModel: string | null;
+	/** The owner chose it, rather than it following the deployment's default. */
+	embeddingChosen: boolean;
+	/** The embedding models this viewer may choose among. */
+	models: string[];
+	/** The deployment's default embedding model, if one is set. */
+	defaultModel: string | null;
+}
+
 /** What the client is given. `_id` as a string, and no other shape change. */
 export interface ProjectView {
 	id: string;
