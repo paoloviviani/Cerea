@@ -2689,7 +2689,7 @@
 	"settings.application.background.hint": "Off while your system asks for reduced transparency or more contrast.",
 	"settings.application.background.option.none": "None",
 	"settings.application.background.option.dots": "Dots",
-	"settings.application.background.option.mesh": "Mesh",
+	"settings.application.background.option.glow": "Glow",
 	"settings.application.background.option.bold": "Bold",
 	"settings.application.language.title": "Language",
 	"settings.application.language.description": "The language the app is shown in. Changing it reloads the page.",

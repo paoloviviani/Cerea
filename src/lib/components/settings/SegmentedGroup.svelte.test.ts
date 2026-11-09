@@ -6,7 +6,7 @@ import SegmentedGroup from "./SegmentedGroup.svelte";
 const options = [
 	{ value: "none", label: "None" },
 	{ value: "dots", label: "Dots" },
-	{ value: "mesh", label: "Mesh" },
+	{ value: "glow", label: "Glow" },
 	{ value: "bold", label: "Bold" },
 ];
 
@@ -18,12 +18,12 @@ function mount(value = "none") {
 
 describe("SegmentedGroup", () => {
 	it("is a named radio group, one radio per option, the current one checked", async () => {
-		const { screen } = mount("mesh");
+		const { screen } = mount("glow");
 		await expect
 			.element(screen.getByRole("radiogroup", { name: "Background pattern" }))
 			.toBeVisible();
 		expect(screen.getByRole("radio").elements()).toHaveLength(4);
-		await expect.element(screen.getByRole("radio", { name: "Mesh" })).toBeChecked();
+		await expect.element(screen.getByRole("radio", { name: "Glow" })).toBeChecked();
 		await expect.element(screen.getByRole("radio", { name: "None" })).not.toBeChecked();
 	});
 

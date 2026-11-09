@@ -67,7 +67,7 @@
 		transparent 1.4px
 	);
 }
-:root[data-background="mesh"] body {
+:root[data-background="glow"] body {
 	background-image:
 		radial-gradient(
 			60vw 50vh at 85% 8%,
@@ -85,7 +85,7 @@
 			transparent 70%
 		);
 }
-:root.dark[data-background="mesh"] body {
+:root.dark[data-background="glow"] body {
 	background-image:
 		radial-gradient(
 			60vw 50vh at 85% 8%,

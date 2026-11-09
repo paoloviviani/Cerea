@@ -169,11 +169,11 @@ describe.each([
 
 	it("persists valid values and reads them back", async () => {
 		const { locals } = await createTestUser();
-		expect((await save(locals, { sidebar: "contrast", background: "mesh" })).status).toBe(200);
+		expect((await save(locals, { sidebar: "contrast", background: "glow" })).status).toBe(200);
 		const s = await stored(locals);
-		expect([s?.sidebar, s?.background]).toEqual(["contrast", "mesh"]);
+		expect([s?.sidebar, s?.background]).toEqual(["contrast", "glow"]);
 		expect(await paletteAttributesFor(locals)).toBe(
-			'data-sidebar="contrast" data-background="mesh"'
+			'data-sidebar="contrast" data-background="glow"'
 		);
 	});
 
