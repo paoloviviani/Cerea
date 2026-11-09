@@ -410,11 +410,6 @@ export async function* runMcpFlow({
 		conv,
 		...(imageGeneration ? { imageGeneration } : {}),
 		documentCapabilities,
-		documentSkills: documentCapabilities
-			? await (
-					await import("$lib/server/skills/documentSpec")
-				).documentSpecSkills(locals?.user?._id)
-			: undefined,
 		// The model sees images (or the user's switch says so) and its pictures-in-tool-turns capability is not off.
 		modelSeesImages: Boolean(forceMultimodal ?? model.multimodal) && !model.toolImagesOff,
 		pictureState,

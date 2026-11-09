@@ -581,9 +581,7 @@ function withSuffix(name: string, suffix: string): string {
  */
 export function createDocumentBuiltins(
 	caps: DocumentCapabilities | null | undefined,
-	turn?: DocumentTurnState,
-	/** The format skills that resolve for this deployment and person (`documentSpecSkills`); none by default. */
-	specSkills: ReadonlySet<string> = new Set()
+	turn?: DocumentTurnState
 ): BuiltinTool[] {
 	if (!caps) return [];
 	const formats = DOCUMENT_FORMATS.filter((f) => caps.formats[f]);
@@ -984,16 +982,10 @@ export function createDocumentBuiltins(
 							"Create a NEW Word, Excel, PowerPoint or PDF file from a document spec. The service builds it, " +
 							"checks that it opens, and saves it as a file the person can open and download; you never write " +
 							"code for it. All or nothing: a spec problem comes back as a message naming what is allowed. " +
-							"The full spec of each format (blocks, sheets, slides, theme, charts, cells) " +
-							(createFormats.some((f) => specSkills.has(CREATE_SPEC_SKILL[f]))
-								? `comes with that format's skill: ${createFormats
-										.filter((f) => specSkills.has(CREATE_SPEC_SKILL[f]))
-										.map((f) => `${f} -> \`${CREATE_SPEC_SKILL[f]}\``)
-										.join(
-											", "
-										)}. Load the skill with load_skill before the first file of that format; ` +
-									"for any other, the error of a first call carries the spec. "
-								: "comes back in the error of a first call that is wrong, so a short first attempt is fine. ") +
+							"The full spec of each format (blocks, sheets, slides, theme, charts, cells) comes with that " +
+							`format's skill when it is listed in your skills (${createFormats.map((f) => `${f}: \`${CREATE_SPEC_SKILL[f]}\``).join(", ")}; ` +
+							"load it with load_skill before the first file of that format), and in the error of a first " +
+							"call that is wrong, so a short first attempt is fine. " +
 							"Images are files in the " +
 							"conversation: list them in `images` and name them the same way in the spec. The result gives " +
 							"the file's name and an outline; to change the file afterwards use doc_edit with that name.",
@@ -1041,9 +1033,7 @@ export function createDocumentBuiltins(
 					}
 					const specHelp = (): string => {
 						const f = format as CreateFormat;
-						const skill = specSkills.has(CREATE_SPEC_SKILL[f])
-							? ` (it also comes with the \`${CREATE_SPEC_SKILL[f]}\` skill, which says how to design the file)`
-							: "";
+						const skill = ` (the \`${CREATE_SPEC_SKILL[f]}\` skill, if listed, also gives it with advice on how to design the file)`;
 						if (turn) {
 							turn.specSent ??= new Set();
 							// the same format's spec is already in this turn, in an earlier error

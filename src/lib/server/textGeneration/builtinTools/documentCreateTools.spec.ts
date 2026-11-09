@@ -107,6 +107,7 @@ let server: http.Server;
 let requests: Array<{ path: string; headers: http.IncomingHttpHeaders; body: string }> = [];
 let capabilities: unknown = fixture;
 let reply: { status: number; body: unknown } | undefined;
+let capabilitiesStatus = 200;
 
 const created = (extra: Record<string, unknown> = {}) => ({
 	format: "docx",
@@ -137,7 +138,7 @@ beforeAll(async () => {
 				res.end(JSON.stringify(value));
 			};
 			if (req.headers["x-cerea-documents-secret"] !== SECRET) return json(401, { error: {} });
-			if (req.url === "/v1/capabilities") return json(200, capabilities);
+			if (req.url === "/v1/capabilities") return json(capabilitiesStatus, capabilities);
 			if (req.url === "/v1/create" || req.url === "/v1/create_from_template") {
 				if (reply) return json(reply.status, reply.body);
 				return json(
@@ -171,6 +172,7 @@ const attachment = (name: string, value: string) => ({
 beforeEach(() => {
 	requests = [];
 	capabilities = fixture;
+	capabilitiesStatus = 200;
 	reply = undefined;
 	stored.attachments.clear();
 	stored.outputs.clear();
@@ -200,16 +202,13 @@ afterEach(() => {
 	delete config.CHAT_DOCUMENTS_SECRET;
 });
 
-const ALL_SKILLS = new Set(["word", "excel", "powerpoint", "pdf"]);
 const named = async (
 	name: string,
-	options: { skills?: ReadonlySet<string>; turn?: { touchedSlides: Map<string, number[]> } } = {}
+	options: { turn?: { touchedSlides: Map<string, number[]> } } = {}
 ) => {
-	const tool = createDocumentBuiltins(
-		await getCapabilities(),
-		options.turn,
-		options.skills ?? ALL_SKILLS
-	).find((t) => t.name === name);
+	const tool = createDocumentBuiltins(await getCapabilities(), options.turn).find(
+		(t) => t.name === name
+	);
 	if (!tool) throw new Error(`${name} is not offered`);
 	return tool;
 };
@@ -275,8 +274,8 @@ describe("gating by the service's capability flags", () => {
 			properties: { format: { enum: string[] } };
 		};
 		expect(props.properties.format.enum).toEqual(["docx", "pdf"]);
-		expect(tool.definition.function.description).toContain("pdf -> `pdf`");
-		expect(tool.definition.function.description).not.toContain("xlsx -> `excel`");
+		expect(tool.definition.function.description).toContain("pdf: `pdf`");
+		expect(tool.definition.function.description).not.toContain("xlsx: `excel`");
 	});
 
 	it("gives the shared guidance once, not once per tool", async () => {
@@ -287,8 +286,8 @@ describe("gating by the service's capability flags", () => {
 	});
 });
 
-const createText = async (skills?: ReadonlySet<string>) =>
-	(await named(DOC_CREATE_TOOL_NAME, { skills })).definition.function.description ?? "";
+const createText = async () =>
+	(await named(DOC_CREATE_TOOL_NAME)).definition.function.description ?? "";
 
 describe("the tool definition is short and points at the skills", () => {
 	it("carries no block, theme or cell spec, and names the skill of each format", async () => {
@@ -304,12 +303,7 @@ describe("the tool definition is short and points at the skills", () => {
 		]) {
 			expect(text).not.toContain(needle);
 		}
-		for (const pair of [
-			"docx -> `word`",
-			"xlsx -> `excel`",
-			"pptx -> `powerpoint`",
-			"pdf -> `pdf`",
-		]) {
+		for (const pair of ["docx: `word`", "xlsx: `excel`", "pptx: `powerpoint`", "pdf: `pdf`"]) {
 			expect(text).toContain(pair);
 		}
 		expect(text).toContain("load_skill");
@@ -354,19 +348,60 @@ describe("the tool definition is short and points at the skills", () => {
 	});
 });
 
-describe("the definition names only skills that resolve", () => {
-	it("names just the skills in the set, and says the error carries the spec for the rest", async () => {
-		const text = await createText(new Set(["word"]));
-		expect(text).toContain("docx -> `word`");
-		expect(text).not.toContain("xlsx -> `excel`");
-		expect(text).toContain("the error of a first call carries the spec");
+describe("the tools prefix is stable, for the model's prompt cache", () => {
+	const bytes = (tools: Array<{ definition: unknown; preprompt?: string }>) =>
+		JSON.stringify(tools.map((t) => [t.definition, t.preprompt]));
+
+	it("is byte-identical across turns, conversations and people on the same capabilities", async () => {
+		const first = createDocumentBuiltins(await getCapabilities(), {
+			touchedSlides: new Map([["a.pptx", [1]]]),
+		});
+		// a later turn: a fresh capabilities object parsed again, another turn state
+		resetCapabilitiesCache();
+		const second = createDocumentBuiltins(await getCapabilities(), {
+			touchedSlides: new Map(),
+			specSent: new Set(["docx"]),
+		});
+		expect(bytes(second)).toBe(bytes(first));
+		expect(first.map((t) => t.name)).toContain(DOC_CREATE_TOOL_NAME);
 	});
 
-	it("names no skill when none resolves (disabled, or no skills on this turn)", async () => {
-		const text = await createText(new Set());
-		expect(text).not.toContain("load_skill");
-		expect(text).not.toMatch(/-> `/);
-		expect(text).toContain("comes back in the error of a first call");
+	it("does not depend on key order in the service's answer", async () => {
+		const shuffled = JSON.parse(JSON.stringify(fixture));
+		for (const f of ["docx", "pdf"]) {
+			const blocks = shuffled.create_schemas[f].blocks;
+			shuffled.create_schemas[f].blocks = Object.fromEntries(Object.entries(blocks).reverse());
+		}
+		const a = createDocumentBuiltins(fixture as never).find((t) => t.name === DOC_CREATE_TOOL_NAME);
+		const b = createDocumentBuiltins(shuffled).find((t) => t.name === DOC_CREATE_TOOL_NAME);
+		// the slim definition does not list blocks at all, so it cannot move with them
+		expect(JSON.stringify(b?.definition)).toBe(JSON.stringify(a?.definition));
+	});
+
+	it("keeps the tool list through a short outage of the service, and drops it after a long one", async () => {
+		const live = await getCapabilities();
+		const before = bytes(createDocumentBuiltins(live));
+		vi.useFakeTimers({ toFake: ["Date"] });
+		try {
+			// the service starts failing; the cached answer has expired
+			capabilitiesStatus = 503;
+			vi.setSystemTime(Date.now() + 2 * 60_000);
+			const during = await getCapabilities();
+			expect(during).toEqual(live);
+			expect(bytes(createDocumentBuiltins(during))).toBe(before);
+			// still failing a quarter of an hour on: still the same tools
+			vi.setSystemTime(Date.now() + 15 * 60_000);
+			expect(await getCapabilities()).toEqual(live);
+			// a long outage does take them away
+			vi.setSystemTime(Date.now() + 40 * 60_000);
+			expect(await getCapabilities()).toBeNull();
+			// and the service coming back brings them back
+			capabilitiesStatus = 200;
+			vi.setSystemTime(Date.now() + 30_000);
+			expect(bytes(createDocumentBuiltins(await getCapabilities()))).toBe(before);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });
 

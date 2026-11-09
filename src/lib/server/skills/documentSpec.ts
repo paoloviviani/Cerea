@@ -51,24 +51,3 @@ export async function documentSpecSection(
 export function withDocumentSpec(body: string, spec: string): string {
 	return spec ? `${spec.replace(/^\n+/, "")}\n\n${body}` : body;
 }
-
-/**
- * The format skills that resolve to the deployment's own (admin) version for this person and are loadable
- * (`load_skill` is on this turn): the ones `doc_create` may name. A disabled skill, a user's own skill of the
- * same name, or no skills at all leave it out. Never throws.
- */
-export async function documentSpecSkills(
-	userId: import("mongodb").ObjectId | undefined
-): Promise<Set<string>> {
-	const names = new Set<string>();
-	try {
-		const { findSkillBody, skillsAvailable } = await import("./service");
-		if (!(await skillsAvailable(userId))) return names;
-		for (const name of Object.keys(SKILL_FORMAT)) {
-			if ((await findSkillBody(userId, name))?.owner === "admin") names.add(name);
-		}
-	} catch {
-		// no skills offered: doc_create then points at its own error
-	}
-	return names;
-}

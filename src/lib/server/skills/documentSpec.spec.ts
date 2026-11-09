@@ -15,10 +15,9 @@ vi.mock("$lib/server/documents/client", async (importOriginal) => {
 	return { ...real, getCapabilities: vi.fn(async () => caps.value ?? null) };
 });
 
-const { skillLoadBuiltin, createSkill } = await import("./service");
+const { skillLoadBuiltin } = await import("./service");
 const { assembleSkillsContext } = await import("./prompt");
-const { documentSpecSection, withDocumentSpec, documentSpecSkills } =
-	await import("./documentSpec");
+const { documentSpecSection, withDocumentSpec } = await import("./documentSpec");
 const { MAX_REPLAYED_TOOL_OUTPUT_CHARS } =
 	await import("$lib/server/textGeneration/utils/prepareFiles");
 const { createFormatSpec } = await import("$lib/server/textGeneration/builtinTools/documentTools");
@@ -73,6 +72,16 @@ describe("load_skill delivers the format's spec", () => {
 		expect(await load("excel")).not.toContain("\n## The `doc_create` spec for xlsx");
 	});
 
+	it("replays byte-identically: the same result every time, whatever the turn", async () => {
+		const first = await load("powerpoint");
+		const again = await load("powerpoint");
+		expect(again).toBe(first);
+		// the replay cut is a plain prefix, so what a later turn sees is a pure function of the stored text
+		expect(first.slice(0, MAX_REPLAYED_TOOL_OUTPUT_CHARS)).toBe(
+			again.slice(0, MAX_REPLAYED_TOOL_OUTPUT_CHARS)
+		);
+	});
+
 	it("gives each format only its own spec", async () => {
 		const excel = await load("excel");
 		expect(excel).not.toContain("A slide: {");
@@ -96,23 +105,6 @@ describe("an @mention delivers it too", () => {
 		const { preprompt } = await assembleSkillsContext(owner, "make a sheet with @excel please");
 		expect(preprompt).toContain("## Skill: excel");
 		expect(preprompt).toContain("## The `doc_create` spec for xlsx");
-	});
-});
-
-describe("documentSpecSkills", () => {
-	it("lists the format skills that resolve to the deployment's own", async () => {
-		expect([...(await documentSpecSkills(owner))].sort()).toEqual([
-			"excel",
-			"pdf",
-			"powerpoint",
-			"word",
-		]);
-	});
-
-	it("leaves out one a person replaced with their own", async () => {
-		await createSkill(owner, "---\nname: excel\ndescription: mine\n---\n\nmy way\n");
-		expect([...(await documentSpecSkills(owner))]).not.toContain("excel");
-		expect([...(await documentSpecSkills(owner))]).toContain("word");
 	});
 });
 
