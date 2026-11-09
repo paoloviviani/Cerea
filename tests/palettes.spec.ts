@@ -213,17 +213,17 @@ test.describe("Appearance", () => {
 		await expect(html).toHaveAttribute("data-sidebar", "contrast");
 		await save;
 		save = saved(page);
-		await page.getByRole("radio", { name: "Mesh" }).click();
-		await expect(html).toHaveAttribute("data-background", "mesh");
+		await page.getByRole("radio", { name: "Glow" }).click();
+		await expect(html).toHaveAttribute("data-background", "glow");
 		await save;
 
 		// The document the server sends, before any script runs: no flash.
 		const served = await (await page.request.get(SETTINGS)).text();
 		expect(served).toMatch(/<html[^>]*data-sidebar="contrast"/);
-		expect(served).toMatch(/<html[^>]*data-background="mesh"/);
+		expect(served).toMatch(/<html[^>]*data-background="glow"/);
 		await page.reload();
 		await expect(html).toHaveAttribute("data-sidebar", "contrast");
-		await expect(html).toHaveAttribute("data-background", "mesh");
+		await expect(html).toHaveAttribute("data-background", "glow");
 		await expect(page.getByRole("radio", { name: "Contrast" })).toHaveAttribute(
 			"aria-checked",
 			"true"
