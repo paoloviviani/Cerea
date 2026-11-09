@@ -118,6 +118,11 @@ function stubApi(
 			if (url.includes("/api/v2/gateway/vector_stores") && method === "GET") {
 				return Response.json({ data: STORES });
 			}
+			if (url.endsWith("/api/v2/projects/past-chats-models") && method === "GET") {
+				return Response.json({
+					data: { models: ["default-embed", "other-embed"], defaultModel: "default-embed" },
+				});
+			}
 			if (url.includes("/api/v2/gateway/billing/groups")) return Response.json({ data: [] });
 			if (/\/projects\/[^/]+\/documents$/.test(url) && method === "GET") {
 				return Response.json({ data: { documents: [], usedChars: 0 } });
@@ -312,6 +317,40 @@ describe("ProjectPage tabs", () => {
 		const bar = document.body.querySelector('[data-testid="save-bar"]') as HTMLElement;
 		expect(bar.getAttribute("data-docked")).toBe("true");
 		expect(bar.textContent).toContain("Create project");
+	});
+
+	it("/projects/new shows the past-chats embedder only once the box is ticked, and sends the choice", async () => {
+		const seen = stubApi({});
+		mountCreate(false);
+		await waitForText("Web search on by default");
+		const picker = () => document.body.querySelector("#past-chats-embedder");
+		expect(picker()).toBeNull();
+		await page.getByLabelText("Search this project's past chats").click();
+		await vi.waitFor(() => expect(picker()).not.toBeNull());
+		const select = picker() as HTMLSelectElement;
+		expect([...select.options].map((o) => o.textContent?.trim())).toEqual([
+			"Default (default-embed)",
+			"other-embed",
+		]);
+		// Nothing is indexed yet: picking asks for no confirmation.
+		await page.getByLabelText("Name").fill("Embedded");
+		select.value = "other-embed";
+		select.dispatchEvent(new Event("change", { bubbles: true }));
+		await vi.waitFor(() => expect(select.value).toBe("other-embed"));
+		expect(document.body.textContent).not.toContain("re-embed");
+		await page.getByRole("button", { name: "Create project" }).click();
+		await vi.waitFor(() => expect(seen.length).toBe(1));
+		expect(seen[0].body).toMatchObject({
+			indexPastChats: true,
+			pastChatsEmbeddingModel: "other-embed",
+		});
+	});
+
+	it("/projects/new hides the embedder while the box is unticked", async () => {
+		stubApi({});
+		mountCreate(false);
+		await waitForText("Past chats");
+		expect(document.body.querySelector("#past-chats-embedder")).toBeNull();
 	});
 
 	it("/projects/new has no tab bar: everything it makes is settings", async () => {

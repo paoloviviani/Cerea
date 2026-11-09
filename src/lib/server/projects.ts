@@ -555,7 +555,10 @@ export async function indexConversation(options: {
 			// refills as you talk"), or a legacy base some member owns: make one
 			// the project's owner owns, and stop writing to the legacy one. The claim is conditional, so two
 			// members finishing a first turn together end up with one base.
-			baseId = await createMemoryBase(project);
+			baseId = await createMemoryBase(project, {
+				embeddingModel: project.pastChatsEmbeddingModel,
+				token,
+			});
 			writer = baseId ? await memoryCaller(baseId, project) : undefined;
 		}
 		if (!baseId || !writer) throw new Error("The project has no memory base to write to.");

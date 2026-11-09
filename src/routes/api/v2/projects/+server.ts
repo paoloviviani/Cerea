@@ -17,6 +17,7 @@
 import { error, json, type RequestHandler } from "@sveltejs/kit";
 import { z } from "zod";
 import { collections } from "$lib/server/database";
+import { KnowledgeError } from "$lib/server/knowledge/service";
 import { rejectMemoryBases } from "$lib/server/knowledge/memoryBases";
 import { knowledgeBaseId, listProjects, projectView, viewerPrincipals } from "$lib/server/projects";
 import type { Project } from "$lib/types/Project";
@@ -28,6 +29,8 @@ const create = z.object({
 	instructions: z.string().max(20_000).default(""),
 	knowledgeBaseIds: z.array(knowledgeBaseId).max(20).default([]),
 	indexPastChats: z.boolean().default(false),
+	// The past-chats embedder, chosen up front; "" is the deployment default.
+	pastChatsEmbeddingModel: z.string().trim().max(200).default(""),
 	retrievalLimit: z.number().int().min(1).max(20).default(6),
 	// Defaults for new chats here. Optional throughout: absent means "fall
 	// back to the app default". (`defaultMcpConnectorIds`, a project's connector
@@ -60,6 +63,19 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		error(400, parsed.error.issues[0]?.message ?? "That project is not valid.");
 	}
 	await rejectMemoryBases(parsed.data.knowledgeBaseIds);
+	let pastChatsEmbeddingModel = "";
+	if (parsed.data.indexPastChats && parsed.data.pastChatsEmbeddingModel) {
+		try {
+			const { validateEmbeddingChoice } = await import("$lib/server/knowledge/service");
+			pastChatsEmbeddingModel = await validateEmbeddingChoice(
+				parsed.data.pastChatsEmbeddingModel,
+				locals.token
+			);
+		} catch (err) {
+			if (err instanceof KnowledgeError) error(err.status, err.message);
+			throw err;
+		}
+	}
 	const now = new Date();
 	const project: Project = {
 		_id: new ObjectId(),
@@ -69,6 +85,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		instructions: parsed.data.instructions,
 		knowledgeBaseIds: parsed.data.knowledgeBaseIds,
 		indexPastChats: parsed.data.indexPastChats,
+		...(pastChatsEmbeddingModel ? { pastChatsEmbeddingModel } : {}),
 		retrievalLimit: parsed.data.retrievalLimit,
 		...(parsed.data.defaultWebSearch !== undefined
 			? { defaultWebSearch: parsed.data.defaultWebSearch }
