@@ -49,7 +49,7 @@ Each is defined in a bundled file loaded with `load_skill_file`
 2. Apply it. For Word, Excel, PowerPoint and PDF files, when `doc_create`
    is in your tool list, the theme goes into the call's `spec.theme` and you
    write no document code: the theme's colours become `colors` and `accent`
-   (hex), its fonts become `heading_font` and `body_font` from the tool's own
+   (hex), its fonts become `heading_font` and `body_font` from the format's own
    list (DejaVu Sans is nearest to Verdana, DejaVu Serif to Georgia; use the
    closest listed face and say so), and its roles become heading, text and
    table colours. A theme's page or slide background colour has no field in

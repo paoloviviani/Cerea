@@ -18,7 +18,7 @@ has no form fields is not creating a PDF: it is `doc_edit place_text`, which the
 
 ## Creating a PDF
 
-Call `doc_create` with `format: "pdf"`. The spec is the same as for a Word document (see the tool's description):
+Call `doc_create` with `format: "pdf"`. The spec is the same as for a Word document (the full spec follows this skill's text under "The `doc_create` spec for pdf"):
 `blocks` or `markdown`, `title`, `page`, `header`, `footer`, `theme`. The service checks it first and answers with
 what is allowed if something is off.
 

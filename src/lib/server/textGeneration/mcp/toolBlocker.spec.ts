@@ -46,4 +46,14 @@ describe("createToolBlocker", () => {
 		first.recordFailure("search", "e");
 		expect(createToolBlocker().blocked("search")).toBe(false);
 	});
+
+	it("quotes only the start of a long error (doc_create's carries a spec)", () => {
+		const blocker = createToolBlocker();
+		const long = `rejected: bad block. ${"spec line\n".repeat(2_000)}`;
+		blocker.recordFailure("doc_create", long);
+		blocker.recordFailure("doc_create", long);
+		const message = blocker.message("doc_create");
+		expect(message).toContain("rejected: bad block.");
+		expect(message.length).toBeLessThan(600);
+	});
 });

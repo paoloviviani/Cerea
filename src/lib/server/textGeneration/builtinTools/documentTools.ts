@@ -49,6 +49,8 @@ export const DOC_CREATE_FROM_TEMPLATE_TOOL_NAME = "doc_create_from_template";
  */
 export interface DocumentTurnState {
 	touchedSlides: Map<string, number[]>;
+	/** The formats whose spec a `doc_create` error already carried this turn: it is sent once, not on every retry. */
+	specSent?: Set<CreateFormat>;
 }
 
 /** The (1-based, current) slide numbers a deck edit's operations report, in order, without repeats. */
@@ -79,6 +81,17 @@ export const MAX_DOCUMENT_CALLS_PER_TURN = 30;
 const MAX_DOCUMENT_BYTES = 32 * 1024 * 1024;
 /** At most this many diff lines go back to the model. */
 const MAX_DIFF_LINES = 120;
+/** A format's spec in a rejection is cut here (at a line boundary, and says so). */
+export const MAX_SPEC_IN_ERROR = 14_000;
+
+/** Text cut to at most `max` characters at a line boundary, with a visible marker when it was cut. */
+export function cutAtLine(text: string, max: number): string {
+	if (text.length <= max) return text;
+	const marker = "\n[spec cut]";
+	const room = max - marker.length;
+	const at = text.lastIndexOf("\n", room);
+	return text.slice(0, at > 0 ? at : room) + marker;
+}
 /** The tool result never grows past this many characters. */
 const MAX_RESULT_CHARS = 60_000;
 
@@ -243,20 +256,20 @@ export function describeBlock(name: string, schema: JsonSchema, aliases?: Aliase
 /** The pieces that recur across blocks and formats, found in the schemas themselves. */
 function sharedAliases(schemas: Partial<Record<CreateFormat, CreateFormatSchemas>>): {
 	aliases: Aliases;
-	legend: string[];
+	legend: Array<{ name: string; line: string }>;
 } {
 	const aliases: Aliases = new Map();
-	const legend: string[] = [];
+	const legend: Array<{ name: string; line: string }> = [];
 	const first = Object.values(schemas)[0];
 	const define = (name: string, schema: JsonSchema | undefined, depth: number) => {
 		if (!schema) return;
-		legend.push(`${name} = ${describeSchema(schema, depth, aliases)}`);
+		legend.push({ name, line: `${name} = ${describeSchema(schema, depth, aliases)}` });
 		aliases.set(JSON.stringify(schema), name);
 	};
 	// a hex colour appears dozens of times: written once
 	const hex = first?.document.properties?.theme?.properties?.accent;
 	if (hex) {
-		legend.push("Hex = hex colour string such as 1F3864");
+		legend.push({ name: "Hex", line: "Hex = hex colour string such as 1F3864" });
 		aliases.set(JSON.stringify(hex), "Hex");
 	}
 	define("Theme", first?.document.properties?.theme, 3);
@@ -269,9 +282,10 @@ function sharedAliases(schemas: Partial<Record<CreateFormat, CreateFormatSchemas
 		const extra = Object.fromEntries(
 			Object.entries(deck.properties ?? {}).filter(([key]) => !(key in (base.properties ?? {})))
 		);
-		legend.push(
-			`PptxTheme = Theme plus {${propertyList({ properties: extra }, 2, true, aliases)}}`
-		);
+		legend.push({
+			name: "PptxTheme",
+			line: `PptxTheme = Theme plus {${propertyList({ properties: extra }, 2, true, aliases)}}`,
+		});
 		aliases.set(JSON.stringify(deck), "PptxTheme");
 	}
 	const paragraph = first?.blocks.paragraph;
@@ -280,8 +294,26 @@ function sharedAliases(schemas: Partial<Record<CreateFormat, CreateFormatSchemas
 	define("Cell", rows?.items?.items, 2);
 	const item = Object.values(first?.blocks ?? {}).find((b) => b.$defs)?.$defs as
 		Record<string, JsonSchema> | undefined;
-	if (item?.item) legend.push(`item = ${describeSchema(item.item, 2, aliases)}`);
+	if (item?.item) {
+		legend.push({ name: "item", line: `item = ${describeSchema(item.item, 2, aliases)}` });
+	}
 	return { aliases, legend };
+}
+
+/** The legend lines a text uses, directly or through another line that it uses. */
+function usedLegend(text: string, legend: Array<{ name: string; line: string }>): string[] {
+	const used = new Set<string>();
+	let haystack = text;
+	for (let changed = true; changed;) {
+		changed = false;
+		for (const entry of legend) {
+			if (used.has(entry.name) || !new RegExp(`\\b${entry.name}\\b`).test(haystack)) continue;
+			used.add(entry.name);
+			haystack += `\n${entry.line}`;
+			changed = true;
+		}
+	}
+	return legend.filter((e) => used.has(e.name)).map((e) => e.line);
 }
 
 /** The spec of one format as the model reads it, generated from the service's schemas. */
@@ -304,6 +336,31 @@ function describeCreateFormat(
 	return lines.join("\n");
 }
 
+/** The skill that carries each format's full creation spec (loaded with `load_skill`). */
+export const CREATE_SPEC_SKILL: Record<CreateFormat, string> = {
+	docx: "word",
+	xlsx: "excel",
+	pptx: "powerpoint",
+	pdf: "pdf",
+};
+
+/**
+ * The full creation spec of one format, generated from the service's schemas (so it cannot drift from what the
+ * service accepts). It is delivered with that format's skill and in a `doc_create` rejection, not in the tool
+ * definition every turn carries. Empty when the service publishes no schema for the format.
+ */
+export function createFormatSpec(caps: DocumentCapabilities, format: CreateFormat): string {
+	const schemas = caps.create_schemas ?? {};
+	const entry = schemas[format];
+	if (!entry) return "";
+	const { aliases, legend } = sharedAliases(schemas);
+	const text = describeCreateFormat(format, entry, aliases);
+	const extra =
+		format === "pdf" ? "\nPDF charts are always images and theme.template is not available." : "";
+	// only the shared pieces this format uses (a Word spec has no PptxTheme or Background)
+	return [text + extra, ...usedLegend(text, legend)].join("\n");
+}
+
 /** Names and spec text for `doc_create`, from `create_schemas`. */
 export function createToolText(caps: DocumentCapabilities): {
 	formats: CreateFormat[];
@@ -324,7 +381,7 @@ export function createToolText(caps: DocumentCapabilities): {
 					(f === "pdf" ? "; charts are always images and theme.template is not available." : ".")
 			: `${CREATE_LABEL[f]} ${text}`;
 	});
-	return { formats, body: [...per, ...legend].join("\n") };
+	return { formats, body: [...per, ...legend.map((e) => e.line)].join("\n") };
 }
 
 /** A safe file name for a created file: letters, digits, dots, dashes, spaces, with the right extension. */
@@ -912,7 +969,7 @@ export function createDocumentBuiltins(
 
 	let createOffered = false;
 	if (caps.create === true && caps.create_schemas) {
-		const { formats: createFormats, body: specText } = createToolText(caps);
+		const { formats: createFormats } = createToolText(caps);
 		if (createFormats.length > 0) {
 			createOffered = true;
 			tools.push({
@@ -925,19 +982,13 @@ export function createDocumentBuiltins(
 							"Create a NEW Word, Excel, PowerPoint or PDF file from a document spec. The service builds it, " +
 							"checks that it opens, and saves it as a file the person can open and download; you never write " +
 							"code for it. All or nothing: a spec problem comes back as a message naming what is allowed. " +
-							"A neutral built-in style is used; set `theme` only for what the person asked (fonts from the " +
-							"list, hex colours, sizes, spacing, table style, accent). `theme.template` names a Word, Excel " +
-							"or PowerPoint file the person uploaded in this conversation, whose styles, master or named " +
-							'styles are then used. A chart block says `render`: "native" (editable in Office, the default) ' +
-							'or "image" (a PNG); PDF charts are always images, and the result says what was written. ' +
-							"Images are files in the conversation (an attachment, a file you made earlier, an image saved " +
-							"to /mnt/output): list them in `images` and name them the same way in image blocks. Word and " +
-							"PDF also take `markdown` instead of `blocks` (headings, lists, tables, **bold**, links, code; no " +
-							"HTML). A slide may have a `background` (an image is a file in the conversation) and free `shapes` " +
-							"(cm on the slide, kept inside it, text 8 pt or more): for designed slides on the blank or " +
-							"title_only layout, not for ordinary text. The result gives the file's name, an outline and the charts' render; to change the file " +
-							"afterwards use doc_edit with that name. Formats and their specs, `?` marking an optional property:\n" +
-							specText,
+							"The full spec of each format (blocks, sheets, slides, theme, charts, cells) comes with that " +
+							`format's skill when it is listed in your skills (${createFormats.map((f) => `${f}: \`${CREATE_SPEC_SKILL[f]}\``).join(", ")}; ` +
+							"load it with load_skill before the first file of that format), and in the error of a first " +
+							"call that is wrong, so a short first attempt is fine. " +
+							"Images are files in the " +
+							"conversation: list them in `images` and name them the same way in the spec. The result gives " +
+							"the file's name and an outline; to change the file afterwards use doc_edit with that name.",
 						parameters: {
 							type: "object",
 							properties: {
@@ -948,7 +999,9 @@ export function createDocumentBuiltins(
 								},
 								spec: {
 									type: "object",
-									description: "The document spec for that format, as described above.",
+									description:
+										"The document spec for that format: an object (title, plus blocks, markdown, sheets or slides " +
+										"by format), as the format's skill describes.",
 								},
 								file_name: {
 									type: "string",
@@ -978,8 +1031,23 @@ export function createDocumentBuiltins(
 					if (!(createFormats as string[]).includes(format)) {
 						return { error: `\`format\` must be one of: ${createFormats.join(", ")}.` };
 					}
+					const specHelp = (): string => {
+						const f = format as CreateFormat;
+						const skill = ` (the \`${CREATE_SPEC_SKILL[f]}\` skill, if listed, also gives it with advice on how to design the file)`;
+						if (turn) {
+							turn.specSent ??= new Set();
+							// the same format's spec is already in this turn, in an earlier error
+							if (turn.specSent.has(f))
+								return `\n\nThe spec of ${FORMAT_LABEL[f]} is in the earlier error above.`;
+							turn.specSent.add(f);
+						}
+						return cutAtLine(
+							`\n\nThe spec of ${FORMAT_LABEL[f]}${skill}:\n${createFormatSpec(caps, f)}`,
+							MAX_SPEC_IN_ERROR
+						);
+					};
 					if (!args.spec || typeof args.spec !== "object" || Array.isArray(args.spec)) {
-						return { error: "Give `spec`: the document spec, an object." };
+						return { error: `Give \`spec\`: the document spec, an object.${specHelp()}` };
 					}
 					const spec = JSON.parse(JSON.stringify(args.spec)) as Record<string, unknown>;
 
@@ -1006,6 +1074,10 @@ export function createDocumentBuiltins(
 							{ signal: ctx.abortSignal }
 						);
 					} catch (err) {
+						// A spec the service refused: say what the format takes, so the next call can be right.
+						if (err instanceof DocumentsError && err.kind === "rejected") {
+							return { error: `${err.message}${specHelp()}` };
+						}
 						return { error: userMessage(err) };
 					}
 					return saveCreated(ctx, made, {
