@@ -404,8 +404,9 @@
 	     focus draws a soft inset ring instead of the browser's default
 	     outline around the whole pane; mouse focus draws nothing. -->
 	<div
-		class="scrollbar-custom h-full [scrollbar-gutter:stable_both-edges] overflow-y-auto overscroll-contain focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue-500/60 dark:focus-visible:outline-blue-400/60"
+		class="chat-scroller scrollbar-custom h-full [scrollbar-gutter:stable_both-edges] overflow-y-auto overscroll-contain focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue-500/60 dark:focus-visible:outline-blue-400/60"
 		tabindex="0"
+		style:--composer-h={composerHeight ? `${composerHeight}px` : undefined}
 		aria-label={m["chat.column.label"]()}
 		bind:this={scrollContainerEl}
 		onscroll={handleScroll}
@@ -535,7 +536,7 @@
 	     the scroller's scrollbar-gutter on classic-scrollbar platforms. -->
 	<div
 		bind:clientHeight={composerHeight}
-		class="pointer-events-none absolute inset-x-0 bottom-0 z-0 mx-auto flex w-full
+		class="composer-fade pointer-events-none absolute inset-x-0 bottom-0 z-0 mx-auto flex w-full
 		max-w-3xl flex-col items-center justify-center bg-linear-to-t from-page
 		via-page to-page/0 px-[calc(0.875rem+var(--scrollbar-gutter,0px))] pt-2 *:pointer-events-auto
 		max-sm:py-0 sm:px-[calc(1.25rem+var(--scrollbar-gutter,0px))]

@@ -317,7 +317,10 @@
 
 			<!-- Pinned to the top of the scrolling area, on the page's own
 		     background so the rows pass behind it rather than through it. -->
-			<div class="sticky top-0 z-10 mb-4 bg-page pt-1 pb-2" data-testid="chats-search-bar">
+			<div
+				class="chats-sticky sticky top-0 z-10 mb-4 bg-page pt-1 pb-2"
+				data-testid="chats-search-bar"
+			>
 				<div class="relative">
 					<IconSearch
 						class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-faint"

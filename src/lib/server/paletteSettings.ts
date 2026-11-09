@@ -1,5 +1,12 @@
 import { z } from "zod";
-import { ACCENTS, NEUTRALS, migrateNeutral, paletteAttributes } from "$lib/utils/palettes";
+import {
+	ACCENTS,
+	BACKGROUNDS,
+	NEUTRALS,
+	SIDEBARS,
+	migrateNeutral,
+	paletteAttributes,
+} from "$lib/utils/palettes";
 import { collections } from "$lib/server/database";
 import { authCondition } from "$lib/server/auth";
 import { logger } from "$lib/server/logger";
@@ -15,6 +22,8 @@ export const paletteFields = {
 	accent: z.enum(ACCENTS).optional().catch(undefined),
 	// An old tone id ("gray", "slate", "stone") from an older client is its replacement, not an unknown.
 	neutral: z.preprocess(migrateNeutral, z.enum(NEUTRALS).optional().catch(undefined)),
+	sidebar: z.enum(SIDEBARS).optional().catch(undefined),
+	background: z.enum(BACKGROUNDS).optional().catch(undefined),
 };
 
 /**
@@ -25,11 +34,20 @@ export const paletteFields = {
 export function palettePatch({
 	accent,
 	neutral,
+	sidebar,
+	background,
 }: {
 	accent?: z.infer<typeof paletteFields.accent>;
 	neutral?: z.infer<typeof paletteFields.neutral>;
+	sidebar?: z.infer<typeof paletteFields.sidebar>;
+	background?: z.infer<typeof paletteFields.background>;
 }) {
-	return { ...(accent && { accent }), ...(neutral && { neutral }) };
+	return {
+		...(accent && { accent }),
+		...(neutral && { neutral }),
+		...(sidebar && { sidebar }),
+		...(background && { background }),
+	};
 }
 
 /**
@@ -39,7 +57,7 @@ export function palettePatch({
 export async function paletteAttributesFor(locals: App.Locals): Promise<string> {
 	try {
 		const settings = await collections.settings.findOne(authCondition(locals), {
-			projection: { accent: 1, neutral: 1 },
+			projection: { accent: 1, neutral: 1, sidebar: 1, background: 1 },
 		});
 		return paletteAttributes(settings ?? {});
 	} catch (err) {
