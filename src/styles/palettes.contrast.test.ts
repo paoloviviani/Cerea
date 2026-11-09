@@ -414,16 +414,12 @@ describe("chat shell text goes through the tokens", () => {
  * Every ground the chat paints: the background patterns, composited. The
  * strongest spot of a pattern is its largest radial glow over the full-page
  * linear wash, so that is the worst ground text can meet; the pattern's own
- * alphas are read from appearance.css. Mesh hairlines are stacked on top of that
- * (both sets crossing), the darkest or lightest point of the lattice. The second glow (`--bg-tint-2`) is a
+ * alphas are read from appearance.css. The second glow (`--bg-tint-2`) is a
  * hue shift of the accent at similar lightness, so it is measured as the accent.
  */
 const appearanceCss = strip(read("./appearance.css"));
 
-function patternAlphas(
-	pattern: string,
-	dark: boolean
-): { radial: number[]; linear: number[]; line: number[] } {
+function patternAlphas(pattern: string, dark: boolean): { radial: number[]; linear: number[] } {
 	const sel = (d: boolean) => `:root${d ? ".dark" : ""}[data-background="${pattern}"] body`;
 	// The dark rule overrides the light one when it exists, as in the cascade.
 	const body = (d: boolean) =>
@@ -432,12 +428,10 @@ function patternAlphas(
 		)?.[1];
 	const text = (dark && body(true)) || body(false);
 	if (!text) throw new Error(`no ${pattern} rule`);
-	const out = { radial: [] as number[], linear: [] as number[], line: [] as number[] };
-	let kind: "radial" | "linear" | "line" = "radial";
-	for (const m of text.matchAll(
-		/(repeating-linear|radial|linear)-gradient\(|--bg-tint(?:-2)?\)\s+([\d.]+)%/g
-	)) {
-		if (m[1]) kind = m[1] === "repeating-linear" ? "line" : (m[1] as "radial" | "linear");
+	const out = { radial: [] as number[], linear: [] as number[] };
+	let kind: "radial" | "linear" = "radial";
+	for (const m of text.matchAll(/(radial|linear)-gradient\(|--bg-tint(?:-2)?\)\s+([\d.]+)%/g)) {
+		if (m[1]) kind = m[1] as "radial" | "linear";
 		else out[kind].push(parseFloat(m[2]));
 	}
 	return out;
@@ -462,12 +456,10 @@ describe("palette contrast on the background patterns (WCAG AA, 4.5:1)", () => {
 						const v = resolve(accent, neutral, dark);
 						const c = (name: string) => hexOf(v, name);
 						const tint = c(dark ? "--colour-accent" : "--colour-accent-solid");
-						const { radial, linear, line } = patternAlphas(pattern, dark);
+						const { radial, linear } = patternAlphas(pattern, dark);
 						let ground = c("--colour-bg");
 						for (const a of linear) ground = over(ground, tint, a / 100);
 						ground = over(ground, tint, Math.max(0, ...radial) / 100);
-						// Hairlines (mesh): both sets can cross at a point, on top of the strongest glow.
-						for (const a of line) ground = over(ground, tint, a / 100);
 						const failures = (
 							["--colour-text", "--colour-text-muted", "--colour-text-faint"] as const
 						)
