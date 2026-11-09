@@ -86,6 +86,8 @@ vi.mock("$lib/server/execution/deliverables", () => ({
 const {
 	createDocumentBuiltins,
 	createFormatSpec,
+	cutAtLine,
+	MAX_SPEC_IN_ERROR,
 	createdName,
 	DOC_CREATE_TOOL_NAME,
 	DOC_CREATE_FROM_TEMPLATE_TOOL_NAME,
@@ -198,8 +200,16 @@ afterEach(() => {
 	delete config.CHAT_DOCUMENTS_SECRET;
 });
 
-const named = async (name: string) => {
-	const tool = createDocumentBuiltins(await getCapabilities()).find((t) => t.name === name);
+const ALL_SKILLS = new Set(["word", "excel", "powerpoint", "pdf"]);
+const named = async (
+	name: string,
+	options: { skills?: ReadonlySet<string>; turn?: { touchedSlides: Map<string, number[]> } } = {}
+) => {
+	const tool = createDocumentBuiltins(
+		await getCapabilities(),
+		options.turn,
+		options.skills ?? ALL_SKILLS
+	).find((t) => t.name === name);
 	if (!tool) throw new Error(`${name} is not offered`);
 	return tool;
 };
@@ -277,8 +287,8 @@ describe("gating by the service's capability flags", () => {
 	});
 });
 
-const createText = async () =>
-	(await named(DOC_CREATE_TOOL_NAME)).definition.function.description ?? "";
+const createText = async (skills?: ReadonlySet<string>) =>
+	(await named(DOC_CREATE_TOOL_NAME, { skills })).definition.function.description ?? "";
 
 describe("the tool definition is short and points at the skills", () => {
 	it("carries no block, theme or cell spec, and names the skill of each format", async () => {
@@ -344,6 +354,22 @@ describe("the tool definition is short and points at the skills", () => {
 	});
 });
 
+describe("the definition names only skills that resolve", () => {
+	it("names just the skills in the set, and says the error carries the spec for the rest", async () => {
+		const text = await createText(new Set(["word"]));
+		expect(text).toContain("docx -> `word`");
+		expect(text).not.toContain("xlsx -> `excel`");
+		expect(text).toContain("the error of a first call carries the spec");
+	});
+
+	it("names no skill when none resolves (disabled, or no skills on this turn)", async () => {
+		const text = await createText(new Set());
+		expect(text).not.toContain("load_skill");
+		expect(text).not.toMatch(/-> `/);
+		expect(text).toContain("comes back in the error of a first call");
+	});
+});
+
 describe("the per-format spec comes from the service's schemas", () => {
 	const spec = async (format: CreateFormat) =>
 		createFormatSpec((await getCapabilities()) as DocumentCapabilities, format);
@@ -388,6 +414,36 @@ describe("the per-format spec comes from the service's schemas", () => {
 		expect(pdf).not.toContain("the same spec and blocks as");
 		expect(pdf).toContain("PDF charts are always images");
 		expect(pdf).not.toMatch(/deployment template|admin/i);
+	});
+
+	it("carries only the shared pieces its format uses", async () => {
+		for (const format of ["docx", "xlsx", "pdf"] as const) {
+			const text = await spec(format);
+			expect(text, format).not.toContain("PptxTheme");
+			expect(text, format).not.toContain("Background");
+			expect(text, format).toContain("Theme = {");
+		}
+		const pptx = await spec("pptx");
+		expect(pptx).toContain("PptxTheme = Theme plus");
+		expect(pptx).toContain("Background = ");
+		// a legend line is kept when another kept line uses it
+		expect(pptx).toContain("Hex = ");
+	});
+
+	it("is cut at a line boundary with a visible marker when it would be very long", () => {
+		const lines = Array.from({ length: 50 }, (_, i) => `line ${i} ${"x".repeat(40)}`).join("\n");
+		const cut = cutAtLine(lines, 500);
+		expect(cut.length).toBeLessThanOrEqual(500);
+		expect(cut.endsWith("\n[spec cut]")).toBe(true);
+		expect(
+			cut
+				.split("\n")
+				.slice(0, -1)
+				.every((l) => lines.split("\n").includes(l))
+		).toBe(true);
+		expect(cutAtLine("short", 500)).toBe("short");
+		// today's longest spec is far below the cap, so it never fires on real ones
+		expect(MAX_SPEC_IN_ERROR).toBeGreaterThan(3 * 4_548);
 	});
 
 	it("follows the service: a new block appears without a code change", async () => {
@@ -581,6 +637,27 @@ describe("the service's errors become messages a model can act on", () => {
 		expect(sheet).toContain("`excel` skill");
 		expect(sheet).not.toContain("heading{level");
 		expect(word.length).toBeLessThan(15_000);
+	});
+
+	it("sends a format's spec in the first rejection of a turn only", async () => {
+		reply = {
+			status: 422,
+			body: {
+				error: { code: "invalid_request", message: "blocks[0]: unknown block type 'banner'" },
+			},
+		};
+		const turn = { touchedSlides: new Map<string, number[]>() };
+		const tool = await named(DOC_CREATE_TOOL_NAME, { turn });
+		const first = failed(await tool.execute({ format: "docx", spec: SPEC }, ctx()));
+		const second = failed(await tool.execute({ format: "docx", spec: SPEC }, ctx()));
+		expect(first).toContain("heading{level: integer");
+		expect(second).toContain("unknown block type 'banner'");
+		expect(second).not.toContain("heading{level: integer");
+		expect(second).toContain("earlier error");
+		// another format has its own first time
+		expect(failed(await tool.execute({ format: "xlsx", spec: SPEC }, ctx()))).toContain(
+			"A sheet: {"
+		);
 	});
 
 	it("names the skill and gives the spec when `spec` is not an object", async () => {

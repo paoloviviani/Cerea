@@ -74,7 +74,11 @@ describe("the service's contract reaches the edit tool", () => {
 
 describe("the service's contract reaches the create tool", () => {
 	const caps = fixture as unknown as Parameters<typeof createDocumentBuiltins>[0];
-	const create = createDocumentBuiltins(caps).find((t) => t.name === "doc_create");
+	const create = createDocumentBuiltins(
+		caps,
+		undefined,
+		new Set(["word", "excel", "powerpoint", "pdf"])
+	).find((t) => t.name === "doc_create");
 	const text = create?.definition.function.description ?? "";
 	/** What a format's skill carries: the spec of that format, generated from the service's schema. */
 	const specOf = (format: CreateFormat) => createFormatSpec(caps as DocumentCapabilities, format);

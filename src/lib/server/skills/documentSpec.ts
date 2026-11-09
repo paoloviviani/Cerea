@@ -28,9 +28,11 @@ export async function documentSpecSection(
 	try {
 		const { getCapabilities } = await import("$lib/server/documents/client");
 		const caps = await getCapabilities();
-		if (!caps || caps.create !== true || !caps.create_schemas?.[format]) return "";
-		const { createFormatSpec } =
+		if (!caps || caps.create !== true) return "";
+		const { createFormatSpec, createToolText } =
 			await import("$lib/server/textGeneration/builtinTools/documentTools");
+		// exactly when `doc_create` is offered for this format (its list of formats, not just a schema)
+		if (!createToolText(caps).formats.includes(format)) return "";
 		return (
 			`\n\n## The \`doc_create\` spec for ${format}\n\n` +
 			'What the `spec` argument of `doc_create` takes for `format: "' +
@@ -43,11 +45,30 @@ export async function documentSpecSection(
 }
 
 /**
- * A skill's body with the spec section before its "## Fallback" section (the in-sandbox method, which the
- * spec is not part of), or at the end when it has none.
+ * A skill's body with the spec first: right after the description, before the guidance. A later turn replays a
+ * tool result cut at 8,000 characters (`prepareFiles`), so the spec has to sit well inside that, not at the end.
  */
 export function withDocumentSpec(body: string, spec: string): string {
-	if (!spec) return body;
-	const at = body.indexOf("\n## Fallback");
-	return at < 0 ? body + spec : `${body.slice(0, at)}${spec}\n${body.slice(at)}`;
+	return spec ? `${spec.replace(/^\n+/, "")}\n\n${body}` : body;
+}
+
+/**
+ * The format skills that resolve to the deployment's own (admin) version for this person and are loadable
+ * (`load_skill` is on this turn): the ones `doc_create` may name. A disabled skill, a user's own skill of the
+ * same name, or no skills at all leave it out. Never throws.
+ */
+export async function documentSpecSkills(
+	userId: import("mongodb").ObjectId | undefined
+): Promise<Set<string>> {
+	const names = new Set<string>();
+	try {
+		const { findSkillBody, skillsAvailable } = await import("./service");
+		if (!(await skillsAvailable(userId))) return names;
+		for (const name of Object.keys(SKILL_FORMAT)) {
+			if ((await findSkillBody(userId, name))?.owner === "admin") names.add(name);
+		}
+	} catch {
+		// no skills offered: doc_create then points at its own error
+	}
+	return names;
 }

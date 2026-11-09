@@ -162,6 +162,8 @@ export function getEnabledBuiltinTools(params: {
 	 * `doc_*` tool; otherwise only the operations it lists are offered.
 	 */
 	documentCapabilities?: DocumentCapabilities | null;
+	/** The format skills `doc_create` may name (`documentSpecSkills`): resolved for this person, not disabled. */
+	documentSkills?: ReadonlySet<string>;
 	/**
 	 * Whether the turn's model accepts images (`forceMultimodal ?? model.multimodal`), resolved by the
 	 * caller, and the model's `toolImages` capability. `look_doc` shows the model pictures of pages, so a
@@ -234,7 +236,9 @@ export function getEnabledBuiltinTools(params: {
 	// Typed Word, Excel and PowerPoint tools through the document service (ADR 0103).
 	// Gated on the service being configured and answering, and on its capabilities.
 	const documentTurn: DocumentTurnState = { touchedSlides: new Map() };
-	tools.push(...createDocumentBuiltins(params.documentCapabilities, documentTurn));
+	tools.push(
+		...createDocumentBuiltins(params.documentCapabilities, documentTurn, params.documentSkills)
+	);
 
 	// Looking at pages: only for a model that sees images, and only where the document service draws
 	// pages (and, for Office files, Gotenberg converts them). Otherwise absent, never an error at call time.

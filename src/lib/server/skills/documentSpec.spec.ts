@@ -15,9 +15,13 @@ vi.mock("$lib/server/documents/client", async (importOriginal) => {
 	return { ...real, getCapabilities: vi.fn(async () => caps.value ?? null) };
 });
 
-const { skillLoadBuiltin } = await import("./service");
+const { skillLoadBuiltin, createSkill } = await import("./service");
 const { assembleSkillsContext } = await import("./prompt");
-const { documentSpecSection, withDocumentSpec } = await import("./documentSpec");
+const { documentSpecSection, withDocumentSpec, documentSpecSkills } =
+	await import("./documentSpec");
+const { MAX_REPLAYED_TOOL_OUTPUT_CHARS } =
+	await import("$lib/server/textGeneration/utils/prepareFiles");
+const { createFormatSpec } = await import("$lib/server/textGeneration/builtinTools/documentTools");
 
 beforeAll(async () => {
 	await ready;
@@ -47,9 +51,26 @@ describe("load_skill delivers the format's spec", () => {
 		const text = await load(name);
 		expect(text).toContain(`## The \`doc_create\` spec for ${format}`);
 		expect(text).toContain(needle);
-		// before the in-sandbox fallback, which the spec is not part of
-		const fallback = text.indexOf("## Fallback");
-		if (fallback >= 0) expect(text.indexOf("spec for " + format)).toBeLessThan(fallback);
+		// first, right after the description and before the guidance
+		expect(text.indexOf("## The `doc_create` spec for")).toBeLessThan(1_200);
+	});
+
+	it.each([
+		["word", "docx"],
+		["excel", "xlsx"],
+		["powerpoint", "pptx"],
+		["pdf", "pdf"],
+	] as const)("%s: the whole spec survives the turn-2 replay cap", async (name, format) => {
+		const text = await load(name);
+		const replayed = text.slice(0, MAX_REPLAYED_TOOL_OUTPUT_CHARS);
+		const spec = createFormatSpec(fixture as never, format);
+		expect(replayed).toContain(spec);
+	});
+
+	it("adds nothing for a format the service does not list in create_formats", async () => {
+		caps.value = { ...(fixture as object), create_formats: ["docx"] };
+		expect(await load("word")).toContain("\n## The `doc_create` spec for docx");
+		expect(await load("excel")).not.toContain("\n## The `doc_create` spec for xlsx");
 	});
 
 	it("gives each format only its own spec", async () => {
@@ -78,14 +99,31 @@ describe("an @mention delivers it too", () => {
 	});
 });
 
+describe("documentSpecSkills", () => {
+	it("lists the format skills that resolve to the deployment's own", async () => {
+		expect([...(await documentSpecSkills(owner))].sort()).toEqual([
+			"excel",
+			"pdf",
+			"powerpoint",
+			"word",
+		]);
+	});
+
+	it("leaves out one a person replaced with their own", async () => {
+		await createSkill(owner, "---\nname: excel\ndescription: mine\n---\n\nmy way\n");
+		expect([...(await documentSpecSkills(owner))]).not.toContain("excel");
+		expect([...(await documentSpecSkills(owner))]).toContain("word");
+	});
+});
+
 describe("documentSpecSection and withDocumentSpec", () => {
 	it("is empty for a user's own skill of the same name", async () => {
 		expect(await documentSpecSection("word", "user")).toBe("");
 		expect(await documentSpecSection("word", "admin")).not.toBe("");
 	});
 
-	it("appends when the body has no fallback section, and is a no-op without a spec", () => {
-		expect(withDocumentSpec("body", "\n\n## S\nspec")).toBe("body\n\n## S\nspec");
+	it("puts the spec first, and is a no-op without one", () => {
+		expect(withDocumentSpec("body", "\n\n## S\nspec")).toBe("## S\nspec\n\nbody");
 		expect(withDocumentSpec("body", "")).toBe("body");
 	});
 });
