@@ -210,6 +210,19 @@ async function resolveChosenModel(
 	};
 }
 
+/**
+ * A past-chats embedding choice made on a form, checked as the past-chats POST
+ * checks `embedding_model`: `""` or the deployment's default is "no choice"
+ * (returned as `""`); any other name must be one the user may use, else a 400.
+ */
+export async function validateEmbeddingChoice(
+	requested: string | null | undefined,
+	token: string | undefined
+): Promise<string> {
+	const choice = await resolveChosenModel(requested, token, await readConfig());
+	return choice.chosen ? choice.model : "";
+}
+
 // -- reach -------------------------------------------------------------------
 
 export interface Caller {

@@ -62,6 +62,7 @@
 	import ProjectDocumentsSection from "./ProjectDocumentsSection.svelte";
 	import ProjectAgentSection from "./ProjectAgentSection.svelte";
 	import ProjectPastChatsIndex from "./ProjectPastChatsIndex.svelte";
+	import EmbeddingModelPicker from "$lib/components/knowledge/EmbeddingModelPicker.svelte";
 	import type { ProjectView } from "$lib/types/Project";
 	import * as s from "$lib/components/overlay/styles";
 	import IconAddLarge from "~icons/carbon/add-large";
@@ -144,6 +145,9 @@
 	let instructions = $state("");
 	let attached = $state<string[]>([]);
 	let indexPastChats = $state(false);
+	// Creating only: the past-chats embedder is chosen up front ("" = default).
+	let pastEmbedding = $state("");
+	let pastModels = $state<{ models: string[]; defaultModel: string | null } | null>(null);
 	let retrievalLimit = $state("6");
 	let defaultWebSearch = $state(false);
 
@@ -185,6 +189,18 @@
 		}
 		return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
 	}
+
+	// The models list, read once the first time the box is ticked while creating.
+	let pastModelsAsked = false;
+	$effect(() => {
+		if (!creating || !indexPastChats || pastModelsAsked) return;
+		pastModelsAsked = true;
+		void api<{ data: { models: string[]; defaultModel: string | null } }>(
+			"/projects/past-chats-models"
+		)
+			.then((result) => (pastModels = result.data))
+			.catch(() => undefined);
+	});
 
 	function json(body: unknown, method = "POST") {
 		return { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) };
@@ -279,6 +295,9 @@
 			instructions,
 			knowledgeBaseIds: attached,
 			indexPastChats,
+			...(creating && indexPastChats && pastEmbedding
+				? { pastChatsEmbeddingModel: pastEmbedding }
+				: {}),
 			retrievalLimit: Number(retrievalLimit) || 6,
 			defaultWebSearch,
 		};
@@ -878,6 +897,15 @@
 									/>
 									<p class={s.HINT}>{m["projects.page.limit.hint"]()}</p>
 								</div>
+								{#if creating && indexPastChats && pastModels && (pastModels.models.length > 0 || pastModels.defaultModel)}
+									<EmbeddingModelPicker
+										id="past-chats-embedder"
+										models={pastModels.models}
+										defaultModel={pastModels.defaultModel}
+										bind:value={pastEmbedding}
+										disabled={busy}
+									/>
+								{/if}
 								{#if !creating && project}
 									{#key project.id}
 										<ProjectPastChatsIndex
