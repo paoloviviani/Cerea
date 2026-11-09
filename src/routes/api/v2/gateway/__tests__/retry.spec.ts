@@ -129,3 +129,20 @@ describe("retry a failed document", () => {
 		expect(res.status).toBe(404);
 	});
 });
+
+describe("create base body guard", () => {
+	it.each(["null", "[]", '"text"', "not json"])("answers 400 for the body %s", async (raw) => {
+		const path = "vector_stores";
+		await expect(
+			POST({
+				params: { path },
+				url: new URL(`http://localhost/api/v2/gateway/${path}`),
+				locals: { user: owner, token: "tok" },
+				request: new Request(`http://localhost/api/v2/gateway/${path}`, {
+					method: "POST",
+					body: raw,
+				}),
+			} as unknown as Parameters<typeof POST>[0])
+		).rejects.toMatchObject({ status: 400 });
+	});
+});
