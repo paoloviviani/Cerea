@@ -17,7 +17,7 @@
 import { error, json, type RequestHandler } from "@sveltejs/kit";
 import { z } from "zod";
 import { collections } from "$lib/server/database";
-import { KnowledgeError } from "$lib/server/knowledge/service";
+import { KnowledgeError, validateEmbeddingChoice } from "$lib/server/knowledge/service";
 import { rejectMemoryBases } from "$lib/server/knowledge/memoryBases";
 import { knowledgeBaseId, listProjects, projectView, viewerPrincipals } from "$lib/server/projects";
 import type { Project } from "$lib/types/Project";
@@ -66,7 +66,6 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	let pastChatsEmbeddingModel = "";
 	if (parsed.data.indexPastChats && parsed.data.pastChatsEmbeddingModel) {
 		try {
-			const { validateEmbeddingChoice } = await import("$lib/server/knowledge/service");
 			pastChatsEmbeddingModel = await validateEmbeddingChoice(
 				parsed.data.pastChatsEmbeddingModel,
 				locals.token

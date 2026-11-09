@@ -105,7 +105,7 @@ describe("past-chats embedder on create", () => {
 		expect(await collections.projects.countDocuments({})).toBe(0);
 	});
 
-	it("makes the past-chats base with the chosen model on the first indexed chat", async () => {
+	async function firstTurn(speaker: "owner" | "member", beforeTurn?: () => void) {
 		const { res, user, locals } = await create({
 			indexPastChats: true,
 			pastChatsEmbeddingModel: "other-embed",
@@ -113,6 +113,8 @@ describe("past-chats embedder on create", () => {
 		const view = (await res.json()) as { id: string };
 		const project = await collections.projects.findOne({ _id: new ObjectId(view.id) });
 		if (!project) throw new Error("project missing");
+		const member = await createTestUser();
+		const who = speaker === "owner" ? { user, locals } : { user: member, locals: member.locals };
 		const storeId = new ObjectId();
 		createStore.mockImplementationOnce(async () => {
 			await collections.vectorStores.insertOne({
@@ -125,10 +127,11 @@ describe("past-chats embedder on create", () => {
 		const conversationId = new ObjectId();
 		await collections.conversations.insertOne({
 			_id: conversationId,
-			userId: user.user._id,
+			userId: who.user.user._id,
 			title: "t",
 			messages: [],
 		} as never);
+		beforeTurn?.();
 		await indexConversation({
 			project,
 			conversation: { _id: conversationId, title: "t" } as never,
@@ -137,10 +140,48 @@ describe("past-chats embedder on create", () => {
 				{ from: "assistant", content: "The plan is to review the quarterly budget in March." },
 			] as never,
 			token: "tok",
-			locals: locals as never,
+			locals: { ...who.locals, token: "tok" } as never,
 		});
+		return { project, stored: await collections.projects.findOne({ _id: project._id }) };
+	}
+
+	it("makes the base with the chosen model on the owner's first indexed chat, then forgets the choice", async () => {
+		const { project, stored } = await firstTurn("owner");
 		expect(createStore).toHaveBeenCalledTimes(1);
 		expect(createStore.mock.calls[0][1]).toMatchObject({ embedding_model: "other-embed" });
 		expect(createStore.mock.calls[0][2]).toBe("tok");
+		expect(stored?.memoryBaseId).toBeDefined();
+		expect(stored?.pastChatsEmbeddingModel).toBeUndefined();
+		expect(project.pastChatsEmbeddingModel).toBe("other-embed");
+	});
+
+	it("makes the base with the stored model on a member's first turn, without the member's access", async () => {
+		// The owner's choice is not the member's to check: the base is made with it as is.
+		const { stored } = await firstTurn("member");
+		expect(createStore).toHaveBeenCalledTimes(1);
+		expect(createStore.mock.calls[0][1]).toMatchObject({
+			embedding_model: "other-embed",
+			embedding_trusted: true,
+		});
+		expect(stored?.memoryBaseId).toBeDefined();
+		expect(stored?.pastChatsEmbeddingModel).toBeUndefined();
+	});
+
+	it("falls back to the default and clears the choice when the owner lost access", async () => {
+		const { stored } = await firstTurn("owner", () =>
+			gatewayGet.mockResolvedValueOnce({ data: [{ id: "default-embed", kind: "embedding" }] })
+		);
+		expect(createStore).toHaveBeenCalledTimes(1);
+		expect(createStore.mock.calls[0][1]).not.toHaveProperty("embedding_model", "other-embed");
+		expect(stored?.memoryBaseId).toBeDefined();
+		expect(stored?.pastChatsEmbeddingModel).toBeUndefined();
+	});
+
+	it("rejects the models list without a user", async () => {
+		const res = await testRequest(MODELS, {
+			path: "/api/v2/projects/past-chats-models",
+			locals: { user: undefined, token: undefined },
+		});
+		expect(res.status).toBe(401);
 	});
 });

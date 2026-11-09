@@ -184,7 +184,9 @@ export async function validateReader(
 async function resolveChosenModel(
 	requested: string | null | undefined,
 	token: string | undefined,
-	config: KnowledgeConfig
+	config: KnowledgeConfig,
+	/** The name was already checked against its owner's access (a project's stored choice). */
+	trusted = false
 ): Promise<{ model: string; chosen: boolean; passagePrefix: string; queryPrefix: string }> {
 	const name = (requested ?? "").trim();
 	if (!name || name === config.embeddingModel) {
@@ -195,9 +197,11 @@ async function resolveChosenModel(
 			queryPrefix: config.queryPrefix ?? "",
 		};
 	}
-	const allowed = await embeddingModelsFor(token);
-	if (!allowed?.includes(name)) {
-		throw new KnowledgeError(400, `“${name}” is not an embedding model you can use.`);
+	if (!trusted) {
+		const allowed = await embeddingModelsFor(token);
+		if (!allowed?.includes(name)) {
+			throw new KnowledgeError(400, `“${name}” is not an embedding model you can use.`);
+		}
 	}
 	// The deployment's prefixes belong to its default model, not to this one:
 	// a chosen model takes its own card's, where it is one we know (e5, nomic).
@@ -712,12 +716,19 @@ export async function createStore(
 		embedding_model?: string | null;
 		/** The document reader for this base's uploads; "" or absent follows the default. */
 		reader_model?: string | null;
+		/** `embedding_model` was already checked against the owner's access: skip the check. */
+		embedding_trusted?: boolean;
 	},
 	token?: string
 ): Promise<Awaited<ReturnType<typeof storeObject>>> {
 	const config = await readConfig();
 	if (!body.name?.trim()) throw new KnowledgeError(400, "A name is required.");
-	const choice = await resolveChosenModel(body.embedding_model, token, config);
+	const choice = await resolveChosenModel(
+		body.embedding_model,
+		token,
+		config,
+		body.embedding_trusted === true
+	);
 	const reader = await validateReader(body.reader_model, token);
 	// The geometry is copied onto the row, not read at ingestion time: a later
 	// change to the deployment's defaults cannot re-chunk half of an existing

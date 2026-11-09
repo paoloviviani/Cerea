@@ -479,7 +479,7 @@ async function memoryCaller(baseId: string, project: Project): Promise<Caller | 
  */
 export async function createMemoryBase(
 	project: Project,
-	choice?: { embeddingModel?: string | null; token?: string }
+	choice?: { embeddingModel?: string | null; token?: string; trusted?: boolean }
 ): Promise<string | undefined> {
 	const { createStore } = await import("$lib/server/knowledge/service");
 	const created = await createStore(
@@ -490,6 +490,7 @@ export async function createMemoryBase(
 				"Transcripts of this project's own conversations, written by the chat " +
 				"and searched in later turns. Safe to empty; it refills as you talk.",
 			embedding_model: choice?.embeddingModel,
+			...(choice?.trusted ? { embedding_trusted: true } : {}),
 		},
 		choice?.token
 	);
@@ -498,13 +499,60 @@ export async function createMemoryBase(
 			_id: project._id,
 			memoryBaseId: project.memoryBaseId ?? { $exists: false },
 		},
-		{ $set: { memoryBaseId: created.id, updatedAt: new Date() } }
+		// The create-time embedder choice has done its job: a later rebuild
+		// follows the index's own model or the default.
+		{
+			$set: { memoryBaseId: created.id, updatedAt: new Date() },
+			$unset: { pastChatsEmbeddingModel: "" },
+		}
 	);
 	if (claimed.modifiedCount === 1) return created.id;
 	const { deleteDerived } = await import("$lib/server/knowledge/deleteDerived");
 	await deleteDerived({ storeIds: new ObjectId(created.id), dropStores: true });
 	const current = await collections.projects.findOne({ _id: project._id });
 	return current?.memoryBaseId;
+}
+
+/**
+ * The embedder the project's first past-chats base is made with: the choice
+ * stored at creation, judged by the *owner's* access, not the turn's. The
+ * owner's token is the turn's when the owner is speaking, else their schedule
+ * grant's when they have one. With neither, the choice (checked against the
+ * owner when the project was created) is trusted. A model the owner can no
+ * longer use falls back to the deployment default and is cleared, so a base is
+ * always made.
+ */
+async function storedEmbedder(
+	project: Project,
+	turn: { token: string; userId: ObjectId }
+): Promise<{ embeddingModel?: string; token?: string; trusted?: boolean }> {
+	const stored = project.pastChatsEmbeddingModel;
+	if (!stored) return {};
+	let ownerToken: string | undefined;
+	if (turn.userId.equals(project.userId)) ownerToken = turn.token;
+	else {
+		try {
+			const grants = await import("$lib/server/schedules/grants");
+			if (await grants.hasGrant(project.userId)) {
+				ownerToken = (await grants.accessTokenFor(project.userId, { forSchedule: true })).value;
+			}
+		} catch (err) {
+			logger.warn({ err, project: project._id.toString() }, "project_owner_token_unavailable");
+		}
+	}
+	if (!ownerToken) return { embeddingModel: stored, trusted: true };
+	const { embeddingModelsFor } = await import("$lib/server/knowledge/service");
+	const allowed = await embeddingModelsFor(ownerToken);
+	if (allowed?.includes(stored)) return { embeddingModel: stored, token: ownerToken };
+	logger.warn(
+		{ project: project._id.toString(), model: stored },
+		"project_past_chats_embedder_unavailable: the owner can no longer use the chosen model; using the default"
+	);
+	await collections.projects.updateOne(
+		{ _id: project._id },
+		{ $unset: { pastChatsEmbeddingModel: "" } }
+	);
+	return {};
 }
 
 /**
@@ -555,10 +603,10 @@ export async function indexConversation(options: {
 			// refills as you talk"), or a legacy base some member owns: make one
 			// the project's owner owns, and stop writing to the legacy one. The claim is conditional, so two
 			// members finishing a first turn together end up with one base.
-			baseId = await createMemoryBase(project, {
-				embeddingModel: project.pastChatsEmbeddingModel,
-				token,
-			});
+			baseId = await createMemoryBase(
+				project,
+				await storedEmbedder(project, { token, userId: locals.user._id })
+			);
 			writer = baseId ? await memoryCaller(baseId, project) : undefined;
 		}
 		if (!baseId || !writer) throw new Error("The project has no memory base to write to.");
