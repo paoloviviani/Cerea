@@ -1,8 +1,8 @@
 <!--
 	Which embedding model a knowledge base (or a project's past-chats index) is
 	built with. The deployment's default is one option, labelled as such; the
-	rest are the embedding models this user may use. With nothing to choose
-	between it is plain text.
+	rest are the embedding models this user may use. It stays a picker even
+	with a single option; plain text only when there is nothing to offer.
 
 	Two uses. On a create form, `value` is bound and nothing else happens. On
 	an existing index, pass `confirmCount`: picking another model then asks,
@@ -54,10 +54,9 @@
 	const unlisted = $derived(
 		value && !models.includes(value) && value !== defaultModel ? value : null
 	);
-	const single = $derived(
-		!unlisted &&
-			models.length + (!required && defaultModel && !models.includes(defaultModel) ? 1 : 0) <= 1
-	);
+	// A picker even with one option, so the choice is visible where it lives;
+	// plain text only when there is nothing at all to offer.
+	const optionCount = $derived((required ? 0 : 1) + (unlisted ? 1 : 0) + others.length);
 	const defaultLabel = $derived(
 		defaultModel
 			? m["knowledge.embedder.default"]({ name: defaultModel })
@@ -84,7 +83,7 @@
 
 <div data-testid="embedding-model">
 	<label for={id} class={s.LABEL}>{m["knowledge.embedder.label"]()}</label>
-	{#if readonly || single}
+	{#if readonly || optionCount === 0}
 		<p {id} class="text-sm text-ink">{plain}</p>
 	{:else}
 		<select
