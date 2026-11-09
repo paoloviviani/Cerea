@@ -155,14 +155,21 @@ describe("past-chats embedder on create", () => {
 		expect(project.pastChatsEmbeddingModel).toBe("other-embed");
 	});
 
-	it("makes the base with the stored model on a member's first turn, without the member's access", async () => {
-		// The owner's choice is not the member's to check: the base is made with it as is.
+	it("makes the base with the stored model on a member's first turn when the member may use it, embedding as the member", async () => {
 		const { stored } = await firstTurn("member");
 		expect(createStore).toHaveBeenCalledTimes(1);
-		expect(createStore.mock.calls[0][1]).toMatchObject({
-			embedding_model: "other-embed",
-			embedding_trusted: true,
-		});
+		expect(createStore.mock.calls[0][1]).toMatchObject({ embedding_model: "other-embed" });
+		expect(createStore.mock.calls[0][2]).toBe("tok");
+		expect(stored?.memoryBaseId).toBeDefined();
+		expect(stored?.pastChatsEmbeddingModel).toBeUndefined();
+	});
+
+	it("falls back to the default on a member's first turn when neither the owner nor the member can be shown to have the model", async () => {
+		const { stored } = await firstTurn("member", () =>
+			gatewayGet.mockResolvedValueOnce({ data: [{ id: "default-embed", kind: "embedding" }] })
+		);
+		expect(createStore).toHaveBeenCalledTimes(1);
+		expect(createStore.mock.calls[0][1]).not.toHaveProperty("embedding_model", "other-embed");
 		expect(stored?.memoryBaseId).toBeDefined();
 		expect(stored?.pastChatsEmbeddingModel).toBeUndefined();
 	});
@@ -175,6 +182,21 @@ describe("past-chats embedder on create", () => {
 		expect(createStore.mock.calls[0][1]).not.toHaveProperty("embedding_model", "other-embed");
 		expect(stored?.memoryBaseId).toBeDefined();
 		expect(stored?.pastChatsEmbeddingModel).toBeUndefined();
+	});
+
+	it("does not let a request body skip the model check (the gateway route passes it to createStore)", async () => {
+		const { createStore: realCreateStore } = await vi.importActual<
+			typeof import("$lib/server/knowledge/service")
+		>("$lib/server/knowledge/service");
+		const user = await createTestUser();
+		const caller = { userId: user.user._id, email: null, groups: [], isAdmin: false };
+		await expect(
+			realCreateStore(
+				caller,
+				{ name: "x", embedding_model: "secret-embed", embedding_trusted: true } as never,
+				"tok"
+			)
+		).rejects.toMatchObject({ status: 400 });
 	});
 
 	it("rejects the models list without a user", async () => {

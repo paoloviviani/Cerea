@@ -479,7 +479,7 @@ async function memoryCaller(baseId: string, project: Project): Promise<Caller | 
  */
 export async function createMemoryBase(
 	project: Project,
-	choice?: { embeddingModel?: string | null; token?: string; trusted?: boolean }
+	choice?: { embeddingModel?: string | null; token?: string }
 ): Promise<string | undefined> {
 	const { createStore } = await import("$lib/server/knowledge/service");
 	const created = await createStore(
@@ -490,7 +490,6 @@ export async function createMemoryBase(
 				"Transcripts of this project's own conversations, written by the chat " +
 				"and searched in later turns. Safe to empty; it refills as you talk.",
 			embedding_model: choice?.embeddingModel,
-			...(choice?.trusted ? { embedding_trusted: true } : {}),
 		},
 		choice?.token
 	);
@@ -515,42 +514,37 @@ export async function createMemoryBase(
 
 /**
  * The embedder the project's first past-chats base is made with: the choice
- * stored at creation, judged by the *owner's* access, not the turn's. The
- * owner's token is the turn's when the owner is speaking, else their schedule
- * grant's when they have one. With neither, the choice (checked against the
- * owner when the project was created) is trusted. A model the owner can no
- * longer use falls back to the deployment default and is cleared, so a base is
- * always made.
+ * stored at creation, checked with the owner's access: the turn's token when
+ * the owner is speaking, else their schedule grant's when they have one, else
+ * the speaking member's own. A model that access cannot use falls back to the
+ * deployment default (the choice is cleared once the base is made), so a base
+ * is always made and the member's own turns can embed into it.
  */
 async function storedEmbedder(
 	project: Project,
 	turn: { token: string; userId: ObjectId }
-): Promise<{ embeddingModel?: string; token?: string; trusted?: boolean }> {
+): Promise<{ embeddingModel?: string; token?: string }> {
 	const stored = project.pastChatsEmbeddingModel;
 	if (!stored) return {};
-	let ownerToken: string | undefined;
-	if (turn.userId.equals(project.userId)) ownerToken = turn.token;
-	else {
+	let checkToken = turn.token;
+	let asOwnerAccess = turn.userId.equals(project.userId);
+	if (!asOwnerAccess) {
 		try {
 			const grants = await import("$lib/server/schedules/grants");
 			if (await grants.hasGrant(project.userId)) {
-				ownerToken = (await grants.accessTokenFor(project.userId, { forSchedule: true })).value;
+				checkToken = (await grants.accessTokenFor(project.userId, { forSchedule: true })).value;
+				asOwnerAccess = true;
 			}
 		} catch (err) {
 			logger.warn({ err, project: project._id.toString() }, "project_owner_token_unavailable");
 		}
 	}
-	if (!ownerToken) return { embeddingModel: stored, trusted: true };
 	const { embeddingModelsFor } = await import("$lib/server/knowledge/service");
-	const allowed = await embeddingModelsFor(ownerToken);
-	if (allowed?.includes(stored)) return { embeddingModel: stored, token: ownerToken };
+	const allowed = await embeddingModelsFor(checkToken);
+	if (allowed?.includes(stored)) return { embeddingModel: stored, token: checkToken };
 	logger.warn(
-		{ project: project._id.toString(), model: stored },
-		"project_past_chats_embedder_unavailable: the owner can no longer use the chosen model; using the default"
-	);
-	await collections.projects.updateOne(
-		{ _id: project._id },
-		{ $unset: { pastChatsEmbeddingModel: "" } }
+		{ project: project._id.toString(), model: stored, checkedAsOwner: asOwnerAccess },
+		"project_past_chats_embedder_unavailable: the chosen model cannot be used here; using the default"
 	);
 	return {};
 }
