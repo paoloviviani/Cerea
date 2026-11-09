@@ -21,12 +21,30 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 	const { project, owned } = await requireProjectAccess(locals, params.id);
 	if (!owned) error(403, "Only the project owner can reindex past chats.");
 	if (!knowledgeEnabled()) error(404, "Knowledge bases are not enabled in this deployment.");
-	if (!project.memoryBaseId) error(404, "This project has no past-chats index yet.");
 	if (!locals.token) {
 		error(401, "This needs a session from the identity provider. Log out and sign in through it.");
 	}
 	// Optionally `{ embedding_model }`: the owner's embedder for this index.
 	const body = (await request.json().catch(() => null)) as { embedding_model?: unknown } | null;
+	if (!project.memoryBaseId) {
+		// No index yet (it is made on the first turn): choosing a model on the
+		// settings card makes it now, empty, with that model. Without a choice
+		// there is nothing to do.
+		if (typeof body?.embedding_model !== "string") {
+			error(404, "This project has no past-chats index yet.");
+		}
+		try {
+			const { createMemoryBase } = await import("$lib/server/projects");
+			const id = await createMemoryBase(project, {
+				embeddingModel: body.embedding_model,
+				token: locals.token,
+			});
+			return json({ data: { ...(await pastChatsIndex(id, locals.token)), canManage: true } });
+		} catch (err) {
+			if (err instanceof KnowledgeError) error(err.status, err.message);
+			throw err;
+		}
+	}
 	const { callerFrom, reindex } = await import("$lib/server/knowledge/service");
 	try {
 		await reindex(project.memoryBaseId, await callerFrom(locals), locals.token, {

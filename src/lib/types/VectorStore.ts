@@ -40,6 +40,14 @@ export interface VectorStore extends Timestamps {
 	/** The query prefix in force when the base was indexed; used for searches
 	 * while the base is still on a model other than the current one. */
 	queryPrefix?: string;
+	/**
+	 * The document reader (a gateway OCR model) this base's uploads are read
+	 * with, as its owner chose. Absent means the deployment's default reader.
+	 * Changing it applies to new uploads only.
+	 */
+	readerModel?: string;
+	/** `readerModel` is a local reader: its documents stay in this deployment. */
+	readerLocal?: boolean;
 	/** How wide that model's vectors are; null until the first embedding. */
 	dimensions: number | null;
 	chunkChars: number;
@@ -83,6 +91,10 @@ export interface KnowledgeDocument extends Timestamps {
 	/** The embedding model the CURRENT vectors were made with. */
 	embeddingModel: string | null;
 	indexedAt: Date | null;
+	/** The reader that read the original (a gateway model id), when recorded. */
+	readerModel?: string;
+	/** The chosen reader was unavailable to the user, so the default read it. */
+	readerFallback?: boolean;
 }
 
 /** The deployment's knowledge-pipeline configuration, admin-set in the chat. */

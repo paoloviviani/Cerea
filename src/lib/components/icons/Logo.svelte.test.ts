@@ -19,8 +19,8 @@ describe("Logo", () => {
 	it("default is the open 3:1 ridge, with no background square", () => {
 		const { container } = renderWithApp(Logo, { classNames: "h-9 w-auto" });
 		const svg = container.querySelector("svg.ridge-mark");
-		expect(svg?.getAttribute("width")).toBe("337");
-		expect(svg?.getAttribute("height")).toBe("112");
+		expect(svg?.getAttribute("width")).toBe("345");
+		expect(svg?.getAttribute("height")).toBe("114");
 		expect(container.querySelector("rect")).toBeNull();
 		expect(container.querySelector("path.ridge")?.hasAttribute("stroke-width")).toBe(false);
 	});

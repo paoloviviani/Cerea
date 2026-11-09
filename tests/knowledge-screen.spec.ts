@@ -1,5 +1,5 @@
 /**
- * The Knowledge screen's document-reader picker (ADR 0070).
+ * The Knowledge screen's default-reader picker (ADR 0070; backlog C97 renamed it from document extraction).
  *
  * The gateway hides the local extractor from every plain `GET /v1/models`
  * listing on purpose (Pystino a940516) — right for a chat model picker, and
@@ -52,7 +52,7 @@ test("every reader is listed, no Automatic, the local extractor pre-selected and
 	await page.goto(`${E2E_APP_BASE}/admin/knowledge`);
 
 	// The document-extraction picker.
-	const picker = page.getByLabel("Document extraction");
+	const picker = page.getByLabel("Default reader");
 	await expect(picker).toBeVisible();
 
 	// Every reader the fixture offers, upstream and local alike.
@@ -74,7 +74,7 @@ test("changing the extractor asks for no reason and saves", async ({ page, db, s
 	await installAdminSession(db, session.sessionId);
 	await page.goto(`${E2E_APP_BASE}/admin/knowledge`);
 
-	const picker = page.getByLabel("Document extraction");
+	const picker = page.getByLabel("Default reader");
 	await expect(picker).toHaveValue("markitdown");
 	await picker.selectOption("mistral-ocr-4.1");
 

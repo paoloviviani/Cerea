@@ -401,6 +401,34 @@ export async function waitForHydration(page: Page): Promise<void> {
 }
 
 /**
+ * `goto` and `reload` resolve on the `load` event, which fires while the server-rendered page is
+ * already visible but not yet interactive: a click in that gap hits markup with no handler and is
+ * lost. (The shell used to hold `load` back with an <img> logo, which hid the race.) The root layout
+ * sets `html[data-hydrated]` once everything is mounted, so a navigation to an HTML page of the app
+ * resolves only then. A page that is not the app (a JSON answer, a download) never gets the
+ * attribute and is left alone after the short wait.
+ */
+function waitForHydrationAfterNavigation(page: Page): void {
+	for (const method of ["goto", "reload"] as const) {
+		const original = page[method].bind(page) as (
+			...args: unknown[]
+		) => Promise<{ headers(): Record<string, string> } | null>;
+		(page as unknown as Record<string, unknown>)[method] = async (...args: unknown[]) => {
+			const response = await original(...args);
+			const isHtml = !response || (response.headers()["content-type"] ?? "").includes("text/html");
+			if (isHtml) {
+				await page
+					.waitForFunction(() => document.documentElement.dataset.hydrated === "true", null, {
+						timeout: 15_000,
+					})
+					.catch(() => {});
+			}
+			return response;
+		};
+	}
+}
+
+/**
  * The fresh answer to `/code`'s sign-in probe, for one page. The `page` fixture does this for its
  * own page; a spec that opens another page itself (`context.newPage()`) must call it on that one
  * too, or the new page gets the real answer for an anonymous session ("signed out") and the
@@ -479,6 +507,7 @@ export const test = base.extend<Fixtures, WorkerFixtures>({
 	page: async ({ page, session }, use) => {
 		void session;
 		await stubCodeStatus(page);
+		waitForHydrationAfterNavigation(page);
 		await use(page);
 	},
 

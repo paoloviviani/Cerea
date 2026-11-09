@@ -33,6 +33,7 @@
 	import IconRefresh from "~icons/carbon/renew";
 	import RowMenu from "$lib/components/nav/RowMenu.svelte";
 	import EmbeddingModelPicker from "./EmbeddingModelPicker.svelte";
+	import DocumentReaderPicker from "./DocumentReaderPicker.svelte";
 	import IconTrash from "~icons/carbon/trash-can";
 	import IconCheckmark from "~icons/carbon/checkmark-filled";
 	import IconWarning from "~icons/carbon/warning-filled";
@@ -68,6 +69,8 @@
 	let status = $state<KnowledgeStatus | null>(null);
 	// The embedder chosen on the create form: "" is the deployment's default.
 	let embeddingChoice = $state("");
+	// The reader chosen on the create form: "" is the deployment's default.
+	let readerChoice = $state("");
 	let loading = $state(true);
 	let failure = $state<string | null>(null);
 
@@ -144,6 +147,7 @@
 		note = "";
 		rejected = [];
 		failure = null;
+		readerChoice = "";
 	}
 
 	// With no deployment default there is nothing to follow: a model is required.
@@ -166,6 +170,7 @@
 				name: name.trim(),
 				description: description.trim(),
 				...(embeddingChoice ? { embedding_model: embeddingChoice } : {}),
+				...(readerChoice ? { reader_model: readerChoice } : {}),
 			});
 		} catch (err) {
 			failure = err instanceof GatewayError ? err.message : m["knowledge.manager.create_failed"]();
@@ -525,6 +530,51 @@
 		}
 	}
 
+	// A base's reader applies to new uploads only, so no prompt: the choice is
+	// saved as it is made, and the hint under the picker says what it covers.
+	async function saveReader(choice: string) {
+		if (!current) return;
+		busy = true;
+		failure = null;
+		try {
+			const saved = await gwPost<VectorStore>(`vector_stores/${current.id}`, {
+				reader_model: choice,
+			});
+			current = { ...current, reader_model: saved.reader_model ?? null };
+			notice = m["knowledge.reader.base_saved"]();
+		} catch (err) {
+			failure = err instanceof GatewayError ? err.message : m["knowledge.reader.save_failed"]();
+		} finally {
+			busy = false;
+		}
+	}
+
+	// "Re-read with…": one document at a time, from the stored original.
+	let rereading = $state<string | null>(null);
+	let rereadChoice = $state("");
+
+	function startReread(document: KnowledgeDocument) {
+		rereading = document.id;
+		rereadChoice = current?.reader_model ?? "";
+	}
+
+	async function rereadDocument(id: string) {
+		if (!current) return;
+		busy = true;
+		failure = null;
+		try {
+			await gwPost(`vector_stores/${current.id}/files/${id}/reread`, {
+				reader_model: rereadChoice,
+			});
+			rereading = null;
+			await openDetail(current.id);
+		} catch (err) {
+			failure = err instanceof GatewayError ? err.message : m["knowledge.reader.reread_failed"]();
+		} finally {
+			busy = false;
+		}
+	}
+
 	async function retryDocument(id: string) {
 		if (!current) return;
 		busy = true;
@@ -819,6 +869,14 @@
 					disabled={busy}
 				/>
 
+				<DocumentReaderPicker
+					id="kb-reader"
+					models={status?.reader_models ?? []}
+					defaultReader={status?.reader_default ?? null}
+					bind:value={readerChoice}
+					disabled={busy}
+				/>
+
 				<div>
 					<span class={s.LABEL}>{m["knowledge.manager.form.documents"]()}</span>
 					<FileDrop
@@ -940,6 +998,17 @@
 					onconfirm={(choice) => void reindex(choice)}
 				/>
 
+				<DocumentReaderPicker
+					id="kb-reader-current"
+					models={status?.reader_models ?? []}
+					defaultReader={status?.reader_default ?? null}
+					value={current.reader_model ?? ""}
+					readonly={!canEdit}
+					disabled={busy}
+					hint={m["knowledge.reader.base_hint"]()}
+					onchange={(choice) => void saveReader(choice)}
+				/>
+
 				{#if olderModel}
 					<p class={s.NOTICE} data-testid="kb-older-model">
 						{m["knowledge.manager.older_model"]()}
@@ -1002,8 +1071,10 @@
 							{#each documents as document (document.id)}
 								{@const state = docTone(document)}
 								<li class={s.card(false)}>
-									<div class="flex items-center justify-between gap-3 px-4 py-2.5">
-										<div class="min-w-0 flex-1">
+									<div
+										class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-2.5"
+									>
+										<div class="min-w-0 flex-1 basis-40">
 											<p class={s.CARD_TITLE}>
 												{document.title ||
 													document.filename ||
@@ -1025,9 +1096,21 @@
 														{document.error}
 													</span>
 												{/if}
+												{#if document.reader_fallback && document.reader_model}
+													<span
+														class="text-xs text-amber-700 dark:text-amber-400"
+														data-testid="reader-fallback"
+													>
+														{m["knowledge.reader.fallback"]({ name: document.reader_model })}
+													</span>
+												{:else if document.reader_model && document.status !== "failed"}
+													<span class="text-xs text-ink-muted" data-testid="reader-used">
+														{m["knowledge.reader.read_with"]({ name: document.reader_model })}
+													</span>
+												{/if}
 											</div>
 										</div>
-										<div class="flex shrink-0 items-center gap-1.5">
+										<div class="flex flex-wrap items-center gap-1.5">
 											<button
 												onclick={() => openPreview(document.id)}
 												disabled={previewBusy}
@@ -1073,6 +1156,22 @@
 													{m["knowledge.manager.docs.retry"]()}
 												</button>
 											{/if}
+											{#if canEdit && document.file_id && (document.status === "ready" || document.status === "completed" || document.status === "failed")}
+												<button
+													onclick={() => startReread(document)}
+													disabled={busy}
+													class={s.CARD_ACTION}
+													aria-label={m["knowledge.reader.reread_label"]({
+														name:
+															document.title ||
+															document.filename ||
+															m["knowledge.manager.document"](),
+													})}
+												>
+													<IconRefresh class="size-3" />
+													{m["knowledge.reader.reread"]()}
+												</button>
+											{/if}
 											{#if canEdit}
 												<button
 													onclick={() => removeDocument(document.id)}
@@ -1085,6 +1184,39 @@
 											{/if}
 										</div>
 									</div>
+									{#if rereading === document.id}
+										<div
+											class="flex flex-wrap items-end gap-2 border-t border-line px-4 py-2.5"
+											data-testid="reread-form"
+										>
+											<div class="min-w-0 flex-1 basis-56">
+												<DocumentReaderPicker
+													id="kb-reread-{document.id}"
+													models={status?.reader_models ?? []}
+													defaultReader={status?.reader_default ?? null}
+													bind:value={rereadChoice}
+													disabled={busy}
+													label={m["knowledge.reader.reread_pick"]({
+														name:
+															document.title ||
+															document.filename ||
+															m["knowledge.manager.document"](),
+													})}
+												/>
+											</div>
+											<button
+												type="button"
+												class={s.PRIMARY}
+												disabled={busy}
+												onclick={() => rereadDocument(document.id)}
+											>
+												{m["knowledge.reader.reread_go"]()}
+											</button>
+											<button type="button" class={s.SECONDARY} onclick={() => (rereading = null)}>
+												{m["knowledge.reader.reread_cancel"]()}
+											</button>
+										</div>
+									{/if}
 								</li>
 							{/each}
 						</ul>

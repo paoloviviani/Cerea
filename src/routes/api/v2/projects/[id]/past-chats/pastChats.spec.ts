@@ -10,6 +10,12 @@ vi.mock("$lib/server/knowledge/service", async (importOriginal) => ({
 	reindexTarget: vi.fn(async () => ({})),
 }));
 
+const createMemoryMock = vi.hoisted(() => vi.fn(async () => undefined as string | undefined));
+vi.mock("$lib/server/projects", async (importOriginal) => ({
+	...(await importOriginal<typeof import("$lib/server/projects")>()),
+	createMemoryBase: createMemoryMock,
+}));
+
 import { collections, ready } from "$lib/server/database";
 import { cleanupTestData, createTestUser } from "$lib/server/api/__tests__/testHelpers";
 import { testRequest } from "$lib/server/__tests__/testRequest";
@@ -23,6 +29,7 @@ beforeAll(async () => {
 beforeEach(() => {
 	reindexMock.mockClear();
 	retryMock.mockClear();
+	createMemoryMock.mockClear();
 });
 
 afterEach(async () => {
@@ -121,6 +128,29 @@ describe("/api/v2/projects/[id]/past-chats", () => {
 			locals: ownerLocals,
 		});
 		expect(post.status).toBe(404);
+	});
+
+	it("lets the owner choose the embedding model before any turn: it makes the index with that model", async () => {
+		const { projectId, params, ownerLocals, memberLocals } = await setup({});
+		createMemoryMock.mockResolvedValueOnce(BASE.toString());
+		const choose = (locals: App.Locals) =>
+			testRequest(POST, {
+				path: path(projectId),
+				method: "POST",
+				params,
+				locals,
+				body: JSON.stringify({ embedding_model: "other-embed" }),
+				headers: { "content-type": "application/json" },
+			});
+		expect((await choose(memberLocals)).status).toBe(403);
+		expect(createMemoryMock).not.toHaveBeenCalled();
+		const res = await choose(ownerLocals);
+		expect(res.status).toBe(200);
+		expect(createMemoryMock).toHaveBeenCalledWith(expect.objectContaining({ name: "P" }), {
+			embeddingModel: "other-embed",
+			token: "tok",
+		});
+		expect(reindexMock).not.toHaveBeenCalled();
 	});
 
 	it("lets the owner reindex through the knowledge base reindex, and retry the failed ones", async () => {

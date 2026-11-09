@@ -150,4 +150,66 @@ describe("ProjectPastChatsIndex", () => {
 			.element(page.getByText(/Members who can't use this model won't add their chats/))
 			.toBeVisible();
 	});
+
+	it("shows the embedding model on the card before the first turn, and choosing one makes the index", async () => {
+		state = {
+			state: "none",
+			indexed: 0,
+			indexing: 0,
+			failed: 0,
+			error: null,
+			canManage: true,
+			...MODELS,
+			embeddingModel: null,
+		};
+		const bodies: unknown[] = [];
+		const inner = fetch;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+				if (init?.body) bodies.push(JSON.parse(init.body));
+				return inner(url, init as never);
+			})
+		);
+		mount();
+		const select = page.getByRole("combobox", { name: "Embedding model" });
+		await expect.element(select).toHaveDisplayValue("Default (bge-m3)");
+		await select.selectOptions("e5-large");
+		// Nothing is indexed, so there is nothing to confirm: it applies at once.
+		expect(page.getByTestId("embedding-confirm").elements()).toHaveLength(0);
+		await expect.poll(() => bodies).toEqual([{ embedding_model: "e5-large" }]);
+	});
+
+	it("hides the embedding model while the past-chats box is not ticked", async () => {
+		state = {
+			state: "indexed",
+			indexed: 3,
+			indexing: 0,
+			failed: 0,
+			error: null,
+			canManage: true,
+			...MODELS,
+		};
+		renderWithApp(ProjectPastChatsIndex, {
+			projectId: "691111111111111111111aaa",
+			enabled: false,
+		});
+		await expect.element(page.getByText("Indexed (3)")).toBeVisible();
+		expect(page.getByRole("combobox").elements()).toHaveLength(0);
+	});
+
+	it("offers no document reader: past chats are text and never extracted", async () => {
+		state = {
+			state: "indexed",
+			indexed: 3,
+			indexing: 0,
+			failed: 0,
+			error: null,
+			canManage: true,
+			...MODELS,
+		};
+		mount();
+		await expect.element(page.getByText("Indexed (3)")).toBeVisible();
+		expect(page.getByText("Read documents with").elements()).toHaveLength(0);
+	});
 });
