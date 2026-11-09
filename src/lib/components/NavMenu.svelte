@@ -267,7 +267,7 @@
 			title={publicConfig.PUBLIC_APP_NAME}
 			data-testid="sidebar-logo"
 		>
-			<Logo variant="tile" classNames="h-8 w-8 rounded-sm max-sm:h-9 max-sm:w-9" />
+			<Logo variant="tile" decorative classNames="h-8 w-8 max-sm:h-9 max-sm:w-9" />
 		</a>
 		{#if codeAgentsEnabled}
 			<!-- The panel switch: chats and coding agents are two contents of the same

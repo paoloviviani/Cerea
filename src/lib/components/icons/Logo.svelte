@@ -9,15 +9,21 @@
 		/**
 		 * `tile` is the sidebar's square mark: the ridge bled to the edges of a
 		 * transparent square (the sidebar shows through). The default is the greeting's
-		 * open 337x112 ridge on the page background. Callers size either by
+		 * open 345x114 ridge on the page background. Callers size either by
 		 * height (`w-auto` for the default, an explicit square for the tile).
 		 */
 		variant?: "default" | "tile";
-		/** Stroke added on the tile's ridge (path units) to thicken it at small sizes. */
-		tileStroke?: number;
+		/**
+		 * Hidden from assistive tech, for a mark that sits next to the name
+		 * already said in text (or inside a link that has its own label).
+		 */
+		decorative?: boolean;
 	}
 
-	let { classNames = "", variant = "default", tileStroke = 6 }: Props = $props();
+	let { classNames = "", variant = "default", decorative = false }: Props = $props();
+
+	/** Stroke on the tile's ridge (path units), so it reads at 32 px. */
+	const TILE_STROKE = 6;
 
 	// Several marks can share a page (sidebar + greeting), and a gradient id
 	// resolves document-wide, so each instance names its own.
@@ -26,8 +32,8 @@
 	const nightId = `ridge-night-${uid}`;
 
 	const tile = $derived(variant === "tile");
-	const w = $derived(tile ? 32 : 337);
-	const h = $derived(tile ? 32 : 112);
+	const w = $derived(tile ? 32 : 345);
+	const h = $derived(tile ? 32 : 114);
 </script>
 
 <!--
@@ -45,8 +51,9 @@
 	class="ridge-mark {classNames}"
 	class:ridge-tile={tile}
 	style="--g-day: url(#{dayId}); --g-night: url(#{nightId})"
-	role="img"
-	aria-label="{publicConfig.PUBLIC_APP_NAME} logo"
+	role={decorative ? undefined : "img"}
+	aria-label={decorative ? undefined : `${publicConfig.PUBLIC_APP_NAME} logo`}
+	aria-hidden={decorative ? "true" : undefined}
 	xmlns="http://www.w3.org/2000/svg"
 >
 	<defs>
@@ -72,7 +79,7 @@
 			<path
 				class="ridge"
 				d={RIDGE_PATH}
-				stroke-width={tileStroke}
+				stroke-width={TILE_STROKE}
 				stroke-linejoin="round"
 				paint-order="stroke"
 			/>
