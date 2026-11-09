@@ -29,7 +29,10 @@
 	// one title line. A hidden, always-truncated probe the width of the text
 	// box tells us (open or collapsed alike); a short reason is a plain pill.
 	let probe: HTMLSpanElement | undefined = $state();
-	let expandable = $state(false);
+	// undefined until measured (server render, first client frame): an open
+	// banner renders wrapped then, so a long reason does not jump open after
+	// hydration; only the chevron appears once measured.
+	let expandable = $state<boolean | undefined>(undefined);
 	$effect(() => {
 		void reason;
 		const el = probe;
@@ -55,12 +58,13 @@
 >
 	<CarbonWarning class="mt-px size-3.5 shrink-0" />
 	<span class="relative min-w-0">
-		<span class="block {open && expandable ? 'break-words' : 'truncate'}" title={reason}
+		<span class="block {open && expandable !== false ? 'break-words' : 'truncate'}" title={reason}
 			>{reason}</span
 		>
 		<span
 			bind:this={probe}
 			aria-hidden="true"
+			data-exclude-from-copy
 			class="pointer-events-none invisible absolute inset-x-0 top-0 block h-0 truncate"
 			>{reason}</span
 		>
