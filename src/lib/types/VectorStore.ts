@@ -46,6 +46,8 @@ export interface VectorStore extends Timestamps {
 	 * Changing it applies to new uploads only.
 	 */
 	readerModel?: string;
+	/** `readerModel` is a local reader: its documents stay in this deployment. */
+	readerLocal?: boolean;
 	/** How wide that model's vectors are; null until the first embedding. */
 	dimensions: number | null;
 	chunkChars: number;
@@ -89,6 +91,10 @@ export interface KnowledgeDocument extends Timestamps {
 	/** The embedding model the CURRENT vectors were made with. */
 	embeddingModel: string | null;
 	indexedAt: Date | null;
+	/** The reader that read the original (a gateway model id), when recorded. */
+	readerModel?: string;
+	/** The chosen reader was unavailable to the user, so the default read it. */
+	readerFallback?: boolean;
 }
 
 /** The deployment's knowledge-pipeline configuration, admin-set in the chat. */

@@ -1096,6 +1096,18 @@
 														{document.error}
 													</span>
 												{/if}
+												{#if document.reader_fallback && document.reader_model}
+													<span
+														class="text-xs text-amber-700 dark:text-amber-400"
+														data-testid="reader-fallback"
+													>
+														{m["knowledge.reader.fallback"]({ name: document.reader_model })}
+													</span>
+												{:else if document.reader_model && document.status !== "failed"}
+													<span class="text-xs text-ink-muted" data-testid="reader-used">
+														{m["knowledge.reader.read_with"]({ name: document.reader_model })}
+													</span>
+												{/if}
 											</div>
 										</div>
 										<div class="flex flex-wrap items-center gap-1.5">

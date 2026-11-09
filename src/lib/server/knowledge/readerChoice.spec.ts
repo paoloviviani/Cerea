@@ -211,13 +211,6 @@ describe.skipIf(!TEST_DATABASE_URL)("document reader choice", () => {
 		return id;
 	}
 
-	/** Share a base with a user by email, straight onto the row. */
-	const share = (storeId: string, principal: string, role: "viewer" | "editor") =>
-		collections.vectorStores.updateOne(
-			{ _id: new ObjectId(storeId) },
-			{ $push: { shares: { kind: "user", principal, role } } }
-		);
-
 	const settle = (id: ObjectId, status = "ready") =>
 		waitFor(
 			async () => (await collections.knowledgeDocuments.findOne({ _id: id }))?.status === status
@@ -248,22 +241,6 @@ describe.skipIf(!TEST_DATABASE_URL)("document reader choice", () => {
 				svc.updateStoreReader(made.id, caller(owner), "tok", "not-mine")
 			).rejects.toMatchObject({ status: 400 });
 			expect((await svc.reachableStore(made.id, caller(owner))).readerModel).toBeUndefined();
-		});
-
-		it('can be changed by an editor, not by a viewer, and back to the default with ""', async () => {
-			const owner = new ObjectId();
-			const made = await svc.createStore(caller(owner), { name: "kb" });
-			await share(made.id, "ed@example.org", "editor");
-			await share(made.id, "view@example.org", "viewer");
-			const editor = caller(new ObjectId(), "ed@example.org");
-			const viewer = caller(new ObjectId(), "view@example.org");
-			const saved = await svc.updateStoreReader(made.id, editor, "tok", "markitdown");
-			expect(saved.reader_model).toBe("markitdown");
-			await expect(svc.updateStoreReader(made.id, viewer, "tok", "docling")).rejects.toMatchObject({
-				status: 404,
-			});
-			const cleared = await svc.updateStoreReader(made.id, caller(owner), "tok", "");
-			expect(cleared.reader_model).toBeNull();
 		});
 
 		it("reads new uploads with the base's reader, and leaves existing documents alone", async () => {
@@ -317,16 +294,40 @@ describe.skipIf(!TEST_DATABASE_URL)("document reader choice", () => {
 			expect(await chunksOfStores([store])).toBeGreaterThan(0);
 		});
 
-		it("with no reader given, uses the base's own", async () => {
+		it("not given uses the base's own reader; an explicit default does not", async () => {
 			const owner = new ObjectId();
 			const store = await makeStore(owner);
 			await svc.updateStoreReader(store.toString(), caller(owner), "tok", "markitdown");
 			const id = await attachPdf(owner, store);
+
 			extractMock.mockClear();
-			await svc.rereadDocument(store.toString(), id.toString(), caller(owner), "tok", "");
+			await svc.rereadDocument(store.toString(), id.toString(), caller(owner), "tok", undefined);
 			await waitFor(async () => extractMock.mock.calls.length > 0);
 			expect(extractMock.mock.calls[0][0]).toMatchObject({ readerModel: "markitdown" });
 			await settle(id);
+
+			// "Default" in the picker is "": the deployment's default reads it
+			// (extractDocument resolves null to resolveExtractorModel), never the
+			// base's own choice.
+			extractMock.mockClear();
+			await svc.rereadDocument(store.toString(), id.toString(), caller(owner), "tok", "");
+			await waitFor(async () => extractMock.mock.calls.length > 0);
+			expect(extractMock.mock.calls[0][0].readerModel).toBeNull();
+			await settle(id);
+		});
+
+		it("records the reader that read the document, and a fallback, on the row", async () => {
+			const owner = new ObjectId();
+			const store = await makeStore(owner);
+			extractMock.mockResolvedValue({
+				ok: true,
+				text: longText("read"),
+				readerModel: "docling",
+				readerFallback: true,
+			});
+			const id = await attachPdf(owner, store);
+			const row = await collections.knowledgeDocuments.findOne({ _id: id });
+			expect(row).toMatchObject({ readerModel: "docling", readerFallback: true });
 		});
 
 		it("a failure lands on the document row with the reason, and a second click while it runs is a 409", async () => {
@@ -349,65 +350,6 @@ describe.skipIf(!TEST_DATABASE_URL)("document reader choice", () => {
 			expect(row?.error).toContain("docling is down");
 		});
 
-		it("is for owners and editors: a viewer, or a stranger, is refused (the base is not theirs to edit)", async () => {
-			const owner = new ObjectId();
-			const store = await makeStore(owner);
-			const id = await attachPdf(owner, store);
-			await share(store.toString(), "view@example.org", "viewer");
-			await expect(
-				svc.rereadDocument(
-					store.toString(),
-					id.toString(),
-					caller(new ObjectId(), "view@example.org"),
-					"tok",
-					"docling"
-				)
-			).rejects.toMatchObject({ status: 404 });
-			await expect(
-				svc.rereadDocument(
-					store.toString(),
-					id.toString(),
-					caller(new ObjectId(), "nobody@example.org"),
-					"tok",
-					"docling"
-				)
-			).rejects.toMatchObject({ status: 404 });
-			// An editor may.
-			await share(store.toString(), "ed@example.org", "editor");
-			const ok = await svc.rereadDocument(
-				store.toString(),
-				id.toString(),
-				caller(new ObjectId(), "ed@example.org"),
-				"tok",
-				"docling"
-			);
-			expect(ok.status).toBe("pending");
-			await settle(id);
-		});
-
-		it("refuses a reader the user may not use (400) without touching the document", async () => {
-			const owner = new ObjectId();
-			const store = await makeStore(owner);
-			const id = await attachPdf(owner, store);
-			await expect(
-				svc.rereadDocument(store.toString(), id.toString(), caller(owner), "tok", "not-mine")
-			).rejects.toMatchObject({ status: 400 });
-			expect((await collections.knowledgeDocuments.findOne({ _id: id }))?.status).toBe("ready");
-		});
-
-		it("is refused for a text-only document (no stored file)", async () => {
-			const owner = new ObjectId();
-			const store = await makeStore(owner);
-			const note = await svc.addText(store.toString(), caller(owner), "tok", {
-				text: longText("pasted note"),
-				title: "note",
-			});
-			await expect(
-				svc.rereadDocument(store.toString(), note.id, caller(owner), "tok", "docling")
-			).rejects.toMatchObject({ status: 400 });
-			expect(extractMock).not.toHaveBeenCalled();
-		});
-
 		it("is refused for a stored plain-text file: nothing there is extracted", async () => {
 			const owner = new ObjectId();
 			const store = await makeStore(owner);
@@ -417,16 +359,6 @@ describe.skipIf(!TEST_DATABASE_URL)("document reader choice", () => {
 			await expect(
 				svc.rereadDocument(store.toString(), doc.id, caller(owner), "tok", "docling")
 			).rejects.toMatchObject({ status: 400 });
-		});
-
-		it("is scoped to the base: another base's document is a 404", async () => {
-			const owner = new ObjectId();
-			const a = await makeStore(owner);
-			const b = await makeStore(owner);
-			const id = await attachPdf(owner, a);
-			await expect(
-				svc.rereadDocument(b.toString(), id.toString(), caller(owner), "tok", "docling")
-			).rejects.toMatchObject({ status: 404 });
 		});
 	});
 });

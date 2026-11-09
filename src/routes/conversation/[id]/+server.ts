@@ -301,12 +301,16 @@ export async function POST({ request, locals, params, getClientAddress }) {
 	// document is a model they are allowed to use and the page is billed to
 	// them rather than to the deployment.
 	// The user's own default reader for these uploads (unset: the deployment's).
-	const readerModel =
+	const reader =
 		b64Files.length + hashFiles.length > 0 ? await userDocumentReader(locals) : undefined;
 	const uploadedFiles = await Promise.all([
 		Promise.all(
 			b64Files.map((file) =>
-				uploadFile(file, conv, locals.token, { pageImages: true, readerModel })
+				uploadFile(file, conv, locals.token, {
+					pageImages: true,
+					readerModel: reader?.model,
+					readerLocal: reader?.local,
+				})
 			)
 		).catch((err) => {
 			// Past its limit once the bytes say what it is (not what was declared).
@@ -314,7 +318,7 @@ export async function POST({ request, locals, params, getClientAddress }) {
 			throw err;
 		}),
 		// A file sent back by reference takes what the server recorded for it.
-		resolveHashFiles(hashFiles, conv, locals.token, readerModel),
+		resolveHashFiles(hashFiles, conv, locals.token, reader),
 	]).then(([uploaded, resolved]) => [...uploaded, ...resolved]);
 
 	// we will append tokens to the content of this message

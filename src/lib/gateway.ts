@@ -111,6 +111,10 @@ export interface KnowledgeDocument {
 	chars: number;
 	/** Why indexing failed, when it did — the reason travels to the screen. */
 	error: string | null;
+	/** The reader that read this file, when recorded. */
+	reader_model?: string | null;
+	/** The chosen reader was unavailable, so the default read it. */
+	reader_fallback?: boolean;
 	indexed_at: number | null;
 }
 

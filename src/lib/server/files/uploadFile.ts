@@ -68,6 +68,8 @@ export interface UploadOptions {
 	pageImages?: boolean;
 	/** The uploader's own default document reader; absent is the deployment's. */
 	readerModel?: string | null;
+	/** `readerModel` is a local reader. */
+	readerLocal?: boolean;
 }
 
 /**
@@ -190,6 +192,7 @@ export async function writeAttachment(
 			// Page images are a chat feature: only there is there a model to read them.
 			pageImages: !tag && options?.pageImages,
 			readerModel: options?.readerModel,
+			readerLocal: options?.readerLocal,
 		});
 		// A failed extraction does not fail the upload — the attachment is stored
 		// without text either way, and carries the reason on its `MessageFile`.
@@ -257,6 +260,8 @@ export async function writeAttachment(
 	const withText: MessageFile = {
 		...stored,
 		extracted: { value: textSha, pages: extracted.pages },
+		...(extracted.readerModel ? { readerModel: extracted.readerModel } : {}),
+		...(extracted.readerFallback ? { readerFallback: true } : {}),
 		...(audioFacts && Object.keys(audioFacts).length ? { audio: audioFacts } : {}),
 	};
 	if (!extracted.scan) return withText;

@@ -13,10 +13,22 @@ interface Setup {
 	owned?: boolean;
 	role?: string;
 	readerModel?: string | null;
-	documents?: { id: string; status: string; file_id: string | null; title: string }[];
+	documents?: {
+		id: string;
+		status: string;
+		file_id: string | null;
+		title: string;
+		reader_model?: string;
+		reader_fallback?: boolean;
+	}[];
 }
 
-const FILE_DOC = { id: "f1", status: "ready", file_id: "c".repeat(24), title: "report.pdf" };
+const FILE_DOC: Setup["documents"] extends (infer D)[] | undefined ? D : never = {
+	id: "f1",
+	status: "ready",
+	file_id: "c".repeat(24),
+	title: "report.pdf",
+};
 const TEXT_DOC = { id: "t1", status: "ready", file_id: null, title: "pasted note" };
 
 function stub({ owned = true, role = "owner", readerModel = null, documents }: Setup = {}) {
@@ -196,5 +208,28 @@ describe("create form", () => {
 		(document.querySelector("form") as HTMLFormElement).requestSubmit();
 		await vi.waitFor(() => expect(posts.length).toBeGreaterThan(0));
 		expect(posts[0].body).toMatchObject({ name: "New base", reader_model: "docling" });
+	});
+});
+
+describe("the reader a document was read with", () => {
+	it("says which reader read it, and flags a fallback where the file is listed", async () => {
+		await open({
+			documents: [
+				{ ...FILE_DOC, reader_model: "docling" },
+				{
+					id: "f2",
+					status: "ready",
+					file_id: "d".repeat(24),
+					title: "other.pdf",
+					reader_model: "markitdown",
+					reader_fallback: true,
+				},
+			],
+		});
+		const used = document.querySelector('[data-testid="reader-used"]');
+		expect(used?.textContent).toContain("Read with docling");
+		const fallback = document.querySelector('[data-testid="reader-fallback"]');
+		expect(fallback?.textContent).toContain("markitdown");
+		expect(fallback?.textContent).toContain("not available to you");
 	});
 });

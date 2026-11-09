@@ -51,6 +51,8 @@ export interface Settings extends Timestamps {
 	 * their own (`VectorStore.readerModel`); past chats are never extracted.
 	 */
 	documentReader?: string;
+	/** `documentReader` is a local reader (refuse, rather than fall back to a remote one). */
+	documentReaderLocal?: boolean;
 
 	/**
 	 * Web search through the gateway's own backends (`POST /v1/search`,

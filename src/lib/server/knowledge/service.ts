@@ -151,16 +151,28 @@ export async function embeddingModelsFor(token: string | undefined): Promise<str
  * be read: a name nobody could check would be refused or replaced at use.
  */
 export async function validateReaderChoice(
-	requested: string | null | undefined,
+	requested: unknown,
 	token: string | undefined
 ): Promise<string | null> {
+	return (await validateReader(requested, token))?.model ?? null;
+}
+
+/** As `validateReaderChoice`, also saying whether the reader is a local one. */
+export async function validateReader(
+	requested: unknown,
+	token: string | undefined
+): Promise<{ model: string; local: boolean } | null> {
+	if (requested !== undefined && requested !== null && typeof requested !== "string") {
+		throw new KnowledgeError(400, "reader_model must be a model name or empty.");
+	}
 	const name = (requested ?? "").trim();
 	if (!name) return null;
 	const allowed = await readerModelsFor(token);
-	if (!allowed?.some((model) => model.id === name)) {
+	const found = allowed?.find((model) => model.id === name);
+	if (!found) {
 		throw new KnowledgeError(400, `“${name}” is not a document reader you can use.`);
 	}
-	return name;
+	return { model: found.id, local: found.local };
 }
 
 /**
@@ -390,6 +402,10 @@ function documentObject(
 	source_ref: string | null;
 	chunk_count: number;
 	error: string | null;
+	/** The reader that read this file, when recorded. */
+	reader_model: string | null;
+	/** The chosen reader was unavailable, so the default read it. */
+	reader_fallback: boolean;
 } {
 	return {
 		id: document._id.toString(),
@@ -401,6 +417,8 @@ function documentObject(
 		source_ref: document.sourceRef ?? null,
 		chunk_count: document.chunkCount,
 		error: indexErrorForUser(document.error),
+		reader_model: document.readerModel ?? null,
+		reader_fallback: document.readerFallback === true,
 	};
 }
 
@@ -687,7 +705,7 @@ export async function createStore(
 	const config = await readConfig();
 	if (!body.name?.trim()) throw new KnowledgeError(400, "A name is required.");
 	const choice = await resolveChosenModel(body.embedding_model, token, config);
-	const reader = await validateReaderChoice(body.reader_model, token);
+	const reader = await validateReader(body.reader_model, token);
 	// The geometry is copied onto the row, not read at ingestion time: a later
 	// change to the deployment's defaults cannot re-chunk half of an existing
 	// base (ADR 0070).
@@ -698,7 +716,7 @@ export async function createStore(
 		ownerId: caller.userId,
 		embeddingModel: choice.model,
 		...(choice.chosen ? { embeddingChosen: true } : {}),
-		...(reader ? { readerModel: reader } : {}),
+		...(reader ? { readerModel: reader.model, readerLocal: reader.local } : {}),
 		passagePrefix: choice.passagePrefix,
 		queryPrefix: choice.queryPrefix,
 		dimensions: null,
@@ -722,15 +740,17 @@ export async function updateStoreReader(
 	storeId: string,
 	caller: Caller,
 	token: string | undefined,
-	readerModel: string | null | undefined
+	readerModel: unknown
 ): Promise<Awaited<ReturnType<typeof storeObject>>> {
 	const base = await reachableStore(storeId, caller, "editor");
-	const reader = await validateReaderChoice(readerModel, token);
+	const reader = await validateReader(readerModel, token);
 	await collections.vectorStores.updateOne(
 		{ _id: base._id },
 		reader
-			? { $set: { readerModel: reader, updatedAt: new Date() } }
-			: { $unset: { readerModel: "" }, $set: { updatedAt: new Date() } }
+			? {
+					$set: { readerModel: reader.model, readerLocal: reader.local, updatedAt: new Date() },
+				}
+			: { $unset: { readerModel: "", readerLocal: "" }, $set: { updatedAt: new Date() } }
 	);
 	const live = (await collections.vectorStores.findOne({ _id: base._id })) ?? base;
 	return storeObject(live, caller);
@@ -859,8 +879,14 @@ export const BACKGROUND_INGEST_CONCURRENCY = 2;
 export interface IngestOptions {
 	/** Read the stored original again instead of using the text on the row. */
 	reread?: boolean;
-	/** The document reader for this read; absent means the base's own choice. */
+	/**
+	 * The document reader for this read. `undefined` (not given) means the
+	 * base's own choice; `null` is an explicit "use the deployment default",
+	 * which must not fall back to the base's reader.
+	 */
 	reader?: string | null;
+	/** The reader given is a local one (see `extractDocument`'s `readerLocal`). */
+	readerLocal?: boolean;
 }
 
 const backgroundQueue: {
@@ -886,6 +912,12 @@ async function pumpBackgroundIngest(): Promise<void> {
 	);
 	void pumpBackgroundIngest();
 }
+
+/**
+ * How a re-read hands work to the queue: an object so a test can stand in for
+ * the extraction and embedding behind it.
+ */
+export const ingestQueue = { start: startIngest };
 
 export function startIngest(
 	documentId: ObjectId,
@@ -957,6 +989,7 @@ export async function ingestDocument(
 	// the caller gets the row either way and the list says what happened.
 	try {
 		let text = document.text;
+		let readerUsed: { readerModel?: string; readerFallback?: boolean } = {};
 		// A re-read ignores the text on the row and reads the stored original
 		// again, with the reader it was asked for.
 		if (opts.reread || text === undefined || text === null) {
@@ -994,19 +1027,31 @@ export async function ingestDocument(
 					mime,
 					filename: document.filename ?? "document",
 					token,
-					// The reader asked for (a re-read), else the base's own choice;
-					// none means the deployment's default.
-					readerModel: opts.reader ?? base.readerModel ?? null,
+					// The reader asked for (a re-read, where null is the explicit
+					// default), else the base's own choice; none means the default.
+					readerModel: opts.reader !== undefined ? opts.reader : (base.readerModel ?? null),
+					readerLocal: opts.reader !== undefined ? opts.readerLocal : base.readerLocal,
 				});
 				// The reason travels verbatim: "no reader configured" and "this is
 				// a scan" are different problems with different fixes, and the row
 				// is the one place the person asking can see either.
 				if (!extracted.ok) throw new KnowledgeError(extracted.status, extracted.reason);
 				text = extracted.text;
+				readerUsed = {
+					...(extracted.readerModel ? { readerModel: extracted.readerModel } : {}),
+					...(extracted.readerFallback ? { readerFallback: true } : {}),
+				};
 			}
 			await collections.knowledgeDocuments.updateOne(
 				{ _id: document._id },
-				{ $set: { text, chars: text.length, updatedAt: new Date() } }
+				{
+					$set: { text, chars: text.length, updatedAt: new Date(), ...readerUsed },
+					// A text read has no reader; a re-read replaces what was recorded.
+					$unset: {
+						...(readerUsed.readerModel ? {} : { readerModel: "" }),
+						...(readerUsed.readerFallback ? {} : { readerFallback: "" }),
+					},
+				}
 			);
 		}
 
@@ -1622,7 +1667,7 @@ export async function rereadDocument(
 	documentId: string,
 	caller: Caller,
 	token: string,
-	readerModel: string | null | undefined
+	readerModel: unknown
 ): Promise<ReturnType<typeof documentObject>> {
 	const base = await reachableStore(storeId, caller, "editor");
 	if (!/^[0-9a-f]{24}$/.test(documentId)) throw new KnowledgeError(404, "No such document.");
@@ -1642,7 +1687,9 @@ export async function rereadDocument(
 	if (!isExtractableDocument(mime)) {
 		throw new KnowledgeError(400, "This file is plain text, so there is nothing to read again.");
 	}
-	const reader = await validateReaderChoice(readerModel, token);
+	// Not given (undefined) is the base's own reader; "" or null is an explicit
+	// choice of the deployment default.
+	const reader = readerModel === undefined ? undefined : await validateReader(readerModel, token);
 	const claimed = await collections.knowledgeDocuments.updateOne(
 		{ _id: document._id, status: { $in: ["ready", "failed"] } },
 		{ $set: { status: "pending", error: "", updatedAt: new Date() } }
@@ -1650,7 +1697,14 @@ export async function rereadDocument(
 	if (claimed.modifiedCount === 0) {
 		throw new KnowledgeError(409, "This document is already being indexed. Wait for it to finish.");
 	}
-	startIngest(document._id, token, undefined, { reread: true, reader });
+	ingestQueue.start(
+		document._id,
+		token,
+		undefined,
+		reader === undefined
+			? { reread: true }
+			: { reread: true, reader: reader?.model ?? null, readerLocal: reader?.local }
+	);
 	const current = await collections.knowledgeDocuments.findOne({ _id: document._id });
 	return documentObject(current ?? document, null);
 }

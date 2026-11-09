@@ -334,6 +334,10 @@ interface ModelCard {
 export interface Extracted {
 	text: string;
 	pages: number;
+	/** The reader that actually produced this text (a gateway model id), when known. */
+	readerModel?: string;
+	/** The chosen reader was not available to this user, so the default read it. */
+	readerFallback?: boolean;
 }
 
 /** The direct endpoint's base URL, trimmed, or undefined when unset — the one switch between routes. */
@@ -480,17 +484,17 @@ export async function resolveExtractorModel(token: string): Promise<string | nul
 async function chosenReader(
 	token: string,
 	chosen: string | null | undefined
-): Promise<{ id: string; local: boolean } | null> {
+): Promise<{ reader: { id: string; local: boolean } | null; fallback: boolean }> {
 	const name = chosen?.trim();
-	if (!name || directOcrBaseUrl()) return null;
+	if (!name || directOcrBaseUrl()) return { reader: null, fallback: false };
 	const list = await readerModelsFor(token);
 	const found = list?.find((model) => model.id === name);
-	if (found) return found;
+	if (found) return { reader: found, fallback: false };
 	logger.warn(
 		{ model: name, listed: list !== null },
 		"document_reader_fallback: the chosen reader is not available to this user; using the default reader"
 	);
-	return null;
+	return { reader: null, fallback: true };
 }
 
 /** Nothing anywhere to read with — not the document's fault, the deployment's. */
@@ -557,7 +561,29 @@ export async function extractDocument(options: {
 	 * use falls back to it with a log line (`chosenReader`).
 	 */
 	readerModel?: string | null;
+	/**
+	 * The chosen reader was a local one (documents stay in this deployment).
+	 * When it is unavailable and the default would send the document to a
+	 * remote OCR model, the extraction is refused rather than falling back.
+	 */
+	readerLocal?: boolean;
 }): Promise<Extraction> {
+	// What actually read it, recorded on the result so the document and the
+	// attachment can say so; the fallback case is flagged.
+	const trace: { model?: string; fallback: boolean } = { fallback: false };
+	const result = await extractDocumentTraced(options, trace);
+	if (!result.ok) return result;
+	return {
+		...result,
+		...(trace.model ? { readerModel: trace.model } : {}),
+		...(trace.fallback ? { readerFallback: true } : {}),
+	};
+}
+
+async function extractDocumentTraced(
+	options: Parameters<typeof extractDocument>[0],
+	trace: { model?: string; fallback: boolean }
+): Promise<Extraction> {
 	const { bytes, mime, filename, token } = options;
 	if (!token) {
 		return {
@@ -571,7 +597,9 @@ export async function extractDocument(options: {
 
 	// PDFs and images go to the selected OCR model; every other format goes to
 	// the local reader, whatever is selected, or fails saying there is none.
-	const picked = await chosenReader(token, options.readerModel);
+	const choice = await chosenReader(token, options.readerModel);
+	const picked = choice.reader;
+	trace.fallback = choice.fallback;
 	if (!isOcrNative(mime)) {
 		// An Office file goes to a local reader: the chosen one when it is local
 		// (the built-in extractor's engines), else the deployment's.
@@ -595,6 +623,7 @@ export async function extractDocument(options: {
 				reason: `No reader for ${label} is configured: this deployment has no local document reader, and an OCR model cannot read them. An administrator needs to enable the local reader on the Knowledge screen.`,
 			};
 		}
+		trace.model = reader;
 		return extractViaGateway({ bytes, mime, filename, token, model: reader });
 	}
 
@@ -607,12 +636,29 @@ export async function extractDocument(options: {
 		return NO_READER;
 	}
 
+	// A local reader was chosen and is gone: falling back to a remote OCR model
+	// would send the document off this deployment, which the choice meant to avoid.
+	if (choice.fallback && options.readerLocal && !(await isLocalReader(token, model))) {
+		logger.warn(
+			{ filename, fallback: model },
+			"document_reader_refused: the chosen local reader is unavailable and the default is remote"
+		);
+		return {
+			ok: false,
+			kind: "refused",
+			status: 403,
+			reason:
+				"The local reader chosen for this document is not available to you, and the default reader would send it to an outside OCR service. Choose another reader, or ask an administrator for access.",
+		};
+	}
+
 	const baseUrl = directOcrBaseUrl();
 	if (baseUrl) return extractDocumentDirect({ bytes, mime, filename, baseUrl, model });
 	// Page images are for the local reader only: a remote OCR model reads a scan
 	// itself, and is never sent the request. The same rule for the fallback below.
 	const wantsPages =
 		options.pageImages === true && mime === "application/pdf" && pdfImagePageLimit() > 0;
+	trace.model = model;
 	const first = await extractViaGateway({
 		bytes,
 		mime,
@@ -646,6 +692,7 @@ export async function extractDocument(options: {
 			? closedToYou(first, "The local reader could not read it either")
 			: first;
 	}
+	trace.model = local;
 	logger.info(
 		{ filename, model, fallback: local, firstStatus: first.status },
 		"document_extraction_fallback: the OCR model failed, the local reader read the document"

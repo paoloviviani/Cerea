@@ -1233,3 +1233,98 @@ describe("a chosen reader (a user's default, or a knowledge base's)", () => {
 		expect(gatewayPostMock.mock.calls[0][2]).toMatchObject({ model: "markitdown" });
 	});
 });
+
+describe("recording the reader, and refusing a fallback that leaves the deployment", () => {
+	const MODELS_NOW = {
+		data: [
+			{ id: "mistral-ocr-4.1", kind: "ocr" },
+			{ id: "markitdown", kind: "ocr", local: true },
+		],
+	};
+
+	it("records the reader that read the document", async () => {
+		gatewayGetMock.mockResolvedValue(MODELS_NOW);
+		gatewayPostMock.mockResolvedValue(OCR_OK);
+		const answer = await extractDocument({
+			bytes: BYTES,
+			mime: "application/pdf",
+			filename: "a.pdf",
+			token: "t",
+			readerModel: "mistral-ocr-4.1",
+		});
+		expect(answer).toMatchObject({ ok: true, readerModel: "mistral-ocr-4.1" });
+		expect((answer as { readerFallback?: boolean }).readerFallback).toBeUndefined();
+	});
+
+	it("flags a fallback to the default reader, and names the reader that read it", async () => {
+		readConfigMock.mockResolvedValue({ extractorModel: "mistral-ocr-4.1" });
+		gatewayGetMock.mockResolvedValue(MODELS_NOW);
+		gatewayPostMock.mockResolvedValue(OCR_OK);
+		const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined as never);
+		const answer = await extractDocument({
+			bytes: BYTES,
+			mime: "application/pdf",
+			filename: "a.pdf",
+			token: "t",
+			readerModel: "revoked-ocr",
+		});
+		expect(answer).toMatchObject({
+			ok: true,
+			readerModel: "mistral-ocr-4.1",
+			readerFallback: true,
+		});
+		warn.mockRestore();
+	});
+
+	it("refuses, sending nothing, when the chosen local reader is gone and the default is remote", async () => {
+		readConfigMock.mockResolvedValue({ extractorModel: "mistral-ocr-4.1" });
+		gatewayGetMock.mockResolvedValue(MODELS_NOW);
+		const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined as never);
+		const answer = await extractDocument({
+			bytes: BYTES,
+			mime: "application/pdf",
+			filename: "a.pdf",
+			token: "t",
+			readerModel: "gone-local",
+			readerLocal: true,
+		});
+		expect(answer).toMatchObject({ ok: false, kind: "refused", status: 403 });
+		expect((answer as { reason: string }).reason).toMatch(/outside OCR service/);
+		expect(gatewayPostMock).not.toHaveBeenCalled();
+		warn.mockRestore();
+	});
+
+	it("still falls back when the chosen local reader is gone but the default is local too", async () => {
+		readConfigMock.mockResolvedValue({ extractorModel: "markitdown" });
+		gatewayGetMock.mockResolvedValue(MODELS_NOW);
+		gatewayPostMock.mockResolvedValue(OCR_OK);
+		const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined as never);
+		const answer = await extractDocument({
+			bytes: BYTES,
+			mime: "application/pdf",
+			filename: "a.pdf",
+			token: "t",
+			readerModel: "gone-local",
+			readerLocal: true,
+		});
+		expect(answer).toMatchObject({ ok: true, readerModel: "markitdown", readerFallback: true });
+		warn.mockRestore();
+	});
+
+	it("a remote reader that is gone still falls back to the default (only local is protected)", async () => {
+		readConfigMock.mockResolvedValue({ extractorModel: "mistral-ocr-4.1" });
+		gatewayGetMock.mockResolvedValue(MODELS_NOW);
+		gatewayPostMock.mockResolvedValue(OCR_OK);
+		const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined as never);
+		const answer = await extractDocument({
+			bytes: BYTES,
+			mime: "application/pdf",
+			filename: "a.pdf",
+			token: "t",
+			readerModel: "gone-remote",
+			readerLocal: false,
+		});
+		expect(answer).toMatchObject({ ok: true, readerFallback: true });
+		warn.mockRestore();
+	});
+});

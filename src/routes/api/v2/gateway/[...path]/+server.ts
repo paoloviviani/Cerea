@@ -189,7 +189,9 @@ async function handleInternal(
 				const body = (await event.request.json().catch(() => null)) as {
 					reader_model?: string | null;
 				} | null;
-				if (!body || !("reader_model" in body)) error(400, "Nothing to change.");
+				if (!body || typeof body !== "object" || !("reader_model" in body)) {
+					error(400, "Nothing to change.");
+				}
 				return json(
 					await service.updateStoreReader(storeMatch[1], caller, bearer, body.reader_model)
 				);
@@ -262,14 +264,12 @@ async function handleInternal(
 			const body = (await event.request.json().catch(() => null)) as {
 				reader_model?: string | null;
 			} | null;
+			// A body that is not an object is "not given"; reader_model is checked
+			// (string or null) by the service.
+			const given =
+				body && typeof body === "object" && !Array.isArray(body) ? body.reader_model : undefined;
 			return json(
-				await service.rereadDocument(
-					rereadMatch[1],
-					rereadMatch[2],
-					caller,
-					bearer,
-					body?.reader_model
-				)
+				await service.rereadDocument(rereadMatch[1], rereadMatch[2], caller, bearer, given)
 			);
 		}
 

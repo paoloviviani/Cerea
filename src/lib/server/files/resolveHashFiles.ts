@@ -25,7 +25,7 @@ export async function resolveHashFiles(
 	refs: MessageFile[],
 	conv: Conversation,
 	token: string | undefined,
-	readerModel?: string
+	reader?: { model: string; local: boolean }
 ): Promise<MessageFile[]> {
 	if (refs.length === 0) return refs;
 	const known = new Map<string, MessageFile>();
@@ -54,7 +54,11 @@ export async function resolveHashFiles(
 					{ name: ref.name, sha: ref.value },
 					"attachment_reextracted: a resent document had no extraction on record"
 				);
-				return await uploadFile(file, conv, token, { pageImages: true, readerModel });
+				return await uploadFile(file, conv, token, {
+					pageImages: true,
+					readerModel: reader?.model,
+					readerLocal: reader?.local,
+				});
 			} catch (err) {
 				logger.warn({ err, sha: ref.value }, "attachment_reextract_failed");
 				return record ?? ref;

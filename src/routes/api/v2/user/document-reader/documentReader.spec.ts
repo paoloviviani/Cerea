@@ -51,7 +51,7 @@ describe("/api/v2/user/document-reader", () => {
 		const user = await createTestUser();
 		const locals = { ...user.locals, token: "tok" };
 		expect((await put(locals, { reader_model: "mistral-ocr" })).status).toBe(200);
-		expect(await userDocumentReader(locals)).toBe("mistral-ocr");
+		expect(await userDocumentReader(locals)).toEqual({ model: "mistral-ocr", local: false });
 		const res = await testRequest(GET, { path: "/api/v2/user/document-reader", locals });
 		expect(((await res.json()) as { reader_model: string }).reader_model).toBe("mistral-ocr");
 	});
@@ -62,7 +62,7 @@ describe("/api/v2/user/document-reader", () => {
 		await put(locals, { reader_model: "markitdown" });
 		const res = await put(locals, { reader_model: "someone-elses-ocr" });
 		expect(res.status).toBe(400);
-		expect(await userDocumentReader(locals)).toBe("markitdown");
+		expect(await userDocumentReader(locals)).toEqual({ model: "markitdown", local: true });
 	});
 
 	it("null goes back to the deployment's default", async () => {
@@ -71,5 +71,13 @@ describe("/api/v2/user/document-reader", () => {
 		await put(locals, { reader_model: "markitdown" });
 		expect((await put(locals, { reader_model: null })).status).toBe(200);
 		expect(await userDocumentReader(locals)).toBeUndefined();
+	});
+
+	it("a body that is not an object, or a non-string reader, is a 400, not a 500", async () => {
+		const user = await createTestUser();
+		const locals = { ...user.locals, token: "tok" };
+		for (const body of [null, "docling", 7, [], { reader_model: 5 }, { reader_model: ["x"] }, {}]) {
+			expect((await put(locals, body)).status).toBe(400);
+		}
 	});
 });

@@ -13,6 +13,8 @@
 	let models = $state<string[]>([]);
 	let defaultReader = $state<string | null>(null);
 	let value = $state("");
+	// What the server has, to put the select back when a save fails.
+	let saved = "";
 	let loaded = $state(false);
 	let saving = $state(false);
 	let failure = $state<string | null>(null);
@@ -29,6 +31,7 @@
 			models = body.reader_models;
 			defaultReader = body.reader_default;
 			value = body.reader_model ?? "";
+			saved = value;
 			loaded = true;
 		} catch {
 			// Nothing to offer without the list; the row stays out.
@@ -36,6 +39,7 @@
 	});
 
 	async function save(choice: string) {
+		const previous = saved;
 		saving = true;
 		failure = null;
 		try {
@@ -47,9 +51,13 @@
 			if (!response.ok) {
 				const body = (await response.json().catch(() => null)) as { message?: string } | null;
 				failure = body?.message ?? m["settings.application.reader.failed"]();
+				value = previous;
+			} else {
+				saved = choice;
 			}
 		} catch {
 			failure = m["settings.application.reader.failed"]();
+			value = previous;
 		} finally {
 			saving = false;
 		}

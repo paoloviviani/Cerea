@@ -20,7 +20,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 	const { resolveExtractorModel } = await import("$lib/server/files/extractDocument");
 	const models = await readerModelsFor(locals.token);
 	return json({
-		reader_model: (await userDocumentReader(locals)) ?? null,
+		reader_model: (await userDocumentReader(locals))?.model ?? null,
 		reader_models: (models ?? []).map((model) => model.id),
 		reader_default: locals.token
 			? await resolveExtractorModel(locals.token).catch(() => null)
@@ -34,10 +34,10 @@ export const PUT: RequestHandler = async ({ locals, request }) => {
 	if (!body || (body.reader_model !== null && typeof body.reader_model !== "string")) {
 		error(400, "Expected { reader_model: string | null }.");
 	}
-	const { validateReaderChoice, KnowledgeError } = await import("$lib/server/knowledge/service");
-	let reader: string | null;
+	const { validateReader, KnowledgeError } = await import("$lib/server/knowledge/service");
+	let reader: { model: string; local: boolean } | null;
 	try {
-		reader = await validateReaderChoice(body.reader_model, locals.token);
+		reader = await validateReader(body.reader_model, locals.token);
 	} catch (err) {
 		if (err instanceof KnowledgeError) error(err.status, err.message);
 		throw err;
@@ -46,11 +46,18 @@ export const PUT: RequestHandler = async ({ locals, request }) => {
 		authCondition(locals),
 		reader
 			? {
-					$set: { documentReader: reader, updatedAt: new Date() },
+					$set: {
+						documentReader: reader.model,
+						documentReaderLocal: reader.local,
+						updatedAt: new Date(),
+					},
 					$setOnInsert: { createdAt: new Date() },
 				}
-			: { $unset: { documentReader: "" }, $set: { updatedAt: new Date() } },
+			: {
+					$unset: { documentReader: "", documentReaderLocal: "" },
+					$set: { updatedAt: new Date() },
+				},
 		{ upsert: Boolean(reader) }
 	);
-	return json({ reader_model: reader });
+	return json({ reader_model: reader?.model ?? null });
 };
