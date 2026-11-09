@@ -8,7 +8,7 @@
 		classNames?: string;
 		/**
 		 * `tile` is the sidebar's square mark: the ridge bled to the edges of a
-		 * day (white) or night (#0F1319) square. The default is the greeting's
+		 * transparent square (the sidebar shows through). The default is the greeting's
 		 * open 337x112 ridge on the page background. Callers size either by
 		 * height (`w-auto` for the default, an explicit square for the tile).
 		 */
@@ -68,7 +68,6 @@
 		</linearGradient>
 	</defs>
 	{#if tile}
-		<rect class="tile-bg" width="400" height="400" />
 		<g transform="translate(200 188) scale(1.26) translate(-226.391 -249.692)">
 			<path
 				class="ridge"
@@ -90,24 +89,10 @@
 	.ridge-tile .ridge {
 		stroke: var(--g-day);
 	}
-	.tile-bg {
-		fill: #ffffff;
-	}
-	/* A hairline so the white tile does not dissolve into the light sidebar.
-	   A 1px shadow ring, not a border: it adds no layout size and follows the radius (an inset one would sit under the SVG and not show). */
-	.ridge-tile {
-		box-shadow: 0 0 0 1px rgb(15 19 25 / 0.12);
-	}
-	:global(.dark) .ridge-tile {
-		box-shadow: 0 0 0 1px rgb(255 255 255 / 0.08);
-	}
 	:global(.dark) .ridge {
 		fill: var(--g-night);
 	}
 	:global(.dark) .ridge-tile .ridge {
 		stroke: var(--g-night);
-	}
-	:global(.dark) .tile-bg {
-		fill: #0f1319;
 	}
 </style>
