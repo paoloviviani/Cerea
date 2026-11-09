@@ -67,6 +67,18 @@ test("an approval answered on a conversation's first turn resumes it, every time
 		await page.getByRole("button", { name: "Send message" }).click();
 		const last = page.locator('[data-message-role="assistant"]').last();
 		await expect(last.getByRole("button", { name: "Allow once" })).toBeVisible({ timeout: 60_000 });
+		// The post-stream refresh swaps the made-up message id for the server's and re-creates the
+		// message, which collapses a "Show details" opened before it lands. Wait for the thread to
+		// hold the id it renders, so the details are opened on the message that stays.
+		await expect
+			.poll(async () => {
+				const shown = await last.getAttribute("data-message-id");
+				const doc = await db
+					.collection("conversations")
+					.findOne({ _id: new ObjectId(conversationId), "messages.id": shown });
+				return doc !== null;
+			})
+			.toBe(true);
 		// The tool's name sits behind "Show details" now.
 		await last.getByRole("button", { name: "Show details" }).click();
 		await expect(last.getByText("wants to call agent_start")).toBeVisible();
