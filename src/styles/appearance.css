@@ -69,37 +69,59 @@
 }
 :root[data-background="mesh"] body {
 	background-image:
+		/* The mesh: two crossing sets of hairlines (a slightly irregular diamond lattice, 28px and 32px cells). */
+		repeating-linear-gradient(
+			58deg,
+			color-mix(in srgb, var(--bg-tint) 8%, transparent) 0 1px,
+			transparent 1px 28px
+		),
+		repeating-linear-gradient(
+			-58deg,
+			color-mix(in srgb, var(--bg-tint) 8%, transparent) 0 1px,
+			transparent 1px 32px
+		),
 		radial-gradient(
 			60vw 50vh at 85% 8%,
-			color-mix(in srgb, var(--bg-tint) 16%, transparent),
+			color-mix(in srgb, var(--bg-tint) 10%, transparent),
 			transparent 70%
 		),
 		radial-gradient(
 			55vw 55vh at 35% 100%,
-			color-mix(in srgb, var(--bg-tint-2) 15%, transparent),
+			color-mix(in srgb, var(--bg-tint-2) 9%, transparent),
 			transparent 70%
 		),
 		radial-gradient(
 			45vw 45vh at 100% 85%,
-			color-mix(in srgb, var(--bg-tint-2) 11%, transparent),
+			color-mix(in srgb, var(--bg-tint-2) 7%, transparent),
 			transparent 70%
 		);
 }
 :root.dark[data-background="mesh"] body {
 	background-image:
+		/* The mesh: two crossing sets of hairlines (a slightly irregular diamond lattice, 28px and 32px cells). */
+		repeating-linear-gradient(
+			58deg,
+			color-mix(in srgb, var(--bg-tint) 8%, transparent) 0 1px,
+			transparent 1px 28px
+		),
+		repeating-linear-gradient(
+			-58deg,
+			color-mix(in srgb, var(--bg-tint) 8%, transparent) 0 1px,
+			transparent 1px 32px
+		),
 		radial-gradient(
 			60vw 50vh at 85% 8%,
-			color-mix(in srgb, var(--bg-tint) 16%, transparent),
+			color-mix(in srgb, var(--bg-tint) 10%, transparent),
 			transparent 70%
 		),
 		radial-gradient(
 			55vw 55vh at 35% 100%,
-			color-mix(in srgb, var(--bg-tint-2) 16%, transparent),
+			color-mix(in srgb, var(--bg-tint-2) 9%, transparent),
 			transparent 70%
 		),
 		radial-gradient(
 			45vw 45vh at 100% 85%,
-			color-mix(in srgb, var(--bg-tint-2) 12%, transparent),
+			color-mix(in srgb, var(--bg-tint-2) 7%, transparent),
 			transparent 70%
 		);
 }
