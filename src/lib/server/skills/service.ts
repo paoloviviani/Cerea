@@ -41,6 +41,7 @@
 import { ObjectId, type UpdateFilter } from "mongodb";
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
+import { documentSpecSection, withDocumentSpec } from "./documentSpec";
 import type { AdminSkillView, Skill, SkillFile, SkillView } from "$lib/types/Skill";
 import { adminDisabledSkillNames } from "./adminSkills";
 import { builtinSkillHash, listBuiltinSkills, resetBuiltinSkillCache } from "./builtinSkills";
@@ -777,9 +778,13 @@ export const skillLoadBuiltin: BuiltinTool = {
 				error: `There is no enabled skill named \`${name}\`. Use only the names listed in the system prompt.`,
 			};
 		}
+		const body = withDocumentSpec(
+			resolved.body,
+			await documentSpecSection(resolved.name, resolved.owner)
+		);
 		return {
 			resultText:
-				`# Skill: ${resolved.name}\n\n${resolved.description}\n\n${resolved.body}` +
+				`# Skill: ${resolved.name}\n\n${resolved.description}\n\n${body}` +
 				describeSkillFiles(resolved.name, resolved.files),
 		};
 	},

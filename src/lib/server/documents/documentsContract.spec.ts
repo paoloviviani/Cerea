@@ -21,8 +21,10 @@ vi.mock("$lib/server/execution/deliverables", () => ({}));
 vi.mock("$lib/server/files/downloadFile", () => ({}));
 
 import fixture from "./capabilities.fixture.json";
-const { createDocumentBuiltins } = await import("../textGeneration/builtinTools/documentTools");
+const { createDocumentBuiltins, createFormatSpec, CREATE_SPEC_SKILL } =
+	await import("../textGeneration/builtinTools/documentTools");
 const { DOCUMENT_FORMATS } = await import("./client");
+import type { CreateFormat, DocumentCapabilities } from "./client";
 
 describe("the service's contract reaches the edit tool", () => {
 	const caps = fixture as unknown as Parameters<typeof createDocumentBuiltins>[0];
@@ -74,6 +76,8 @@ describe("the service's contract reaches the create tool", () => {
 	const caps = fixture as unknown as Parameters<typeof createDocumentBuiltins>[0];
 	const create = createDocumentBuiltins(caps).find((t) => t.name === "doc_create");
 	const text = create?.definition.function.description ?? "";
+	/** What a format's skill carries: the spec of that format, generated from the service's schema. */
+	const specOf = (format: CreateFormat) => createFormatSpec(caps as DocumentCapabilities, format);
 	const schemas = fixture.create_schemas as unknown as Record<
 		string,
 		{
@@ -87,12 +91,15 @@ describe("the service's contract reaches the create tool", () => {
 	it("is offered, with every format the service can create", () => {
 		expect(create).toBeTruthy();
 		for (const format of fixture.create_formats) {
-			expect(text.toLowerCase(), format).toContain(`.${format})`);
+			expect(text, format).toContain(
+				`${format} -> \`${CREATE_SPEC_SKILL[format as CreateFormat]}\``
+			);
 		}
 	});
 
-	it("names every block, sheet and slide property of every format", () => {
+	it("names every block, sheet and slide property of every format, in that format's spec", () => {
 		for (const [format, entry] of Object.entries(schemas)) {
+			const text = specOf(format as CreateFormat);
 			const parts = [
 				...Object.entries(entry.blocks).map(([name, b]) => [`${format}.${name}`, name, b] as const),
 				["sheet", "A sheet", entry.sheet] as const,
@@ -112,6 +119,7 @@ describe("the service's contract reaches the create tool", () => {
 	});
 
 	it("marks the properties a block cannot do without", () => {
+		const text = specOf("docx") + specOf("xlsx");
 		expect(text).toMatch(/heading\{level: integer/);
 		expect(text).toMatch(/image\{[^}]*image: string/);
 		expect(text).toMatch(/chart\{[^}]*chart_type: "bar"/);

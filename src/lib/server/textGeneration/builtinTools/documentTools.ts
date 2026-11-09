@@ -79,6 +79,8 @@ export const MAX_DOCUMENT_CALLS_PER_TURN = 30;
 const MAX_DOCUMENT_BYTES = 32 * 1024 * 1024;
 /** At most this many diff lines go back to the model. */
 const MAX_DIFF_LINES = 120;
+/** A format's spec in a rejection is cut here. */
+const MAX_SPEC_IN_ERROR = 14_000;
 /** The tool result never grows past this many characters. */
 const MAX_RESULT_CHARS = 60_000;
 
@@ -302,6 +304,30 @@ function describeCreateFormat(
 	if (entry.sheet) lines.push(`A sheet: {${propertyList(entry.sheet, 3, true, aliases)}}`);
 	if (entry.slide) lines.push(`A slide: {${propertyList(entry.slide, 3, true, aliases)}}`);
 	return lines.join("\n");
+}
+
+/** The skill that carries each format's full creation spec (loaded with `load_skill`). */
+export const CREATE_SPEC_SKILL: Record<CreateFormat, string> = {
+	docx: "word",
+	xlsx: "excel",
+	pptx: "powerpoint",
+	pdf: "pdf",
+};
+
+/**
+ * The full creation spec of one format, generated from the service's schemas (so it cannot drift from what the
+ * service accepts). It is delivered with that format's skill and in a `doc_create` rejection, not in the tool
+ * definition every turn carries. Empty when the service publishes no schema for the format.
+ */
+export function createFormatSpec(caps: DocumentCapabilities, format: CreateFormat): string {
+	const schemas = caps.create_schemas ?? {};
+	const entry = schemas[format];
+	if (!entry) return "";
+	const { aliases, legend } = sharedAliases(schemas);
+	const text = describeCreateFormat(format, entry, aliases);
+	const extra =
+		format === "pdf" ? "\nPDF charts are always images and theme.template is not available." : "";
+	return `${text}${extra}\n${legend.join("\n")}`;
 }
 
 /** Names and spec text for `doc_create`, from `create_schemas`. */
@@ -912,7 +938,7 @@ export function createDocumentBuiltins(
 
 	let createOffered = false;
 	if (caps.create === true && caps.create_schemas) {
-		const { formats: createFormats, body: specText } = createToolText(caps);
+		const { formats: createFormats } = createToolText(caps);
 		if (createFormats.length > 0) {
 			createOffered = true;
 			tools.push({
@@ -925,19 +951,11 @@ export function createDocumentBuiltins(
 							"Create a NEW Word, Excel, PowerPoint or PDF file from a document spec. The service builds it, " +
 							"checks that it opens, and saves it as a file the person can open and download; you never write " +
 							"code for it. All or nothing: a spec problem comes back as a message naming what is allowed. " +
-							"A neutral built-in style is used; set `theme` only for what the person asked (fonts from the " +
-							"list, hex colours, sizes, spacing, table style, accent). `theme.template` names a Word, Excel " +
-							"or PowerPoint file the person uploaded in this conversation, whose styles, master or named " +
-							'styles are then used. A chart block says `render`: "native" (editable in Office, the default) ' +
-							'or "image" (a PNG); PDF charts are always images, and the result says what was written. ' +
-							"Images are files in the conversation (an attachment, a file you made earlier, an image saved " +
-							"to /mnt/output): list them in `images` and name them the same way in image blocks. Word and " +
-							"PDF also take `markdown` instead of `blocks` (headings, lists, tables, **bold**, links, code; no " +
-							"HTML). A slide may have a `background` (an image is a file in the conversation) and free `shapes` " +
-							"(cm on the slide, kept inside it, text 8 pt or more): for designed slides on the blank or " +
-							"title_only layout, not for ordinary text. The result gives the file's name, an outline and the charts' render; to change the file " +
-							"afterwards use doc_edit with that name. Formats and their specs, `?` marking an optional property:\n" +
-							specText,
+							"The full spec of each format (blocks, sheets, slides, theme, charts, cells) comes with that " +
+							`format's skill: ${createFormats.map((f) => `${f} -> \`${CREATE_SPEC_SKILL[f]}\``).join(", ")}. ` +
+							"Load the skill with load_skill before the first file of that format. Images are files in the " +
+							"conversation: list them in `images` and name them the same way in the spec. The result gives " +
+							"the file's name and an outline; to change the file afterwards use doc_edit with that name.",
 						parameters: {
 							type: "object",
 							properties: {
@@ -948,7 +966,9 @@ export function createDocumentBuiltins(
 								},
 								spec: {
 									type: "object",
-									description: "The document spec for that format, as described above.",
+									description:
+										"The document spec for that format: an object (title, plus blocks, markdown, sheets or slides " +
+										"by format), as the format's skill describes.",
 								},
 								file_name: {
 									type: "string",
@@ -978,8 +998,16 @@ export function createDocumentBuiltins(
 					if (!(createFormats as string[]).includes(format)) {
 						return { error: `\`format\` must be one of: ${createFormats.join(", ")}.` };
 					}
+					const specHelp = (): string => {
+						const label = FORMAT_LABEL[format as CreateFormat];
+						const skill = CREATE_SPEC_SKILL[format as CreateFormat];
+						return (
+							`\n\nThe spec of ${label} (it also comes with the \`${skill}\` skill, which says how to design ` +
+							`the file):\n${createFormatSpec(caps, format as CreateFormat)}`
+						).slice(0, MAX_SPEC_IN_ERROR);
+					};
 					if (!args.spec || typeof args.spec !== "object" || Array.isArray(args.spec)) {
-						return { error: "Give `spec`: the document spec, an object." };
+						return { error: `Give \`spec\`: the document spec, an object.${specHelp()}` };
 					}
 					const spec = JSON.parse(JSON.stringify(args.spec)) as Record<string, unknown>;
 
@@ -1006,6 +1034,10 @@ export function createDocumentBuiltins(
 							{ signal: ctx.abortSignal }
 						);
 					} catch (err) {
+						// A spec the service refused: say what the format takes, so the next call can be right.
+						if (err instanceof DocumentsError && err.kind === "rejected") {
+							return { error: `${err.message}${specHelp()}` };
+						}
 						return { error: userMessage(err) };
 					}
 					return saveCreated(ctx, made, {

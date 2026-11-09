@@ -44,7 +44,7 @@ the Available skills list.
 
 ## Creating a deck
 
-Call `doc_create` with `format: "pptx"` and a `spec` of `slides`. The tool's description lists every property; the
+Call `doc_create` with `format: "pptx"` and a `spec` of `slides`. The full spec (every property) follows this skill's text under "The `doc_create` spec for pptx"; the
 service checks the spec first and answers with what is allowed if something is off.
 
 - **Slides:** each has a `layout` (`title`, `title_content`, `section`, `two_content`, `title_only`, `blank`), a
@@ -54,7 +54,7 @@ service checks the spec first and answers with what is allowed if something is o
   without body is a title slide and the others use `title_content`.
 - **Placement:** text blocks fill the layout's body placeholder; tables, images and charts share the body area (on
   the right when there is text too). A text-only slide stays in the placeholder, so it keeps the template's look.
-- **Look:** neutral 16:9 built-in master; `theme` only for what the person asked (fonts from the tool's list,
+- **Look:** neutral 16:9 built-in master; `theme` only for what the person asked (fonts from the spec's list,
   colours, accent, table style). **Their template:** give the uploaded `.pptx` as `theme.template`; `layout` then
   names one of its layouts (an unknown name answers with the list), its size, master and fonts are kept, and its
   own sample slides are not. To fill a template that has `{{placeholders}}`, use `doc_create_from_template` (text

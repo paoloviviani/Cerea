@@ -85,6 +85,7 @@ vi.mock("$lib/server/execution/deliverables", () => ({
 
 const {
 	createDocumentBuiltins,
+	createFormatSpec,
 	createdName,
 	DOC_CREATE_TOOL_NAME,
 	DOC_CREATE_FROM_TEMPLATE_TOOL_NAME,
@@ -94,6 +95,7 @@ const { getCapabilities, resetCapabilitiesCache } = await import("$lib/server/do
 const { MessageCodeExecutionUpdateType, MessageUpdateType } =
 	await import("$lib/types/MessageUpdate");
 import fixture from "$lib/server/documents/capabilities.fixture.json";
+import type { CreateFormat, DocumentCapabilities } from "$lib/server/documents/client";
 
 const SECRET = "s3cret";
 const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -263,8 +265,8 @@ describe("gating by the service's capability flags", () => {
 			properties: { format: { enum: string[] } };
 		};
 		expect(props.properties.format.enum).toEqual(["docx", "pdf"]);
-		expect(tool.definition.function.description).toContain("PDF (.pdf): the same spec");
-		expect(tool.definition.function.description).not.toContain("Excel (.xlsx) spec");
+		expect(tool.definition.function.description).toContain("pdf -> `pdf`");
+		expect(tool.definition.function.description).not.toContain("xlsx -> `excel`");
 	});
 
 	it("gives the shared guidance once, not once per tool", async () => {
@@ -275,9 +277,79 @@ describe("gating by the service's capability flags", () => {
 	});
 });
 
-describe("the tool text comes from the service's schemas", () => {
-	it("names the blocks, the theme and the chart choices", async () => {
-		const text = (await named(DOC_CREATE_TOOL_NAME)).definition.function.description ?? "";
+const createText = async () =>
+	(await named(DOC_CREATE_TOOL_NAME)).definition.function.description ?? "";
+
+describe("the tool definition is short and points at the skills", () => {
+	it("carries no block, theme or cell spec, and names the skill of each format", async () => {
+		const tool = await named(DOC_CREATE_TOOL_NAME);
+		const text = await createText();
+		for (const needle of [
+			"heading{",
+			"table{",
+			"Theme = {",
+			"A sheet: {",
+			"A slide: {",
+			"Run = {",
+		]) {
+			expect(text).not.toContain(needle);
+		}
+		for (const pair of [
+			"docx -> `word`",
+			"xlsx -> `excel`",
+			"pptx -> `powerpoint`",
+			"pdf -> `pdf`",
+		]) {
+			expect(text).toContain(pair);
+		}
+		expect(text).toContain("load_skill");
+		// the whole definition stays small: it rides every turn
+		expect(JSON.stringify(tool.definition).length).toBeLessThan(2_500);
+		expect(tool.definition.function.parameters).toMatchInlineSnapshot(`
+			{
+			  "properties": {
+			    "file_name": {
+			      "description": "Name of the file, e.g. report.docx. Defaults to the spec's title. Using a name that already exists saves a new version of that file.",
+			      "type": "string",
+			    },
+			    "format": {
+			      "description": "The kind of file to create.",
+			      "enum": [
+			        "docx",
+			        "xlsx",
+			        "pptx",
+			        "pdf",
+			      ],
+			      "type": "string",
+			    },
+			    "images": {
+			      "description": "Image files (PNG, JPEG or GIF) the spec uses: names of images in the conversation. An image's \`image\` property is the same name.",
+			      "items": {
+			        "type": "string",
+			      },
+			      "type": "array",
+			    },
+			    "spec": {
+			      "description": "The document spec for that format: an object (title, plus blocks, markdown, sheets or slides by format), as the format's skill describes.",
+			      "type": "object",
+			    },
+			  },
+			  "required": [
+			    "format",
+			    "spec",
+			  ],
+			  "type": "object",
+			}
+		`);
+	});
+});
+
+describe("the per-format spec comes from the service's schemas", () => {
+	const spec = async (format: CreateFormat) =>
+		createFormatSpec((await getCapabilities()) as DocumentCapabilities, format);
+
+	it("names the blocks, the theme and the chart choices for Word", async () => {
+		const text = await spec("docx");
 		expect(text).toContain("heading{level: integer");
 		expect(text).toContain("table{");
 		expect(text).toContain('render?: "native"|"image"');
@@ -287,29 +359,35 @@ describe("the tool text comes from the service's schemas", () => {
 		expect(text).toContain("Theme = {");
 		expect(text).toContain('"Calibri"');
 		expect(text).toContain("template?: string");
-		expect(text).toContain("A sheet: {");
-		expect(text).toContain("A slide: {");
 		expect(text).toContain("item = string | {");
 		expect(text).toContain("Run = {");
 		expect(text).toContain("Hex = ");
-		expect(text).toContain("Background = {color: Hex} | {");
-		expect(text).toMatch(
+		expect(text).toContain("Cell = ");
+		expect(text.split("Run = {")).toHaveLength(2);
+	});
+
+	it("gives Excel its sheets and PowerPoint its slides, the deck theme and shapes", async () => {
+		expect(await spec("xlsx")).toContain("A sheet: {");
+		const pptx = await spec("pptx");
+		expect(pptx).toContain("A slide: {");
+		expect(pptx).toContain("Background = {color: Hex} | {");
+		expect(pptx).toMatch(
 			/PptxTheme = Theme plus \{[^}]*slide_background\?: Background[^}]*slide_numbers\?: boolean/
 		);
-		expect(text).toContain("heading_bold?: boolean");
-		expect(text).toContain("h1 is also the PowerPoint title size");
-		expect(text).toContain("background?: Background");
-		expect(text).toMatch(
+		expect(pptx).toContain("heading_bold?: boolean");
+		expect(pptx).toContain("h1 is also the PowerPoint title size");
+		expect(pptx).toMatch(
 			/shapes\?: \{[^]*kind: "rect"\|"rounded_rect"[^]*layer\?: "back"\|"front"/
 		);
-		// the deck-only theme setting is written once, in the PptxTheme legend line
-		expect(text.split("slide_background")).toHaveLength(2);
-		expect(text).toContain("Cell = ");
-		// the same pieces are written once, not per block and format
-		expect(text.split("Run = {")).toHaveLength(2);
-		expect(text).toContain("PDF (.pdf): the same spec and blocks as Word (.docx)");
-		expect(text.length).toBeLessThan(9_500);
-		expect(text).not.toMatch(/deployment template|admin/i);
+		expect(pptx.split("slide_background")).toHaveLength(2);
+	});
+
+	it("gives PDF the whole Word spec, not a pointer, and its limits", async () => {
+		const pdf = await spec("pdf");
+		expect(pdf).toContain("heading{level: integer");
+		expect(pdf).not.toContain("the same spec and blocks as");
+		expect(pdf).toContain("PDF charts are always images");
+		expect(pdf).not.toMatch(/deployment template|admin/i);
 	});
 
 	it("follows the service: a new block appears without a code change", async () => {
@@ -324,8 +402,7 @@ describe("the tool text comes from the service's schemas", () => {
 			required: ["type", "text"],
 		};
 		capabilities = modified;
-		const text = (await named(DOC_CREATE_TOOL_NAME)).definition.function.description ?? "";
-		expect(text).toContain('callout{text: string, tone?: "info"|"warn"}');
+		expect(await spec("docx")).toContain('callout{text: string, tone?: "info"|"warn"}');
 	});
 });
 
@@ -485,6 +562,47 @@ describe("the service's errors become messages a model can act on", () => {
 		expect(error).toContain("No file was made.");
 		expect(error).not.toContain("Nothing was changed");
 		expect(stored.saved).toHaveLength(0);
+	});
+
+	it("adds the format's spec to a rejected spec, so one more call can be right", async () => {
+		reply = {
+			status: 422,
+			body: {
+				error: { code: "invalid_request", message: "blocks[0]: unknown block type 'banner'" },
+			},
+		};
+		const tool = await named(DOC_CREATE_TOOL_NAME);
+		const word = failed(await tool.execute({ format: "docx", spec: SPEC }, ctx()));
+		expect(word).toContain("unknown block type 'banner'");
+		expect(word).toContain("heading{level: integer");
+		expect(word).toContain("`word` skill");
+		const sheet = failed(await tool.execute({ format: "xlsx", spec: SPEC }, ctx()));
+		expect(sheet).toContain("A sheet: {");
+		expect(sheet).toContain("`excel` skill");
+		expect(sheet).not.toContain("heading{level");
+		expect(word.length).toBeLessThan(15_000);
+	});
+
+	it("names the skill and gives the spec when `spec` is not an object", async () => {
+		const tool = await named(DOC_CREATE_TOOL_NAME);
+		const error = failed(await tool.execute({ format: "pptx", spec: "slides" }, ctx()));
+		expect(error).toContain("Give `spec`");
+		expect(error).toContain("`powerpoint` skill");
+		expect(error).toContain("A slide: {");
+		expect(requests.filter((r) => r.path === "/v1/create")).toHaveLength(0);
+	});
+
+	it("does not add the spec to a failure that is not about the spec", async () => {
+		reply = { status: 504, body: {} };
+		const error = await run();
+		expect(error).toContain("took too long");
+		expect(error).not.toContain("heading{level");
+	});
+
+	it("creates with no skill loaded: a valid spec needs nothing but the tool", async () => {
+		const tool = await named(DOC_CREATE_TOOL_NAME);
+		ok(await tool.execute({ format: "docx", spec: SPEC }, ctx()));
+		expect(stored.saved).toHaveLength(1);
 	});
 
 	it("hands the model a range error with the field, the value and the allowed range", async () => {
