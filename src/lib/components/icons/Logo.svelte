@@ -93,6 +93,14 @@
 	.tile-bg {
 		fill: #ffffff;
 	}
+	/* A hairline so the white tile does not dissolve into the light sidebar.
+	   A 1px shadow ring, not a border: it adds no layout size and follows the radius (an inset one would sit under the SVG and not show). */
+	.ridge-tile {
+		box-shadow: 0 0 0 1px rgb(15 19 25 / 0.12);
+	}
+	:global(.dark) .ridge-tile {
+		box-shadow: 0 0 0 1px rgb(255 255 255 / 0.08);
+	}
 	:global(.dark) .ridge {
 		fill: var(--g-night);
 	}
