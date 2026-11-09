@@ -24,6 +24,27 @@
 	// reader's fold (or reopening) survives until they change it again.
 	let toggled: boolean | undefined = $state();
 	let open = $derived(toggled ?? isLatest);
+
+	// There is something to expand only when the reason does not fit on the
+	// one title line. A hidden, always-truncated probe the width of the text
+	// box tells us (open or collapsed alike); a short reason is a plain pill.
+	let probe: HTMLSpanElement | undefined = $state();
+	// undefined until measured (server render, first client frame): an open
+	// banner renders wrapped then, so a long reason does not jump open after
+	// hydration; only the chevron appears once measured.
+	let expandable = $state<boolean | undefined>(undefined);
+	$effect(() => {
+		void reason;
+		const el = probe;
+		if (!el) return;
+		const measure = () => {
+			expandable = el.scrollWidth > el.clientWidth + 1;
+		};
+		measure();
+		const ro = new ResizeObserver(measure);
+		ro.observe(el);
+		return () => ro.disconnect();
+	});
 </script>
 
 <!-- Why a turn died, where it died — the state pill up top only says
@@ -36,17 +57,30 @@
 	class="mt-2 flex w-fit max-w-full items-start gap-1.5 overflow-hidden rounded-lg border border-danger/25 bg-danger-subtle px-2.5 py-1.5 text-xs text-danger"
 >
 	<CarbonWarning class="mt-px size-3.5 shrink-0" />
-	<span class="min-w-0 {open ? 'break-words' : 'truncate'}" title={reason}>{reason}</span>
-	<button
-		type="button"
-		onclick={() => (toggled = !open)}
-		aria-expanded={open}
-		aria-label={open ? m["chat.turn_failed.hide"]() : m["chat.turn_failed.show"]()}
-		data-testid="turn-failed-toggle"
-		class="mt-px shrink-0 cursor-pointer rounded-sm p-0.5 text-danger/70 transition-colors hover:text-danger focus:outline-hidden"
-	>
-		<CarbonChevronRight
-			class="size-3 transition-transform duration-200 {open ? 'rotate-90' : ''}"
-		/>
-	</button>
+	<span class="relative min-w-0">
+		<span class="block {open && expandable !== false ? 'break-words' : 'truncate'}" title={reason}
+			>{reason}</span
+		>
+		<span
+			bind:this={probe}
+			aria-hidden="true"
+			data-exclude-from-copy
+			class="pointer-events-none invisible absolute inset-x-0 top-0 block h-0 truncate"
+			>{reason}</span
+		>
+	</span>
+	{#if expandable}
+		<button
+			type="button"
+			onclick={() => (toggled = !open)}
+			aria-expanded={open}
+			aria-label={open ? m["chat.turn_failed.hide"]() : m["chat.turn_failed.show"]()}
+			data-testid="turn-failed-toggle"
+			class="mt-px shrink-0 cursor-pointer rounded-sm p-0.5 text-danger/70 transition-colors hover:text-danger focus:outline-hidden"
+		>
+			<CarbonChevronRight
+				class="size-3 transition-transform duration-200 {open ? 'rotate-90' : ''}"
+			/>
+		</button>
+	{/if}
 </div>
