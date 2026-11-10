@@ -68,6 +68,12 @@ token, so quotas and billing are theirs; elsewhere on this site, "the gateway"
 means Pystino. Pystino has its own documentation; this site links to it from the
 [reference](reference.md) page rather than repeating it.
 
+### Cerea architecture
+
+![Cerea architecture: the user works in Chat and Agents; Chat reaches tools through the MCP broker, which connects remote MCP servers and the connectors a user's laptop exposes through galopin --connectors-only; Agents is the web client for opencode and goose running under galopin on a remote development server, which also gets MCPs through galopin.](assets/architecture/cerea-architecture.svg)
+
+The editable source is [`cerea-architecture.excalidraw`](assets/architecture/cerea-architecture.excalidraw) (open it at excalidraw.com).
+
 !!! tip "Three ways to run it"
 
     The whole stack from the deploy kit, the chat without the kit, or the
