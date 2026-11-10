@@ -19,13 +19,13 @@
 		/** The same PDF as a `data:` URL, for callers that carry it that way. */
 		dataUrl?: string;
 		/**
-		 * Offer a "PDF" download in the toolbar. Off when the PDF is itself the
-		 * file the panel header already downloads, so there is only one button.
+		 * Offer a "PDF" download in the toolbar (the default). Off when the PDF is
+		 * itself the file the panel header already downloads, so there is only one button.
 		 */
 		showDownload?: boolean;
 	}
 
-	let { title, bytes, dataUrl, showDownload = false }: Props = $props();
+	let { title, bytes, dataUrl, showDownload = true }: Props = $props();
 
 	/** Pages drawn; the download has the rest. */
 	const MAX_PAGES = 60;

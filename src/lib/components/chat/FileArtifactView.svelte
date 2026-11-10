@@ -308,7 +308,7 @@
 			<PdfViewer
 				title={baseName}
 				bytes={payload.bytes}
-				showDownload={!version.name.toLowerCase().endsWith(".pdf")}
+				showDownload={!(conversationId && version.name.toLowerCase().endsWith(".pdf"))}
 			/>
 		</div>
 	{:else if payload?.kind === "slides"}

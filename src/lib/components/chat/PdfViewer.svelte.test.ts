@@ -13,8 +13,17 @@ describe("PdfViewer download", () => {
 		expect(btn?.getAttribute("aria-label")).toBe("Download report as PDF");
 	});
 
-	it("offers no download of its own by default, so a PDF original has one button", async () => {
+	it("offers its download by default (a PDF preview has no other)", async () => {
 		const screen = render(PdfViewer, { title: "report", bytes: minimalPdf(1) });
+		expect(screen.baseElement.querySelector('[data-testid="pdf-download"]')).not.toBeNull();
+	});
+
+	it("drops its download when told the header already has one", async () => {
+		const screen = render(PdfViewer, {
+			title: "report",
+			bytes: minimalPdf(1),
+			showDownload: false,
+		});
 		expect(screen.baseElement.querySelector('[data-testid="pdf-download"]')).toBeNull();
 	});
 });
