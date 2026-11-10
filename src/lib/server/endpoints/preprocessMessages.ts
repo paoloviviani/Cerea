@@ -2,7 +2,7 @@ import type { Message, MessageFile } from "$lib/types/Message";
 import type { EndpointMessage } from "./endpoints";
 import { downloadFile, storedSizes } from "../files/downloadFile";
 import { documentMime, isExtractableDocument } from "../files/extractDocument";
-import { missingTextNotice } from "../files/missingTextNotice";
+import { missingTextNotice, withheldNotice } from "../files/missingTextNotice";
 import { scanNotice, wordScanMarkers } from "../files/scanNotice";
 import { isAudioFile, labelledTranscript, missingTranscriptNotice } from "../files/audioAttachment";
 import { mountNamesByHash } from "$lib/utils/execution/attachmentNames";
@@ -63,6 +63,16 @@ async function resolveFile(
 	convId: ObjectId,
 	canReadImages: boolean
 ) {
+	if (file.withheld) {
+		return [
+			{
+				type: "base64" as const,
+				name: file.name,
+				mime: "text/markdown",
+				value: Buffer.from(withheldNotice(file.name, file.withheld), "utf-8").toString("base64"),
+			},
+		];
+	}
 	if (file.pageImages && file.extracted) {
 		return resolveWithPages(file, file.extracted, file.pageImages, convId, canReadImages);
 	}

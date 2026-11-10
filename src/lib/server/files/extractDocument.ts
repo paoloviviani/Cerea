@@ -51,7 +51,7 @@
  */
 
 import { isQuotaError } from "$lib/server/gatewayErrors";
-import type { ExtractionFailureKind } from "$lib/types/Message";
+import type { ExtractionFailureKind, WithheldByPrivacy } from "$lib/types/Message";
 import { config } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
 import { gateway, GatewayCallFailed, GatewayTimeout } from "$lib/server/gatewayServer";
@@ -413,6 +413,20 @@ export interface ExtractionFailure {
 	kind: ExtractionFailureKind;
 	reason: string;
 	status: number;
+	/** A privacy rule refused the read: a policy, not a technical failure. */
+	withheld?: WithheldByPrivacy;
+}
+
+/**
+ * The privacy rule named in a gateway refusal ("Refused by the privacy rule
+ * 'R' (pipeline 'P')"), or undefined when the error is anything else. Only a
+ * 403 counts: a technical failure that merely mentions a rule is not a policy.
+ */
+export function privacyRefusal(status: number, message: string): WithheldByPrivacy | undefined {
+	if (status !== 403) return undefined;
+	const match = /privacy rule\s+'([^']*)'(?:\s*\(pipeline\s+'([^']*)'\))?/i.exec(message);
+	if (!match) return undefined;
+	return { rule: match[1], ...(match[2] ? { pipeline: match[2] } : {}) };
 }
 
 /**
@@ -689,6 +703,9 @@ async function extractDocumentTraced(
 		imagePages: wantsPages && (await isLocalReader(token, model)) ? pdfImagePageLimit() : 0,
 	});
 	if (first.ok || mime !== "application/pdf" || first.kind === "no-credential") return first;
+	// A privacy rule withheld it: the local reader must not get a turn, that
+	// would read exactly what the policy refused.
+	if (first.withheld) return first;
 
 	// The OCR model failed (rate limited, down, or empty). A PDF with a text
 	// layer does not need OCR at all, so the local reader gets a turn before
@@ -709,6 +726,7 @@ async function extractDocumentTraced(
 		imagePages: wantsPages ? pdfImagePageLimit() : 0,
 	});
 	if (!fallback.ok) {
+		if (fallback.withheld) return fallback;
 		return first.status === 403
 			? closedToYou(first, "The local reader could not read it either")
 			: first;
@@ -855,6 +873,21 @@ async function extractViaGateway(options: {
 		// like nothing works at all.
 		let reason = "The document reader could not be reached, so the file was stored without text.";
 		let kind: ExtractionFailureKind = "unreachable";
+		const withheld =
+			err instanceof GatewayCallFailed ? privacyRefusal(status, err.message) : undefined;
+		if (withheld) {
+			logger.warn(
+				{ filename, model, rule: withheld.rule, pipeline: withheld.pipeline },
+				"document_extraction_withheld: a privacy rule refused the read"
+			);
+			return {
+				ok: false,
+				kind: "refused",
+				status,
+				reason: `Withheld by the privacy rule '${withheld.rule}'${withheld.pipeline ? ` (pipeline '${withheld.pipeline}')` : ""}.`,
+				withheld,
+			};
+		}
 		if (err instanceof GatewayCallFailed) {
 			if (status === 422) {
 				reason = err.message;

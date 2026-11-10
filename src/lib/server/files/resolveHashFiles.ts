@@ -41,6 +41,8 @@ export async function resolveHashFiles(
 	return Promise.all(
 		refs.map(async (ref) => {
 			const record = known.get(ref.value);
+			// Never read again what a privacy rule withheld, whatever the browser says.
+			if (record?.withheld) return { ...record, name: ref.name };
 			if (record && recorded(record)) {
 				return { ...record, name: ref.name };
 			}
@@ -68,5 +70,5 @@ export async function resolveHashFiles(
 }
 
 function recorded(file: MessageFile): boolean {
-	return Boolean(file.extracted || file.extractionError || file.pageImages);
+	return Boolean(file.extracted || file.extractionError || file.pageImages || file.withheld);
 }

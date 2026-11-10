@@ -2,6 +2,7 @@ import { DOCUMENT_MIME_ALLOWLIST } from "$lib/constants/mime";
 import { findAttachments, readAttachment } from "$lib/server/files/attachmentStore";
 import type { Attachment } from "$lib/types/machineProtocol";
 import type { MessageFile } from "$lib/types/Message";
+import { withheldNotice } from "$lib/server/files/missingTextNotice";
 
 /** Chat's long-paste chip: plain text under its own type so chat can render it as a chip. */
 const CLIPBOARD_MIME = "application/vnd.chatui.clipboard";
@@ -28,6 +29,16 @@ export async function promptAttachments(
 }
 
 async function toAttachment(ownerKey: string, file: MessageFile): Promise<Attachment> {
+	// A privacy-withheld file goes as a plain notice: neither its bytes nor any
+	// text of it may reach the agent.
+	if (file.withheld) {
+		const notice = withheldNotice(file.name, file.withheld);
+		return dataUrl(
+			"text/plain",
+			`${file.name}.txt`,
+			Buffer.from(notice, "utf-8").toString("base64")
+		);
+	}
 	if (file.extracted && (DOCUMENT_MIME_ALLOWLIST as readonly string[]).includes(file.mime)) {
 		const markdown = await readAttachment(file.extracted.value, ownerKey);
 		return dataUrl("text/markdown", `${file.name}.md`, markdown.value);

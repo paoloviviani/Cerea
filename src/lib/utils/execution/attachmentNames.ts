@@ -34,6 +34,8 @@ export interface AttachmentSource {
 	value: string;
 	mime?: string;
 	extracted?: { value: string };
+	/** A privacy rule withheld this file: it is never mounted or planned. */
+	withheld?: { rule: string; pipeline?: string };
 	/** The name's version this file is, when it was numbered at upload (1 needs no record). */
 	version?: number;
 	/**
@@ -95,6 +97,7 @@ export function planAttachments(files: readonly AttachmentSource[]): PlannedAtta
 	const plan: PlannedAttachment[] = [];
 	for (const file of files) {
 		if (file.mime === CLIPBOARD_MIME) continue;
+		if (file.withheld) continue;
 		// The same content attached again is one mount under its first name; a
 		// different file with the same name gets the next free " (n)" name below.
 		const identity = `${file.type}:${file.value}`;

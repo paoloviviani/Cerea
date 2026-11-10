@@ -394,6 +394,51 @@ describe("when there is no text", () => {
 		expect(gatewayPostMock.mock.calls.map((c) => c[2].model)).toEqual(["group-ocr", "markitdown"]);
 	});
 
+	it("a privacy refusal withholds the file and never falls back to the local reader", async () => {
+		readConfigMock.mockResolvedValue({ extractorModel: "group-ocr" });
+		gatewayGetMock.mockResolvedValue({
+			data: [
+				{ id: "group-ocr", kind: "ocr" },
+				{ id: "local-ocr", kind: "ocr", local: true },
+			],
+		});
+		const { GatewayCallFailed } = await import("$lib/server/gatewayServer");
+		gatewayPostMock.mockRejectedValue(
+			new GatewayCallFailed(403, "Refused by the privacy rule 'no-health' (pipeline 'strict')")
+		);
+
+		const answer = await extractDocument({
+			bytes: BYTES,
+			mime: "application/pdf",
+			filename: "a.pdf",
+			token: "t",
+		});
+
+		expect(answer).toMatchObject({
+			ok: false,
+			kind: "refused",
+			status: 403,
+			withheld: { rule: "no-health", pipeline: "strict" },
+		});
+		// One call only: the local reader was not asked.
+		expect(gatewayPostMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("a technical failure is not a withholding", async () => {
+		readConfigMock.mockResolvedValue({ extractorModel: "group-ocr" });
+		gatewayGetMock.mockResolvedValue({ data: [{ id: "group-ocr", kind: "ocr" }] });
+		const { GatewayCallFailed } = await import("$lib/server/gatewayServer");
+		gatewayPostMock.mockRejectedValue(new GatewayCallFailed(503, "upstream down"));
+		const answer = await extractDocument({
+			bytes: BYTES,
+			mime: "application/pdf",
+			filename: "a.pdf",
+			token: "t",
+		});
+		expect(answer.ok).toBe(false);
+		expect(answer).not.toHaveProperty("withheld");
+	});
+
 	it("says plainly that the chosen reader is closed to this user and there is no local reader", async () => {
 		readConfigMock.mockResolvedValue({ extractorModel: "group-ocr" });
 		gatewayGetMock.mockResolvedValue({ data: [{ id: "group-ocr", kind: "ocr" }] });

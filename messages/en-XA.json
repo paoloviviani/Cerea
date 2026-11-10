@@ -1874,6 +1874,8 @@
 	"chat.trackio.title": "[Ťŕáíńíńǧ ďáśȟƀóáŕď]",
 	"chat.turn_failed.hide": "[Ȟíďé ťȟé ďéťáíľś]",
 	"chat.turn_failed.show": "[Śȟóŵ ťȟé ďéťáíľś]",
+	"chat.uploaded.withheld": "[Ŵíťȟȟéľď ƀý þŕíǚáćý ŕúľé '{rule}']",
+	"chat.uploaded.withheld_pipeline": "[Ŵíťȟȟéľď ƀý þŕíǚáćý ŕúľé '{rule}' (þíþéľíńé '{pipeline}')]",
 	"chat.uploaded.gone": "[ťȟáť ƒíľé íś ńó ľóńǧéŕ áǚáíľáƀľé]",
 	"chat.uploaded.input_alt": "[íńþúť ƒŕóḿ úśéŕ]",
 	"chat.uploaded.paste_hint": "[Íƒ ýóú ŵóúľď ŕáťȟéŕ þáśťé ľóńǧ ťéẋť śťŕáíǧȟť íńťó ťȟé ćȟáť, ýóú ćáń ťúŕń ťȟíś óƒƒ íń ťȟé {#link}śéťťíńǧś þáǧé{/link}.]",

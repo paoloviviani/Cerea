@@ -109,6 +109,27 @@ export async function attachmentNamed(
 }
 
 /**
+ * The privacy rule that withheld an attachment of this name, if there is one:
+ * such a file is not planned (so never mounted or read), and the tools say why
+ * instead of "no such file".
+ */
+export async function withheldAttachmentNamed(
+	conversationId: Conversation["_id"],
+	wanted: string
+): Promise<NonNullable<MessageFile["withheld"]> | undefined> {
+	const conversation = await collections.conversations.findOne(
+		{ _id: conversationId },
+		{ projection: { messages: 1 } }
+	);
+	for (const message of conversation?.messages ?? []) {
+		for (const file of message.files ?? []) {
+			if (file.withheld && file.type === "hash" && file.name === wanted) return file.withheld;
+		}
+	}
+	return undefined;
+}
+
+/**
  * Give every stored row of a name its version number, once. Rows made before
  * numbers were stored get theirs by position (attachment = 1, then the rows in
  * the order they were made) and keep it from then on, so deleting an old row
