@@ -84,7 +84,7 @@
 		handleClick();
 	}}
 >
-	<div class="relative">
+	<div class="relative flex items-center justify-center">
 		{#if children}{@render children()}{:else}
 			<CarbonCopy class={iconClassNames} />
 		{/if}

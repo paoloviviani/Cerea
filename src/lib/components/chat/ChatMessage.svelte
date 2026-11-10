@@ -1309,20 +1309,21 @@
 						onClick={() => {
 							isCopied = true;
 						}}
-						classNames="btn rounded-xs p-1 text-sm text-ink-faint hover:text-ink-muted focus:ring-0"
+						classNames="btn inline-flex size-6 items-center justify-center rounded-xs p-1 text-ink-faint hover:text-ink-muted focus:ring-0"
 						value={contentWithoutThink}
-						iconClassNames="text-xs"
+						iconClassNames="size-3.5"
 					/>
 					{#if onretry && !loading}
 						<button
-							class="btn rounded-xs p-1 text-xs text-ink-faint hover:text-ink-muted focus:ring-0"
+							class="btn inline-flex size-6 items-center justify-center rounded-xs p-1 text-ink-faint hover:text-ink-muted focus:ring-0"
+							data-testid="msg-action-retry"
 							title={m["chat.message.retry"]()}
 							type="button"
 							onclick={() => {
 								onretry?.({ id: message.id });
 							}}
 						>
-							<CarbonRotate360 />
+							<CarbonRotate360 class="size-3.5" />
 						</button>
 					{/if}
 					<!-- Not on the coding-agent panel's replay (it passes `messageActions`):

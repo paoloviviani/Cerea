@@ -1013,14 +1013,24 @@
 					</button>
 				{/if}
 			{:else if fileVersion && fileDownloadUrl}
+				{@const ext = fileVersion.name.includes(".")
+					? (fileVersion.name.split(".").pop() ?? "").toUpperCase()
+					: ""}
+				{@const label = ext
+					? ext === "PDF"
+						? m["chat.panel.download_named"]({ name: fileVersion.name })
+						: m["chat.panel.download_original"]({ ext })
+					: m["chat.panel.download_named"]({ name: fileVersion.name })}
 				<a
 					href={fileDownloadUrl}
 					download={fileVersion.name}
-					class="btn rounded-md p-1.5 text-xs hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
-					title={m["chat.panel.download_named"]({ name: fileVersion.name })}
-					aria-label={m["chat.panel.download_named"]({ name: fileVersion.name })}
+					class="btn gap-1 rounded-md p-1.5 text-xs hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
+					title={label}
+					aria-label={label}
+					data-testid="download-original"
 				>
 					<CarbonDownload />
+					{#if ext}<span class="font-medium">{ext}</span>{/if}
 				</a>
 			{/if}
 			<!-- close-large at text-base: the X glyph fills less of its viewBox than the

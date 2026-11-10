@@ -117,6 +117,8 @@ describe("FileArtifactView — actual bytes, not just recorded metadata", () => 
 				expect(
 					screen.baseElement.querySelector('[data-testid="file-artifact-view"]')?.textContent
 				).not.toContain("too large to preview");
+				// The original is the PDF: the header downloads it, the toolbar adds no twin.
+				expect(screen.baseElement.querySelector('[data-testid="pdf-download"]')).toBeNull();
 			} finally {
 				restore();
 			}

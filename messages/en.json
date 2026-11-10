@@ -1455,6 +1455,7 @@
 	"chat.panel.diff_changes": "Show what changed",
 	"chat.panel.diff_full": "Show full code",
 	"chat.panel.download_named": "Download {name}",
+	"chat.panel.download_original": "Download the original ({ext})",
 	"chat.panel.editing": "Editing {title}…",
 	"chat.panel.failed_pairs": [
 		{
@@ -1540,8 +1541,9 @@
 	"chat.panel.wrap_disable": "Disable word wrap",
 	"chat.panel.wrap_enable": "Enable word wrap",
 	"chat.panel.writing": "Writing…",
-	"chat.pdf.download": "Download",
-	"chat.pdf.download_label": "Download {title}",
+	"chat.pdf.download": "PDF",
+	"chat.pdf.download_as": "Download as PDF",
+	"chat.pdf.download_label": "Download {title} as PDF",
 	"chat.pdf.error": "this PDF could not be shown; download it to read it",
 	"chat.pdf.error_reason": "this PDF could not be shown ({reason}); download it to read it",
 	"chat.pdf.loading": "Loading the PDF…",

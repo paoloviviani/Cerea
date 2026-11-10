@@ -139,10 +139,10 @@
 	});
 </script>
 
-<div bind:this={root} class="relative">
+<div bind:this={root} class="relative flex items-center">
 	<button
 		type="button"
-		class="btn rounded-xs p-1 text-xs text-ink-faint hover:text-ink-muted focus:ring-0"
+		class="btn inline-flex size-6 items-center justify-center rounded-xs p-1 text-ink-faint hover:text-ink-muted focus:ring-0"
 		data-testid="turn-info-dot"
 		data-state={dot}
 		aria-label={dotLabel(dot)}
