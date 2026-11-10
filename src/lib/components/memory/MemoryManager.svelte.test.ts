@@ -97,7 +97,7 @@ describe("MemoryManager", () => {
 		);
 		await page.getByRole("button", { name: "Add memory" }).first().click();
 		await vi.waitFor(() => expect(document.querySelector("#memory-draft")).not.toBeNull());
-		const box = document.querySelector("#memory-draft") as HTMLInputElement;
+		const box = document.querySelector("#memory-draft") as HTMLTextAreaElement;
 		box.value = "Speaks Italian.";
 		box.dispatchEvent(new Event("input", { bubbles: true }));
 		await page.getByRole("button", { name: "Save" }).click();
@@ -119,10 +119,9 @@ describe("MemoryManager", () => {
 			expect(page.getByText("Prefers concise answers.").elements()).not.toHaveLength(0)
 		);
 		await page.getByRole("button", { name: "Edit" }).click();
-		const boxes = document.querySelectorAll("input");
-		const box = [...boxes].find(
+		const box = [...document.querySelectorAll("textarea")].find(
 			(entry) => entry.value === "Prefers concise answers."
-		) as HTMLInputElement;
+		) as HTMLTextAreaElement;
 		box.value = "Prefers long answers.";
 		box.dispatchEvent(new Event("input", { bubbles: true }));
 		await page.getByRole("button", { name: "Save" }).click();
@@ -192,5 +191,54 @@ describe("MemoryManager", () => {
 			expect(page.getByText("Not used any more").elements()).not.toHaveLength(0)
 		);
 		expect(page.getByText("too old to fit", { exact: false }).elements()).not.toHaveLength(0);
+	});
+
+	describe("the fact editor", () => {
+		async function openEditor() {
+			await vi.waitFor(() =>
+				expect(page.getByText("Prefers concise answers.").elements()).not.toHaveLength(0)
+			);
+			await page.getByRole("button", { name: "Edit" }).click();
+			await vi.waitFor(() => expect(document.querySelector("textarea")).not.toBeNull());
+			return document.querySelector("textarea") as HTMLTextAreaElement;
+		}
+		function key(box: HTMLTextAreaElement, init: KeyboardEventInit) {
+			box.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }));
+		}
+
+		it("is a multi-line textarea of at least three rows that grows with its content", async () => {
+			const box = await openEditor();
+			expect(box.tagName).toBe("TEXTAREA");
+			expect(box.rows).toBeGreaterThanOrEqual(3);
+			const before = box.getBoundingClientRect().height;
+			box.value = Array.from({ length: 12 }, (_, i) => `line ${i}`).join("\n");
+			box.dispatchEvent(new Event("input", { bubbles: true }));
+			await vi.waitFor(() => expect(box.getBoundingClientRect().height).toBeGreaterThan(before));
+		});
+
+		it("keeps Enter as a newline and saves on Ctrl+Enter", async () => {
+			const box = await openEditor();
+			const enter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+			box.dispatchEvent(enter);
+			expect(enter.defaultPrevented).toBe(false);
+			expect(calls.some((call) => call.method === "PATCH")).toBe(false);
+			box.value = "Prefers long answers.";
+			box.dispatchEvent(new Event("input", { bubbles: true }));
+			key(box, { key: "Enter", ctrlKey: true });
+			await vi.waitFor(() => expect(calls.some((call) => call.method === "PATCH")).toBe(true));
+		});
+
+		it("saves on Cmd+Enter", async () => {
+			const box = await openEditor();
+			key(box, { key: "Enter", metaKey: true });
+			await vi.waitFor(() => expect(calls.some((call) => call.method === "PATCH")).toBe(true));
+		});
+
+		it("cancels on Escape without saving", async () => {
+			const box = await openEditor();
+			key(box, { key: "Escape" });
+			await vi.waitFor(() => expect(document.querySelector("textarea")).toBeNull());
+			expect(calls.some((call) => call.method === "PATCH")).toBe(false);
+		});
 	});
 });
