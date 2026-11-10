@@ -15,6 +15,12 @@ import type { v4 } from "uuid";
 export type ExtractionFailureKind =
 	"no-reader" | "no-credential" | "refused" | "unreachable" | "no-text" | "empty" | "unsupported";
 
+/** The privacy rule (and the pipeline it belongs to) that withheld a file. */
+export interface WithheldByPrivacy {
+	rule: string;
+	pipeline?: string;
+}
+
 export type Message = Partial<Timestamps> & {
 	from: "user" | "assistant" | "system";
 	id: ReturnType<typeof v4>;
@@ -161,6 +167,14 @@ export type MessageFile = {
 		kind: ExtractionFailureKind;
 		reason: string;
 	};
+	/**
+	 * Set when a privacy rule of the gateway refused to let this file be read
+	 * (extraction answered 403 "Refused by the privacy rule ..."). Unlike
+	 * `extractionError`, which is a technical failure, this is a policy: the file
+	 * stays stored and visible to its owner, but no tool, sandbox mount or
+	 * re-extraction may read its bytes or text (`downloadFile` refuses it).
+	 */
+	withheld?: WithheldByPrivacy;
 	/** The reader that read this document, when known. */
 	readerModel?: string;
 	/** The chosen reader was unavailable, so the default reader read it. */

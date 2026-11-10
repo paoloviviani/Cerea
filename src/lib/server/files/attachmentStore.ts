@@ -24,7 +24,7 @@
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import type { ExtractionFailureKind, MessageFile } from "$lib/types/Message";
-import { downloadFile, openFile } from "./downloadFile";
+import { downloadFile, openFile, withheldOf } from "./downloadFile";
 import { writeAttachment } from "./uploadFile";
 
 /** `<surface>:<rest>`, where the surface is a lowercase word and the rest is id-safe. */
@@ -74,6 +74,8 @@ interface StoredMetadata {
 	language?: string;
 	extractionKind?: ExtractionFailureKind;
 	extractionReason?: string;
+	withheldRule?: string;
+	withheldPipeline?: string;
 }
 
 /**
@@ -119,6 +121,7 @@ export async function findAttachments(ownerKey: string, messageId: string): Prom
 		if (seen.has(meta.sha)) continue;
 		seen.add(meta.sha);
 		const extracted = texts.get(meta.sha);
+		const withheld = withheldOf(row.metadata as Record<string, unknown> | undefined);
 		files.push({
 			type: "hash",
 			value: meta.sha,
@@ -129,6 +132,7 @@ export async function findAttachments(ownerKey: string, messageId: string): Prom
 			...(!extracted && meta.extractionKind && meta.extractionReason
 				? { extractionError: { kind: meta.extractionKind, reason: meta.extractionReason } }
 				: {}),
+			...(withheld ? { withheld } : {}),
 		});
 	}
 	return files;

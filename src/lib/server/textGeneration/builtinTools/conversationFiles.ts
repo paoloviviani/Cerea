@@ -2,13 +2,14 @@ import type { ObjectId } from "mongodb";
 import { downloadDeliverable } from "$lib/server/execution/deliverables";
 import {
 	attachmentNamed,
+	withheldAttachmentNamed,
 	branchOf,
 	numberedRows,
 	onBranch,
 	type Branch,
 } from "$lib/server/execution/fileVersions";
 import type { BuiltinToolContext } from "./types";
-import { downloadFile } from "$lib/server/files/downloadFile";
+import { downloadFile, withheldMessage } from "$lib/server/files/downloadFile";
 import type { PlannedAttachment } from "$lib/utils/execution/attachmentNames";
 import { MOUNT_ROOT } from "$lib/utils/execution/protocol";
 
@@ -215,6 +216,8 @@ export async function findConversationFile(
 	const wanted = bareName(reference);
 	const listing = await listFileVersions(conversationId, reference, options.branch);
 	if (!listing) {
+		const withheld = await withheldAttachmentNamed(conversationId, wanted);
+		if (withheld) return { ok: false, error: withheldMessage(withheld) };
 		return {
 			ok: false,
 			error: `No file named "${wanted}" in this conversation. Use the name of an attachment or of a file you produced.`,

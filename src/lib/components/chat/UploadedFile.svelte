@@ -239,11 +239,14 @@
 
 	// A file with no preview of its own still opens something: a small panel
 	// with its details and a download. Videos play in their chip, so they keep it.
+	// A privacy-withheld file opens nothing: its bytes are not served.
+	const withheld = $derived(file.type === "hash" ? file.withheld : undefined);
 	const hasPreview = $derived(
-		isImage(file.mime) || isPlainText(file.mime) || officeMode !== null || audioPanel || isPdf
+		!withheld &&
+			(isImage(file.mime) || isPlainText(file.mime) || officeMode !== null || audioPanel || isPdf)
 	);
 	const detailsPanel = $derived(
-		pdfFailed || (!hasPreview && !isVideo(file.mime) && !isAudio(file.mime))
+		!withheld && (pdfFailed || (!hasPreview && !isVideo(file.mime) && !isAudio(file.mime)))
 	);
 	let isClickable = $derived(hasPreview || detailsPanel);
 
@@ -546,6 +549,19 @@
 						<dt class="text-xs text-amber-600 dark:text-amber-400">{officeError}</dt>
 					{:else if officeBusy}
 						<dt class="text-xs text-gray-400">{m["chat.uploaded.preparing"]()}</dt>
+					{:else if withheld}
+						<dt
+							class="max-w-full truncate text-xs text-amber-600 dark:text-amber-400"
+							data-testid="withheld-chip"
+							title={withheld.pipeline
+								? m["chat.uploaded.withheld_pipeline"]({
+										rule: withheld.rule,
+										pipeline: withheld.pipeline,
+									})
+								: undefined}
+						>
+							{m["chat.uploaded.withheld"]({ rule: withheld.rule })}
+						</dt>
 					{:else}
 						<dt class="text-xs text-gray-400">{file.mime}</dt>
 					{/if}

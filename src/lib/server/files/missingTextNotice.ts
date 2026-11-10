@@ -1,4 +1,4 @@
-import type { MessageFile } from "$lib/types/Message";
+import type { MessageFile, WithheldByPrivacy } from "$lib/types/Message";
 
 /** A reason is one sentence for a person; a pathological one must not flood the prompt. */
 const MAX_REASON_CHARS = 500;
@@ -40,4 +40,18 @@ export function missingTextNotice(error: MessageFile["extractionError"]): string
 		case "unsupported":
 			return `This document's format or size is not supported by the configured reader. ${reason} ${say}`;
 	}
+}
+
+/**
+ * The sentence the model gets in place of a file a privacy rule withheld.
+ * Unlike a technical failure it forbids every other route to the content.
+ */
+export function withheldNotice(name: string, withheld: WithheldByPrivacy): string {
+	const rule = `'${withheld.rule}'`;
+	const pipeline = withheld.pipeline ? ` (pipeline '${withheld.pipeline}')` : "";
+	return (
+		`The file "${name}" was withheld by the privacy rule ${rule}${pipeline}. ` +
+		`Its content must not be read, extracted or processed by any other means ` +
+		`(no code, no document tool, no other reader). Tell the user it was withheld and why.`
+	);
 }
