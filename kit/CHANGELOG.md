@@ -5,7 +5,11 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.48.1 — 2026-11-10
+
+Pins: Cerea `0.48.1` (chat and `cerea-documents`), Pystino `0.32.1`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. 
 
 - **`docker compose pull` no longer fails on locally built images.** After `dev/build.sh --ocr` (or `--docling`, `--ner`, a gateway or chat build) `.env` points a service at a `local/...` image, and the pull stopped with "pull access denied". `compose.yaml` now sets `pull_policy` from `GATEWAY_PULL_POLICY`, `REDACTION_PULL_POLICY`, `EXTRACTOR_PULL_POLICY` (default: the redaction one), `CEREA_PULL_POLICY` and `DOCUMENTS_PULL_POLICY`, all defaulting to `missing`: a published image is pulled when its pinned tag is not on the host (a tag already present is no longer re-pulled). `dev/build.sh` writes the matching `never` next to each `local/` image (and `--reset` removes it); `./configure --check` warns about a `local/` image without it.
   **Upgrade note:** a stack that already runs a local extractor or redaction image should run `./configure --set EXTRACTOR_PULL_POLICY=never` (add `REDACTION_PULL_POLICY=never`, `GATEWAY_PULL_POLICY=never`, `CEREA_PULL_POLICY=never`, `DOCUMENTS_PULL_POLICY=never` for those images), or re-run `dev/build.sh`.
