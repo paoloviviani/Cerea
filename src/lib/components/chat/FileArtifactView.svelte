@@ -305,7 +305,11 @@
 		</div>
 	{:else if payload?.kind === "pdf"}
 		<div class="relative min-h-0 flex-1">
-			<PdfViewer title={baseName} bytes={payload.bytes} />
+			<PdfViewer
+				title={baseName}
+				bytes={payload.bytes}
+				showDownload={!version.name.toLowerCase().endsWith(".pdf")}
+			/>
 		</div>
 	{:else if payload?.kind === "slides"}
 		<div class="min-h-0 flex-1">

@@ -49,6 +49,14 @@ describe("the info dot", () => {
 		}
 	});
 
+	it("shares the copy and retry buttons' box and icon size", async () => {
+		const screen = renderWithApp(TurnInfo, { message: msg(STATS) });
+		const dot = screen.getByTestId("turn-info-dot");
+		await expect.element(dot).toHaveClass(/size-6/);
+		await expect.element(dot).toHaveClass(/inline-flex/);
+		expect(dot.element().querySelector("svg")?.getAttribute("class")).toContain("size-3.5");
+	});
+
 	it("is yellow, and says so, when values were hidden", async () => {
 		const screen = renderWithApp(TurnInfo, { message: msg({ ...STATS, redaction: REDACTION }) });
 		const dot = screen.getByTestId("turn-info-dot");

@@ -1543,6 +1543,7 @@
 	"chat.panel.diff_changes": "[Śȟóŵ ŵȟáť ćȟáńǧéď]",
 	"chat.panel.diff_full": "[Śȟóŵ ƒúľľ ćóďé]",
 	"chat.panel.download_named": "[Ďóŵńľóáď {name}]",
+	"chat.panel.download_original": "[Ďóŵńľóáď ťȟé óŕíǧíńáľ ({ext})]",
 	"chat.panel.editing": "[Éďíťíńǧ {title}…]",
 	"chat.panel.failed_pairs": [
 		{
@@ -1638,8 +1639,9 @@
 	"chat.panel.wrap_disable": "[Ďíśáƀľé ŵóŕď ŵŕáþ]",
 	"chat.panel.wrap_enable": "[Éńáƀľé ŵóŕď ŵŕáþ]",
 	"chat.panel.writing": "[Ŵŕíťíńǧ…]",
-	"chat.pdf.download": "[Ďóŵńľóáď]",
-	"chat.pdf.download_label": "[Ďóŵńľóáď {title}]",
+	"chat.pdf.download": "[ÞĎƑ]",
+	"chat.pdf.download_as": "[Ďóŵńľóáď áś ÞĎƑ]",
+	"chat.pdf.download_label": "[Ďóŵńľóáď {title} áś ÞĎƑ]",
 	"chat.pdf.error": "[ťȟíś ÞĎƑ ćóúľď ńóť ƀé śȟóŵń; ďóŵńľóáď íť ťó ŕéáď íť]",
 	"chat.pdf.error_reason": "[ťȟíś ÞĎƑ ćóúľď ńóť ƀé śȟóŵń ({reason}); ďóŵńľóáď íť ťó ŕéáď íť]",
 	"chat.pdf.loading": "[Ĺóáďíńǧ ťȟé ÞĎƑ…]",

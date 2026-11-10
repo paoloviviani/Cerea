@@ -18,9 +18,14 @@
 		bytes?: Uint8Array;
 		/** The same PDF as a `data:` URL, for callers that carry it that way. */
 		dataUrl?: string;
+		/**
+		 * Offer a "PDF" download in the toolbar. Off when the PDF is itself the
+		 * file the panel header already downloads, so there is only one button.
+		 */
+		showDownload?: boolean;
 	}
 
-	let { title, bytes, dataUrl }: Props = $props();
+	let { title, bytes, dataUrl, showDownload = false }: Props = $props();
 
 	/** Pages drawn; the download has the rest. */
 	const MAX_PAGES = 60;
@@ -165,15 +170,19 @@
 			<CarbonLaunch class="size-3.5" />
 			<span>{m["chat.pdf.new_tab"]()}</span>
 		</button>
-		<button
-			type="button"
-			class="flex items-center gap-1 rounded-md px-2 py-1 hover:bg-gray-500/10"
-			onclick={download}
-			aria-label={m["chat.pdf.download_label"]({ title })}
-			title={m["chat.pdf.download"]()}
-		>
-			<CarbonDownload class="size-3.5" />
-		</button>
+		{#if showDownload}
+			<button
+				type="button"
+				class="flex items-center gap-1 rounded-md px-2 py-1 hover:bg-gray-500/10"
+				onclick={download}
+				aria-label={m["chat.pdf.download_label"]({ title })}
+				title={m["chat.pdf.download_as"]()}
+				data-testid="pdf-download"
+			>
+				<CarbonDownload class="size-3.5" />
+				<span>{m["chat.pdf.download"]()}</span>
+			</button>
+		{/if}
 	</div>
 	{#if status === "error"}
 		<div class="flex flex-1 items-center justify-center px-6 py-8">
