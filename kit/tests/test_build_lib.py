@@ -100,6 +100,59 @@ class ProfileImagesTest(unittest.TestCase):
         self.assertEqual(p.stdout.strip(), "1")
 
 
+class BuildScriptPullPolicyTest(unittest.TestCase):
+    """Every local/ image build.sh points .env at gets a matching *_PULL_POLICY=never."""
+
+    def script(self):
+        return (KIT / "dev/build.sh").read_text()
+
+    def test_each_local_image_line_carries_its_never_policy(self):
+        s = self.script()
+        for image, policy in (
+            ("PYSTINO_REGISTRY=local", "GATEWAY_PULL_POLICY=never REDACTION_PULL_POLICY=never"),
+            ("REDACTION_IMAGE=local", "REDACTION_PULL_POLICY=never"),
+            ("-ocr\"", "EXTRACTOR_PULL_POLICY=never"),
+            ("-docling\"", "EXTRACTOR_PULL_POLICY=never"),
+            ("CEREA_REGISTRY=local", "CEREA_PULL_POLICY=never DOCUMENTS_PULL_POLICY=never"),
+        ):
+            line = next(l for l in s.splitlines() if image in l and "env_items" in l)
+            self.assertIn(policy, line)
+
+    def test_reset_unsets_the_policies(self):
+        s = self.script()
+        reset = s[s.index('if [ "$reset" = 1 ]'):s.index("overrides removed")]
+        for name in ("GATEWAY", "REDACTION", "EXTRACTOR", "CEREA", "DOCUMENTS"):
+            self.assertIn(f"{name}_PULL_POLICY", reset)
+
+    def test_compose_guards_every_local_capable_image(self):
+        compose = (KIT / "compose.yaml").read_text()
+        for name in ("GATEWAY", "REDACTION", "EXTRACTOR", "CEREA", "DOCUMENTS"):
+            self.assertIn(f"${{{name}_PULL_POLICY:-", compose)
+        # gateway, migrate, bootstrap, chat, documents, redaction, extractor
+        self.assertEqual(compose.count("pull_policy: "), 7)
+        self.assertNotIn("pull_policy: never", compose)
+
+    @unittest.skipUnless(shutil.which("docker"), "needs docker")
+    def test_compose_renders_default_and_never(self):
+        import json
+        def render(**env):
+            with tempfile.TemporaryDirectory() as d:
+                e = {**os.environ, "POSTGRES_PASSWORD": "x", "PUBLIC_ORIGIN": "https://a.example", "GATEWAY_SESSION_SECRET": "x",
+                     "GATEWAY_SECRET_KEY": "x", "SITE_ADDRESS": "a.example", "COMPOSE_FILE": str(KIT / "compose.yaml"),
+                     "COMPOSE_PROFILES": "gateway,chat,redaction", **env}
+                p = subprocess.run(["docker", "compose", "--project-directory", d, "config", "--format", "json"],
+                                   capture_output=True, text=True, env=e)
+                if p.returncode:
+                    self.skipTest(p.stderr[:200])
+                return json.loads(p.stdout)["services"]
+        base = render()
+        self.assertEqual(base["gateway"]["pull_policy"], "missing")
+        local = render(EXTRACTOR_PULL_POLICY="never")
+        self.assertEqual(local["extractor"]["pull_policy"], "never")
+        self.assertEqual(local["gateway"]["pull_policy"], "missing")
+        self.assertEqual(render(REDACTION_PULL_POLICY="never")["extractor"]["pull_policy"], "never")
+
+
 class BuildScriptArgsTest(unittest.TestCase):
     """dev/build.sh --dry-run: argument parsing and the planned build, no docker, no network."""
 
