@@ -51,7 +51,7 @@
  */
 
 import { isQuotaError } from "$lib/server/gatewayErrors";
-import type { ExtractionFailureKind } from "$lib/types/Message";
+import type { ExtractionFailureKind, WithheldByPrivacy } from "$lib/types/Message";
 import { config } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
 import { gateway, GatewayCallFailed, GatewayTimeout } from "$lib/server/gatewayServer";
@@ -413,6 +413,25 @@ export interface ExtractionFailure {
 	kind: ExtractionFailureKind;
 	reason: string;
 	status: number;
+	/** A privacy rule refused the read: a policy, not a technical failure. */
+	withheld?: WithheldByPrivacy;
+}
+
+/**
+ * Whether a gateway failure is a privacy withholding, and which rule did it.
+ * Decided by the gateway's error code (`routing_refused`, Pystino's
+ * RoutingRefusedError), never by the wording: the message is parsed only to
+ * name the rule and pipeline, and a message that does not parse still
+ * withholds (rule "unnamed").
+ */
+export function privacyRefusal(err: unknown): WithheldByPrivacy | undefined {
+	if (!(err instanceof GatewayCallFailed) || err.code !== "routing_refused") return undefined;
+	const message = err.message ?? "";
+	// Names may contain quotes: take up to the closing quote before " (pipeline '".
+	const both = /privacy rule '(.*)' \(pipeline '(.*)'\)/s.exec(message);
+	if (both) return { rule: both[1], pipeline: both[2] };
+	const only = /privacy rule '(.*?)'\.?\s*$/s.exec(message);
+	return { rule: only?.[1] || "unnamed" };
 }
 
 /**
@@ -689,6 +708,9 @@ async function extractDocumentTraced(
 		imagePages: wantsPages && (await isLocalReader(token, model)) ? pdfImagePageLimit() : 0,
 	});
 	if (first.ok || mime !== "application/pdf" || first.kind === "no-credential") return first;
+	// A privacy rule withheld it: the local reader must not get a turn, that
+	// would read exactly what the policy refused.
+	if (first.withheld) return first;
 
 	// The OCR model failed (rate limited, down, or empty). A PDF with a text
 	// layer does not need OCR at all, so the local reader gets a turn before
@@ -709,6 +731,7 @@ async function extractDocumentTraced(
 		imagePages: wantsPages ? pdfImagePageLimit() : 0,
 	});
 	if (!fallback.ok) {
+		if (fallback.withheld) return fallback;
 		return first.status === 403
 			? closedToYou(first, "The local reader could not read it either")
 			: first;
@@ -855,6 +878,20 @@ async function extractViaGateway(options: {
 		// like nothing works at all.
 		let reason = "The document reader could not be reached, so the file was stored without text.";
 		let kind: ExtractionFailureKind = "unreachable";
+		const withheld = privacyRefusal(err);
+		if (withheld) {
+			logger.warn(
+				{ filename, model, rule: withheld.rule, pipeline: withheld.pipeline },
+				"document_extraction_withheld: a privacy rule refused the read"
+			);
+			return {
+				ok: false,
+				kind: "refused",
+				status,
+				reason: `Withheld by the privacy rule '${withheld.rule}'${withheld.pipeline ? ` (pipeline '${withheld.pipeline}')` : ""}.`,
+				withheld,
+			};
+		}
 		if (err instanceof GatewayCallFailed) {
 			if (status === 422) {
 				reason = err.message;

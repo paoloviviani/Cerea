@@ -1734,6 +1734,8 @@
 	"chat.trackio.title": "Training dashboard",
 	"chat.turn_failed.hide": "Hide the details",
 	"chat.turn_failed.show": "Show the details",
+	"chat.uploaded.withheld": "Withheld by privacy rule '{rule}'",
+	"chat.uploaded.withheld_pipeline": "Withheld by privacy rule '{rule}' (pipeline '{pipeline}')",
 	"chat.uploaded.gone": "that file is no longer available",
 	"chat.uploaded.input_alt": "input from user",
 	"chat.uploaded.paste_hint": "If you would rather paste long text straight into the chat, you can turn this off in the {#link}settings page{/link}.",

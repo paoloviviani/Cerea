@@ -35,6 +35,42 @@ async function textOf(files: NonNullable<Message["files"]>): Promise<string> {
 	return Buffer.from(file?.value ?? "", "base64").toString("utf-8");
 }
 
+describe("a file a privacy rule withheld", () => {
+	it("tells the model it was withheld, by which rule, and forbids other routes", async () => {
+		const text = await textOf([
+			{
+				type: "hash",
+				value: "abc",
+				mime: "application/pdf",
+				name: "secret.pdf",
+				extractionError: { kind: "refused", reason: "x" },
+				withheld: { rule: "no-health", pipeline: "strict" },
+			},
+		]);
+		expect(text).toContain("withheld by the privacy rule 'no-health' (pipeline 'strict')");
+		expect(text).toContain("must not be read, extracted or processed by any other means");
+		expect(text).toContain("Tell the user it was withheld and why");
+	});
+
+	it("is never offered to code as a mounted file", async () => {
+		const [out] = await preprocessMessages(
+			[
+				message([
+					{
+						type: "hash",
+						value: "abc",
+						mime: "application/pdf",
+						name: "secret.pdf",
+						withheld: { rule: "r" },
+					},
+				]),
+			],
+			new ObjectId()
+		);
+		expect(out.files?.[0]).not.toHaveProperty("mountName");
+	});
+});
+
 describe("the sentence a document with no text becomes", () => {
 	it("says what actually failed, from the reason stored on the file", async () => {
 		const text = await textOf([

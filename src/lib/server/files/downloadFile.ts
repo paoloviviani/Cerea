@@ -3,19 +3,43 @@ import { error } from "@sveltejs/kit";
 import mimeTypes from "mime-types";
 import { collections } from "$lib/server/database";
 import type { Conversation } from "$lib/types/Conversation";
-import type { MessageFile } from "$lib/types/Message";
+import type { MessageFile, WithheldByPrivacy } from "$lib/types/Message";
+
+/** The sentence for a refused read of a withheld file (tools, routes). */
+export function withheldMessage(withheld: WithheldByPrivacy): string {
+	return `This file was withheld by the privacy rule '${withheld.rule}'${withheld.pipeline ? ` (pipeline '${withheld.pipeline}')` : ""}. Its content must not be read, extracted or processed by any means.`;
+}
+
+/** What the stored entry says about a privacy withholding, if anything. */
+export function withheldOf(
+	metadata: Record<string, unknown> | undefined
+): WithheldByPrivacy | undefined {
+	const rule = metadata?.withheldRule;
+	if (typeof rule !== "string") return undefined;
+	const pipeline = metadata?.withheldPipeline;
+	return { rule, ...(typeof pipeline === "string" ? { pipeline } : {}) };
+}
 
 /** The stored entry for this owner's file, 404 when there is none and 403 when it is not theirs. */
 async function lookup(sha256: string, convId: Conversation["_id"] | string) {
-	const file = await collections.blobStore.findOne("files", {
+	// One filename can have several entries (the same bytes uploaded twice);
+	// `findOne` order is unspecified, so a withholding on any of them refuses.
+	const entries = await collections.blobStore.find("files", {
 		filename: `${convId.toString()}-${sha256}`,
 	});
+	const file = entries[0];
 	if (!file) {
 		error(404, "File not found");
+	}
+	for (const entry of entries) {
+		const withheld = withheldOf(entry.metadata);
+		if (withheld) error(403, withheldMessage(withheld));
 	}
 	if (file.metadata?.conversation !== convId.toString()) {
 		error(403, "You don't have access to this file.");
 	}
+	// Every reader of stored bytes goes through here: a file a privacy rule
+	// withheld is never handed to a tool, a sandbox mount or a re-extraction.
 	return file;
 }
 

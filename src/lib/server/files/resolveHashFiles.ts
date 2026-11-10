@@ -33,6 +33,12 @@ export async function resolveHashFiles(
 		for (const file of message.files ?? []) {
 			if (file.type !== "hash") continue;
 			const previous = known.get(file.value);
+			// A withheld record for these bytes beats every other record of them.
+			if (previous?.withheld) continue;
+			if (file.withheld) {
+				known.set(file.value, file);
+				continue;
+			}
 			// The richest record wins: one that says what extraction found.
 			if (!previous || (!recorded(previous) && recorded(file))) known.set(file.value, file);
 		}
@@ -41,6 +47,8 @@ export async function resolveHashFiles(
 	return Promise.all(
 		refs.map(async (ref) => {
 			const record = known.get(ref.value);
+			// Never read again what a privacy rule withheld, whatever the browser says.
+			if (record?.withheld) return { ...record, name: ref.name };
 			if (record && recorded(record)) {
 				return { ...record, name: ref.name };
 			}
@@ -68,5 +76,5 @@ export async function resolveHashFiles(
 }
 
 function recorded(file: MessageFile): boolean {
-	return Boolean(file.extracted || file.extractionError || file.pageImages);
+	return Boolean(file.extracted || file.extractionError || file.pageImages || file.withheld);
 }

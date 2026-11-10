@@ -231,12 +231,25 @@ export async function writeAttachment(
 						: {}),
 				}
 			: {}),
+		// A privacy-withheld file is marked on the stored bytes themselves, so
+		// every reader of them (`downloadFile`, `openFile`) refuses, whatever
+		// record a caller holds.
+		...(extracted && !extracted.ok && extracted.withheld
+			? {
+					withheldRule: extracted.withheld.rule,
+					...(extracted.withheld.pipeline ? { withheldPipeline: extracted.withheld.pipeline } : {}),
+				}
+			: {}),
 	});
 
 	const stored: MessageFile = { type: "hash", value: sha, mime, name: file.name };
 	if (!extracted) return stored;
 	if (!extracted.ok) {
-		return { ...stored, extractionError: { kind: extracted.kind, reason: extracted.reason } };
+		return {
+			...stored,
+			extractionError: { kind: extracted.kind, reason: extracted.reason },
+			...(extracted.withheld ? { withheld: extracted.withheld } : {}),
+		};
 	}
 
 	// The text gets its own hash, over the text: attachments of the same
