@@ -35,6 +35,9 @@ x-extractor-image: &extractor-image ${EXTRACTOR_IMAGE:-${REDACTION_IMAGE:-${PYST
 x-cerea-image: &cerea-image ${CEREA_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea:${CEREA_VERSION:-0.48.0}}
 x-documents-image: &documents-image ${DOCUMENTS_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea-documents:${CEREA_VERSION:-0.48.0}}
 
+# `docker compose pull` fails on an image that exists only on this host. dev/build.sh
+# writes <NAME>_PULL_POLICY=never next to each local/ image it points .env at, so
+# the pull skips those and still fetches the published ones.
 x-database-url: &database-url postgresql+asyncpg://${POSTGRES_USER:-gateway}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-gateway}
 
 services:
@@ -66,6 +69,7 @@ services:
   # the installer's phase 2 and its resume memory.
   bootstrap:
     image: *gateway-image
+    pull_policy: ${GATEWAY_PULL_POLICY:-missing}
     command: ["pystino", "bootstrap"]
     restart: "no"
     # Root, for one reason: it writes Authelia's key and users file into a
@@ -165,6 +169,7 @@ services:
   migrate:
     profiles: [gateway]
     image: *gateway-image
+    pull_policy: ${GATEWAY_PULL_POLICY:-missing}
     command: ["alembic", "-c", "apps/gateway/alembic.ini", "upgrade", "head"]
     restart: "no"
     environment:
@@ -192,6 +197,7 @@ services:
   gateway:
     profiles: [gateway]
     image: *gateway-image
+    pull_policy: ${GATEWAY_PULL_POLICY:-missing}
     restart: unless-stopped
     ports:
       # Loopback only, for SSH port-forwarding and local scripts; the world
@@ -448,6 +454,7 @@ services:
     # Built with APP_BASE=/chat: SvelteKit's base path is compile-time, so a
     # published image serves /chat and nothing else.
     image: *cerea-image
+    pull_policy: ${CEREA_PULL_POLICY:-missing}
     restart: unless-stopped
     # Plain environment, not a DOTENV_LOCAL block: the chat reads its settings
     # from the process environment, and a multi-line variable was what made
@@ -626,6 +633,7 @@ services:
   documents:
     profiles: [chat]
     image: *documents-image
+    pull_policy: ${DOCUMENTS_PULL_POLICY:-missing}
     restart: unless-stopped
     environment:
       CEREA_DOCUMENTS_SECRET: ${CHAT_DOCUMENTS_SECRET:-}
@@ -650,6 +658,7 @@ services:
   redaction:
     profiles: [redaction]
     image: *redaction-image
+    pull_policy: ${REDACTION_PULL_POLICY:-missing}
     restart: unless-stopped
     environment:
       REDACTION_NLP_ENGINE: ${REDACTION_NLP_ENGINE:-disabled}
@@ -669,6 +678,7 @@ services:
   extractor:
     profiles: [documents, redaction]
     image: *extractor-image
+    pull_policy: ${EXTRACTOR_PULL_POLICY:-${REDACTION_PULL_POLICY:-missing}}
     restart: unless-stopped
     mem_limit: ${EXTRACTOR_MEM_LIMIT:-0}
     environment:

@@ -42,7 +42,8 @@
 #      already built from the same commit (its org.opencontainers.image.revision
 #      label names it) is re-tagged instead of rebuilt;
 #   3. writes PYSTINO_REGISTRY/PYSTINO_VERSION/CEREA_REGISTRY/CEREA_VERSION
-#      into .env through ./configure --set, so `docker compose up -d` runs them.
+#      into .env through ./configure --set, so `docker compose up -d` runs them, with
+#      a matching <NAME>_PULL_POLICY=never so `docker compose pull` skips local/ images.
 #
 # Only the images .env's COMPOSE_PROFILES need are built (gateway always;
 # compose.yaml says which profile takes which image: redaction for the
@@ -86,7 +87,8 @@ say() { printf 'build.sh: %s\n' "$*"; }
 die() { printf 'build.sh: %s\n' "$*" >&2; exit 1; }
 
 if [ "$reset" = 1 ]; then
-  "$ROOT/configure" --unset PYSTINO_REGISTRY PYSTINO_VERSION CEREA_REGISTRY CEREA_VERSION REDACTION_IMAGE EXTRACTOR_IMAGE
+  "$ROOT/configure" --unset PYSTINO_REGISTRY PYSTINO_VERSION CEREA_REGISTRY CEREA_VERSION REDACTION_IMAGE EXTRACTOR_IMAGE \
+    GATEWAY_PULL_POLICY REDACTION_PULL_POLICY EXTRACTOR_PULL_POLICY CEREA_PULL_POLICY DOCUMENTS_PULL_POLICY
   say "overrides removed: compose.yaml's pinned images apply again"
   exit 0
 fi
@@ -248,11 +250,11 @@ NOTICE
 fi
 
 env_items=()
-[ "$only" = 1 ] || env_items=(PYSTINO_REGISTRY=local "PYSTINO_VERSION=$p_tag")
-[ "$ner" = 1 ] && env_items+=("REDACTION_IMAGE=local/pystino-redaction:$p_tag-ner")
+[ "$only" = 1 ] || env_items=(PYSTINO_REGISTRY=local "PYSTINO_VERSION=$p_tag" GATEWAY_PULL_POLICY=never REDACTION_PULL_POLICY=never)
+[ "$ner" = 1 ] && env_items+=("REDACTION_IMAGE=local/pystino-redaction:$p_tag-ner" REDACTION_PULL_POLICY=never)
 # One extractor image at a time: --docling wins over --ocr if both are given.
-[ "$ocr" = 1 ] && env_items+=("EXTRACTOR_IMAGE=local/pystino-redaction:$p_tag-ocr")
-[ "$docling" = 1 ] && env_items+=("EXTRACTOR_IMAGE=local/pystino-redaction:$p_tag-docling")
+[ "$ocr" = 1 ] && env_items+=("EXTRACTOR_IMAGE=local/pystino-redaction:$p_tag-ocr" EXTRACTOR_PULL_POLICY=never)
+[ "$docling" = 1 ] && env_items+=("EXTRACTOR_IMAGE=local/pystino-redaction:$p_tag-docling" EXTRACTOR_PULL_POLICY=never)
 
 if [ "$build_cerea" = 1 ]; then
   c_sha=$(checkout "$SRC/cerea" "$CEREA_REPO" "$cerea_ref")
@@ -266,7 +268,7 @@ if [ "$build_cerea" = 1 ]; then
     ensure "local/cerea:$c_tag" "$c_sha" \
       --build-arg APP_BASE=/chat --build-arg PUBLIC_COMMIT_SHA="${c_sha:0:8}" "$SRC/cerea"
   fi
-  env_items+=(CEREA_REGISTRY=local "CEREA_VERSION=$c_tag")
+  env_items+=(CEREA_REGISTRY=local "CEREA_VERSION=$c_tag" CEREA_PULL_POLICY=never DOCUMENTS_PULL_POLICY=never)
   # The document service lives in the Cerea repository and is versioned with
   # the chat: compose names it cerea-documents:$CEREA_VERSION in the same registry.
   if [ "$build_documents" = 1 ]; then

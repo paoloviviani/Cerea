@@ -1888,6 +1888,49 @@ def check_values(values: dict, report: Report) -> None:
                 "run dev/build.sh --ner (or set REDACTION_NLP_ENGINE='disabled')"
             )
     check_extractor(values, report)
+    check_local_pull_policy(values, report)
+
+
+#: Which *_PULL_POLICY variable guards which image (compose.yaml), and the variables
+#: that name the image. A local/ registry makes the default image local too.
+PULL_POLICY_IMAGES = (
+    ("GATEWAY_PULL_POLICY", ("GATEWAY_IMAGE",), "PYSTINO_REGISTRY"),
+    ("REDACTION_PULL_POLICY", ("REDACTION_IMAGE",), "PYSTINO_REGISTRY"),
+    ("EXTRACTOR_PULL_POLICY", ("EXTRACTOR_IMAGE",), None),
+    ("CEREA_PULL_POLICY", ("CEREA_IMAGE",), "CEREA_REGISTRY"),
+    ("DOCUMENTS_PULL_POLICY", ("DOCUMENTS_IMAGE",), "CEREA_REGISTRY"),
+)
+
+
+def local_pull_policy_problems(values: dict) -> list:
+    """Images built on this host (local/...) that `docker compose pull` would try to fetch."""
+    def local(key: str) -> bool:
+        return values.get(key, "").startswith("local/")
+
+    redaction_local = local("REDACTION_IMAGE") or values.get("PYSTINO_REGISTRY") == "local"
+    out = []
+    for policy, image_keys, registry_key in PULL_POLICY_IMAGES:
+        if policy == "EXTRACTOR_PULL_POLICY":
+            is_local = local("EXTRACTOR_IMAGE") or (not values.get("EXTRACTOR_IMAGE") and redaction_local)
+            effective = values.get(policy) or values.get("REDACTION_PULL_POLICY", "")
+        else:
+            is_local = any(local(k) for k in image_keys) or (
+                not values.get(image_keys[0]) and values.get(registry_key) == "local")
+            effective = values.get(policy, "")
+        if is_local and effective != "never":
+            out.append(policy)
+    return out
+
+
+def check_local_pull_policy(values: dict, report: Report) -> None:
+    """A local/ image with no never-policy makes `docker compose pull` fail with 'pull access denied'."""
+    missing = local_pull_policy_problems(values)
+    if missing:
+        report.warnings.append(
+            "the .env points at images built on this host (local/...) but does not say so to compose, so "
+            "`docker compose pull` fails with 'pull access denied'. Fix: ./configure --set "
+            + " ".join(f"{m}=never" for m in missing) + " (dev/build.sh now writes these)"
+        )
 
 
 def extractor_image_variant(image: str) -> str | None:

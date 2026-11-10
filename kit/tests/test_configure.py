@@ -1648,6 +1648,28 @@ class TestExtractor(Deploy):
                         "EXTRACTOR_IMAGE": "ghcr.io/x/pystino-redaction:1-pattern"})
         self.assertTrue(any("dev/build.sh --ocr" in e for e in r.errors))
 
+    def pull(self, values):
+        report = cfg.Report()
+        cfg.check_local_pull_policy(values, report)
+        return report
+
+    def test_check_warns_about_a_local_image_without_never_policy(self):
+        r = self.pull({"EXTRACTOR_IMAGE": "local/pystino-redaction:sha-1-ocr"})
+        self.assertEqual(r.errors, [])
+        self.assertEqual(len(r.warnings), 1)
+        self.assertIn("./configure --set EXTRACTOR_PULL_POLICY=never", r.warnings[0])
+        r = self.pull({"PYSTINO_REGISTRY": "local", "CEREA_REGISTRY": "local"})
+        for name in ("GATEWAY", "REDACTION", "EXTRACTOR", "CEREA", "DOCUMENTS"):
+            self.assertIn(f"{name}_PULL_POLICY=never", r.warnings[0])
+
+    def test_check_is_quiet_when_policies_or_published_images(self):
+        self.assertEqual(self.pull({}).warnings, [])
+        self.assertEqual(self.pull({"EXTRACTOR_IMAGE": "ghcr.io/x/r:1"}).warnings, [])
+        self.assertEqual(self.pull({"EXTRACTOR_IMAGE": "local/r:1-ocr", "EXTRACTOR_PULL_POLICY": "never"}).warnings, [])
+        # the extractor follows the redaction policy
+        self.assertEqual(self.pull({"REDACTION_IMAGE": "local/r:1-ner", "REDACTION_PULL_POLICY": "never"}).warnings, [])
+        self.assertEqual(len(self.pull({"REDACTION_IMAGE": "local/r:1-ner"}).warnings), 1)
+
     def test_a_mirror_is_judged_by_its_label_not_its_tag(self):
         values = {"EXTRACTOR_ENGINE": "docling", "EXTRACTOR_IMAGE": "registry.example.org/team/reader:1"}
         self.labelled("docling")
