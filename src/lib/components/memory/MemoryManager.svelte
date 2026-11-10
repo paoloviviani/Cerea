@@ -152,6 +152,30 @@
 		}
 	}
 
+	/**
+	 * Grows the textarea with its content (the composer's trick: reset to
+	 * auto, then read scrollHeight); the CSS max-height caps it and it then
+	 * scrolls inside. Re-runs whenever the bound value changes.
+	 */
+	function autogrow(node: HTMLTextAreaElement, _value: string) {
+		const fit = () => {
+			node.style.height = "auto";
+			node.style.height = `${node.scrollHeight}px`;
+		};
+		fit();
+		return { update: fit };
+	}
+
+	/** Cmd/Ctrl+Enter saves, Escape cancels; plain Enter is a newline. */
+	function editorKeys(event: KeyboardEvent, save: () => void, cancel: () => void) {
+		if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+			event.preventDefault();
+			save();
+		} else if (event.key === "Escape") {
+			cancel();
+		}
+	}
+
 	function beginEdit(memory: MemoryView) {
 		editingId = memory.id;
 		editDraft = memory.text;
@@ -227,17 +251,16 @@
 		{#if adding}
 			<div class="{s.EMBEDDED} mb-4 p-4">
 				<label class={s.LABEL} for="memory-draft">{m["memory.manager.new.label"]()}</label>
-				<input
+				<textarea
 					id="memory-draft"
-					class={s.INPUT}
+					class="{s.INPUT} max-h-[50vh] min-h-[4.5rem] resize-none overflow-y-auto"
+					rows="3"
+					use:autogrow={draft}
 					bind:value={draft}
 					maxlength={MEMORY_TEXT_MAX_CHARS}
 					placeholder={m["memory.manager.new.placeholder"]()}
-					onkeydown={(event) => {
-						if (event.key === "Enter") add();
-						if (event.key === "Escape") adding = false;
-					}}
-				/>
+					onkeydown={(event) => editorKeys(event, add, () => (adding = false))}
+				></textarea>
 				<p class={s.HINT}>{m["memory.manager.new.hint"]()}</p>
 				<div class="mt-3 flex gap-2">
 					<button type="button" class={s.PRIMARY} disabled={!draft.trim() || busy} onclick={add}>
@@ -270,15 +293,20 @@
 					<div class={s.card(false)}>
 						<div class={s.CARD_BODY}>
 							{#if editingId === memory.id}
-								<input
-									class={s.INPUT}
+								<textarea
+									class="{s.INPUT} max-h-[50vh] min-h-[4.5rem] resize-none overflow-y-auto"
+									rows="3"
+									aria-label={m["memory.manager.edit"]()}
+									use:autogrow={editDraft}
 									bind:value={editDraft}
 									maxlength={MEMORY_TEXT_MAX_CHARS}
-									onkeydown={(event) => {
-										if (event.key === "Enter") saveEdit(memory.id);
-										if (event.key === "Escape") editingId = null;
-									}}
-								/>
+									onkeydown={(event) =>
+										editorKeys(
+											event,
+											() => saveEdit(memory.id),
+											() => (editingId = null)
+										)}
+								></textarea>
 								<div class="mt-3 flex gap-2">
 									<button
 										type="button"
