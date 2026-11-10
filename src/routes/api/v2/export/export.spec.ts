@@ -27,6 +27,15 @@ const CONVERSATION = {
 			from: "assistant",
 			content: "Hello Mario",
 			updates: [{ type: "stream", token: "Hello" }],
+			files: [
+				{
+					type: "hash",
+					value: "abc",
+					name: "secret.pdf",
+					mime: "application/pdf",
+					withheld: { rule: "no-health", pipeline: "strict" },
+				},
+			],
 			stats: {
 				model: "Test",
 				redaction: {
@@ -60,5 +69,9 @@ describe("data export", () => {
 		expect(text).not.toContain("Mario Rossi");
 		expect(text).not.toContain("<PERSON_1>");
 		expect(text).not.toContain('"values"');
+		// A withheld file is listed by name and reason, with no bytes in the zip.
+		expect(text).toContain("secret.pdf");
+		expect(text).toContain("withheld by privacy rule 'no-health' (pipeline 'strict')");
+		expect(state.added.filter((f) => f.name.startsWith("file-"))).toHaveLength(0);
 	});
 });

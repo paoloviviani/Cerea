@@ -33,6 +33,12 @@ export async function resolveHashFiles(
 		for (const file of message.files ?? []) {
 			if (file.type !== "hash") continue;
 			const previous = known.get(file.value);
+			// A withheld record for these bytes beats every other record of them.
+			if (previous?.withheld) continue;
+			if (file.withheld) {
+				known.set(file.value, file);
+				continue;
+			}
 			// The richest record wins: one that says what extraction found.
 			if (!previous || (!recorded(previous) && recorded(file))) known.set(file.value, file);
 		}

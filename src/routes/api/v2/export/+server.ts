@@ -59,6 +59,8 @@ export const GET: RequestHandler = async ({ locals }) => {
 							stats.nMessages++;
 							if (message.files) {
 								message.files.forEach((file) => {
+									// A privacy-withheld file is listed, never exported.
+									if (file.withheld) return;
 									hashes.push(file.value);
 								});
 							}
@@ -94,6 +96,20 @@ export const GET: RequestHandler = async ({ locals }) => {
 								return {
 									...message,
 									files: filenames,
+									...(message.files?.some((file) => file.withheld)
+										? {
+												withheldFiles: message.files
+													.filter((file) => file.withheld)
+													.map((file) => ({
+														name: file.name,
+														note: `withheld by privacy rule '${file.withheld?.rule}'${
+															file.withheld?.pipeline
+																? ` (pipeline '${file.withheld.pipeline}')`
+																: ""
+														}`,
+													})),
+											}
+										: {}),
 									updates: undefined,
 								};
 							}),

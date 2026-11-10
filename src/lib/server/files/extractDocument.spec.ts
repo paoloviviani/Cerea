@@ -40,7 +40,8 @@ vi.mock("$lib/server/gatewayServer", () => {
 	class GatewayCallFailed extends Error {
 		constructor(
 			readonly status: number,
-			message: string
+			message: string,
+			readonly code?: string
 		) {
 			super(message);
 			this.name = "GatewayCallFailed";
@@ -404,7 +405,11 @@ describe("when there is no text", () => {
 		});
 		const { GatewayCallFailed } = await import("$lib/server/gatewayServer");
 		gatewayPostMock.mockRejectedValue(
-			new GatewayCallFailed(403, "Refused by the privacy rule 'no-health' (pipeline 'strict')")
+			new GatewayCallFailed(
+				403,
+				"Refused by the privacy rule 'no-health' (pipeline 'strict')",
+				"routing_refused"
+			)
 		);
 
 		const answer = await extractDocument({
@@ -422,6 +427,43 @@ describe("when there is no text", () => {
 		});
 		// One call only: the local reader was not asked.
 		expect(gatewayPostMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("the routing_refused code withholds even when the message does not parse", async () => {
+		readConfigMock.mockResolvedValue({ extractorModel: "group-ocr" });
+		gatewayGetMock.mockResolvedValue({ data: [{ id: "group-ocr", kind: "ocr" }] });
+		const { GatewayCallFailed } = await import("$lib/server/gatewayServer");
+		gatewayPostMock.mockRejectedValue(
+			new GatewayCallFailed(403, "something odd", "routing_refused")
+		);
+		const answer = await extractDocument({
+			bytes: BYTES,
+			mime: "application/pdf",
+			filename: "a.pdf",
+			token: "t",
+		});
+		expect(answer).toMatchObject({ ok: false, withheld: { rule: "unnamed" } });
+	});
+
+	it("names a rule with a quote in it, and a lookalike message without the code is not withheld", async () => {
+		readConfigMock.mockResolvedValue({ extractorModel: "group-ocr" });
+		gatewayGetMock.mockResolvedValue({ data: [{ id: "group-ocr", kind: "ocr" }] });
+		const { GatewayCallFailed } = await import("$lib/server/gatewayServer");
+		gatewayPostMock.mockRejectedValueOnce(
+			new GatewayCallFailed(
+				403,
+				"Refused by the privacy rule 'it's x' (pipeline 'p'q')",
+				"routing_refused"
+			)
+		);
+		const args = { bytes: BYTES, mime: "application/pdf", filename: "a.pdf", token: "t" };
+		expect(await extractDocument(args)).toMatchObject({
+			withheld: { rule: "it's x", pipeline: "p'q" },
+		});
+		gatewayPostMock.mockRejectedValueOnce(
+			new GatewayCallFailed(403, "Refused by the privacy rule 'r' (pipeline 'p')")
+		);
+		expect(await extractDocument(args)).not.toHaveProperty("withheld");
 	});
 
 	it("a technical failure is not a withholding", async () => {

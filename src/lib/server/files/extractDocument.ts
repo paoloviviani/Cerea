@@ -418,15 +418,20 @@ export interface ExtractionFailure {
 }
 
 /**
- * The privacy rule named in a gateway refusal ("Refused by the privacy rule
- * 'R' (pipeline 'P')"), or undefined when the error is anything else. Only a
- * 403 counts: a technical failure that merely mentions a rule is not a policy.
+ * Whether a gateway failure is a privacy withholding, and which rule did it.
+ * Decided by the gateway's error code (`routing_refused`, Pystino's
+ * RoutingRefusedError), never by the wording: the message is parsed only to
+ * name the rule and pipeline, and a message that does not parse still
+ * withholds (rule "unnamed").
  */
-export function privacyRefusal(status: number, message: string): WithheldByPrivacy | undefined {
-	if (status !== 403) return undefined;
-	const match = /privacy rule\s+'([^']*)'(?:\s*\(pipeline\s+'([^']*)'\))?/i.exec(message);
-	if (!match) return undefined;
-	return { rule: match[1], ...(match[2] ? { pipeline: match[2] } : {}) };
+export function privacyRefusal(err: unknown): WithheldByPrivacy | undefined {
+	if (!(err instanceof GatewayCallFailed) || err.code !== "routing_refused") return undefined;
+	const message = err.message ?? "";
+	// Names may contain quotes: take up to the closing quote before " (pipeline '".
+	const both = /privacy rule '(.*)' \(pipeline '(.*)'\)/s.exec(message);
+	if (both) return { rule: both[1], pipeline: both[2] };
+	const only = /privacy rule '(.*?)'\.?\s*$/s.exec(message);
+	return { rule: only?.[1] || "unnamed" };
 }
 
 /**
@@ -873,8 +878,7 @@ async function extractViaGateway(options: {
 		// like nothing works at all.
 		let reason = "The document reader could not be reached, so the file was stored without text.";
 		let kind: ExtractionFailureKind = "unreachable";
-		const withheld =
-			err instanceof GatewayCallFailed ? privacyRefusal(status, err.message) : undefined;
+		const withheld = privacyRefusal(err);
 		if (withheld) {
 			logger.warn(
 				{ filename, model, rule: withheld.rule, pipeline: withheld.pipeline },

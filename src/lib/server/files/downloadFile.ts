@@ -22,19 +22,24 @@ export function withheldOf(
 
 /** The stored entry for this owner's file, 404 when there is none and 403 when it is not theirs. */
 async function lookup(sha256: string, convId: Conversation["_id"] | string) {
-	const file = await collections.blobStore.findOne("files", {
+	// One filename can have several entries (the same bytes uploaded twice);
+	// `findOne` order is unspecified, so a withholding on any of them refuses.
+	const entries = await collections.blobStore.find("files", {
 		filename: `${convId.toString()}-${sha256}`,
 	});
+	const file = entries[0];
 	if (!file) {
 		error(404, "File not found");
+	}
+	for (const entry of entries) {
+		const withheld = withheldOf(entry.metadata);
+		if (withheld) error(403, withheldMessage(withheld));
 	}
 	if (file.metadata?.conversation !== convId.toString()) {
 		error(403, "You don't have access to this file.");
 	}
 	// Every reader of stored bytes goes through here: a file a privacy rule
 	// withheld is never handed to a tool, a sandbox mount or a re-extraction.
-	const withheld = withheldOf(file.metadata);
-	if (withheld) error(403, withheldMessage(withheld));
 	return file;
 }
 

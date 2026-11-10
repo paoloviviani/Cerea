@@ -144,6 +144,31 @@ describe("a privacy-withheld upload", () => {
 	});
 });
 
+describe("the same bytes stored twice, the second withheld", () => {
+	it("is refused everywhere, whichever entry comes first", async () => {
+		const conv = await conversationWith([]);
+		// An older, unmarked upload of the bytes (the reader was fine then).
+		extractMock.mockResolvedValueOnce({ ok: true, text: "extracted secret", pages: 1 });
+		const first = await uploadFile(PDF(), conv, "t");
+		expect(first.extracted).toBeDefined();
+		// Then a withheld re-upload of the same bytes.
+		extractMock.mockResolvedValueOnce(REFUSED);
+		const second = await uploadFile(PDF(), conv, "t");
+		expect(second.withheld).toBeDefined();
+		await expect(downloadFile(first.value, conv._id)).rejects.toMatchObject({ status: 403 });
+		await expect(openFile(first.value, conv._id)).rejects.toMatchObject({ status: 403 });
+
+		// An earlier record with extracted text must not be reused over the withheld one.
+		const conv2 = await conversationWith([first, second]);
+		const [resolved] = await resolveHashFiles(
+			[{ type: "hash", value: first.value, mime: first.mime, name: first.name }],
+			conv2,
+			"t"
+		);
+		expect(resolved.withheld).toBeDefined();
+	});
+});
+
 describe("a technical read failure", () => {
 	it("keeps today's behaviour: no withheld mark, bytes still readable", async () => {
 		extractMock.mockResolvedValueOnce({
