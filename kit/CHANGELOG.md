@@ -5,6 +5,16 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.49.0 — 2026-11-10
+
+Pins: Cerea `0.49.0` (chat and `cerea-documents`), Pystino `0.33.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. 
+
+- **Privacy rules, simpler and in order (Pystino 0.33.0, ADR 0114).** A privacy pipeline is now a scope plus an ordered list of rules that read "When ‹policies› + ‹conditions› → ‹mode›". Modes are off, detect only, anonymise and restore, anonymise, redact and block; rules apply top to bottom, a block refuses the request, and otherwise the first rule to hide a piece of text decides how. Policies keep only what to look for: their per-item modes moved into the rules. Chat and embedding pipelines are one **content** kind (a model-type filter in the target tells them apart when needed), and the file kind is now called **extract**. Existing pipelines and policies are converted automatically by Pystino's migration 0086; anything it could not convert exactly is switched off with a note for an administrator to review.
+  **Upgrade note:** migration 0086 cannot be undone. Take a backup before updating (see "Backup and restore" in the kit README; with the restic example, `docker compose exec backup backup-now`), then open the console's Privacy page and review any rule marked with a note.
+- **The file preview says which download is which.** The panel header downloads the original (labelled with its format, e.g. DOCX); the PDF viewer's own button downloads the PDF rendering, and is not shown when the original is already that PDF.
+- **Message actions are aligned.** Copy, retry and the turn-info button under an answer share one size and baseline.
 ## v0.48.1 — 2026-11-10
 
 Pins: Cerea `0.48.1` (chat and `cerea-documents`), Pystino `0.32.1`.
