@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -707,5 +708,98 @@ func TestBillingStartupLineNamesTheMode(t *testing.T) {
 	neither := &credentials{}
 	if got := billingStartupLine(neither); !strings.Contains(got, "NONE RECORDED") {
 		t.Errorf("neither line %q", got)
+	}
+}
+
+// The shim says when its access token changed, whoever caused the refresh, so
+// the link can hand the new one to Cerea. Against an IdP that revokes the
+// previous access token on refresh (GitLab), the shim's own timed refresh used
+// to leave Cerea holding a dead token, and Cerea closed the link with 4401.
+func TestShimSignalsRotationWhenTheAccessTokenChanges(t *testing.T) {
+	var n atomic.Int32
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token": "access-" + string(rune('a'+n.Add(1))),
+			"expires_in":   3600,
+		})
+	}))
+	defer tokenServer.Close()
+	creds := &credentials{
+		TokenEndpoint: tokenServer.URL,
+		ClientID:      "opencode-enrollment",
+		RefreshToken:  "refresh-abc",
+		AccessToken:   "access-0",
+		ExpiresIn:     3600,
+		ObtainedAt:    time.Now().Unix(), // fresh: nothing but the timer would refresh it
+	}
+	credsPath := filepath.Join(t.TempDir(), "creds.json")
+	if err := saveCredentials(credsPath, creds); err != nil {
+		t.Fatal(err)
+	}
+	s := newShim(creds, credsPath, statusPathFor(credsPath), 41872)
+
+	signalled := func() bool {
+		select {
+		case <-s.Rotated():
+			return true
+		default:
+			return false
+		}
+	}
+	if signalled() {
+		t.Fatal("a signal before any refresh")
+	}
+	// The timed refresh (refreshLoop's refresh) rotates a token that is not near expiry.
+	if err := s.refresh(); err != nil {
+		t.Fatal(err)
+	}
+	if !signalled() {
+		t.Fatal("the timed refresh changed the access token and did not signal")
+	}
+	// A second change before anyone reads the signal is still one pending signal.
+	_ = s.refresh()
+	_ = s.refresh()
+	if !signalled() || signalled() {
+		t.Fatal("want exactly one pending signal for changes nobody has read yet")
+	}
+	// Reading the token without a refresh signals nothing.
+	if _, err := s.Token(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if signalled() {
+		t.Fatal("Token() with a live token signalled")
+	}
+	// ForceRefresh (the link's own renewal) changes it and signals too: the link
+	// reads it and finds nothing new to hand over.
+	if _, err := s.ForceRefresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !signalled() {
+		t.Fatal("ForceRefresh changed the token and did not signal")
+	}
+}
+
+// A refresh that leaves the access token as it was signals nothing.
+func TestShimDoesNotSignalWhenTheTokenIsUnchanged(t *testing.T) {
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "same", "expires_in": 3600})
+	}))
+	defer tokenServer.Close()
+	creds := &credentials{
+		TokenEndpoint: tokenServer.URL, ClientID: "c", RefreshToken: "r",
+		AccessToken: "same", ExpiresIn: 3600, ObtainedAt: time.Now().Unix(),
+	}
+	credsPath := filepath.Join(t.TempDir(), "creds.json")
+	if err := saveCredentials(credsPath, creds); err != nil {
+		t.Fatal(err)
+	}
+	s := newShim(creds, credsPath, statusPathFor(credsPath), 41873)
+	if err := s.refresh(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-s.Rotated():
+		t.Fatal("signalled for an unchanged token")
+	default:
 	}
 }

@@ -96,6 +96,12 @@ interface ConnectionState {
 	 * (§4.7) — `MachinePrincipal` carries only what the JWT itself decoded to,
 	 * never the raw token. Updated on every successful "auth" renewal. */
 	token: string;
+	/** The token the last revalidation tick found refused by the gateway and no
+	 * longer valid at the IdP. One tick of grace: the machine hands a fresh token
+	 * over on the open link (an `auth` frame) as soon as it refreshes, and the
+	 * tick can fall between the IdP revoking the old one and that frame landing.
+	 * Only the same token refused on the next tick closes the link (4401). */
+	refusedToken: string | null;
 	backends: Backend[];
 	policy: Policy;
 	pending: Map<string, PendingRequest>;
@@ -272,6 +278,7 @@ export async function revalidateLiveMachineConnections(): Promise<void> {
 		}
 
 		if (resolution.ok) {
+			state.refusedToken = null;
 			const device = await collections.codeDevices
 				.findOne({ _id: new ObjectId(state.deviceId) })
 				.catch(() => null);
@@ -335,11 +342,25 @@ export async function revalidateLiveMachineConnections(): Promise<void> {
 			if (verdict === "valid") {
 				await revokeAndClose(state, resolution.message);
 			} else if (verdict === "invalid") {
-				logger.info(
-					{ deviceId: state.deviceId },
-					"machine link: the gateway refused a token that no longer validates; asking the machine to renew"
-				);
-				closeConnection(state, 4401, "token no longer valid; renew and reconnect");
+				if (state.refusedToken !== state.token) {
+					// First tick that sees this token refused. An IdP that revokes
+					// the previous access token on refresh (GitLab) does so the
+					// moment the machine refreshes, and the machine hands the new
+					// token over on this very link: give that one tick (a minute)
+					// to land instead of dropping a link that is about to be
+					// renewed. An `auth` frame replaces state.token and starts over.
+					state.refusedToken = state.token;
+					logger.info(
+						{ deviceId: state.deviceId },
+						"machine link: the gateway refused a token that no longer validates; waiting one tick for the machine to hand over a new one"
+					);
+				} else {
+					logger.info(
+						{ deviceId: state.deviceId },
+						"machine link: the gateway refused a token that no longer validates; asking the machine to renew"
+					);
+					closeConnection(state, 4401, "token no longer valid; renew and reconnect");
+				}
 			} else {
 				// The issuer could not be asked: cannot tell the two apart, so
 				// close for a reconnect and leave the device enrolled.
@@ -1317,6 +1338,7 @@ async function onHello(
 		ws,
 		principal,
 		token,
+		refusedToken: null,
 		backends: hello.backends,
 		policy: hello.policy,
 		pending: new Map(),
@@ -1330,6 +1352,24 @@ async function onHello(
 		pingInterval: null,
 		lastPongAt: Date.now(),
 	};
+	// The welcome goes first. Registering the connection tells its listeners
+	// (the terminal relay re-attaching, say), and one of them may send a frame of
+	// its own straight away: a machine that reads "req" where it expects
+	// "welcome" drops the connection ("expected welcome, got req") and comes back
+	// 30 s later. A galopin from before it queued frames that came early is
+	// protected only by this order.
+	try {
+		ws.send(
+			JSON.stringify({
+				type: "welcome",
+				deviceId,
+				status,
+				features: { machineCalls: MACHINE_CALL_FEATURES },
+			})
+		);
+	} catch (err) {
+		logger.warn({ err, deviceId }, "machine link: failed to send welcome");
+	}
 	registry.set(deviceId, state);
 	notifyConnectionChange(deviceId, true);
 	scheduleAuthDeadline(state);
@@ -1345,18 +1385,5 @@ async function onHello(
 			/* socket already going away */
 		}
 	}, PING_INTERVAL_MS);
-
-	try {
-		ws.send(
-			JSON.stringify({
-				type: "welcome",
-				deviceId,
-				status,
-				features: { machineCalls: MACHINE_CALL_FEATURES },
-			})
-		);
-	} catch (err) {
-		logger.warn({ err, deviceId }, "machine link: failed to send welcome");
-	}
 	return state;
 }
