@@ -5,6 +5,13 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.49.1 — 2026-11-11
+
+Pins: Cerea `0.49.1` (chat and `cerea-documents`), Pystino `0.33.1`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. 
+
+- **Clearer privacy note to the model, and cache friendly (Pystino 0.33.1).** The note that tells the model what a placeholder is now says that a fixed-length `#TOKEN#`, `#` signs included, is exactly as long as the real value, and that placeholders must not be validated (format, check digits, plausibility) or commented on. It now follows every hiding rule in scope, matched or not, so a rule with a condition no longer makes the note appear mid-conversation and the provider's prompt cache is kept.
 ## v0.49.0 — 2026-11-10
 
 Pins: Cerea `0.49.0` (chat and `cerea-documents`), Pystino `0.33.0`.
