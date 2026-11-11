@@ -39,6 +39,14 @@ const (
 	connectorCallLimit = 90 * time.Second
 	// maxConnectorResult bounds the text a call hands the model.
 	maxConnectorResult = 200 << 10
+	// maxConnectorList bounds connector_list's answer. opencode cuts any tool's
+	// output at 2000 lines or 51200 bytes and spills the rest to a file the
+	// model is not allowed to read, so a longer list is lost, not shortened. The
+	// list is one line of JSON, so the bytes are the limit; this stays under it
+	// with room for the tool's own wrapper.
+	maxConnectorList = 40 << 10
+	// connectorBriefDescription is how much of a description a shortened list keeps.
+	connectorBriefDescription = 120
 	// maxConnectorArgs bounds a call's arguments.
 	maxConnectorArgs = 256 << 10
 	// maxCardArgs bounds the arguments shown on a card.
@@ -175,37 +183,141 @@ func (at *agentTools) connectorCerea(ctx context.Context, tc *toolCaller, op str
 	return res, nil
 }
 
-// connectorListTool implements connector_list.
+// connectorListTool implements connector_list. With no arguments it lists every
+// connector, shortened in steps until it fits maxConnectorList; with `connector`
+// (an id or a name from that list) it lists that one, and with `tool` too, that
+// one tool in full. opencode makes every argument required, so "" is "not given".
 func (at *agentTools) connectorListTool(ctx context.Context, tc *toolCaller, call backend.ToolCall) (string, error) {
-	if _, err := decodeObject(call.Args, "the arguments", "note"); err != nil {
+	m, err := decodeObject(call.Args, "the arguments", "note", "connector", "tool")
+	if err != nil {
 		return "", err
+	}
+	var want, wantTool string
+	for key, dst := range map[string]*string{"connector": &want, "tool": &wantTool} {
+		if v, ok := m[key]; ok && string(v) != "null" {
+			if json.Unmarshal(v, dst) != nil {
+				return "", refuse("%s must be a string", key)
+			}
+			*dst = strings.TrimSpace(*dst)
+		}
+	}
+	if wantTool != "" && want == "" {
+		return "", refuse("tool needs connector: name the connector (an id from connector_list) the tool belongs to")
 	}
 	if _, err := at.connectorGate(tc, true); err != nil {
 		return "", err
 	}
 	list, notes := at.connectorsFor(ctx, tc)
-	res := map[string]any{"connectors": list}
+	if want != "" {
+		if list, err = pickConnector(list, want, wantTool); err != nil {
+			return "", err
+		}
+	}
 	if list == nil {
-		res["connectors"] = []connectorEntry{}
+		list = []connectorEntry{}
 	}
 	if len(list) == 0 && len(notes) == 0 {
 		notes = append(notes, "no connectors are switched on for this session; the person can add them in the session's permissions sheet")
 	}
-	if len(notes) > 0 {
-		res["notes"] = notes
-	}
-	body, _ := json.Marshal(res)
-	if len(body) > maxConnectorResult {
-		for i := range list {
-			for j := range list[i].Tools {
-				list[i].Tools[j].InputSchema = nil
+	body := fitConnectorList(list, notes, maxConnectorList)
+	return string(body), nil
+}
+
+// pickConnector narrows list to the connector named by id or (any case) name,
+// and, when tool is given, to that one tool. A miss is a refusal that names
+// what there is, so the model can correct itself.
+func pickConnector(list []connectorEntry, want, tool string) ([]connectorEntry, error) {
+	var ids []string
+	for _, c := range list {
+		ids = append(ids, c.ID)
+		if c.ID != want && !strings.EqualFold(c.Name, want) {
+			continue
+		}
+		if tool == "" {
+			return []connectorEntry{c}, nil
+		}
+		for _, t := range c.Tools {
+			if t.Name == tool {
+				c.Tools = []connectorTool{t}
+				return []connectorEntry{c}, nil
 			}
 		}
-		res["connectors"] = list
-		res["notes"] = append(notes, "the tool schemas were left out because the list is large; call a tool with the arguments its description suggests")
-		body, _ = json.Marshal(res)
+		return nil, refuse("connector %s has no tool %q: call connector_list with connector %q alone to see its tools", c.ID, tool, c.ID)
 	}
-	return string(body), nil
+	return nil, refuse("unknown connector %q: use an id from connector_list (%s)", want, strings.Join(ids, ", "))
+}
+
+// fitConnectorList is the list as JSON, within limit bytes if it can be: in
+// full when it fits, else without the tools' argument schemas, else with each
+// description cut short, else tool names only. Each step says so in a note and
+// how to get the detail back, because a cut the model cannot see is worse than
+// a short list. The entries are copied, never changed.
+func fitConnectorList(list []connectorEntry, notes []string, limit int) []byte {
+	encode := func(l []connectorEntry, extra string) []byte {
+		res := map[string]any{"connectors": l}
+		n := append([]string{}, notes...)
+		if extra != "" {
+			n = append(n, extra)
+		}
+		if len(n) > 0 {
+			res["notes"] = n
+		}
+		b, _ := json.Marshal(res)
+		return b
+	}
+	body := encode(list, "")
+	if len(body) <= limit {
+		return body
+	}
+	const more = " To see more, call connector_list with connector set to an id (and tool set to a tool name for one tool in full)."
+	steps := []struct {
+		note string
+		tool func(connectorTool) connectorTool
+	}{
+		{"This list is large, so the tools' argument schemas are left out." + more,
+			func(t connectorTool) connectorTool { t.InputSchema = nil; return t }},
+		{"This list is very large, so the argument schemas are left out and descriptions are cut short." + more,
+			func(t connectorTool) connectorTool {
+				t.InputSchema, t.Description = nil, clipRunes(t.Description, connectorBriefDescription)
+				return t
+			}},
+		{"This list is huge, so only the tool names are shown." + more,
+			func(t connectorTool) connectorTool { return connectorTool{Name: t.Name} }},
+	}
+	for _, st := range steps {
+		slim := make([]connectorEntry, len(list))
+		for i, c := range list {
+			c.Tools = make([]connectorTool, 0, len(list[i].Tools))
+			for _, t := range list[i].Tools {
+				c.Tools = append(c.Tools, st.tool(t))
+			}
+			slim[i] = c
+		}
+		body = encode(slim, st.note)
+		if len(body) <= limit {
+			return body
+		}
+	}
+	// Still too long: only the connectors, each with the number of its tools.
+	brief := make([]connectorEntry, len(list))
+	for i, c := range list {
+		c.Summary = clipRunes(c.Summary, connectorBriefDescription)
+		c.Tools = []connectorTool{}
+		if n := len(list[i].Tools); n > 0 {
+			c.Note = strings.TrimSpace(c.Note + fmt.Sprintf(" %d tools; call connector_list with this connector to see them.", n))
+		}
+		brief[i] = c
+	}
+	return encode(brief, "This list is huge, so the tools are left out."+more)
+}
+
+// clipRunes cuts s to at most n runes, marking a cut.
+func clipRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
 }
 
 // connectorCallTool implements connector_call; the second result names the

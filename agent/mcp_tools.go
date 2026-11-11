@@ -63,8 +63,10 @@ var mcpTools = []mcpserve.Tool{
 	},
 	{
 		Name:        "connector_list",
-		Description: "List the connectors the person switched on for this session (their name, what they are for, and each tool's name, description and argument schema). They are services outside this machine (Cerea's connectors, run with the person's own sign-ins) and this machine's own connectors. Read-only; asks nothing. Empty unless the person opted this session in. Call a tool with connector_call.",
-		Schema:      json.RawMessage(`{"type":"object","properties":{"note":{"type":"string","description":"Anything, e.g. why you are listing. Ignored."}}}`),
+		Description: "List the connectors the person switched on for this session (their name, what they are for, and each tool's name, description and argument schema). They are services outside this machine (Cerea's connectors, run with the person's own sign-ins) and this machine's own connectors. Read-only; asks nothing. Empty unless the person opted this session in. A long list is shortened (argument schemas, then descriptions, are left out) and says so: to see one connector's tools in full pass its id as connector, and a tool name as tool for just that tool; pass \"\" for either to leave it out. Call a tool with connector_call.",
+		Schema: json.RawMessage(`{"type":"object","properties":{"note":{"type":"string","description":"Anything, e.g. why you are listing. Ignored."},` +
+			`"connector":{"type":"string","description":"One connector's id, from an earlier connector_list, to list only it; omit for all."},` +
+			`"tool":{"type":"string","description":"With connector: one tool's name, to list only it in full; omit for all its tools."}}}`),
 	},
 	{
 		Name:        "connector_call",

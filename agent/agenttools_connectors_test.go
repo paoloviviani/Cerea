@@ -257,3 +257,119 @@ func TestConnectorResultIsClippedAndNonTextNamed(t *testing.T) {
 		t.Fatalf("clip kept %d bytes", len(got))
 	}
 }
+
+// bigConnectors is n connectors of tools tools each, every one with a long
+// description and a large schema: a list well over opencode's 50 KB cap.
+func bigConnectors(n, tools int) []connectorEntry {
+	schema := json.RawMessage(`{"type":"object","properties":{"q":{"type":"string","description":"` + strings.Repeat("s", 600) + `"}}}`)
+	var out []connectorEntry
+	for i := 0; i < n; i++ {
+		c := connectorEntry{ID: "cerea:c" + string(rune('a'+i)), Name: "Conn" + string(rune('A'+i)), Where: "cerea"}
+		for j := 0; j < tools; j++ {
+			c.Tools = append(c.Tools, connectorTool{Name: "tool_" + string(rune('a'+j%26)) + string(rune('a'+j/26)), Description: strings.Repeat("d", 400), InputSchema: schema})
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+func TestFitConnectorListShrinksInStepsUnderTheCap(t *testing.T) {
+	// ~110 KB with schemas, as the list that came back cut: over opencode's cap,
+	// under the old 200 KiB threshold.
+	list := bigConnectors(1, 100)
+	full := fitConnectorList(list, nil, 1<<30)
+	if len(full) < 100<<10 || len(full) > maxConnectorResult {
+		t.Fatalf("test list is %d bytes, want between 100 KiB and %d", len(full), maxConnectorResult)
+	}
+	for _, tc := range []struct {
+		name         string
+		list         []connectorEntry
+		wantSchema   bool
+		wantDesc     bool
+		wantTools    bool
+		noteContains string
+	}{
+		{"small stays whole", bigConnectors(1, 3), true, true, true, ""},
+		{"drops schemas first", bigConnectors(1, 50), false, true, true, "argument schemas are left out"},
+		{"then shortens descriptions", bigConnectors(1, 100), false, false, true, "descriptions are cut short"},
+		{"then names only", bigConnectors(2, 400), false, false, true, "only the tool names"},
+		{"then connectors only", bigConnectors(20, 2000), false, false, false, "tools are left out"},
+	} {
+		body := fitConnectorList(tc.list, nil, maxConnectorList)
+		if len(body) > maxConnectorList {
+			t.Errorf("%s: %d bytes, over %d", tc.name, len(body), maxConnectorList)
+		}
+		var res struct {
+			Connectors []connectorEntry `json:"connectors"`
+			Notes      []string         `json:"notes"`
+		}
+		if err := json.Unmarshal(body, &res); err != nil || len(res.Connectors) != len(tc.list) {
+			t.Fatalf("%s: unreadable or connectors lost: %v", tc.name, err)
+		}
+		s := string(body)
+		if got := strings.Contains(s, `"inputSchema"`); got != tc.wantSchema {
+			t.Errorf("%s: schema present = %v", tc.name, got)
+		}
+		if got := strings.Contains(s, strings.Repeat("d", 400)); got != tc.wantDesc {
+			t.Errorf("%s: full description present = %v", tc.name, got)
+		}
+		if got := len(res.Connectors[0].Tools) > 0; got != tc.wantTools {
+			t.Errorf("%s: tools present = %v", tc.name, got)
+		}
+		if tc.noteContains == "" {
+			if len(res.Notes) != 0 {
+				t.Errorf("%s: unexpected notes %v", tc.name, res.Notes)
+			}
+		} else if !strings.Contains(strings.Join(res.Notes, "\n"), tc.noteContains) || !strings.Contains(strings.Join(res.Notes, "\n"), "connector_list with connector") {
+			t.Errorf("%s: notes = %v", tc.name, res.Notes)
+		}
+		if !strings.Contains(s, `"tools":[`) {
+			t.Errorf("%s: tools must stay an array, not null", tc.name)
+		}
+	}
+	// The entries are not changed by shrinking.
+	if list[0].Tools[0].InputSchema == nil || len(list[0].Tools[0].Description) != 400 {
+		t.Fatal("fitConnectorList changed its input")
+	}
+}
+
+func TestConnectorListOverTheCapIsShortenedAndOneConnectorCanBeAsked(t *testing.T) {
+	r, fc := connectorRig(t, permrules.Ask, nil)
+	big := bigConnectors(2, 100)
+	raw := struct {
+		Connectors []map[string]any `json:"connectors"`
+		Local      []string         `json:"local"`
+	}{Local: []string{}}
+	for _, c := range big {
+		raw.Connectors = append(raw.Connectors, map[string]any{"id": strings.TrimPrefix(c.ID, "cerea:"), "name": c.Name, "tools": c.Tools})
+	}
+	b, _ := json.Marshal(raw)
+	fc.list = string(b)
+
+	out, err := r.call("caller", "connector_list", map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) > maxConnectorList || !strings.Contains(out, "left out") {
+		t.Fatalf("list = %d bytes, notes missing: %.200s", len(out), out)
+	}
+	// By name or id, one connector's tools; "" is "not given" (opencode makes every argument required).
+	for _, want := range []string{"cerea:ca", "conna"} {
+		one, err := r.call("caller", "connector_list", map[string]any{"connector": want, "tool": "", "note": ""})
+		if err != nil || !strings.Contains(one, `"cerea:ca"`) || strings.Contains(one, `"cerea:cb"`) {
+			t.Fatalf("connector %q = %v, %.200s", want, err, one)
+		}
+	}
+	// One tool is in full, schema included, whatever the connector's size.
+	one, err := r.call("caller", "connector_list", map[string]any{"connector": "cerea:ca", "tool": "tool_aa"})
+	if err != nil || !strings.Contains(one, `"inputSchema"`) || len(one) > maxConnectorList || strings.Contains(one, "tool_ba") {
+		t.Fatalf("one tool = %v, %.300s", err, one)
+	}
+	// Misses say what there is.
+	_, err = r.call("caller", "connector_list", map[string]any{"connector": "nope"})
+	refusedWith(t, err, "cerea:ca")
+	_, err = r.call("caller", "connector_list", map[string]any{"connector": "cerea:ca", "tool": "nope"})
+	refusedWith(t, err, "no tool")
+	_, err = r.call("caller", "connector_list", map[string]any{"tool": "find"})
+	refusedWith(t, err, "tool needs connector")
+}
