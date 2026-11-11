@@ -1,0 +1,4 @@
+# The build context is this directory: keep local builds out of it.
+galopin
+galopin-*
+galopin-dist

@@ -1255,6 +1255,89 @@ yet. Ask your administrator to grant your group one, then run
 `galopin models refresh` — or just restart `run`, which re-discovers the
 gateway's models at every start. Neither re-enrolls, so the computer id stays.
 
+### Running galopin in a container
+
+`ghcr.io/paoloviviani/galopin:<version>` is galopin with the pinned opencode in a
+development container, for a computer you can throw away: an agent that may
+install packages and run builds without touching your own machine. It is the
+same galopin, so nothing changes in the chat or the gateway. The image is built
+from `agent/Dockerfile` and published with each Cerea release, with the same
+version as the chat (`cerea:X.Y.Z` goes with `galopin:X.Y.Z`); `edge` follows
+`main`. It is `linux/amd64` only for now.
+
+It holds, besides galopin and opencode: Python 3 (`pip`, `venv`, `uv`), Node
+(`npm`, `pnpm`), `gcc`, `g++` and `make`, `git`, `gh`, `ssh`, `rg` and `jq`. It runs
+as an ordinary user (uid 1000, home `/home/galopin`), with no `sudo`, and the
+working directory is `/workspace`.
+
+```sh
+docker run -it --rm --hostname sandbox \
+  -v "$PWD":/workspace \
+  ghcr.io/paoloviviani/galopin:<version>
+```
+
+**Enroll inside.** With nothing else set you get a shell. The container has no
+browser, so `galopin enroll` signs in with the device code: it prints a link and
+a code to open on any device. Paste the commands from the **Pair a computer**
+dialog, leaving out the install line:
+
+```sh
+galopin enroll --issuer "$OIDC_ISSUER" --gateway "$GATEWAY_BASE_URL" --cerea "$CEREA_BASE_URL"
+galopin run
+```
+
+Then confirm the computer in the panel and add `/workspace` as a workspace, as
+for any computer. The computer's name is the container's hostname, so give it a
+`--hostname` you will recognise (the default is a random id).
+
+**Enroll from the environment.** Give the container the addresses and it enrolls
+and runs on its own:
+
+```sh
+docker run -it --rm --hostname sandbox -v "$PWD":/workspace \
+  -e GATEWAY_BASE_URL=https://cerea.example.org \
+  ghcr.io/paoloviviani/galopin:<version>
+```
+
+| Variable              | Meaning                                                                                                                                  |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `GATEWAY_BASE_URL`    | The gateway origin: the kit's `PUBLIC_ORIGIN`. Setting it is what starts the automatic enroll                                            |
+| `CEREA_BASE_URL`      | The chat's address. Default `$GATEWAY_BASE_URL/chat`, the kit's layout; set it for a chat on another host                                |
+| `OIDC_ISSUER`         | The sign-in issuer. Default `$GATEWAY_BASE_URL/authelia`, the kit's bundled Authelia; set it for your own IdP                             |
+| `GALOPIN_ENROLL_ARGS` | Any other `galopin enroll` options, split on spaces with no quoting: `--client-id my-id --group research --default-group`                |
+| `GALOPIN_RUN_ARGS`    | Any other `galopin run` options, split the same way                                                                                      |
+
+Keep `-it` on the first run: enroll prints its code there and may ask for a
+billing group (or pass `--group` in `GALOPIN_ENROLL_ARGS`). With `-d`, read the
+code with `docker logs`.
+
+**Keep the pairing across restarts.** Everything galopin keeps (the enrollment,
+opencode's data, `gh` and git settings, packages installed with `pip --user` or
+`npm -g`) is under `/home/galopin`, so a container started with
+`--rm` loses it all. To keep it, mount a named volume there:
+
+```sh
+docker run -it --rm -v galopin-home:/home/galopin -v "$PWD":/workspace \
+  ghcr.io/paoloviviani/galopin:<version>
+```
+
+A container that finds itself enrolled starts the agent straight away, with no
+enroll and no environment. To get a shell instead, name the command:
+`docker run -it --rm -v galopin-home:/home/galopin ghcr.io/paoloviviani/galopin:<version> bash`.
+Any command you give replaces the default, so `... galopin enroll ...` and
+`... galopin auth status` work too. Delete the volume
+(`docker volume rm galopin-home`) to forget the pairing. Update by pulling the new
+image; the volume keeps its pairing.
+
+**Disposable means the panel remembers.** A container run with `--rm` and no
+volume leaves its computer in the Agents panel: remove it there ([Removing a
+computer](#removing-a-computer)).
+
+For `gh`, pass a token (`-e GH_TOKEN`) or run `gh auth login` inside, and `gh auth
+setup-git` so `git push` uses it. Bind-mounted projects owned by another user are
+accepted by git (`safe.directory` is open in the image), and files the agent
+writes there are owned by uid 1000.
+
 ### Updating galopin
 
 Re-run the install line, the same one the **Pair a computer** dialog prints:
