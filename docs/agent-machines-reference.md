@@ -1299,13 +1299,13 @@ docker run -it --rm --hostname sandbox -v "$PWD":/workspace \
   ghcr.io/paoloviviani/galopin:<version>
 ```
 
-| Variable              | Meaning                                                                                                                                  |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `GATEWAY_BASE_URL`    | The gateway origin: the kit's `PUBLIC_ORIGIN`. Setting it is what starts the automatic enroll                                            |
-| `CEREA_BASE_URL`      | The chat's address. Default `$GATEWAY_BASE_URL/chat`, the kit's layout; set it for a chat on another host                                |
-| `OIDC_ISSUER`         | The sign-in issuer. Default `$GATEWAY_BASE_URL/authelia`, the kit's bundled Authelia; set it for your own IdP                             |
-| `GALOPIN_ENROLL_ARGS` | Any other `galopin enroll` options, split on spaces with no quoting: `--client-id my-id --group research --default-group`                |
-| `GALOPIN_RUN_ARGS`    | Any other `galopin run` options, split the same way                                                                                      |
+| Variable              | Meaning                                                                                                                   |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `GATEWAY_BASE_URL`    | The gateway origin: the kit's `PUBLIC_ORIGIN`. Setting it is what starts the automatic enroll                             |
+| `CEREA_BASE_URL`      | The chat's address. Default `$GATEWAY_BASE_URL/chat`, the kit's layout; set it for a chat on another host                 |
+| `OIDC_ISSUER`         | The sign-in issuer. Default `$GATEWAY_BASE_URL/authelia`, the kit's bundled Authelia; set it for your own IdP             |
+| `GALOPIN_ENROLL_ARGS` | Any other `galopin enroll` options, split on spaces with no quoting: `--client-id my-id --group research --default-group` |
+| `GALOPIN_RUN_ARGS`    | Any other `galopin run` options, split the same way                                                                       |
 
 Keep `-it` on the first run: enroll prints its code there and may ask for a
 billing group (or pass `--group` in `GALOPIN_ENROLL_ARGS`). With `-d`, read the
