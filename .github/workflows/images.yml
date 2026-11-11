@@ -5,6 +5,9 @@
 # inputs changed).
 #
 # The package is public: anyone can pull it with no login.
+# The galopin image (agent/Dockerfile: galopin, the pinned opencode and a
+# development toolbox, for a disposable agent container) is versioned with the
+# chat too, so one release tag gives all three.
 # Tags: main → edge; vX.Y.Z → X.Y.Z, X.Y (never overwritten). Pystino pins the
 # image by digest (ADR 0087), so no per-commit tag exists. Built with
 # APP_BASE=/chat (compile-time in SvelteKit). No attestations: pruning their
@@ -132,6 +135,83 @@ jobs:
         with:
           {
             package-name: cerea-documents,
+            package-type: container,
+            delete-only-untagged-versions: "true",
+            min-versions-to-keep: 5,
+          }
+
+  # galopin + opencode + a development toolbox (agent/Dockerfile): a disposable
+  # container a person pairs with the Agents panel. Versioned with the chat, so
+  # `galopin:X.Y.Z` goes with `cerea:X.Y.Z`. linux/amd64 only for now.
+  galopin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Refuse to overwrite a released version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          if docker buildx imagetools inspect "ghcr.io/${{ github.repository_owner }}/galopin:${GITHUB_REF_NAME#v}" >/dev/null 2>&1; then
+            echo "::error::galopin:${GITHUB_REF_NAME#v} already exists; a release tag is immutable"; exit 1
+          fi
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/galopin
+          flavor: latest=false
+          tags: |
+            type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,prefix=sha-,format=short,enable=${{ github.ref == 'refs/heads/main' }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+          labels: |
+            org.opencontainers.image.title=galopin
+            org.opencontainers.image.description=galopin and opencode with python, node, a C toolchain, git and gh, for a disposable coding-agent container
+            org.opencontainers.image.licenses=Apache-2.0
+      # Built and run once before anything is pushed: a broken image never
+      # reaches a tag. The push below reuses these layers.
+      - name: Build, then check the tools are there
+        uses: docker/build-push-action@v6
+        with:
+          context: agent
+          load: true
+          tags: galopin:smoke
+          cache-from: type=gha,scope=galopin
+          cache-to: type=gha,mode=max,scope=galopin
+          provenance: false
+          sbom: false
+      - name: Smoke test
+        run: |
+          want=$(cat agent/packaging/opencode-version)
+          docker run --rm -e WANT="$want" galopin:smoke bash -ec '
+            galopin help >/dev/null
+            [ "$(opencode --version)" = "$WANT" ]
+            node -v; python3 --version; gcc --version | head -1; git --version; gh --version | head -1
+            pnpm -v; uv --version; rg --version | head -1; jq --version
+            [ "$(id -u)" = 1000 ]'
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: agent
+          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.meta.outputs.tags }}
+          push: true
+          cache-from: type=gha,scope=galopin
+          cache-to: type=gha,mode=max,scope=galopin
+          provenance: false
+          sbom: false
+      - name: Record the digest
+        run: echo "GALOPIN_IMAGE=ghcr.io/${{ github.repository_owner }}/galopin@${{ steps.build.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/delete-package-versions@v5
+        with:
+          {
+            package-name: galopin,
             package-type: container,
             delete-only-untagged-versions: "true",
             min-versions-to-keep: 5,

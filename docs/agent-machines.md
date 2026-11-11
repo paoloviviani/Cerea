@@ -56,6 +56,24 @@ That is all. The rest of this page is the panel in brief, what the permission
 settings mean and how to update galopin; the dialog's options and everything else
 are in the [reference](agent-machines-reference.md).
 
+## Or pair a disposable container
+
+If you would rather not install anything, galopin and opencode come ready in a
+container image, with python, node, a C toolchain, git and `gh`. Start one, pair
+it like any computer, and throw it away when you are done:
+
+```sh
+docker run -it --rm --hostname sandbox \
+  -v "$PWD":/workspace \
+  ghcr.io/paoloviviani/galopin:<version>      # the same version as your chat
+```
+
+Inside, run the `galopin enroll` and `galopin run` commands from the **Pair a
+computer** dialog (without the install step: galopin is already there), confirm
+the computer in the panel, and add `/workspace` as a workspace. The container
+can also enroll by itself from environment variables and keep its pairing in a
+volume: see [Running galopin in a container](agent-machines-reference.md#running-galopin-in-a-container).
+
 ## The panel
 
 ![An agent session waiting for you: an edit approval card, the Plan, Ask, Auto and Allow selector and the pane buttons.](assets/screenshots/agents-session-waiting.webp#only-light)
