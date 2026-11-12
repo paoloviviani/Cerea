@@ -535,3 +535,13 @@ A page with no host (`about:blank`) is judged against the task's last real site,
 every site counts as new; `navigate about:blank` is refused. Only the task's first navigation from
 a blank start page, to its start address, is exempt (Cerea sends a grant for it, bound to the
 action as a new-site navigation). `fill.text` has no line breaks or control characters.
+
+**Tabs, verifications, a page left open.** `tabs {deny?}` → `{tabs:[{id,title,url,mine}]}` lists the
+open pages (a user's own tab shows its address without query, fragment or credentials; hosts on
+`deny` are left out). `act` takes `{type:"use_tab", tab}`, always a commit (reason `user-tab`),
+whose grant digest is `["use_tab", id, "", url, title, "user-tab", "", "0"]` over the tab as `tabs`
+showed it. A page showing a bot check carries `challenge:{kind}` on `snapshot` and `diff`, and `act`
+answers `refused: "challenge"`; Cerea pauses for the user and never solves it. `end_task {keep?}` →
+`{closed, kept?:{token,id,title,url}}` (never for a tab the user opened) and `resume {token}` →
+`{id,title,url,changed,was?}` or `{refused:"page_changed",title,url}` let the next task of the same
+conversation continue on the kept page.

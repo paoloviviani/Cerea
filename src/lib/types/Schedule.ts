@@ -193,3 +193,9 @@ export interface ScheduleGrant {
 	createdAt: Date;
 	updatedAt: Date;
 }
+
+/** The count behind the per-user schedule cap (`server/schedules/slots.ts`). */
+export interface ScheduleCount {
+	_id: ObjectId; // the user
+	count: number;
+}

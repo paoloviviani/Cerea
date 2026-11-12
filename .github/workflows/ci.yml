@@ -239,6 +239,7 @@ jobs:
     outputs:
       client: ${{ steps.diff.outputs.client }}
       documents: ${{ steps.diff.outputs.documents }}
+      browser: ${{ steps.diff.outputs.browser }}
       e2e: ${{ steps.diff.outputs.e2e }}
     steps:
       - uses: actions/checkout@v4
@@ -296,6 +297,7 @@ jobs:
           if [ "$EVENT" != pull_request ]; then
             echo "client=true" >> "$GITHUB_OUTPUT"
             echo "documents=true" >> "$GITHUB_OUTPUT"
+            echo "browser=true" >> "$GITHUB_OUTPUT"
             echo "e2e=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -320,6 +322,42 @@ jobs:
           else
             echo "documents=false" >> "$GITHUB_OUTPUT"
           fi
+          # the browser runtime (ADR 0116): its sources, the bundle galopin embeds, or this workflow
+          if grep -qE '^(browser-runtime/|agent/internal/browserrt/|\.github/workflows/ci\.yml$)' <<<"$changed"; then
+            echo "browser=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "browser=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # The browser runtime (ADR 0116), browser-runtime/: format, strict types, its tests against local
+  # fixture pages in a real Chromium, and a check that the bundle galopin embeds is the one the
+  # sources make. Nothing here touches an external site.
+  browser-runtime:
+    needs: changes
+    if: github.event_name != 'schedule' && needs.changes.outputs.browser == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: browser-runtime
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "${{ env.NODE_VERSION }}"
+          cache: npm
+          cache-dependency-path: browser-runtime/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npx playwright-core install --with-deps chromium
+      # Hosted runners restrict user namespaces, so Chromium's sandbox is off for the fixtures.
+      - run: npm test
+        env:
+          CEREA_TEST_NO_SANDBOX: "1"
+      - name: The embedded bundle is current
+        run: |
+          npm run bundle
+          git diff --exit-code -- ../agent/internal/browserrt
 
   client:
     needs: changes
