@@ -56,6 +56,8 @@ func TestNormalizeAddress(t *testing.T) {
 		"cerea.example.org":               "https://cerea.example.org",
 		"  https://cerea.example.org/ ":   "https://cerea.example.org",
 		"http://localhost:3000":           "http://localhost:3000",
+		"http://127.0.0.1:3000":           "http://127.0.0.1:3000",
+		"http://[::1]:3000":               "http://[::1]:3000",
 		"https://c.example.org/chat/?x=1": "https://c.example.org/chat",
 	}
 	for in, want := range good {
@@ -63,7 +65,7 @@ func TestNormalizeAddress(t *testing.T) {
 			t.Errorf("%q: %q %v", in, got, err)
 		}
 	}
-	for _, in := range []string{"", "   ", "ftp://x.org", "https://u:p@x.org", "a b"} {
+	for _, in := range []string{"", "   ", "ftp://x.org", "http://cerea.example.org", "http://10.0.0.5:3000", "https://u:p@x.org", "a b"} {
 		if _, err := NormalizeAddress(in); err == nil {
 			t.Errorf("%q should be refused", in)
 		}

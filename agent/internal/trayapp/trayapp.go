@@ -125,6 +125,13 @@ func NormalizeAddress(s string) (string, error) {
 	if u.User != nil {
 		return "", errors.New("Leave the user name and password out of the address.")
 	}
+	if u.Scheme == "http" {
+		switch u.Hostname() {
+		case "localhost", "127.0.0.1", "::1":
+		default:
+			return "", errors.New("Use https: a plain http address is only accepted for this Mac itself (localhost).")
+		}
+	}
 	u.Path = strings.TrimRight(u.Path, "/")
 	u.RawQuery, u.Fragment = "", ""
 	return u.String(), nil
