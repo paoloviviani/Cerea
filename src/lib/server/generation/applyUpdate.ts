@@ -173,12 +173,12 @@ export function applyUpdateToMessage(
 		message.stats = event.stats;
 		message.updatedAt = new Date();
 		return { skipped: false, titleChanged, finalAnswerReceived };
-	} else if (event.type === MessageUpdateType.SubAgent) {
-		// One record per sub-agent: each state it reports replaces the last one
+	} else if (event.type === MessageUpdateType.SubAgent || event.type === MessageUpdateType.Browse) {
+		// One record per sub-agent (and per browse call): each state it reports replaces the last one
 		// for the same call, so 25 steps store one update rather than 25.
 		message.updates ??= [];
 		const prev = message.updates.findIndex(
-			(u) => u.type === MessageUpdateType.SubAgent && u.uuid === event.uuid
+			(u) => u.type === event.type && "uuid" in u && u.uuid === event.uuid
 		);
 		if (prev !== -1) message.updates[prev] = event;
 		else message.updates.push(event);
@@ -270,7 +270,13 @@ export function applyUpdateToMessage(
 	} else if (event.type === MessageUpdateType.File) {
 		message.files = [
 			...(message.files ?? []),
-			{ type: "hash", name: event.name, value: event.sha, mime: event.mime },
+			{
+				type: "hash",
+				name: event.name,
+				value: event.sha,
+				mime: event.mime,
+				...(event.withheld ? { withheld: event.withheld } : {}),
+			},
 		];
 	} else if (event.type === MessageUpdateType.RouterMetadata) {
 		// Only the provider a gateway reports is taken from the update; a

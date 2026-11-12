@@ -3,9 +3,13 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -41,9 +45,9 @@ Usage:
                a plain 'galopin run' then runs connectors-only. Without the
                flag the machine is an agent machine (opencode). See
                docs/local-connectors.md.
-  --issuer     OIDC issuer where discovery lives (prompted when missing).
+  --issuer     OIDC issuer where discovery lives (read from the Cerea address when missing, else prompted).
   --gateway    Gateway origin or /v1 base, e.g. https://llm.example.org
-               (a bare origin gets /v1 appended; prompted when missing).
+               (a bare origin gets /v1 appended; read from the Cerea address when missing, else prompted).
   --cerea      Cerea origin 'run' dials by default, e.g. https://cerea.example.org
                (optional: 'run --cerea' overrides it; unset means 'run' has
                no default and --cerea becomes required on that command).
@@ -366,6 +370,15 @@ func runEnroll(args []string) error {
 	if applyRecordedDefaults(&opts, set) {
 		fmt.Fprintf(os.Stderr, "note: re-enrolling: using the settings recorded in %s where you gave no flag.\n", opts.creds)
 	}
+	var confirm func(string) bool
+	if opts.yes {
+		confirm = func(string) bool { return true }
+	} else {
+		confirm = confirmYesNo
+	}
+	if err := fillFromCerea(&http.Client{Timeout: 8 * time.Second}, &opts, set, confirm); err != nil {
+		return err
+	}
 	if err := reconcileBillingMode(&opts, set); err != nil {
 		return err
 	}
@@ -373,6 +386,191 @@ func runEnroll(args []string) error {
 		return fmt.Errorf("--connectors-only runs no coding agent: it conflicts with --engine %s", opts.engine)
 	}
 	return enroll(context.Background(), &opts)
+}
+
+// defaultEnrollClientID is the --client-id default: the id baked into both bundled IdPs.
+const defaultEnrollClientID = "opencode-enrollment"
+
+// cereaEnrollFacts is what Cerea's public GET <base>/galopin/enroll.json says about the deployment:
+// public facts only, never a secret.
+type cereaEnrollFacts struct {
+	Issuer   string `json:"issuer"`
+	Gateway  string `json:"gateway"`
+	ClientID string `json:"clientId"`
+	// Flow is "device" or "loopback" when the deployment fixes how machines sign in; empty is auto.
+	Flow string `json:"flow"`
+}
+
+// fillFromCerea completes what the command line and the recorded credentials left open from the
+// Cerea the person named: the OIDC issuer, the gateway (not for a connectors machine) and the
+// machine's OAuth client id. A flag, or a recorded value, always wins; when Cerea cannot be asked
+// (an older Cerea, no network) nothing is filled and enroll prompts as before.
+//
+// What Cerea says is only used with care, because it decides where the person signs in:
+//   - Cerea is asked over https only (a loopback address excepted), and a redirect to another origin
+//     is refused;
+//   - the issuer and the gateway must be https URLs (loopback excepted);
+//   - the values it will use are printed, and when the issuer or the gateway is not on Cerea's own
+//     registrable domain the person is asked to confirm (y/N) before anything is used.
+//
+// confirm answers a y/N question; a nil confirm (or --yes in the caller) is the caller's choice.
+func fillFromCerea(client *http.Client, opts *enrollOptions, set map[string]bool, confirm func(prompt string) bool) error {
+	needClient := !set["client-id"] && opts.clientID == defaultEnrollClientID
+	needFlow := !set["device"] && !set["loopback"] && !opts.device && !opts.loopback
+	needIssuer := opts.issuer == ""
+	needGateway := !opts.connectorsOnly && opts.gateway == ""
+	if opts.cerea == "" || !(needIssuer || needGateway || needClient || needFlow) {
+		return nil
+	}
+	base, err := url.Parse(strings.TrimSuffix(opts.cerea, "/"))
+	if err != nil || base.Host == "" || !secureURL(base) {
+		fmt.Fprintf(os.Stderr, "note: not asking %s for its sign-in settings (it needs an https address); you will be asked for what is missing.\n", opts.cerea)
+		return nil
+	}
+	c := *client
+	c.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if req.URL.Scheme != base.Scheme || req.URL.Host != base.Host {
+			return fmt.Errorf("refusing a redirect to another origin (%s)", req.URL.Host)
+		}
+		if len(via) >= 5 {
+			return errors.New("too many redirects")
+		}
+		return nil
+	}
+	resp, err := c.Get(base.String() + "/galopin/enroll.json")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "note: could not ask %s for its sign-in settings (%v); you will be asked for what is missing.\n", base, err)
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	var facts cereaEnrollFacts
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&facts); err != nil {
+		return nil
+	}
+	issuer, gateway, clientID := "", "", ""
+	if needIssuer && facts.Issuer != "" {
+		if !secureURLString(facts.Issuer) {
+			fmt.Fprintf(os.Stderr, "note: %s sent an issuer that is not an https address; ignoring it.\n", base.Host)
+		} else {
+			issuer = facts.Issuer
+		}
+	}
+	if needGateway && facts.Gateway != "" {
+		if !secureURLString(facts.Gateway) {
+			fmt.Fprintf(os.Stderr, "note: %s sent a gateway that is not an https address; ignoring it.\n", base.Host)
+		} else {
+			gateway = facts.Gateway
+		}
+	}
+	if needClient && facts.ClientID != "" {
+		clientID = facts.ClientID
+	}
+	flow := ""
+	if needFlow && (facts.Flow == "device" || facts.Flow == "loopback") {
+		flow = facts.Flow
+	}
+	if issuer == "" && gateway == "" && clientID == "" && flow == "" {
+		return nil
+	}
+	fmt.Fprintf(os.Stderr, "Using the sign-in settings %s gave:\n", base.Host)
+	if issuer != "" {
+		fmt.Fprintf(os.Stderr, "  issuer:  %s\n", issuer)
+	}
+	if gateway != "" {
+		fmt.Fprintf(os.Stderr, "  gateway: %s\n", gateway)
+	}
+	if clientID != "" {
+		fmt.Fprintf(os.Stderr, "  client:  %s\n", clientID)
+	}
+	if flow != "" {
+		fmt.Fprintf(os.Stderr, "  sign-in: %s flow\n", flow)
+	}
+	var elsewhere []string
+	for _, raw := range []string{issuer, gateway} {
+		if raw == "" {
+			continue
+		}
+		if u, err := url.Parse(raw); err == nil && registrableDomain(u.Hostname()) != registrableDomain(base.Hostname()) {
+			elsewhere = append(elsewhere, u.Hostname())
+		}
+	}
+	if len(elsewhere) > 0 {
+		prompt := fmt.Sprintf("%s is not on %s's own domain. Sign in there? [y/N] ", strings.Join(elsewhere, " and "), registrableDomain(base.Hostname()))
+		if confirm == nil || !confirm(prompt) {
+			return fmt.Errorf("not using sign-in settings from another domain (%s); pass --issuer and --gateway yourself if they are right", strings.Join(elsewhere, ", "))
+		}
+	}
+	if issuer != "" {
+		opts.issuer = issuer
+	}
+	if gateway != "" {
+		opts.gateway = gateway
+	}
+	if clientID != "" {
+		opts.clientID = clientID
+	}
+	// A flag always wins: the deployment's flow only fills in when neither was given.
+	switch flow {
+	case "device":
+		opts.device = true
+	case "loopback":
+		opts.loopback = true
+	}
+	return nil
+}
+
+// secureURL is an https URL, or an http one on a loopback address (a development stack).
+func secureURL(u *url.URL) bool {
+	return u.Scheme == "https" || (u.Scheme == "http" && isLoopbackHost(u.Hostname()))
+}
+
+func secureURLString(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && u.Host != "" && secureURL(u)
+}
+
+// twoLevelSuffixes are suffixes under which the registrable domain has three labels. A short list
+// of the common ones, not the public suffix list: a miss only makes the check ask more often.
+var twoLevelSuffixes = map[string]bool{
+	"co.uk": true, "org.uk": true, "ac.uk": true, "gov.uk": true, "com.au": true, "net.au": true,
+	"org.au": true, "co.nz": true, "co.jp": true, "co.in": true, "com.br": true, "com.cn": true,
+	"co.za": true, "com.mx": true, "github.io": true, "gitlab.io": true, "vercel.app": true,
+	"netlify.app": true, "pages.dev": true, "herokuapp.com": true, "appspot.com": true,
+	"azurewebsites.net": true, "cloudfront.net": true, "ngrok.io": true, "trycloudflare.com": true,
+}
+
+// registrableDomain is the part of a host a person can own: example.org for idp.example.org. An IP
+// address or a single label is its own.
+func registrableDomain(host string) string {
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	if net.ParseIP(host) != nil {
+		return host
+	}
+	labels := strings.Split(host, ".")
+	if len(labels) <= 2 {
+		return host
+	}
+	n := 2
+	if twoLevelSuffixes[strings.Join(labels[len(labels)-2:], ".")] {
+		n = 3
+	}
+	return strings.Join(labels[len(labels)-n:], ".")
+}
+
+// confirmYesNo asks a y/N question on the terminal; no answer, or an unreadable input, is no.
+func confirmYesNo(prompt string) bool {
+	answer, err := promptLine(prompt)
+	if err != nil {
+		return false
+	}
+	switch strings.ToLower(answer) {
+	case "y", "yes":
+		return true
+	}
+	return false
 }
 
 // reconcileBillingMode settles the billing mode once the recorded defaults

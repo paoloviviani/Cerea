@@ -150,6 +150,8 @@ export interface FeatureFlags {
 	 * `--client-id` when a deployment has overridden it.
 	 */
 	codeOidcClientId: string;
+	/** How galopin signs in (`CODE_MACHINE_FLOW`): `auto` unless the deployment fixes it. */
+	codeMachineFlow: "device" | "loopback" | "auto";
 	/**
 	 * The gateway origin (or `/v1` base) `galopin enroll --gateway` needs
 	 * (`CODE_GATEWAY_ORIGIN`). Empty on a deployment that hasn't set one; the

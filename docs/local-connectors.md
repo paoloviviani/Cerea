@@ -38,11 +38,16 @@ until then `galopin run` is refused with "Sign in to Cerea once before
 connecting a computer".
 
 ```sh
-galopin enroll --connectors-only \
-  --issuer "$OIDC_ISSUER" \
-  --cerea "$CEREA_BASE_URL"
+galopin enroll --connectors-only --cerea "$CEREA_BASE_URL"
 galopin run
 ```
+
+`enroll` asks your Cerea (its public `/galopin/enroll.json`, which holds only the
+sign-in address and the client id) for what it needs, so the address is all you
+type. An older galopin that cannot do that needs
+`--issuer "$OIDC_ISSUER"` as well (and `--client-id` if your deployment uses its
+own); the card in Workspace, Connectors shows that longer form under "Using an
+older galopin?".
 
 `enroll` opens your browser to sign in (or prints a link and code for another
 device), stores the refresh credential in `<config-dir>/galopin/credentials.json`
@@ -52,9 +57,21 @@ backend. The computer then appears under
 **On your computers** (Workspace → Connectors), where you approve it
 (a connectors computer is never listed in the Agents panel).
 
+### Node.js for the browser
+
+The browser needs **Node.js 22.18 or newer** on that computer (not needed for connectors
+alone). Get it from [nodejs.org/en/download](https://nodejs.org/en/download) (pick the LTS),
+or on macOS with `brew install node`. Check it with `node --version`. The upcoming macOS
+"Cerea connector" app bundles Node, so app users do not need this.
+
 A computer that already runs a coding agent needs no second enrollment: it offers
 connectors too as soon as it has an `mcp.json`. To run only the connectors on
 such a computer, for one run, use `galopin run --connectors-only`.
+
+To use the assistant's browser on this computer without any agent, see
+[Browser use, for users without agents](browser-use.md#for-users-without-agents).
+To take galopin off a computer, see
+[Removing galopin from a computer](agent-machines-reference.md#removing-galopin-from-a-computer).
 
 ## `mcp.json`
 

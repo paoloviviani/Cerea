@@ -68,7 +68,7 @@ you approve it: the agent can list the open tabs (`tabs`) and ask to use one
 not taken: when the task ends it is let go and never closed.
 
 When a task ends, Cerea can ask the runtime to **keep the last page open**
-(`end_task` with `keep`). Only a page the task opened itself is kept: **a tab you lent is
+(`end_task` with `keep`). Only a page the task opened itself is kept (the `open` tool opens a page of its own with no task and returns the same kind of token, which is how Cerea's "Open browser" ties a page to a chat): **a tab you lent is
 never kept**, it is released and stays yours. The runtime gives back a random token, and a
 later task that presents it (`resume`) gets that page back with no new approval. If the
 page was **moved since** (a different address, query included; a fragment alone does not

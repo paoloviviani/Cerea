@@ -80,6 +80,56 @@ describe("LocalConnectors", () => {
 		expect(text(screen)).not.toContain("Connect a computer");
 	});
 
+	it("shows the browser card, with this deployment's commands, only when browser use is on", async () => {
+		stubApi(() => [machine({ id: "m1", browser: "ready" }), machine({ id: "m2", name: "desk" })]);
+		const off = mount();
+		await expect.element(off.getByText("laptop").first()).toBeInTheDocument();
+		expect(off.baseElement.querySelector('[data-testid="local-browser-card"]')).toBeNull();
+		await off.unmount();
+
+		stubApi(() => [machine({ id: "m1", browser: "ready" }), machine({ id: "m2", name: "desk" })]);
+		const on = mount({ browserUseEnabled: true });
+		await expect
+			.element(on.getByRole("heading", { name: "Use the browser on your computer" }))
+			.toBeInTheDocument();
+		const byId = (id: string) =>
+			on.baseElement.querySelector(`[data-testid="${id}"]`)?.textContent ?? "";
+		expect(byId("local-browser-install")).toContain("http://localhost:3000/galopin/install.sh");
+		expect(byId("local-browser-enroll")).toContain("--connectors-only");
+		// Short by default: this Cerea tells the binary its issuer; the long form is one click away.
+		expect(byId("local-browser-enroll")).not.toContain("--issuer");
+		expect(byId("local-browser-enroll")).toContain("--cerea 'http://localhost:3000'");
+		expect(byId("local-browser-explicit")).toContain("--issuer 'https://auth.example.org'");
+		expect(text(on)).toContain("Using an older galopin?");
+		expect(byId("local-browser-setup")).toBe(
+			"~/.local/bin/galopin browser setup\n~/.local/bin/galopin browser enable"
+		);
+		expect(byId("local-browser-run")).toBe("~/.local/bin/galopin run");
+		expect(text(on)).toContain("Node.js 22.18");
+		expect(byId("local-browser-states")).toContain("Browser ready");
+		expect(byId("local-browser-states")).toContain("No browser registered yet");
+	});
+
+	it("shows the machine's browser instead of saying it lists no servers", async () => {
+		stubApi(() => [
+			machine({ id: "m1", browser: "ready" }),
+			machine({ id: "m2", name: "desk", browser: "problem" }),
+			machine({ id: "m3", name: "bare" }),
+		]);
+		const screen = mount();
+		await expect.element(screen.getByText("Browser: ready")).toBeInTheDocument();
+		await expect.element(screen.getByText("Browser: not responding")).toBeInTheDocument();
+		// Only the machine with neither server nor browser says it lists none.
+		expect(text(screen).match(/It lists no servers yet/g)?.length).toBe(1);
+	});
+
+	it("hides the browser card without local-connectors access", async () => {
+		stubApi(() => []);
+		const screen = mount({ browserUseEnabled: true, localConnectorsDenied: "not_granted" });
+		await expect.element(screen.getByText(/has not enabled local connectors/)).toBeInTheDocument();
+		expect(screen.baseElement.querySelector('[data-testid="local-browser-card"]')).toBeNull();
+	});
+
 	it("says the gateway is not configured for the chat when it reports neither capability", async () => {
 		stubApi(() => []);
 		const screen = mount({ localConnectorsDenied: "not_configured" });
@@ -102,7 +152,8 @@ describe("LocalConnectors", () => {
 		const enroll = byId("local-enroll-command");
 		expect(enroll).toContain("galopin enroll");
 		expect(enroll).toContain("--connectors-only");
-		expect(enroll).toContain("--issuer 'https://auth.example.org'");
+		expect(enroll).not.toContain("--issuer");
+		expect(byId("local-explicit")).toContain("--issuer 'https://auth.example.org'");
 		expect(enroll).toContain("--cerea 'http://localhost:3000'");
 		// A connectors machine needs no gateway, and the default client id is not printed.
 		expect(enroll).not.toContain("--gateway");
@@ -244,5 +295,113 @@ describe("LocalConnectors", () => {
 		expect(seen[0]).toMatchObject({ method: "DELETE" });
 		expect(seen[0].url).toContain("/machines/m1");
 		expect(text(screen)).toContain("Managed in the Agents panel");
+	});
+
+	describe("browser actions on a computer's card", () => {
+		const openButton = (screen: ReturnType<typeof mount>) =>
+			screen.baseElement.querySelector<HTMLButtonElement>(
+				'[data-testid="local-machine-open-browser"]'
+			);
+		const defaultBox = (screen: ReturnType<typeof mount>) =>
+			screen.baseElement.querySelector<HTMLInputElement>(
+				'[data-testid="local-machine-browser-default"]'
+			);
+
+		it("shows Open browser and the default toggle beside 'Browser: ready', only when browser use is on", async () => {
+			stubApi(() => [machine({ id: "m1", browser: "ready" })]);
+			const off = mount();
+			await expect.element(off.getByText("Browser: ready")).toBeInTheDocument();
+			expect(openButton(off)).toBeNull();
+			expect(defaultBox(off)).toBeNull();
+			await off.unmount();
+
+			stubApi(() => [machine({ id: "m1", browser: "ready" })]);
+			const on = mount({ browserUseEnabled: true });
+			await expect.element(on.getByText("Browser: ready")).toBeInTheDocument();
+			expect(openButton(on)?.textContent).toContain("Open browser");
+			expect(text(on)).toContain("Use for browsing by default");
+		});
+
+		it("has no Open browser for a computer that is offline or whose browser is not ready", async () => {
+			stubApi(() => [
+				machine({ id: "m1", name: "a", browser: "problem" }),
+				machine({ id: "m2", name: "b", browser: "offline", online: false }),
+			]);
+			const screen = mount({ browserUseEnabled: true });
+			await expect.element(screen.getByText("Browser: not responding")).toBeInTheDocument();
+			expect(openButton(screen)).toBeNull();
+		});
+
+		it("opens a page tied to no chat, and says where", async () => {
+			const seen: Seen[] = [];
+			stubApi(
+				() => [machine({ id: "m1", name: "Laptop", browser: "ready" })],
+				seen,
+				(call) =>
+					call.url.endsWith("/api/v2/browser/open")
+						? Response.json({ opened: true, computer: "Laptop", tied: false })
+						: undefined
+			);
+			const screen = mount({ browserUseEnabled: true });
+			await expect.element(screen.getByText("Browser: ready")).toBeInTheDocument();
+			openButton(screen)?.click();
+			await vi.waitFor(() => expect(seen).toHaveLength(1));
+			expect(seen[0].method).toBe("POST");
+			expect(seen[0].url).toContain("/api/v2/browser/open");
+			// No conversation: nothing here ties the page to a chat.
+			expect(JSON.parse(seen[0].body ?? "{}")).toEqual({ deviceId: "m1" });
+		});
+
+		it("shows the server's reason when it cannot open (busy)", async () => {
+			stubApi(
+				() => [machine({ id: "m1", browser: "ready" })],
+				[],
+				(call) =>
+					call.url.endsWith("/api/v2/browser/open")
+						? Response.json(
+								{ error: "busy", message: "The browser on laptop is busy with a task." },
+								{ status: 409 }
+							)
+						: undefined
+			);
+			const screen = mount({ browserUseEnabled: true });
+			await expect.element(screen.getByText("Browser: ready")).toBeInTheDocument();
+			openButton(screen)?.click();
+			await expect
+				.element(screen.getByText("The browser on laptop is busy with a task."))
+				.toBeInTheDocument();
+		});
+
+		it("sets and clears the default computer", async () => {
+			const seen: Seen[] = [];
+			stubApi(() => [machine({ id: "m1", browser: "ready" })], seen);
+			const screen = mount({ browserUseEnabled: true });
+			await expect.element(screen.getByText("Browser: ready")).toBeInTheDocument();
+			expect(defaultBox(screen)?.checked).toBe(false);
+			defaultBox(screen)?.click();
+			await vi.waitFor(() => expect(seen).toHaveLength(1));
+			expect(seen[0]).toMatchObject({ method: "PUT" });
+			expect(JSON.parse(seen[0].body ?? "{}")).toEqual({ deviceId: "m1" });
+			await vi.waitFor(() => expect(defaultBox(screen)?.checked).toBe(true));
+			defaultBox(screen)?.click();
+			await vi.waitFor(() => expect(seen).toHaveLength(2));
+			expect(JSON.parse(seen[1].body ?? "{}")).toEqual({ deviceId: null });
+		});
+
+		it("shows which computer is the default", async () => {
+			stubApi(() => [
+				machine({ id: "m1", name: "a", browser: "ready", browserDefault: true }),
+				machine({ id: "m2", name: "b", browser: "ready" }),
+			]);
+			const screen = mount({ browserUseEnabled: true });
+			await expect.element(screen.getByText("a").first()).toBeInTheDocument();
+			const boxes = () => [
+				...screen.baseElement.querySelectorAll<HTMLInputElement>(
+					'[data-testid="local-machine-browser-default"]'
+				),
+			];
+			await vi.waitFor(() => expect(boxes()).toHaveLength(2));
+			expect(boxes().map((b) => b.checked)).toEqual([true, false]);
+		});
 	});
 });

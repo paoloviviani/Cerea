@@ -247,12 +247,25 @@ describe("a sub-agent run", () => {
 			{ calls: [{ name: "web_search", args: { query: "x" } }] },
 			{ content: "done" },
 		]);
-		await runNestedAgent(spec(), ctx(), deps(openai));
+		const turnHeaders = { "x-pystino-tag": "turn:m1", "x-bill-to": "org-1" };
+		await runNestedAgent(
+			spec(),
+			ctx(),
+			deps(openai, {
+				requestHeaders: {
+					Authorization: "Bearer person-token",
+					"ChatUI-Conversation-ID": "c1",
+					...turnHeaders,
+				},
+			})
+		);
 		expect(requests).toHaveLength(2);
+		// Every model call of a delegate (the closing report included) is tagged to the turn.
 		for (const { opts } of requests) {
 			expect(opts.headers).toMatchObject({
 				Authorization: "Bearer person-token",
 				"ChatUI-Conversation-ID": "c1",
+				...turnHeaders,
 			});
 		}
 	});

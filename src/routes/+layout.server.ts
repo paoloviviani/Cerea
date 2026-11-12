@@ -30,6 +30,7 @@ import { pseudoLocaleEnabled } from "$lib/server/localeSettings";
 import { baseLocale } from "$lib/i18n/resolve";
 import { slideDefaults } from "$lib/server/slideDefaults";
 import { publicOrgDefaults } from "$lib/utils/slides/themes";
+import { browserEnabled } from "$lib/server/browser/settings";
 import type { LayoutServerLoad } from "./$types";
 
 export const load: LayoutServerLoad = async ({ locals }) => {
@@ -88,6 +89,8 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 		localConnectorsEnabled: localConnectorsEnabled(),
 		// Per person (Pystino's `local_connectors` capability): null when granted, else why not,
 		// so the tab says so instead of showing a how-to that cannot work for them.
+		// Browser use (ADR 0116) is switched on: the Connectors tab then shows how to set up a browser.
+		browserUseEnabled: browserEnabled(),
 		localConnectorsDenied: await localConnectorsAccessFor(locals).then((a) =>
 			a === "ok" ? null : a
 		),

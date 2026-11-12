@@ -406,6 +406,31 @@ export async function* runMcpFlow({
 	const agentSessions = artifactToolsEnabled
 		? await agentSessionsFor(locals, conv.projectId)
 		: undefined;
+	// Browser use (ADR 0116): the switch, then the user's online machines that run a browser.
+	const browse = artifactToolsEnabled
+		? await (async () => {
+				const { browseMachinesFor } = await import("$lib/server/browser/availability");
+				const { browserSettings } = await import("$lib/server/browser/settings");
+				const { ceilingOf } = await import("$lib/server/browser/policy");
+				const machines = await browseMachinesFor(locals);
+				if (machines.length === 0) return undefined;
+				return {
+					machines,
+					settings: browserSettings(),
+					ceiling: ceilingOf(toolApprovalPolicy),
+					unattended: Boolean(locals?.scheduledRun),
+					language: locals?.locale,
+					chatModelSeesImages: Boolean(forceMultimodal ?? model.multimodal) && !model.toolImagesOff,
+					userId: locals?.user?._id,
+					token: turnToken,
+					// The user's own words: the only thing a `machine` hint may be checked against.
+					latestUserText: () =>
+						String(
+							[...messages].reverse().find((message) => message.from === "user")?.content ?? ""
+						),
+				};
+			})()
+		: undefined;
 	const builtinTools = getEnabledBuiltinTools({
 		conv,
 		...(imageGeneration ? { imageGeneration } : {}),
@@ -446,6 +471,7 @@ export async function* runMcpFlow({
 		...(locals?.scheduledRun ? { unattended: true } : {}),
 		...(locals?.user && schedulesEnabled() ? { scheduling: { timezone: locals.timezone } } : {}),
 		...(agentSessions ? { agentSessions } : {}),
+		...(browse ? { browse } : {}),
 	});
 	// Skills (Phase 1, ADR 0072): the `load_skill` builtin joins when the
 	// turn has any enabled skill, so the model loads a body mid-turn through
@@ -843,6 +869,10 @@ export async function* runMcpFlow({
 			completionBase,
 			requestHeaders: {
 				"ChatUI-Conversation-ID": conv._id.toString(),
+				// Like the main model's calls: a sub-agent's spend belongs to this turn and to the
+				// same billing group (browse, delegates, the sandbox and the rest all use these).
+				...billToHeader(locals?.billingOrganization),
+				...turnTagHeader(messageId),
 				...(config.USE_USER_TOKEN === "true" && locals?.token
 					? { Authorization: `Bearer ${locals.token}` }
 					: {}),

@@ -325,6 +325,20 @@ export type CodeDeviceStatus = "pending" | "paired" | "revoked";
 
 export interface CodeDevice {
 	_id: ObjectId;
+	/** The per-device key that signs browser approval grants (ADR 0116), sealed like connector
+	 * credentials. Generated on first use; handed to the machine only over its own link. */
+	browserKeySealed?: string;
+	/** The browser task holding this machine's browser (ADR 0116): free when absent or past `until`. */
+	browserLease?: { holder: string; until: Date };
+	/** Pages a browse task left open, by conversation id (server-side only; `browser/kept.ts`). */
+	browserKept?: Record<
+		string,
+		{ token: string; url?: string; at: Date; lent?: boolean; site?: string }
+	>;
+	/** This user's default computer for browsing (one per user, set from Connectors; `browser/machineChoice.ts`). */
+	browserDefault?: boolean;
+	/** When `browserDefault` was set: if several are ever set, the latest wins. */
+	browserDefaultAt?: Date;
 	userId: ObjectId;
 	/** The machine's own generated id (`X-Pystino-Machine-Id`); stable across
 	 * reconnects, but a fresh one for every re-enroll. Unique per user. */

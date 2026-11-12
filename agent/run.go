@@ -79,19 +79,22 @@ Usage:
 `
 
 type runOptions struct {
-	cerea           string
-	credsPath       string
-	stateDir        string
-	mcpConfig       string
-	noShim          bool
-	backendKind     string
-	connectorsOnly  bool
-	opencodeBin     string
-	opencodeConfig  string
-	acpCommand      string
-	machineName     string
-	port            int
-	noRefreshModels bool
+	cerea          string
+	credsPath      string
+	stateDir       string
+	mcpConfig      string
+	noShim         bool
+	backendKind    string
+	connectorsOnly bool
+	// agentUnavailable is set when the agent backend would not start: run then serves the
+	// connectors (and the browser) anyway and says so in its hello.
+	agentUnavailable string
+	opencodeBin      string
+	opencodeConfig   string
+	acpCommand       string
+	machineName      string
+	port             int
+	noRefreshModels  bool
 }
 
 func runRun(args []string) error {
@@ -288,7 +291,12 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	live := policy.NewLive(pol.Permission)
 	back, err := startBackend(ctx, opts, stateDir, pol, live, logf)
 	if err != nil {
-		return err
+		// A missing or broken agent must not take the connectors and the browser down with it:
+		// serve them, say so, and let Cerea see a machine with no agent backend.
+		warning := "agent sessions unavailable: " + err.Error() + ". Install opencode (https://opencode.ai/install) or run 'galopin run --connectors-only' to silence this"
+		logf("warning: %s", warning)
+		opts.agentUnavailable = warning
+		return runConnectorsOnly(ctx, opts, credsPath, stateDir, mcpPath, cereaOrigin, machineID, machineName, sh, pol)
 	}
 	logf("%s started (backend %s %s)", opts.backendKind, back.ID(), back.Version())
 
@@ -869,7 +877,7 @@ func runConnectorsOnly(ctx context.Context, opts *runOptions, credsPath, stateDi
 		MachineID:   machineID,
 		MachineName: machineName,
 		Cred:        sh,
-		Hello:       func() link.Hello { return buildConnectorsHello(pol) },
+		Hello:       func() link.Hello { return connectorsHello(pol, opts.agentUnavailable) },
 		Handler:     mc,
 		Mcp:         mc,
 		Logf:        func(format string, args ...any) { logf(format, args...) },
@@ -896,6 +904,18 @@ func runConnectorsOnly(ctx context.Context, opts *runOptions, credsPath, stateDi
 		cancelRevoke()
 	}
 	return runErr
+}
+
+// connectorsHello is buildConnectorsHello, or, for an agent machine whose backend would not start
+// (agentUnavailable), the same hello as an agent machine with no backend: it stays an agent machine
+// for Cerea, offers connectors, and carries the reason as a policy warning.
+func connectorsHello(pol policy.Policy, agentUnavailable string) link.Hello {
+	h := buildConnectorsHello(pol)
+	if agentUnavailable != "" {
+		h.Machine.Mode = "agent"
+		h.Policy.Warnings = []string{agentUnavailable}
+	}
+	return h
 }
 
 // buildConnectorsHello is the hello of a connectors-only machine

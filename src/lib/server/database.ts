@@ -805,6 +805,12 @@ export class Database {
 			.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 24 * 60 * 60 })
 			.catch((e) => logger.error(e, "Error creating TTL index for mcpElicitations by expiresAt"));
 
+		// The Needs-you inbox's browse asks (ADR 0116): one user's pending rows, sparse because
+		// only the browse approver stores a `userId`.
+		mcpElicitations
+			.createIndex({ userId: 1, status: 1, expiresAt: 1 }, { sparse: true })
+			.catch((e) => logger.error(e, "Error creating index for mcpElicitations by userId"));
+
 		settings
 			.createIndex({ sessionId: 1 }, { unique: true, sparse: true })
 			.catch((e) => logger.error(e, "Error creating index for settings by sessionId"));

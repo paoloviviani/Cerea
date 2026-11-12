@@ -239,6 +239,7 @@ async function revokeAndClose(state: ConnectionState, reason: string): Promise<v
 					revokedReason: "account_disabled",
 					updatedAt: new Date(),
 				},
+				$unset: { browserDefault: "", browserDefaultAt: "" },
 			}
 		)
 		.catch((err) =>

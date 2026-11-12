@@ -17,6 +17,8 @@
 	import CarbonChevronRight from "~icons/carbon/chevron-right";
 	import LucideLibrary from "~icons/lucide/library";
 	import UrlFetchModal from "./UrlFetchModal.svelte";
+	import OpenBrowserModal from "./OpenBrowserModal.svelte";
+	import { listBrowserComputers, type BrowserComputer } from "$lib/browserApi";
 	import CarbonEarth from "~icons/carbon/earth";
 	import LucideShieldCheck from "~icons/lucide/shield-check";
 	import LucideMic from "~icons/lucide/mic";
@@ -318,6 +320,18 @@
 	let knowledgeStoresFailed = $state(false);
 
 	const signedIn = $derived(Boolean(page.data.user));
+
+	// "Open browser…" (ADR 0116, C109): offered only when browser use is on and at least one of the
+	// user's computers has its browser ready. Read when the composer mounts and each time the menu opens.
+	let browserComputers = $state<BrowserComputer[]>([]);
+	let isBrowserModalOpen = $state(false);
+	const browserOffered = $derived(chatTools && signedIn && Boolean(page.data.browserUseEnabled));
+	async function refreshBrowserComputers() {
+		browserComputers = browserOffered ? await listBrowserComputers(page.params.id) : [];
+	}
+	$effect(() => {
+		void refreshBrowserComputers();
+	});
 
 	async function loadKnowledgeStores() {
 		if (knowledgeStoresLoading) return;
@@ -1115,6 +1129,7 @@
 									return;
 								}
 								isDropdownOpen = open;
+								if (open && browserOffered) void refreshBrowserComputers();
 							}}
 						>
 							<DropdownMenu.Trigger
@@ -1178,6 +1193,22 @@
 												<span>{m["chat.input.create_image"]()}</span>
 												<span class="text-xs text-gray-500 dark:text-gray-400"
 													>{m["chat.input.create_image_hint"]()}</span
+												>
+											</div>
+										</DropdownMenu.Item>
+									{/if}
+
+									{#if browserOffered && browserComputers.length > 0}
+										<DropdownMenu.Item
+											class="flex min-h-9 items-center gap-1 rounded-md px-2 py-1 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:min-h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
+											data-testid="open-browser-item"
+											onSelect={() => (isBrowserModalOpen = true)}
+										>
+											<CarbonEarth class="size-4 shrink-0 opacity-90 dark:opacity-80" />
+											<div class="flex flex-col leading-tight">
+												<span>{m["chat.input.open_browser"]()}</span>
+												<span class="text-xs text-gray-500 dark:text-gray-400"
+													>{m["chat.input.open_browser_hint"]()}</span
 												>
 											</div>
 										</DropdownMenu.Item>
@@ -1391,6 +1422,11 @@
 		</div>
 	{/if}
 
+	<OpenBrowserModal
+		bind:open={isBrowserModalOpen}
+		computers={browserComputers}
+		conversationId={page.params.id}
+	/>
 	<UrlFetchModal
 		bind:open={isUrlModalOpen}
 		acceptMimeTypes={mimeTypes}

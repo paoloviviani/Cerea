@@ -8,6 +8,7 @@
 	import { m } from "$lib/paraglide/messages";
 	import InstructionsSection from "$lib/components/admin/InstructionsSection.svelte";
 	import SubAgentsSection from "$lib/components/admin/SubAgentsSection.svelte";
+	import BrowserSection from "$lib/components/admin/BrowserSection.svelte";
 	import SlidesSection from "$lib/components/admin/SlidesSection.svelte";
 	import VoiceSection from "$lib/components/admin/VoiceSection.svelte";
 	import ImagesSection from "$lib/components/admin/ImagesSection.svelte";
@@ -21,6 +22,7 @@
 <div class="flex flex-col gap-6">
 	<InstructionsSection />
 	<SubAgentsSection />
+	<BrowserSection />
 	<VoiceSection />
 	<ImagesSection />
 	<SlidesSection />

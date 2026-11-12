@@ -206,7 +206,11 @@ test.describe("the pair dialog's setup commands", () => {
 		// the browser's own bare origin as the gateway fallback.
 		const commandBlock = dialog.getByTestId("galopin-enroll-command");
 		await expect(commandBlock).toBeVisible();
-		await expect(commandBlock).toContainText(
+		// The short form: galopin asks this Cerea for the issuer and gateway itself.
+		await expect(commandBlock).toContainText(`galopin enroll \\\n  --cerea '${E2E_APP_URL}'`);
+		await expect(commandBlock).not.toContainText("--issuer");
+		// The long form, for an older galopin, spells them out (a hardcoded issuer would show here).
+		await expect(dialog.getByTestId("galopin-enroll-command-explicit")).toContainText(
 			`galopin enroll \\\n  --issuer 'http://127.0.0.1:9/authelia' \\\n  --gateway '${E2E_APP_ORIGIN}' \\\n  --cerea '${E2E_APP_URL}'`
 		);
 		await expect(commandBlock).toContainText("galopin run");
