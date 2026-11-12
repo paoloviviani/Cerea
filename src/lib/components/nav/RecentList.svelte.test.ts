@@ -52,7 +52,11 @@ describe("NavMenu's Recent selector", () => {
 		projectsTreeCache.loaded = false;
 	});
 
+	// Every mounted sidebar is destroyed before the stubs go: a live one keeps
+	// its polls and scroll timers running, and they would reach the real network.
+	const mounted: { unmount: () => void }[] = [];
 	afterEach(() => {
+		for (const screen of mounted.splice(0)) screen.unmount();
 		vi.unstubAllGlobals();
 		codeNav.view = "auto";
 		host.remove();
@@ -62,7 +66,7 @@ describe("NavMenu's Recent selector", () => {
 		conversations: ConvSidebar[],
 		opts: { agents?: boolean; data?: Record<string, unknown> } = {}
 	) {
-		return renderWithApp(
+		const screen = renderWithApp(
 			NavMenu,
 			{
 				conversations,
@@ -79,6 +83,8 @@ describe("NavMenu's Recent selector", () => {
 				]),
 			}
 		);
+		mounted.push(screen);
+		return screen;
 	}
 
 	it("offers Chats, Recent and (with agents) Agents, with Recent pressed", () => {
@@ -385,7 +391,7 @@ describe("NavMenu's Recent selector", () => {
 		seedMachines([{ id: "d1", name: "one", status: "paired", online: true }], {
 			d1: [session("a", 1)],
 		});
-		renderWithApp(
+		const screen = renderWithApp(
 			NavMenu,
 			{
 				conversations: [],
@@ -405,6 +411,7 @@ describe("NavMenu's Recent selector", () => {
 				]),
 			}
 		);
+		mounted.push(screen);
 		await vi.waitFor(() =>
 			expect(host.querySelector('[data-testid="recent-row"][data-kind="agent"]')).not.toBeNull()
 		);
