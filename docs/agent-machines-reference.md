@@ -35,6 +35,16 @@ updates as you change things, with paths
 and globs quoted so they reach `enroll` as single arguments. (A control shown in
 an amber tone is one that opens something up.)
 
+A switch at the top chooses where the agent runs: **On this computer** (always
+the one the dialog opens on) or **In a Docker container**. The second prints a
+`docker run` of the galopin image instead of the install, enroll and run line,
+with **exactly the same flags** after `start` (see
+[Running galopin in a container](#running-galopin-in-a-container)). In that mode
+the dialog adds a **Computer name** and **Keep the pairing across restarts**, and
+leaves out what a container does not need: the download links, **Install
+opencode** and the goose engine (the engine is always opencode). Every other
+option, and the list of computers waiting for confirmation, work the same.
+
 **Common options**, at the top:
 
 | Control                                        | What it adds to the printed command                                                                                                                                                                                                                                                                 | Default | Use it when                                                                                                                |
@@ -1270,13 +1280,37 @@ It holds, besides galopin and opencode: Python 3 (`pip`, `venv`, `uv`), Node
 as an ordinary user (uid 1000, home `/home/galopin`), with no `sudo`, and the
 working directory is `/workspace`.
 
+**The command the dialog prints.** The **Pair a computer** dialog's **In a Docker
+container** switch prints one `docker run` that enrolls and runs. Everything after
+`start` is the list of `galopin enroll` flags, taken as written (no splitting, so
+a path with spaces or a `*` arrives as one argument), then the agent runs:
+
 ```sh
-docker run -it --rm --hostname sandbox \
+docker run -it --rm \
+  --hostname sandbox \
   -v "$PWD":/workspace \
-  ghcr.io/paoloviviani/galopin:<version>
+  ghcr.io/paoloviviani/galopin:<version> \
+  start \
+  --issuer 'https://cerea.example.org/authelia' \
+  --gateway 'https://cerea.example.org' \
+  --cerea 'https://cerea.example.org/chat' \
+  --default-group
 ```
 
-**Enroll inside.** With nothing else set you get a shell. The container has no
+The image tag is the version of the Cerea that shows the dialog (`cerea:X.Y.Z`
+goes with `galopin:X.Y.Z`), so the command works once a release has published
+that image; `edge` (the newest `main`) is the stand-in until then, but only an
+`edge` built after the `start ARGS` form was added understands it. The flags are
+the dialog's own, so they match what the same options print for a computer; the
+install step is left out, and the engine is always opencode. `--hostname` is the
+computer's name in the Agents panel (the dialog's **Computer name**, made of
+lower-case letters, digits and hyphens). With **Keep the pairing across
+restarts** ticked the dialog adds `-v galopin-<name>:/home/galopin`, described
+below. `start` with no flags keeps its older behaviour, in the next paragraphs.
+`start ARGS` on a home that is already enrolled asks before `enroll` replaces the
+pairing.
+
+**Enroll inside.** With nothing else set (a plain `docker run ... galopin:<version>`) you get a shell. The container has no
 browser, so `galopin enroll` signs in with the device code: it prints a link and
 a code to open on any device. Paste the commands from the **Pair a computer**
 dialog, leaving out the install line:
@@ -1322,7 +1356,9 @@ docker run -it --rm -v galopin-home:/home/galopin -v "$PWD":/workspace \
 ```
 
 A container that finds itself enrolled starts the agent straight away, with no
-enroll and no environment. To get a shell instead, name the command:
+enroll and no environment. That is how to restart a container the dialog's command
+paired with the volume: run the same command **without `start` and the flags**
+(keeping the `-v` lines), because an enrolled home starts the agent by itself. To get a shell instead, name the command:
 `docker run -it --rm -v galopin-home:/home/galopin ghcr.io/paoloviviani/galopin:<version> bash`.
 Any command you give replaces the default, so `... galopin enroll ...` and
 `... galopin auth status` work too. Delete the volume

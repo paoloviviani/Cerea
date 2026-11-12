@@ -1,6 +1,10 @@
+import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import {
+	buildDockerCommand,
 	buildEnrollCommand,
+	cleanContainerName,
+	GALOPIN_IMAGE,
 	quoteShellArg,
 	DEFAULT_CODE_CLIENT_ID,
 	GALOPIN_BIN,
@@ -197,5 +201,143 @@ describe("the pinned opencode archives' checksums", () => {
 			"opencode-linux-x64.tar.gz",
 		]);
 		for (const sum of file.values()) expect(sum).toMatch(/^[0-9a-f]{64}$/);
+	});
+});
+
+describe("buildDockerCommand", () => {
+	const DOCKER = { ...BASE_OPTIONS, version: "0.49.1" };
+
+	it("is one docker run: the image of this release, then start and the enroll flags", () => {
+		expect(buildDockerCommand(DOCKER)).toBe(
+			[
+				"docker run -it --rm \\",
+				"  --hostname sandbox \\",
+				'  -v "$PWD":/workspace \\',
+				"  ghcr.io/paoloviviani/galopin:0.49.1 \\",
+				"  start \\",
+				"  --issuer 'https://idp.example.org' \\",
+				"  --gateway 'https://gateway.example.org' \\",
+				"  --cerea 'https://cerea.example.org/chat' \\",
+				"  --default-group",
+			].join("\n")
+		);
+		expect(GALOPIN_IMAGE).toBe("ghcr.io/paoloviviani/galopin");
+	});
+
+	it("prints exactly the flags the native enroll prints, whatever is chosen", () => {
+		const choices = {
+			...BASE_OPTIONS,
+			clientId: "my-client",
+			allowProjectConfig: true,
+			noFiles: true,
+			workspaceRoots: ["/my projects/*"],
+			fileDeny: ["**/.env"],
+			maxTerminals: 3,
+		};
+		const flagsOf = (text: string, marker: string) =>
+			text
+				.split(marker)[1]
+				.split(/ &&\n|$/)[0]
+				.replace(/ \\\n {2}/g, " ")
+				.trim();
+		const native = flagsOf(buildEnrollCommand(choices), "galopin enroll");
+		const docker = flagsOf(buildDockerCommand({ ...choices, version: "1.2.3" }), "  start");
+		expect(docker).toBe(native);
+		expect(docker).toContain("--workspace-root '/my projects/*'");
+		expect(docker).toContain("--client-id 'my-client'");
+	});
+
+	it("has no install step, no opencode install and never the goose engine", () => {
+		const command = buildDockerCommand({ ...DOCKER, engine: "goose", installOpencode: true });
+		expect(command).not.toContain("install.sh");
+		expect(command).not.toContain("--with-opencode");
+		expect(command).not.toContain("--engine");
+		expect(command).not.toContain("galopin run");
+	});
+
+	it("names the computer and, only when asked, keeps the pairing in a volume of that name", () => {
+		expect(buildDockerCommand({ ...DOCKER, name: "Build Box 2" })).toContain(
+			"--hostname build-box-2"
+		);
+		expect(buildDockerCommand({ ...DOCKER, name: "Build Box 2" })).not.toContain("-v galopin-");
+		const kept = buildDockerCommand({ ...DOCKER, name: "build", keepPairing: true });
+		expect(kept).toContain("  -v galopin-build:/home/galopin \\\n");
+		expect(kept.indexOf("galopin-build:/home/galopin")).toBeGreaterThan(
+			kept.indexOf("--hostname build")
+		);
+		expect(kept.indexOf("galopin-build:/home/galopin")).toBeLessThan(kept.indexOf(GALOPIN_IMAGE));
+	});
+
+	it("takes the tag from the version it is given", () => {
+		expect(buildDockerCommand({ ...DOCKER, version: "1.2.3" })).toContain(
+			`${GALOPIN_IMAGE}:1.2.3 `
+		);
+	});
+});
+
+describe("buildDockerCommand, read by a real shell", () => {
+	/** The arguments bash gives `docker`, one per line, for a command text. */
+	function argvOf(command: string): string[] {
+		const script = `docker() { printf '%s\\n' "$@"; }\n${command}\n`;
+		execFileSync("bash", ["-n"], { input: script });
+		return execFileSync("bash", ["-c", script], { env: { PWD: "/proj" }, encoding: "utf8" })
+			.split("\n")
+			.slice(0, -1);
+	}
+
+	it("is valid shell, and the flags reach the image's `start` as single arguments", () => {
+		const argv = argvOf(
+			buildDockerCommand({
+				...BASE_OPTIONS,
+				version: "1.2.3",
+				name: "Lab Box",
+				keepPairing: true,
+				workspaceRoots: ["/my projects/*"],
+				fileDeny: ["**/.env"],
+			})
+		);
+		expect(argv).toEqual([
+			"run",
+			"-it",
+			"--rm",
+			"--hostname",
+			"lab-box",
+			"-v",
+			"galopin-lab-box:/home/galopin",
+			"-v",
+			expect.stringMatching(/:\/workspace$/),
+			`${GALOPIN_IMAGE}:1.2.3`,
+			"start",
+			"--issuer",
+			"https://idp.example.org",
+			"--gateway",
+			"https://gateway.example.org",
+			"--cerea",
+			"https://cerea.example.org/chat",
+			"--default-group",
+			"--workspace-root",
+			"/my projects/*",
+			"--file-deny",
+			"**/.env",
+		]);
+	});
+});
+
+describe("cleanContainerName", () => {
+	it("keeps a good name, lower-cases, and turns anything else into single hyphens", () => {
+		expect(cleanContainerName("ci-box")).toBe("ci-box");
+		expect(cleanContainerName("My Laptop_2")).toBe("my-laptop-2");
+		expect(cleanContainerName("  --a..b--  ")).toBe("a-b");
+	});
+	it("falls back to the default when nothing usable is left, and stays within 63 characters", () => {
+		expect(cleanContainerName("")).toBe("sandbox");
+		expect(cleanContainerName("***")).toBe("sandbox");
+		expect(cleanContainerName("é ü")).toBe("sandbox");
+		expect(cleanContainerName("a".repeat(100))).toHaveLength(63);
+		expect(cleanContainerName("a".repeat(62) + "-b")).toBe("a".repeat(62));
+	});
+	it("never lets a shell metacharacter through", () => {
+		expect(cleanContainerName("x; rm -rf /")).toBe("x-rm-rf");
+		expect(cleanContainerName("$(id)")).toBe("id");
 	});
 });

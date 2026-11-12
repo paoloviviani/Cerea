@@ -36,9 +36,12 @@
 		/** Whether the opencode install line is part of the command: the one
 		 * common option that is not machine policy. */
 		installOpencode: boolean;
+		/** The command runs in the Docker image: it carries opencode and not
+		 * goose, so neither the install checkbox nor the goose engine is offered. */
+		docker?: boolean;
 	}
 
-	let { choices = $bindable(), installOpencode = $bindable() }: Props = $props();
+	let { choices = $bindable(), installOpencode = $bindable(), docker = false }: Props = $props();
 
 	type BooleanKey =
 		| "allowProjectConfig"
@@ -125,18 +128,20 @@
 		true
 	)}
 
-	<label class="mb-3 flex items-start gap-2 text-xs text-ink-muted">
-		<input
-			type="checkbox"
-			class="mt-0.5"
-			data-testid="enroll-install-opencode"
-			bind:checked={installOpencode}
-		/>
-		<span>
-			<span class="font-medium text-ink">{m["code.enroll.install_opencode_label"]()}</span>
-			{m["code.enroll.install_opencode_text"]()}
-		</span>
-	</label>
+	{#if !docker}
+		<label class="mb-3 flex items-start gap-2 text-xs text-ink-muted">
+			<input
+				type="checkbox"
+				class="mt-0.5"
+				data-testid="enroll-install-opencode"
+				bind:checked={installOpencode}
+			/>
+			<span>
+				<span class="font-medium text-ink">{m["code.enroll.install_opencode_label"]()}</span>
+				{m["code.enroll.install_opencode_text"]()}
+			</span>
+		</label>
+	{/if}
 
 	<details class="mb-3 rounded-lg border border-line p-2" data-testid="enroll-advanced">
 		<summary class="cursor-pointer text-xs font-medium text-ink">
@@ -159,11 +164,11 @@
 					bind:value={choices.engine}
 				>
 					<option value="opencode">{m["code.enroll.engine_opencode"]()}</option>
-					<option value="goose">{m["code.enroll.engine_goose"]()}</option>
+					{#if !docker}<option value="goose">{m["code.enroll.engine_goose"]()}</option>{/if}
 				</select>
 				<span>
 					<span class="font-medium text-ink">{m["code.enroll.engine_label"]()}</span>
-					{m["code.enroll.engine_text"]()}
+					{docker ? m["code.enroll.engine_docker_text"]() : m["code.enroll.engine_text"]()}
 				</span>
 			</label>
 			{@render flag(

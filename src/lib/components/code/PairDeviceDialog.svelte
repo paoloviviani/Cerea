@@ -34,7 +34,14 @@
 		useCodeDevicePoll,
 	} from "$lib/stores/codeDeviceList.svelte";
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
-	import { buildEnrollCommand } from "$lib/codeEnrollCommand";
+	import {
+		buildDockerCommand,
+		buildEnrollCommand,
+		cleanContainerName,
+		DEFAULT_CONTAINER_NAME,
+	} from "$lib/codeEnrollCommand";
+	import { APP_VERSION } from "$lib/utils/appVersion";
+	import SegmentedGroup from "$lib/components/settings/SegmentedGroup.svelte";
 	import { defaultPolicyChoices } from "$lib/codeEnrollPolicy";
 	import EnrollPolicyControls from "./EnrollPolicyControls.svelte";
 	import * as s from "$lib/components/overlay/styles";
@@ -61,15 +68,40 @@
 	const gatewayOrigin = $derived(page.data.codeGatewayOrigin || page.url.origin);
 	let policyChoices = $state(defaultPolicyChoices());
 	let installOpencode = $state(false);
+	// Where the agent runs. Always opens on this computer: the choice is not
+	// remembered, so a person who tried Docker once is not surprised by it later.
+	let mode = $state<"native" | "docker">("native");
+	const docker = $derived(mode === "docker");
+	let containerName = $state(DEFAULT_CONTAINER_NAME);
+	let keepPairing = $state(false);
+	const modes = [
+		{ value: "native", label: m["code.pair.mode_native"]() },
+		{ value: "docker", label: m["code.pair.mode_docker"]() },
+	];
+
+	function chooseMode(value: string) {
+		mode = value === "docker" ? "docker" : "native";
+		// The image has no goose: a goose choice made on this computer must not
+		// leak into the container's command (or come back unseen).
+		if (mode === "docker") policyChoices.engine = "opencode";
+	}
+
+	const enrollOptions = $derived({
+		origin,
+		issuer: page.data.codeOidcIssuerUrl ?? "",
+		gatewayOrigin,
+		clientId: page.data.codeOidcClientId,
+		...policyChoices,
+	});
 	const command = $derived(
-		buildEnrollCommand({
-			origin,
-			issuer: page.data.codeOidcIssuerUrl ?? "",
-			gatewayOrigin,
-			clientId: page.data.codeOidcClientId,
-			...policyChoices,
-			installOpencode,
-		})
+		docker
+			? buildDockerCommand({
+					...enrollOptions,
+					version: APP_VERSION,
+					name: containerName,
+					keepPairing,
+				})
+			: buildEnrollCommand({ ...enrollOptions, installOpencode })
 	);
 	const downloads = [
 		{ name: "galopin-linux-amd64", label: m["code.pair.platform_linux_amd64"]() },
@@ -140,7 +172,18 @@
 			</div>
 		{/if}
 
-		<p class="{s.LABEL} mb-2">{m["code.pair.install_label"]()}</p>
+		<div class="mb-4">
+			<SegmentedGroup
+				label={m["code.pair.mode_label"]()}
+				options={modes}
+				value={mode}
+				onchange={chooseMode}
+			/>
+		</div>
+
+		<p class="{s.LABEL} mb-2">
+			{docker ? m["code.pair.docker_label"]() : m["code.pair.install_label"]()}
+		</p>
 		<div class="mb-2 flex items-center gap-2 rounded-lg border border-line bg-surface p-3">
 			<pre
 				class="min-w-0 flex-1 font-mono text-xs break-all whitespace-pre-wrap text-ink"
@@ -150,28 +193,72 @@
 				value={command}
 			/>
 		</div>
-		<p class="mb-4 text-xs text-ink-muted">
-			<Rich parts={m["code.pair.explain"].parts()} tags={{ code: inlineCode }} />
+		<p class="mb-4 text-xs text-ink-muted" data-testid="pair-explain">
+			{#if docker}
+				{m["code.pair.docker_explain"]()}
+			{:else}
+				<Rich parts={m["code.pair.explain"].parts()} tags={{ code: inlineCode }} />
+			{/if}
 		</p>
-		<details class="mb-4 text-xs text-ink-muted">
-			<summary class="cursor-pointer">{m["code.pair.download"]()}</summary>
-			<ul class="mt-2 flex flex-col gap-1 pl-2">
-				{#each downloads as download (download.name)}
-					<li>
-						<a
-							class="text-blue-600 hover:underline dark:text-blue-400"
-							href="{base}/galopin/{download.name}">{download.label}</a
-						>
-						<span class="font-mono">({download.name})</span>
-					</li>
-				{/each}
-			</ul>
-			<p class="mt-2">
-				<Rich parts={m["code.pair.build"].parts()} tags={{ code: inlineCode }} />
-			</p>
-		</details>
+		{#if docker}
+			<div class="mb-4 text-xs text-ink-muted" data-testid="pair-docker-options">
+				<label class="mb-3 flex flex-col gap-1">
+					<span class="font-medium text-ink">{m["code.pair.docker_name_label"]()}</span>
+					<input
+						type="text"
+						class="w-full rounded-lg border border-line bg-surface px-2 py-1 text-xs text-ink focus:border-blue-600 focus:outline-hidden sm:w-64"
+						data-testid="pair-docker-name"
+						autocomplete="off"
+						spellcheck="false"
+						maxlength="63"
+						placeholder={DEFAULT_CONTAINER_NAME}
+						bind:value={containerName}
+						onblur={() => (containerName = cleanContainerName(containerName))}
+					/>
+					<span>{m["code.pair.docker_name_text"]()}</span>
+				</label>
+				<label class="mb-1 flex items-start gap-2">
+					<input
+						type="checkbox"
+						class="mt-0.5"
+						data-testid="pair-docker-keep"
+						bind:checked={keepPairing}
+					/>
+					<span>
+						<span class="font-medium text-ink">{m["code.pair.docker_keep_label"]()}</span>
+						{m["code.pair.docker_keep_text"]()}
+					</span>
+				</label>
+				{#if keepPairing}
+					<p class="mb-1 ml-6" data-testid="pair-docker-keep-note">
+						<Rich parts={m["code.pair.docker_keep_note"].parts()} tags={{ code: inlineCode }} />
+					</p>
+				{/if}
+				<p class="mt-3" data-testid="pair-docker-paths">
+					<Rich parts={m["code.pair.docker_paths"].parts()} tags={{ code: inlineCode }} />
+				</p>
+			</div>
+		{:else}
+			<details class="mb-4 text-xs text-ink-muted" data-testid="pair-download">
+				<summary class="cursor-pointer">{m["code.pair.download"]()}</summary>
+				<ul class="mt-2 flex flex-col gap-1 pl-2">
+					{#each downloads as download (download.name)}
+						<li>
+							<a
+								class="text-blue-600 hover:underline dark:text-blue-400"
+								href="{base}/galopin/{download.name}">{download.label}</a
+							>
+							<span class="font-mono">({download.name})</span>
+						</li>
+					{/each}
+				</ul>
+				<p class="mt-2">
+					<Rich parts={m["code.pair.build"].parts()} tags={{ code: inlineCode }} />
+				</p>
+			</details>
+		{/if}
 
-		<EnrollPolicyControls bind:choices={policyChoices} bind:installOpencode />
+		<EnrollPolicyControls bind:choices={policyChoices} bind:installOpencode {docker} />
 
 		<p class="{s.LABEL} mt-6">{m["code.pair.waiting"]()}</p>
 		{#if pending.length === 0}

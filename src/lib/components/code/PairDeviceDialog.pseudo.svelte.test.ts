@@ -47,4 +47,37 @@ describe("Pair a machine, in the pseudo-locale", () => {
 			])
 		).toEqual([]);
 	});
+
+	it("owns every word it shows in Docker mode too", async () => {
+		overwriteGetLocale(() => "en-XA");
+		const screen = renderWithApp(
+			PairDeviceDialog,
+			{ onclose: () => {}, onpaired: () => {} },
+			{
+				page: { data: { codeOidcIssuerUrl: "https://issuer.example", codeGatewayOrigin: "" } },
+				publicConfig: { PUBLIC_ORIGIN: "https://chat.example" },
+			}
+		);
+		await screen
+			.getByRole("radio", { name: m["code.pair.mode_docker"]({}, { locale: "en-XA" }) })
+			.click();
+		await screen.getByTestId("pair-docker-keep").click();
+		await expect
+			.element(screen.getByText(m["code.pair.docker_name_label"]({}, { locale: "en-XA" })))
+			.toBeVisible();
+		await expect
+			.element(screen.getByText(m["code.pair.docker_explain"]({}, { locale: "en-XA" })))
+			.toBeVisible();
+
+		// Only the printed command, the file names and the default name are not words.
+		expect(
+			unbracketedText(document.body, [
+				/^galopin\b/,
+				/^--/,
+				/^(docker|ghcr\.io|start|-v)\b/,
+				/^sandbox$/,
+				/^Cop(ied|y to clipboard)$/,
+			])
+		).toEqual([]);
+	});
 });

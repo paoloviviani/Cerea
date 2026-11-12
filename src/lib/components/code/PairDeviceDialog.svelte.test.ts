@@ -1,8 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
-import { page as browserPage } from "@vitest/browser/context";
+import { page as browserPage, userEvent } from "@vitest/browser/context";
 import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
 import PairDeviceDialog from "./PairDeviceDialog.svelte";
-import { buildEnrollCommand } from "$lib/codeEnrollCommand";
+import { buildDockerCommand, buildEnrollCommand, GALOPIN_IMAGE } from "$lib/codeEnrollCommand";
+import { APP_VERSION } from "$lib/utils/appVersion";
 import { ENROLL_FLAGS } from "$lib/enrollFlags";
 import { FLAG_CONTROLS, exposedFlags } from "$lib/codeEnrollPolicy";
 
@@ -394,5 +395,259 @@ describe("the deployment's terminal switch", () => {
 		expect(
 			screen.container.querySelector("[data-testid='enroll-terminal-deployment-off']")
 		).toBeNull();
+	});
+});
+
+/**
+ * The Docker switch: "On this computer" (the default) or "In a Docker
+ * container", which prints one `docker run` of this release's image. The
+ * flags are the same either way; what only makes sense on a computer (the
+ * download, installing opencode, the goose engine) is not offered in Docker.
+ */
+describe("the Docker switch", () => {
+	const NATIVE = "On this computer";
+	const DOCKER = "In a Docker container";
+
+	function radio(screen: Screen, name: string) {
+		return screen.getByRole("radio", { name });
+	}
+	async function chooseDocker(screen: Screen) {
+		await radio(screen, DOCKER).click();
+		await expect.element(radio(screen, DOCKER)).toBeChecked();
+	}
+	async function chooseNative(screen: Screen) {
+		await radio(screen, NATIVE).click();
+		await expect.element(radio(screen, NATIVE)).toBeChecked();
+	}
+	/** What an untouched dialog prints in Docker mode. */
+	const dockerCommand = (extra: Record<string, unknown> = {}) =>
+		buildDockerCommand({
+			origin: ORIGIN,
+			issuer: ISSUER,
+			gatewayOrigin: GATEWAY,
+			version: APP_VERSION,
+			...extra,
+		});
+
+	it("opens on this computer, as a radio group of two, with the native command", async () => {
+		const screen = mount();
+		await expect
+			.element(screen.getByRole("radiogroup", { name: "Where the agent runs" }))
+			.toBeVisible();
+		expect(screen.getByRole("radio").elements()).toHaveLength(2);
+		await expect.element(radio(screen, NATIVE)).toBeChecked();
+		await expect.element(radio(screen, DOCKER)).not.toBeChecked();
+		expect(command(screen)).toBe(PLAIN);
+		// Docker's own controls are not there until it is chosen.
+		expect(screen.getByTestId("pair-docker-name").elements()).toHaveLength(0);
+		expect(screen.getByTestId("pair-docker-keep").elements()).toHaveLength(0);
+	});
+
+	it("choosing Docker prints the docker run of this Cerea's image, with the dialog's own flags", async () => {
+		const screen = mount();
+		await chooseDocker(screen);
+		const text = command(screen);
+		expect(text).toBe(dockerCommand({ billToDefault: true }));
+		expect(text.startsWith("docker run -it --rm")).toBe(true);
+		expect(text).toContain(`${GALOPIN_IMAGE}:${APP_VERSION} `);
+		expect(text).toContain("--hostname sandbox");
+		expect(text).not.toContain("install.sh");
+		expect(text).not.toContain("galopin run");
+		expect(policyPart(screen)).toBe("--default-group");
+		await expect
+			.element(screen.getByTestId("pair-explain"))
+			.toHaveTextContent("The container enrolls, then runs the agent");
+		await expect.element(screen.getByText("Enroll and run in Docker")).toBeVisible();
+	});
+
+	it("the arrow keys move the choice, as in any radio group", async () => {
+		const screen = mount();
+		(radio(screen, NATIVE).element() as HTMLElement).focus();
+		await userEvent.keyboard("{ArrowRight}");
+		await expect.element(radio(screen, DOCKER)).toBeChecked();
+		expect(command(screen)).toContain(`${GALOPIN_IMAGE}:${APP_VERSION}`);
+		await userEvent.keyboard("{ArrowLeft}");
+		await expect.element(radio(screen, NATIVE)).toBeChecked();
+		expect(command(screen)).toBe(PLAIN);
+	});
+
+	it("what only makes sense on a computer is hidden in Docker: the download, Install opencode, the goose engine", async () => {
+		const screen = mount();
+		await expect.element(screen.getByText("Download manually")).toBeVisible();
+		await expect.element(screen.getByTestId("enroll-install-opencode")).toBeVisible();
+		await openAdvanced(screen);
+		expect(screen.getByRole("option", { name: "goose" }).elements()).toHaveLength(1);
+
+		await chooseDocker(screen);
+		expect(screen.getByText("Download manually").elements()).toHaveLength(0);
+		expect(screen.getByTestId("pair-download").elements()).toHaveLength(0);
+		expect(screen.getByTestId("enroll-install-opencode").elements()).toHaveLength(0);
+		expect(screen.getByRole("checkbox", { name: /Install opencode/ }).elements()).toHaveLength(0);
+		expect(screen.getByRole("option", { name: "goose" }).elements()).toHaveLength(0);
+		await expect.element(screen.getByTestId("enroll-engine")).toHaveValue("opencode");
+		// Nor does the engine's help text talk about a goose that is not in the image.
+		expect(screen.getByTestId("enroll-advanced").element().textContent).not.toMatch(/goose/i);
+
+		await chooseNative(screen);
+		await expect.element(screen.getByText("Download manually")).toBeVisible();
+		await expect.element(screen.getByTestId("enroll-install-opencode")).toBeVisible();
+		expect(screen.getByRole("option", { name: "goose" }).elements()).toHaveLength(1);
+	});
+
+	it("a goose choice never leaks into the Docker command: it is reset to opencode, and stays so on the way back", async () => {
+		const screen = mount();
+		await openAdvanced(screen);
+		await screen.getByTestId("enroll-engine").selectOptions("goose");
+		expect(command(screen)).toContain("--engine goose");
+
+		await chooseDocker(screen);
+		expect(command(screen)).not.toContain("--engine");
+		expect(command(screen)).toBe(dockerCommand({ billToDefault: true }));
+		await expect.element(screen.getByTestId("enroll-engine")).toHaveValue("opencode");
+
+		await chooseNative(screen);
+		await expect.element(screen.getByTestId("enroll-engine")).toHaveValue("opencode");
+		expect(command(screen)).toBe(PLAIN);
+	});
+
+	it("Install opencode ticked on the computer adds nothing in Docker", async () => {
+		const screen = mount();
+		await screen.getByTestId("enroll-install-opencode").click();
+		expect(command(screen)).toContain("--with-opencode");
+		await chooseDocker(screen);
+		expect(command(screen)).not.toContain("--with-opencode");
+		expect(command(screen)).toBe(dockerCommand({ billToDefault: true }));
+	});
+
+	it("the computer name: shown only in Docker, 'sandbox' to start with, cleaned into --hostname", async () => {
+		const screen = mount();
+		await chooseDocker(screen);
+		const name = screen.getByTestId("pair-docker-name");
+		await expect.element(name).toHaveValue("sandbox");
+		await name.fill("My Build_Box 2");
+		expect(command(screen)).toContain("--hostname my-build-box-2 \\\n");
+		expect(command(screen)).toBe(dockerCommand({ billToDefault: true, name: "my-build-box-2" }));
+		// A shell metacharacter never reaches the command.
+		await name.fill("x; rm -rf /");
+		expect(command(screen)).toContain("--hostname x-rm-rf ");
+		expect(command(screen)).not.toContain("rm -rf /");
+		// Nothing usable left: the default, not an empty --hostname.
+		await name.fill("***");
+		expect(command(screen)).toContain("--hostname sandbox ");
+		// Leaving the field shows the name the command uses.
+		await name.fill("CI Box");
+		(name.element() as HTMLInputElement).blur();
+		await expect.element(name).toHaveValue("ci-box");
+	});
+
+	it("the name follows the keep-pairing volume, and the name is not part of the native command", async () => {
+		const screen = mount();
+		await chooseDocker(screen);
+		await screen.getByTestId("pair-docker-name").fill("lab");
+		await screen.getByTestId("pair-docker-keep").click();
+		expect(command(screen)).toContain("-v galopin-lab:/home/galopin");
+		await chooseNative(screen);
+		expect(command(screen)).toBe(PLAIN);
+		expect(command(screen)).not.toContain("lab");
+	});
+
+	it("keeping the pairing is off to start with; ticking adds the volume line (and a restart note), unticking removes both", async () => {
+		const screen = mount();
+		await chooseDocker(screen);
+		const keep = screen.getByTestId("pair-docker-keep");
+		await expect.element(keep).not.toBeChecked();
+		expect(command(screen)).not.toContain("-v galopin-");
+		expect(screen.getByTestId("pair-docker-keep-note").elements()).toHaveLength(0);
+
+		await keep.click();
+		await expect.element(keep).toBeChecked();
+		expect(command(screen)).toBe(dockerCommand({ billToDefault: true, keepPairing: true }));
+		expect(command(screen)).toContain("-v galopin-sandbox:/home/galopin");
+		await expect
+			.element(screen.getByTestId("pair-docker-keep-note"))
+			.toHaveTextContent("run the same command without start and the flags");
+
+		await keep.click();
+		expect(command(screen)).toBe(dockerCommand({ billToDefault: true }));
+		expect(screen.getByTestId("pair-docker-keep-note").elements()).toHaveLength(0);
+	});
+
+	it("says workspace folders are paths inside the container, and that /workspace is the project", async () => {
+		const screen = mount();
+		expect(screen.getByTestId("pair-docker-paths").elements()).toHaveLength(0);
+		await chooseDocker(screen);
+		await expect
+			.element(screen.getByTestId("pair-docker-paths"))
+			.toHaveTextContent("paths inside the container");
+		await expect.element(screen.getByTestId("pair-docker-paths")).toHaveTextContent("/workspace");
+		expect(command(screen)).toContain('-v "$PWD":/workspace');
+	});
+
+	it("the policy flags are the same in both modes, whatever is chosen", async () => {
+		const screen = mount();
+		await openAdvanced(screen);
+		await screen.getByTestId("enroll-allow-project-config").click();
+		await screen.getByTestId("enroll-allow-command-shell").click();
+		await screen.getByTestId("enroll-no-files").click();
+		await screen.getByTestId("enroll-bill-to-default").click();
+		await screen.getByTestId("enroll-max-terminals").fill("3");
+		const list = screen.getByTestId("enroll-workspace-roots");
+		await list.getByRole("button", { name: "Add" }).click();
+		await list.getByRole("textbox", { name: "Workspace folders. 1" }).fill("/workspace/my app");
+		const native = policyPart(screen);
+		expect(native).toBe(
+			"--max-terminals 3 --allow-project-config --no-command-shell --workspace-root '/workspace/my app' --no-files"
+		);
+
+		await chooseDocker(screen);
+		expect(policyPart(screen)).toBe(native);
+		// The controls keep what was chosen, so a flag turned off in Docker goes too.
+		await expect.element(screen.getByTestId("enroll-no-files")).toBeChecked();
+		await screen.getByTestId("enroll-no-files").click();
+		expect(policyPart(screen)).not.toContain("--no-files");
+
+		await chooseNative(screen);
+		expect(policyPart(screen)).not.toContain("--no-files");
+		expect(policyPart(screen)).toContain("--allow-project-config");
+		await screen.getByTestId("enroll-no-files").click();
+		expect(policyPart(screen)).toBe(native);
+	});
+
+	it("switching back restores the native command and its explanation, untouched", async () => {
+		const screen = mount();
+		await chooseDocker(screen);
+		await screen.getByTestId("pair-docker-keep").click();
+		await chooseNative(screen);
+		expect(command(screen)).toBe(PLAIN);
+		await expect
+			.element(screen.getByTestId("pair-explain"))
+			.toHaveTextContent("signs the computer into your account");
+		await expect.element(screen.getByText("Install, enroll and run")).toBeVisible();
+		expect(screen.getByTestId("pair-docker-options").elements()).toHaveLength(0);
+	});
+
+	it("remembers nothing: no storage is written, and a new dialog opens on this computer again", async () => {
+		localStorage.clear();
+		sessionStorage.clear();
+		const first = mount();
+		await chooseDocker(first);
+		await first.getByTestId("pair-docker-keep").click();
+		await first.getByTestId("pair-docker-name").fill("kept");
+		expect(localStorage.length).toBe(0);
+		expect(sessionStorage.length).toBe(0);
+		expect(document.cookie).not.toMatch(/docker|pair/i);
+		first.unmount();
+
+		const second = mount();
+		await expect.element(radio(second, NATIVE)).toBeChecked();
+		expect(command(second)).toBe(PLAIN);
+		second.unmount();
+	});
+
+	it("the pending list and its buttons are the same in both modes", async () => {
+		const screen = mount();
+		await chooseDocker(screen);
+		await expect.element(screen.getByText("Waiting for confirmation")).toBeVisible();
+		await expect.element(screen.getByText("No computer has checked in yet.")).toBeVisible();
 	});
 });

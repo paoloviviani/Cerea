@@ -3,6 +3,9 @@
 # container runs as it is (`docker run IMAGE bash`, `... galopin enroll ...`).
 # With none, the default `start` does the most useful thing it can:
 #
+#   start ARGS...                       enroll with exactly ARGS (the flags of
+#                                       `galopin enroll`, as the chat's Pair dialog
+#                                       prints them), then run the agent
 #   enrolled already (a mounted home)   run the agent
 #   addresses in the environment        enroll, then run the agent
 #   neither                             a shell, with the commands to type
@@ -19,6 +22,7 @@ set -eu
 if [ "${1:-}" != start ]; then
     exec "$@"
 fi
+shift
 
 state="${XDG_CONFIG_HOME:-$HOME/.config}/galopin"
 gateway="${GATEWAY_BASE_URL:-}"
@@ -39,6 +43,14 @@ run_agent() {
     while IFS= read -r a; do [ -n "$a" ] && args+=("$a"); done < <(split "${GALOPIN_RUN_ARGS:-}")
     exec galopin run "${args[@]}"
 }
+
+# Arguments after `start` are enroll's own, taken as they are (no splitting, so a
+# path with spaces or a glob survives), and they win over everything below. A
+# home that is already enrolled makes enroll ask before it overwrites.
+if [ "$#" -gt 0 ]; then
+    galopin enroll "$@"
+    run_agent
+fi
 
 if [ -f "$state/credentials.json" ]; then
     echo "galopin: already enrolled; starting the agent." >&2
