@@ -310,7 +310,7 @@ describe("browse: arguments and machines", () => {
 	});
 
 	it("asks the lease store for the device and the user, with a holder per call", async () => {
-		const acquire = vi.fn(async () => ({ release: async () => {} }));
+		const acquire = vi.fn(async () => ({ release: async () => {}, check: async () => true }));
 		const t = build({ script: [answerTurn("x")], leases: { acquire } });
 		await t.tool.execute({ goal: "look" }, t.ctx);
 		expect(acquire).toHaveBeenCalledWith(
@@ -318,6 +318,40 @@ describe("browse: arguments and machines", () => {
 			expect.anything(),
 			expect.stringContaining("call-uuid")
 		);
+	});
+
+	it("stops with lease_lost when the machine's lease is lost before an action", async () => {
+		const t = build({
+			script: [callTurn("act", { actions: [{ type: "scroll" }] }), answerTurn("never")],
+			leases: { acquire: async () => ({ release: async () => {}, check: async () => false }) },
+		});
+		const out = await t.tool.execute({ goal: "scroll" }, t.ctx);
+		const body = JSON.parse((out as { resultText: string }).resultText);
+		expect(body.stopped_reason).toBe("lease_lost");
+		expect(browseUpdates(t.updates).at(-1)).toMatchObject({
+			status: "stopped",
+			stoppedReason: "lease_lost",
+		});
+		expect(t.runtime.performed).toEqual([]);
+	});
+
+	it("reads the site lists again from settings for each task", async () => {
+		const rulesNow = vi.fn(() => ({ allow: [], deny: [] }));
+		const runtime = new FakeBrowserRuntime(pages());
+		const tool = createBrowseTool({
+			machines: [laptop],
+			settings: settings(),
+			ceiling: "ask",
+			userId: new ObjectId(),
+			runtimeFor: () => runtime,
+			grantKeyFor: async () => FAKE_BROWSER_KEY,
+			leases: memoryLeaseStore(),
+			rulesNow,
+			completeFor: () => scriptedModel([answerTurn("ok")]).complete,
+		});
+		tool.bind(turnDeps);
+		await tool.execute({ goal: "look" }, { uuid: "u", toolCallId: "c" });
+		expect(rulesNow).toHaveBeenCalled();
 	});
 
 	it("is refused after the user stopped the turn", async () => {

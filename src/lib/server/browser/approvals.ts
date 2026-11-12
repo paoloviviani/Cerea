@@ -105,6 +105,7 @@ export function createElicitationApprover(options: {
 				elicitationId,
 				conversationId: sink.conversationId,
 				...(sink.generationId ? { generationId: sink.generationId } : {}),
+				...(options.userId ? { userId: options.userId } : {}),
 				status: "pending",
 				request,
 				expiresAt,

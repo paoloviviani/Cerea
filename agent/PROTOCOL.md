@@ -530,3 +530,8 @@ gets a new ref, so `act` answers `ok: false` ("no element with ref …"), never 
 looks at the page again and never reads that as an approval. An element whose metadata the runtime
 could not read carries `metaUnknown: true`, and Cerea treats any action on it as a commit.
 `press.key` has no control characters; `\n`, `\r` and a lone space are not key names.
+
+A page with no host (`about:blank`) is judged against the task's last real site, and with none
+every site counts as new; `navigate about:blank` is refused. Only the task's first navigation from
+a blank start page, to its start address, is exempt (Cerea sends a grant for it, bound to the
+action as a new-site navigation). `fill.text` has no line breaks or control characters.

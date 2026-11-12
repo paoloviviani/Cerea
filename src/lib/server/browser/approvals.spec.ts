@@ -189,6 +189,24 @@ describe("the push that says an approval is waiting", () => {
 		await expect(approve(ask)).resolves.toEqual({ verdict: "expired" });
 	});
 
+	it("stores the owner on the row, so the inbox reads only their asks", async () => {
+		const owner = new ObjectId();
+		const conversationId = new ObjectId();
+		const updates: MessageUpdate[] = [];
+		const approve = createElicitationApprover({
+			sink: { conversationId, emit: (u) => void updates.push(u) },
+			toolUuid: "t",
+			userId: owner,
+			timeoutMs: 100,
+		});
+		await approve(ask);
+		const raised = updates.find(isMessageElicitationRequestUpdate);
+		const row = await collections.mcpElicitations.findOne({
+			elicitationId: raised?.request.elicitationId,
+		});
+		expect(row?.userId?.toString()).toBe(owner.toString());
+	});
+
 	it("puts the page URL on the card", async () => {
 		const h = harness(100);
 		await h.approve({ ...ask, url: "https://shop.example.com/cart" });

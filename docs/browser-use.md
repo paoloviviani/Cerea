@@ -62,6 +62,12 @@ asked about. When Cerea cannot tell what an element does, it asks. The names are
 matched broadly on purpose: a "Remove filter" button asks too. Commits ask even
 when your other tools are set to always allow.
 
+A blank page is no way around this: opening `about:blank` is refused, and from a page
+with no site every move is judged against the last real site of the task (only the
+task's own first move to its start address is exempt). Enter or Space on anything
+that is not a place to type counts as a click on it. Typed text may not contain line
+breaks (Enter is a separate key press, which is classified).
+
 Each action is classified on the page it will run on: a batch is run one action
 at a time, with a fresh look at the page in between.
 
@@ -103,6 +109,10 @@ set the variables instead (a saved value overrides the variable).
 | Seconds                       | `CHAT_BROWSER_MAX_SECONDS` | 300 (10 to 3600)         | Wall time. The time spent waiting for an approval does not count.               |
 | Sites that need no approval   | `CHAT_BROWSER_SITES_ALLOW` | none                     | Hosts where commit actions run without asking. One per line or comma-separated. |
 | Sites the browser may not use | `CHAT_BROWSER_SITES_DENY`  | none                     | Hosts the browser refuses to open or act on.                                    |
+
+If the user's answer comes after the page changed, the browser looks again first and
+runs nothing that is no longer what was approved. A task that loses its hold on the
+machine's browser (another task took over) stops with `lease_lost`.
 
 A task that reaches a budget stops and returns what it has, with a
 `stopped_reason` (`max_steps`, `max_tokens`, `max_time`) and a note on the card.

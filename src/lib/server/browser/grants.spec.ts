@@ -185,6 +185,37 @@ describe("the per-device lease (ML3)", () => {
 		await next?.release();
 	});
 
+	it("check() is true while held, false once another task holds it or the row ran out", async () => {
+		const id = await device();
+		const lease = await mongoLeaseStore.acquire(id, userId, "mine");
+		expect(await lease?.check()).toBe(true);
+		await collections.codeDevices.updateOne(
+			{ _id: new ObjectId(id) },
+			{ $set: { "browserLease.until": new Date(Date.now() - 1000) } }
+		);
+		expect(await lease?.check()).toBe(false);
+		await collections.codeDevices.updateOne(
+			{ _id: new ObjectId(id) },
+			{ $set: { browserLease: { holder: "someone-else", until: new Date(Date.now() + 60_000) } } }
+		);
+		expect(await lease?.check()).toBe(false);
+		await lease?.release();
+	});
+
+	it("check() is false when renewal has failed for longer than the TTL", async () => {
+		const id = await device();
+		const lease = await mongoLeaseStore.acquire(id, userId, "slow");
+		expect(await lease?.check()).toBe(true);
+		const real = Date.now;
+		Date.now = () => real() + 61_000;
+		try {
+			expect(await lease?.check()).toBe(false);
+		} finally {
+			Date.now = real;
+			await lease?.release();
+		}
+	});
+
 	it("is not taken on somebody else's device, and a late release by a stale holder frees nothing", async () => {
 		const other = await device("paired", new ObjectId());
 		expect(await mongoLeaseStore.acquire(other, userId, "x")).toBeNull();

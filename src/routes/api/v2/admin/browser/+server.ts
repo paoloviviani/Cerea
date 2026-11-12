@@ -76,15 +76,16 @@ export const PUT: RequestHandler = async ({ locals, request }) => {
 	}
 	// A line that is not a host would silently vanish from the list; refuse it by name.
 	for (const entry of [...input.sites_allow, ...input.sites_deny]) {
-		if (!entry.trim()) continue;
-		const parsedEntry = parseSiteList(entry);
-		if (parsedEntry.length === 0) error(400, `'${entry.trim()}' is not a site address.`);
-		// `com` or `co.uk` would cover thousands of unrelated sites.
-		if (isPublicSuffix(parsedEntry[0].replace(/^\*\./, ""))) {
-			error(
-				400,
-				`'${entry.trim()}' covers every site under it. Name a site, such as shop.example.com.`
-			);
+		// An entry may hold several, separated by commas or line breaks: every one is checked.
+		for (const piece of entry.split(/[\n,]/)) {
+			const text = piece.trim();
+			if (!text || text.startsWith("#")) continue;
+			const parsedPiece = parseSiteList(text);
+			if (parsedPiece.length === 0) error(400, `'${text}' is not a site address.`);
+			// `com` or `co.uk` would cover thousands of unrelated sites.
+			if (isPublicSuffix(parsedPiece[0].replace(/^\*\./, ""))) {
+				error(400, `'${text}' covers every site under it. Name a site, such as shop.example.com.`);
+			}
 		}
 	}
 	const allow = parseSiteList(input.sites_allow.join("\n"));

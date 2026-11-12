@@ -27,7 +27,7 @@ import {
 	type StoppedReason,
 } from "$lib/server/browser/loop";
 import type { Ceiling } from "$lib/server/browser/policy";
-import type { BrowserSettings } from "$lib/server/browser/settings";
+import { browserSettings, type BrowserSettings } from "$lib/server/browser/settings";
 import type { NestedAgentBuiltinTool, NestedAgentDeps } from "./nestedAgent";
 
 /**
@@ -65,6 +65,8 @@ export interface BrowseToolParams {
 	grantKeyFor?: (machine: BrowseMachine) => Promise<Buffer>;
 	/** One task per machine: default a lease on the device row. */
 	leases?: LeaseStore;
+	/** The site lists as they are now; default: read from settings again. */
+	rulesNow?: () => BrowserSettings["rules"];
 	completeFor?: (deps: NestedAgentDeps, model: string, sameModel: boolean) => CompleteFn;
 }
 
@@ -310,6 +312,8 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 						complete,
 						approve,
 						rules: params.settings.rules,
+						rulesNow: params.rulesNow ?? (() => browserSettings().rules),
+						leaseHeld: () => lease.check(),
 						ceiling: params.ceiling,
 						unattended: params.unattended,
 						budgets: params.settings.budgets,

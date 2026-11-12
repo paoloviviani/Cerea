@@ -1051,24 +1051,171 @@ describe("M2: a denied site ends the task wherever the browser gets to", () => {
 	});
 });
 
-describe("M6: a deny wins over an answered ask", () => {
-	it("refuses the action when the rules changed while the user decided", async () => {
-		const rules = { allow: [] as string[], deny: [] as string[] };
+describe("M6 and L1: decide again on what is there after the answer", () => {
+	it("refuses the action when the rules changed while the user decided (rules read again, not mutated)", async () => {
+		let rules = { allow: [] as string[], deny: [] as string[] };
 		const asks: string[] = [];
-		const { deps, runtime, model } = setup({
+		const { deps, runtime } = setup({
 			start: "cart",
-			script: [callTurn("act", { actions: [{ type: "click", ref: "e1" }] }), answerTurn("blocked")],
+			script: [callTurn("act", { actions: [{ type: "click", ref: "e1" }] }), answerTurn("never")],
 			approver: async (ask) => {
 				asks.push(ask.sentence);
-				rules.deny.push("shop.example.com");
+				// The administrator saves a new list while the user is deciding.
+				rules = { allow: [], deny: ["shop.example.com"] };
 				return { verdict: "approved", id: "a1" };
 			},
-			deps: { rules },
+			deps: { rulesNow: () => rules },
+		});
+		const result = await runBrowseLoop({ goal: "pay" }, deps);
+		expect(asks).toHaveLength(1);
+		// Nothing ran, and the task ended: the site it is on is off limits now.
+		expect(runtime.performed).toEqual([]);
+		expect(result.stopped_reason).toBe("denied");
+	});
+
+	it("refuses a move to a site the new rules deny, and carries on from where it is", async () => {
+		let rules = { allow: [] as string[], deny: [] as string[] };
+		const { deps, runtime, model } = setup({
+			start: "cart",
+			script: [
+				callTurn("act", { actions: [{ type: "navigate", url: "https://partner.test/" }] }),
+				answerTurn("stayed"),
+			],
+			approver: async () => {
+				rules = { allow: [], deny: ["partner.test"] };
+				return { verdict: "approved", id: "a1" };
+			},
+			deps: { rulesNow: () => rules },
+		});
+		const result = await runBrowseLoop({ goal: "x y z" }, deps);
+		expect(runtime.performed).toEqual([]);
+		expect(runtime.url).toBe("https://shop.example.com/cart");
+		expect(result.result).toBe("stayed");
+		expect(toolTexts(model.requests[1].messages).at(-1)).toContain("REFUSED");
+	});
+
+	it("looks at the page again after the answer and refuses when what was approved changed", async () => {
+		const { deps, runtime, model } = setup({
+			start: "cart",
+			script: [callTurn("act", { actions: [{ type: "click", ref: "e1" }] }), answerTurn("changed")],
+			approver: async () => {
+				// While the user decided, the page swapped the button for another with the same ref.
+				const page = (
+					runtime as unknown as { current: { elements: Array<{ ref: string; name: string }> } }
+				).current;
+				page.elements[0].name = "Pay €999";
+				return { verdict: "approved", id: "a1" };
+			},
 		});
 		await runBrowseLoop({ goal: "pay" }, deps);
-		expect(asks).toHaveLength(1);
 		expect(runtime.performed).toEqual([]);
-		expect(toolTexts(model.requests[1].messages).at(-1)).toContain("REFUSED");
+		const text = toolTexts(model.requests[1].messages).at(-1) ?? "";
+		expect(text).toContain("REFUSED");
+		expect(text).toContain("the page changed while you decided");
+		// The fresh page is shown, with the new name.
+		expect(text).toContain("Pay €999");
+	});
+
+	it("refuses when the element is gone after the answer", async () => {
+		const { deps, runtime, model } = setup({
+			start: "cart",
+			script: [callTurn("act", { actions: [{ type: "click", ref: "e1" }] }), answerTurn("gone")],
+			approver: async () => {
+				const page = (runtime as unknown as { current: { elements: Array<{ ref: string }> } })
+					.current;
+				page.elements = page.elements.filter((e) => e.ref !== "e1");
+				return { verdict: "approved", id: "a1" };
+			},
+		});
+		await runBrowseLoop({ goal: "pay" }, deps);
+		expect(runtime.performed).toEqual([]);
+		expect(toolTexts(model.requests[1].messages).at(-1)).toContain("the element is gone");
+	});
+
+	it("still runs an approved action when nothing changed", async () => {
+		const { deps, runtime } = setup({
+			start: "cart",
+			script: [callTurn("act", { actions: [{ type: "click", ref: "e1" }] }), answerTurn("paid")],
+		});
+		await runBrowseLoop({ goal: "pay" }, deps);
+		expect(runtime.url).toBe("https://shop.example.com/thanks");
+	});
+});
+
+describe("L5: extract and screenshot look at the URL first", () => {
+	const moved = (runtime: FakeBrowserRuntime) => {
+		runtime.diff = async () => ({
+			url: "https://partner.test/",
+			title: "Partner",
+			navigated: true,
+			added: [],
+			changed: [],
+			removed: [],
+			text: "SECRET-PAGE-TEXT",
+		});
+	};
+
+	it("does not read a page that moved to a denied site", async () => {
+		const { deps, runtime, model } = setup({
+			script: [callTurn("extract", {}), answerTurn("never")],
+			deps: { rules: { allow: [], deny: ["partner.test"] } },
+		});
+		moved(runtime);
+		const result = await runBrowseLoop({ goal: "read" }, deps);
+		expect(result.stopped_reason).toBe("denied");
+		expect(runtime.calls.some((c) => c.tool === "extract")).toBe(false);
+		expect(JSON.stringify(model.requests)).not.toContain("SECRET-PAGE-TEXT");
+	});
+
+	it("does not take a screenshot of one either", async () => {
+		const { deps, runtime } = setup({
+			script: [callTurn("screenshot", {}), answerTurn("never")],
+			deps: { rules: { allow: [], deny: ["partner.test"] }, vision: true },
+		});
+		moved(runtime);
+		const result = await runBrowseLoop({ goal: "look" }, deps);
+		expect(result.stopped_reason).toBe("denied");
+		expect(runtime.calls.some((c) => c.tool === "screenshot")).toBe(false);
+	});
+
+	it("reads normally on an allowed site", async () => {
+		const { deps, runtime } = setup({
+			start: "results",
+			script: [callTurn("extract", {}), answerTurn("ok")],
+		});
+		await runBrowseLoop({ goal: "read" }, deps);
+		expect(runtime.calls.some((c) => c.tool === "extract")).toBe(true);
+	});
+});
+
+describe("L7: the lease is checked before each act", () => {
+	it("stops with lease_lost, and runs nothing, when the machine is not this task's any more", async () => {
+		let held = true;
+		const { deps, runtime } = setup({
+			script: [
+				callTurn("act", { actions: [{ type: "scroll", direction: "down" }] }),
+				callTurn("act", { actions: [{ type: "scroll", direction: "down" }] }),
+				answerTurn("never"),
+			],
+			deps: {
+				leaseHeld: async () => {
+					const now = held;
+					held = false; // lost after the first act
+					return now;
+				},
+			},
+		});
+		const result = await runBrowseLoop({ goal: "scroll" }, deps);
+		expect(result.stopped_reason).toBe("lease_lost");
+		expect(runtime.performed).toHaveLength(1);
+		expect(runtime.ended).toBe(1);
+	});
+
+	it("does not ask when there is nothing to check", async () => {
+		const { deps } = setup({
+			script: [callTurn("act", { actions: [{ type: "scroll" }] }), answerTurn("ok")],
+		});
+		await expect(runBrowseLoop({ goal: "scroll" }, deps)).resolves.toMatchObject({ result: "ok" });
 	});
 });
 

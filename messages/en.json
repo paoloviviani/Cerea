@@ -1706,6 +1706,7 @@
 	"chat.browse.stopped.runtime_error": "The browser on your machine could not be used.",
 	"chat.browse.stopped.model_error": "The browsing model failed.",
 	"chat.browse.stopped.denied": "A site or action was off limits.",
+	"chat.browse.stopped.lease_lost": "Another task took over the browser on your machine.",
 	"chat.table.column": "Column {number}",
 	"chat.table.column_lower": "column {number}",
 	"chat.table.count": [

@@ -128,6 +128,8 @@ export interface McpElicitation extends Timestamps {
 	elicitationId: string;
 	conversationId: Conversation["_id"];
 	generationId?: string;
+	/** Who the ask is for, stored by the browse approver so the inbox reads only the caller's rows. */
+	userId?: ObjectId;
 	status: "pending" | "resolved";
 	request: ElicitationRequestPayload;
 	action?: ElicitationAction;

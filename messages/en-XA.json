@@ -1830,6 +1830,7 @@
 	"chat.browse.stopped.runtime_error": "[Ťȟé ƀŕóŵśéŕ óń ýóúŕ ḿáćȟíńé ćóúľď ńóť ƀé úśéď.]",
 	"chat.browse.stopped.model_error": "[Ťȟé ƀŕóŵśíńǧ ḿóďéľ ƒáíľéď.]",
 	"chat.browse.stopped.denied": "[Á śíťé óŕ áćťíóń ŵáś óƒƒ ľíḿíťś.]",
+	"chat.browse.stopped.lease_lost": "[Áńóťȟéŕ ťáśķ ťóóķ óǚéŕ ťȟé ƀŕóŵśéŕ óń ýóúŕ ḿáćȟíńé.]",
 	"chat.table.column": "[Ćóľúḿń {number}]",
 	"chat.table.column_lower": "[ćóľúḿń {number}]",
 	"chat.table.count": [

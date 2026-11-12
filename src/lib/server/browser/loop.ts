@@ -39,7 +39,14 @@ import type { BrowserBudgets } from "./settings";
 // ----- the result the chat model sees (ADR 0116 §3) ---------------------------------------
 
 export type StoppedReason =
-	"max_steps" | "max_tokens" | "max_time" | "aborted" | "runtime_error" | "model_error" | "denied";
+	| "max_steps"
+	| "max_tokens"
+	| "max_time"
+	| "aborted"
+	| "runtime_error"
+	| "model_error"
+	| "denied"
+	| "lease_lost";
 
 export interface BrowseFile {
 	name: string;
@@ -105,6 +112,10 @@ export interface LoopDeps {
 	/** Nobody can answer an approval (a scheduled run). */
 	unattended?: boolean;
 	budgets: BrowserBudgets;
+	/** Whether this task still holds its machine (checked before each act); absent: always. */
+	leaseHeld?: () => Promise<boolean>;
+	/** The administrator's site lists as they are now (read again before re-deciding). */
+	rulesNow?: () => SiteRules;
 	/** Test seam: the keepalive period. */
 	keepAliveMs?: number;
 	/** The device's key: grants are signed with it (`grants.ts`). */
@@ -296,6 +307,8 @@ function stoppedText(reason: StoppedReason): string {
 			return "the browsing model failed";
 		case "denied":
 			return "a site is off limits";
+		case "lease_lost":
+			return "another task took over the browser";
 	}
 }
 
@@ -369,7 +382,7 @@ async function runInner(request: LoopRequest, deps: LoopDeps): Promise<BrowseRes
 	/** A task that reaches a denied site stops, however it got there. */
 	const assertSite = () => {
 		const host = hostOf(finalUrl);
-		if (host && matchesAny(host, deps.rules.deny)) throw new Stop("denied");
+		if (host && matchesAny(host, (deps.rulesNow?.() ?? deps.rules).deny)) throw new Stop("denied");
 	};
 
 	const guarded = async <T>(work: () => Promise<T>): Promise<T> => {
@@ -497,7 +510,7 @@ async function runInner(request: LoopRequest, deps: LoopDeps): Promise<BrowseRes
 			const decision = decide({
 				classification,
 				currentHost: hostOf(finalUrl),
-				rules: deps.rules,
+				rules: deps.rulesNow?.() ?? deps.rules,
 				ceiling: deps.ceiling,
 				unattended: deps.unattended,
 			});
@@ -586,14 +599,24 @@ async function runInner(request: LoopRequest, deps: LoopDeps): Promise<BrowseRes
 					halted = true;
 					break;
 				}
-				// The world may have moved while the user decided: decide again, and a deny wins.
-				({ ctx, classification, decision } = evaluate(action));
-				if (decision.verdict === "deny") {
-					fail("denied", "not allowed");
+				// The world may have moved while the user decided: look again first, then decide on
+				// what is there now (and the rules as they are now). A deny wins, and so does any
+				// change to what was approved: the page is shown again and nothing is run.
+				const approvedDigest = actionDigest(action, ctx);
+				pendingPage = await refresh();
+				const stale = wantedRef !== undefined && !elements.has(wantedRef);
+				if (!stale) ({ ctx, classification, decision } = evaluate(action));
+				if (stale || decision.verdict === "deny" || actionDigest(action, ctx) !== approvedDigest) {
+					const why = stale
+						? "the page changed while you decided and the element is gone"
+						: decision.verdict === "deny"
+							? decision.reason
+							: "the page changed while you decided";
+					fail("denied", stale || decision.verdict !== "deny" ? "page changed" : "not allowed");
 					note(
 						lines.length + 1,
 						sentence,
-						`REFUSED. ${decision.reason} Do not retry it; choose another path or stop.`
+						`REFUSED (${why}). Nothing was run; the page is shown below. Look again and choose, or stop.`
 					);
 					skippedLine();
 					denied = true;
@@ -636,6 +659,8 @@ async function runInner(request: LoopRequest, deps: LoopDeps): Promise<BrowseRes
 				];
 			}
 
+			// Still the holder of this machine's browser? Otherwise another task may be driving it.
+			if (deps.leaseHeld && !(await deps.leaseHeld())) throw new Stop("lease_lost");
 			const outcome = await guarded(() => runtime.act([action], grants, deps.signal));
 			finalUrl = outcome.url;
 			currentTitle = outcome.title;
@@ -682,6 +707,9 @@ async function runInner(request: LoopRequest, deps: LoopDeps): Promise<BrowseRes
 				? { mode: args.mode as "auto" | "tables" | "lists" | "text" }
 				: {}),
 		};
+		// The page may have moved on by itself: learn where the browser is, and stop if the
+		// site is off limits, before any of its content is read.
+		await refresh();
 		const step = recordStep({
 			action: "Read data from the page",
 			page: currentTitle || undefined,
@@ -774,6 +802,7 @@ async function runInner(request: LoopRequest, deps: LoopDeps): Promise<BrowseRes
 	};
 
 	const doScreenshot = async (callId: string, ref: unknown) => {
+		await refresh();
 		const raw = await guarded(() =>
 			runtime.screenshot(typeof ref === "string" ? ref : undefined, deps.signal)
 		);

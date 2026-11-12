@@ -139,6 +139,19 @@ describe("/api/v2/admin/browser", () => {
 				status: 400,
 			});
 		}
+		// Every comma- or line-separated entry is checked, not just the first.
+		for (const entry of [
+			"shop.example.com, com",
+			"shop.example.com\nco.uk",
+			"a.test,b.test,github.io",
+		]) {
+			await expect(PUT(put({ ...valid, sites_deny: [entry] }))).rejects.toMatchObject({
+				status: 400,
+			});
+		}
+		await expect(
+			PUT(put({ ...valid, sites_allow: ["shop.example.com, not a site"] }))
+		).rejects.toMatchObject({ status: 400 });
 		expect(setMock).not.toHaveBeenCalled();
 		// A site under a suffix is fine.
 		await PUT(put({ ...valid, sites_allow: ["shop.example.co.uk", "alice.github.io"] }));
