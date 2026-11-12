@@ -397,8 +397,9 @@ async function opCreate(ctx: CallContext) {
 			_id: { $lte: schedule._id },
 		});
 		if (earlier > MAX_ACTIVE_AGENT_SCHEDULES) {
-			await collections.schedules.deleteOne({ _id: schedule._id });
-			await releaseScheduleSlot(ctx.userId);
+			// Release only for a row this call really removed, never twice.
+			const { deletedCount } = await collections.schedules.deleteOne({ _id: schedule._id });
+			if (deletedCount === 1) await releaseScheduleSlot(ctx.userId);
 			throw activeCapError();
 		}
 	}

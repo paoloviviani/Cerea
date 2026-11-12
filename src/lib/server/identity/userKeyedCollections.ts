@@ -50,7 +50,7 @@
  */
 
 import { dropGrant } from "$lib/server/schedules/grants";
-import { dropScheduleCount, reconcileScheduleCount } from "$lib/server/schedules/slots";
+import { dropScheduleCount } from "$lib/server/schedules/slots";
 import type { Collection, Document, ObjectId } from "mongodb";
 
 import { collections, Database } from "$lib/server/database";
@@ -693,9 +693,10 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		merge: async (stray, target) => {
 			await dropGrant(stray);
 			const moved = await reassignSimple(collections.schedules, "userId", stray, target);
-			// The rows moved, so the cap counts follow them.
+			// The rows moved, so the target's count is now too low: drop both counters and let the
+			// next create reseed from the rows (an upward correction is not safe to do blindly).
 			await dropScheduleCount(stray);
-			await reconcileScheduleCount(target);
+			await dropScheduleCount(target);
 			return moved;
 		},
 		erase: (userId) => eraseByField(collections.schedules, "userId", userId),

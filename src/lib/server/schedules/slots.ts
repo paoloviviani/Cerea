@@ -28,14 +28,37 @@ async function ensureCounter(userId: ObjectId): Promise<void> {
 	}
 }
 
-/** Takes one slot if the user is under `cap`. False means the cap is reached; nothing changed. */
-export async function claimScheduleSlot(userId: ObjectId, cap: number): Promise<boolean> {
-	await ensureCounter(userId);
+async function tryClaim(userId: ObjectId, cap: number): Promise<boolean> {
 	const claimed = await collections.scheduleCounts.findOneAndUpdate(
 		{ _id: userId, count: { $lt: cap } },
 		{ $inc: { count: 1 } }
 	);
 	return claimed.value !== null;
+}
+
+/**
+ * Corrects a counter that is higher than the rows really are (a slot leaked by a crash between
+ * claim and insert, or between delete and release). Downward only, and only if the counter still
+ * holds the value that was read, so it never fights a concurrent claim. Returns whether it fixed.
+ */
+export async function healScheduleCount(userId: ObjectId): Promise<boolean> {
+	const row = await collections.scheduleCounts.findOne({ _id: userId });
+	if (!row) return false;
+	const real = await collections.schedules.countDocuments({ userId });
+	if (row.count <= real) return false;
+	const { modifiedCount } = await collections.scheduleCounts.updateOne(
+		{ _id: userId, count: row.count },
+		{ $set: { count: real } }
+	);
+	return modifiedCount === 1;
+}
+
+/** Takes one slot if the user is under `cap`. False means the cap is reached; nothing changed. */
+export async function claimScheduleSlot(userId: ObjectId, cap: number): Promise<boolean> {
+	await ensureCounter(userId);
+	if (await tryClaim(userId, cap)) return true;
+	// At the cap by the counter: make sure the counter is not just stale, then retry once.
+	return (await healScheduleCount(userId)) && (await tryClaim(userId, cap));
 }
 
 /** Gives a slot back: a schedule was deleted, or its insert failed. Never goes below zero. */
@@ -44,17 +67,6 @@ export async function releaseScheduleSlot(userId: ObjectId, by = 1): Promise<voi
 		{ _id: userId, count: { $gte: by } },
 		{ $inc: { count: -by } }
 	);
-}
-
-/** Sets the counter to the number of rows the user really has. */
-export async function reconcileScheduleCount(userId: ObjectId): Promise<number> {
-	const count = await collections.schedules.countDocuments({ userId });
-	await collections.scheduleCounts.updateOne(
-		{ _id: userId },
-		{ $set: { count } },
-		{ upsert: true }
-	);
-	return count;
 }
 
 /** Drops the counter with the account. */

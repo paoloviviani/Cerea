@@ -7,10 +7,6 @@ import {
 } from "./reenableGrantExpiredSchedules";
 
 import { MIGRATION_BACKFILL_LAST_ACTIVITY, backfillLastActivity } from "./backfillLastActivity";
-import {
-	MIGRATION_BACKFILL_SCHEDULE_COUNTS,
-	backfillScheduleCounts,
-} from "./backfillScheduleCounts";
 import { MIGRATION_CLEAN_STORED_TITLES, cleanStoredTitles } from "./cleanStoredTitles";
 
 export interface Migration {
@@ -46,15 +42,6 @@ export const migrations: Migration[] = [
 		name: "Backfill the last-activity time sidebar chats are grouped by",
 		up: async (client) => {
 			await backfillLastActivity(client.getCollections());
-			return true;
-		},
-		runForFreshInstall: "never",
-	},
-	{
-		_id: MIGRATION_BACKFILL_SCHEDULE_COUNTS,
-		name: "Backfill the per-user schedule counts behind the schedule cap",
-		up: async (client) => {
-			await backfillScheduleCounts(client.getCollections());
 			return true;
 		},
 		runForFreshInstall: "never",

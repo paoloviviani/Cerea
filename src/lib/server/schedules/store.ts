@@ -143,6 +143,10 @@ export async function createSchedule(
 	const prompt = checkPrompt(input.prompt);
 	const timezone = checkTimezone(input.timezone);
 	const recurrence = checkRecurrence(input.recurrence, timezone);
+	// A cheap early refusal, before anything calls outside; the atomic claim below is what holds the cap.
+	if ((await collections.schedules.countDocuments({ userId })) >= cap) {
+		throw new ScheduleError(409, `You can have at most ${cap} schedules. Delete one first.`);
+	}
 	const target = await checkTarget(input.kind, input.target, userId, options.token);
 
 	const now = new Date();
@@ -175,7 +179,10 @@ export async function createSchedule(
 	try {
 		await collections.schedules.insertOne(schedule);
 	} catch (err) {
-		await releaseScheduleSlot(userId);
+		// An insert that threw after committing keeps its row, and so its slot.
+		if (!(await collections.schedules.findOne({ _id: schedule._id }, { projection: { _id: 1 } }))) {
+			await releaseScheduleSlot(userId);
+		}
 		throw err;
 	}
 	return schedule;

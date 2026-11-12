@@ -457,6 +457,52 @@ describe("the per-user cap", () => {
 		await createSchedule(user, base);
 	});
 
+	it("heals a leaked slot downward and lets the user create again", async () => {
+		limits.cap = 2;
+		await createSchedule(user, base);
+		// A crash between claim and insert left the counter one too high.
+		await collections.scheduleCounts.updateOne({ _id: user }, { $set: { count: 2 } });
+		await createSchedule(user, base);
+		expect((await collections.scheduleCounts.findOne({ _id: user }))?.count).toBe(2);
+		await expect(createSchedule(user, base)).rejects.toMatchObject({ status: 409 });
+	});
+
+	it("never corrects the counter upward, and a second delete releases nothing", async () => {
+		limits.cap = 3;
+		const row = await createSchedule(user, base);
+		await createSchedule(user, base);
+		await deleteSchedule(user, row._id.toString());
+		await expect(deleteSchedule(user, row._id.toString())).rejects.toMatchObject({ status: 404 });
+		expect((await collections.scheduleCounts.findOne({ _id: user }))?.count).toBe(1);
+		const { healScheduleCount } = await import("./slots");
+		await collections.scheduleCounts.updateOne({ _id: user }, { $set: { count: 0 } });
+		expect(await healScheduleCount(user)).toBe(false);
+		expect((await collections.scheduleCounts.findOne({ _id: user }))?.count).toBe(0);
+	});
+
+	it("keeps the slot when an insert throws after committing", async () => {
+		limits.cap = 2;
+		const real = collections.schedules.insertOne.bind(collections.schedules);
+		const spy = vi.spyOn(collections.schedules, "insertOne").mockImplementationOnce(async (doc) => {
+			await real(doc);
+			throw new Error("network lost after commit");
+		});
+		await expect(createSchedule(user, base)).rejects.toThrow("network lost");
+		spy.mockRestore();
+		expect(await collections.schedules.countDocuments({ userId: user })).toBe(1);
+		expect((await collections.scheduleCounts.findOne({ _id: user }))?.count).toBe(1);
+	});
+
+	it("refuses at the cap before calling the executor", async () => {
+		limits.cap = 1;
+		await createSchedule(user, base);
+		const executor = getExecutor("agent");
+		const spy = vi.spyOn(executor as NonNullable<typeof executor>, "validateTarget");
+		await expect(createSchedule(user, base)).rejects.toMatchObject({ status: 409 });
+		expect(spy).not.toHaveBeenCalled();
+		spy.mockRestore();
+	});
+
 	it("gives the slot back when the insert fails", async () => {
 		limits.cap = 2;
 		const spy = vi

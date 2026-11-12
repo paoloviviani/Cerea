@@ -411,7 +411,7 @@ describe("schedules and scheduleRuns: a schedule goes with its person", () => {
 		await collections.scheduleRuns.deleteMany({ userId: kept });
 	});
 
-	it("drops the cap counter with the account, and rebuilds the target's on a merge", async () => {
+	it("drops the cap counter with the account, and drops both counters on a merge", async () => {
 		const stray = new ObjectId();
 		const target = new ObjectId();
 		await collections.schedules.insertMany([schedule(stray), schedule(stray), schedule(target)]);
@@ -423,7 +423,9 @@ describe("schedules and scheduleRuns: a schedule goes with its person", () => {
 		if (!entry) throw new Error("schedules must be registered");
 		await entry.merge(stray, target);
 		expect(await collections.scheduleCounts.findOne({ _id: stray })).toBeNull();
-		expect((await collections.scheduleCounts.findOne({ _id: target }))?.count).toBe(3);
+		// Both dropped: the next create reseeds the target's from its three rows.
+		expect(await collections.scheduleCounts.findOne({ _id: target })).toBeNull();
+		await collections.scheduleCounts.insertOne({ _id: target, count: 3 });
 		const countsEntry = USER_KEYED_COLLECTIONS.find((e) => e.name === "scheduleCounts");
 		if (!countsEntry) throw new Error("scheduleCounts must be registered");
 		await entry.erase(target, NO_CONVERSATIONS);
