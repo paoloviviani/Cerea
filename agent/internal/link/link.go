@@ -317,6 +317,14 @@ func (l *Link) Paired() bool {
 	return l.paired
 }
 
+// Connected reports whether the link has a live connection that Cerea has
+// welcomed (it is false while dialling, between reconnects and after Close).
+func (l *Link) Connected() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.conn != nil && !l.welcomedAt.IsZero()
+}
+
 // Close sends a normal WebSocket close frame on the current connection, if
 // any. Best effort and non-blocking on the network: used at shutdown so
 // Cerea sees a clean close instead of the connection just dropping when

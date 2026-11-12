@@ -394,3 +394,43 @@ func TestRefusedUpgradeLogsServerReason(t *testing.T) {
 		t.Fatalf("error = %v, want the status and the body text", err)
 	}
 }
+
+// TestConnectedFollowsTheWelcome pins Connected, which the macOS app's status
+// file reports: false before the welcome, true after it, false once the
+// connection is gone.
+func TestConnectedFollowsTheWelcome(t *testing.T) {
+	release := make(chan struct{})
+	srv := newFakeCereaServer(t, func(sc *serverConn, r *http.Request) {
+		sc.readType("hello")
+		sc.send(map[string]any{"type": "welcome", "deviceId": "dev1", "status": "paired"})
+		<-release
+		sc.conn.Close(websocket.StatusNormalClosure, "bye")
+	})
+	l := New(Config{
+		CereaOrigin: srv.URL,
+		Cred:        &fakeCred{token: "tok"},
+		Hello:       func() Hello { return Hello{} },
+		Handler:     &fakeHandler{calls: make(chan string, 1)},
+		MinBackoff:  time.Hour, MaxBackoff: time.Hour,
+	})
+	if l.Connected() {
+		t.Fatal("connected before Run")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	go l.Run(ctx)
+	deadline := time.Now().Add(2 * time.Second)
+	for !l.Connected() {
+		if time.Now().After(deadline) {
+			t.Fatal("never connected")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	close(release)
+	for l.Connected() {
+		if time.Now().After(deadline.Add(2 * time.Second)) {
+			t.Fatal("still connected after the server went")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}

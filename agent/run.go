@@ -386,6 +386,7 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	sh.onExpired = func(message string) {
 		_ = lnk.PublishCredentialState("expired", message)
 	}
+	startAppStatus(ctx, stateDir, "agent", cereaOrigin, lnk)
 	mc.terminals.StartReaper(ctx, time.Minute)
 
 	// The forwarder gets its own context: the link can end on its own (a
@@ -878,6 +879,7 @@ func runConnectorsOnly(ctx context.Context, opts *runOptions, credsPath, stateDi
 	sh.onExpired = func(message string) {
 		_ = lnk.PublishCredentialState("expired", message)
 	}
+	startAppStatus(ctx, stateDir, "connectors", cereaOrigin, lnk)
 	logf("connectors machine started (no coding agent)")
 
 	linkErr := make(chan error, 1)
