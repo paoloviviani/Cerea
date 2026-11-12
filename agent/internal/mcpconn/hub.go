@@ -31,9 +31,20 @@ type Config struct {
 	// Closed tells Cerea a channel ended (PROTOCOL.md §10.3).
 	Closed func(channelID, reason string, detail *string)
 
+	// BeforeStart runs before a stdio server of mcp.json is started for a channel
+	// (galopin uses it to fetch the browser runtime's approval key). A non-nil
+	// answer refuses the open with that error.
+	BeforeStart func(ctx context.Context, e *Entry) *OpenError
+
 	IdleTimeout time.Duration // default 10 min
 	PollEvery   time.Duration // default 3 s
 	MaxChannels int           // per server, default 4
+	// ServerLimits lowers the channel limit of a named server (the browser runtime
+	// owns one profile, so one process: its limit is 1).
+	ServerLimits map[string]int
+	// LocalExclude names servers the in-process (agent session) connector path
+	// must never reach: LocalTools and LocalCall refuse them.
+	LocalExclude map[string]bool
 	// OpenCheck is how long an opened process is watched for an immediate
 	// exit (default 150 ms).
 	OpenCheck  time.Duration
@@ -293,6 +304,14 @@ func (h *Hub) Open(ctx context.Context, name string) (string, *OpenError) {
 
 // open is Open's work; setup, when given, runs on the new channel before it
 // starts (the in-process client points the channel's output at itself).
+// limit is how many channels the named server may have open at once.
+func (h *Hub) limit(name string) int {
+	if n, ok := h.cfg.ServerLimits[name]; ok && n > 0 && n < h.cfg.MaxChannels {
+		return n
+	}
+	return h.cfg.MaxChannels
+}
+
 func (h *Hub) open(ctx context.Context, name string, setup func(*channel)) (*channel, *OpenError) {
 	h.mu.Lock()
 	e := h.entries[name]
@@ -312,12 +331,17 @@ func (h *Hub) open(ctx context.Context, name string, setup func(*channel)) (*cha
 		return nil, &OpenError{"forbidden", "the connector " + name + " is disabled on this machine"}
 	case e.Transport != TransportStdio && h.loginNeeded(e):
 		return nil, &OpenError{"forbidden", "the connector " + name + " needs a sign-in. " + loginSentence(name)}
-	case open >= h.cfg.MaxChannels:
+	case open >= h.limit(name):
 		return nil, &OpenError{"unavailable", fmt.Sprintf("the connector %s already has %d open channels", name, open)}
 	}
 	if e.Transport == TransportHTTP {
 		if err := h.probe(ctx, e); err != nil {
 			return nil, err
+		}
+	}
+	if h.cfg.BeforeStart != nil && e.Transport == TransportStdio {
+		if oerr := h.cfg.BeforeStart(ctx, e); oerr != nil {
+			return nil, oerr
 		}
 	}
 	ch := newChannel(h, e)

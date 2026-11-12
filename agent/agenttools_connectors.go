@@ -118,7 +118,9 @@ func (at *agentTools) connectorsFor(ctx context.Context, tc *toolCaller) ([]conn
 	}
 	for _, name := range local {
 		hub := at.mc.mcp
-		if hub == nil {
+		// The browser runtime is offered to Cerea's browse tool only (ADR 0116): never to an
+		// agent session as a connector, whatever the list says.
+		if hub == nil || name == browserConnectorName {
 			continue
 		}
 		tools, lerr := hub.LocalTools(ctx, name)
@@ -354,6 +356,9 @@ func (at *agentTools) connectorCallTool(ctx context.Context, tc *toolCaller, cal
 	act, err := at.connectorGate(tc, false)
 	if err != nil {
 		return "", to, err
+	}
+	if id == localIDPrefix+browserConnectorName {
+		return "", to, refuse("the browser is not a connector an agent can use; Cerea's browse tool drives it")
 	}
 	name := at.connectorName(tc.session.ID, id)
 	meta := map[string]any{
