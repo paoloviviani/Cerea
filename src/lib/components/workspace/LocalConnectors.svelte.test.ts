@@ -3,11 +3,11 @@
  * collapsed behind "Add a computer" once there is one; approval of a machine that checked in;
  * and each machine's servers with their states.
  */
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, afterEach } from "vitest";
 
 import LocalConnectors from "./LocalConnectors.svelte";
 import type { LocalMachineView } from "$lib/types/LocalConnectors";
-import { renderWithApp } from "../__tests__/renderWithApp";
+import { renderWithApp, unmountRendered } from "../__tests__/renderWithApp";
 
 vi.mock("$env/dynamic/public", () => ({ env: { PUBLIC_APP_NAME: "chat-ui" } }));
 
@@ -65,7 +65,10 @@ function mount(extraData: Record<string, unknown> = {}) {
 const text = (screen: ReturnType<typeof mount>) => screen.baseElement.textContent ?? "";
 
 describe("LocalConnectors", () => {
-	beforeEach(() => vi.unstubAllGlobals());
+	afterEach(() => {
+		unmountRendered();
+		vi.unstubAllGlobals();
+	});
 
 	it("says the administrator has not enabled it, instead of the how-to, without the capability", async () => {
 		stubApi(() => []);

@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
-import { render } from "vitest-browser-svelte";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { render, cleanup } from "vitest-browser-svelte";
 import ToolApprovalCard from "./ToolApprovalCard.svelte";
 import type { ElicitationRequestPayload } from "$lib/types/McpElicitation";
 import { ALWAYS_CAPPED, type AlwaysCapped } from "$lib/utils/alwaysCappedContext";
@@ -8,6 +8,8 @@ import { FIRST_TURN_SUBAGENT, type FirstTurnSubagent } from "$lib/utils/firstTur
 vi.mock("$lib/utils/sendElicitationAnswer", () => ({
 	sendElicitationAnswer: async () => ({ ok: true }),
 }));
+
+afterEach(() => cleanup());
 
 const LONG_PROMPT = `Review the migration plan.\n${"Check every table. ".repeat(80)}END-OF-PROMPT`;
 

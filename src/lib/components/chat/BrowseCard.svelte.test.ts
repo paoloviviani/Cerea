@@ -1,12 +1,14 @@
 import BrowseCard from "./BrowseCard.svelte";
-import { render } from "vitest-browser-svelte";
-import { describe, expect, it } from "vitest";
+import { render, cleanup } from "vitest-browser-svelte";
+import { afterEach, describe, expect, it } from "vitest";
 import {
 	MessageToolUpdateType,
 	MessageUpdateType,
 	type MessageBrowseUpdate,
 	type MessageToolUpdate,
 } from "$lib/types/MessageUpdate";
+
+afterEach(() => cleanup());
 
 const state = (over: Partial<MessageBrowseUpdate> = {}): MessageBrowseUpdate => ({
 	type: MessageUpdateType.Browse,

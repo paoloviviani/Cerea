@@ -13,7 +13,7 @@ import Knowledge from "./knowledge/+page.svelte";
 import Storage from "./storage/+page.svelte";
 import Web from "./web/+page.svelte";
 import Assistant from "./assistant/+page.svelte";
-import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
+import { renderWithApp, unmountRendered } from "$lib/components/__tests__/renderWithApp";
 import {
 	unbracketedWords,
 	useEnglish,
@@ -39,6 +39,7 @@ function stub(routes: Record<string, unknown>) {
 }
 
 afterEach(() => {
+	unmountRendered();
 	useEnglish();
 	vi.unstubAllGlobals();
 	document.body.innerHTML = "";

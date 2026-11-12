@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { page as browserPage } from "@vitest/browser/context";
-import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
+import { renderWithApp, unmountRendered } from "$lib/components/__tests__/renderWithApp";
 import NeedsYouInbox from "./NeedsYouInbox.svelte";
 import NeedsYouShell from "./NeedsYouShell.svelte";
 import { codeDeviceList } from "$lib/stores/codeDeviceList.svelte";
@@ -74,6 +74,14 @@ function devices() {
 }
 
 beforeEach(async () => {
+	// The browse source answers "nothing pending"; the real network is never asked.
+	vi.stubGlobal(
+		"fetch",
+		async () =>
+			new Response(JSON.stringify({ approvals: [] }), {
+				headers: { "content-type": "application/json" },
+			})
+	);
 	await browserPage.viewport(1200, 800);
 	fake.pendingByDevice = {
 		d1: {
@@ -90,6 +98,8 @@ beforeEach(async () => {
 	clearPending();
 });
 afterEach(() => {
+	unmountRendered();
+	vi.unstubAllGlobals();
 	document.body.innerHTML = "";
 });
 

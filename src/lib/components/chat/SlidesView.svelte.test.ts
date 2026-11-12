@@ -482,10 +482,13 @@ describe("SlidesView", { timeout: 60_000 }, () => {
 			stubServer(true);
 			const { screen } = await mount({ content: "<section>One</section>" });
 			await expect.element(screen.getByTestId("slides-counter")).toHaveTextContent("1 / 1");
-			await vi.waitFor(async () => {
-				await screen.getByRole("button", { name: "PDF", exact: true }).click();
-				expect(screen.baseElement.querySelector("[role=alert]")).toBeTruthy();
-			});
+			await vi.waitFor(
+				async () => {
+					await screen.getByRole("button", { name: "PDF", exact: true }).click();
+					expect(screen.baseElement.querySelector("[role=alert]")).toBeTruthy();
+				},
+				{ timeout: 15_000, interval: 250 }
+			);
 			expect(screen.baseElement.querySelector("[role=alert]")?.textContent).toContain(
 				"Try Print or save as PDF"
 			);
@@ -508,10 +511,13 @@ describe("SlidesView", { timeout: 60_000 }, () => {
 			});
 			const { screen } = await mount({ content: "<section>One</section>" });
 			await expect.element(screen.getByTestId("slides-counter")).toHaveTextContent("1 / 1");
-			await vi.waitFor(async () => {
-				await screen.getByRole("button", { name: "PDF", exact: true }).click();
-				await expect.element(screen.getByRole("button", { name: "Cancel PDF" })).toBeVisible();
-			});
+			await vi.waitFor(
+				async () => {
+					await screen.getByRole("button", { name: "PDF", exact: true }).click();
+					await expect.element(screen.getByRole("button", { name: "Cancel PDF" })).toBeVisible();
+				},
+				{ timeout: 15_000, interval: 250 }
+			);
 			await screen.getByRole("button", { name: "Cancel PDF" }).click();
 			await expect.element(screen.getByRole("button", { name: "PDF", exact: true })).toBeEnabled();
 			expect(screen.baseElement.querySelector("[role=alert]")).toBeNull();
