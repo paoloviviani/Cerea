@@ -26,7 +26,6 @@ describe("signed grants", () => {
 		assert.match(a.results[0].error ?? "", /signature/);
 		const expired = r.grant(snap, action, 0, undefined, { exp: Date.now() - 1000 });
 		const b = await r.act([action], [expired]);
-		assert.equal(b.results[0].refused, "approval_mismatch");
 		assert.equal(b.results[0].refused, "approval_expired");
 		// A forged digest with a signature that matches it (a signer that signed another action).
 		const other = { ...r.grant(snap, { type: "click", ref: "e999" }) };

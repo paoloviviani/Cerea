@@ -31,6 +31,11 @@ type Config struct {
 	// Closed tells Cerea a channel ended (PROTOCOL.md §10.3).
 	Closed func(channelID, reason string, detail *string)
 
+	// BeforeStart runs before a stdio server of mcp.json is started for a channel
+	// (galopin uses it to fetch the browser runtime's approval key). A non-nil
+	// answer refuses the open with that error.
+	BeforeStart func(ctx context.Context, e *Entry) *OpenError
+
 	IdleTimeout time.Duration // default 10 min
 	PollEvery   time.Duration // default 3 s
 	MaxChannels int           // per server, default 4
@@ -318,6 +323,11 @@ func (h *Hub) open(ctx context.Context, name string, setup func(*channel)) (*cha
 	if e.Transport == TransportHTTP {
 		if err := h.probe(ctx, e); err != nil {
 			return nil, err
+		}
+	}
+	if h.cfg.BeforeStart != nil && e.Transport == TransportStdio {
+		if oerr := h.cfg.BeforeStart(ctx, e); oerr != nil {
+			return nil, oerr
 		}
 	}
 	ch := newChannel(h, e)

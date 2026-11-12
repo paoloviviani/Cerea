@@ -1,0 +1,9 @@
+{
+	"name": "cerea-browser-runtime-install",
+	"private": true,
+	"type": "module",
+	"description": "Installed by `galopin browser setup`; do not edit.",
+	"dependencies": {
+		"playwright-core": "1.66.0-alpha-2026-11-09"
+	}
+}

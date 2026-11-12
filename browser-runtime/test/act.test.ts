@@ -15,7 +15,7 @@ describe("act", () => {
 			{ type: "fill", ref: r.ref(snap, "textbox", "Full name"), text: "Ada" },
 			{ type: "fill", ref: r.ref(snap, "textbox", "Email"), text: "ada@example.test" },
 			{ type: "select", ref: r.ref(snap, "combobox", "Role"), value: "Engineer" },
-			{ type: "click", ref: r.ref(snap, "checkbox", "Subscribe to newsletter") },
+			{ type: "click", ref: r.ref(snap, "checkbox", "Keep me posted") },
 			{ type: "scroll", direction: "down" },
 			{ type: "wait_for", text: "Contact form", ms: 2000 },
 		]);
@@ -28,7 +28,7 @@ describe("act", () => {
 		const after = await r.snapshot();
 		assert.match(after.text, /textbox "Full name" value="Ada"/);
 		assert.match(after.text, /combobox "Role" value="Engineer"/);
-		assert.match(after.text, /checkbox "Subscribe to newsletter" checked/);
+		assert.match(after.text, /checkbox "Keep me posted" checked/);
 	});
 
 	it("stops at the first failure and reports what ran", async () => {

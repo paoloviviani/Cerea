@@ -43,6 +43,8 @@ Commands:
             proxy ('goose setup').
   connectors  List, test and sign in to the MCP servers this machine offers
             to the chat ('connectors list|test|login').
+  browser   Set up and offer a browser to Cerea's browse tool ('browser
+            setup|enable|disable|status').
   policy    Show, or locally tighten, this machine's policy.json.
   reset     Return this machine's policy to the defaults (keeps credentials
             and the pairing with Cerea).
@@ -78,6 +80,8 @@ func main() {
 		err = runGoose(os.Args[2:])
 	case "connectors":
 		err = runConnectors(os.Args[2:])
+	case "browser":
+		err = runBrowser(os.Args[2:])
 	case "licenses":
 		fmt.Print(thirdPartyLicenses)
 		return

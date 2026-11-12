@@ -15,9 +15,10 @@ describe("downloads", () => {
 		const refused = await r.act([click]);
 		assert.equal(refused.results[0].refused, "approval_required");
 		assert.deepEqual((await r.download()).files, []);
-		const res = await r.act([click], [r.grant(snap, click)]);
+		const grant = r.grant(snap, click);
+		const res = await r.act([click], [grant]);
 		assert.equal(res.results[0].ok, true, JSON.stringify(res));
-		assert.deepEqual(res.downloads, [{ name: "report.csv", mime: "text/csv" }]);
+		assert.deepEqual(res.downloads, [{ name: "report.csv", mime: "text/csv", actionIndex: 0, grantId: grant.id }]);
 		const got = await r.download();
 		assert.equal(got.files.length, 1);
 		assert.equal(got.files[0].name, "report.csv");

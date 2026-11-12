@@ -71,6 +71,8 @@ func (mc *machine) startConnectors(stateDir, mcpPath string) *mcpconn.Hub {
 		StateDir: stateDir,
 		Lookup:   os.LookupEnv,
 		Logf:     logf,
+		// The browser runtime's approval key (PROTOCOL.md §10.7).
+		BeforeStart: mc.browserBeforeStart(stateDir),
 		// Zero is the 10 minutes of PROTOCOL.md §10.6; tests shorten it.
 		IdleTimeout: mc.mcpIdle,
 		Audit:       func(server, tool, outcome string) { mc.audit.mcpCall(server, tool, outcome) },

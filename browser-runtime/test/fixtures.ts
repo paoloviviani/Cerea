@@ -80,7 +80,7 @@ export async function startFixtures(): Promise<Fixtures> {
 <label>Full name <input name="name" type="text"></label><br>
 <label>Email <input name="email" type="email"></label><br>
 <label>Role <select name="role"><option value="">--</option><option>Designer</option><option>Engineer</option></select></label><br>
-<label><input type="checkbox" name="newsletter" value="yes"> Subscribe to newsletter</label><br>
+<label><input type="checkbox" name="newsletter" value="yes"> Keep me posted</label><br>
 <label>Message <textarea name="message"></textarea></label><br>
 <button type="submit">Save</button></form>`
 				)
