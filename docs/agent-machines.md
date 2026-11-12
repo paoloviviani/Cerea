@@ -59,20 +59,43 @@ are in the [reference](agent-machines-reference.md).
 ## Or pair a disposable container
 
 If you would rather not install anything, galopin and opencode come ready in a
-container image, with python, node, a C toolchain, git and `gh`. Start one, pair
-it like any computer, and throw it away when you are done:
+container image, with python, node, a C toolchain, git and `gh`. The **Pair a
+computer** dialog has a switch at the top: **On this computer** (the one you see
+first) or **In a Docker container**. Choose the second and the dialog prints one
+`docker run` for the image of your chat's version, with your deployment's
+addresses and your options filled in:
 
 ```sh
-docker run -it --rm --hostname sandbox \
+docker run -it --rm \
+  --hostname sandbox \
   -v "$PWD":/workspace \
-  ghcr.io/paoloviviani/galopin:<version>      # the same version as your chat
+  ghcr.io/paoloviviani/galopin:<version> \
+  start \
+  --issuer 'https://cerea.example.org/authelia' \
+  --gateway 'https://cerea.example.org' \
+  --cerea 'https://cerea.example.org/chat' \
+  --default-group
 ```
 
-Inside, run the `galopin enroll` and `galopin run` commands from the **Pair a
-computer** dialog (without the install step: galopin is already there), confirm
-the computer in the panel, and add `/workspace` as a workspace. The container
-can also enroll by itself from environment variables and keep its pairing in a
-volume: see [Running galopin in a container](agent-machines-reference.md#running-galopin-in-a-container).
+Run it in a terminal in your project's folder. The container enrolls (it prints a
+link and a code to open on any device), then runs the agent, and the computer
+appears in the panel as **Pending**: confirm it as for any computer, and add
+`/workspace`, your project, as a workspace. Closing the terminal stops the
+container.
+
+In this mode the dialog also asks for a **Computer name** (the name the computer
+has in the Agents panel; `sandbox` to start with) and offers **Keep the pairing
+across restarts**, off by default: a container left alone forgets everything when
+it stops, and one that keeps its pairing in a Docker volume does not need pairing
+again. The options work as on a computer, except that the opencode install, the
+manual download and the goose engine are not offered (the image has what it
+needs), and workspace folders you type are paths inside the container.
+
+The image is published with each Cerea release under the same version as the
+chat, so the command works once your Cerea's release has published its image. The
+container can also enroll by itself from environment variables, and keep its
+pairing in a volume you name: see
+[Running galopin in a container](agent-machines-reference.md#running-galopin-in-a-container).
 
 ## The panel
 
