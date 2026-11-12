@@ -155,7 +155,7 @@ func PairArgs(address string, agent bool) []string {
 
 // BrowserSetupArgs and BrowserEnableArgs are the two commands behind "Set up browser".
 func BrowserSetupArgs() []string  { return []string{"browser", "setup"} }
-func BrowserEnableArgs() []string { return []string{"browser", "enable", "--headless"} }
+func BrowserEnableArgs() []string { return []string{"browser", "enable", "--headed"} }
 
 // LaunchctlBootstrap and LaunchctlBootout start and stop the LaunchAgent for a user.
 func LaunchctlBootstrap(uid int, plist string) []string {
