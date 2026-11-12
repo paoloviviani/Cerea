@@ -2,14 +2,22 @@ package main
 
 import (
 	"context"
+	"runtime"
 
 	"galopin/internal/appstatus"
 	"galopin/internal/link"
 )
 
+// appStatusEnabled: only the macOS app reads app-status.json, so other
+// platforms do not write it.
+var appStatusEnabled = runtime.GOOS == "darwin"
+
 // startAppStatus keeps <stateDir>/app-status.json current for the menu-bar app
 // until ctx ends (see internal/appstatus). No secrets go in it.
 func startAppStatus(ctx context.Context, stateDir, mode, cerea string, lnk *link.Link) {
+	if !appStatusEnabled {
+		return
+	}
 	go appstatus.Publish(ctx, stateDir, appstatus.Interval, func() appstatus.Status {
 		s := appstatus.Status{Link: appstatus.LinkConnecting, Paired: lnk.Paired(), Cerea: cerea, Mode: mode, Browser: browserState(stateDir)}
 		if lnk.Connected() {

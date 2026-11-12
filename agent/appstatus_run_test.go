@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -29,6 +30,8 @@ func TestBrowserState(t *testing.T) {
 }
 
 func TestStartAppStatusReportsConnecting(t *testing.T) {
+	appStatusEnabled = true
+	defer func() { appStatusEnabled = runtime.GOOS == "darwin" }()
 	dir := t.TempDir()
 	lnk := link.New(link.Config{CereaOrigin: "https://c.example"})
 	if lnk.Connected() {
