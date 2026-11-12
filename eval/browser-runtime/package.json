@@ -1,0 +1,1 @@
+{"name":"browser-runtime-eval","private":true,"type":"module","version":"0.0.0","dependencies":{"@browserbasehq/stagehand":"^4.4.0","@playwright/mcp":"^0.0.85","playwright":"^1.66.0-alpha-2026-11-09","zod":"^4.6.7"}}
