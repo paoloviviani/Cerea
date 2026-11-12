@@ -45,6 +45,7 @@
 	import CodeExecutionCard from "./CodeExecutionCard.svelte";
 	import PlanCard from "./PlanCard.svelte";
 	import SubAgentCard from "./SubAgentCard.svelte";
+	import BrowseCard from "./BrowseCard.svelte";
 	import MemoryCard from "./MemoryCard.svelte";
 	import BackgroundTaskCard from "./BackgroundTaskCard.svelte";
 	import AgentSessionCard from "./AgentSessionCard.svelte";
@@ -63,6 +64,7 @@
 		isMessageCodeExecutionOutputsUpdate,
 		isMessagePlanUpdate,
 		isMessageSubAgentUpdate,
+		isMessageBrowseUpdate,
 		isMessageMemoryUpdate,
 		isMessageBackgroundTaskUpdate,
 		isMessageAgentSessionUpdate,
@@ -78,6 +80,7 @@
 		type MessageCodeExecutionResolvedUpdate,
 		type MessagePlanUpdate,
 		type MessageSubAgentUpdate,
+		type MessageBrowseUpdate,
 		type MessageMemoryUpdate,
 		type MessageBackgroundTaskUpdate,
 		type MessageAgentSessionUpdate,
@@ -340,7 +343,7 @@
 		| {
 				type: "delegate";
 				uuid: string;
-				update: MessageSubAgentUpdate;
+				update: MessageSubAgentUpdate | MessageBrowseUpdate;
 				/** The delegate call's own frames: call, result, error. */
 				updates: MessageToolUpdate[];
 		  }
@@ -369,7 +372,7 @@
 		| {
 				kind: "delegate";
 				uuid: string;
-				update: MessageSubAgentUpdate;
+				update: MessageSubAgentUpdate | MessageBrowseUpdate;
 				updates: MessageToolUpdate[];
 		  }
 		| { kind: "memory"; update: MessageMemoryUpdate }
@@ -681,7 +684,7 @@
 				if (planIdx !== -1) res.splice(planIdx, 1);
 				// The agent's task plan is placed after the walk (below), not here.
 				res.push({ type: "plan", update });
-			} else if (isMessageSubAgentUpdate(update)) {
+			} else if (isMessageSubAgentUpdate(update) || isMessageBrowseUpdate(update)) {
 				// One card per sub-agent, each state replacing the last for the
 				// same call. The generic tool row the call opened with gives way
 				// to it (a call that failed before it started has no such update,
@@ -1087,11 +1090,19 @@
 							</div>
 						{:else if block.type === "delegate"}
 							<div data-exclude-from-copy>
-								<SubAgentCard
-									update={block.update}
-									tool={block.updates}
-									loading={isLast && loading}
-								/>
+								{#if block.update.type === MessageUpdateType.Browse}
+									<BrowseCard
+										update={block.update}
+										tool={block.updates}
+										loading={isLast && loading}
+									/>
+								{:else}
+									<SubAgentCard
+										update={block.update}
+										tool={block.updates}
+										loading={isLast && loading}
+									/>
+								{/if}
 							</div>
 						{:else if block.type === "memory"}
 							<div data-exclude-from-copy>
@@ -1198,11 +1209,19 @@
 							</div>
 						{:else if unit.kind === "delegate"}
 							<div data-exclude-from-copy>
-								<SubAgentCard
-									update={unit.update}
-									tool={unit.updates}
-									loading={isLast && loading}
-								/>
+								{#if unit.update.type === MessageUpdateType.Browse}
+									<BrowseCard
+										update={unit.update}
+										tool={unit.updates}
+										loading={isLast && loading}
+									/>
+								{:else}
+									<SubAgentCard
+										update={unit.update}
+										tool={unit.updates}
+										loading={isLast && loading}
+									/>
+								{/if}
 							</div>
 						{:else if unit.kind === "memory"}
 							<div data-exclude-from-copy>

@@ -67,6 +67,17 @@
 	}: Props = $props();
 
 	const toolApproval = $derived(request.toolApproval);
+	/** A browsing sub-agent's ask (ADR 0116): the sentence, the site, a picture of the element. */
+	const browse = $derived(onanswer === undefined ? request.browse : undefined);
+	const BROWSE_REASONS: Record<string, () => string> = {
+		submit: m["chat.approval.browse.reason.submit"],
+		verb: m["chat.approval.browse.reason.verb"],
+		download: m["chat.approval.browse.reason.download"],
+		"new-domain": m["chat.approval.browse.reason.new-domain"],
+		"unknown-element": m["chat.approval.browse.reason.unknown-element"],
+		"bad-url": m["chat.approval.browse.reason.bad-url"],
+	};
+	const browseReason = $derived(browse?.reason ? BROWSE_REASONS[browse.reason]?.() : undefined);
 
 	/**
 	 * The agent path's "always" for a file edit is scoped by the machine to the
@@ -313,7 +324,7 @@
 	/** Plain-words title and risk tags: only for an ordinary tool ask, never for
 	 * galopin's own or a schedule proposal, which already read as facts. */
 	const summary = $derived(
-		toolApproval && !galopin && !proposesSchedule
+		toolApproval && !galopin && !proposesSchedule && !browse
 			? summarizeApproval({
 					tool: toolApproval.tool,
 					args: toolApproval.args ?? {},
@@ -404,7 +415,7 @@
 				</span>
 				<code
 					class="min-w-0 shrink truncate rounded-sm bg-blue-50 px-1 py-px font-mono text-xs text-blue-700 opacity-90 dark:bg-blue-900/30 dark:text-blue-300"
-					>{toolApproval.tool}</code
+					>{browse ? browse.sentence : toolApproval.tool}</code
 				>
 				<CarbonChevronRight
 					class="size-3.5 shrink-0 transition-all duration-200 group-hover/header:text-gray-600 dark:group-hover/header:text-gray-300 {showArgs
@@ -434,13 +445,15 @@
 					class="min-w-0 text-sm font-medium break-words text-gray-800 dark:text-gray-100"
 					data-testid="approval-title"
 					>{#if subagentLabel}{subagentLabel} ·
-					{/if}{summary
-						? summary.title
-						: galopin
-							? m["chat.approval.agent_action"]()
-							: m["chat.approval.schedule.title"]()}</span
+					{/if}{browse
+						? browse.sentence
+						: summary
+							? summary.title
+							: galopin
+								? m["chat.approval.agent_action"]()
+								: m["chat.approval.schedule.title"]()}</span
 				>
-				{#if !summary}
+				{#if !summary && !browse}
 					<span class="text-xs text-gray-500 dark:text-gray-400">
 						<Rich
 							parts={m["chat.approval.wants_to_call"].parts({ tool: toolApproval.tool })}
@@ -483,7 +496,33 @@
 				</p>
 			{/if}
 
-			{#if (galopin || proposesSchedule) && shownFacts.length > 0}
+			{#if browse}
+				<div class="mt-3 space-y-2 text-sm" data-testid="browse-approval">
+					<div class="flex flex-wrap gap-x-2">
+						<span class="text-xs font-medium text-gray-500 dark:text-gray-400"
+							>{m["chat.approval.browse.site"]()}</span
+						>
+						<span class="min-w-0 break-all text-gray-800 dark:text-gray-100">{browse.site}</span>
+					</div>
+					{#if browseReason}
+						<p
+							class="text-xs text-gray-500 dark:text-gray-400"
+							data-testid="browse-approval-reason"
+						>
+							<span class="font-medium">{m["chat.approval.browse.why"]()}:</span>
+							{browseReason}
+						</p>
+					{/if}
+					{#if browse.screenshot}
+						<img
+							src={`data:${browse.screenshot.mime};base64,${browse.screenshot.base64}`}
+							alt={m["chat.approval.browse.screenshot"]()}
+							class="max-h-40 max-w-full rounded-lg border border-gray-200 object-contain dark:border-gray-700"
+							data-testid="browse-approval-screenshot"
+						/>
+					{/if}
+				</div>
+			{:else if (galopin || proposesSchedule) && shownFacts.length > 0}
 				<dl
 					class="mt-3 space-y-2 text-sm"
 					data-testid={proposesSchedule ? "schedule-approval" : "galopin-approval"}
@@ -566,7 +605,11 @@
 						class="min-h-9 rounded-lg bg-gray-900 px-3 py-1.5 text-sm text-white hover:bg-gray-700 disabled:opacity-50 dark:bg-gray-200 dark:text-gray-900 dark:hover:bg-white"
 					>
 						<CarbonCheckmark class="mr-1 inline size-3.5 align-text-bottom" />
-						{proposesSchedule ? m["chat.approval.schedule.create"]() : approveLabel}
+						{proposesSchedule
+							? m["chat.approval.schedule.create"]()
+							: browse
+								? m["chat.approval.browse.allow"]()
+								: approveLabel}
 					</button>
 					<button
 						type="button"
@@ -577,7 +620,7 @@
 						<CarbonClose class="mr-1 inline size-3.5 align-text-bottom" />
 						{m["chat.approval.deny"]()}
 					</button>
-					{#if !galopin && !onceOnly && !proposesSchedule}
+					{#if !galopin && !onceOnly && !proposesSchedule && !browse}
 						<button
 							type="button"
 							onclick={chooseAlways}
