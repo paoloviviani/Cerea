@@ -50,6 +50,13 @@ stop_everything() {
     launchctl bootout "gui/$uid/$SERVICE_LABEL" >/dev/null 2>&1 || true
     launchctl bootout "gui/$uid/$TRAY_LABEL" >/dev/null 2>&1 || true
     pkill -x galopin-tray >/dev/null 2>&1 || true
+    # Any galopin from the app's bundle still running (a manual run, a crash
+    # leftover): stop it, and kill it if it does not go within a few seconds.
+    stray="Cerea connector\\.app/Contents/Resources/galopin( |$)"
+    pkill -u "$uid" -f "$stray" >/dev/null 2>&1 || true
+    n=0
+    while pgrep -u "$uid" -f "$stray" >/dev/null 2>&1 && [ $n -lt 10 ]; do sleep 0.5; n=$((n + 1)); done
+    pkill -9 -u "$uid" -f "$stray" >/dev/null 2>&1 || true
 }
 
 if [ "$uninstall" = 1 ]; then

@@ -11,8 +11,11 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"fyne.io/systray"
@@ -32,12 +35,14 @@ func main() {
 	exe, _ := os.Executable()
 	// <bundle>/Contents/MacOS/galopin-tray
 	bundle := filepath.Dir(filepath.Dir(filepath.Dir(exe)))
+	children := &trayapp.ChildSet{}
 	app := &trayapp.App{
-		Layout: trayapp.Layout{Bundle: bundle},
-		Paths:  trayapp.Paths{Home: home},
-		UID:    os.Getuid(),
-		Run:    trayapp.ExecRunner,
-		Now:    time.Now,
+		Layout:   trayapp.Layout{Bundle: bundle},
+		Paths:    trayapp.Paths{Home: home},
+		UID:      os.Getuid(),
+		Run:      trayapp.NewExecRunner(children),
+		Children: children,
+		Now:      time.Now,
 	}
 	// The installer calls this to write the LaunchAgent files, then opens the app.
 	if len(os.Args) > 1 && os.Args[1] == "--install-agents" {
@@ -73,6 +78,23 @@ func onReady(app *trayapp.App) {
 	logs := systray.AddMenuItem("Show logs", "")
 	systray.AddSeparator()
 	quit := systray.AddMenuItem("Quit "+trayapp.AppName, "")
+
+	// quitAll stops the service and every command the app started, then ends
+	// the app. It runs once, from the menu or from a termination signal.
+	var quitOnce sync.Once
+	quitAll := func() {
+		quitOnce.Do(func() {
+			app.Quit(ctx)
+			systray.Quit()
+			time.AfterFunc(3*time.Second, func() { os.Exit(0) })
+		})
+	}
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
+	go func() {
+		<-sigs
+		quitAll()
+	}()
 
 	var busy atomic.Bool
 	var address atomic.Value // string
@@ -141,6 +163,14 @@ func onReady(app *trayapp.App) {
 	if _, err := app.FirstRun(); err != nil {
 		app.Alert(ctx, "Could not finish setting up: "+err.Error())
 	}
+	// A galopin left over from a manual run, an old install or a crash would
+	// run beside the service: offer to stop it, and any orphaned browser, first.
+	if stopped := app.StopStrays(ctx); len(stopped) > 0 {
+		log.Printf("stopped stray galopin process(es): %v", stopped)
+	}
+	if stopped := app.StopOrphanBrowsers(ctx); len(stopped) > 0 {
+		log.Printf("stopped orphaned browser process(es): %v", stopped)
+	}
 	if in := app.Snapshot(ctx, false); in.HasCredentials && !in.ServiceLoaded {
 		_ = app.StartService(ctx)
 	}
@@ -197,7 +227,7 @@ func onReady(app *trayapp.App) {
 			case <-logs.ClickedCh:
 				app.ShowLogs(ctx)
 			case <-quit.ClickedCh:
-				systray.Quit()
+				quitAll()
 				return
 			}
 		}

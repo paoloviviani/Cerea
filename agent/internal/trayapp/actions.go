@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
+	"syscall"
 	"time"
 
 	"galopin/internal/appstatus"
@@ -20,10 +22,24 @@ import (
 // combined output. Tests swap it for a fake.
 type Runner func(ctx context.Context, name string, args, env []string, onLine func(string)) (string, error)
 
-// ExecRunner is the real Runner.
+// ExecRunner is the real Runner, without child tracking.
 func ExecRunner(ctx context.Context, name string, args, env []string, onLine func(string)) (string, error) {
+	return execRun(ctx, nil, name, args, env, onLine)
+}
+
+// NewExecRunner is the real Runner. Every command runs in its own process
+// group, recorded in children while it runs, so Quit can stop it and whatever
+// it started.
+func NewExecRunner(children *ChildSet) Runner {
+	return func(ctx context.Context, name string, args, env []string, onLine func(string)) (string, error) {
+		return execRun(ctx, children, name, args, env, onLine)
+	}
+}
+
+func execRun(ctx context.Context, children *ChildSet, name string, args, env []string, onLine func(string)) (string, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = append(os.Environ(), env...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	pr, pw, err := os.Pipe()
 	if err != nil {
 		return "", err
@@ -35,6 +51,10 @@ func ExecRunner(ctx context.Context, name string, args, env []string, onLine fun
 		return "", err
 	}
 	pw.Close()
+	if children != nil {
+		children.Add(cmd.Process.Pid)
+		defer children.Remove(cmd.Process.Pid)
+	}
 	var all strings.Builder
 	sc := bufio.NewScanner(pr)
 	sc.Buffer(make([]byte, 64*1024), 1024*1024)
@@ -58,6 +78,17 @@ type App struct {
 	Now    func() time.Time
 	// Getenv reads the app's environment (nil: os.Getenv). Only GALOPIN_MCP_CONFIG is read.
 	Getenv func(string) string
+
+	// Children are the process groups the app started (NewExecRunner fills it).
+	Children *ChildSet
+	// Self is the app's own pid (0: os.Getpid()).
+	Self int
+	// Kill, Alive and Sleep are the process and clock seams (nil: the real ones).
+	Kill  func(pid int, sig syscall.Signal) error
+	Alive func(pid int) bool
+	Sleep func(time.Duration)
+
+	quitting atomic.Bool
 }
 
 func (a *App) env() []string { return []string{"PATH=" + a.Layout.PathEnv(a.Paths.Home)} }
@@ -93,6 +124,9 @@ func readStatus(stateDir string) (appstatus.Status, bool) {
 // StartService writes the service's LaunchAgent file if it is missing or out of
 // date (the app may have moved) and loads it. Loading a loaded job is a no-op.
 func (a *App) StartService(ctx context.Context) error {
+	if a.quitting.Load() {
+		return errors.New("Cerea connector is quitting.")
+	}
 	if err := a.writeFile(a.Paths.ServicePlist(), ServicePlistXML(a.Layout, a.Paths)); err != nil {
 		return err
 	}

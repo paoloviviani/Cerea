@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -292,6 +293,16 @@ func TestLinkDownClosesEverythingQuietly(t *testing.T) {
 	}
 }
 
+// pidGone: no such process (kill -0 says ESRCH, on Linux and macOS alike), or
+// only a zombie waiting to be reaped.
+func pidGone(pid int) bool {
+	if err := syscall.Kill(pid, 0); err == syscall.ESRCH {
+		return true
+	}
+	b, _ := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	return strings.Contains(string(b), ") Z ")
+}
+
 func TestProcessGroupIsKilledOnClose(t *testing.T) {
 	// A server that leaves a grandchild behind: closing the channel must take
 	// the whole group.
@@ -315,11 +326,7 @@ func TestProcessGroupIsKilledOnClose(t *testing.T) {
 	r.hub.Shutdown()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		if _, err := os.Stat(fmt.Sprintf("/proc/%d", pid)); os.IsNotExist(err) {
-			return
-		}
-		// A zombie still has a /proc entry; its state says so.
-		if b, _ := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid)); strings.Contains(string(b), ") Z ") {
+		if pidGone(pid) {
 			return
 		}
 		time.Sleep(50 * time.Millisecond)
