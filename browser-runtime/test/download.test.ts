@@ -45,7 +45,12 @@ describe("downloads", () => {
 		const snap = await r.goto("/downloads");
 		const res = await r.act([{ type: "click", ref: r.ref(snap, "button", "Export now") }]);
 		assert.equal(res.results[0].ok, true, JSON.stringify(res));
-		const got = await r.download();
+		// A file a script made is not an approved download: it is held back unless asked for.
+		assert.deepEqual((await r.download()).files, []);
+		const got = (await r.call("download", { all: true })).structuredContent as {
+			files: Array<{ name: string; base64: string; actionIndex?: number }>;
+		};
+		assert.equal(got.files[0].actionIndex, undefined);
 		assert.equal(got.files[0].name, "blob.csv");
 		assert.equal(Buffer.from(got.files[0].base64!, "base64").toString(), "hello,world\n");
 	});

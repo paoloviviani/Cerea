@@ -170,7 +170,7 @@ func TestBrowserSetupRefusesWithoutNodeOrWithAnOldOne(t *testing.T) {
 		t.Error("something ran")
 	}
 	r = newBrowserRig(t)
-	r.nodeVersion = "v18.19.0"
+	r.nodeVersion = "v22.17.0"
 	if err := r.run(t, "setup"); err == nil || !strings.Contains(err.Error(), "too old") {
 		t.Fatalf("%v", err)
 	}
@@ -487,5 +487,45 @@ func TestBrowserHookOnlyActsOnTheBrowserConnector(t *testing.T) {
 	// With no link the browser's open is refused with a sentence, not a crash.
 	if oerr := hook(context.Background(), &mcpconn.Entry{Name: browserConnectorName}); oerr == nil || !strings.Contains(oerr.Message, "not reachable") {
 		t.Errorf("%+v", oerr)
+	}
+}
+
+func TestBrowserSetupNeedsNode2218(t *testing.T) {
+	for _, tc := range []struct {
+		v  string
+		ok bool
+	}{{"v22.17.9", false}, {"v22.18.0", true}, {"v22.22.1", true}, {"v23.0.0", true}, {"v24.22.2", true}, {"v20.19.0", false}, {"v18.19.0", false}, {"garbage", false}} {
+		if nodeOK(tc.v) != tc.ok {
+			t.Errorf("nodeOK(%q) = %v", tc.v, !tc.ok)
+		}
+	}
+	r := newBrowserRig(t)
+	r.nodeVersion = "v22.17.0"
+	if err := r.run(t, "setup"); err == nil || !strings.Contains(err.Error(), "22.18") {
+		t.Fatalf("%v", err)
+	}
+}
+
+func TestBrowserEnableTightensALooseProfileAndStateDirectory(t *testing.T) {
+	r := newBrowserRig(t)
+	if err := r.run(t, "setup"); err != nil {
+		t.Fatal(err)
+	}
+	p := pathsFor(r.state)
+	if err := os.MkdirAll(p.profile, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Chmod(p.profile, 0o755)
+	_ = os.Chmod(p.dir, 0o755)
+	if err := r.run(t, "enable"); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{p.profile, p.dir} {
+		if st, _ := os.Stat(d); st.Mode().Perm() != 0o700 {
+			t.Errorf("%s is %v", d, st.Mode().Perm())
+		}
+	}
+	if !contains(entryArgs(t, r), "--state-dir") {
+		t.Error("the runtime is not told where to keep spent approvals")
 	}
 }

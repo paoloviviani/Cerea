@@ -4,7 +4,7 @@
  *   node main.ts --profile DIR [--headless | --headed] [--http PORT [--host H] [--token T]]
  */
 
-import { mkdirSync } from "node:fs";
+import { chmodSync, mkdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,6 +25,7 @@ Usage: cerea-browser --profile DIR [options]
   --token TOKEN        With --http: require this bearer token. Or $CEREA_BROWSER_TOKEN.
   --key-file PATH      File holding this device's approval key (0600), or $CEREA_BROWSER_KEY.
                        Without a key no approval is accepted, so nothing commit-class runs.
+  --state-dir DIR      Where spent approvals are remembered (default: beside the profile).
   --no-sandbox         Start Chromium without its sandbox (containers, root).
   --executable PATH    Use this Chromium instead of the one Playwright installed.
   --max-snapshot-chars N   Size budget of one snapshot (default ${DEFAULT_MAX_SNAPSHOT_CHARS}).
@@ -51,6 +52,7 @@ const { values } = (() => {
 				token: { type: "string" },
 				"no-sandbox": { type: "boolean" },
 				"key-file": { type: "string" },
+				"state-dir": { type: "string" },
 				"idle-minutes": { type: "string" },
 				executable: { type: "string" },
 				"max-snapshot-chars": { type: "string" },
@@ -76,6 +78,8 @@ if (values["self-test"]) {
 const profileDir = values.profile ?? process.env.CEREA_BROWSER_PROFILE;
 if (!profileDir) fail("--profile DIR is required.");
 mkdirSync(profileDir, { recursive: true, mode: 0o700 });
+// A profile made earlier (or by another tool) may be looser: it holds logins.
+chmodSync(profileDir, 0o700);
 
 const maxChars = values["max-snapshot-chars"] ? Number(values["max-snapshot-chars"]) : undefined;
 if (maxChars !== undefined && !(maxChars >= 1000 && maxChars <= 200_000)) {
@@ -94,6 +98,7 @@ const session = new BrowserSession({
 	noSandbox: values["no-sandbox"] === true,
 	executablePath: values.executable,
 	keyFile: values["key-file"],
+	stateDir: values["state-dir"],
 	...(values["idle-minutes"] ? { idleMs: Number(values["idle-minutes"]) * 60_000 } : {}),
 	maxSnapshotChars: maxChars,
 	viewport,

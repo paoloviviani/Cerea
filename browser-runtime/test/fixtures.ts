@@ -9,6 +9,8 @@ import type { AddressInfo } from "node:net";
 export interface Hits {
 	posts: Array<{ path: string; body: Record<string, string> }>;
 	paths: string[];
+	bigClosed?: boolean;
+	streamSent?: number;
 }
 
 export interface Fixtures {
@@ -252,6 +254,79 @@ document.getElementById('box').insertAdjacentHTML('afterbegin','<a href=&quot;/f
 <button type="button" onclick="location.href='file:///etc/hostname'">Open local</button>`
 				)
 			);
+		}
+		if (p === "/chat") {
+			return send(
+				200,
+				page(
+					"Chat",
+					`<h1>Chat</h1><textarea aria-label="Message" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();fetch('/chat-send',{method:'POST',body:'m=1',headers:{'content-type':'application/x-www-form-urlencoded'}})}"></textarea>`
+				)
+			);
+		}
+		if (p === "/disabled") {
+			return send(
+				200,
+				page(
+					"Disabled",
+					`<h1>Disabled</h1><form method="post" action="/form"><button type="submit" disabled>Send</button></form>`
+				)
+			);
+		}
+		if (p === "/popup2") {
+			return send(
+				200,
+				page(
+					"Popup 2",
+					`<h1>Popup 2</h1><a href="http://localhost:${port}/form" target="_blank">Partner in a new tab</a>`
+				)
+			);
+		}
+		if (p === "/downloads2") {
+			const blob = (name: string) =>
+				`const a=document.createElement('a');a.href=window.URL.createObjectURL(new Blob(['x']));a.download='${name}';a.click()`;
+			return send(
+				200,
+				page(
+					"Downloads 2",
+					`<h1>Downloads 2</h1>
+<a href="/files/report.csv" download onclick="setTimeout(()=>{${blob("second.csv")}},80)">Two files</a>
+<a href="/files/report.csv" download onclick="event.preventDefault();${blob("sneaky.csv")}">Sneaky file</a>
+<a href="/files/big.bin" download>Announced huge</a>
+<a href="/files/stream.bin" download>Streamed huge</a>
+<button type="button" onclick="for(let i=0;i<7;i++){setTimeout(()=>{${blob("auto" + "'+i+'" + ".txt")}},i*120)}">Spam</button>`
+				)
+			);
+		}
+		if (p === "/files/big.bin") {
+			res.writeHead(200, {
+				"content-type": "application/octet-stream",
+				"content-disposition": 'attachment; filename="big.bin"',
+				"content-length": String(30 * 1024 * 1024),
+			});
+			if (req.method === "HEAD") return void res.end();
+			res.write(Buffer.alloc(1024));
+			res.on("close", () => (hits.bigClosed = true));
+			return;
+		}
+		if (p === "/files/stream.bin") {
+			res.writeHead(200, {
+				"content-type": "application/octet-stream",
+				"content-disposition": 'attachment; filename="stream.bin"',
+			});
+			if (req.method === "HEAD") return void res.end();
+			let sent = 0;
+			const chunk = Buffer.alloc(1024 * 1024);
+			const pump = () => {
+				if (res.destroyed) return;
+				if (sent >= 40) return void res.end();
+				sent += 1;
+				res.write(chunk);
+				setTimeout(pump, 20);
+			};
+			res.on("close", () => (hits.streamSent = sent));
+			pump();
+			return;
 		}
 		if (p === "/dialogs") {
 			return send(

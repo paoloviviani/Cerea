@@ -5,10 +5,28 @@ import { actionDigest } from "../src/classifier.ts";
 import type { BrowserAction } from "../src/contract.ts";
 
 // The digest as the contract documents it: the first 32 hex characters of SHA-256 over
-// JSON.stringify([kind, ref, value, url, name]). Computed here independently of the classifier.
-const expected = (kind: string, ref: string, value: string, name: string, url: string) =>
+// JSON.stringify([kind, ref, value, url, name, decided.reason ?? "", decided.targetHost ?? "", decided.download ? "1" : "0"]). Computed here independently of the classifier.
+const expected = (
+	kind: string,
+	ref: string,
+	value: string,
+	name: string,
+	url: string,
+	decided: { reason?: string; targetHost?: string; download?: boolean } = {}
+) =>
 	createHash("sha256")
-		.update(JSON.stringify([kind, ref, value, url, name]))
+		.update(
+			JSON.stringify([
+				kind,
+				ref,
+				value,
+				url,
+				name,
+				decided.reason ?? "",
+				decided.targetHost ?? "",
+				decided.download ? "1" : "0",
+			])
+		)
 		.digest("hex")
 		.slice(0, 32);
 
@@ -51,12 +69,21 @@ describe("approval digest (contract vectors)", () => {
 		["wait text", { type: "wait_for", text: "Done" }, "wait_for", "", "Done", ""],
 		["wait ms", { type: "wait_for", ms: 500 }, "wait_for", "", "500", ""],
 	];
+	// The facts that decided each action's class, as the classifier reports them.
+	const decided: Record<string, { reason?: string; targetHost?: string }> = {
+		click: { reason: "verb" },
+		"fill submit": { reason: "submit" },
+		"press no ref": { reason: "unknown-element" },
+		"press normalised": { reason: "unknown-element" },
+		"press modified": { reason: "submit" },
+		navigate: { reason: "new-domain", targetHost: "other.example" },
+	};
 	for (const [label, action, kind, ref, value, name] of cases) {
 		it(label, () => {
 			const element = "ref" in action && action.ref ? el(name) : undefined;
 			assert.equal(
 				actionDigest(action, { element, currentUrl: url }),
-				expected(kind, ref, value, name, "https://shop.example.com/cart?x=1")
+				expected(kind, ref, value, name, "https://shop.example.com/cart?x=1", decided[label])
 			);
 		});
 	}

@@ -25,7 +25,7 @@ describe("task pages, dialogs, popups and hangs", () => {
 		await r.goto("/form");
 		const ended = await r.call("end_task");
 		assert.equal(ended.isError, undefined);
-		assert.deepEqual(ended.structuredContent, { closed: 1 });
+		assert.deepEqual(ended.structuredContent, { closed: true });
 		assert.equal((await r.snapshot()).url, "about:blank");
 		// The profile outlives the task: the cookie is still there.
 		const closed = await r.session.endTask();

@@ -34,6 +34,7 @@ export const RUNTIME_TOOLS = [
 	"extract",
 	"screenshot",
 	"download",
+	"end_task",
 ] as const;
 export type RuntimeToolName = (typeof RUNTIME_TOOLS)[number];
 
@@ -52,7 +53,11 @@ export const snapshotElementSchema = z.object({
 	ref: z.string().min(1).max(64),
 	/** ARIA role: button, link, textbox, checkbox, combobox, ... */
 	role: z.string().max(64),
-	/** The accessible name, as a user sees it ("Pay €120"). */
+	/**
+	 * The accessible name, as a user sees it ("Pay €120"). For a non-field element the runtime
+	 * joins the accessible name and the visible text when they differ ("Show details / Pay €120");
+	 * the digest uses the same string.
+	 */
 	name: z.string().max(500).default(""),
 	/** For an input: its `type` (text, password, email, submit, ...). */
 	inputType: z.string().max(32).optional(),
@@ -77,6 +82,8 @@ export const snapshotElementSchema = z.object({
 	/** The element downloads a file (a `download` attribute, or a file-type target). */
 	download: z.boolean().optional(),
 	disabled: z.boolean().optional(),
+	/** The runtime could not read this element's metadata: Cerea treats any action on it as a commit. */
+	metaUnknown: z.literal(true).optional(),
 	/** A field's current value; never for a password field. */
 	value: z.string().max(500).optional(),
 });
@@ -125,7 +132,13 @@ export const browserActionSchema = z.discriminatedUnion("type", [
 	}),
 	z.object({
 		type: z.literal("press"),
-		key: z.string().min(1).max(32),
+		// No control characters: a line break is not a way to say Enter.
+		key: z
+			.string()
+			.min(1)
+			.max(32)
+			// eslint-disable-next-line no-control-regex
+			.regex(/^[^\u0000-\u001f\u007f]+$/, "a key name, not a control character"),
 		ref: z.string().min(1).max(64).optional(),
 	}),
 	z.object({
@@ -148,14 +161,20 @@ export type BrowserAction = z.infer<typeof browserActionSchema>;
  * defence in depth).
  *
  * - `digest` binds the grant to the action: the first 32 hex characters of SHA-256 over
- *   `JSON.stringify([kind, ref, value, url, name])`, where
+ *   `JSON.stringify([kind, ref, value, url, name, reason, targetHost, download])`, where
  *   - `kind` is the action's `type`;
  *   - `ref` is the action's element ref, or "";
  *   - `value` is `fill`: the text, plus "\n#submit" when `submit` is set; `select`: the value;
  *     `press`: the normalised key; `navigate`: the url as given; `scroll`: direction, a colon,
  *     amount or ""; `wait_for`: text or the ms as a string; `click`: "";
  *   - `url` is the page's URL when the action runs, **without its fragment** (`#...`);
- *   - `name` is the element's accessible name as the runtime reports it in the snapshot, or "".
+ *   - `name` is the element's accessible name as the runtime reports it in the snapshot, or "";
+ *   - `reason`, `targetHost` and `download` are the facts that decided the action's class:
+ *     the classification's `reason` ("submit", "verb", "download", "new-domain", "unclassified",
+ *     "unknown-element", "bad-url") or "", its `targetHost` or "", and "1" when the element is
+ *     marked `download`, else "0". A page that rewrites an href or a form action after the
+ *     approval therefore no longer matches. `press` values use the normalised key
+ *     (`normalizeKey`): `\n`, `\r`, Return and NumpadEnter are "enter", and a modified key adds "+mod".
  * - `exp` is the epoch milliseconds after which the grant is void (10 minutes after approval).
  * - `sig` is lowercase hex HMAC-SHA256, keyed by the device's browser key, over the UTF-8 string
  *   `id|digest|exp`. The key is a per-device 32-byte secret Cerea generates and the runtime
@@ -230,6 +249,7 @@ export const extractResultSchema = z.object({
 	tables: z
 		.array(
 			z.object({
+				/** Not relied on: a runtime may leave it out, and cell links lose their hrefs. */
 				ref: z.string().max(64).optional(),
 				caption: z.string().max(300).optional(),
 				headers: z.array(z.string().max(300)).max(100),
@@ -264,6 +284,20 @@ export type ScreenshotResult = z.infer<typeof screenshotResultSchema>;
 
 /** The most bytes of one captured file Cerea takes from the runtime. */
 export const MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024;
+
+/**
+ * `download` returns, by default, only the files that have provenance (an action of this task
+ * and the grant it ran under). `all` asks for every captured file; Cerea never sets it.
+ */
+export const downloadRequestSchema = z.object({ all: z.boolean().optional() });
+export type DownloadRequest = z.infer<typeof downloadRequestSchema>;
+
+/**
+ * `end_task()` closes the task's pages and forgets its refs. Cerea calls it whenever a task ends,
+ * whatever the reason (result, stop, budget, error). It takes no arguments.
+ */
+export const endTaskResultSchema = z.object({ closed: z.boolean() });
+export type EndTaskResult = z.infer<typeof endTaskResultSchema>;
 
 export const downloadResultSchema = z.object({
 	files: z

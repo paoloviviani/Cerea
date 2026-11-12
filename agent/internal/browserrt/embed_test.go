@@ -60,3 +60,30 @@ func TestPackageJSONPinsPlaywrightExactly(t *testing.T) {
 		t.Fatalf("playwright-core must be pinned to an exact version: %s", PackageJSON)
 	}
 }
+
+// Every npm package inlined into the bundle has its licence notice in THIRD_PARTY_LICENSES
+// (the bundle names them on its second line; `npm run bundle` writes the notices).
+func TestEveryInlinedPackageHasALicenceNotice(t *testing.T) {
+	lines := strings.SplitN(string(Bundle), "\n", 3)
+	if len(lines) < 3 || !strings.HasPrefix(lines[1], "// inlined: ") {
+		t.Fatal("the bundle does not list what it carries")
+	}
+	notices, err := os.ReadFile(filepath.Join("..", "..", "THIRD_PARTY_LICENSES"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(notices), "#### BEGIN browser-runtime") {
+		t.Fatal("THIRD_PARTY_LICENSES has no browser-runtime section: run `npm run bundle` in browser-runtime/")
+	}
+	pkgs := strings.Fields(strings.TrimPrefix(lines[1], "// inlined: "))
+	if len(pkgs) < 3 {
+		t.Fatalf("suspiciously few packages: %v", pkgs)
+	}
+	for _, p := range pkgs {
+		name, version, _ := strings.Cut(p[1:], "@")
+		name = p[:1] + name
+		if !strings.Contains(string(notices), name+" "+version) {
+			t.Errorf("no licence notice for %s: run `npm run bundle` in browser-runtime/ and commit the result", p)
+		}
+	}
+}

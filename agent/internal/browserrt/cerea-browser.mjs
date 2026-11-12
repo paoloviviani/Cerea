@@ -1,4 +1,5 @@
-// cerea-browser runtime 0.1.0; source-hash: 9416f0e938a01c38f4f587ae1e8d038e039e8c4beccd2ccd5e95b52c5fd005cc
+// cerea-browser runtime 0.1.0; source-hash: 46f9141eb35e3e01a81424883ac4b2c19dedf8f80d4b6b644e89d68e80143226
+// inlined: @hono/node-server@2.1.8 @modelcontextprotocol/sdk@1.32.2 ajv@8.20.0 ajv-formats@3.0.1 content-type@1.0.5 fast-deep-equal@3.1.3 fast-uri@3.1.9 hono@4.13.18 json-schema-traverse@1.0.0 tldts@7.4.26 zod@3.25.76 zod-to-json-schema@3.25.2
 import { createRequire as __cr } from "node:module";
 const require = __cr(import.meta.url);
 var __create = Object.create;
@@ -8145,7 +8146,7 @@ var require_cjs = __commonJS({
 });
 
 // src/main.ts
-import { mkdirSync } from "node:fs";
+import { chmodSync as chmodSync2, mkdirSync as mkdirSync2 } from "node:fs";
 import { mkdtemp as mkdtemp2, rm as rm2 } from "node:fs/promises";
 import { tmpdir as tmpdir2 } from "node:os";
 import { join as join2 } from "node:path";
@@ -21455,7 +21456,11 @@ var snapshotElementSchema = external_exports.object({
   ref: external_exports.string().min(1).max(64),
   /** ARIA role: button, link, textbox, checkbox, combobox, ... */
   role: external_exports.string().max(64),
-  /** The accessible name, as a user sees it ("Pay €120"). */
+  /**
+   * The accessible name, as a user sees it ("Pay €120"). For a non-field element the runtime
+   * joins the accessible name and the visible text when they differ ("Show details / Pay €120");
+   * the digest uses the same string.
+   */
   name: external_exports.string().max(500).default(""),
   /** For an input: its `type` (text, password, email, submit, ...). */
   inputType: external_exports.string().max(32).optional(),
@@ -21480,6 +21485,8 @@ var snapshotElementSchema = external_exports.object({
   /** The element downloads a file (a `download` attribute, or a file-type target). */
   download: external_exports.boolean().optional(),
   disabled: external_exports.boolean().optional(),
+  /** The runtime could not read this element's metadata: Cerea treats any action on it as a commit. */
+  metaUnknown: external_exports.literal(true).optional(),
   /** A field's current value; never for a password field. */
   value: external_exports.string().max(500).optional()
 });
@@ -21520,7 +21527,8 @@ var browserActionSchema = external_exports.discriminatedUnion("type", [
   }),
   external_exports.object({
     type: external_exports.literal("press"),
-    key: external_exports.string().min(1).max(32),
+    // No control characters: a line break is not a way to say Enter.
+    key: external_exports.string().min(1).max(32).regex(/^[^\u0000-\u001f\u007f]+$/, "a key name, not a control character"),
     ref: external_exports.string().min(1).max(64).optional()
   }),
   external_exports.object({
@@ -21580,6 +21588,7 @@ var extractRequestSchema = external_exports.object({
 var extractResultSchema = external_exports.object({
   tables: external_exports.array(
     external_exports.object({
+      /** Not relied on: a runtime may leave it out, and cell links lose their hrefs. */
       ref: external_exports.string().max(64).optional(),
       caption: external_exports.string().max(300).optional(),
       headers: external_exports.array(external_exports.string().max(300)).max(100),
@@ -21604,6 +21613,8 @@ var screenshotResultSchema = external_exports.object({
   base64: external_exports.string()
 });
 var MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024;
+var downloadRequestSchema = external_exports.object({ all: external_exports.boolean().optional() });
+var endTaskResultSchema = external_exports.object({ closed: external_exports.boolean() });
 var downloadResultSchema = external_exports.object({
   files: external_exports.array(
     external_exports.object({
@@ -21869,13 +21880,7 @@ var failure = (message) => ({
   isError: true
 });
 function createToolHandler(session2) {
-  let queue = Promise.resolve();
-  const serial = (work) => {
-    const run = queue.then(work, work);
-    queue = run.catch(() => {
-    });
-    return run;
-  };
+  const serial = (work) => session2.serial(work);
   return async (name, rawArgs) => {
     try {
       switch (name) {
@@ -21903,7 +21908,7 @@ function createToolHandler(session2) {
             await serial(() => session2.download({ all: asObject(rawArgs).all === true }))
           );
         case "end_task":
-          return json2(await serial(() => session2.endTask()));
+          return json2(await serial(async () => ({ closed: (await session2.endTask()).closed > 0 })));
         default:
           return failure(
             `Unknown tool "${clean(name, 60)}". Tools: ${TOOLS.map((t) => t.name).join(", ")}.`
@@ -21995,9 +22000,12 @@ function serveHttp(session2, options) {
 }
 
 // src/session.ts
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { createWriteStream } from "node:fs";
+import { chmod, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname as dirname2, join } from "node:path";
+import { Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import {
   chromium
 } from "playwright-core";
@@ -22156,13 +22164,54 @@ function nameMeansCommit(name) {
 function hasLatinLetters(name) {
   return /[a-z]/i.test(normalizeName(name));
 }
+var MODIFIER = /^(control|ctrl|shift|alt|meta|cmd|command|option|mod|controlormeta)$/i;
+var SHORTCUT_MODIFIER = /^(control|ctrl|alt|meta|cmd|command|option|mod|controlormeta)$/i;
+var SAFE_NAMED = /* @__PURE__ */ new Set([
+  "tab",
+  "escape",
+  "esc",
+  "backspace",
+  "delete",
+  "arrowup",
+  "arrowdown",
+  "arrowleft",
+  "arrowright",
+  "home",
+  "end",
+  "pageup",
+  "pagedown"
+]);
 function normalizeKey(raw) {
-  if (raw === " ") return { key: "space", modified: false };
-  const parts = raw.split("+").map((p) => p.trim());
-  const last = (parts.at(-1) || (raw.endsWith("+") ? "+" : "")).toLowerCase();
-  const modifiers = parts.slice(0, -1).filter((p) => /^(control|ctrl|shift|alt|meta|cmd|command|option|mod|controlormeta)$/i.test(p));
-  const key = last === "numpadenter" || last === "return" ? "enter" : last === " " || last === "spacebar" || last === "" ? "space" : last;
-  return { key, modified: modifiers.length > 0 };
+  let modifiers;
+  let last;
+  if (raw.endsWith("++") || raw === "+") {
+    modifiers = raw === "+" ? [] : raw.slice(0, -2).split("+");
+    last = "+";
+  } else {
+    const parts = raw.split("+");
+    last = parts.at(-1) ?? "";
+    modifiers = parts.slice(0, -1);
+  }
+  const modified = modifiers.length > 0;
+  const unknown2 = () => ({
+    key: last.toLowerCase(),
+    modified,
+    kind: "unknown"
+  });
+  if (!modifiers.every((m) => MODIFIER.test(m.trim()))) return unknown2();
+  const lower = last.toLowerCase();
+  if (last === "\n" || last === "\r" || last === "\r\n" || ["enter", "return", "numpadenter"].includes(lower)) {
+    return { key: "enter", modified, kind: "enter" };
+  }
+  const shortcut = modifiers.some((m) => SHORTCUT_MODIFIER.test(m.trim()));
+  if (last === " " || lower === "space" || lower === "spacebar") {
+    return shortcut ? unknown2() : { key: "space", modified, kind: "space" };
+  }
+  if (/[\s\u0000-\u001f\u007f]/.test(last)) return unknown2();
+  if (shortcut) return unknown2();
+  if (SAFE_NAMED.has(lower)) return { key: lower, modified, kind: "safe" };
+  if ([...last].length === 1) return { key: last, modified, kind: "safe" };
+  return unknown2();
 }
 function resolveUrl(url, base) {
   try {
@@ -22182,6 +22231,9 @@ function submitClass(el, currentUrl) {
 }
 function classifyAction(action, ctx) {
   const current = hostOf(ctx.currentUrl);
+  if ("ref" in action && action.ref && ctx.element?.metaUnknown) {
+    return { class: "commit", reason: "unknown-element" };
+  }
   switch (action.type) {
     case "scroll":
     case "wait_for":
@@ -22191,16 +22243,21 @@ function classifyAction(action, ctx) {
     case "fill":
       return action.submit ? submitClass(ctx.element, ctx.currentUrl) : { class: "input" };
     case "press": {
-      const { key, modified } = normalizeKey(action.key);
-      if (key !== "enter" && key !== "space") return { class: "input" };
+      const { kind, modified } = normalizeKey(action.key);
+      if (kind === "unknown") return { class: "commit", reason: "unknown-element" };
+      if (kind === "safe") return { class: "input" };
       if (!action.ref) return { class: "commit", reason: "unknown-element" };
       const el = ctx.element;
       if (!el) return { class: "commit", reason: "unknown-element" };
-      if (key === "enter" && modified) return { class: "commit", reason: "submit" };
+      if (kind === "enter" && modified) return { class: "commit", reason: "submit" };
       if (el.role === "button" || el.role === "link") {
         return classifyAction({ type: "click", ref: el.ref }, ctx);
       }
-      if (key === "enter" && (el.form || el.submits)) return submitClass(el, ctx.currentUrl);
+      if (kind === "enter") {
+        if (el.form || el.submits) return submitClass(el, ctx.currentUrl);
+        if (el.role === "searchbox") return { class: "input" };
+        if (el.role === "textbox") return { class: "commit", reason: "submit" };
+      }
       return { class: "input" };
     }
     case "navigate": {
@@ -22253,8 +22310,10 @@ function actionValue(action) {
       return action.text + (action.submit ? "\n#submit" : "");
     case "select":
       return action.value;
-    case "press":
-      return normalizeKey(action.key).key + (normalizeKey(action.key).modified ? "+mod" : "");
+    case "press": {
+      const { key, modified } = normalizeKey(action.key);
+      return key + (modified ? "+mod" : "");
+    }
     case "navigate":
       return action.url;
     case "scroll":
@@ -22271,19 +22330,25 @@ function urlWithoutFragment(url) {
 }
 function actionDigest(action, ctx) {
   const ref = "ref" in action && action.ref ? action.ref : "";
+  const decided = classifyAction(action, ctx);
   const canonical = JSON.stringify([
     action.type,
     ref,
     actionValue(action),
     urlWithoutFragment(ctx.currentUrl),
-    ctx.element?.name ?? ""
+    ctx.element?.name ?? "",
+    decided.reason ?? "",
+    decided.targetHost ?? "",
+    ctx.element?.download ? "1" : "0"
   ]);
   return createHash("sha256").update(canonical).digest("hex").slice(0, 32);
 }
 
 // src/grants.ts
 import { createHmac, timingSafeEqual as timingSafeEqual2 } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+var MAX_GRANT_LIFETIME_MS = 15 * 6e4;
 function readKey(source) {
   let text;
   if (source.keyFile) {
@@ -22306,10 +22371,41 @@ function checkGrant(grant, digest, key, now = Date.now()) {
   const want = Buffer.from(signGrant(key, grant.id, grant.digest, grant.exp), "hex");
   const got = Buffer.from(grant.sig, "hex");
   if (want.length !== got.length || !timingSafeEqual2(want, got)) return "bad_signature";
+  if (grant.exp > now + MAX_GRANT_LIFETIME_MS) return "exp_too_far";
   if (grant.exp <= now) return "expired";
   if (grant.digest !== digest) return "digest_mismatch";
   return "ok";
 }
+var UsedGrants = class {
+  ids = /* @__PURE__ */ new Map();
+  file;
+  constructor(file, now = Date.now()) {
+    this.file = file;
+    if (!file) return;
+    try {
+      const saved = JSON.parse(readFileSync(file, "utf8"));
+      for (const [id, exp] of Object.entries(saved)) {
+        if (typeof exp === "number" && exp > now) this.ids.set(id, exp);
+      }
+    } catch {
+    }
+  }
+  has(id, now = Date.now()) {
+    const exp = this.ids.get(id);
+    return exp !== void 0 && exp > now;
+  }
+  /** Marks the id spent until `exp`. Throws if it cannot be written: nothing should then run. */
+  add(id, exp, now = Date.now()) {
+    for (const [other, until] of this.ids) if (until <= now) this.ids.delete(other);
+    this.ids.set(id, exp);
+    if (!this.file) return;
+    mkdirSync(dirname(this.file), { recursive: true, mode: 448 });
+    const tmp = `${this.file}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify(Object.fromEntries(this.ids)), { mode: 384 });
+    chmodSync(tmp, 384);
+    renameSync(tmp, this.file);
+  }
+};
 
 // src/extract.ts
 function pageExtract(root, opts) {
@@ -22637,7 +22733,8 @@ function toElement(node, ctx) {
     ...linkDomain ? { linkDomain } : {},
     ...meta.download || node.role === "link" && looksLikeFile(href) ? { download: true } : {},
     ...disabled ? { disabled: true } : {},
-    ...value ? { value } : {}
+    ...value ? { value } : {},
+    ...ctx.unknown?.has(node.ref ?? "") ? { metaUnknown: true } : {}
   };
   return element;
 }
@@ -22844,6 +22941,8 @@ var ACTION_TIMEOUT_MS = 5e3;
 var NAVIGATION_TIMEOUT_MS = 2e4;
 var META_TIMEOUT_MS = 1500;
 var MAX_DOWNLOADS = 20;
+var MAX_UNATTRIBUTED = 5;
+var DOWNLOAD_STALL_MS = 2e4;
 var ACTION_BUDGET_MS = 3e4;
 var DEFAULT_IDLE_MS = 10 * 6e4;
 var MIME_BY_EXTENSION = {
@@ -22903,6 +23002,24 @@ async function closeQuickly(page) {
   await Promise.race([page.close({ runBeforeUnload: false }).catch(() => {
   }), sleep(3e3)]);
 }
+var tooLarge = () => `larger than ${MAX_DOWNLOAD_BYTES / 1024 / 1024} MB`;
+async function removeStaleDirs() {
+  try {
+    for (const name of await readdir(tmpdir())) {
+      const m = /^cerea-browser-(\d+)-/.exec(name);
+      if (!m) continue;
+      const pid = Number(m[1]);
+      let alive = true;
+      try {
+        process.kill(pid, 0);
+      } catch (err) {
+        alive = err.code === "EPERM";
+      }
+      if (!alive) await rm(join(tmpdir(), name), { recursive: true, force: true });
+    }
+  } catch {
+  }
+}
 var sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
 function firstLine(err, max = 300) {
   const text = err instanceof Error ? err.message : String(err);
@@ -22936,12 +23053,28 @@ var BrowserSession = class {
   notes = [];
   openedDuringAct;
   current;
+  queue = Promise.resolve();
+  foreignTabs = [];
+  popups = [];
   /** A download that starts within this long of an action's end still belongs to it. */
   currentUntil = 0;
   acting = false;
-  usedApprovals = /* @__PURE__ */ new Set();
+  used;
   constructor(options) {
     this.options = options;
+    this.used = new UsedGrants(
+      join(options.stateDir ?? dirname2(options.profileDir), "used-grants.json")
+    );
+  }
+  /**
+   * One queue for the whole session, however many connections or HTTP requests reach it: calls
+   * never overlap, so an approval cannot be spent twice by two calls racing.
+   */
+  serial(work) {
+    const run = this.queue.then(work, work);
+    this.queue = run.catch(() => {
+    });
+    return run;
   }
   // ---- lifecycle -------------------------------------------------------------------------
   /**
@@ -22992,7 +23125,10 @@ var BrowserSession = class {
         "The browser is set to show a window, but this computer has no display. Start the runtime with --headless."
       );
     }
-    this.downloadDir ??= await mkdtemp(join(tmpdir(), "cerea-browser-"));
+    await removeStaleDirs();
+    await chmod(profileDir2, 448).catch(() => {
+    });
+    this.downloadDir ??= await mkdtemp(join(tmpdir(), `cerea-browser-${process.pid}-`));
     let context;
     try {
       context = await chromium.launchPersistentContext(profileDir2, {
@@ -23035,13 +23171,21 @@ var BrowserSession = class {
       (url) => !/^(https?|about|blob|data|ws|wss):$/.test(url.protocol),
       (route) => route.abort("blockedbyclient")
     );
-    context.on("page", (page) => this.hook(page, true));
-    for (const page of context.pages()) this.hook(page, false);
+    context.on("page", (page) => {
+      this.hook(page);
+      void this.adopt(page);
+    });
+    for (const page of context.pages()) this.hook(page);
     context.on("response", (response) => {
-      const type = response.headers()["content-type"];
+      const headers = response.headers();
+      const type = headers["content-type"];
       if (!type) return;
       if (this.contentTypes.size > 200) this.contentTypes.clear();
-      this.contentTypes.set(response.url(), type.split(";")[0].trim().toLowerCase());
+      const length = Number(headers["content-length"]);
+      this.contentTypes.set(response.url(), {
+        type: type.split(";")[0].trim().toLowerCase(),
+        ...Number.isFinite(length) ? { length } : {}
+      });
     });
     context.on("close", () => {
       if (this.context === context) {
@@ -23053,7 +23197,7 @@ var BrowserSession = class {
     });
     this.context = context;
   }
-  hook(page, isNew) {
+  hook(page) {
     this.navSeq.set(page, 0);
     page.on("framenavigated", (frame) => {
       if (frame === page.mainFrame()) this.navSeq.set(page, (this.navSeq.get(page) ?? 0) + 1);
@@ -23068,9 +23212,6 @@ var BrowserSession = class {
     page.on("filechooser", () => {
       this.chooserOpened = true;
     });
-    page.on("popup", (popup) => {
-      if (this.taskPages.has(page)) this.taskPages.add(popup);
-    });
     page.on("download", (download) => {
       const work = this.capture(download).catch((e) => {
         if (process.env.CEREA_DEBUG) console.error("capture failed", e);
@@ -23082,54 +23223,129 @@ var BrowserSession = class {
       this.taskPages.delete(page);
       if (this.active === page) this.active = void 0;
     });
-    if (isNew && this.acting && this.taskPages.has(this.active)) {
-      this.openedDuringAct = page;
-      this.taskPages.add(page);
+  }
+  /**
+   * A new page belongs to the task only if a task page opened it. A tab the user opened, or one
+   * that something else made, is never adopted, used or closed. A task page's popup is kept with
+   * the task so it closes with it, and offered to the running action as the next page.
+   */
+  async adopt(page) {
+    let opener = null;
+    try {
+      opener = await page.opener();
+    } catch {
+      return;
     }
+    if (!opener || !this.taskPages.has(opener)) return;
+    this.taskPages.add(page);
+    if (this.acting && opener === this.active) this.popups.push(page);
   }
   async capture(download) {
     const name = safeFileName(download.suggestedFilename());
     const dir = this.downloadDir;
     const path = join(dir, `${this.downloadSeq += 1}-${name}`);
     const extension = name.includes(".") ? name.split(".").pop().toLowerCase() : "";
-    const mime = this.contentTypes.get(download.url()) ?? MIME_BY_EXTENSION[extension] ?? "application/octet-stream";
-    const origin = this.current && (this.acting || Date.now() < this.currentUntil) ? { actionIndex: this.current.index, grantId: this.current.grantId } : {};
-    const failure2 = await download.failure();
-    if (failure2) {
-      this.downloads.push({
-        name,
-        mime,
-        size: 0,
-        skipped: `the download failed: ${clean(failure2, 100)}`,
-        ...origin
+    const seen = this.contentTypes.get(download.url()) ?? await this.announced(download.url());
+    const mime = seen?.type ?? MIME_BY_EXTENSION[extension] ?? "application/octet-stream";
+    const origin = this.claim(download);
+    const attributed = origin.actionIndex !== void 0;
+    const note = (entry) => this.downloads.push({ name, mime, ...origin, ...entry });
+    const room = this.downloads.filter((d) => d.actionIndex !== void 0 === attributed).length;
+    if (room >= (attributed ? MAX_DOWNLOADS : MAX_UNATTRIBUTED)) {
+      if (attributed) note({ size: 0, skipped: "too many files captured at once" });
+      void download.cancel().catch(() => {
       });
       return;
     }
-    await download.saveAs(path);
-    const size = (await stat(path)).size;
-    if (this.downloads.length >= MAX_DOWNLOADS) {
+    if (seen?.length !== void 0 && seen.length > MAX_DOWNLOAD_BYTES) {
+      note({ size: seen.length, skipped: tooLarge() });
+      void download.cancel().catch(() => {
+      });
+      return;
+    }
+    let bytes = 0;
+    try {
+      const readable = await download.createReadStream();
+      if (!readable) {
+        const failure2 = await download.failure();
+        note({ size: 0, skipped: `the download failed: ${clean(failure2 ?? "no data", 100)}` });
+        return;
+      }
+      const counter = new Transform({
+        transform(chunk, _enc, done) {
+          bytes += chunk.length;
+          done(bytes > MAX_DOWNLOAD_BYTES ? new Error("too large") : null, chunk);
+        }
+      });
+      const stall = new AbortController();
+      let timer = setTimeout(() => stall.abort(), DOWNLOAD_STALL_MS);
+      counter.on("data", () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => stall.abort(), DOWNLOAD_STALL_MS);
+      });
+      try {
+        await pipeline(readable, counter, createWriteStream(path, { mode: 384 }), {
+          signal: stall.signal
+        });
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch (err) {
       await rm(path, { force: true });
-      this.downloads.push({
-        name,
-        mime,
-        size,
-        skipped: "too many files captured at once",
-        ...origin
+      if (bytes > MAX_DOWNLOAD_BYTES) {
+        note({ size: bytes, skipped: tooLarge() });
+        void download.cancel().catch(() => {
+        });
+      } else {
+        note({ size: 0, skipped: `the download failed: ${firstLine(err, 100)}` });
+      }
+      void download.delete().catch(() => {
       });
       return;
     }
-    if (size > MAX_DOWNLOAD_BYTES) {
-      await rm(path, { force: true });
-      this.downloads.push({
-        name,
-        mime,
-        size,
-        skipped: `larger than ${MAX_DOWNLOAD_BYTES / 1024 / 1024} MB`,
-        ...origin
+    await download.delete().catch(() => {
+    });
+    note({ size: bytes, path });
+  }
+  async announced(url) {
+    if (!/^https?:/i.test(url) || !this.context) return void 0;
+    try {
+      const head = await this.context.request.head(url, {
+        timeout: 3e3,
+        failOnStatusCode: false
       });
-      return;
+      const headers = head.headers();
+      const length = Number(headers["content-length"]);
+      const type = headers["content-type"]?.split(";")[0].trim().toLowerCase();
+      await head.dispose();
+      if (!type && !Number.isFinite(length)) return void 0;
+      return {
+        type: type ?? "application/octet-stream",
+        ...Number.isFinite(length) ? { length } : {}
+      };
+    } catch {
+      return void 0;
     }
-    this.downloads.push({ name, mime, size, path, ...origin });
+  }
+  /**
+   * The action a file belongs to, if any: only a download action (or a navigation) owns files, only
+   * the first, and a click's file must come from the link's own address. Everything else, a script
+   * or a timer or a second file, is unattributed.
+   */
+  claim(download) {
+    const cur = this.current;
+    if (!cur || !cur.eligible || cur.claimed) return {};
+    if (!(this.acting || Date.now() < this.currentUntil)) return {};
+    if (cur.href) {
+      try {
+        const want = new URL(cur.href).href;
+        if (new URL(download.url()).href !== want) return {};
+      } catch {
+        return {};
+      }
+    }
+    cur.claimed = true;
+    return { actionIndex: cur.index, ...cur.grantId ? { grantId: cur.grantId } : {} };
   }
   async close() {
     clearTimeout(this.idleTimer);
@@ -23137,8 +23353,8 @@ var BrowserSession = class {
     const context = this.context;
     this.context = void 0;
     this.active = void 0;
-    await context?.close().catch(() => {
-    });
+    if (context) await Promise.race([context.close().catch(() => {
+    }), sleep(5e3)]);
     if (this.downloadDir)
       await rm(this.downloadDir, { recursive: true, force: true }).catch(() => {
       });
@@ -23158,8 +23374,10 @@ var BrowserSession = class {
       throw new ToolError(`The page could not be read: ${firstLine(err)}`);
     }
   }
+  /** The DOM facts for each ref; a ref whose facts could not be read is in `failed`. */
   async fetchMeta(page, refs) {
     const meta = /* @__PURE__ */ new Map();
+    const failed = /* @__PURE__ */ new Set();
     let next = 0;
     const worker = async () => {
       while (next < refs.length) {
@@ -23170,11 +23388,12 @@ var BrowserSession = class {
             await page.getByRef(ref).evaluate(pageMeta, void 0, { timeout: META_TIMEOUT_MS })
           );
         } catch {
+          failed.add(ref);
         }
       }
     };
     await Promise.all(Array.from({ length: Math.min(12, refs.length) }, worker));
-    return meta;
+    return { meta, failed };
   }
   async build(page) {
     const url = page.url();
@@ -23184,8 +23403,8 @@ var BrowserSession = class {
     const max = this.options.maxSnapshotChars ?? DEFAULT_MAX_SNAPSHOT_CHARS;
     const first = fit(layout(children, { currentUrl: url, meta: /* @__PURE__ */ new Map() }), max);
     const refs = first.lines.flatMap((l) => l.controls.map((c) => c.ref));
-    const meta = await this.fetchMeta(page, refs);
-    const ctx = { currentUrl: url, meta };
+    const { meta, failed } = await this.fetchMeta(page, refs);
+    const ctx = { currentUrl: url, meta, unknown: failed };
     const fitted = fit(layout(children, ctx), max);
     const entries = /* @__PURE__ */ new Map();
     const textLines = [];
@@ -23302,14 +23521,16 @@ var BrowserSession = class {
         `No element with ref ${ref} on this page. Refs reset when the page navigates: take a new snapshot.`
       );
     }
-    const meta = await this.fetchMeta(page, [ref]);
-    return toElement(node, { currentUrl: page.url(), meta });
+    const { meta, failed } = await this.fetchMeta(page, [ref]);
+    return toElement(node, { currentUrl: page.url(), meta, unknown: failed });
   }
   async act(actions, approvals) {
     const page0 = await this.ensure();
     const results = [];
     const downloadsBefore = this.downloads.length;
     this.notes = [];
+    this.foreignTabs = [];
+    this.popups = [];
     this.chooserOpened = false;
     this.acting = true;
     this.openedDuringAct = void 0;
@@ -23317,7 +23538,12 @@ var BrowserSession = class {
       for (let index = 0; index < actions.length; index += 1) {
         const action = actions[index];
         const page2 = this.active && !this.active.isClosed() ? this.active : await this.ensure();
-        let result = await this.withBudget(this.runOne(page2, action, index, approvals));
+        const budget = await this.withBudget(this.runOne(page2, action, index, approvals));
+        let result = budget.result;
+        if (budget.timedOut) {
+          this.taintPage(page2);
+          result = { ...result, error: `${result.error}; the page was closed` };
+        }
         if (result.ok && this.chooserOpened) {
           this.chooserOpened = false;
           result = {
@@ -23343,10 +23569,7 @@ var BrowserSession = class {
         sleep(2e3).then(() => false)
       ]);
       if (!answered) {
-        this.taskPages.delete(live);
-        this.active = void 0;
-        this.baseline = void 0;
-        void closeQuickly(live);
+        this.taintPage(live);
         const last2 = results.at(-1);
         last2.error = clean(
           `${last2.error ?? "failed"}; the page stopped responding and was closed`,
@@ -23354,14 +23577,14 @@ var BrowserSession = class {
         );
       }
     }
-    const opened = this.takeOpened();
-    if (opened && !opened.isClosed()) {
-      this.active = opened;
-      await opened.waitForLoadState("domcontentloaded", { timeout: 5e3 }).catch(() => {
-      });
-    }
+    await this.settlePopups();
     const page = this.active && !this.active.isClosed() ? this.active : page0;
     const last = results.at(-1);
+    for (const host of this.foreignTabs) {
+      this.notes.push(
+        `a new tab opened on ${host}; it was not switched to (that would leave the site) and stays with the task`
+      );
+    }
     if (last && this.notes.length > 0) {
       const said = this.notes.join("; ");
       if (last.ok) last.outcome = clean(`${last.outcome ?? "done"}; ${said}`, 300);
@@ -23390,13 +23613,24 @@ var BrowserSession = class {
     const timeout = new Promise((ok) => {
       timer = setTimeout(
         () => ok({
-          ok: false,
-          error: "The action did not finish in time (30 s). The page may be stuck."
+          result: {
+            ok: false,
+            error: "The action did not finish in time (30 s). The page may be stuck."
+          },
+          timedOut: true
         }),
-        ACTION_BUDGET_MS
+        this.options.actionBudgetMs ?? ACTION_BUDGET_MS
       );
     });
-    return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
+    return Promise.race([work.then((result) => ({ result, timedOut: false })), timeout]).finally(
+      () => clearTimeout(timer)
+    );
+  }
+  taintPage(page) {
+    this.taskPages.delete(page);
+    if (this.active === page) this.active = void 0;
+    this.baseline = void 0;
+    void closeQuickly(page);
   }
   async runOne(page, action, index, approvals) {
     try {
@@ -23437,19 +23671,33 @@ var BrowserSession = class {
           };
         }
       }
-      const klass = classifyAction(action, ctx).class;
+      const classified = classifyAction(action, ctx);
+      const klass = element?.metaUnknown ? "commit" : classified.class;
       const grant = approvals?.find((g) => g.index === index);
       if (klass === "commit") {
         const refusal = this.checkApproval(action, ctx, grant);
         if (refusal) return refusal;
+        this.spend(grant);
       }
-      this.current = { index, grantId: grant?.id };
+      let href;
+      if (action.type === "click" && element?.href) {
+        try {
+          href = new URL(element.href, page.url()).href;
+        } catch {
+        }
+      }
+      this.current = {
+        index,
+        grantId: grant?.id,
+        eligible: action.type === "navigate" || klass === "commit" && classified.class === "commit" && classified.reason === "download" && !(element?.href && !href),
+        href,
+        claimed: false
+      };
       const before = page.url();
       let outcome = await this.perform(page, action);
       if (action.type !== "navigate" && page.url() !== before && !page.isClosed()) {
         outcome = clean(`${outcome}; the page navigated to ${clean(page.url(), 150)}`, 300);
       }
-      if (klass === "commit") this.consume(grant);
       return { ok: true, outcome };
     } catch (err) {
       return { ok: false, error: err instanceof ToolError ? err.message : firstLine(err) };
@@ -23476,6 +23724,13 @@ var BrowserSession = class {
         error: "This runtime has no approval key, so it cannot accept approvals. Run `galopin browser enable` again."
       };
     }
+    if (verdict === "exp_too_far") {
+      return {
+        ok: false,
+        refused: "approval_mismatch",
+        error: "The approval's expiry is too far ahead for this computer's clock: the clocks of Cerea and this computer disagree."
+      };
+    }
     if (verdict === "expired") {
       return {
         ok: false,
@@ -23487,7 +23742,7 @@ var BrowserSession = class {
       const why = verdict === "bad_signature" ? "The approval's signature is not valid." : "The approval does not match this action as the page is now (the page or the control changed).";
       return { ok: false, refused: "approval_mismatch", error: why };
     }
-    if (!grant.id.startsWith("site:") && this.usedApprovals.has(grant.id)) {
+    if (!grant.id.startsWith("site:") && this.used.has(grant.id)) {
       return {
         ok: false,
         refused: "approval_mismatch",
@@ -23496,15 +23751,41 @@ var BrowserSession = class {
     }
     return void 0;
   }
-  consume(grant) {
-    if (!grant || grant.id.startsWith("site:")) return;
-    if (this.usedApprovals.size > 1e3) this.usedApprovals.clear();
-    this.usedApprovals.add(grant.id);
+  spend(grant) {
+    if (grant.id.startsWith("site:")) return;
+    this.used.add(grant.id, grant.exp);
   }
-  takeOpened() {
-    const page = this.openedDuringAct;
-    this.openedDuringAct = void 0;
-    return page;
+  /**
+   * A page a task page opened becomes the active page when it is on the same site as its opener.
+   * One on another site is reported and left alone: moving the task there is a decision for the
+   * user, not for a page.
+   */
+  async settlePopups() {
+    const popups = this.popups;
+    this.popups = [];
+    const opener = this.active;
+    for (const popup of popups) {
+      if (popup.isClosed()) continue;
+      await popup.waitForLoadState("domcontentloaded", { timeout: 5e3 }).catch(() => {
+      });
+      let same = false;
+      try {
+        same = !!opener && siteOf(new URL(popup.url()).hostname) === siteOf(new URL(opener.url()).hostname);
+      } catch {
+        same = popup.url() === "about:blank";
+      }
+      if (same && !this.openedDuringAct) {
+        this.active = popup;
+        this.openedDuringAct = popup;
+      } else if (!same) {
+        let host = popup.url();
+        try {
+          host = new URL(popup.url()).hostname;
+        } catch {
+        }
+        this.foreignTabs.push(clean(host, 100));
+      }
+    }
   }
   async settle(page) {
     await page.waitForLoadState("load", { timeout: 4e3 }).catch(() => {
@@ -23711,6 +23992,7 @@ Usage: cerea-browser --profile DIR [options]
   --token TOKEN        With --http: require this bearer token. Or $CEREA_BROWSER_TOKEN.
   --key-file PATH      File holding this device's approval key (0600), or $CEREA_BROWSER_KEY.
                        Without a key no approval is accepted, so nothing commit-class runs.
+  --state-dir DIR      Where spent approvals are remembered (default: beside the profile).
   --no-sandbox         Start Chromium without its sandbox (containers, root).
   --executable PATH    Use this Chromium instead of the one Playwright installed.
   --max-snapshot-chars N   Size budget of one snapshot (default ${DEFAULT_MAX_SNAPSHOT_CHARS}).
@@ -23736,6 +24018,7 @@ var { values } = (() => {
         token: { type: "string" },
         "no-sandbox": { type: "boolean" },
         "key-file": { type: "string" },
+        "state-dir": { type: "string" },
         "idle-minutes": { type: "string" },
         executable: { type: "string" },
         "max-snapshot-chars": { type: "string" },
@@ -23759,7 +24042,8 @@ if (values["self-test"]) {
 }
 var profileDir = values.profile ?? process.env.CEREA_BROWSER_PROFILE;
 if (!profileDir) fail("--profile DIR is required.");
-mkdirSync(profileDir, { recursive: true, mode: 448 });
+mkdirSync2(profileDir, { recursive: true, mode: 448 });
+chmodSync2(profileDir, 448);
 var maxChars = values["max-snapshot-chars"] ? Number(values["max-snapshot-chars"]) : void 0;
 if (maxChars !== void 0 && !(maxChars >= 1e3 && maxChars <= 2e5)) {
   fail("--max-snapshot-chars must be between 1000 and 200000.");
@@ -23776,6 +24060,7 @@ var session = new BrowserSession({
   noSandbox: values["no-sandbox"] === true,
   executablePath: values.executable,
   keyFile: values["key-file"],
+  stateDir: values["state-dir"],
   ...values["idle-minutes"] ? { idleMs: Number(values["idle-minutes"]) * 6e4 } : {},
   maxSnapshotChars: maxChars,
   viewport

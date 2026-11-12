@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -39,7 +38,7 @@ Usage:
   galopin browser disable [--remove-profile] [--state-dir PATH] [--creds PATH] [--mcp-config PATH]
   galopin browser status  [--state-dir PATH] [--creds PATH] [--mcp-config PATH]
 
-  setup    Check that Node (20 or newer) is installed, write the runtime into galopin's
+  setup    Check that Node (22.18 or newer) is installed, write the runtime into galopin's
            own directory, install its npm dependencies and Playwright's Chromium there,
            and try the browser once. Installs nothing system-wide.
   enable   Offer the runtime to Cerea as the local connector "cerea-browser" (it is
@@ -178,16 +177,28 @@ func (e *browserEnv) say(format string, a ...any) { fmt.Fprintf(e.out, format+"\
 
 var nodeVersionRE = regexp.MustCompile(`^v?(\d+)\.(\d+)`)
 
-func nodeMajor(v string) int {
+// The runtime's package.json says "node": ">=22.18" (native TypeScript is not needed by the
+// bundle, but the Node it was tested on is), and setup holds it to that.
+const nodeMinMajor, nodeMinMinor = 22, 18
+
+func nodeOK(v string) bool {
 	m := nodeVersionRE.FindStringSubmatch(strings.TrimSpace(v))
 	if m == nil {
-		return 0
+		return false
 	}
-	n, _ := strconv.Atoi(m[1])
-	return n
+	major, _ := strconv.Atoi(m[1])
+	minor, _ := strconv.Atoi(m[2])
+	return major > nodeMinMajor || (major == nodeMinMajor && minor >= nodeMinMinor)
 }
 
 // playwrightVersion is the version package.json pins.
+// tighten makes an existing directory private to the user (0700), as it holds logins and a key.
+func tighten(dir string) {
+	if st, err := os.Stat(dir); err == nil && st.IsDir() && st.Mode().Perm() != 0o700 {
+		_ = os.Chmod(dir, 0o700)
+	}
+}
+
 func playwrightVersion() string {
 	var p struct {
 		Dependencies map[string]string `json:"dependencies"`
@@ -200,15 +211,15 @@ func browserSetup(ctx context.Context, env *browserEnv) error {
 	p := pathsFor(env.stateDir)
 	node, err := env.lookPath("node")
 	if err != nil {
-		return errors.New("Node.js is not installed (or not on PATH). The browser runtime needs Node 20 or newer: install it from https://nodejs.org or with your package manager, then run this again. galopin installs nothing system-wide")
+		return errors.New("Node.js is not installed (or not on PATH). The browser runtime needs Node 22.18 or newer: install it from https://nodejs.org or with your package manager, then run this again. galopin installs nothing system-wide")
 	}
 	out, err := env.run(ctx, "", nil, node, "--version")
 	if err != nil {
 		return fmt.Errorf("could not run %s --version: %w", node, err)
 	}
 	version := strings.TrimSpace(string(out))
-	if nodeMajor(version) < 20 {
-		return fmt.Errorf("Node %s is too old: the browser runtime needs Node 20 or newer", version)
+	if !nodeOK(version) {
+		return fmt.Errorf("Node %s is too old: the browser runtime needs Node %d.%d or newer", version, nodeMinMajor, nodeMinMinor)
 	}
 	npm, err := env.lookPath("npm")
 	if err != nil {
@@ -219,6 +230,7 @@ func browserSetup(ctx context.Context, env *browserEnv) error {
 	if err := os.MkdirAll(p.runtime, 0o700); err != nil {
 		return err
 	}
+	tighten(p.dir)
 	if err := writeFileAtomic(p.bundle, browserrt.Bundle, 0o600); err != nil {
 		return err
 	}
@@ -326,7 +338,7 @@ func (e *browserEnv) hasDisplay() bool {
 // runtimeArgs are the runtime's command line for this machine. Everything is in the command line
 // or a file; the approval key is never an argument.
 func runtimeArgs(p browserPaths, headed, noSandbox bool) []string {
-	args := []string{p.bundle, "--profile", p.profile}
+	args := []string{p.bundle, "--profile", p.profile, "--state-dir", p.dir}
 	if headed {
 		args = append(args, "--headed")
 	} else {
@@ -350,62 +362,6 @@ type browserEntry struct {
 	AllowedTools []string          `json:"allowedTools"`
 }
 
-// editMcpServers reads mcp.json (absent is empty), lets fn change its mcpServers and writes it back,
-// keeping every other server and key as they were.
-func editMcpServers(path string, fn func(servers map[string]json.RawMessage) (changed bool, err error)) (bool, error) {
-	top := map[string]json.RawMessage{}
-	body, err := os.ReadFile(path)
-	switch {
-	case err == nil:
-		if len(bytes.TrimSpace(body)) > 0 {
-			if err := json.Unmarshal(body, &top); err != nil {
-				return false, fmt.Errorf("%s is not valid JSON, so it was left alone: %w", path, err)
-			}
-		}
-	case !os.IsNotExist(err):
-		return false, err
-	}
-	servers := map[string]json.RawMessage{}
-	if raw, ok := top["mcpServers"]; ok {
-		if err := json.Unmarshal(raw, &servers); err != nil {
-			return false, fmt.Errorf("mcpServers in %s is not an object: %w", path, err)
-		}
-	}
-	changed, err := fn(servers)
-	if err != nil || !changed {
-		return false, err
-	}
-	raw, _ := json.Marshal(servers)
-	top["mcpServers"] = raw
-	keys := make([]string, 0, len(top))
-	for k := range top {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	var buf bytes.Buffer
-	buf.WriteString("{\n")
-	for i, k := range keys {
-		var pretty bytes.Buffer
-		if err := json.Indent(&pretty, top[k], "\t", "\t"); err != nil {
-			pretty.Write(top[k])
-		}
-		fmt.Fprintf(&buf, "\t%q: %s", k, pretty.String())
-		if i < len(keys)-1 {
-			buf.WriteString(",")
-		}
-		buf.WriteString("\n")
-	}
-	buf.WriteString("}\n")
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return false, err
-	}
-	perm := os.FileMode(0o600)
-	if st, err := os.Stat(path); err == nil {
-		perm = st.Mode().Perm()
-	}
-	return true, writeFileAtomic(path, buf.Bytes(), perm)
-}
-
 func browserEnable(env *browserEnv, f browserFlags) error {
 	p := pathsFor(env.stateDir)
 	info, err := readBrowserInfo(p)
@@ -426,6 +382,9 @@ func browserEnable(env *browserEnv, f browserFlags) error {
 	if err := os.MkdirAll(p.profile, 0o700); err != nil {
 		return err
 	}
+	// The profile holds logins and the key sits beside it: an older, looser directory is tightened.
+	tighten(p.dir)
+	tighten(p.profile)
 	entry := browserEntry{
 		Command:      info.Node,
 		Args:         runtimeArgs(p, headed, noSandbox),
@@ -434,11 +393,7 @@ func browserEnable(env *browserEnv, f browserFlags) error {
 		AllowedTools: browserTools,
 	}
 	raw, _ := json.Marshal(entry)
-	_, err = editMcpServers(env.mcpPath, func(servers map[string]json.RawMessage) (bool, error) {
-		servers[browserConnectorName] = raw
-		return true, nil
-	})
-	if err != nil {
+	if _, err = editMcpServers(env.mcpPath, browserConnectorName, raw); err != nil {
 		return err
 	}
 	mode := "headless"
@@ -456,13 +411,7 @@ func browserEnable(env *browserEnv, f browserFlags) error {
 
 func browserDisable(env *browserEnv, f browserFlags) error {
 	p := pathsFor(env.stateDir)
-	removed, err := editMcpServers(env.mcpPath, func(servers map[string]json.RawMessage) (bool, error) {
-		if _, ok := servers[browserConnectorName]; !ok {
-			return false, nil
-		}
-		delete(servers, browserConnectorName)
-		return true, nil
-	})
+	removed, err := editMcpServers(env.mcpPath, browserConnectorName, nil)
 	if err != nil {
 		return err
 	}

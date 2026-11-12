@@ -6,9 +6,12 @@
  * a takeover pauses the protocol operations by holding the same queue.
  */
 
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { createWriteStream } from "node:fs";
+import { chmod, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import {
 	chromium,
 	type BrowserContext,
@@ -16,8 +19,8 @@ import {
 	type Locator,
 	type Page,
 } from "playwright-core";
-import { actionDigest, classifyAction, type ClassifyContext } from "./classifier.ts";
-import { checkGrant, readKey, type GrantCheck } from "./grants.ts";
+import { actionDigest, classifyAction, siteOf, type ClassifyContext } from "./classifier.ts";
+import { UsedGrants, checkGrant, readKey, type GrantCheck } from "./grants.ts";
 import {
 	MAX_DOWNLOAD_BYTES,
 	type ActResult,
@@ -58,6 +61,10 @@ export interface SessionOptions {
 	idleMs?: number;
 	/** Where Cerea's approval key for this device is kept (0600). Else `$CEREA_BROWSER_KEY`. */
 	keyFile?: string;
+	/** Where spent approvals are remembered across restarts (default: beside the profile). */
+	stateDir?: string;
+	/** How long one action may run before the batch gives up on it (default 30 s). */
+	actionBudgetMs?: number;
 }
 
 export const DEFAULT_MAX_SNAPSHOT_CHARS = 9_000;
@@ -65,6 +72,10 @@ const ACTION_TIMEOUT_MS = 5_000;
 const NAVIGATION_TIMEOUT_MS = 20_000;
 const META_TIMEOUT_MS = 1_500;
 const MAX_DOWNLOADS = 20;
+/** Files the page started on its own are kept back; only a few, so they never crowd out approved ones. */
+const MAX_UNATTRIBUTED = 5;
+/** A download that sends nothing for this long is abandoned. */
+const DOWNLOAD_STALL_MS = 20_000;
 const ACTION_BUDGET_MS = 30_000;
 const DEFAULT_IDLE_MS = 10 * 60_000;
 
@@ -111,7 +122,11 @@ const MIME_BY_EXTENSION: Record<string, string> = {
 	docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 };
 
-/** Runs inside the page: the facts about an element that only the DOM has. */
+/**
+ * Runs inside the page: the facts about an element that only the DOM has. It runs in the page's
+ * own world, so a hostile page can spoof its own answers; that only lets a page mislead the
+ * runtime about itself (docs/browser-runtime.md, "What the runtime cannot know").
+ */
 function pageMeta(el: Element): DomMeta {
 	const tag = el.tagName.toLowerCase();
 	const control = el as HTMLInputElement & HTMLButtonElement;
@@ -172,6 +187,28 @@ async function closeQuickly(page: Page): Promise<void> {
 	await Promise.race([page.close({ runBeforeUnload: false }).catch(() => {}), sleep(3_000)]);
 }
 
+const tooLarge = () => `larger than ${MAX_DOWNLOAD_BYTES / 1024 / 1024} MB`;
+
+/** Download folders of runtimes that died without cleaning up (`cerea-browser-<pid>-...`). */
+async function removeStaleDirs(): Promise<void> {
+	try {
+		for (const name of await readdir(tmpdir())) {
+			const m = /^cerea-browser-(\d+)-/.exec(name);
+			if (!m) continue;
+			const pid = Number(m[1]);
+			let alive = true;
+			try {
+				process.kill(pid, 0);
+			} catch (err) {
+				alive = (err as NodeJS.ErrnoException).code === "EPERM";
+			}
+			if (!alive) await rm(join(tmpdir(), name), { recursive: true, force: true });
+		}
+	} catch {
+		// Best effort.
+	}
+}
+
 const sleep = (ms: number) => new Promise<void>((ok) => setTimeout(ok, ms));
 
 function firstLine(err: unknown, max = 300): string {
@@ -204,17 +241,41 @@ export class BrowserSession {
 	private downloads: Captured[] = [];
 	private pendingDownloads = new Set<Promise<void>>();
 	private downloadSeq = 0;
-	private readonly contentTypes = new Map<string, string>();
+	private readonly contentTypes = new Map<string, { type: string; length?: number }>();
 	private notes: string[] = [];
 	private openedDuringAct?: Page;
-	private current?: { index: number; grantId?: string };
+	private current?: {
+		index: number;
+		grantId?: string;
+		/** Only a download action (or a navigation) can own a file, and only the first one. */
+		eligible: boolean;
+		/** The address the clicked link points at: a file must come from there. */
+		href?: string;
+		claimed: boolean;
+	};
+	private queue: Promise<unknown> = Promise.resolve();
+	private foreignTabs: string[] = [];
+	private popups: Page[] = [];
 	/** A download that starts within this long of an action's end still belongs to it. */
 	private currentUntil = 0;
 	private acting = false;
-	private readonly usedApprovals = new Set<string>();
+	private readonly used: UsedGrants;
 
 	constructor(options: SessionOptions) {
 		this.options = options;
+		this.used = new UsedGrants(
+			join(options.stateDir ?? dirname(options.profileDir), "used-grants.json")
+		);
+	}
+
+	/**
+	 * One queue for the whole session, however many connections or HTTP requests reach it: calls
+	 * never overlap, so an approval cannot be spent twice by two calls racing.
+	 */
+	serial<T>(work: () => Promise<T>): Promise<T> {
+		const run = this.queue.then(work, work);
+		this.queue = run.catch(() => {});
+		return run;
 	}
 
 	// ---- lifecycle -------------------------------------------------------------------------
@@ -275,7 +336,9 @@ export class BrowserSession {
 				"The browser is set to show a window, but this computer has no display. Start the runtime with --headless."
 			);
 		}
-		this.downloadDir ??= await mkdtemp(join(tmpdir(), "cerea-browser-"));
+		await removeStaleDirs();
+		await chmod(profileDir, 0o700).catch(() => {});
+		this.downloadDir ??= await mkdtemp(join(tmpdir(), `cerea-browser-${process.pid}-`));
 		let context: BrowserContext;
 		try {
 			context = await chromium.launchPersistentContext(profileDir, {
@@ -321,13 +384,21 @@ export class BrowserSession {
 			(url) => !/^(https?|about|blob|data|ws|wss):$/.test(url.protocol),
 			(route) => route.abort("blockedbyclient")
 		);
-		context.on("page", (page) => this.hook(page, true));
-		for (const page of context.pages()) this.hook(page, false);
+		context.on("page", (page) => {
+			this.hook(page);
+			void this.adopt(page);
+		});
+		for (const page of context.pages()) this.hook(page);
 		context.on("response", (response) => {
-			const type = response.headers()["content-type"];
+			const headers = response.headers();
+			const type = headers["content-type"];
 			if (!type) return;
 			if (this.contentTypes.size > 200) this.contentTypes.clear();
-			this.contentTypes.set(response.url(), type.split(";")[0].trim().toLowerCase());
+			const length = Number(headers["content-length"]);
+			this.contentTypes.set(response.url(), {
+				type: type.split(";")[0].trim().toLowerCase(),
+				...(Number.isFinite(length) ? { length } : {}),
+			});
 		});
 		context.on("close", () => {
 			if (this.context === context) {
@@ -340,7 +411,7 @@ export class BrowserSession {
 		this.context = context;
 	}
 
-	private hook(page: Page, isNew: boolean): void {
+	private hook(page: Page): void {
 		this.navSeq.set(page, 0);
 		page.on("framenavigated", (frame) => {
 			if (frame === page.mainFrame()) this.navSeq.set(page, (this.navSeq.get(page) ?? 0) + 1);
@@ -355,9 +426,6 @@ export class BrowserSession {
 			// Nothing is chosen: the chooser is dropped and the action is reported as failed.
 			this.chooserOpened = true;
 		});
-		page.on("popup", (popup) => {
-			if (this.taskPages.has(page)) this.taskPages.add(popup);
-		});
 		page.on("download", (download) => {
 			const work = this.capture(download).catch((e) => {
 				if (process.env.CEREA_DEBUG) console.error("capture failed", e);
@@ -369,10 +437,23 @@ export class BrowserSession {
 			this.taskPages.delete(page);
 			if (this.active === page) this.active = undefined;
 		});
-		if (isNew && this.acting && this.taskPages.has(this.active!)) {
-			this.openedDuringAct = page;
-			this.taskPages.add(page);
+	}
+
+	/**
+	 * A new page belongs to the task only if a task page opened it. A tab the user opened, or one
+	 * that something else made, is never adopted, used or closed. A task page's popup is kept with
+	 * the task so it closes with it, and offered to the running action as the next page.
+	 */
+	private async adopt(page: Page): Promise<void> {
+		let opener: Page | null = null;
+		try {
+			opener = await page.opener();
+		} catch {
+			return;
 		}
+		if (!opener || !this.taskPages.has(opener)) return;
+		this.taskPages.add(page);
+		if (this.acting && opener === this.active) this.popups.push(page);
 	}
 
 	private async capture(download: Download): Promise<void> {
@@ -380,51 +461,112 @@ export class BrowserSession {
 		const dir = this.downloadDir!;
 		const path = join(dir, `${(this.downloadSeq += 1)}-${name}`);
 		const extension = name.includes(".") ? name.split(".").pop()!.toLowerCase() : "";
-		const mime =
-			this.contentTypes.get(download.url()) ??
-			MIME_BY_EXTENSION[extension] ??
-			"application/octet-stream";
-		// Provenance is read now: the event fires while the action that caused it is running.
-		const origin =
-			this.current && (this.acting || Date.now() < this.currentUntil)
-				? { actionIndex: this.current.index, grantId: this.current.grantId }
-				: {};
-		const failure = await download.failure();
-		if (failure) {
-			this.downloads.push({
-				name,
-				mime,
-				size: 0,
-				skipped: `the download failed: ${clean(failure, 100)}`,
-				...origin,
-			});
+		// Playwright reports no response for a download, so its announced size and type are asked
+		// of the server with a HEAD (same cookies, short timeout); a server that will not say is
+		// held to the byte counter below.
+		const seen = this.contentTypes.get(download.url()) ?? (await this.announced(download.url()));
+		const mime = seen?.type ?? MIME_BY_EXTENSION[extension] ?? "application/octet-stream";
+		const origin = this.claim(download);
+		const attributed = origin.actionIndex !== undefined;
+		const note = (entry: Omit<Captured, "name" | "mime">) =>
+			this.downloads.push({ name, mime, ...origin, ...entry });
+		const room = this.downloads.filter((d) => (d.actionIndex !== undefined) === attributed).length;
+		if (room >= (attributed ? MAX_DOWNLOADS : MAX_UNATTRIBUTED)) {
+			// Past the cap a page's own files are dropped silently: they were never going to be handed on.
+			if (attributed) note({ size: 0, skipped: "too many files captured at once" });
+			void download.cancel().catch(() => {});
 			return;
 		}
-		await download.saveAs(path);
-		const size = (await stat(path)).size;
-		if (this.downloads.length >= MAX_DOWNLOADS) {
+		// The announced size is checked before a byte is fetched; the real size while it streams.
+		if (seen?.length !== undefined && seen.length > MAX_DOWNLOAD_BYTES) {
+			note({ size: seen.length, skipped: tooLarge() });
+			void download.cancel().catch(() => {});
+			return;
+		}
+		let bytes = 0;
+		try {
+			const readable = await download.createReadStream();
+			if (!readable) {
+				const failure = await download.failure();
+				note({ size: 0, skipped: `the download failed: ${clean(failure ?? "no data", 100)}` });
+				return;
+			}
+			const counter = new Transform({
+				transform(chunk: Buffer, _enc, done) {
+					bytes += chunk.length;
+					done(bytes > MAX_DOWNLOAD_BYTES ? new Error("too large") : null, chunk);
+				},
+			});
+			// A stream that stops sending is given up on, so a stalled server cannot hold the call.
+			const stall = new AbortController();
+			let timer = setTimeout(() => stall.abort(), DOWNLOAD_STALL_MS);
+			counter.on("data", () => {
+				clearTimeout(timer);
+				timer = setTimeout(() => stall.abort(), DOWNLOAD_STALL_MS);
+			});
+			try {
+				await pipeline(readable, counter, createWriteStream(path, { mode: 0o600 }), {
+					signal: stall.signal,
+				});
+			} finally {
+				clearTimeout(timer);
+			}
+		} catch (err) {
 			await rm(path, { force: true });
-			this.downloads.push({
-				name,
-				mime,
-				size,
-				skipped: "too many files captured at once",
-				...origin,
-			});
+			if (bytes > MAX_DOWNLOAD_BYTES) {
+				note({ size: bytes, skipped: tooLarge() });
+				void download.cancel().catch(() => {});
+			} else {
+				note({ size: 0, skipped: `the download failed: ${firstLine(err, 100)}` });
+			}
+			void download.delete().catch(() => {});
 			return;
 		}
-		if (size > MAX_DOWNLOAD_BYTES) {
-			await rm(path, { force: true });
-			this.downloads.push({
-				name,
-				mime,
-				size,
-				skipped: `larger than ${MAX_DOWNLOAD_BYTES / 1024 / 1024} MB`,
-				...origin,
+		// The browser's own copy is not needed any more.
+		await download.delete().catch(() => {});
+		note({ size: bytes, path });
+	}
+
+	private async announced(url: string): Promise<{ type: string; length?: number } | undefined> {
+		if (!/^https?:/i.test(url) || !this.context) return undefined;
+		try {
+			const head = await this.context.request.head(url, {
+				timeout: 3_000,
+				failOnStatusCode: false,
 			});
-			return;
+			const headers = head.headers();
+			const length = Number(headers["content-length"]);
+			const type = headers["content-type"]?.split(";")[0].trim().toLowerCase();
+			await head.dispose();
+			if (!type && !Number.isFinite(length)) return undefined;
+			return {
+				type: type ?? "application/octet-stream",
+				...(Number.isFinite(length) ? { length } : {}),
+			};
+		} catch {
+			return undefined;
 		}
-		this.downloads.push({ name, mime, size, path, ...origin });
+	}
+
+	/**
+	 * The action a file belongs to, if any: only a download action (or a navigation) owns files, only
+	 * the first, and a click's file must come from the link's own address. Everything else, a script
+	 * or a timer or a second file, is unattributed.
+	 */
+	private claim(download: Download): { actionIndex?: number; grantId?: string } {
+		const cur = this.current;
+		if (!cur || !cur.eligible || cur.claimed) return {};
+		if (!(this.acting || Date.now() < this.currentUntil)) return {};
+		if (cur.href) {
+			try {
+				const want = new URL(cur.href).href;
+				if (new URL(download.url()).href !== want) return {};
+			} catch {
+				return {};
+			}
+		}
+		cur.claimed = true;
+		return { actionIndex: cur.index, ...(cur.grantId ? { grantId: cur.grantId } : {}) };
 	}
 
 	async close(): Promise<void> {
@@ -433,7 +575,7 @@ export class BrowserSession {
 		const context = this.context;
 		this.context = undefined;
 		this.active = undefined;
-		await context?.close().catch(() => {});
+		if (context) await Promise.race([context.close().catch(() => {}), sleep(5_000)]);
 		if (this.downloadDir)
 			await rm(this.downloadDir, { recursive: true, force: true }).catch(() => {});
 		this.downloadDir = undefined;
@@ -456,8 +598,13 @@ export class BrowserSession {
 		}
 	}
 
-	private async fetchMeta(page: Page, refs: string[]): Promise<Map<string, DomMeta>> {
+	/** The DOM facts for each ref; a ref whose facts could not be read is in `failed`. */
+	private async fetchMeta(
+		page: Page,
+		refs: string[]
+	): Promise<{ meta: Map<string, DomMeta>; failed: Set<string> }> {
 		const meta = new Map<string, DomMeta>();
+		const failed = new Set<string>();
 		let next = 0;
 		const worker = async () => {
 			while (next < refs.length) {
@@ -468,12 +615,13 @@ export class BrowserSession {
 						await page.getByRef(ref).evaluate(pageMeta, undefined, { timeout: META_TIMEOUT_MS })
 					);
 				} catch {
-					// Gone or detached between the snapshot and now: it has no metadata.
+					// Gone, detached or a busy page: its facts are unknown, and unknown fails closed.
+					failed.add(ref);
 				}
 			}
 		};
 		await Promise.all(Array.from({ length: Math.min(12, refs.length) }, worker));
-		return meta;
+		return { meta, failed };
 	}
 
 	private async build(page: Page): Promise<Built> {
@@ -487,8 +635,8 @@ export class BrowserSession {
 		// then lay out again with them.
 		const first = fit(layout(children, { currentUrl: url, meta: new Map() }), max);
 		const refs = first.lines.flatMap((l) => l.controls.map((c) => c.ref!));
-		const meta = await this.fetchMeta(page, refs);
-		const ctx = { currentUrl: url, meta };
+		const { meta, failed } = await this.fetchMeta(page, refs);
+		const ctx = { currentUrl: url, meta, unknown: failed };
 		const fitted = fit(layout(children, ctx), max);
 
 		const entries = new Map<string, Entry>();
@@ -619,8 +767,8 @@ export class BrowserSession {
 				`No element with ref ${ref} on this page. Refs reset when the page navigates: take a new snapshot.`
 			);
 		}
-		const meta = await this.fetchMeta(page, [ref]);
-		return toElement(node, { currentUrl: page.url(), meta });
+		const { meta, failed } = await this.fetchMeta(page, [ref]);
+		return toElement(node, { currentUrl: page.url(), meta, unknown: failed });
 	}
 
 	async act(actions: BrowserAction[], approvals: ApprovalGrant[] | undefined): Promise<ActResult> {
@@ -628,6 +776,8 @@ export class BrowserSession {
 		const results: ActionResult[] = [];
 		const downloadsBefore = this.downloads.length;
 		this.notes = [];
+		this.foreignTabs = [];
+		this.popups = [];
 		this.chooserOpened = false;
 		this.acting = true;
 		this.openedDuringAct = undefined;
@@ -635,7 +785,14 @@ export class BrowserSession {
 			for (let index = 0; index < actions.length; index += 1) {
 				const action = actions[index];
 				const page = this.active && !this.active.isClosed() ? this.active : await this.ensure();
-				let result = await this.withBudget(this.runOne(page, action, index, approvals));
+				const budget = await this.withBudget(this.runOne(page, action, index, approvals));
+				let result = budget.result;
+				if (budget.timedOut) {
+					// The action is still running in a page we no longer trust: drop the page, so
+					// nothing it was doing can finish later or leak into the next call.
+					this.taintPage(page);
+					result = { ...result, error: `${result.error}; the page was closed` };
+				}
 				if (result.ok && this.chooserOpened) {
 					this.chooserOpened = false;
 					result = {
@@ -665,10 +822,7 @@ export class BrowserSession {
 				sleep(2_000).then(() => false),
 			]);
 			if (!answered) {
-				this.taskPages.delete(live);
-				this.active = undefined;
-				this.baseline = undefined;
-				void closeQuickly(live);
+				this.taintPage(live);
 				const last = results.at(-1)!;
 				last.error = clean(
 					`${last.error ?? "failed"}; the page stopped responding and was closed`,
@@ -676,13 +830,14 @@ export class BrowserSession {
 				);
 			}
 		}
-		const opened = this.takeOpened();
-		if (opened && !opened.isClosed()) {
-			this.active = opened;
-			await opened.waitForLoadState("domcontentloaded", { timeout: 5_000 }).catch(() => {});
-		}
+		await this.settlePopups();
 		const page = this.active && !this.active.isClosed() ? this.active : page0;
 		const last = results.at(-1);
+		for (const host of this.foreignTabs) {
+			this.notes.push(
+				`a new tab opened on ${host}; it was not switched to (that would leave the site) and stays with the task`
+			);
+		}
 		if (last && this.notes.length > 0) {
 			const said = this.notes.join("; ");
 			if (last.ok) last.outcome = clean(`${last.outcome ?? "done"}; ${said}`, 300);
@@ -711,19 +866,33 @@ export class BrowserSession {
 	}
 
 	/** An action never hangs the batch: past the budget it fails and `act` returns. */
-	private withBudget(work: Promise<ActionResult>): Promise<ActionResult> {
+	private withBudget(
+		work: Promise<ActionResult>
+	): Promise<{ result: ActionResult; timedOut: boolean }> {
 		let timer: NodeJS.Timeout;
-		const timeout = new Promise<ActionResult>((ok) => {
+		const timeout = new Promise<{ result: ActionResult; timedOut: boolean }>((ok) => {
 			timer = setTimeout(
 				() =>
 					ok({
-						ok: false,
-						error: "The action did not finish in time (30 s). The page may be stuck.",
+						result: {
+							ok: false,
+							error: "The action did not finish in time (30 s). The page may be stuck.",
+						},
+						timedOut: true,
 					}),
-				ACTION_BUDGET_MS
+				this.options.actionBudgetMs ?? ACTION_BUDGET_MS
 			);
 		});
-		return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
+		return Promise.race([work.then((result) => ({ result, timedOut: false })), timeout]).finally(
+			() => clearTimeout(timer)
+		);
+	}
+
+	private taintPage(page: Page): void {
+		this.taskPages.delete(page);
+		if (this.active === page) this.active = undefined;
+		this.baseline = undefined;
+		void closeQuickly(page);
 	}
 
 	private async runOne(
@@ -784,19 +953,41 @@ export class BrowserSession {
 					};
 				}
 			}
-			const klass = classifyAction(action, ctx).class;
+			const classified = classifyAction(action, ctx);
+			// An element whose facts could not be read is judged as a commit: unknown fails closed.
+			const klass = element?.metaUnknown ? "commit" : classified.class;
 			const grant = approvals?.find((g) => g.index === index);
 			if (klass === "commit") {
 				const refusal = this.checkApproval(action, ctx, grant);
 				if (refusal) return refusal;
+				// Spent before it runs: an approval that ran once (or half ran) is never run again.
+				this.spend(grant!);
 			}
-			this.current = { index, grantId: grant?.id };
+			let href: string | undefined;
+			if (action.type === "click" && element?.href) {
+				try {
+					href = new URL(element.href, page.url()).href;
+				} catch {
+					// No address to match: the file cannot be attributed.
+				}
+			}
+			this.current = {
+				index,
+				grantId: grant?.id,
+				eligible:
+					action.type === "navigate" ||
+					(klass === "commit" &&
+						classified.class === "commit" &&
+						classified.reason === "download" &&
+						!(element?.href && !href)),
+				href,
+				claimed: false,
+			};
 			const before = page.url();
 			let outcome = await this.perform(page, action);
 			if (action.type !== "navigate" && page.url() !== before && !page.isClosed()) {
 				outcome = clean(`${outcome}; the page navigated to ${clean(page.url(), 150)}`, 300);
 			}
-			if (klass === "commit") this.consume(grant);
 			return { ok: true, outcome };
 		} catch (err) {
 			return { ok: false, error: err instanceof ToolError ? err.message : firstLine(err) };
@@ -830,6 +1021,14 @@ export class BrowserSession {
 					"This runtime has no approval key, so it cannot accept approvals. Run `galopin browser enable` again.",
 			};
 		}
+		if (verdict === "exp_too_far") {
+			return {
+				ok: false,
+				refused: "approval_mismatch",
+				error:
+					"The approval's expiry is too far ahead for this computer's clock: the clocks of Cerea and this computer disagree.",
+			};
+		}
 		if (verdict === "expired") {
 			return {
 				ok: false,
@@ -845,7 +1044,7 @@ export class BrowserSession {
 			return { ok: false, refused: "approval_mismatch", error: why };
 		}
 		// A user's approval is for one action. A site rule (`site:` ids) is a standing grant.
-		if (!grant.id.startsWith("site:") && this.usedApprovals.has(grant.id)) {
+		if (!grant.id.startsWith("site:") && this.used.has(grant.id)) {
 			return {
 				ok: false,
 				refused: "approval_mismatch",
@@ -855,16 +1054,44 @@ export class BrowserSession {
 		return undefined;
 	}
 
-	private consume(grant: ApprovalGrant | undefined): void {
-		if (!grant || grant.id.startsWith("site:")) return;
-		if (this.usedApprovals.size > 1000) this.usedApprovals.clear();
-		this.usedApprovals.add(grant.id);
+	private spend(grant: ApprovalGrant): void {
+		if (grant.id.startsWith("site:")) return;
+		this.used.add(grant.id, grant.exp);
 	}
 
-	private takeOpened(): Page | undefined {
-		const page = this.openedDuringAct;
-		this.openedDuringAct = undefined;
-		return page;
+	/**
+	 * A page a task page opened becomes the active page when it is on the same site as its opener.
+	 * One on another site is reported and left alone: moving the task there is a decision for the
+	 * user, not for a page.
+	 */
+	private async settlePopups(): Promise<void> {
+		const popups = this.popups;
+		this.popups = [];
+		const opener = this.active;
+		for (const popup of popups) {
+			if (popup.isClosed()) continue;
+			await popup.waitForLoadState("domcontentloaded", { timeout: 5_000 }).catch(() => {});
+			let same = false;
+			try {
+				same =
+					!!opener &&
+					siteOf(new URL(popup.url()).hostname) === siteOf(new URL(opener.url()).hostname);
+			} catch {
+				same = popup.url() === "about:blank";
+			}
+			if (same && !this.openedDuringAct) {
+				this.active = popup;
+				this.openedDuringAct = popup;
+			} else if (!same) {
+				let host = popup.url();
+				try {
+					host = new URL(popup.url()).hostname;
+				} catch {
+					// Keep the raw address.
+				}
+				this.foreignTabs.push(clean(host, 100));
+			}
+		}
 	}
 
 	private async settle(page: Page): Promise<void> {

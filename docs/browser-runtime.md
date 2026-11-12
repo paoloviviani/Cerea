@@ -17,7 +17,7 @@ telemetry).
 
 ## Set it up
 
-You need Node.js 20 or newer (from [nodejs.org](https://nodejs.org) or your package
+You need Node.js 22.18 or newer (from [nodejs.org](https://nodejs.org) or your package
 manager) and a computer that [runs galopin](agent-machines.md).
 
 ```sh
@@ -70,14 +70,32 @@ every action itself:
 Cerea gives the computer a **key** for these signatures the first time the browser
 is used (over the same link, `browser.key`; see `agent/PROTOCOL.md` §10.7). galopin
 keeps it in `<config-dir>/galopin/browser/key` (mode 0600) and the runtime reads
-it from there; `disable` deletes it. The key is never shown, logged or put on a
+it from there; `disable` deletes it. An approval can be used once: the runtime remembers
+the ones it has spent (until they expire) in `used-grants.json` in the same directory, so
+a restart does not forget them, and it refuses an approval whose expiry is more than 15
+minutes ahead of this computer's clock. The key is never shown, logged or put on a
 command line.
+
+## What the runtime cannot know
+
+The facts the runtime reports about a control (is it a submit button, which form does it
+belong to, where does its form send data, is it a download link) are read by a small script
+that runs **in the page's own JavaScript world**, because that is where the page's elements
+are. A hostile page can therefore lie about its own controls: make a submit button look
+like a plain one, or the other way round. This lets a page deceive the runtime only about
+that page: the runtime still judges the site the action runs on by the address the browser
+is actually at, a link's target and a form's action are resolved by the browser, and
+leaving the site, downloading and non-web addresses are decided from those, not from what
+the page says about itself. A page can attack its own site and no other. When the
+facts cannot be read at all (a page too busy to answer), the control is marked
+`metaUnknown` and treated as a commit.
 
 ## One browser at a time
 
-The runtime has one browser (one profile) per computer. Each browse task opens
-its own page, starting blank, and closes it when the task ends (or after ten
-minutes without a call); a page left open by you is never used. Two tasks at once
+The runtime has one browser (one profile) per computer, and galopin allows one
+channel to it at a time. Each browse task opens its own page, starting blank, and closes it
+when the task ends (or after ten minutes without a call); a page you opened is never
+used, and a page the task opened that leaves the site is reported, not followed. Two tasks at once
 on one computer are refused by Cerea. If you also open the same profile in
 another Chromium, the runtime says the profile is already in use.
 

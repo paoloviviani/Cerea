@@ -257,6 +257,8 @@ export interface Line {
 export interface LayoutContext {
 	currentUrl: string;
 	meta: ReadonlyMap<string, DomMeta>;
+	/** Refs whose facts could not be read from the page (busy, detached): they fail closed. */
+	unknown?: ReadonlySet<string>;
 }
 
 function relativeOrAbsolute(url: string | undefined): string | undefined {
@@ -315,6 +317,7 @@ export function toElement(node: AriaNode, ctx: LayoutContext): SnapshotElement {
 		...(meta.download || (node.role === "link" && looksLikeFile(href)) ? { download: true } : {}),
 		...(disabled ? { disabled: true } : {}),
 		...(value ? { value } : {}),
+		...(ctx.unknown?.has(node.ref ?? "") ? { metaUnknown: true } : {}),
 	};
 	return element;
 }

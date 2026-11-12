@@ -202,3 +202,46 @@ describe("keys, navigation and downloads", () => {
 		);
 	});
 });
+
+describe("keys that mean Enter", () => {
+	let r: Rig;
+	before(async () => {
+		r = await rig();
+	});
+	after(() => r.close());
+
+	it('refuses "\\n" and "\\r" as the Enter they are, in a POST form', async () => {
+		const snap = await r.goto("/form");
+		const field = r.ref(snap, "textbox", "Full name");
+		const posts = r.fx.hits.posts.length;
+		// Past the tool's schema (which rejects control characters) straight to the session: the
+		// runtime's own classifier must still call it Enter.
+		for (const key of ["\n", "\r", "\r\n"]) {
+			const res = await r.session.act([{ type: "press", key, ref: field }], undefined);
+			assert.equal(res.results[0].refused, "approval_required", JSON.stringify(key));
+			const bare = await r.session.act([{ type: "press", key }], undefined);
+			assert.equal(bare.results[0].refused, "approval_required", JSON.stringify(key));
+		}
+		assert.equal(r.fx.hits.posts.length, posts);
+		// And the tool turns such a key away before it gets that far.
+		const viaTool = await r.call("act", { actions: [{ type: "press", key: "\n", ref: field }] });
+		assert.equal(viaTool.isError, true);
+	});
+
+	it("refuses Enter in a chat box that has no form, since it sends", async () => {
+		const snap = await r.goto("/chat");
+		const box = r.ref(snap, "textbox", "Message");
+		await r.act([{ type: "fill", ref: box, text: "hello" }]);
+		const res = await r.act([{ type: "press", key: "Enter", ref: box }]);
+		assert.equal(res.results[0].refused, "approval_required", JSON.stringify(res));
+		await new Promise((ok) => setTimeout(ok, 300));
+		assert.ok(!r.fx.hits.paths.includes("POST /chat-send"), "the message was sent");
+		// With a grant for exactly that action, it goes.
+		const press = { type: "press" as const, key: "Enter", ref: box };
+		const after = await r.snapshot();
+		const ok = await r.act([press], [r.grant(after, press)]);
+		assert.equal(ok.results[0].ok, true, JSON.stringify(ok));
+		await new Promise((done) => setTimeout(done, 300));
+		assert.ok(r.fx.hits.paths.includes("POST /chat-send"));
+	});
+});

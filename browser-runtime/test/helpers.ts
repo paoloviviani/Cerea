@@ -28,6 +28,9 @@ export const TEST_KEY = Buffer.from("0123456789abcdef0123456789abcdef");
 export interface Rig {
 	fx: Fixtures;
 	session: BrowserSession;
+	profile: string;
+	stateDir: string;
+	keyFile: string;
 	call(name: string, args?: unknown): ReturnType<ReturnType<typeof createToolHandler>>;
 	snapshot(): Promise<Snapshot>;
 	diff(): Promise<Diff>;
@@ -65,12 +68,17 @@ function parse<T>(
 	return schema.parse(structured);
 }
 
-export async function rig(options: { maxSnapshotChars?: number } = {}): Promise<Rig> {
+export async function rig(
+	options: { maxSnapshotChars?: number; actionBudgetMs?: number } = {}
+): Promise<Rig> {
 	const fx = await startFixtures();
 	const profile = await mkdtemp(join(tmpdir(), "cerea-browser-test-"));
 	const keyFile = join(profile, "..", `key-${Math.random().toString(36).slice(2)}`);
 	await writeFile(keyFile, TEST_KEY.toString("base64url"), { mode: 0o600 });
+	const stateDir = join(profile, "..", `state-${Math.random().toString(36).slice(2)}`);
 	const session = new BrowserSession({
+		stateDir,
+		actionBudgetMs: options.actionBudgetMs,
 		profileDir: profile,
 		headless: true,
 		noSandbox: process.env.CEREA_TEST_NO_SANDBOX === "1",
@@ -82,6 +90,9 @@ export async function rig(options: { maxSnapshotChars?: number } = {}): Promise<
 	const r: Rig = {
 		fx,
 		session,
+		profile,
+		stateDir,
+		keyFile,
 		call: (name, args) => handler(name, args ?? {}),
 		snapshot: async () => parse(snapshotSchema, await handler("snapshot", {})),
 		diff: async () => parse(diffSchema, await handler("diff", {})),
@@ -126,6 +137,7 @@ export async function rig(options: { maxSnapshotChars?: number } = {}): Promise<
 			await fx.close();
 			await rm(profile, { recursive: true, force: true });
 			await rm(keyFile, { force: true });
+			await rm(stateDir, { recursive: true, force: true });
 		},
 	};
 	return r;

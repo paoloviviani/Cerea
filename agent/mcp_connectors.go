@@ -73,6 +73,9 @@ func (mc *machine) startConnectors(stateDir, mcpPath string) *mcpconn.Hub {
 		Logf:     logf,
 		// The browser runtime's approval key (PROTOCOL.md §10.7).
 		BeforeStart: mc.browserBeforeStart(stateDir),
+		// The browser runtime owns one profile, so it is one process: Chromium refuses a second
+		// on the same profile. Cerea keeps one channel per server open anyway.
+		ServerLimits: map[string]int{browserConnectorName: 1},
 		// Zero is the 10 minutes of PROTOCOL.md §10.6; tests shorten it.
 		IdleTimeout: mc.mcpIdle,
 		Audit:       func(server, tool, outcome string) { mc.audit.mcpCall(server, tool, outcome) },

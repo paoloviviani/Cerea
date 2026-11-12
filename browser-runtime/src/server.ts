@@ -134,12 +134,8 @@ const failure = (message: string): ToolResult => ({
 
 /** The handler of `tools/call`, usable without any transport (the tests call it directly). */
 export function createToolHandler(session: BrowserSession) {
-	let queue: Promise<unknown> = Promise.resolve();
-	const serial = <T>(work: () => Promise<T>): Promise<T> => {
-		const run = queue.then(work, work);
-		queue = run.catch(() => {});
-		return run;
-	};
+	// One queue per session (not per handler): every connection shares the one browser.
+	const serial = <T>(work: () => Promise<T>): Promise<T> => session.serial(work);
 
 	return async (name: string, rawArgs: unknown): Promise<ToolResult> => {
 		try {
@@ -168,7 +164,7 @@ export function createToolHandler(session: BrowserSession) {
 						await serial(() => session.download({ all: asObject(rawArgs).all === true }))
 					);
 				case "end_task":
-					return json(await serial(() => session.endTask()));
+					return json(await serial(async () => ({ closed: (await session.endTask()).closed > 0 })));
 				default:
 					return failure(
 						`Unknown tool "${clean(name, 60)}". Tools: ${TOOLS.map((t) => t.name).join(", ")}.`
