@@ -13,17 +13,23 @@ on:
   pull_request:
     paths:
       - "agent/cmd/galopin-tray/**"
-      - "agent/internal/trayapp/**"
-      - "agent/internal/appstatus/**"
+      - "agent/internal/**"
       - "agent/packaging/macos/**"
+      - "agent/go.mod"
+      - "agent/go.sum"
+      - "agent/third_party/**"
+      - "agent/run.go"
       - ".github/workflows/macos-app.yml"
   push:
     branches: [main]
     paths:
       - "agent/cmd/galopin-tray/**"
-      - "agent/internal/trayapp/**"
-      - "agent/internal/appstatus/**"
+      - "agent/internal/**"
       - "agent/packaging/macos/**"
+      - "agent/go.mod"
+      - "agent/go.sum"
+      - "agent/third_party/**"
+      - "agent/run.go"
       - ".github/workflows/macos-app.yml"
     tags: ["v*"]
 
@@ -74,18 +80,18 @@ jobs:
           if [ "$GITHUB_REF_TYPE" = tag ]; then v="${GITHUB_REF_NAME#v}"; else v="0.0.0-$(git rev-parse --short HEAD)"; fi
           echo "version=$v" >> "$GITHUB_OUTPUT"
 
-      - name: Node 22 LTS (official tarball, checked against Node's SHASUMS256)
+      - name: Node 22 LTS (pinned in agent/packaging/macos/node-sha256, checked against it)
+        env:
+          NODE_ARCH: ${{ matrix.node }}
         run: |
           set -euo pipefail
-          base=https://nodejs.org/dist/latest-v22.x
-          curl -fsSL "$base/SHASUMS256.txt" -o SHASUMS256.txt
-          line=$(grep -E "  node-v22\.[0-9]+\.[0-9]+-darwin-${{ matrix.node }}\.tar\.gz$" SHASUMS256.txt)
-          [ "$(printf "%s\n" "$line" | grep -c .)" = 1 ] || { echo "no single Node 22 tarball found"; exit 1; }
+          line=$(grep -E "  node-v22\.[0-9]+\.[0-9]+-darwin-${NODE_ARCH}\.tar\.gz$" agent/packaging/macos/node-sha256)
+          [ "$(printf "%s\n" "$line" | grep -c .)" = 1 ] || { echo "no single pinned Node tarball for $NODE_ARCH"; exit 1; }
           file=${line##* }
-          curl -fsSL "$base/$file" -o "$file"
+          ver=${file#node-}; ver=${ver%%-darwin*}
+          curl -fsSL "https://nodejs.org/dist/$ver/$file" -o "$file"
           echo "$line" | shasum -a 256 -c -
           mkdir node-dir && tar -xzf "$file" -C node-dir --strip-components=1
-          node-dir/bin/node --version | grep -E '^v22\.' || true
           echo "node-dir/bin/node $(file node-dir/bin/node)"
 
       - name: galopin CLI (no cgo)
@@ -124,8 +130,11 @@ jobs:
           iconutil -c icns "$iconset" -o "$RUNNER_TEMP/icon.icns"
 
       - name: Assemble, sign ad hoc and zip
+        env:
+          APP_VERSION: ${{ steps.v.outputs.version }}
+          ARCH: ${{ matrix.arch }}
         run: |
-          sh agent/packaging/macos/build-app.sh --arch ${{ matrix.arch }} --version "${{ steps.v.outputs.version }}" \
+          sh agent/packaging/macos/build-app.sh --arch "$ARCH" --version "$APP_VERSION" \
             --tray "$RUNNER_TEMP/galopin-tray" --cli "$RUNNER_TEMP/galopin" --node-dir node-dir \
             --icns "$RUNNER_TEMP/icon.icns" --out dist
           codesign --verify --deep --strict "dist/Cerea connector.app"
@@ -163,8 +172,14 @@ jobs:
       - name: Attach to the release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
         run: |
+          # Never create the release here: scripts/release/release.sh does, with
+          # the changelog notes, after the images and the fresh-kit test. Wait for it.
           cp agent/packaging/macos/install.sh dist/install-cerea-connector.sh
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
-            gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --notes "Release $GITHUB_REF_NAME"
-          gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          for i in $(seq 1 90); do
+            if gh release view "$TAG" >/dev/null 2>&1; then found=1; break; fi
+            echo "waiting for release $TAG ($i/90)"; sleep 60
+          done
+          [ "${found:-}" = 1 ] || { echo "release $TAG never appeared in 90 minutes; run scripts/release/release.sh, then re-run this job"; exit 1; }
+          gh release upload "$TAG" dist/* --clobber
