@@ -25,15 +25,15 @@ name: ${COMPOSE_PROJECT_NAME:-cerea}
 
 # The pins. tools/pin rewrites the defaults after `:-` on each release; .env
 # overrides them only for local builds (dev/build.sh) or a private registry.
-x-gateway-image: &gateway-image ${GATEWAY_IMAGE:-${PYSTINO_REGISTRY:-ghcr.io/paoloviviani}/pystino-gateway:${PYSTINO_VERSION:-0.33.1}}
-x-redaction-image: &redaction-image ${REDACTION_IMAGE:-${PYSTINO_REGISTRY:-ghcr.io/paoloviviani}/pystino-redaction:${PYSTINO_VERSION:-0.33.1}-pattern}
+x-gateway-image: &gateway-image ${GATEWAY_IMAGE:-${PYSTINO_REGISTRY:-ghcr.io/paoloviviani}/pystino-gateway:${PYSTINO_VERSION:-0.33.2}}
+x-redaction-image: &redaction-image ${REDACTION_IMAGE:-${PYSTINO_REGISTRY:-ghcr.io/paoloviviani}/pystino-redaction:${PYSTINO_VERSION:-0.33.2}-pattern}
 # The document reader's image. Defaults to the redaction image, so a deployment
 # changes nothing; ./configure --extractor sets it to a locally built variant
 # (-ocr: scans read with RapidOCR; -docling: layout and tables too), which the
 # redaction service has no use for and so does not share.
-x-extractor-image: &extractor-image ${EXTRACTOR_IMAGE:-${REDACTION_IMAGE:-${PYSTINO_REGISTRY:-ghcr.io/paoloviviani}/pystino-redaction:${PYSTINO_VERSION:-0.33.1}-pattern}}
-x-cerea-image: &cerea-image ${CEREA_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea:${CEREA_VERSION:-0.49.1}}
-x-documents-image: &documents-image ${DOCUMENTS_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea-documents:${CEREA_VERSION:-0.49.1}}
+x-extractor-image: &extractor-image ${EXTRACTOR_IMAGE:-${REDACTION_IMAGE:-${PYSTINO_REGISTRY:-ghcr.io/paoloviviani}/pystino-redaction:${PYSTINO_VERSION:-0.33.2}-pattern}}
+x-cerea-image: &cerea-image ${CEREA_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea:${CEREA_VERSION:-0.50.0}}
+x-documents-image: &documents-image ${DOCUMENTS_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea-documents:${CEREA_VERSION:-0.50.0}}
 
 # `docker compose pull` fails on an image that exists only on this host. dev/build.sh
 # writes <NAME>_PULL_POLICY=never next to each local/ image it points .env at, so

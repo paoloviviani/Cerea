@@ -5,6 +5,17 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.50.0 — 2026-11-12
+
+Pins: Cerea `0.50.0` (chat, `cerea-documents` and the new `galopin` image), Pystino `0.33.2`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. **On agent computers**, re-run the install line from the **Pair a computer** dialog (no re-enroll) and restart galopin to get the fixes below.
+
+- **A computer no longer drops offline every ~15 minutes with GitLab as the identity provider.** galopin refreshed its access token on a timer without telling the chat, and GitLab revokes the previous token on refresh, so the chat closed the link (4401) and the computer waited its reconnect backoff, about 35 seconds, each time. galopin now hands the new token over on the open link at once, redials immediately after a 4401, resets its backoff after a healthy connection, and tolerates a request that arrives before the welcome ("expected welcome, got req"). The chat gives a refused token one minute of grace and sends the welcome first. With Authelia nothing changed. Both sides are compatible with the older one, but the drop only goes away when both are updated.
+- **Pair a computer: run the agent in a Docker container.** The dialog has a switch, **On this computer** or **In a Docker container**. The second prints one `docker run` of `ghcr.io/paoloviviani/galopin:0.50.0`, a disposable environment with galopin, opencode, Python, Node, a C toolchain, git and `gh`, with the same options as the native command, an optional computer name, and an optional volume that keeps the pairing across restarts. The image is public and published with each release, `galopin:X.Y.Z` going with `cerea:X.Y.Z`; it is `linux/amd64` only. See "Running galopin in a container" in the agent computers reference.
+- **`connector_list` no longer comes back cut off.** An agent's list of connectors and their tools was cut at opencode's 50 KB tool-output limit when a connector had many tools, with the rest lost. It now stays under 40 KiB, leaving out schemas, then descriptions, then tools, with a note each time, and takes optional `connector` and `tool` arguments to list one connector or one tool in full.
+- **Anthropic prompt caching (Pystino 0.33.2).** A client's own one-hour `cache_control` no longer sits after the gateway's automatic five-minute breakpoints, which Anthropic requires to come in the other order.
+
 ## v0.49.1 — 2026-11-11
 
 Pins: Cerea `0.49.1` (chat and `cerea-documents`), Pystino `0.33.1`.
