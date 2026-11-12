@@ -30,7 +30,10 @@ vi.mock("$lib/server/knowledgeEnabled", () => ({ knowledgeEnabled: () => false }
 vi.mock("$lib/server/memoryEnabled", () => ({ memoryEnabled: () => false }));
 vi.mock("$lib/server/delegation", () => ({ delegationEnabled: () => false }));
 vi.mock("$lib/server/codeEnabled", () => ({ codeAgentsAllowedFor: async () => false }));
-vi.mock("$lib/server/code/machineAuth", () => ({ machineClientId: () => "" }));
+vi.mock("$lib/server/code/machineAuth", () => ({
+	machineClientId: () => "",
+	machineFlow: () => "auto",
+}));
 vi.mock("$lib/server/codeRunLimit", () => ({ codeRunTimeoutMs: () => 60000 }));
 vi.mock("$lib/server/codeExecution/backend", () => ({
 	executionBackend: () => ({ kind: "browser" }),
