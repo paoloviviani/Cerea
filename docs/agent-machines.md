@@ -137,6 +137,8 @@ The install line above avoids this step, because `curl` does not mark what it do
 
 **Remove it** with `curl -fsSL https://github.com/paoloviviani/Cerea/releases/latest/download/install-cerea-connector.sh | sh -s -- --uninstall`, then remove the Mac in the Agents panel. See [Removing the macOS app](agent-machines-reference.md#removing-the-macos-app).
 
+Add `--purge` to also delete the pairing and logs. That removes `~/Library/Application Support/galopin`, which a manual command-line install of galopin on the same Mac shares, so that install is unpaired too.
+
 ## The panel
 
 ![An agent session waiting for you: an edit approval card, the Plan, Ask, Auto and Allow selector and the pane buttons.](assets/screenshots/agents-session-waiting.webp#only-light)
