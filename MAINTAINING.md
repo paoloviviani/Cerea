@@ -40,8 +40,8 @@ drives `opencode` and connects to Cerea over WSS.
    installed by `npm ci`; in a fresh clone or worktree run it first — a
    worktree without the install has `core.hooksPath` pointing at a `.husky/_`
    that does not exist, and git silently runs no hook). Do not bypass it with
-   `--no-verify`. CI enforces the same rule on every push and pull request
-   (`commit-messages.yml`, which shares the hook's script). The commit
+   `--no-verify`. CI's `ci.yml` runs the same script on code changes (the
+   separate always-on `commit-messages.yml` job was dropped on 2026-11-12). The commit
    identity is the owner's git config.
 2. **Licences.** All first-party code is Apache-2.0. Describe the policy as
    "OSI-approved licences". Dependencies: permissive is fine; MPL unmodified is

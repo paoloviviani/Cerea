@@ -249,10 +249,9 @@ jobs:
       # exist, and MAINTAINING.md rule 1 wants the history clean regardless.
       # This job has the one full-history checkout and runs on most pushes,
       # PRs and dispatches — but this workflow's own paths-ignore (docs,
-      # markdown, kit) skips it when every changed file is excluded, so it is
-      # not the whole guarantee: commit-messages.yml carries the same check
-      # with no paths-ignore, so the rule holds whatever the local hook state
-      # and whatever the changed files.
+      # markdown, kit) skips it when every changed file is excluded; together
+      # with the local hook that is the guarantee (the always-on
+      # commit-messages.yml job was dropped on 2026-11-12).
       - name: Commit messages carry no AI attribution
         env:
           EVENT: ${{ github.event_name }}
