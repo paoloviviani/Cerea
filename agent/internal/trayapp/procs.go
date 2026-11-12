@@ -248,26 +248,50 @@ func (a *App) FindStrays(ctx context.Context) []Proc {
 	return strays
 }
 
-// StrayPrompt is the dialog text.
-func StrayPrompt(pid int) string {
-	return fmt.Sprintf("Another Cerea connector process is running (pid %d). Stop it?", pid)
+// IsOurs reports whether a stray `galopin run` is this app's own: the bundle's
+// galopin binary, or a run on this app's state directory. Anything else is a
+// different install (a manual CLI, a container) the user may want to keep.
+func (a *App) IsOurs(p Proc) bool {
+	if strings.HasPrefix(p.Command, a.Layout.CLI()+" ") {
+		return true
+	}
+	sd := a.Paths.StateDir()
+	return strings.Contains(p.Command, "--state-dir "+sd) || strings.Contains(p.Command, "--state-dir="+sd)
 }
 
-// StopDecision reads osascript's answer to the stray dialog. Stop is the
-// default: only an explicit Leave (or a dialog that failed) leaves it running.
-func StopDecision(out string, err error) bool {
+// StrayPrompt is the dialog text. For a process that is not the app's own it
+// names the program, so the user can tell what would be stopped.
+func StrayPrompt(p Proc, ours bool) string {
+	if ours {
+		return fmt.Sprintf("Another Cerea connector process is running (pid %d). Stop it?", p.PID)
+	}
+	return fmt.Sprintf("A galopin process that is not part of this app is running (pid %d):\n%s\n\nStop it?", p.PID, p.Command)
+}
+
+// StopDecision reads osascript's answer to the stray dialog. For the app's own
+// process Stop is the default: only an explicit Leave (or a dialog that failed)
+// leaves it running. For any other process only an explicit Stop stops it.
+func StopDecision(out string, err error, ours bool) bool {
 	if err != nil {
 		return false
+	}
+	if !ours {
+		return strings.Contains(out, "button returned:Stop")
 	}
 	return !strings.Contains(out, "button returned:Leave")
 }
 
 // AskStopStray shows the Stop / Leave dialog and reports whether to stop.
-func (a *App) AskStopStray(ctx context.Context, pid int) bool {
-	script := `display dialog ` + AppleScriptQuote(StrayPrompt(pid)) + ` with title ` + AppleScriptQuote(AppName) +
-		` buttons {"Leave", "Stop"} default button "Stop"`
+func (a *App) AskStopStray(ctx context.Context, p Proc) bool {
+	ours := a.IsOurs(p)
+	def := "Stop"
+	if !ours {
+		def = "Leave"
+	}
+	script := `display dialog ` + AppleScriptQuote(StrayPrompt(p, ours)) + ` with title ` + AppleScriptQuote(AppName) +
+		` buttons {"Leave", "Stop"} default button "` + def + `"`
 	out, err := a.Run(ctx, "osascript", []string{"-e", script}, nil, nil)
-	return StopDecision(out, err)
+	return StopDecision(out, err, ours)
 }
 
 // StopStrays offers to stop each stray `galopin run` and stops the ones the
@@ -276,7 +300,7 @@ func (a *App) AskStopStray(ctx context.Context, pid int) bool {
 func (a *App) StopStrays(ctx context.Context) []int {
 	var stopped []int
 	for _, p := range a.FindStrays(ctx) {
-		if a.AskStopStray(ctx, p.PID) {
+		if a.AskStopStray(ctx, p) {
 			a.terminate(p.PID, false, strayTermGrace)
 			stopped = append(stopped, p.PID)
 		}

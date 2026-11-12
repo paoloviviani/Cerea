@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -204,12 +205,36 @@ func TestStopDecision(t *testing.T) {
 		{"", errors.New("User canceled."), false},
 	}
 	for _, c := range cases {
-		if got := StopDecision(c.out, c.err); got != c.want {
+		if got := StopDecision(c.out, c.err, true); got != c.want {
 			t.Errorf("%q %v: %v", c.out, c.err, got)
 		}
 	}
-	if StrayPrompt(42) != "Another Cerea connector process is running (pid 42). Stop it?" {
-		t.Fatal(StrayPrompt(42))
+	if StrayPrompt(Proc{PID: 42}, true) != "Another Cerea connector process is running (pid 42). Stop it?" {
+		t.Fatal(StrayPrompt(Proc{PID: 42}, true))
+	}
+	// Not the app's own: only an explicit Stop stops, and the path is shown.
+	if StopDecision("", nil, false) || StopDecision("button returned:Leave", nil, false) || !StopDecision("button returned:Stop", nil, false) {
+		t.Fatal("foreign process: Keep must be the default")
+	}
+	if p := StrayPrompt(Proc{PID: 7, Command: "/opt/x/galopin run"}, false); !strings.Contains(p, "/opt/x/galopin run") {
+		t.Fatal(p)
+	}
+}
+
+func TestIsOurs(t *testing.T) {
+	r := newProcRig(t)
+	cli := r.a.Layout.CLI()
+	sd := r.a.Paths.StateDir()
+	for cmd, want := range map[string]bool{
+		cli + " run":                 true,
+		"/usr/local/bin/galopin run": false,
+		"/usr/local/bin/galopin run --state-dir " + sd: true,
+		"/usr/local/bin/galopin run --state-dir=" + sd: true,
+		"/usr/local/bin/galopin run --state-dir /x":    false,
+	} {
+		if got := r.a.IsOurs(Proc{Command: cmd}); got != want {
+			t.Errorf("%q: %v", cmd, got)
+		}
 	}
 }
 
