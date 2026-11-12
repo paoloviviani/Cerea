@@ -194,6 +194,9 @@ func withLimit(ctx context.Context, d time.Duration) (context.Context, context.C
 
 // LocalTools lists a connector's tools (the machine's allowedTools applies).
 func (h *Hub) LocalTools(ctx context.Context, name string) ([]Tool, error) {
+	if h.cfg.LocalExclude[name] {
+		return nil, &LocalError{Message: "this connector is not available to agent sessions"}
+	}
 	ctx, cancel := withLimit(ctx, 0)
 	defer cancel()
 	s, err := h.session(ctx, name)
@@ -229,6 +232,9 @@ func (h *Hub) LocalTools(ctx context.Context, name string) ([]Tool, error) {
 
 // LocalCall runs one tool of a connector. limit bounds the whole call.
 func (h *Hub) LocalCall(ctx context.Context, name, tool string, args json.RawMessage, limit time.Duration) (CallResult, error) {
+	if h.cfg.LocalExclude[name] {
+		return CallResult{}, &LocalError{Message: "this connector is not available to agent sessions"}
+	}
 	ctx, cancel := withLimit(ctx, limit)
 	defer cancel()
 	s, err := h.session(ctx, name)

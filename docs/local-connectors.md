@@ -181,6 +181,15 @@ takes effect without a restart.
 - Nothing else on the computer is offered: the chat sees the servers of
   `mcp.json` and nothing it did not list.
 
+## A browser as a local connector
+
+`galopin browser enable` offers a browser to Cerea's `browse` tool as the well-known
+local connector `cerea-browser`: it adds the entry to this same `mcp.json` (the
+entry is managed by galopin; leave it alone, and remove it with `galopin browser
+disable`) and the chat never lists it among your own connectors. Setting it up,
+signing in to sites and what it refuses are in [The browser on your
+computer](browser-runtime.md).
+
 ## Running it as a service
 
 A connectors computer runs exactly like any galopin: keep `galopin run` up with
