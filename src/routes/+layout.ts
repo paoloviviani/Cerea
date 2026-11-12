@@ -133,6 +133,7 @@ export const load = async ({ fetch, url, data }) => {
 		officePreviewEnabled: data.officePreviewEnabled,
 		localConnectorsEnabled: data.localConnectorsEnabled,
 		localConnectorsDenied: data.localConnectorsDenied,
+		browserUseEnabled: data.browserUseEnabled,
 		byokAllowed: data.byokAllowed,
 		settings,
 		publicConfig: getConfigManager(publicConfig as Record<`PUBLIC_${string}`, string>),

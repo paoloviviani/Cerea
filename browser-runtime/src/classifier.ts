@@ -416,7 +416,7 @@ export function describeAction(action: BrowserAction, ctx: ClassifyContext): str
 	switch (action.type) {
 		case "use_tab": {
 			const host = ctx.tab ? (hostOf(ctx.tab.url) ?? "") : "";
-			return `Let Cerea use your tab ${quoted(ctx.tab?.title || "a tab", 80)}${host ? ` (${host})` : ""}?`;
+			return `Let Cerea use your tab ${quoted(ctx.tab?.title || host || "a tab", 80)}${host ? ` (${host})` : ""}?`;
 		}
 		case "click":
 			if (ctx.element?.download) {

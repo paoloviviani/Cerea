@@ -23,6 +23,13 @@ export interface Conversation extends Timestamps {
 	loadedConnectors?: string[];
 
 	/**
+	 * The computer this conversation browses on (ADR 0116, `browser/machineChoice.ts`): set when a
+	 * browse task or the composer's "Open browser" used one, and from then on the only one this
+	 * conversation uses (it never jumps to another; a user's own "Open browser" is the way to move).
+	 */
+	browserDeviceId?: string;
+
+	/**
 	 * When the user last really talked in this chat: they sent a message, an
 	 * assistant turn finished (or failed in front of them), or a scheduled run
 	 * posted. The sidebar groups and sorts by it. Housekeeping never moves it

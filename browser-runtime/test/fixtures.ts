@@ -227,6 +227,9 @@ document.getElementById('box').insertAdjacentHTML('afterbegin','<a href=&quot;/f
 			});
 			return res.end(Buffer.from([0, 1, 2, 3, 4, 5]));
 		}
+		if (p === "/to-other") {
+			return send(302, "", { location: `http://localhost:${port}/form` });
+		}
 		if (p === "/popup") {
 			return send(
 				200,

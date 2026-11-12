@@ -51,6 +51,8 @@
 	import { onMount, untrack } from "svelte";
 	import { replyOutcome } from "$lib/utils/permissionReply";
 	import { browser } from "$app/environment";
+	import { base } from "$app/paths";
+	import type { ElicitationRequestPayload } from "$lib/types/McpElicitation";
 	import { page } from "$app/state";
 	import {
 		claimSessions,
@@ -63,6 +65,7 @@
 	import IconLaunch from "~icons/carbon/launch";
 	import ToolApprovalCard from "$lib/components/chat/ToolApprovalCard.svelte";
 	import AskQuestion from "$lib/components/chat/AskQuestion.svelte";
+	import ElicitationForm from "$lib/components/chat/ElicitationForm.svelte";
 	import AlwaysCappedScope from "./AlwaysCappedScope.svelte";
 	import FirstTurnScope from "./FirstTurnScope.svelte";
 	import { ceilingOfPolicy, isCapped } from "$lib/utils/permissionRules";
@@ -110,6 +113,15 @@
 
 	type InboxItem = InboxPermissionItem | InboxQuestionItem;
 
+	/** A browsing sub-agent waiting on a click (ADR 0116): lives in a chat, not on a machine. */
+	interface InboxBrowseItem {
+		elicitationId: string;
+		conversationId: string;
+		conversationTitle: string;
+		request: ElicitationRequestPayload;
+		expiresAt?: number;
+	}
+
 	interface Props {
 		/** Only these sessions' asks, expanded by default, claimed from the app-wide bar. */
 		sessions?: SessionRef[];
@@ -125,6 +137,7 @@
 	const POLL_MS = 8000;
 
 	let items = $state<InboxItem[]>([]);
+	let browseItems = $state<InboxBrowseItem[]>([]);
 	let loading = $state(true);
 
 	// Collapsed unless the person opened it earlier in this browser session.
@@ -172,7 +185,9 @@
 						!isClaimed({ deviceId: item.deviceId, sessionId: item.sessionId })
 				)
 	);
-	let count = $derived(listed.length);
+	/** Pinned lists belong to agent sessions; browse asks show in the bars only. */
+	const browseListed = $derived(pinned ? [] : browseItems);
+	let count = $derived(listed.length + browseListed.length);
 	/** Titles two cards share: the card then carries a short session id so they tell apart. */
 	const duplicateTitles = $derived.by(() => {
 		const seen = new Set<string>();
@@ -219,10 +234,24 @@
 		return out;
 	}
 
+	/** The user's pending browse approvals: a read of the chat's own database, no machine needed. */
+	async function refreshBrowse(seq: number) {
+		try {
+			const response = await fetch(`${base}/api/v2/browse/approvals`);
+			if (!response.ok) return;
+			const body = (await response.json()) as { approvals?: InboxBrowseItem[] };
+			if (seq !== fetchSeq) return;
+			browseItems = body.approvals ?? [];
+		} catch {
+			// Unreachable reads as nothing pending; the next tick asks again.
+		}
+	}
+
 	async function refresh() {
 		// A hidden tab asks nothing; the visibility handler re-reads on return.
 		if (browser && document.hidden) return;
 		const seq = ++fetchSeq;
+		void refreshBrowse(seq);
 		const devices = untrack(() => eligibleDevices);
 		if (devices.length === 0) {
 			if (seq !== fetchSeq) return;
@@ -572,6 +601,44 @@
 									conversationId={item.sessionId}
 									request={questionToElicitation(item.request.id, item.request.questions)}
 									onanswer={(action, content) => answerQuestion(item, action, content)}
+								/>
+							{/if}
+						</li>
+					{/each}
+					{#each browseListed as item (item.elicitationId)}
+						<li
+							class="rounded-xl border border-amber-200 bg-white p-3 shadow-sm dark:border-amber-900/50 dark:bg-gray-900"
+							data-testid="needs-you-browse-item"
+						>
+							<div class="mb-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+								<span class="min-w-0 truncate font-medium text-ink" title={item.conversationTitle}>
+									{item.conversationTitle || m["code.inbox.browse_untitled"]()}
+								</span>
+								<span
+									class="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
+								>
+									{m["code.inbox.browse_tag"]()}
+								</span>
+								<a
+									class="ml-auto inline-flex min-h-11 items-center gap-1 py-2 pl-2 font-medium text-blue-600 hover:underline sm:min-h-0 sm:py-0 dark:text-blue-400"
+									href="{base}/conversation/{item.conversationId}"
+								>
+									{m["code.inbox.open_chat"]()}
+									<IconLaunch class="size-3.5" />
+								</a>
+							</div>
+							{#if item.request.browse}
+								<ToolApprovalCard
+									conversationId={item.conversationId}
+									request={item.request}
+									expiresAt={item.expiresAt}
+								/>
+							{:else}
+								<!-- "Which computer?": a plain question, answered like any form. -->
+								<ElicitationForm
+									conversationId={item.conversationId}
+									request={item.request}
+									expiresAt={item.expiresAt}
 								/>
 							{/if}
 						</li>

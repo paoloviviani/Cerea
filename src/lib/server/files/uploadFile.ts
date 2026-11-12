@@ -70,6 +70,11 @@ export interface UploadOptions {
 	readerModel?: string | null;
 	/** `readerModel` is a local reader. */
 	readerLocal?: boolean;
+	/**
+	 * Store audio as it is, with no transcription (a metered call): for a file nobody attached, such
+	 * as one a browser downloaded.
+	 */
+	skipTranscription?: boolean;
 }
 
 /**
@@ -150,7 +155,9 @@ export async function writeAttachment(
 
 	let extracted: Extraction | undefined;
 	let audioFacts: MessageFile["audio"];
-	if (audio) {
+	if (audio && options?.skipTranscription) {
+		// Stored as it is: nobody asked for a transcript of this file.
+	} else if (audio) {
 		// Transcribed here, once, as the user: `/v1/audio/transcriptions` is
 		// priced per minute, so reading it again each turn would pay again.
 		const heard = await transcribeAudio({

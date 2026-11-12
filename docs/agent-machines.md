@@ -33,8 +33,8 @@ A satellite or standalone chat on another host sets `CEREA_BASE_URL` to that add
    the chat must have seen you at least once.
 2. **Copy the line.** In the sidebar's **Agents** side, click **Pair** (or
    **Pair a device** when the list is empty). The **Pair a computer** dialog
-   prints one line for this deployment, with the origin, the issuer and the
-   gateway filled in. The dialog's heading is **Options for this computer**: look
+   prints one line for this deployment, with your chat's address and your options filled in. The
+   dialog's heading is **Options for this computer**: look
    through them first (see
    [The pairing dialog](agent-machines-reference.md#the-pairing-dialog)), then copy the line.
    One option to know about is **Use a project's own opencode setup**, off by
@@ -55,6 +55,12 @@ A fresh computer also needs opencode, the coding engine galopin runs: tick
 That is all. The rest of this page is the panel in brief, what the permission
 settings mean and how to update galopin; the dialog's options and everything else
 are in the [reference](agent-machines-reference.md).
+
+The command the dialog prints is short, `galopin enroll --cerea <your address>`
+(plus the options you chose): the galopin the same line installs asks your Cerea
+for its sign-in address, gateway and client id. If the computer already has an
+older galopin and you install nothing, open **Using an older galopin?** in the
+dialog for the long form with those spelled out.
 
 ## Or pair a disposable container
 
@@ -190,6 +196,13 @@ that computer"). Details, including macOS, are in
 
 To keep galopin running when the terminal closes, see
 [Keeping it running](agent-machines-reference.md#keeping-it-running).
+
+## Removing galopin
+
+To take galopin off a computer (revoke it in Cerea, stop the service, remove the
+browser and goose additions, delete the binaries and the configuration
+directory), follow the checklist in
+[Removing galopin from a computer](agent-machines-reference.md#removing-galopin-from-a-computer).
 
 ## Where to go next
 

@@ -29,6 +29,10 @@ export interface LocalMachineView {
 	/** When the servers below were last read from the machine. */
 	serversAt?: string;
 	servers: LocalServerView[];
+	/** The machine's browser runtime (ADR 0116), when it has registered one; absent otherwise. */
+	browser?: "ready" | "offline" | "problem";
+	/** This computer is the user's default for browsing. */
+	browserDefault?: boolean;
 }
 
 /** `GET /api/v2/local-connectors/tools`: one local server's tool names, or why they could not be listed. */

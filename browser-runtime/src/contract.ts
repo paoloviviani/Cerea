@@ -36,6 +36,7 @@ export const RUNTIME_TOOLS = [
 	"download",
 	"tabs",
 	"resume",
+	"open",
 	"end_task",
 ] as const;
 export type RuntimeToolName = (typeof RUNTIME_TOOLS)[number];
@@ -346,6 +347,13 @@ export const endTaskResultSchema = z.object({
 			id: z.string().max(64),
 			title: z.string().max(500),
 			url: z.string().max(4096),
+			/**
+			 * The page is a tab the user lent to this conversation (`use_tab`, approved): it is resumed
+			 * without asking while it stays on `origin` (scheme, host and port, pinned when the user approved it),
+			 * and its token lapses 1 hour after the last use, and 8 hours after the approval at the latest.
+			 */
+			lent: z.boolean().optional(),
+			origin: z.string().max(300).optional(),
 		})
 		.optional(),
 });
@@ -354,15 +362,18 @@ export type EndTaskResult = z.infer<typeof endTaskResultSchema>;
 /**
  * `resume({token})`: a kept page becomes the active task page, with no grant. A page that is no
  * longer what was kept is refused with `page_changed` (its address without query or fragment):
- * the task starts fresh. `changed` on a resumed page is the older spelling of the same thing.
+ * the task starts fresh. A lent tab is refused only when its site changed (a path or query change
+ * on the same site is the user filling a multi-step form). `changed` on a resumed page is the older spelling of the same thing.
  */
 export const resumeResultSchema = z.union([
 	z.object({
 		id: z.string().max(64),
 		title: z.string().max(500),
 		url: z.string().max(4096),
-		/** The page is not what it was when it was kept. */
+		/** The page is not what it was when it was kept. Never true for a lent tab. */
 		changed: z.boolean(),
+		/** The resumed page is a tab the user lent: the task stays on its site. */
+		lent: z.boolean().optional(),
 		was: z.object({ title: z.string().max(500), url: z.string().max(4096) }).optional(),
 	}),
 	z.object({
@@ -372,6 +383,26 @@ export const resumeResultSchema = z.union([
 	}),
 ]);
 export type ResumeResult = z.infer<typeof resumeResultSchema>;
+
+/**
+ * `open({url?, deny?})` opens a page of its own in the browser, at an http(s) address or blank
+ * (about:blank), with no task: the page is the user's, exactly like one they opened, and `token`
+ * is what a task can `resume` it with (the "Open browser" button ties it to a conversation that
+ * way). Refused when the scheme is not http(s) or about:blank, or when the site (or the site it
+ * ends up on) is in `deny`; a refused page is closed.
+ */
+export const openRequestSchema = z.object({
+	url: z.string().max(4096).optional(),
+	deny: z.array(z.string().max(300)).max(200).optional(),
+});
+export type OpenRequest = z.infer<typeof openRequestSchema>;
+export const openResultSchema = z.object({
+	token: z.string().min(1).max(256),
+	id: z.string().max(64),
+	title: z.string().max(500),
+	url: z.string().max(4096),
+});
+export type OpenResult = z.infer<typeof openResultSchema>;
 
 export const downloadResultSchema = z.object({
 	files: z
