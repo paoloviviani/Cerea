@@ -36,9 +36,10 @@ there it can also be set to follow this choice.
 
 ![A new chat with the greeting, the starter suggestions and the composer.](assets/screenshots/chat-new-chat.webp)
 
-The sidebar has the logo at the top (it goes home), then the **Chats | Agents**
-switch (only where [coding agents](agent-machines.md) are on) and a **New chat**
-button that follows it: in Agents it reads **New session**. Below are two
+The sidebar has the logo at the top (it goes home), then the **Chats | Recent |
+Agents** switch (**Agents** only where [coding agents](agent-machines.md) are on)
+and a **New chat**
+button that follows it: in Agents it reads **New session**. In Chats, below are two
 trees, **Projects** and **Chats**. At the foot are **Schedules** and
 **Workspace**, then your name. Click your name for your menu: a small quota
 summary (what you have spent against your limit, or the spend alone when there
@@ -56,6 +57,20 @@ In each of the two trees the **name** is a link and the small **chevron** beside
 it opens and closes the list: click **Projects** to see all your projects on a
 page, **Chats** to open the chat list below, and the chevron to fold the
 branch without leaving where you are.
+
+**Recent.** The middle option of the switch is one list, newest first, of
+everything you were last working in: chats (including chats inside projects,
+marked with their project) and, where agents are on, agent sessions (marked with
+their computer and a dot that is green while it is connected). It holds what was
+active in the last **48 hours**; when that is fewer than ten, the list is filled
+up to ten with older items, so it is never nearly empty. A chat counts from the
+last time you wrote in it or an answer finished (not from a rename or a move),
+and a session from the last time it moved, as its computer reports it. A click
+opens the chat, or the session, in the main panel; the sidebar stays on Recent. **New chat**, **Schedules** and
+the rest around the list stay as in Chats. Without agent access Recent lists
+chats only. It reads what the sidebar already has and asks the computers the
+same way the Agents list does; nothing about your sessions is stored on the
+server for it.
 
 **Finding a chat.** The sidebar lists your recent chats. **Chats** opens a page
 with all of them, newest first: the title, when it was last used, the model,

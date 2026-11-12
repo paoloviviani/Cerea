@@ -169,7 +169,7 @@ describe("NavMenu's foot", () => {
 		expect(logo.getAttribute("href")).toMatch(/\/$/);
 	});
 
-	it("puts the Chats | Agents switch on the logo's row, with names for icon-only widths", async () => {
+	it("puts the Chats | Recent | Agents switch on the logo's row, with names for icon-only widths", async () => {
 		renderWithApp(
 			NavMenu,
 			{
@@ -292,7 +292,7 @@ describe("NavMenu's Chats header", () => {
 
 /**
  * The agents side of the sidebar while the /code sign-in is stale: the
- * Chats | Agents switch stays, and the machine tree does not exist — nothing
+ * Chats | Recent | Agents switch stays, and the machine tree does not exist — nothing
  * is asked of a machine, so nothing it said can be drawn.
  */
 describe("NavMenu's agents list and the /code sign-in", () => {
@@ -410,7 +410,7 @@ describe("NavMenu's agents list and the /code sign-in", () => {
 		expect(host.querySelector('[data-testid="code-reauth-card"]')).toBeNull();
 	});
 
-	it("keeps only the Chats | Agents switch, and asks no machine, while stale", async () => {
+	it("keeps only the Chats | Recent | Agents switch, and asks no machine, while stale", async () => {
 		stubFetch({ enabled: true, fresh: false, reauthPath: "/login?reauth=1&next=/code" });
 		mount();
 		await vi.waitFor(() =>
@@ -537,11 +537,12 @@ describe("NavMenu's agents list and the /code sign-in", () => {
 		expect(listDevices.mock.calls.length).toBe(calls);
 	});
 
-	it("renders no Chats | Agents switch, and asks /status for nobody, when the person is denied", () => {
-		// ADR 0096: the switch is per-person. `codeAgentsEnabled` reaches this
+	it("offers no Agents button, and asks /status for nobody, when the person is denied", () => {
+		// ADR 0096: the agents half is per-person. `codeAgentsEnabled` reaches this
 		// component already decided (the layout's awaited /v1/me answer, and
 		// feature-flags' own per-person answer) — with it false nothing of the
-		// panel exists: no switch, no tree, no /status request.
+		// panel exists: no Agents button, no tree, no /status request. The
+		// Chats | Recent switch stays: Recent lists chats only for them.
 		const fetchSpy = vi.fn(async (input: RequestInfo | URL) =>
 			String(input).includes("/api/v2/code/status")
 				? new Response(superjson.stringify({ enabled: true, fresh: true }), { status: 200 })
@@ -560,7 +561,8 @@ describe("NavMenu's agents list and the /code sign-in", () => {
 		);
 
 		expect(host.querySelector('[data-testid="sidebar-view-agents"]')).toBeNull();
-		expect(host.querySelector('[data-testid="sidebar-view-chats"]')).toBeNull();
+		expect(host.querySelector('[data-testid="sidebar-view-chats"]')).not.toBeNull();
+		expect(host.querySelector('[data-testid="sidebar-view-recent"]')).not.toBeNull();
 		expect(host.querySelector("[data-testid='device-rail']")).toBeNull();
 		expect(fetchSpy.mock.calls.filter(([input]) => String(input).includes("/api/v2/code"))).toEqual(
 			[]

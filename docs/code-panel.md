@@ -402,7 +402,7 @@ sign-in:
   The app-wide bar then leaves them out, so one question is never on screen
   twice (the same rule it applies to the session open in the agent view).
 
-The **Agents** option of the sidebar's Chats | Agents switch carries a count
+The **Agents** option of the sidebar's Chats | Recent | Agents switch carries a count
 badge while asks are pending (that badge is all: there is no separate "Needs you"
 line in the sidebar). Push notifications (below) are unchanged.
 
