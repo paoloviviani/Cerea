@@ -176,7 +176,10 @@ func frameTypesRead(t *testing.T) map[string]bool {
 	types := map[string]bool{}
 	ast.Inspect(fxParseGo(t, "internal/link/link.go"), func(n ast.Node) bool {
 		fn, ok := n.(*ast.FuncDecl)
-		if !ok || fn.Name.Name != "serve" {
+		// serve reads frames; dispatch is where each one is handled (the
+		// switch on its type), also called for the frames kept from before the
+		// welcome.
+		if !ok || (fn.Name.Name != "serve" && fn.Name.Name != "dispatch") {
 			return true
 		}
 		ast.Inspect(fn, func(n ast.Node) bool {

@@ -54,10 +54,17 @@ vi.mock("$lib/server/identity/gatewayIdentity", async () => {
 // revalidation's second question when the gateway refuses): "valid" by
 // default, so the account-refused tests revoke as before.
 let tokenCheck: "valid" | "invalid" | "unknown" = "valid";
+// Whether a renewal (an `auth` frame) validates: the real one decodes a real
+// token, which a fake machine has not got.
+let renewalCheck: "valid" | "invalid" = "valid";
 vi.mock("./machineAuth", async () => {
 	const actual = await vi.importActual<typeof import("./machineAuth")>("./machineAuth");
 	return {
 		...actual,
+		revalidateMachineAuth: async (_token: string, sub: string) => {
+			if (renewalCheck === "invalid") throw new actual.MachineAuthError(401, "renewal refused");
+			return { sub, iss: "i", exp: Math.floor(Date.now() / 1000) + 3600 };
+		},
 		validateMachineToken: async () => {
 			if (tokenCheck === "valid") return { sub: "s", iss: "i", exp: 0 };
 			if (tokenCheck === "invalid") throw new actual.MachineAuthError(401, "revoked at the IdP");
@@ -66,8 +73,13 @@ vi.mock("./machineAuth", async () => {
 	};
 });
 
-const { acceptMachineConnection, revalidateLiveMachineConnections, isMachineOnline } =
-	await import("./machines");
+const {
+	acceptMachineConnection,
+	revalidateLiveMachineConnections,
+	isMachineOnline,
+	subscribeDeviceConnection,
+	sendMcpMessage,
+} = await import("./machines");
 const { resetMachineUserCacheForTests } = await import("./machineAuth");
 
 let httpServer: Server;
@@ -121,6 +133,7 @@ beforeEach(async () => {
 	};
 	resetMachineUserCacheForTests();
 	tokenCheck = "valid";
+	renewalCheck = "valid";
 });
 
 let openMachines: FakeMachine[] = [];
@@ -330,6 +343,8 @@ describe("revalidateLiveMachineConnections", () => {
 	it("asks the machine to renew, and revokes nothing, when the refused token itself no longer validates", async () => {
 		// GitLab revokes the previous access token on refresh: for a moment the
 		// connection holds a token the gateway refuses while the machine is fine.
+		// The first tick that sees it waits (the machine is about to hand a new
+		// token over); the same token refused on the next tick closes with 4401.
 		const machine = new FakeMachine(`ws://127.0.0.1:${port}/api/v2/code/machine`, {});
 		openMachines.push(machine);
 		const { deviceId } = await machine.hello();
@@ -340,11 +355,90 @@ describe("revalidateLiveMachineConnections", () => {
 		meAnswer = { ok: false, refused: true, status: 401, message: "Invalid API key provided." };
 		tokenCheck = "invalid";
 		await revalidateLiveMachineConnections();
+		expect(isMachineOnline(deviceId)).toBe(true); // one tick of grace
+
+		resetMachineUserCacheForTests();
+		await revalidateLiveMachineConnections();
 
 		expect(await closed).toBe(4401);
 		const device = await collections.codeDevices.findOne({ _id: new ObjectId(deviceId) });
 		expect(device?.status).not.toBe("revoked");
 		expect(device?.revokedAt).toBeUndefined();
+	});
+
+	it("keeps the link when the machine hands a fresh token over after the refused tick", async () => {
+		// The shim refreshed (GitLab revoked the old token) and the `auth` frame with the
+		// new one reaches Cerea after the tick that saw the old one refused: no drop at all.
+		const machine = new FakeMachine(`ws://127.0.0.1:${port}/api/v2/code/machine`, {});
+		openMachines.push(machine);
+		const { deviceId } = await machine.hello();
+		resetMachineUserCacheForTests();
+		let closedWith: number | null = null;
+		machine.ws.on("close", (code: number) => (closedWith = code));
+
+		meAnswer = { ok: false, refused: true, status: 401, message: "Invalid API key provided." };
+		tokenCheck = "invalid";
+		await revalidateLiveMachineConnections(); // the old token, refused: grace
+
+		machine.ws.send(JSON.stringify({ type: "auth", token: "the-new-token" }));
+		await new Promise((resolve) => setTimeout(resolve, 100)); // Cerea validates and swaps it
+
+		// The gateway accepts the new token on the next tick.
+		resetMachineUserCacheForTests();
+		meAnswer = {
+			ok: true,
+			value: {
+				id: `gw-${user.user._id.toString()}`,
+				is_admin: false,
+				groups: [],
+				sessions_valid_after: null,
+				merged_at: null,
+			},
+		};
+		tokenCheck = "valid";
+		await revalidateLiveMachineConnections();
+		await new Promise((resolve) => setTimeout(resolve, 100));
+
+		expect(closedWith).toBeNull();
+		expect(isMachineOnline(deviceId)).toBe(true);
+	});
+
+	it("gives a handed-over token its own tick of grace, then closes if that one is refused too", async () => {
+		const machine = new FakeMachine(`ws://127.0.0.1:${port}/api/v2/code/machine`, {});
+		openMachines.push(machine);
+		const { deviceId } = await machine.hello();
+		resetMachineUserCacheForTests();
+		const closed = waitForClose(machine);
+
+		meAnswer = { ok: false, refused: true, status: 401, message: "Invalid API key provided." };
+		tokenCheck = "invalid";
+		await revalidateLiveMachineConnections(); // first token: grace
+		machine.ws.send(JSON.stringify({ type: "auth", token: "second-token" }));
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		resetMachineUserCacheForTests();
+		await revalidateLiveMachineConnections(); // second token, refused for the first time: grace
+		expect(isMachineOnline(deviceId)).toBe(true);
+		resetMachineUserCacheForTests();
+		await revalidateLiveMachineConnections(); // the same second token again: closed
+
+		expect(await closed).toBe(4401);
+	});
+
+	it("still revokes at once when the gateway refuses a token that does validate", async () => {
+		// The account is what was refused, not the token: no grace.
+		const machine = new FakeMachine(`ws://127.0.0.1:${port}/api/v2/code/machine`, {});
+		openMachines.push(machine);
+		const { deviceId } = await machine.hello();
+		resetMachineUserCacheForTests();
+		const closed = waitForClose(machine);
+
+		meAnswer = { ok: false, refused: true, status: 401, message: "account disabled" };
+		tokenCheck = "valid";
+		await revalidateLiveMachineConnections();
+
+		expect(await closed).toBe(4403);
+		const device = await collections.codeDevices.findOne({ _id: new ObjectId(deviceId) });
+		expect(device?.status).toBe("revoked");
 	});
 
 	it("revokes nothing when the token cannot be checked at all", async () => {
@@ -394,5 +488,42 @@ describe("revalidateLiveMachineConnections", () => {
 		// No machine ever connected: the tick only walks live connections, so
 		// this is really asserting it doesn't throw over an empty registry.
 		await expect(revalidateLiveMachineConnections()).resolves.toBeUndefined();
+	});
+});
+
+describe("the welcome is the first frame", () => {
+	it("goes out before anything a connection listener sends in reaction to the machine coming online", async () => {
+		// The terminal relay (and others) subscribe to a device's connection changes and may
+		// send a frame the moment it comes online. That frame used to overtake the welcome, and
+		// galopin dropped the connection ("expected welcome, got req").
+		const first = new FakeMachine(`ws://127.0.0.1:${port}/api/v2/code/machine`, {});
+		openMachines.push(first);
+		const { deviceId } = await first.hello();
+		first.close();
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(isMachineOnline(deviceId)).toBe(false);
+
+		const unsubscribe = subscribeDeviceConnection(deviceId, (online) => {
+			if (online) sendMcpMessage(deviceId, "ch-1", { jsonrpc: "2.0", method: "ping", id: 1 });
+		});
+		try {
+			const second = new FakeMachine(`ws://127.0.0.1:${port}/api/v2/code/machine`, {});
+			openMachines.push(second);
+			const types: string[] = [];
+			second.ws.on("message", (raw: Buffer | string, isBinary: boolean) => {
+				if (isBinary) return;
+				try {
+					types.push(JSON.parse(raw.toString()).type);
+				} catch {
+					/* not JSON */
+				}
+			});
+			await second.hello();
+			await new Promise((resolve) => setTimeout(resolve, 100));
+			expect(types[0]).toBe("welcome");
+			expect(types).toContain("mcp"); // the listener's frame did go out, after it
+		} finally {
+			unsubscribe();
+		}
 	});
 });
