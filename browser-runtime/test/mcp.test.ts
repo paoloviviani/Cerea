@@ -22,6 +22,7 @@ async function exercise(client: Client, fx: Fixtures) {
 		"download",
 		"end_task",
 		"extract",
+		"open",
 		"resume",
 		"screenshot",
 		"snapshot",

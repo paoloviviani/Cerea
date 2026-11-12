@@ -532,6 +532,67 @@ export class BrowserSession {
 		};
 	}
 
+	/**
+	 * Opens a page of its own, at an http(s) address or blank, with no task. The page is the
+	 * user's (never a task page), and the token it is returned with resumes it, as `end_task`'s does.
+	 * A site in `deny`, before or after redirects, closes the page and is refused.
+	 */
+	async open(
+		request: { url?: string; deny?: string[] } = {}
+	): Promise<NonNullable<EndTaskResult["kept"]>> {
+		const context = await this.ensureContext();
+		this.touch();
+		if (request.deny) this.tabDeny = parseSiteList(request.deny.join("\n"));
+		const raw = request.url?.trim() ?? "";
+		let target: string | undefined;
+		if (raw) {
+			let parsed: URL;
+			try {
+				parsed = new URL(raw);
+			} catch {
+				throw new ToolError("That is not an address that can be opened.");
+			}
+			if (
+				parsed.protocol !== "http:" &&
+				parsed.protocol !== "https:" &&
+				parsed.href !== "about:blank"
+			) {
+				throw new ToolError("Only http and https addresses can be opened (about:blank too).");
+			}
+			if (parsed.protocol !== "about:") {
+				if (this.denied(parsed.href)) throw new ToolError("That site is not allowed.");
+				target = parsed.href;
+			}
+		}
+		const page = await context.newPage();
+		if (target) {
+			try {
+				await page.goto(target, { waitUntil: "domcontentloaded", timeout: NAVIGATION_TIMEOUT_MS });
+				await this.settle(page);
+			} catch (err) {
+				if (!/Download is starting/i.test(String(err))) {
+					await closeQuickly(page);
+					throw new ToolError(`Could not load ${clean(target, 120)}: ${firstLine(err, 160)}`);
+				}
+			}
+			if (this.denied(page.url())) {
+				await closeQuickly(page);
+				throw new ToolError("That site is not allowed.");
+			}
+		}
+		this.purgeKept();
+		const token = randomBytes(18).toString("base64url");
+		const title = clean(await safeTitle(page), 300);
+		const url = page.url();
+		this.kept.set(token, {
+			page,
+			url,
+			title,
+			expires: Date.now() + (this.options.keptTtlMs ?? KEPT_TTL_MS),
+		});
+		return { token, id: this.tabId(page), title, url: clean(stripUserUrl(url), 2000) };
+	}
+
 	private tabId(page: Page): string {
 		let id = this.tabIds.get(page);
 		if (!id) {

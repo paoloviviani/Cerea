@@ -24,6 +24,8 @@ import {
 	type ExtractRequest,
 	type ExtractResult,
 	type ResumeResult,
+	type OpenRequest,
+	type OpenResult,
 	type TabsResult,
 	type RuntimeToolName,
 	type ScreenshotResult,
@@ -103,6 +105,7 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 	/** The page `end_task({keep})` left open, by token; `resume` finds it again. */
 	private keptPages = new Map<string, { id: string; title: string; url: string }>();
 	private keptCount = 0;
+	private openedCount = 0;
 
 	constructor(
 		pages: FakePage[],
@@ -421,6 +424,41 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 		};
 	}
 
+	async open(request?: OpenRequest): Promise<OpenResult> {
+		this.record("open", {
+			...(request?.url ? { url: request.url } : {}),
+			...(request?.deny?.length ? { deny: request.deny } : {}),
+		});
+		const raw = request?.url?.trim() || "about:blank";
+		let url: string;
+		try {
+			const parsed = new URL(raw);
+			const ok = parsed.protocol === "http:" || parsed.protocol === "https:" || raw === "about:blank";
+			if (!ok) throw new Error("scheme");
+			url = raw === "about:blank" ? raw : parsed.toString();
+		} catch {
+			throw new BrowserRuntimeError(
+				"Only http and https addresses can be opened (about:blank too).",
+				"tool"
+			);
+		}
+		this.openedCount += 1;
+		const id = `opened-${this.openedCount}`;
+		const known = [...this.pages.values()].find((p) => p.url === url);
+		this.pages.set(id, {
+			id,
+			url,
+			title: known?.title ?? (url === "about:blank" ? "" : new URL(url).hostname),
+			elements: known ? known.elements.map((e) => ({ ...e })) : [],
+			userTab: true,
+		});
+		this.keptCount += 1;
+		const token = `kept-token-${this.keptCount}`;
+		const page = this.pages.get(id)!;
+		this.keptPages.set(token, { id, title: page.title, url: page.url });
+		return { token, id, title: page.title, url: page.url };
+	}
+
 	async endTask(options?: { keep?: boolean }): Promise<EndTaskResult> {
 		this.record("end_task", options?.keep ? { keep: true } : {});
 		this.ended += 1;
@@ -469,6 +507,13 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 						return json(await this.tabs(args.deny ? { deny: args.deny as string[] } : undefined));
 					case "resume":
 						return json(await this.resume(String(args.token ?? "")));
+					case "open":
+						return json(
+							await this.open({
+								...(typeof args.url === "string" ? { url: args.url } : {}),
+								...(Array.isArray(args.deny) ? { deny: args.deny as string[] } : {}),
+							})
+						);
 					case "end_task":
 						return json(await this.endTask(args.keep === true ? { keep: true } : undefined));
 				}

@@ -29,6 +29,9 @@ import {
 	type EndTaskResult,
 	endTaskResultSchema,
 	resumeResultSchema,
+	openResultSchema,
+	type OpenRequest,
+	type OpenResult,
 	tabsResultSchema,
 	type ResumeResult,
 	type TabsResult,
@@ -157,6 +160,14 @@ export class McpBrowserRuntime implements BrowserRuntime {
 
 	resume(token: string, signal?: AbortSignal): Promise<ResumeResult> {
 		return this.invoke("resume", { token }, resumeResultSchema, signal);
+	}
+
+	open(request?: OpenRequest, signal?: AbortSignal): Promise<OpenResult> {
+		const args: Record<string, unknown> = {};
+		if (request?.url) args.url = request.url;
+		const deny = request?.deny?.filter((d) => d.length > 0) ?? [];
+		if (deny.length > 0) args.deny = deny;
+		return this.invoke("open", args, openResultSchema, signal);
 	}
 
 	private async invoke<T>(

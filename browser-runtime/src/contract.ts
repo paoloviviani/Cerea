@@ -36,6 +36,7 @@ export const RUNTIME_TOOLS = [
 	"download",
 	"tabs",
 	"resume",
+	"open",
 	"end_task",
 ] as const;
 export type RuntimeToolName = (typeof RUNTIME_TOOLS)[number];
@@ -372,6 +373,26 @@ export const resumeResultSchema = z.union([
 	}),
 ]);
 export type ResumeResult = z.infer<typeof resumeResultSchema>;
+
+/**
+ * `open({url?, deny?})` opens a page of its own in the browser, at an http(s) address or blank
+ * (about:blank), with no task: the page is the user's, exactly like one they opened, and `token`
+ * is what a task can `resume` it with (the "Open browser" button ties it to a conversation that
+ * way). Refused when the scheme is not http(s) or about:blank, or when the site (or the site it
+ * ends up on) is in `deny`; a refused page is closed.
+ */
+export const openRequestSchema = z.object({
+	url: z.string().max(4096).optional(),
+	deny: z.array(z.string().max(300)).max(200).optional(),
+});
+export type OpenRequest = z.infer<typeof openRequestSchema>;
+export const openResultSchema = z.object({
+	token: z.string().min(1).max(256),
+	id: z.string().max(64),
+	title: z.string().max(500),
+	url: z.string().max(4096),
+});
+export type OpenResult = z.infer<typeof openResultSchema>;
 
 export const downloadResultSchema = z.object({
 	files: z
