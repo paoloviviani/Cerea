@@ -191,6 +191,13 @@ that computer"). Details, including macOS, are in
 To keep galopin running when the terminal closes, see
 [Keeping it running](agent-machines-reference.md#keeping-it-running).
 
+## Removing galopin
+
+To take galopin off a computer (revoke it in Cerea, stop the service, remove the
+browser and goose additions, delete the binaries and the configuration
+directory), follow the checklist in
+[Removing galopin from a computer](agent-machines-reference.md#removing-galopin-from-a-computer).
+
 ## Where to go next
 
 | You want…                                                  | Read                                                                                                                                                                                                |

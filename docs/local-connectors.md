@@ -56,6 +56,11 @@ A computer that already runs a coding agent needs no second enrollment: it offer
 connectors too as soon as it has an `mcp.json`. To run only the connectors on
 such a computer, for one run, use `galopin run --connectors-only`.
 
+To use the assistant's browser on this computer without any agent, see
+[Browser use, for users without agents](browser-use.md#for-users-without-agents).
+To take galopin off a computer, see
+[Removing galopin from a computer](agent-machines-reference.md#removing-galopin-from-a-computer).
+
 ## `mcp.json`
 
 Put the file in galopin's config directory, beside `credentials.json`

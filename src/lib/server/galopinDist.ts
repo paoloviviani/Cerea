@@ -35,6 +35,7 @@ export const GALOPIN_PUBLIC_NAMES = new Set<string>([
 	"SHA256SUMS",
 	"version",
 	"install.sh",
+	"enroll.json",
 ]);
 
 export function galopinDistDir(): string {
@@ -80,7 +81,15 @@ function shellQuote(value: string): string {
  * archive into $HOME/.opencode/bin, verified against the sha256 recorded in
  * this repo (`opencodeVersion.ts`), the same way.
  */
-export function renderInstallScript(origin: string): string {
+export function renderInstallScript(origin: string, opts: { enrollReady?: boolean } = {}): string {
+	// Either the complete enroll command or none: `enroll` asks this Cerea for the issuer, the
+	// gateway and the machine client id itself (enroll.json), so `--cerea` is all it needs. When
+	// the deployment cannot say (no issuer set), no command is printed, only where to find it.
+	const next = opts.enrollReady
+		? `printf '\\nNext, pair this machine with %s.\\n\\nA coding agent computer:\\n\\n  galopin enroll --cerea %s%s\\n  galopin run\\n\\n' "$origin" "$origin" "$engineflag"
+printf 'A computer that only serves local connectors (no agent):\\n\\n  galopin enroll --connectors-only --cerea %s\\n  galopin run\\n\\n' "$origin"
+printf 'Then confirm it: an agent computer in the /code panel, a connectors computer under Workspace, Connectors, On your computers.\\n'`
+		: `printf '\\nNext: open %s and follow "Pair a computer" (agents, in /code) or "Use the browser on your computer" / "On your computers" (connectors only, in Workspace, Connectors). Cerea shows the exact command for your account.\\n' "$origin"`;
 	const gooseSums = Object.entries(GOOSE_SHA256)
 		.map(([name, sum]) => `\t\t${name}) want=${sum} ;;`)
 		.join("\n");
@@ -232,9 +241,24 @@ case ":$PATH:" in
 esac
 engineflag=""
 [ "$engine" = goose ] && engineflag=" --engine goose"
-printf '\\nNext, pair this machine with %s:\\n\\n  galopin enroll --cerea %s%s\\n  galopin run\\n\\n' "$origin" "$origin" "$engineflag"
-printf 'Then confirm it in the /code panel.\\n'
+${next}
 `;
+}
+
+/** The body of `enroll.json`: the three public values `galopin enroll` needs. Nothing else is
+ * ever added here; null when the deployment has no issuer to give. */
+export function enrollFacts(input: {
+	issuer?: string;
+	gateway?: string;
+	clientId?: string;
+}): { issuer: string; gateway: string; clientId: string } | null {
+	const issuer = input.issuer?.trim() ?? "";
+	if (!issuer) return null;
+	return {
+		issuer,
+		gateway: input.gateway?.trim() ?? "",
+		clientId: input.clientId?.trim() ?? "",
+	};
 }
 
 export type DistResponse = {
@@ -256,9 +280,33 @@ const notFound = (message: string): DistResponse => ({
  */
 export async function serveGalopinFile(
 	name: string,
-	{ origin, ifNoneMatch }: { origin: string; ifNoneMatch?: string | null }
+	{
+		origin,
+		ifNoneMatch,
+		issuer,
+		clientId,
+		gateway,
+	}: {
+		origin: string;
+		ifNoneMatch?: string | null;
+		issuer?: string;
+		clientId?: string;
+		gateway?: string;
+	}
 ): Promise<DistResponse> {
 	if (!GALOPIN_PUBLIC_NAMES.has(name)) return notFound("Not found.");
+
+	if (name === "enroll.json") {
+		// Public facts only: what `galopin enroll --cerea` would otherwise prompt for. No secret,
+		// no session, no per-user value.
+		const facts = enrollFacts({ issuer, gateway, clientId });
+		if (!facts) return notFound("Not found.");
+		return {
+			status: 200,
+			headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-cache" },
+			body: JSON.stringify(facts),
+		};
+	}
 
 	if (name === "install.sh") {
 		return {
@@ -267,7 +315,7 @@ export async function serveGalopinFile(
 				"content-type": "text/x-shellscript; charset=utf-8",
 				"cache-control": "no-cache",
 			},
-			body: renderInstallScript(origin),
+			body: renderInstallScript(origin, { enrollReady: Boolean(issuer?.trim()) }),
 		};
 	}
 

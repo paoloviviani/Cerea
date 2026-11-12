@@ -23,7 +23,7 @@
 	import CopyToClipBoardBtn from "$lib/components/CopyToClipBoardBtn.svelte";
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 	import { onAppResume } from "$lib/utils/appResume";
-	import { buildConnectorsCommands } from "$lib/codeEnrollCommand";
+	import { buildConnectorsCommands, GALOPIN_BIN } from "$lib/codeEnrollCommand";
 	import {
 		LocalConnectorsApiError,
 		confirmLocalMachine,
@@ -66,6 +66,12 @@
 	const denied = $derived<"not_granted" | "not_configured" | null>(
 		page.data.localConnectorsDenied ?? null
 	);
+
+	/** Browser use (ADR 0116): the card that sets up a browser on a connectors computer. */
+	const BROWSER_DOCS_URL = "https://paoloviviani.github.io/Cerea/browser-use/";
+	const showBrowserCard = $derived(Boolean(page.data.browserUseEnabled) && !denied);
+	const browserSetup = `${GALOPIN_BIN} browser setup`;
+	const browserEnable = `${GALOPIN_BIN} browser enable`;
 
 	let machines = $state<LocalMachineView[]>([]);
 	let loading = $state(true);
@@ -348,6 +354,51 @@ loginctl enable-linger "$USER"`;
 	</div>
 {/snippet}
 
+{#snippet browserCard()}
+	<div
+		class="rounded-2xl border border-line bg-surface p-4 sm:p-6"
+		data-testid="local-browser-card"
+	>
+		<h3 class="{s.CARD_TITLE} !whitespace-normal">{m["workspace.local.browser.title"]()}</h3>
+		<p class="{s.SUBTITLE} mt-1 break-words">{m["workspace.local.browser.intro"]()}</p>
+
+		{@render step(1, m["workspace.local.browser.step_install"]())}
+		{@render code(commands.install, "local-browser-install")}
+		{@render step(2, m["workspace.local.browser.step_enroll"]())}
+		{@render code(commands.enroll, "local-browser-enroll")}
+		{@render step(3, m["workspace.local.browser.step_setup"]())}
+		{@render code(`${browserSetup}\n${browserEnable}`, "local-browser-setup")}
+		<p class="mt-1 text-xs text-ink-muted">{m["workspace.local.browser.note_node"]()}</p>
+		{@render step(4, m["workspace.local.browser.step_run"]())}
+		{@render code(commands.run, "local-browser-run")}
+		<p class="mt-2 text-xs text-ink-muted">{m["workspace.local.browser.note_have"]()}</p>
+		<p class="mt-1 text-xs">
+			<a
+				class="text-accent underline"
+				href={BROWSER_DOCS_URL}
+				target="_blank"
+				rel="noopener noreferrer">{m["workspace.local.browser.more"]()}</a
+			>
+		</p>
+		{#if paired.some((machine) => machine.browser !== undefined || machine.mode === "connectors")}
+			<ul class="mt-3 space-y-1 text-xs text-ink-muted" data-testid="local-browser-states">
+				{#each paired as machine (machine.id)}
+					<li>
+						<span class="font-medium text-ink">{machine.name}</span>:
+						{machine.browser === "ready"
+							? m["workspace.local.browser.state_ready"]()
+							: machine.browser === "offline"
+								? m["workspace.local.browser.state_offline"]()
+								: machine.browser === "problem"
+									? m["workspace.local.browser.state_problem"]()
+									: m["workspace.local.browser.state_none"]()}
+					</li>
+				{/each}
+			</ul>
+		{/if}
+	</div>
+{/snippet}
+
 <div class="space-y-5 pb-6" data-testid="local-connectors">
 	<header class="flex flex-wrap items-start justify-between gap-2">
 		<div class="min-w-0">
@@ -392,6 +443,9 @@ loginctl enable-linger "$USER"`;
 	{:else}
 		{#if !hasMachine}
 			{@render instructions()}
+		{/if}
+		{#if showBrowserCard}
+			{@render browserCard()}
 		{/if}
 
 		<section aria-labelledby="local-pending-title">

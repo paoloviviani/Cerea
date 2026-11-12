@@ -1544,6 +1544,72 @@ again. The agent reports this at once instead of hanging; the
 3. Delete `<config-dir>/galopin/`. Re-enrolling later mints a new computer
    id, which is paired afresh.
 
+### Removing galopin from a computer
+
+A checklist for taking galopin off a computer completely, in this order. Every
+path below is the one galopin itself uses. `<config-dir>` is the user's
+configuration directory as Go reports it (`os.UserConfigDir`): `~/.config` on
+Linux (or `$XDG_CONFIG_HOME`), `~/Library/Application Support` on macOS.
+
+!!! note "Windows"
+
+    galopin is built for Linux and macOS only (`agent/packaging/build-dist.sh`),
+    and ships no Windows service file. On Windows, use it inside WSL and follow
+    the Linux steps there, or run the [container](#running-galopin-in-a-container),
+    where removing the container (and its named volume, if you kept one) is the
+    whole clean-up. The only Windows rule galopin has is that its directory would
+    be `%AppData%\galopin` (what `os.UserConfigDir` returns there).
+
+1. **In Cerea, remove the computer first.** An agent computer: Agents panel, the
+   computer's menu, **Revoke**. A connectors computer: Workspace, Connectors,
+   **On your computers**, **Revoke** on the computer. This invalidates the
+   pairing and the computer's own browser key at once (a later connection under
+   the same computer id is refused), and a running galopin revokes its refresh
+   token at the identity provider and clears it (see
+   [Removing a computer](#removing-a-computer)). Do this while the computer is
+   still on, so it can clean up its own credential.
+2. **Stop and remove the service.**
+   - Linux: `systemctl --user disable --now galopin`, then
+     `rm ~/.config/systemd/user/galopin.service` and
+     `systemctl --user daemon-reload`. (If you ran `loginctl enable-linger "$USER"`
+     only for galopin, `loginctl disable-linger "$USER"` undoes it.)
+   - macOS: `launchctl bootout gui/$(id -u)/org.cerea.galopin`, then
+     `rm ~/Library/LaunchAgents/org.cerea.galopin.plist`.
+   - If you ran `galopin run` by hand, stop it with Ctrl-C.
+3. **Undo what galopin added to other tools, before deleting anything.**
+   - Browser: `galopin browser disable --remove-profile`. It removes the
+     `cerea-browser` entry from `mcp.json`, deletes the approval key, and
+     deletes the browser profile (its saved logins). Without
+     `--remove-profile` the profile is kept.
+   - goose, if you ran `galopin goose setup`: `galopin goose setup --remove`.
+     It deletes the `galopin` provider file in your goose config directory and
+     the "Cerea connectors" extension entry, and restores your default provider
+     if `--default` had changed it.
+4. **Delete the binaries.** `${GALOPIN_INSTALL_DIR:-~/.local/bin}/galopin` and
+   the directory `${GALOPIN_INSTALL_DIR:-~/.local/bin}/galopin-goose/` (the
+   pinned goose the installer put there). If you installed opencode with the
+   installer's `--with-opencode`, `~/.opencode/bin/opencode` is also from the
+   installer; remove it if nothing else of yours uses it.
+5. **Delete galopin's own directory, `<config-dir>/galopin/`.** It holds only
+   galopin's files: `credentials.json`, `opencode.json`, `policy.json`,
+   `mcp.json`, `machine-id`, `status.json`, `workspaces.json`, `audit.log`,
+   `opencode-overlay.json`, `opencode-tools/`, `local-agents.json`,
+   `profiles.json`, `delegate-reports.json`, `goose-setup.json`, `goose/`,
+   `connectors/` (sign-in tokens of your local servers) and `browser/`
+   (`runtime/`, `profile/`, `ms-playwright/`, `key`, `browser.json`). Take a
+   copy of `mcp.json` first if you want to keep your connector list. The
+   directory `goose/data/sessions` inside it is a link to your own goose
+   session store: delete the directory with `rm -r` (which removes the link, not
+   what it points at), never with a command that follows links. Also remove
+   opencode's scratch files if present: `$XDG_RUNTIME_DIR/galopin/` (cleared at
+   logout anyway) or `<cache-dir>/galopin/` (`~/.cache` on Linux,
+   `~/Library/Caches` on macOS). galopin writes no other place: attachments are
+   kept by Cerea, not on the computer.
+6. **What stays yours.** Your own `~/.config/opencode` and `~/.config/goose`
+   (apart from what step 3 removed), your goose sessions, your projects and
+   their files, and your own opencode or goose installs. galopin never wrote in
+   them, with the two exceptions listed in step 3.
+
 ### What is kept where
 
 |                                                             | Where it lives                                                   |

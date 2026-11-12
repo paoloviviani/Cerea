@@ -57,6 +57,14 @@ async function machineView(device: CodeDevice): Promise<LocalMachineView> {
 			...(server.detail ? { detail: server.detail } : {}),
 			...(server.allowedTools ? { allowedTools: server.allowedTools } : {}),
 		}));
+	const runtime = servers.find((server) => isBrowserRuntimeServer(server.name));
+	const browser = !runtime
+		? undefined
+		: !online
+			? ("offline" as const)
+			: runtime.state === "ready"
+				? ("ready" as const)
+				: ("problem" as const);
 	return {
 		id,
 		name: device.name,
@@ -68,5 +76,6 @@ async function machineView(device: CodeDevice): Promise<LocalMachineView> {
 		...(device.pairedAt ? { pairedAt: device.pairedAt.toISOString() } : {}),
 		...(device.mcpServersAt ? { serversAt: device.mcpServersAt.toISOString() } : {}),
 		servers: views,
+		...(browser ? { browser } : {}),
 	};
 }

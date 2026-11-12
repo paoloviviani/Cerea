@@ -142,6 +142,16 @@ describe("the runtime is not one of the user's connectors", () => {
 		expect(machine.servers.map((s) => s.name)).toEqual(["calendar"]);
 	});
 
+	it("shows in the machine view as the machine's browser state", async () => {
+		device("Laptop", [runtime(), calendar]);
+		device("Desk", [runtime("invalid")]);
+		device("Plain", [calendar]);
+		device("Away", [runtime()], false);
+		const views = await localMachineViews(userId);
+		const by = Object.fromEntries(views.map((v) => [v.name, v.browser]));
+		expect(by).toEqual({ Laptop: "ready", Desk: "problem", Plain: undefined, Away: "offline" });
+	});
+
 	it("cannot be selected as a chat connector by naming it", async () => {
 		const id = device("Laptop", [runtime(), calendar]);
 		const resolved = await resolveLocalSelection({

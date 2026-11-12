@@ -95,6 +95,36 @@ How to enable the runtime on a machine: coming with `galopin browser`. Until it
 ships, the setting can be turned on but no machine offers a browser, so `browse`
 is never offered.
 
+## For users without agents
+
+Browser use needs only [local connectors](local-connectors.md), not coding agents.
+A user whose groups may use local connectors but not agents can set up a
+browser on their own computer:
+
+1. Open Workspace, Connectors. The **Use the browser on your computer** card
+   shows the commands for this deployment (it appears when browser use is on and
+   local connectors are allowed for the user). Copy them in order:
+   install galopin, enroll it with `--connectors-only`, set up and enable the browser, run galopin.
+2. Approve the computer under **On your computers** (sign in to Cerea once in the
+   browser first). The card then shows the computer's browser as ready, offline
+   or not ready.
+
+```sh
+curl -fsSL 'https://cerea.example.org/galopin/install.sh' | sh
+~/.local/bin/galopin enroll --connectors-only --cerea 'https://cerea.example.org'
+~/.local/bin/galopin browser setup
+~/.local/bin/galopin browser enable
+~/.local/bin/galopin run
+```
+
+`galopin enroll --cerea <address>` asks the chat for its sign-in settings (the
+issuer and the client id, public facts), so only the address is needed; the card
+prints the explicit flags too. The computer needs Node.js 22.18 or newer. A user
+who **already has galopin for agents** skips the install and the enrol: `browser
+setup` and `browser enable` are enough, and the same `galopin run` serves the
+browser. The per-computer approval key is handed over on the same link
+(`browser.key`), which a connectors-only computer can use like any other.
+
 ## Settings (operators)
 
 Administration, Assistant, **Browser use**. With `ENABLE_CONFIG_MANAGER` off,

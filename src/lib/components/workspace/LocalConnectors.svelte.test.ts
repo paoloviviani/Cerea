@@ -80,6 +80,39 @@ describe("LocalConnectors", () => {
 		expect(text(screen)).not.toContain("Connect a computer");
 	});
 
+	it("shows the browser card, with this deployment's commands, only when browser use is on", async () => {
+		stubApi(() => [machine({ id: "m1", browser: "ready" }), machine({ id: "m2", name: "desk" })]);
+		const off = mount();
+		await expect.element(off.getByText("laptop").first()).toBeInTheDocument();
+		expect(off.baseElement.querySelector('[data-testid="local-browser-card"]')).toBeNull();
+		await off.unmount();
+
+		stubApi(() => [machine({ id: "m1", browser: "ready" }), machine({ id: "m2", name: "desk" })]);
+		const on = mount({ browserUseEnabled: true });
+		await expect
+			.element(on.getByRole("heading", { name: "Use the browser on your computer" }))
+			.toBeInTheDocument();
+		const byId = (id: string) =>
+			on.baseElement.querySelector(`[data-testid="${id}"]`)?.textContent ?? "";
+		expect(byId("local-browser-install")).toContain("http://localhost:3000/galopin/install.sh");
+		expect(byId("local-browser-enroll")).toContain("--connectors-only");
+		expect(byId("local-browser-enroll")).toContain("--issuer 'https://auth.example.org'");
+		expect(byId("local-browser-setup")).toBe(
+			"~/.local/bin/galopin browser setup\n~/.local/bin/galopin browser enable"
+		);
+		expect(byId("local-browser-run")).toBe("~/.local/bin/galopin run");
+		expect(text(on)).toContain("Node.js 22.18");
+		expect(byId("local-browser-states")).toContain("Browser ready");
+		expect(byId("local-browser-states")).toContain("No browser registered yet");
+	});
+
+	it("hides the browser card without local-connectors access", async () => {
+		stubApi(() => []);
+		const screen = mount({ browserUseEnabled: true, localConnectorsDenied: "not_granted" });
+		await expect.element(screen.getByText(/has not enabled local connectors/)).toBeInTheDocument();
+		expect(screen.baseElement.querySelector('[data-testid="local-browser-card"]')).toBeNull();
+	});
+
 	it("says the gateway is not configured for the chat when it reports neither capability", async () => {
 		stubApi(() => []);
 		const screen = mount({ localConnectorsDenied: "not_configured" });
