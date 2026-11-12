@@ -3259,7 +3259,7 @@
 	"workspace.local.browser.step_enroll": "Enroll it as a connectors computer, then approve it below",
 	"workspace.local.browser.step_setup": "Set up and enable the browser",
 	"workspace.local.browser.step_run": "Keep galopin running",
-	"workspace.local.browser.note_node": "Needs Node.js 22.18 or newer on that computer.",
+	"workspace.local.browser.note_node": "Needs {#link}Node.js{/link} 22.18 or newer on that computer (the LTS download; on macOS, brew install node). Check with node --version.",
 	"workspace.local.browser.note_have": "Already have galopin for agents? Skip the install and the enrol: the setup and enable commands are enough.",
 	"workspace.local.browser.more": "More in the browser use guide",
 	"workspace.local.browser.state_ready": "Browser ready",

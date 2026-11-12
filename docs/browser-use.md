@@ -200,6 +200,13 @@ setup` and `browser enable` are enough, and the same `galopin run` serves the
 browser. The per-computer approval key is handed over on the same link
 (`browser.key`), which a connectors-only computer can use like any other.
 
+### Node.js for the browser
+
+The browser needs **Node.js 22.18 or newer** on that computer (not needed for connectors
+alone). Get it from [nodejs.org/en/download](https://nodejs.org/en/download) (pick the LTS),
+or on macOS with `brew install node`. Check it with `node --version`. The upcoming macOS
+"Cerea connector" app bundles Node, so app users do not need this.
+
 ## Settings (operators)
 
 Administration, Assistant, **Browser use**. With `ENABLE_CONFIG_MANAGER` off,

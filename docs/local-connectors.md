@@ -57,6 +57,13 @@ backend. The computer then appears under
 **On your computers** (Workspace → Connectors), where you approve it
 (a connectors computer is never listed in the Agents panel).
 
+### Node.js for the browser
+
+The browser needs **Node.js 22.18 or newer** on that computer (not needed for connectors
+alone). Get it from [nodejs.org/en/download](https://nodejs.org/en/download) (pick the LTS),
+or on macOS with `brew install node`. Check it with `node --version`. The upcoming macOS
+"Cerea connector" app bundles Node, so app users do not need this.
+
 A computer that already runs a coding agent needs no second enrollment: it offers
 connectors too as soon as it has an `mcp.json`. To run only the connectors on
 such a computer, for one run, use `galopin run --connectors-only`.

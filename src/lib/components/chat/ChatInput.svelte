@@ -20,7 +20,6 @@
 	import OpenBrowserModal from "./OpenBrowserModal.svelte";
 	import { listBrowserComputers, type BrowserComputer } from "$lib/browserApi";
 	import CarbonEarth from "~icons/carbon/earth";
-	import CarbonEarth from "~icons/carbon/earth";
 	import LucideShieldCheck from "~icons/lucide/shield-check";
 	import LucideMic from "~icons/lucide/mic";
 	import TogglePill from "$lib/components/TogglePill.svelte";

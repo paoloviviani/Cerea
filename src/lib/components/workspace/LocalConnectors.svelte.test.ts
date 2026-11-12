@@ -395,12 +395,13 @@ describe("LocalConnectors", () => {
 			]);
 			const screen = mount({ browserUseEnabled: true });
 			await expect.element(screen.getByText("a").first()).toBeInTheDocument();
-			const boxes = [
+			const boxes = () => [
 				...screen.baseElement.querySelectorAll<HTMLInputElement>(
 					'[data-testid="local-machine-browser-default"]'
 				),
 			];
-			expect(boxes.map((b) => b.checked)).toEqual([true, false]);
+			await vi.waitFor(() => expect(boxes()).toHaveLength(2));
+			expect(boxes().map((b) => b.checked)).toEqual([true, false]);
 		});
 	});
 });

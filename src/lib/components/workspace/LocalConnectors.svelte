@@ -275,6 +275,12 @@ loginctl enable-linger "$USER"`;
 		target="_blank"
 		rel="noopener noreferrer">{text}</a
 	>{/snippet}
+{#snippet nodeLink(text: string)}<a
+		class="text-accent hover:underline"
+		href="https://nodejs.org/en/download"
+		target="_blank"
+		rel="noopener noreferrer">{text}</a
+	>{/snippet}
 {#snippet reauthLink(text: string)}<a class="underline" href={reauthHref}>{text}</a>{/snippet}
 {#snippet code(text: string, testid?: string)}
 	<div class="flex items-center gap-2 rounded-lg border border-line bg-surface p-3">
@@ -413,7 +419,9 @@ loginctl enable-linger "$USER"`;
 		</details>
 		{@render step(3, m["workspace.local.browser.step_setup"]())}
 		{@render code(`${browserSetup}\n${browserEnable}`, "local-browser-setup")}
-		<p class="mt-1 text-xs text-ink-muted">{m["workspace.local.browser.note_node"]()}</p>
+		<p class="mt-1 text-xs text-ink-muted">
+			<Rich parts={m["workspace.local.browser.note_node"].parts()} tags={{ link: nodeLink }} />
+		</p>
 		{@render step(4, m["workspace.local.browser.step_run"]())}
 		{@render code(commands.run, "local-browser-run")}
 		<p class="mt-2 text-xs text-ink-muted">{m["workspace.local.browser.note_have"]()}</p>
