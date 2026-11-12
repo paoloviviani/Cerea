@@ -63,6 +63,11 @@ export const snapshotElementSchema = z.object({
 	submits: z.boolean().optional(),
 	/** A link's target, as written in the page. */
 	href: z.string().max(2048).optional(),
+	/**
+	 * The host a form submits to (its resolved `action`), for a control that submits a form. A
+	 * submit whose action host is on another site is a commit that leaves the site.
+	 */
+	formActionHost: z.string().max(255).optional(),
 	/** The link's target domain, when it leaves the current one. */
 	linkDomain: z.string().max(255).optional(),
 	/** The element downloads a file (a `download` attribute, or a file-type target). */
@@ -135,26 +140,34 @@ export type BrowserAction = z.infer<typeof browserActionSchema>;
 
 /**
  * Cerea's grant for one action of a batch. The runtime refuses a commit-class action that has no
- * grant whose `digest` matches the action it is about to run (ADR 0116 §4, defence in depth).
+ * grant that is signed, unexpired and bound to the exact action it is about to run (ADR 0116 §4,
+ * defence in depth).
  *
- * The digest binds the grant to the exact action. It is the first 32 hex characters of
- * SHA-256 over `JSON.stringify([kind, ref, value, origin, name])`, where
- * - `kind` is the action's `type`;
- * - `ref` is the action's element ref, or "";
- * - `value` is `fill`: the text, plus "\n#submit" when `submit` is set; `select`: the value;
- *   `press`: the key; `navigate`: the url as given; `scroll`: direction, a colon, amount or "";
- *   `wait_for`: text or the ms as a string; `click`: "";
- * - `origin` is the page's `URL.origin` when the action runs;
- * - `name` is the element's accessible name as the runtime reports it in the snapshot, or "".
- * Reference implementation: `actionDigest` in `classifier.ts`.
+ * - `digest` binds the grant to the action: the first 32 hex characters of SHA-256 over
+ *   `JSON.stringify([kind, ref, value, url, name])`, where
+ *   - `kind` is the action's `type`;
+ *   - `ref` is the action's element ref, or "";
+ *   - `value` is `fill`: the text, plus "\n#submit" when `submit` is set; `select`: the value;
+ *     `press`: the normalised key; `navigate`: the url as given; `scroll`: direction, a colon,
+ *     amount or ""; `wait_for`: text or the ms as a string; `click`: "";
+ *   - `url` is the page's URL when the action runs, **without its fragment** (`#...`);
+ *   - `name` is the element's accessible name as the runtime reports it in the snapshot, or "".
+ * - `exp` is the epoch milliseconds after which the grant is void (10 minutes after approval).
+ * - `sig` is lowercase hex HMAC-SHA256, keyed by the device's browser key, over the UTF-8 string
+ *   `id|digest|exp`. The key is a per-device 32-byte secret Cerea generates and the runtime
+ *   fetches over the authenticated link with the machine call `browser.key`
+ *   (PROTOCOL.md section 10.7). The runtime recomputes both, compares `sig` in constant time,
+ *   and checks `exp` against its own clock.
+ * Reference implementations: `actionDigest` in `classifier.ts`, `signGrant` in `grants.ts`.
  */
 export const approvalGrantSchema = z.object({
 	/** Index of the action in the batch this grant covers. */
 	index: z.number().int().nonnegative(),
 	/** Opaque id Cerea issued (the approval's elicitation id, or `site:<host>` for an allow-listed site). */
 	id: z.string().min(1).max(128),
-	/** `actionDigest` of the action as Cerea classified it: the exact action, not "some click". */
 	digest: z.string().min(8).max(128),
+	exp: z.number().int().positive(),
+	sig: z.string().regex(/^[0-9a-f]{64}$/),
 });
 export type ApprovalGrant = z.infer<typeof approvalGrantSchema>;
 
@@ -164,7 +177,9 @@ export const actionResultSchema = z.object({
 	outcome: z.string().max(300).optional(),
 	error: z.string().max(1000).optional(),
 	/** The runtime refused it: a commit-class action with no matching approval. */
-	refused: z.enum(["approval_required", "approval_mismatch"]).optional(),
+	refused: z
+		.enum(["approval_required", "approval_mismatch", "approval_expired", "scheme_refused"])
+		.optional(),
 });
 export type ActionResult = z.infer<typeof actionResultSchema>;
 
@@ -173,9 +188,20 @@ export const actResultSchema = z.object({
 	results: z.array(actionResultSchema).max(100),
 	url: z.string().max(4096),
 	title: z.string().max(500).default(""),
-	/** Files the page offered for download during the batch (fetch them with `download`). */
+	/**
+	 * Files the page offered for download during the batch (fetch them with `download`). Each says
+	 * which action of the batch produced it and the id of the grant that action ran under, so Cerea
+	 * keeps only files an approved download action made.
+	 */
 	downloads: z
-		.array(z.object({ name: z.string().max(255), mime: z.string().max(128).optional() }))
+		.array(
+			z.object({
+				name: z.string().max(255),
+				mime: z.string().max(128).optional(),
+				actionIndex: z.number().int().nonnegative(),
+				grantId: z.string().max(128).optional(),
+			})
+		)
 		.max(20)
 		.optional(),
 });
@@ -243,7 +269,13 @@ export const downloadResultSchema = z.object({
 				mime: z.string().max(128).default("application/octet-stream"),
 				size: z.number().int().nonnegative(),
 				/** Base64 bytes. Absent when the runtime left the file out (too large). */
-				base64: z.string().optional(),
+				base64: z
+					.string()
+					.max(Math.ceil((MAX_DOWNLOAD_BYTES * 4) / 3) + 8)
+					.optional(),
+				/** The action that produced it and the grant it ran under; absent for a file with no approved source. */
+				actionIndex: z.number().int().nonnegative().optional(),
+				grantId: z.string().max(128).optional(),
 				/** Why it has no bytes. */
 				skipped: z.string().max(300).optional(),
 			})

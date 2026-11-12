@@ -49,6 +49,11 @@ export function decide(ctx: DecideContext): Decision {
 	const cls: ActionClass = classification.class;
 	const target = classification.targetHost;
 
+	// A non-web address (javascript:, file:, data:, blob:, ...) is never asked about and no list
+	// covers it: the runtime refuses it too.
+	if (classification.reason === "bad-url") {
+		return { verdict: "deny", reason: "Only http and https addresses may be opened." };
+	}
 	if (matchesAny(currentHost, rules.deny) || matchesAny(target, rules.deny)) {
 		const site = matchesAny(target, rules.deny) ? target : currentHost;
 		return {
