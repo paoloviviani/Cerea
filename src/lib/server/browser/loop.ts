@@ -401,26 +401,40 @@ export async function runBrowseLoop(request: LoopRequest, deps: LoopDeps): Promi
 		void deps.runtime.keepAlive?.().catch(() => undefined);
 	}, deps.keepAliveMs ?? KEEPALIVE_MS);
 	timer.unref?.();
+	/** What the finally needs to know about how the task went. */
+	const state: { adopted: Set<string>; result?: BrowseResult } = { adopted: new Set() };
 	try {
-		return await runInner(request, deps);
+		state.result = await runInner(request, deps, state);
+		return state.result;
 	} finally {
 		clearInterval(timer);
-		// A fresh bound, not the task's: a stopped task still ends. Its last page stays open for the
-		// user; the token that resumes it goes to the caller and nowhere else.
-		const ended = await deps.runtime
-			.endTask({ keep: true }, AbortSignal.timeout(10_000))
-			.catch(() => undefined);
-		const kept = ended?.kept ?? null;
-		try {
-			await deps.onKept?.(kept);
-		} catch {
-			// Not being able to remember it only means the next task starts fresh.
+		const reason = state.result?.stopped_reason;
+		// Another task now holds the browser: never end, or keep, its pages.
+		if (reason !== "lease_lost") {
+			// A fresh bound, not the task's: a stopped task still ends. Its last page stays open for
+			// the user, unless the task stopped on a denied site (or crashed): then it is closed and
+			// nothing is remembered. The token that resumes a kept page goes to the caller only.
+			const keep = state.result !== undefined && reason !== "denied";
+			const ended = await deps.runtime
+				.endTask({ keep }, AbortSignal.timeout(10_000))
+				.catch(() => undefined);
+			// A tab the user opened is never kept for a later task, whatever the runtime did.
+			const kept = keep && ended?.kept && !state.adopted.has(ended.kept.id) ? ended.kept : null;
+			try {
+				await deps.onKept?.(kept);
+			} catch {
+				// Not being able to remember it only means the next task starts fresh.
+			}
+			if (kept) deps.observer?.keptOpen?.({ title: short(sanitizeText(kept.title), 120) });
 		}
-		if (kept) deps.observer?.keptOpen?.({ title: short(sanitizeText(kept.title), 120) });
 	}
 }
 
-async function runInner(request: LoopRequest, deps: LoopDeps): Promise<BrowseResult> {
+async function runInner(
+	request: LoopRequest,
+	deps: LoopDeps,
+	shared: { adopted: Set<string> }
+): Promise<BrowseResult> {
 	const { runtime, observer, budgets } = deps;
 	const now = deps.now ?? Date.now;
 	const startedAt = now();
@@ -475,6 +489,11 @@ async function runInner(request: LoopRequest, deps: LoopDeps): Promise<BrowseRes
 		}
 	};
 
+	/** Still the holder of the machine's browser? Checked before anything that reads or acts. */
+	const assertLease = async () => {
+		if (deps.leaseHeld && !(await deps.leaseHeld())) throw new Stop("lease_lost");
+	};
+
 	/** Page state into a tool message, older page states compacted away. */
 	const pushToolMessage = (callId: string, head: string, page?: string) => {
 		const index = messages.length;
@@ -517,6 +536,8 @@ async function runInner(request: LoopRequest, deps: LoopDeps): Promise<BrowseRes
 		observer?.waiting?.(null);
 		if (answer.verdict === "aborted") throw new Stop("aborted");
 		if (answer.verdict !== "approved") throw new Stop("verification");
+		// The user may have been at the window for an hour: is this still our browser?
+		await assertLease();
 	};
 
 	const takeSnapshot = async () => {
@@ -578,16 +599,30 @@ async function runInner(request: LoopRequest, deps: LoopDeps): Promise<BrowseRes
 	/** The tabs as the last `tabs()` listed them: what a `use_tab` is judged and approved against. */
 	const knownTabs = new Map<string, Tab>();
 	const relistTabs = async () => {
-		const listed = await guarded(() => runtime.tabs(deps.signal));
+		const rules = deps.rulesNow?.() ?? deps.rules;
+		const listed = await guarded(() => runtime.tabs({ deny: rules.deny }, deps.signal));
 		knownTabs.clear();
-		for (const tab of listed.tabs) knownTabs.set(tab.id, tab);
-		return listed.tabs;
+		// A tab on a site the browser may not use is not listed, whatever the runtime did with
+		// the deny list it was given.
+		const allowed = listed.tabs.filter((t) => !matchesAny(hostOf(t.url), rules.deny));
+		for (const tab of allowed) knownTabs.set(tab.id, tab);
+		return allowed;
+	};
+	/** A user's own tab is shown to the model without its query string and fragment (tokens, searches). */
+	const shownUrl = (t: Tab): string => {
+		if (t.mine) return urlWithoutFragment(t.url);
+		try {
+			const u = new URL(t.url);
+			return `${u.origin}${u.pathname}`;
+		} catch {
+			return "(address hidden)";
+		}
 	};
 	const doTabs = async (callId: string) => {
 		const list = await relistTabs();
 		const lines = list.map(
 			(t) =>
-				`- id ${fenceInline(t.id)}: ${fenceInline(t.title || "(untitled)")} at ${fenceInline(t.url)} (${t.mine ? "yours" : "the user's own tab"})`
+				`- id ${fenceInline(t.id)}: ${fenceInline(t.title || "(untitled)")} at ${fenceInline(shownUrl(t))} (${t.mine ? "yours" : "the user's own tab"})`
 		);
 		pushToolMessage(callId, lines.length > 0 ? lines.join("\n") : "No pages are open.");
 	};
@@ -822,6 +857,7 @@ async function runInner(request: LoopRequest, deps: LoopDeps): Promise<BrowseRes
 			assertSite();
 			const r = outcome.results[0];
 			if (r?.ok) {
+				if (action.type === "use_tab") shared.adopted.add(action.tab);
 				fail("ok", short(sanitizeText(r.outcome ?? "done"), 80));
 				note(
 					lines.length + 1,
@@ -870,6 +906,7 @@ async function runInner(request: LoopRequest, deps: LoopDeps): Promise<BrowseRes
 				? { mode: args.mode as "auto" | "tables" | "lists" | "text" }
 				: {}),
 		};
+		await assertLease();
 		// The page may have moved on by itself: learn where the browser is, and stop if the
 		// site is off limits, before any of its content is read.
 		await refresh();
@@ -965,6 +1002,7 @@ async function runInner(request: LoopRequest, deps: LoopDeps): Promise<BrowseRes
 	};
 
 	const doScreenshot = async (callId: string, ref: unknown) => {
+		await assertLease();
 		await refresh();
 		const raw = await guarded(() =>
 			runtime.screenshot(typeof ref === "string" ? ref : undefined, deps.signal)
@@ -994,19 +1032,26 @@ async function runInner(request: LoopRequest, deps: LoopDeps): Promise<BrowseRes
 		let resumedNote = "";
 		if (request.resumeToken) {
 			// The page the conversation's last task left open. If it is gone (closed, or the token
-			// expired) the task starts fresh, with nothing said.
+			// expired) the task starts fresh, with nothing said. A page that changed since is not
+			// continued on: it is left to the user and a new tab is started.
+			const changedNote =
+				"\n\nThe page you left changed; starting a new tab. Look at the page below and begin from there.";
 			try {
 				const back = await guarded(() =>
 					runtime.resume(request.resumeToken as string, deps.signal)
 				);
 				observer?.resumed?.({ title: short(sanitizeText(back.title), 120), changed: back.changed });
-				resumedNote =
-					"\n\nThe browser is on the page the previous task in this conversation left open" +
-					(back.changed
-						? `; it has changed since (it was ${fenceInline(back.was?.title ?? "")} at ${fenceInline(back.was?.url ?? "")}).`
-						: ".");
+				if (back.changed || shared.adopted.has(back.id)) {
+					// Release it (it stays open for the user) so the task begins on a blank page of its own.
+					await runtime.endTask({ keep: true }, AbortSignal.timeout(10_000)).catch(() => undefined);
+					resumedNote = changedNote;
+				} else {
+					resumedNote =
+						"\n\nThe browser is on the page the previous task in this conversation left open.";
+				}
 			} catch (err) {
 				if (err instanceof Stop) throw err;
+				if (err instanceof Error && /page_changed/.test(err.message)) resumedNote = changedNote;
 			}
 		}
 		const first = await takeSnapshot();

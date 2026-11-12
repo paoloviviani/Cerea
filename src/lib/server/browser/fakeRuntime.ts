@@ -391,8 +391,8 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 		return { files };
 	}
 
-	async tabs(): Promise<TabsResult> {
-		this.record("tabs", {});
+	async tabs(options?: { deny?: string[] }): Promise<TabsResult> {
+		this.record("tabs", options?.deny?.length ? { deny: options.deny } : {});
 		return {
 			tabs: [...this.pages.values()]
 				.filter((p) => p.userTab || p.id === this.currentId)
@@ -466,7 +466,7 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 					case "download":
 						return json(await this.download());
 					case "tabs":
-						return json(await this.tabs());
+						return json(await this.tabs(args.deny ? { deny: args.deny as string[] } : undefined));
 					case "resume":
 						return json(await this.resume(String(args.token ?? "")));
 					case "end_task":

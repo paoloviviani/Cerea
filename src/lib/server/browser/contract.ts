@@ -399,7 +399,7 @@ export interface BrowserRuntime {
 	screenshot(ref?: string, signal?: AbortSignal): Promise<ScreenshotResult>;
 	download(signal?: AbortSignal): Promise<DownloadResult>;
 	/** The open pages, the user's own included. */
-	tabs(signal?: AbortSignal): Promise<TabsResult>;
+	tabs(options?: { deny?: string[] }, signal?: AbortSignal): Promise<TabsResult>;
 	/** Make a kept page the active task page. Throws when it is gone or the token expired. */
 	resume(token: string, signal?: AbortSignal): Promise<ResumeResult>;
 	/** End the task (ends of every kind); with `keep` its last page stays open. */

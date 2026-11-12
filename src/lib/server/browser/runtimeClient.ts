@@ -150,8 +150,9 @@ export class McpBrowserRuntime implements BrowserRuntime {
 		);
 	}
 
-	tabs(signal?: AbortSignal): Promise<TabsResult> {
-		return this.invoke("tabs", {}, tabsResultSchema, signal);
+	tabs(options?: { deny?: string[] }, signal?: AbortSignal): Promise<TabsResult> {
+		const deny = options?.deny?.filter((d) => d.length > 0) ?? [];
+		return this.invoke("tabs", deny.length > 0 ? { deny } : {}, tabsResultSchema, signal);
 	}
 
 	resume(token: string, signal?: AbortSignal): Promise<ResumeResult> {

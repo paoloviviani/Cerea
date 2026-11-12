@@ -1222,7 +1222,8 @@ describe("L7: the lease is checked before each act", () => {
 		const result = await runBrowseLoop({ goal: "scroll" }, deps);
 		expect(result.stopped_reason).toBe("lease_lost");
 		expect(runtime.performed).toHaveLength(1);
-		expect(runtime.ended).toBe(1);
+		// Another task holds the browser now: this one ends nothing of its.
+		expect(runtime.ended).toBe(0);
 	});
 
 	it("does not ask when there is nothing to check", async () => {

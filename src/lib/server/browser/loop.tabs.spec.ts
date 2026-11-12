@@ -10,6 +10,7 @@ import { actionDigest, classifyAction, describeAction } from "./classifier";
 import { FAKE_BROWSER_KEY, FakeBrowserRuntime, type FakePage } from "./fakeRuntime";
 import { answerTurn, callTurn, scriptedModel, toolTexts, type ScriptedTurn } from "./fakeModel";
 import { runBrowseLoop, type KeptPage, type LoopDeps } from "./loop";
+import { BrowserRuntimeError } from "./contract";
 import { decide } from "./policy";
 
 const pages = (): FakePage[] => [
@@ -321,5 +322,247 @@ describe("the page left open", () => {
 		expect(result.result).toBe("Fresh.");
 		expect(result.stopped_reason).toBeUndefined();
 		expect(runtime.calls[0].tool).toBe("resume");
+	});
+});
+
+// ----- review fixes: resume, tabs hygiene, the lease, a denied stop, a verification before an ask -----
+
+const base = (runtime: FakeBrowserRuntime, model: ReturnType<typeof scriptedModel>): LoopDeps => ({
+	runtime,
+	grantKey: FAKE_BROWSER_KEY,
+	complete: model.complete,
+	approve: async () => ({ verdict: "approved", id: "a" }),
+	rules: { allow: [], deny: [] },
+	ceiling: "ask",
+	budgets,
+});
+
+describe("resuming a page that changed", () => {
+	async function keptCart() {
+		const runtime = new FakeBrowserRuntime(pages(), "home");
+		const kept: Array<KeptPage | null> = [];
+		await runBrowseLoop(
+			{ goal: "open the cart" },
+			{
+				...base(
+					runtime,
+					scriptedModel([
+						callTurn("act", { actions: [{ type: "click", ref: "e1" }] }),
+						answerTurn("In the cart."),
+					])
+				),
+				onKept: (k) => void kept.push(k),
+			}
+		);
+		return { runtime, token: kept[0]?.token ?? "" };
+	}
+
+	it("does not continue on it: releases it, starts a new tab and tells the model", async () => {
+		const { runtime, token } = await keptCart();
+		runtime.retitle("cart", "Something else now");
+		runtime.calls.length = 0;
+		const model = scriptedModel([answerTurn("Fresh.")]);
+		await runBrowseLoop({ goal: "look", resumeToken: token }, base(runtime, model));
+		expect(runtime.calls.map((c) => c.tool).slice(0, 2)).toEqual(["resume", "end_task"]);
+		expect(runtime.calls[1].args).toEqual({ keep: true });
+		expect(JSON.stringify(model.requests[0].messages)).toContain(
+			"The page you left changed; starting a new tab"
+		);
+	});
+
+	it("never resumes a changed page in an unattended run either", async () => {
+		const { runtime, token } = await keptCart();
+		runtime.retitle("cart", "Changed");
+		const model = scriptedModel([answerTurn("Fresh.")]);
+		await runBrowseLoop(
+			{ goal: "look", resumeToken: token },
+			{ ...base(runtime, model), unattended: true }
+		);
+		expect(JSON.stringify(model.requests[0].messages)).toContain("starting a new tab");
+	});
+
+	it("takes the runtime's own page_changed refusal the same way", async () => {
+		const runtime = new FakeBrowserRuntime(pages(), "home");
+		runtime.resume = async () => {
+			throw new BrowserRuntimeError("page_changed", "tool");
+		};
+		const model = scriptedModel([answerTurn("Fresh.")]);
+		const result = await runBrowseLoop({ goal: "look", resumeToken: "t" }, base(runtime, model));
+		expect(result.stopped_reason).toBeUndefined();
+		expect(JSON.stringify(model.requests[0].messages)).toContain("starting a new tab");
+	});
+
+	it("never remembers a tab the user opened and the task adopted", async () => {
+		const runtime = new FakeBrowserRuntime(pages(), "home");
+		const kept: Array<KeptPage | null> = [];
+		await runBrowseLoop(
+			{ goal: "use my tab" },
+			{
+				...base(
+					runtime,
+					scriptedModel([
+						callTurn("tabs", {}),
+						callTurn("act", { actions: [{ type: "use_tab", tab: "flights" }] }),
+						answerTurn("done"),
+					])
+				),
+				onKept: (k) => void kept.push(k),
+			}
+		);
+		expect(kept).toEqual([null]);
+	});
+});
+
+describe("tabs hygiene", () => {
+	const withBank = (): FakePage[] => [
+		...pages(),
+		{
+			id: "bank",
+			url: "https://bank.example.com/acct?token=SECRET#x",
+			title: "Bank",
+			userTab: true,
+			elements: [],
+		},
+		{
+			id: "mail",
+			url: "https://mail.example.com/inbox?session=SECRET2",
+			title: "Mail",
+			userTab: true,
+			elements: [],
+		},
+	];
+
+	it("passes the deny list on, filters denied tabs itself, and strips query and fragment", async () => {
+		const runtime = new FakeBrowserRuntime(withBank(), "home");
+		const model = scriptedModel([
+			callTurn("tabs", {}),
+			callTurn("act", { actions: [{ type: "use_tab", tab: "bank" }] }),
+			answerTurn("done"),
+		]);
+		await runBrowseLoop(
+			{ goal: "the page I am on" },
+			{ ...base(runtime, model), rules: { allow: [], deny: ["bank.example.com"] } }
+		);
+		const call = runtime.calls.find((c) => c.tool === "tabs");
+		expect(call?.args).toEqual({ deny: ["bank.example.com"] });
+		const shown = toolTexts(model.requests[1].messages).join("\n");
+		expect(shown).toContain("https://mail.example.com/inbox");
+		expect(shown).not.toContain("SECRET2");
+		expect(shown).not.toContain("session=");
+		expect(shown).not.toContain("bank.example.com");
+		// A denied tab cannot be adopted: it is not there.
+		expect(runtime.performed.some((a) => a.type === "use_tab")).toBe(false);
+	});
+});
+
+describe("the lease", () => {
+	it("on lease_lost ends nothing and keeps nothing: those pages are another task's", async () => {
+		const runtime = new FakeBrowserRuntime(pages(), "home");
+		const kept: Array<KeptPage | null> = [];
+		const model = scriptedModel([callTurn("act", { actions: [{ type: "click", ref: "e1" }] })]);
+		const result = await runBrowseLoop(
+			{ goal: "open the cart" },
+			{ ...base(runtime, model), leaseHeld: async () => false, onKept: (k) => void kept.push(k) }
+		);
+		expect(result.stopped_reason).toBe("lease_lost");
+		expect(runtime.calls.some((c) => c.tool === "end_task")).toBe(false);
+		expect(kept).toEqual([]);
+	});
+
+	it("is checked again after a verification, before the next look at the page", async () => {
+		const runtime = new FakeBrowserRuntime(pages(), "home");
+		runtime.raiseChallenge("turnstile");
+		let held = true;
+		const result = await runBrowseLoop(
+			{ goal: "look" },
+			{
+				...base(runtime, scriptedModel([answerTurn("x")])),
+				approve: async () => {
+					runtime.solveChallenge();
+					held = false; // another task took the browser while the user was at the window
+					return { verdict: "approved", id: "c" };
+				},
+				leaseHeld: async () => held,
+			}
+		);
+		expect(result.stopped_reason).toBe("lease_lost");
+		expect(runtime.calls.filter((c) => c.tool === "snapshot")).toHaveLength(1);
+	});
+});
+
+describe("a denied stop", () => {
+	it("does not keep the page and clears what was kept", async () => {
+		const runtime = new FakeBrowserRuntime(pages(), "home");
+		const kept: Array<KeptPage | null> = [];
+		const result = await runBrowseLoop(
+			{ goal: "look" },
+			{
+				...base(runtime, scriptedModel([answerTurn("x")])),
+				rules: { allow: [], deny: ["shop.example.com"] },
+				onKept: (k) => void kept.push(k),
+			}
+		);
+		expect(result.stopped_reason).toBe("denied");
+		expect(runtime.calls.at(-1)).toEqual({ tool: "end_task", args: {} });
+		expect(kept).toEqual([null]);
+	});
+});
+
+describe("a verification comes before any approval", () => {
+	const gated = (): FakePage[] => [
+		{
+			id: "home",
+			url: "https://shop.example.com/",
+			title: "Shop",
+			challenge: { kind: "recaptcha" },
+			elements: [{ ref: "e1", role: "button", name: "Pay 120", onClick: { goto: "home" } }],
+		},
+	];
+
+	it("asks to continue, not to approve the payment, and runs nothing when declined", async () => {
+		const runtime = new FakeBrowserRuntime(gated(), "home");
+		const asks: ApprovalAsk[] = [];
+		const result = await runBrowseLoop(
+			{ goal: "pay" },
+			{
+				...base(
+					runtime,
+					scriptedModel([callTurn("act", { actions: [{ type: "click", ref: "e1" }] })])
+				),
+				approve: async (ask) => {
+					asks.push(ask);
+					return { verdict: "denied" };
+				},
+			}
+		);
+		expect(result.stopped_reason).toBe("verification");
+		expect(asks).toHaveLength(1);
+		expect(asks[0].challenge).toBeDefined();
+		expect(asks.some((a) => a.reason === "verb")).toBe(false);
+		expect(runtime.performed).toEqual([]);
+	});
+
+	it("asks about the payment only after the verification is solved", async () => {
+		const runtime = new FakeBrowserRuntime(gated(), "home");
+		const asks: ApprovalAsk[] = [];
+		await runBrowseLoop(
+			{ goal: "pay" },
+			{
+				...base(
+					runtime,
+					scriptedModel([
+						callTurn("act", { actions: [{ type: "click", ref: "e1" }] }),
+						answerTurn("done"),
+					])
+				),
+				approve: async (ask) => {
+					asks.push(ask);
+					if (ask.challenge) runtime.solveChallenge();
+					return { verdict: "approved", id: `a${asks.length}` };
+				},
+			}
+		);
+		expect(asks[0].challenge).toBeDefined();
+		expect(asks[1]?.reason).toBe("verb");
 	});
 });
