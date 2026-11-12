@@ -12,7 +12,7 @@ import { config } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
 import { requireAdmin } from "$lib/server/admin";
 import { BROWSER_LIMITS, browserSettings } from "$lib/server/browser/settings";
-import { parseSiteList } from "$lib/server/browser/siteRules";
+import { isPublicSuffix, parseSiteList } from "$lib/server/browser/siteRules";
 
 async function catalogue() {
 	const { models } = await import("$lib/server/models");
@@ -76,8 +76,15 @@ export const PUT: RequestHandler = async ({ locals, request }) => {
 	}
 	// A line that is not a host would silently vanish from the list; refuse it by name.
 	for (const entry of [...input.sites_allow, ...input.sites_deny]) {
-		if (entry.trim() && parseSiteList(entry).length === 0) {
-			error(400, `'${entry.trim()}' is not a site address.`);
+		if (!entry.trim()) continue;
+		const parsedEntry = parseSiteList(entry);
+		if (parsedEntry.length === 0) error(400, `'${entry.trim()}' is not a site address.`);
+		// `com` or `co.uk` would cover thousands of unrelated sites.
+		if (isPublicSuffix(parsedEntry[0].replace(/^\*\./, ""))) {
+			error(
+				400,
+				`'${entry.trim()}' covers every site under it. Name a site, such as shop.example.com.`
+			);
 		}
 	}
 	const allow = parseSiteList(input.sites_allow.join("\n"));

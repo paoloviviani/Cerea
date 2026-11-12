@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+const notifyUser = vi.hoisted(() => vi.fn(async () => ({})));
+vi.mock("$lib/server/push/notify", () => ({ notifyUser }));
 import { ObjectId } from "mongodb";
 import { collections, ready } from "$lib/server/database";
 import { submitElicitationAnswer } from "$lib/server/mcp/elicitation";
@@ -19,7 +22,7 @@ import {
 await ready;
 
 const ask: ApprovalAsk = {
-	sentence: "Click 'Pay €120' on shop.example.com",
+	sentence: 'Click "Pay €120" on shop.example.com',
 	site: "shop.example.com",
 	reason: "verb",
 	action: { type: "click", ref: "e1" },
@@ -147,6 +150,52 @@ describe("the browse approver (the existing approval card, a durable row, a wait
 	});
 });
 
+describe("the push that says an approval is waiting", () => {
+	it("goes to the owner on the existing permission event, with the sentence and a path to the chat", async () => {
+		notifyUser.mockClear();
+		const owner = new ObjectId();
+		const conversationId = new ObjectId();
+		const approve = createElicitationApprover({
+			sink: { conversationId, emit: () => {} },
+			toolUuid: "t",
+			userId: owner,
+			timeoutMs: 100,
+		});
+		await approve(ask);
+		expect(notifyUser).toHaveBeenCalledTimes(1);
+		expect(notifyUser).toHaveBeenCalledWith(
+			owner,
+			"permission",
+			expect.objectContaining({
+				body: ask.sentence,
+				path: `/conversation/${conversationId.toString()}`,
+				tag: expect.stringMatching(/^browse-/),
+			})
+		);
+	});
+
+	it("is not sent without an owner, and a failing push never fails the ask", async () => {
+		notifyUser.mockClear();
+		const h = harness(100);
+		await h.approve(ask);
+		expect(notifyUser).not.toHaveBeenCalled();
+		notifyUser.mockRejectedValueOnce(new Error("push down"));
+		const approve = createElicitationApprover({
+			sink: { conversationId: new ObjectId(), emit: () => {} },
+			toolUuid: "t",
+			userId: new ObjectId(),
+			timeoutMs: 100,
+		});
+		await expect(approve(ask)).resolves.toEqual({ verdict: "expired" });
+	});
+
+	it("puts the page URL on the card", async () => {
+		const h = harness(100);
+		await h.approve({ ...ask, url: "https://shop.example.com/cart" });
+		expect((await h.requested()).request.browse?.url).toBe("https://shop.example.com/cart");
+	});
+});
+
 describe("safeScreenshot", () => {
 	it("passes a plain picture", () => {
 		expect(safeScreenshot({ mime: "image/png", base64: TINY_PNG_BASE64 })).toBeDefined();
@@ -159,6 +208,10 @@ describe("safeScreenshot", () => {
 			safeScreenshot({ mime: "image/png", base64: "A".repeat(MAX_APPROVAL_SCREENSHOT_CHARS + 4) })
 		).toBeUndefined();
 		expect(safeScreenshot(undefined)).toBeUndefined();
+		// The model's cap is larger than a card's.
+		const big = "A".repeat(MAX_APPROVAL_SCREENSHOT_CHARS + 4);
+		expect(safeScreenshot({ mime: "image/png", base64: big }, 2_000_000)).toBeDefined();
+		expect(safeScreenshot({ mime: "image/gif", base64: "AAAA" }, 2_000_000)).toBeUndefined();
 	});
 	it("leaves a bad picture off the card but still asks", async () => {
 		const h = harness(100);

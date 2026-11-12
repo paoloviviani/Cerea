@@ -171,22 +171,73 @@ function hasLatinLetters(name: string): boolean {
 	return /[a-z]/i.test(normalizeName(name));
 }
 
-/** What `fill` into a submit-capable field etc. means for a key: modifiers stripped, aliases folded. */
-export function normalizeKey(raw: string): { key: string; modified: boolean } {
-	if (raw === " ") return { key: "space", modified: false };
-	const parts = raw.split("+").map((p) => p.trim());
-	// "Control++" style: a trailing empty part after "+" means the key itself is "+".
-	const last = (parts.at(-1) || (raw.endsWith("+") ? "+" : "")).toLowerCase();
-	const modifiers = parts
-		.slice(0, -1)
-		.filter((p) => /^(control|ctrl|shift|alt|meta|cmd|command|option|mod|controlormeta)$/i.test(p));
-	const key =
-		last === "numpadenter" || last === "return"
-			? "enter"
-			: last === " " || last === "spacebar" || last === ""
-				? "space"
-				: last;
-	return { key, modified: modifiers.length > 0 };
+const MODIFIER = /^(control|ctrl|shift|alt|meta|cmd|command|option|mod|controlormeta)$/i;
+/** A modifier that turns a key into a shortcut (Shift alone only changes the character). */
+const SHORTCUT_MODIFIER = /^(control|ctrl|alt|meta|cmd|command|option|mod|controlormeta)$/i;
+/** Navigation and editing keys that do nothing but move or edit in the field. */
+const SAFE_NAMED = new Set([
+	"tab",
+	"escape",
+	"esc",
+	"backspace",
+	"delete",
+	"arrowup",
+	"arrowdown",
+	"arrowleft",
+	"arrowright",
+	"home",
+	"end",
+	"pageup",
+	"pagedown",
+]);
+
+export type KeyKind = "enter" | "space" | "safe" | "unknown";
+
+/**
+ * A key press as Cerea reads it, failing closed. Aliases fold (`\n`, `\r`, `Return`,
+ * `NumpadEnter` are Enter; a lone space and `Spacebar` are Space). Only a printable character or
+ * a known navigation or editing key is `safe`; anything else (a function key, a control or
+ * whitespace character, a key with a shortcut modifier, an unknown name) is `unknown`, which the
+ * classifier treats as a commit.
+ */
+export function normalizeKey(raw: string): { key: string; modified: boolean; kind: KeyKind } {
+	let modifiers: string[];
+	let last: string;
+	if (raw.endsWith("++") || raw === "+") {
+		modifiers = raw === "+" ? [] : raw.slice(0, -2).split("+");
+		last = "+";
+	} else {
+		const parts = raw.split("+");
+		last = parts.at(-1) ?? "";
+		modifiers = parts.slice(0, -1);
+	}
+	const modified = modifiers.length > 0;
+	const unknown = (): { key: string; modified: boolean; kind: KeyKind } => ({
+		key: last.toLowerCase(),
+		modified,
+		kind: "unknown",
+	});
+	if (!modifiers.every((m) => MODIFIER.test(m.trim()))) return unknown();
+	const lower = last.toLowerCase();
+	if (
+		last === "\n" ||
+		last === "\r" ||
+		last === "\r\n" ||
+		["enter", "return", "numpadenter"].includes(lower)
+	) {
+		return { key: "enter", modified, kind: "enter" };
+	}
+	const shortcut = modifiers.some((m) => SHORTCUT_MODIFIER.test(m.trim()));
+	if (last === " " || lower === "space" || lower === "spacebar") {
+		return shortcut ? unknown() : { key: "space", modified, kind: "space" };
+	}
+	// Any other whitespace or control character.
+	// eslint-disable-next-line no-control-regex
+	if (/[\s\u0000-\u001f\u007f]/.test(last)) return unknown();
+	if (shortcut) return unknown();
+	if (SAFE_NAMED.has(lower)) return { key: lower, modified, kind: "safe" };
+	if ([...last].length === 1) return { key: last, modified, kind: "safe" };
+	return unknown();
 }
 
 function resolveUrl(url: string, base: string): URL | undefined {
@@ -218,6 +269,10 @@ function submitClass(el: SnapshotElement | undefined, currentUrl: string): Class
 
 export function classifyAction(action: BrowserAction, ctx: ClassifyContext): Classification {
 	const current = hostOf(ctx.currentUrl);
+	// The runtime could not read this element's metadata: nothing about it can be trusted.
+	if ("ref" in action && action.ref && ctx.element?.metaUnknown) {
+		return { class: "commit", reason: "unknown-element" };
+	}
 	switch (action.type) {
 		case "scroll":
 		case "wait_for":
@@ -227,18 +282,25 @@ export function classifyAction(action: BrowserAction, ctx: ClassifyContext): Cla
 		case "fill":
 			return action.submit ? submitClass(ctx.element, ctx.currentUrl) : { class: "input" };
 		case "press": {
-			const { key, modified } = normalizeKey(action.key);
-			if (key !== "enter" && key !== "space") return { class: "input" };
+			const { kind, modified } = normalizeKey(action.key);
+			if (kind === "unknown") return { class: "commit", reason: "unknown-element" };
+			if (kind === "safe") return { class: "input" };
 			// Enter or Space with no target element acts on whatever has focus: unknown.
 			if (!action.ref) return { class: "commit", reason: "unknown-element" };
 			const el = ctx.element;
 			if (!el) return { class: "commit", reason: "unknown-element" };
-			// A modified Enter (Control+Enter, Meta+Enter) sends or submits in most apps.
-			if (key === "enter" && modified) return { class: "commit", reason: "submit" };
+			// A modified Enter (Control+Enter, Meta+Enter, Shift+Enter) sends or submits in most apps.
+			if (kind === "enter" && modified) return { class: "commit", reason: "submit" };
 			if (el.role === "button" || el.role === "link") {
 				return classifyAction({ type: "click", ref: el.ref }, ctx);
 			}
-			if (key === "enter" && (el.form || el.submits)) return submitClass(el, ctx.currentUrl);
+			if (kind === "enter") {
+				if (el.form || el.submits) return submitClass(el, ctx.currentUrl);
+				// A search box is a read; any other text box with no form is a chat box or a
+				// contenteditable that sends on Enter (Slack, WhatsApp Web, Discord).
+				if (el.role === "searchbox") return { class: "input" };
+				if (el.role === "textbox") return { class: "commit", reason: "submit" };
+			}
 			return { class: "input" };
 		}
 		case "navigate": {
@@ -349,8 +411,10 @@ export function actionValue(action: BrowserAction): string {
 			return action.text + (action.submit ? "\n#submit" : "");
 		case "select":
 			return action.value;
-		case "press":
-			return normalizeKey(action.key).key + (normalizeKey(action.key).modified ? "+mod" : "");
+		case "press": {
+			const { key, modified } = normalizeKey(action.key);
+			return key + (modified ? "+mod" : "");
+		}
 		case "navigate":
 			return action.url;
 		case "scroll":
@@ -370,12 +434,18 @@ export function urlWithoutFragment(url: string): string {
 
 export function actionDigest(action: BrowserAction, ctx: ClassifyContext): string {
 	const ref = "ref" in action && action.ref ? action.ref : "";
+	// The facts that decided the class are bound too: a page that rewrites a link or a form
+	// action after the approval no longer matches.
+	const decided = classifyAction(action, ctx);
 	const canonical = JSON.stringify([
 		action.type,
 		ref,
 		actionValue(action),
 		urlWithoutFragment(ctx.currentUrl),
 		ctx.element?.name ?? "",
+		decided.reason ?? "",
+		decided.targetHost ?? "",
+		ctx.element?.download ? "1" : "0",
 	]);
 	return createHash("sha256").update(canonical).digest("hex").slice(0, 32);
 }

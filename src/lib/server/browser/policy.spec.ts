@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Classification } from "./classifier";
 import { ceilingOf, decide } from "./policy";
-import { hostMatches, hostOf, matchesAny, parseSiteList } from "./siteRules";
+import { hostMatches, hostOf, isPublicSuffix, matchesAny, parseSiteList } from "./siteRules";
 
 const none = { allow: [], deny: [] };
 const read: Classification = { class: "read" };
@@ -101,6 +101,70 @@ describe("decide (the Plan, Ask, Allow ceiling)", () => {
 				unattended: true,
 			}).verdict
 		).toBe("allow");
+	});
+});
+
+describe("H2: addresses that are not web pages", () => {
+	const badUrl: Classification = { class: "commit", reason: "bad-url" };
+	it("are denied, never asked, under every ceiling", () => {
+		for (const ceiling of ["plan", "ask", "allow"] as const) {
+			const d = decide({ classification: badUrl, currentHost: "a.test", rules: none, ceiling });
+			expect(d.verdict).toBe("deny");
+		}
+	});
+	it("are denied even when the site is on the allow list, and when nobody is there", () => {
+		expect(
+			decide({
+				classification: badUrl,
+				currentHost: "a.test",
+				rules: { allow: ["a.test"], deny: [] },
+				ceiling: "allow",
+			}).verdict
+		).toBe("deny");
+		expect(
+			decide({
+				classification: badUrl,
+				currentHost: "a.test",
+				rules: none,
+				ceiling: "ask",
+				unattended: true,
+			}).verdict
+		).toBe("deny");
+	});
+});
+
+describe("M2: hosts are compared in one normal form", () => {
+	it("ignores case and a trailing dot on both sides", () => {
+		expect(hostOf("https://Bank.Test./login")).toBe("bank.test");
+		expect(matchesAny("bank.test.", ["bank.test"])).toBe(true);
+		expect(matchesAny("BANK.test", ["bank.test"])).toBe(true);
+		expect(parseSiteList("Bank.Test.")).toEqual(["bank.test"]);
+	});
+	it("denies a site under its dotted spelling", () => {
+		expect(
+			decide({
+				classification: { class: "read" },
+				currentHost: hostOf("https://bank.test./"),
+				rules: { allow: [], deny: ["bank.test"] },
+				ceiling: "ask",
+			}).verdict
+		).toBe("deny");
+	});
+});
+
+describe("M3: IP literals and public suffixes", () => {
+	it("matches an IP literal only exactly", () => {
+		expect(hostMatches("10.0.0.5", "10.0.0.5")).toBe(true);
+		expect(hostMatches("10.0.0.5", "0.0.5")).toBe(false);
+		expect(hostMatches("10.0.0.50", "10.0.0.5")).toBe(false);
+	});
+	it("recognises a public suffix", () => {
+		for (const suffix of ["com", "co.uk", "github.io", "com.br"]) {
+			expect(isPublicSuffix(suffix)).toBe(true);
+		}
+		for (const site of ["example.com", "shop.example.co.uk", "alice.github.io"]) {
+			expect(isPublicSuffix(site)).toBe(false);
+		}
 	});
 });
 

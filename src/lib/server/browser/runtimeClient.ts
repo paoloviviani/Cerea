@@ -9,6 +9,7 @@
 
 import type { ZodType, ZodTypeDef } from "zod";
 import { callMcpTool, type McpToolTextResponse } from "$lib/server/mcp/httpClient";
+import { getClient } from "$lib/server/mcp/clientPool";
 import { localServerUrl } from "$lib/server/mcp/localUrl";
 import {
 	BROWSER_RUNTIME_SERVER,
@@ -25,6 +26,8 @@ import {
 	type BrowserRuntime,
 	type Diff,
 	type DownloadResult,
+	type EndTaskResult,
+	endTaskResultSchema,
 	type ExtractRequest,
 	type ExtractResult,
 	type RuntimeToolName,
@@ -43,6 +46,26 @@ export type RuntimeCall = (
 const RUNTIME_CALL_TIMEOUT_MS = 60_000;
 /** Downloads can carry megabytes of base64; they get longer. */
 const DOWNLOAD_TIMEOUT_MS = 180_000;
+
+/**
+ * One long-lived channel per (user, machine): `callMcpTool` takes the pooled client for the
+ * server's url, so every call of a task, and the next task, goes over the one `mcp.open` channel
+ * (one runtime process, one browser profile). `mcpRuntimeKeepAlive` pings that channel so a long
+ * wait does not let the pool's or the machine's idle timeout close it.
+ */
+export function mcpRuntimeKeepAlive(target: {
+	userId: string;
+	deviceId: string;
+}): () => Promise<void> {
+	const server = {
+		name: BROWSER_RUNTIME_SERVER,
+		url: localServerUrl(target.userId, target.deviceId, BROWSER_RUNTIME_SERVER),
+	};
+	return async () => {
+		const client = await getClient(server);
+		await client.ping({ timeout: 10_000 });
+	};
+}
 
 /** The default transport: the machine's `cerea-browser` server, as this user. */
 export function mcpRuntimeCall(target: { userId: string; deviceId: string }): RuntimeCall {
@@ -105,7 +128,18 @@ function imageOf(response: Awaited<ReturnType<RuntimeCall>>): ScreenshotResult |
 }
 
 export class McpBrowserRuntime implements BrowserRuntime {
-	constructor(private readonly call: RuntimeCall) {}
+	constructor(
+		private readonly call: RuntimeCall,
+		private readonly ping?: () => Promise<void>
+	) {}
+
+	async keepAlive(): Promise<void> {
+		await this.ping?.();
+	}
+
+	endTask(signal?: AbortSignal): Promise<EndTaskResult> {
+		return this.invoke("end_task", {}, endTaskResultSchema, signal);
+	}
 
 	private async invoke<T>(
 		tool: RuntimeToolName,

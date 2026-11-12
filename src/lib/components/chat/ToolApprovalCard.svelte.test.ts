@@ -725,6 +725,23 @@ describe("ToolApprovalCard, a browsing sub-agent's ask (ADR 0116)", () => {
 		expect(img?.getAttribute("src")).toBe("data:image/png;base64,iVBORw0KGgo=");
 	});
 
+	it("shows the page URL, and a reason for a button it could not read", () => {
+		const { baseElement } = render(ToolApprovalCard, {
+			conversationId: "c1",
+			request: browseRequest({
+				url: "https://shop.example.com/cart",
+				reason: "unclassified",
+				screenshot: undefined,
+			}),
+		});
+		expect(baseElement.querySelector('[data-testid="browse-approval-url"]')?.textContent).toBe(
+			"https://shop.example.com/cart"
+		);
+		expect(
+			baseElement.querySelector('[data-testid="browse-approval-reason"]')?.textContent
+		).toContain("could not tell what this button does");
+	});
+
 	it("offers allow and deny, and no standing grant", () => {
 		const { baseElement } = render(ToolApprovalCard, {
 			conversationId: "c1",

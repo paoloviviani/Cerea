@@ -8,6 +8,8 @@
 import { ObjectId } from "mongodb";
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
+import { localConnectorsEnabled } from "$lib/server/codeEnabled";
+import { servesLocalConnectors } from "$lib/server/mcp/local";
 import { sealingAvailable } from "$lib/server/mcp/secretBox";
 import type { CallFrame, CallResFrame } from "$lib/types/machineProtocol";
 import { deviceBrowserKey } from "./grants";
@@ -26,7 +28,9 @@ export async function handleBrowserCall(deviceId: string, frame: CallFrame): Pro
 		error: { code, message },
 	});
 	if (frame.op !== "browser.key") return fail("unsupported", `Unknown call "${frame.op}".`);
-	if (!browserEnabled()) return fail("unavailable", "Browser use is switched off on this Cerea.");
+	if (!browserEnabled() || !localConnectorsEnabled()) {
+		return fail("forbidden", "Browser use is not switched on on this Cerea.");
+	}
 	if (!sealingAvailable()) {
 		return fail(
 			"unavailable",
@@ -38,6 +42,13 @@ export async function handleBrowserCall(deviceId: string, frame: CallFrame): Pro
 		if (!device) return fail("forbidden", "This machine is not known to Cerea.");
 		if (device.status !== "paired") {
 			return fail("forbidden", "This machine is not paired yet; its owner must confirm it.");
+		}
+		// The device must be one that can offer local servers at all.
+		if (!servesLocalConnectors(device)) {
+			return fail(
+				"forbidden",
+				"This machine does not serve local connectors, so it cannot run the browser."
+			);
 		}
 		const key = await deviceBrowserKey(deviceId, device.userId);
 		return {

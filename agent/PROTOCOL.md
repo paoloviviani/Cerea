@@ -507,6 +507,9 @@ Cerea the first time it is asked, kept sealed on the device row, and never shown
 else. The machine fetches it over the authenticated link (a `call` frame, §5), when
 `galopin browser enable` registers the runtime and again on each runtime start:
 
+The call is not made by a session: `sessionId` and `rootSessionId` are the fixed string
+`browser`, and `caller` is `{workspaceId:"", permissionMode:"ask", coordination:[]}`.
+
 - `browser.key {}` → `{"key":"<base64url, 32 bytes>","alg":"HMAC-SHA256"}`. `forbidden` for an
   unpaired machine, `unavailable` when browser use is off or Cerea cannot keep the key.
 
@@ -517,3 +520,13 @@ when listed, and a Cerea that predates it ignores the unknown call.
 grantId?}`, and `download` returns `{name, mime, size, base64?, actionIndex?, grantId?}`.
 `actionIndex` is the action of the batch that produced it and `grantId` the id of the grant
 that action ran under. Cerea keeps only files whose `grantId` is one it issued for this task.
+
+**Task lifetime.** Cerea keeps one MCP channel to the runtime (one process, one profile) for all
+calls of a task, pings it while the task waits (an approval can take an hour; the machine closes a
+channel idle for 10 minutes, §10.6), and calls `end_task {}` → `{closed}` when a task ends, by
+result, stop, budget or error, so the task's pages close. `download` returns only files with
+provenance unless `{all: true}` is passed, which Cerea never does. A control whose subtree changed
+gets a new ref, so `act` answers `ok: false` ("no element with ref …"), never a refusal; Cerea then
+looks at the page again and never reads that as an approval. An element whose metadata the runtime
+could not read carries `metaUnknown: true`, and Cerea treats any action on it as a commit.
+`press.key` has no control characters; `\n`, `\r` and a lone space are not key names.

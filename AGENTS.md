@@ -1595,9 +1595,15 @@ exactly `true`; user docs in `docs/browser-use.md`. What is not obvious:
   settings machine view and `resolveLocalSelection`. `browseMachinesFor` finds machines that are
   online with a `ready` runtime; `browse` is offered only then.
 - **The contract is `contract.ts`.** `extract` is model-free (tables, lists, text); mapping onto an
-  `output_schema` is one extra model call in the loop. An approval grant carries a digest of the
-  exact action (`actionDigest`, specified in `contract.ts`, test vectors in `classifier.spec.ts`);
-  the runtime recomputes it. Change the digest and the runtime package together.
+  `output_schema` is one extra model call in the loop. A grant is `{index, id, digest, exp, sig}`:
+  `digest` is `actionDigest` (kind, ref, value, page URL without fragment, element name; test
+  vectors in `classifier.spec.ts`) and `sig` an HMAC under a per-device key (`grants.ts`, sealed on
+  the device row, fetched by the runtime with the machine call `browser.key`, PROTOCOL.md 10.7).
+  Change the digest, the signature or the key call and the runtime package together.
+- **One task per machine** is a lease on the device row (`lease.ts`), renewed while running.
+  Browse asks also list in the Needs-you inbox (`/api/v2/browse/approvals`) and push on the
+  `permission` event. Downloads are kept only when the grant that produced them is one the task
+  issued (M1); sites are compared by `tldts` with private domains, hosts in one normal form.
 - **Classify, then decide** (`classifier.ts`, `policy.ts`): read and input run, commit asks even under
   always-allow, a deny-listed site refuses everything, an allow-listed one lets commits through, and
   an unattended run refuses commits. Unknown elements are commits (fail closed). A batch is cut

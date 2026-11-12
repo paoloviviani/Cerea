@@ -500,6 +500,36 @@ describe("sub-agent updates", () => {
 	});
 });
 
+describe("file updates (a browser download)", () => {
+	it("lists the file on the message, carrying a privacy withholding with it", () => {
+		const m = message();
+		applyUpdateToMessage(
+			{ type: MessageUpdateType.File, name: "a.pdf", sha: "s1", mime: "application/pdf" },
+			ctx(m)
+		);
+		applyUpdateToMessage(
+			{
+				type: MessageUpdateType.File,
+				name: "b.pdf",
+				sha: "s2",
+				mime: "application/pdf",
+				withheld: { rule: "no-health-data", pipeline: "strict" },
+			},
+			ctx(m)
+		);
+		expect(m.files).toEqual([
+			{ type: "hash", name: "a.pdf", value: "s1", mime: "application/pdf" },
+			{
+				type: "hash",
+				name: "b.pdf",
+				value: "s2",
+				mime: "application/pdf",
+				withheld: { rule: "no-health-data", pipeline: "strict" },
+			},
+		]);
+	});
+});
+
 describe("browse updates", () => {
 	const state = (
 		uuid: string,

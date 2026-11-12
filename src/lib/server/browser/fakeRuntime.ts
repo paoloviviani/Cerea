@@ -20,6 +20,7 @@ import {
 	type BrowserRuntime,
 	type Diff,
 	type DownloadResult,
+	type EndTaskResult,
 	type ExtractRequest,
 	type ExtractResult,
 	type RuntimeToolName,
@@ -31,6 +32,7 @@ import {
 	extractRequestSchema,
 } from "./contract";
 import { actionDigest, classifyAction } from "./classifier";
+import { verifyGrant } from "./grants";
 import type { RuntimeCall } from "./runtimeClient";
 
 export interface FakeEffect {
@@ -44,7 +46,7 @@ export interface FakeEffect {
 	fail?: string;
 }
 
-export type FakeElement = SnapshotElement & { onClick?: FakeEffect };
+export type FakeElement = SnapshotElement & { onClick?: FakeEffect; onFill?: FakeEffect };
 
 export interface FakePage {
 	id: string;
@@ -54,6 +56,9 @@ export interface FakePage {
 	/** What `extract` returns on this page. */
 	extract?: ExtractResult;
 }
+
+/** The device key the fake runtime verifies grants with. */
+export const FAKE_BROWSER_KEY = Buffer.alloc(32, 7);
 
 /** A 1x1 PNG. */
 export const TINY_PNG_BASE64 =
@@ -70,6 +75,9 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 	readonly calls: Array<{ tool: RuntimeToolName; args: Record<string, unknown> }> = [];
 	/** Actions the fake really performed (not refused). */
 	readonly performed: BrowserAction[] = [];
+	/** How many times the task was ended, and keepalives sent. */
+	ended = 0;
+	pings = 0;
 	/** Make the next call of a tool throw (a runtime that went away). */
 	failNext: Partial<Record<RuntimeToolName, Error>> = {};
 
@@ -77,10 +85,20 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 	private currentId: string;
 	private baseline = new Map<string, string>();
 	private baselineUrl = "";
-	private captured: Array<{ name: string; mime: string; content: Buffer }> = [];
+	private captured: Array<{
+		name: string;
+		mime: string;
+		content: Buffer;
+		actionIndex: number;
+		grantId?: string;
+	}> = [];
 	private current: FakePage;
 
-	constructor(pages: FakePage[], start?: string) {
+	constructor(
+		pages: FakePage[],
+		start?: string,
+		private readonly options: { key?: Buffer; now?: () => number } = {}
+	) {
 		for (const page of pages) {
 			this.pages.set(page.id, {
 				...page,
@@ -107,8 +125,9 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 	}
 
 	private strip(el: FakeElement): SnapshotElement {
-		const { onClick: _onClick, ...rest } = el;
+		const { onClick: _onClick, onFill: _onFill, ...rest } = el;
 		void _onClick;
+		void _onFill;
 		return rest;
 	}
 
@@ -175,7 +194,12 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 	async act(actions: BrowserAction[], approvals?: ApprovalGrant[]): Promise<ActResult> {
 		this.record("act", { actions, ...(approvals ? { approvals } : {}) });
 		const results: ActionResult[] = [];
-		const downloads: Array<{ name: string; mime?: string }> = [];
+		const downloads: Array<{
+			name: string;
+			mime?: string;
+			actionIndex: number;
+			grantId?: string;
+		}> = [];
 		for (let index = 0; index < actions.length; index += 1) {
 			const action = actions[index];
 			const element =
@@ -190,14 +214,31 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 				element: element ? this.strip(element) : undefined,
 				currentUrl: this.current.url,
 			};
-			// The runtime's own refusal: a commit needs a grant for exactly this action.
+			// The runtime's own refusals: a non-web address, and a commit without a valid grant.
+			if (
+				action.type === "navigate" &&
+				!/^https?:\/\//i.test(action.url) &&
+				action.url !== "about:blank"
+			) {
+				results.push({ ok: false, refused: "scheme_refused", error: "address not allowed" });
+				break;
+			}
+			const grant = approvals?.find((a) => a.index === index);
 			if (classifyAction(action, ctx).class === "commit") {
-				const grant = approvals?.find((a) => a.index === index);
 				if (!grant) {
 					results.push({ ok: false, refused: "approval_required", error: "approval required" });
 					break;
 				}
-				if (grant.digest !== actionDigest(action, ctx)) {
+				const checked = verifyGrant(
+					this.options.key ?? FAKE_BROWSER_KEY,
+					grant,
+					this.options.now?.() ?? Date.now()
+				);
+				if (checked === "expired") {
+					results.push({ ok: false, refused: "approval_expired", error: "approval expired" });
+					break;
+				}
+				if (checked === "bad" || grant.digest !== actionDigest(action, ctx)) {
 					results.push({
 						ok: false,
 						refused: "approval_mismatch",
@@ -206,7 +247,7 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 					break;
 				}
 			}
-			const outcome = this.perform(action, element, downloads);
+			const outcome = this.perform(action, element, downloads, index, grant?.id);
 			results.push(outcome);
 			if (!outcome.ok) break;
 			this.performed.push(action);
@@ -222,7 +263,9 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 	private perform(
 		action: BrowserAction,
 		element: FakeElement | undefined,
-		downloads: Array<{ name: string; mime?: string }>
+		downloads: Array<{ name: string; mime?: string; actionIndex: number; grantId?: string }>,
+		index: number,
+		grantId: string | undefined
 	): ActionResult {
 		switch (action.type) {
 			case "click": {
@@ -236,13 +279,22 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 						name: effect.download.name,
 						mime: effect.download.mime ?? "application/octet-stream",
 						content,
+						actionIndex: index,
+						grantId,
 					});
-					downloads.push({ name: effect.download.name, mime: effect.download.mime });
+					downloads.push({
+						name: effect.download.name,
+						mime: effect.download.mime,
+						actionIndex: index,
+						grantId,
+					});
 				}
 				if (effect?.goto) return this.goto(effect.goto, "clicked");
 				return { ok: true, outcome: "clicked" };
 			}
 			case "fill":
+				if (element?.onFill?.reveal)
+					this.current.elements.push(...element.onFill.reveal.map((e) => ({ ...e })));
 				if (element) element.value = element.inputType === "password" ? undefined : action.text;
 				return { ok: true, outcome: `typed ${action.text.length} characters` };
 			case "select":
@@ -290,9 +342,21 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 			mime: file.mime,
 			size: file.content.byteLength,
 			base64: file.content.toString("base64"),
+			actionIndex: file.actionIndex,
+			...(file.grantId ? { grantId: file.grantId } : {}),
 		}));
 		this.captured = [];
 		return { files };
+	}
+
+	async endTask(): Promise<EndTaskResult> {
+		this.record("end_task", {});
+		this.ended += 1;
+		return { closed: true };
+	}
+
+	async keepAlive(): Promise<void> {
+		this.pings += 1;
 	}
 
 	/** The same runtime at the wire level: what an MCP server would answer, for `McpBrowserRuntime`. */
@@ -324,6 +388,8 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 					}
 					case "download":
 						return json(await this.download());
+					case "end_task":
+						return json(await this.endTask());
 				}
 			} catch (err) {
 				return { text: err instanceof Error ? err.message : String(err), isError: true };

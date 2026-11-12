@@ -10,6 +10,8 @@ import {
 	type ScriptedTurn,
 } from "$lib/server/browser/fakeModel";
 import type { BrowserSettings } from "$lib/server/browser/settings";
+import { FAKE_BROWSER_KEY } from "$lib/server/browser/fakeRuntime";
+import { memoryLeaseStore, type LeaseStore } from "$lib/server/browser/lease";
 import type { NestedAgentDeps } from "./nestedAgent";
 
 const saveBrowserDownloads = vi.hoisted(() => vi.fn());
@@ -57,6 +59,7 @@ function build(options: {
 	settings?: BrowserSettings;
 	approve?: "approved" | "denied";
 	runtime?: FakeBrowserRuntime;
+	leases?: LeaseStore;
 }) {
 	const runtime = options.runtime ?? new FakeBrowserRuntime(pages());
 	const model = scriptedModel(options.script);
@@ -68,6 +71,8 @@ function build(options: {
 		ceiling: "ask",
 		userId: new ObjectId(),
 		runtimeFor: () => runtime,
+		grantKeyFor: async () => FAKE_BROWSER_KEY,
+		leases: options.leases ?? memoryLeaseStore(),
 		approver: async (ask) => {
 			asks.push(ask.sentence);
 			return options.approve === "denied"
@@ -155,7 +160,7 @@ describe("browse: the chat model's tool", () => {
 		};
 		await t.tool.execute({ goal: "pay" }, t.ctx);
 		// The test approver answers at once, so the card is waiting only if the loop said so.
-		expect(t.asks).toEqual(["Click 'Pay €120' on shop.example.com"]);
+		expect(t.asks).toEqual(['Click "Pay €120" on shop.example.com']);
 		expect(waitingSeen).toBe(true);
 		expect(browseUpdates(t.updates).at(-1)?.status).toBe("done");
 	});
@@ -215,7 +220,7 @@ describe("browse: the chat model's tool", () => {
 		);
 		expect(saveBrowserDownloads).toHaveBeenCalledWith(
 			[expect.objectContaining({ name: "invoice.pdf" })],
-			expect.objectContaining({ conversationId, messageId: "m1" })
+			expect.objectContaining({ conversationId, emitFile: expect.any(Function) })
 		);
 		expect(JSON.parse((out as { resultText: string }).resultText).files[0]).toMatchObject({
 			name: "invoice.pdf",
@@ -280,7 +285,7 @@ describe("browse: arguments and machines", () => {
 	it("allows one task at a time on a machine", async () => {
 		let release: () => void = () => {};
 		const gate = new Promise<void>((resolve) => (release = resolve));
-		const t = build({ script: [answerTurn("x")] });
+		const t = build({ script: [answerTurn("x")], leases: memoryLeaseStore() });
 		const slow = t.runtime.snapshot.bind(t.runtime);
 		t.runtime.snapshot = async () => {
 			await gate;
@@ -293,6 +298,26 @@ describe("browse: arguments and machines", () => {
 		await first;
 		// Free again afterwards, even though the first one finished.
 		expect("resultText" in (await t.tool.execute({ goal: "look again" }, t.ctx))).toBe(true);
+	});
+
+	it("releases the machine when the task fails, so the next one can run", async () => {
+		const leases = memoryLeaseStore();
+		const t = build({ script: [answerTurn("x")], leases });
+		t.runtime.failNext.snapshot = new Error("boom");
+		const first = await t.tool.execute({ goal: "look" }, t.ctx);
+		expect("resultText" in first || "error" in first).toBe(true);
+		expect("resultText" in (await t.tool.execute({ goal: "look again" }, t.ctx))).toBe(true);
+	});
+
+	it("asks the lease store for the device and the user, with a holder per call", async () => {
+		const acquire = vi.fn(async () => ({ release: async () => {} }));
+		const t = build({ script: [answerTurn("x")], leases: { acquire } });
+		await t.tool.execute({ goal: "look" }, t.ctx);
+		expect(acquire).toHaveBeenCalledWith(
+			laptop.id,
+			expect.anything(),
+			expect.stringContaining("call-uuid")
+		);
 	});
 
 	it("is refused after the user stopped the turn", async () => {
@@ -316,6 +341,8 @@ describe("browse: arguments and machines", () => {
 			ceiling: "ask",
 			userId: new ObjectId(),
 			runtimeFor: () => runtime,
+			grantKeyFor: async () => FAKE_BROWSER_KEY,
+			leases: memoryLeaseStore(),
 			completeFor: () => model.complete,
 		});
 		tool.bind(turnDeps);

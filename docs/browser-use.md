@@ -23,14 +23,20 @@ page at a given address. Browser use _acts_.
   with a message per click.
 - **You are asked before anything that commits.** An approval card appears
   right after the browsing card with a plain sentence ("Click 'Pay €120' on
-  shop.example.com"), the site, why you are asked and, when the browser could
-  take one, a picture of the element. **Allow this action** lets that one
+  shop.example.com"), the site, the page address, why you are asked and, when the
+  browser could take one, a picture of the element. **Allow this action** lets that one
   action run. **Deny** tells the browsing agent it was refused; it must choose
   another path or stop, and it is told not to get the same result another way.
   There is no "allow for the whole conversation": every commit asks.
-- **Downloads go into the conversation** as files, like an attachment. Files a
-  privacy rule withholds stay withheld: they are reported as withheld and no
-  tool can read them.
+- **Approvals reach you wherever you are.** An ask also appears in the **Needs
+  you** bar (the same one agent asks use, on every page, on a phone too) and sends
+  the usual push notification ("Permission" events in your notification settings),
+  so you can answer from your phone with the chat closed.
+- **Downloads go into the conversation** as files, like an attachment, stored
+  once. Only files that an action you approved produced are kept; a file a page
+  started by itself is dropped and said so. Files a privacy rule withholds stay
+  withheld: they are listed, reported as withheld, and no tool can read them.
+  Audio downloads are not transcribed.
 - **Stop works.** Stopping the turn stops the browsing agent, and the card shows
   that you stopped it.
 
@@ -44,23 +50,40 @@ Each action is sorted into one of three classes before it runs:
 | **Input**  | Typing into a field, choosing an option                                                                                                                                                                                                                  | Runs         |
 | **Commit** | Submitting a form, a button that means pay, buy, order, send, delete, remove, confirm, publish or sign (in English, Italian, Spanish, French and German: "Paga", "Invia", "Elimina", "Conferma", "Acquista"), starting a download, going to another site | **Asks you** |
 
-When Cerea cannot tell what an element does, it asks. The names are matched
-broadly on purpose: a "Remove filter" button asks too. Commits ask even when
-your other tools are set to always allow.
+Every click target's name is checked, whatever its kind (a plain `div` named
+"Delete" is still Delete), and the verbs include save, apply, accept, approve,
+share, reply, upload, cancel, unsubscribe and deactivate (salva, applica,
+accetta, approva, condividi, rispondi, carica, annulla, disiscriviti, disattiva).
+Pressing Enter or Space with no known target, or Control or Meta with Enter, asks.
+A form that posts to another site asks, even a search box. A button whose name
+cannot be read (empty, or not in a script Cerea reads) asks. Addresses that are
+not web pages (`javascript:`, `file:`, `data:`, `blob:`) are always refused, never
+asked about. When Cerea cannot tell what an element does, it asks. The names are
+matched broadly on purpose: a "Remove filter" button asks too. Commits ask even
+when your other tools are set to always allow.
+
+Each action is classified on the page it will run on: a batch is run one action
+at a time, with a fresh look at the page in between.
 
 The browser itself also refuses a commit that has no approval from Cerea for
-that exact action (defence in depth), so a mistake on one side does not let an
-action through.
+that exact action (defence in depth). An approval is a signed grant: it names the
+action, the page address (without the `#` part) and the element's name, is signed
+with a key that belongs to that machine, and expires 10 minutes after you allow
+it. Allow-listed sites get signed grants too.
 
 ## What it needs
 
-- The deployment switch on, and [local connectors](local-connectors.md) on.
+- The deployment switch on, [local connectors](local-connectors.md) on, and
+  `CHAT_SECRET_KEY` set (it seals the per-machine key that signs approvals; without
+  it nothing is offered).
 - A machine of yours that is online and runs the browser runtime. The runtime
   appears on a machine as a server named `cerea-browser`. It is **not** listed
   among your connectors and cannot be picked in the composer: only `browse` uses it.
 - `browse` is offered to the assistant only when such a machine is online. With
   several, the assistant names the machine; otherwise the first one is used.
-  One task runs at a time on a machine.
+  One task runs at a time on a machine; this is enforced in the database, so it
+  holds across servers and restarts, and a task that dies frees the machine within
+  a minute.
 
 How to enable the runtime on a machine: coming with `galopin browser`. Until it
 ships, the setting can be turned on but no machine offers a browser, so `browse`
@@ -85,9 +108,13 @@ A task that reaches a budget stops and returns what it has, with a
 `stopped_reason` (`max_steps`, `max_tokens`, `max_time`) and a note on the card.
 
 Site entries are a host (`shop.example.com`), a wildcard (`*.example.com`) or a
-bare domain (`example.com`, which covers its subdomains). The deny list wins
-over the allow list. An allow-listed site covers commits on it, not a commit
-that leaves for another site.
+bare domain (`example.com`, which covers its subdomains). A public suffix such as
+`com` or `co.uk` is refused, because it would cover unrelated sites. Sites are
+told apart by the public suffix list, so two users' pages on a shared host such as
+`github.io` are different sites; an IP address matches only itself. The deny list
+wins over the allow list, and a task that ends up on a denied site, however it got
+there, stops at once. An allow-listed site covers commits on it, not a commit that
+leaves for another site.
 
 ### Cost and safety
 

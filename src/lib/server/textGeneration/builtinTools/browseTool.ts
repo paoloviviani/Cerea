@@ -9,9 +9,16 @@ import {
 } from "$lib/types/MessageUpdate";
 import type { BrowseMachine } from "$lib/server/browser/availability";
 import type { BrowserRuntime } from "$lib/server/browser/contract";
-import { McpBrowserRuntime, mcpRuntimeCall } from "$lib/server/browser/runtimeClient";
+import {
+	McpBrowserRuntime,
+	mcpRuntimeCall,
+	mcpRuntimeKeepAlive,
+} from "$lib/server/browser/runtimeClient";
 import { createElicitationApprover, type Approver } from "$lib/server/browser/approvals";
 import { saveBrowserDownloads } from "$lib/server/browser/downloads";
+import { deviceBrowserKey } from "$lib/server/browser/grants";
+import { mongoLeaseStore, type LeaseStore } from "$lib/server/browser/lease";
+import { randomUUID } from "node:crypto";
 import {
 	runBrowseLoop,
 	type BrowseResult,
@@ -40,9 +47,6 @@ const GOAL_MAX = 4_000;
 const MAX_STEPS_SHOWN = 40;
 const MODEL_CALL_TIMEOUT_MS = 120_000;
 
-/** One browser per machine: a second task there waits for the first, so it is refused. */
-const busyMachines = new Set<string>();
-
 export interface BrowseToolParams {
 	machines: BrowseMachine[];
 	settings: BrowserSettings;
@@ -57,6 +61,10 @@ export interface BrowseToolParams {
 	/** Test seams. */
 	runtimeFor?: (machine: BrowseMachine) => BrowserRuntime;
 	approver?: Approver;
+	/** The device's grant-signing key; default: the sealed one on the device row. */
+	grantKeyFor?: (machine: BrowseMachine) => Promise<Buffer>;
+	/** One task per machine: default a lease on the device row. */
+	leases?: LeaseStore;
 	completeFor?: (deps: NestedAgentDeps, model: string, sameModel: boolean) => CompleteFn;
 }
 
@@ -212,7 +220,11 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 			if (!turnDeps && !params.completeFor)
 				return { error: "Browsing is not available in this turn." };
 			if (ctx.abortSignal?.aborted) return { error: "Aborted by user" };
-			if (busyMachines.has(machine.id)) {
+			if (!params.userId) return { error: "Browsing needs a signed-in user." };
+			const lease = await (params.leases ?? mongoLeaseStore)
+				.acquire(machine.id, params.userId, `${ctx.uuid}:${randomUUID()}`)
+				.catch(() => null);
+			if (!lease) {
 				return {
 					error: `The browser on ${machine.name} is already in use by another task. Wait for it to finish, then call browse again.`,
 				};
@@ -227,17 +239,15 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 			const runtime =
 				params.runtimeFor?.(machine) ??
 				new McpBrowserRuntime(
-					mcpRuntimeCall({ userId: params.userId?.toString() ?? "", deviceId: machine.id })
+					mcpRuntimeCall({ userId: params.userId?.toString() ?? "", deviceId: machine.id }),
+					mcpRuntimeKeepAlive({ userId: params.userId?.toString() ?? "", deviceId: machine.id })
 				);
-			if (!params.runtimeFor && !params.userId) {
-				return { error: "Browsing needs a signed-in user." };
-			}
 
 			const sink = ctx.elicitationSink;
 			const approve: Approver =
 				params.approver ??
 				(sink
-					? createElicitationApprover({ sink, toolUuid: ctx.uuid })
+					? createElicitationApprover({ sink, toolUuid: ctx.uuid, userId: params.userId })
 					: async () => ({ verdict: "denied" }));
 
 			// ---- the card ---------------------------------------------------------------
@@ -281,20 +291,22 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 				? (files: Parameters<typeof saveBrowserDownloads>[0]) =>
 						saveBrowserDownloads(files, {
 							conversationId: ctx.conversationId as ObjectId,
-							userId: params.userId,
-							messageId: ctx.messageId,
 							token: params.token,
+							emitFile: (update) => sink?.emit(update),
 						})
 				: undefined;
 
-			busyMachines.add(machine.id);
 			emit();
 			let result: BrowseResult;
 			try {
+				const grantKey = await (params.grantKeyFor
+					? params.grantKeyFor(machine)
+					: deviceBrowserKey(machine.id, params.userId as ObjectId));
 				result = await runBrowseLoop(
 					{ goal, startUrl, outputSchema },
 					{
 						runtime,
+						grantKey,
 						complete,
 						approve,
 						rules: params.settings.rules,
@@ -319,7 +331,7 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 				}
 				return { error: `Browsing failed: ${err instanceof Error ? err.message : String(err)}` };
 			} finally {
-				busyMachines.delete(machine.id);
+				await lease.release();
 			}
 
 			for (const [id, step] of steps) {

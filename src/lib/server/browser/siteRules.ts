@@ -73,7 +73,8 @@ export function parseSiteList(value: string | undefined): string[] {
  * Whether `host` is covered by one entry. A bare domain covers itself and its subdomains. An IP
  * literal matches only its exact entry.
  */
-export function hostMatches(host: string, entry: string): boolean {
+export function hostMatches(host: string, rawEntry: string): boolean {
+	const entry = rawEntry.toLowerCase().replace(/\.+$/, "");
 	const h = host.toLowerCase().replace(/\.+$/, "");
 	if (psl(h).isIp) return h === entry;
 	if (entry.startsWith("*.")) return h.endsWith(entry.slice(1)) && h.length > entry.length - 1;

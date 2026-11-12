@@ -76,6 +76,7 @@
 		"new-domain": m["chat.approval.browse.reason.new-domain"],
 		"unknown-element": m["chat.approval.browse.reason.unknown-element"],
 		"bad-url": m["chat.approval.browse.reason.bad-url"],
+		unclassified: m["chat.approval.browse.reason.unclassified"],
 	};
 	const browseReason = $derived(browse?.reason ? BROWSE_REASONS[browse.reason]?.() : undefined);
 
@@ -504,6 +505,17 @@
 						>
 						<span class="min-w-0 break-all text-gray-800 dark:text-gray-100">{browse.site}</span>
 					</div>
+					{#if browse.url}
+						<div class="flex flex-wrap gap-x-2">
+							<span class="text-xs font-medium text-gray-500 dark:text-gray-400"
+								>{m["chat.approval.browse.page"]()}</span
+							>
+							<span
+								class="min-w-0 break-all text-gray-800 dark:text-gray-100"
+								data-testid="browse-approval-url">{browse.url}</span
+							>
+						</div>
+					{/if}
 					{#if browseReason}
 						<p
 							class="text-xs text-gray-500 dark:text-gray-400"

@@ -129,6 +129,22 @@ describe("/api/v2/admin/browser", () => {
 		expect(setMock).not.toHaveBeenCalled();
 	});
 
+	it("refuses a public suffix, which would cover thousands of unrelated sites", async () => {
+		for (const entry of ["com", "co.uk", "*.com", "github.io", "https://com/"]) {
+			await expect(PUT(put({ ...valid, sites_deny: [entry] }))).rejects.toMatchObject({
+				status: 400,
+				body: { message: expect.stringContaining("covers every site") },
+			});
+			await expect(PUT(put({ ...valid, sites_allow: [entry] }))).rejects.toMatchObject({
+				status: 400,
+			});
+		}
+		expect(setMock).not.toHaveBeenCalled();
+		// A site under a suffix is fine.
+		await PUT(put({ ...valid, sites_allow: ["shop.example.co.uk", "alice.github.io"] }));
+		expect(setMock).toHaveBeenCalled();
+	});
+
 	it("is for administrators only", async () => {
 		state.admin = false;
 		await expect(GET(get())).rejects.toMatchObject({ status: 403 });

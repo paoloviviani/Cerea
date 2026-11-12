@@ -234,6 +234,8 @@ export interface MessageFileUpdate {
 	name: string;
 	sha: string;
 	mime: string;
+	/** Set when a privacy rule withheld the file: it is listed, and no tool may read it. */
+	withheld?: { rule: string; pipeline?: string };
 }
 export interface MessageFinalAnswerUpdate {
 	type: MessageUpdateType.FinalAnswer;

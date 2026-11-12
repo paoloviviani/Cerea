@@ -22,15 +22,18 @@ import { UNTRUSTED_SYSTEM_LINE } from "$lib/server/textGeneration/untrusted";
 import {
 	BrowserRuntimeError,
 	browserActionSchema,
+	type ApprovalGrant,
 	type BrowserAction,
 	type BrowserRuntime,
 	type DownloadResult,
 	type SnapshotElement,
 } from "./contract";
-import { actionDigest, classifyAction, describeAction } from "./classifier";
+import { actionDigest, classifyAction, describeAction, urlWithoutFragment } from "./classifier";
+import { sanitizeText, stripFence } from "./sanitize";
+import { makeGrant } from "./grants";
 import { decide, type Ceiling } from "./policy";
-import { hostOf, type SiteRules } from "./siteRules";
-import type { Approver } from "./approvals";
+import { hostOf, matchesAny, type SiteRules } from "./siteRules";
+import { safeScreenshot, type Approver } from "./approvals";
 import type { BrowserBudgets } from "./settings";
 
 // ----- the result the chat model sees (ADR 0116 §3) ---------------------------------------
@@ -87,7 +90,7 @@ export interface ModelTurn {
 }
 
 export type CompleteFn = (
-	request: { messages: ChatCompletionMessageParam[]; tools?: OpenAiTool[] },
+	request: { messages: ChatCompletionMessageParam[]; tools?: OpenAiTool[]; maxTokens?: number },
 	signal?: AbortSignal
 ) => Promise<ModelTurn>;
 
@@ -102,6 +105,10 @@ export interface LoopDeps {
 	/** Nobody can answer an approval (a scheduled run). */
 	unattended?: boolean;
 	budgets: BrowserBudgets;
+	/** Test seam: the keepalive period. */
+	keepAliveMs?: number;
+	/** The device's key: grants are signed with it (`grants.ts`). */
+	grantKey: Buffer;
 	/** The model can look at pictures: `screenshot` is offered. */
 	vision?: boolean;
 	observer?: LoopObserver;
@@ -252,8 +259,19 @@ export function toolDefinitions(vision: boolean, hasSchema: boolean): OpenAiTool
 
 /** Page text as the model reads it: fenced, and unable to close its own fence. */
 export function wrapPage(url: string, title: string, text: string): string {
-	const safe = (value: string) => value.split(PAGE_CLOSE).join("[page text removed]");
-	return `${PAGE_OPEN}\nURL: ${safe(url)}\nTitle: ${safe(title)}\n${safe(text)}\n${PAGE_CLOSE}`;
+	return `${PAGE_OPEN}\nURL: ${sanitizeText(url)}\nTitle: ${sanitizeText(title)}\n${stripFence(text)}\n${PAGE_CLOSE}`;
+}
+
+const MAX_ACTIONS_PER_BATCH = 12;
+/** The report and the schema mapping are short: a bounded call each. */
+const FINAL_CALL_MS = 30_000;
+const FINAL_CALL_MAX_TOKENS = 2_000;
+/** A picture handed to the model: bigger than a card's, still bounded. */
+const MAX_MODEL_SCREENSHOT_CHARS = 2_000_000;
+
+/** A string from the page or the runtime, inline, fenced and unable to close its fence. */
+export function fenceInline(text: string): string {
+	return `${PAGE_OPEN}${sanitizeText(text)}${PAGE_CLOSE}`;
 }
 
 const MAX_TOOL_TEXT = 8_000;
@@ -261,16 +279,6 @@ const clip = (text: string, max = MAX_TOOL_TEXT) =>
 	text.length > max ? `${text.slice(0, max)}\n…(truncated)` : text;
 const short = (text: string, max: number) =>
 	text.length > max ? `${text.slice(0, max - 1)}…` : text;
-
-/** Actions after which the page may have new elements: the next ones are classified afresh. */
-const BOUNDARY = new Set<BrowserAction["type"]>([
-	"click",
-	"navigate",
-	"press",
-	"select",
-	"scroll",
-	"wait_for",
-]);
 
 function stoppedText(reason: StoppedReason): string {
 	switch (reason) {
@@ -299,7 +307,29 @@ class Stop extends Error {
 
 // ----- the loop ---------------------------------------------------------------------------
 
+/** How often an idle task pings the runtime, so neither idle timeout closes its channel. */
+export const KEEPALIVE_MS = 2 * 60_000;
+
+/**
+ * Runs the task and, whatever the outcome, ends it: the runtime closes the task's pages
+ * (`end_task`). While it runs, a ping keeps the one channel to the runtime alive through long
+ * waits (an approval can take an hour).
+ */
 export async function runBrowseLoop(request: LoopRequest, deps: LoopDeps): Promise<BrowseResult> {
+	const timer = setInterval(() => {
+		void deps.runtime.keepAlive?.().catch(() => undefined);
+	}, deps.keepAliveMs ?? KEEPALIVE_MS);
+	timer.unref?.();
+	try {
+		return await runInner(request, deps);
+	} finally {
+		clearInterval(timer);
+		// A fresh bound, not the task's: a stopped task still closes its pages.
+		await deps.runtime.endTask(AbortSignal.timeout(10_000)).catch(() => undefined);
+	}
+}
+
+async function runInner(request: LoopRequest, deps: LoopDeps): Promise<BrowseResult> {
 	const { runtime, observer, budgets } = deps;
 	const now = deps.now ?? Date.now;
 	const startedAt = now();
@@ -316,6 +346,10 @@ export async function runBrowseLoop(request: LoopRequest, deps: LoopDeps): Promi
 	const files: BrowseFile[] = [];
 	const elements = new Map<string, SnapshotElement>();
 	let stopped: StoppedReason | undefined;
+	/** Grant ids this task issued: a download counts only when an approved action made it. */
+	const issued = new Set<string>();
+	/** Files the pages offered, by name, with the grant of the action that produced them. */
+	const offered = new Map<string, string | undefined>();
 
 	const messages: ChatCompletionMessageParam[] = [
 		{ role: "system", content: systemPrompt(budgets) },
@@ -332,6 +366,12 @@ export async function runBrowseLoop(request: LoopRequest, deps: LoopDeps): Promi
 		if (deps.signal?.aborted) throw new Stop("aborted");
 		if (activeMs() >= budgets.maxSeconds * 1000) throw new Stop("max_time");
 		if (spentTokens >= budgets.maxTokens) throw new Stop("max_tokens");
+	};
+
+	/** A task that reaches a denied site stops, however it got there. */
+	const assertSite = () => {
+		const host = hostOf(finalUrl);
+		if (host && matchesAny(host, deps.rules.deny)) throw new Stop("denied");
 	};
 
 	const guarded = async <T>(work: () => Promise<T>): Promise<T> => {
@@ -370,6 +410,7 @@ export async function runBrowseLoop(request: LoopRequest, deps: LoopDeps): Promi
 		remember(snap.elements, true);
 		finalUrl = snap.url;
 		currentTitle = snap.title;
+		assertSite();
 		return snap;
 	};
 
@@ -392,6 +433,7 @@ export async function runBrowseLoop(request: LoopRequest, deps: LoopDeps): Promi
 		const diff = await guarded(() => runtime.diff(deps.signal));
 		finalUrl = diff.url;
 		currentTitle = diff.title;
+		assertSite();
 		if (diff.navigated && diff.snapshot) {
 			remember(diff.snapshot.elements, true);
 			return wrapPage(diff.url, diff.title, diff.snapshot.text);
@@ -401,12 +443,25 @@ export async function runBrowseLoop(request: LoopRequest, deps: LoopDeps): Promi
 		return wrapPage(diff.url, diff.title, diff.text || "(no change)");
 	};
 
+	/** The whole page again, with fresh refs: after a failure that may be a stale ref. */
+	const freshPage = async (): Promise<string> => {
+		const snap = await takeSnapshot();
+		return wrapPage(snap.url, snap.title, snap.text);
+	};
+
 	let pendingPage: string | undefined;
 	let denied = false;
 
-	/** Runs a batch: classify, ask where needed, call `act` on each allowed run. */
+	/** Runs a batch one action at a time: classify on fresh state, decide, ask where needed, act. */
 	const doAct = async (callId: string, rawActions: unknown) => {
 		const list = Array.isArray(rawActions) ? rawActions : [];
+		if (list.length > MAX_ACTIONS_PER_BATCH) {
+			pushToolMessage(
+				callId,
+				`Error: at most ${MAX_ACTIONS_PER_BATCH} actions per act call. Nothing was run.`
+			);
+			return;
+		}
 		const parsed: BrowserAction[] = [];
 		for (const item of list) {
 			const result = browserActionSchema.safeParse(item);
@@ -425,143 +480,78 @@ export async function runBrowseLoop(request: LoopRequest, deps: LoopDeps): Promi
 		}
 
 		const lines: string[] = [];
+		const evaluate = (action: BrowserAction) => {
+			const ctx = {
+				element: "ref" in action && action.ref ? elements.get(action.ref) : undefined,
+				currentUrl: finalUrl,
+			};
+			const classification = classifyAction(action, ctx);
+			const decision = decide({
+				classification,
+				currentHost: hostOf(finalUrl),
+				rules: deps.rules,
+				ceiling: deps.ceiling,
+				unattended: deps.unattended,
+			});
+			return { ctx, classification, decision };
+		};
+		const note = (n: number, sentence: string, rest: string) =>
+			lines.push(`${n}. ${fenceInline(sentence)}: ${rest}`);
+
 		let index = 0;
 		let halted = false;
-
-		const classifyCtx = (action: BrowserAction) => ({
-			element: "ref" in action && action.ref ? elements.get(action.ref) : undefined,
-			currentUrl: finalUrl,
-		});
-
 		while (index < parsed.length && !halted) {
-			// A run: allowed actions up to and including the first one that may change the page.
-			const run: BrowserAction[] = [];
-			let blocked: { action: BrowserAction; verdict: "ask" | "deny"; reason: string } | undefined;
-			while (index < parsed.length) {
-				const action = parsed[index];
-				const ctx = classifyCtx(action);
-				const classification = classifyAction(action, ctx);
-				const decision = decide({
-					classification,
-					currentHost: hostOf(finalUrl),
-					rules: deps.rules,
-					ceiling: deps.ceiling,
-					unattended: deps.unattended,
-				});
-				if (decision.verdict !== "allow") {
-					blocked = { action, verdict: decision.verdict, reason: decision.reason };
-					break;
-				}
-				run.push(action);
-				index += 1;
-				if (BOUNDARY.has(action.type)) break;
-			}
-
-			if (run.length > 0) {
-				// Said before the run: the page, and so the sentence, change as it goes.
-				const ranOn = currentTitle || undefined;
-				const sentences = run.map((action) =>
-					short(describeAction(action, classifyCtx(action)), 120)
-				);
-				const ids = sentences.map((action) =>
-					recordStep({ action, page: ranOn, state: "running" })
-				);
-				const grants = run.flatMap((action, i) => {
-					// An allow-listed site: the runtime still wants a grant for a commit.
-					const ctx = classifyCtx(action);
-					return classifyAction(action, ctx).class === "commit"
-						? [
-								{
-									index: i,
-									id: `site:${hostOf(finalUrl) ?? "rule"}`,
-									digest: actionDigest(action, ctx),
-								},
-							]
-						: [];
-				});
-				const outcome = await guarded(() => runtime.act(run, grants, deps.signal));
-				finalUrl = outcome.url;
-				currentTitle = outcome.title;
-				run.forEach((action, i) => {
-					const r = outcome.results[i];
-					const sentence = sentences[i];
-					if (!r) {
-						updateStep(ids[i], {
-							action: sentence,
-							page: ranOn,
-							state: "refused",
-							note: "not run",
-						});
-						lines.push(`${lines.length + 1}. ${sentence}: not run`);
-					} else if (r.ok) {
-						updateStep(ids[i], {
-							action: sentence,
-							page: ranOn,
-							state: "ok",
-							note: short(r.outcome ?? "done", 80),
-						});
-						lines.push(`${lines.length + 1}. ${sentence}: ${r.outcome ?? "ok"}`);
-					} else {
-						updateStep(ids[i], {
-							action: sentence,
-							page: ranOn,
-							state: r.refused ? "refused" : "error",
-							note: short(r.error ?? "failed", 80),
-						});
-						lines.push(`${lines.length + 1}. ${sentence}: FAILED (${r.error ?? "failed"})`);
-					}
-				});
-				if (outcome.results.length < run.length || outcome.results.some((r) => !r.ok)) {
-					// The runtime stopped at a failure; what follows in the batch was never attempted.
-					const skipped = parsed.length - index;
-					if (skipped > 0) lines.push(`(${skipped} later action(s) were not run.)`);
-					halted = true;
-				}
-				if (outcome.downloads?.length) {
-					lines.push(
-						`The page offered ${outcome.downloads.map((d) => d.name).join(", ")} for download; call download to collect it.`
-					);
-				}
-				if (!halted) pendingPage = await refresh();
-			}
-
-			if (blocked && !halted) {
-				const { action, verdict, reason } = blocked;
-				const ctx = classifyCtx(action);
-				const sentence = describeAction(action, ctx);
-				const classification = classifyAction(action, ctx);
-				const ranOn = currentTitle || undefined;
-				const id = recordStep({
-					action: short(sentence, 120),
+			// Every action is its own run: the page it changes is looked at again before the next.
+			checkBudgets();
+			const action = parsed[index];
+			// A ref this page does not have (the page changed under the model, or the runtime gave a
+			// control a new ref): look again first, and never ask about, or approve, a ghost.
+			const wantedRef = "ref" in action ? action.ref : undefined;
+			if (wantedRef && !elements.has(wantedRef)) pendingPage = await freshPage();
+			if (wantedRef && !elements.has(wantedRef)) {
+				const gone = short(describeAction(action, { currentUrl: finalUrl }), 120);
+				const goneId = recordStep({
+					action: gone,
 					page: currentTitle || undefined,
-					state: "running",
+					state: "error",
+					note: "no such element",
 				});
-				halted = true;
-				if (verdict === "deny") {
-					updateStep(id, {
-						action: short(sentence, 120),
-						page: ranOn,
-						state: "denied",
-						note: "not allowed",
-					});
-					lines.push(
-						`${lines.length + 1}. ${sentence}: REFUSED. ${reason} Do not retry it; choose another path or stop.`
-					);
-					denied = true;
-					break;
-				}
-				// Ask. A picture of the element helps the user decide; it is optional.
-				let screenshot: { mime: string; base64: string } | undefined;
+				void goneId;
+				note(
+					lines.length + 1,
+					gone,
+					`FAILED (there is no element ${fenceInline(wantedRef)} on the page now: refs change when the page does). Nothing was run; read the page below and choose again.`
+				);
+				if (parsed.length - index - 1 > 0)
+					lines.push(`(${parsed.length - index - 1} later action(s) were not run.)`);
+				break;
+			}
+			let { ctx, classification, decision } = evaluate(action);
+			const ranOn = currentTitle || undefined;
+			const sentence = short(describeAction(action, ctx), 120);
+			const id = recordStep({ action: sentence, page: ranOn, state: "running" });
+			const fail = (state: StepState, stepNote: string) =>
+				updateStep(id, { action: sentence, page: ranOn, state, note: stepNote });
+			const skipped = parsed.length - index - 1;
+			const skippedLine = () =>
+				skipped > 0 ? lines.push(`(${skipped} later action(s) were not run.)`) : undefined;
+
+			let grants: ApprovalGrant[] = [];
+			let approvedBy: string | undefined;
+
+			if (decision.verdict === "ask") {
+				// A picture of the element helps the user decide; it is optional.
 				const ref = "ref" in action ? action.ref : undefined;
-				if (ref) {
-					screenshot = await runtime.screenshot(ref, deps.signal).catch(() => undefined);
-				}
+				const screenshot = ref
+					? await runtime.screenshot(ref, deps.signal).catch(() => undefined)
+					: undefined;
 				const askedAt = now();
 				observer?.waiting?.(sentence);
 				const answer = await deps.approve(
 					{
 						sentence,
 						site: classification.targetHost ?? hostOf(finalUrl) ?? finalUrl,
+						url: urlWithoutFragment(finalUrl),
 						reason: classification.reason,
 						action,
 						...(screenshot ? { screenshot } : {}),
@@ -574,63 +564,98 @@ export async function runBrowseLoop(request: LoopRequest, deps: LoopDeps): Promi
 				if (answer.verdict !== "approved") {
 					const why =
 						answer.verdict === "expired" ? "nobody answered in time" : "the user refused it";
-					updateStep(id, {
-						action: short(sentence, 120),
-						page: ranOn,
-						state: "denied",
-						note: answer.verdict === "expired" ? "no answer" : "refused by you",
-					});
-					lines.push(
-						`${lines.length + 1}. ${sentence}: REFUSED (${why}). The action did not happen. Do not retry it or get the same result another way; choose a different path, or stop and explain.`
+					fail("denied", answer.verdict === "expired" ? "no answer" : "refused by you");
+					note(
+						lines.length + 1,
+						sentence,
+						`REFUSED (${why}). The action did not happen. Do not retry it or get the same result another way; choose a different path, or stop and explain.`
 					);
+					skippedLine();
 					denied = true;
+					halted = true;
 					break;
 				}
-				// Approved: the grant binds this exact action.
-				const grant = { index: 0, id: answer.id, digest: actionDigest(action, ctx) };
-				const outcome = await guarded(() => runtime.act([action], [grant], deps.signal));
-				finalUrl = outcome.url;
-				currentTitle = outcome.title;
-				const r = outcome.results[0];
-				if (r?.ok) {
-					updateStep(id, {
-						action: short(sentence, 120),
-						page: ranOn,
-						state: "ok",
-						note: short(r.outcome ?? "approved", 80),
-					});
-					lines.push(
-						`${lines.length + 1}. ${sentence}: ${r.outcome ?? "ok"} (approved by the user)`
+				// The world may have moved while the user decided: decide again, and a deny wins.
+				({ ctx, classification, decision } = evaluate(action));
+				if (decision.verdict === "deny") {
+					fail("denied", "not allowed");
+					note(
+						lines.length + 1,
+						sentence,
+						`REFUSED. ${decision.reason} Do not retry it; choose another path or stop.`
 					);
-					halted = false;
-					index += 1;
-					pendingPage = await refresh();
-					if (outcome.downloads?.length) {
-						lines.push(
-							`The page offered ${outcome.downloads.map((d) => d.name).join(", ")} for download; call download to collect it.`
-						);
-					}
-				} else {
-					updateStep(id, {
-						action: short(sentence, 120),
-						page: ranOn,
-						state: r?.refused ? "refused" : "error",
-						note: short(r?.error ?? "failed", 80),
-					});
-					lines.push(`${lines.length + 1}. ${sentence}: FAILED (${r?.error ?? "failed"})`);
-					const skipped = parsed.length - index - 1;
-					if (skipped > 0) lines.push(`(${skipped} later action(s) were not run.)`);
+					skippedLine();
+					denied = true;
+					halted = true;
+					break;
+				}
+				approvedBy = answer.id;
+			} else if (decision.verdict === "deny") {
+				fail("denied", "not allowed");
+				note(
+					lines.length + 1,
+					sentence,
+					`REFUSED. ${decision.reason} Do not retry it; choose another path or stop.`
+				);
+				skippedLine();
+				denied = true;
+				halted = true;
+				break;
+			} else if (decision.viaSiteRule && classification.class === "commit") {
+				approvedBy = `site:${classification.targetHost ?? hostOf(finalUrl) ?? "rule"}`;
+			}
+
+			if (approvedBy) {
+				issued.add(approvedBy);
+				grants = [
+					makeGrant(
+						deps.grantKey,
+						{ index: 0, id: approvedBy, digest: actionDigest(action, ctx) },
+						now()
+					),
+				];
+			}
+
+			const outcome = await guarded(() => runtime.act([action], grants, deps.signal));
+			finalUrl = outcome.url;
+			currentTitle = outcome.title;
+			assertSite();
+			const r = outcome.results[0];
+			if (r?.ok) {
+				fail("ok", short(sanitizeText(r.outcome ?? "done"), 80));
+				note(
+					lines.length + 1,
+					sentence,
+					`${fenceInline(r.outcome ?? "ok")}${approvedBy && !approvedBy.startsWith("site:") ? " (approved by the user)" : ""}`
+				);
+				if (outcome.downloads?.length) {
+					for (const d of outcome.downloads) offered.set(d.name, d.grantId);
+					lines.push(
+						`The page offered ${outcome.downloads.map((d) => fenceInline(d.name)).join(", ")} for download; call download to collect it.`
+					);
+				}
+				index += 1;
+				pendingPage = await refresh();
+			} else {
+				fail(r?.refused ? "refused" : "error", short(sanitizeText(r?.error ?? "failed"), 80));
+				note(lines.length + 1, sentence, `FAILED (${fenceInline(r?.error ?? "failed")})`);
+				skippedLine();
+				halted = true;
+				// A failure that was not a refusal may be a stale ref (the page changed under it):
+				// show the page as it is now. It is never read as an approval.
+				if (!r?.refused) {
+					pendingPage = await freshPage();
+					lines.push(
+						"The page may have changed, so its refs may have too; the page is shown below."
+					);
 				}
 			}
-		}
-		if (denied) {
-			const skipped = parsed.length - index - 1;
-			if (skipped > 0) lines.push(`(${skipped} later action(s) were not run.)`);
 		}
 		const page = pendingPage;
 		pendingPage = undefined;
 		pushToolMessage(callId, lines.join("\n"), page);
 	};
+
 	const doExtract = async (callId: string, args: Record<string, unknown>) => {
 		const extractRequest = {
 			...(typeof args.ref === "string" && args.ref ? { ref: args.ref } : {}),
@@ -676,23 +701,35 @@ export async function runBrowseLoop(request: LoopRequest, deps: LoopDeps): Promi
 			state: "running",
 		});
 		const captured = await guarded(() => runtime.download(deps.signal));
-		const readable = captured.files.filter((f) => f.base64 !== undefined);
-		const skipped = captured.files.filter((f) => f.base64 === undefined);
+		// Only a file an approved download action made is kept. Anything else (a page that
+		// started a download by itself, a click that was not classified as one) is dropped.
+		const approved = captured.files.filter((f) => f.grantId !== undefined && issued.has(f.grantId));
+		const unapproved = captured.files.filter((f) => !approved.includes(f));
+		for (const file of unapproved) {
+			files.push({
+				name: sanitizeText(file.name),
+				size: file.size,
+				saved: false,
+				note: "not saved: no action you approved produced it",
+			});
+		}
+		const readable = approved.filter((f) => f.base64 !== undefined);
+		const skipped = approved.filter((f) => f.base64 === undefined);
 		const saved =
 			deps.saveDownloads && readable.length > 0 ? await deps.saveDownloads(readable) : [];
 		for (const file of saved) files.push(file);
 		for (const file of skipped) {
 			files.push({
-				name: file.name,
+				name: sanitizeText(file.name),
 				size: file.size,
 				saved: false,
-				note: `not saved: ${file.skipped ?? "left out by the browser"}`,
+				note: `not saved: ${sanitizeText(file.skipped ?? "left out by the browser")}`,
 			});
 		}
 		if (!deps.saveDownloads) {
 			for (const file of readable) {
 				files.push({
-					name: file.name,
+					name: sanitizeText(file.name),
 					size: file.size,
 					saved: false,
 					note: "downloads are not kept in this chat",
@@ -703,24 +740,29 @@ export async function runBrowseLoop(request: LoopRequest, deps: LoopDeps): Promi
 			action: "Collect downloaded files",
 			page: currentTitle,
 			state: "ok",
-			note: captured.files.length === 0 ? "none" : `${captured.files.length} file(s)`,
+			note:
+				captured.files.length === 0 ? "none" : `${saved.length} of ${captured.files.length} kept`,
 		});
-		const all = [
-			...saved,
-			...skipped.map((f) => ({ name: f.name, note: `not saved: ${f.skipped ?? ""}` })),
-		];
 		pushToolMessage(
 			callId,
 			captured.files.length === 0
 				? "No files were downloaded."
-				: all.map((f) => `- ${f.name}: ${f.note}`).join("\n")
+				: files
+						.slice(-captured.files.length)
+						.map((f) => `- ${fenceInline(f.name)}: ${f.note}`)
+						.join("\n")
 		);
 	};
 
 	const doScreenshot = async (callId: string, ref: unknown) => {
-		const shot = await guarded(() =>
+		const raw = await guarded(() =>
 			runtime.screenshot(typeof ref === "string" ? ref : undefined, deps.signal)
 		);
+		const shot = safeScreenshot(raw, MAX_MODEL_SCREENSHOT_CHARS);
+		if (!shot) {
+			pushToolMessage(callId, "Error: the browser returned a screenshot that cannot be used.");
+			return;
+		}
 		pushToolMessage(callId, "Screenshot attached.");
 		messages.push({
 			role: "user",
@@ -814,6 +856,7 @@ export async function runBrowseLoop(request: LoopRequest, deps: LoopDeps): Promi
 			});
 
 			for (const call of turn.toolCalls) {
+				checkBudgets();
 				let args: Record<string, unknown> = {};
 				try {
 					const parsedArgs: unknown = call.arguments ? JSON.parse(call.arguments) : {};
@@ -880,7 +923,12 @@ export async function runBrowseLoop(request: LoopRequest, deps: LoopDeps): Promi
 
 	// The data the task asked for: mapped onto the schema by the model from what it read. The
 	// runtime has no model, so `extract` only returns rows and text.
-	if (request.outputSchema && stopped !== "aborted" && stopped !== "runtime_error") {
+	if (
+		request.outputSchema &&
+		stopped !== "aborted" &&
+		stopped !== "runtime_error" &&
+		stopped !== "denied"
+	) {
 		try {
 			const turn = await deps.complete(
 				{
@@ -891,8 +939,9 @@ export async function runBrowseLoop(request: LoopRequest, deps: LoopDeps): Promi
 							content: `Now return ONLY a JSON value matching this JSON Schema, built from what you read on the pages, with nothing else:\n${JSON.stringify(request.outputSchema)}`,
 						},
 					],
+					maxTokens: FINAL_CALL_MAX_TOKENS,
 				},
-				deps.signal
+				finalSignal()
 			);
 			const text = (turn.content ?? "").trim();
 			const json = /^```(?:json)?\s*([\s\S]*?)```$/.exec(text)?.[1] ?? text;
@@ -912,14 +961,27 @@ export async function runBrowseLoop(request: LoopRequest, deps: LoopDeps): Promi
 		...(stopped ? { stopped_reason: stopped } : {}),
 	};
 
+	/** The report and the mapping are bounded: 30 s, and the user's Stop. */
+	function finalSignal(): AbortSignal {
+		return deps.signal
+			? AbortSignal.any([deps.signal, AbortSignal.timeout(FINAL_CALL_MS)])
+			: AbortSignal.timeout(FINAL_CALL_MS);
+	}
+
 	async function partialReport(reason: StoppedReason): Promise<string> {
 		const fallback =
 			`Stopped early: ${stoppedText(reason)}. ` +
-			(finalUrl
-				? `The browser is on ${finalUrl}${currentTitle ? ` ("${currentTitle}")` : ""}. `
+			(finalUrl && reason !== "denied"
+				? `The browser is on ${sanitizeText(finalUrl)}${currentTitle ? ` (${JSON.stringify(sanitizeText(currentTitle))})` : ""}. `
 				: "") +
 			`${rounds} step(s) were taken.`;
-		if (reason === "aborted" || reason === "runtime_error" || reason === "model_error")
+		// A denied site's page is not shown to the model again.
+		if (
+			reason === "aborted" ||
+			reason === "runtime_error" ||
+			reason === "model_error" ||
+			reason === "denied"
+		)
 			return fallback;
 		try {
 			const turn = await deps.complete(
@@ -931,8 +993,9 @@ export async function runBrowseLoop(request: LoopRequest, deps: LoopDeps): Promi
 							content: `The ${reason === "max_time" ? "time" : reason === "max_tokens" ? "token" : "step"} budget is spent. Do not call tools. Report what you found or did so far, and what is still missing, in a few sentences.`,
 						},
 					],
+					maxTokens: FINAL_CALL_MAX_TOKENS,
 				},
-				deps.signal
+				finalSignal()
 			);
 			const text = (turn.content ?? "").trim();
 			return text ? text : fallback;

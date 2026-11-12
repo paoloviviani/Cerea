@@ -7,6 +7,7 @@ import { ObjectId } from "mongodb";
 
 const state = vi.hoisted(() => ({
 	browser: "true",
+	sealing: true,
 	connectors: true,
 	access: "ok" as "ok" | "not_granted",
 	online: new Set<string>(),
@@ -21,6 +22,7 @@ vi.mock("$lib/server/config", () => ({
 		},
 	},
 }));
+vi.mock("$lib/server/mcp/secretBox", () => ({ sealingAvailable: () => state.sealing }));
 vi.mock("$lib/server/logger", () => ({
 	logger: { warn: vi.fn(), info: vi.fn(), debug: vi.fn(), error: vi.fn() },
 }));
@@ -85,6 +87,7 @@ const calendar = { name: "calendar", transport: "stdio", state: "ready" };
 
 beforeEach(() => {
 	state.browser = "true";
+	state.sealing = true;
 	state.connectors = true;
 	state.access = "ok";
 	state.online.clear();
@@ -110,6 +113,12 @@ describe("browseMachinesFor", () => {
 		expect(await browseMachinesFor({ user } as never)).toEqual([]);
 		state.connectors = true;
 		state.access = "not_granted";
+		expect(await browseMachinesFor({ user } as never)).toEqual([]);
+	});
+
+	it("is empty when the deployment cannot keep the grant key (no CHAT_SECRET_KEY)", async () => {
+		device("Laptop", [runtime()]);
+		state.sealing = false;
 		expect(await browseMachinesFor({ user } as never)).toEqual([]);
 	});
 

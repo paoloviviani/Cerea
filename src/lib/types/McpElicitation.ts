@@ -114,6 +114,8 @@ export interface BrowseApprovalPayload {
 	sentence: string;
 	/** The site the action runs on (or leads to). */
 	site: string;
+	/** The page the action runs on, without its fragment. */
+	url?: string;
 	/** Why it asks: "submit", "verb", "download", "new-domain", ... */
 	reason?: string;
 	/** A small picture of the element, when the runtime returned one. */

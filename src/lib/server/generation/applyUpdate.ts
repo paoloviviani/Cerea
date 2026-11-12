@@ -270,7 +270,13 @@ export function applyUpdateToMessage(
 	} else if (event.type === MessageUpdateType.File) {
 		message.files = [
 			...(message.files ?? []),
-			{ type: "hash", name: event.name, value: event.sha, mime: event.mime },
+			{
+				type: "hash",
+				name: event.name,
+				value: event.sha,
+				mime: event.mime,
+				...(event.withheld ? { withheld: event.withheld } : {}),
+			},
 		];
 	} else if (event.type === MessageUpdateType.RouterMetadata) {
 		// Only the provider a gateway reports is taken from the update; a

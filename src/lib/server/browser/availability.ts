@@ -11,6 +11,7 @@ import type { ObjectId } from "mongodb";
 import { isMachineOnline } from "$lib/server/code/machines";
 import { localConnectorsAccessFor, localConnectorsEnabled } from "$lib/server/codeEnabled";
 import { logger } from "$lib/server/logger";
+import { sealingAvailable } from "$lib/server/mcp/secretBox";
 import { localDevicesOf, serversOf } from "$lib/server/mcp/local";
 import { BROWSER_RUNTIME_SERVER } from "./contract";
 import { browserEnabled } from "./settings";
@@ -25,7 +26,8 @@ export async function browseMachinesFor(
 	options: { userId?: ObjectId } = {}
 ): Promise<BrowseMachine[]> {
 	const userId = options.userId ?? locals?.user?._id;
-	if (!userId || !browserEnabled() || !localConnectorsEnabled()) return [];
+	// Without CHAT_SECRET_KEY there is no key to sign grants with: nothing is offered.
+	if (!userId || !browserEnabled() || !localConnectorsEnabled() || !sealingAvailable()) return [];
 	try {
 		if (locals && (await localConnectorsAccessFor(locals as App.Locals)) !== "ok") return [];
 		const devices = (await localDevicesOf(userId)).filter((d) => isMachineOnline(d._id.toString()));
