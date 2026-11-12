@@ -80,7 +80,7 @@ jobs:
           base=https://nodejs.org/dist/latest-v22.x
           curl -fsSL "$base/SHASUMS256.txt" -o SHASUMS256.txt
           line=$(grep -E "  node-v22\.[0-9]+\.[0-9]+-darwin-${{ matrix.node }}\.tar\.gz$" SHASUMS256.txt)
-          [ "$(echo "$line" | wc -l)" = 1 ] || { echo "no single Node 22 tarball found"; exit 1; }
+          [ "$(printf "%s\n" "$line" | grep -c .)" = 1 ] || { echo "no single Node 22 tarball found"; exit 1; }
           file=${line##* }
           curl -fsSL "$base/$file" -o "$file"
           echo "$line" | shasum -a 256 -c -
