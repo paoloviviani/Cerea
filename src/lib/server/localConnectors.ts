@@ -6,6 +6,7 @@ import { isMachineOnline } from "$lib/server/code/machines";
 import { localConnectorsEnabled } from "$lib/server/codeEnabled";
 import { localConnectorId } from "$lib/server/mcp/localUrl";
 import { serversOf, servesLocalConnectors } from "$lib/server/mcp/local";
+import { isBrowserRuntimeServer } from "$lib/server/browser/contract";
 import { machineMode } from "$lib/types/machineProtocol";
 import type { CodeDevice } from "$lib/types/CodeAgent";
 import type { LocalMachineView, LocalServerView } from "$lib/types/LocalConnectors";
@@ -45,15 +46,25 @@ async function machineView(device: CodeDevice): Promise<LocalMachineView> {
 	// A machine that is not approved yet is asked nothing: it may not offer anything yet.
 	const { servers } =
 		device.status === "paired" ? await serversOf(device) : { servers: [] as never[] };
-	const views: LocalServerView[] = servers.map((server) => ({
-		id: localConnectorId(id, server.name),
-		name: server.name,
-		transport: server.transport,
-		...(server.description ? { description: server.description } : {}),
-		state: online ? server.state : "offline",
-		...(server.detail ? { detail: server.detail } : {}),
-		...(server.allowedTools ? { allowedTools: server.allowedTools } : {}),
-	}));
+	const views: LocalServerView[] = servers
+		.filter((server) => !isBrowserRuntimeServer(server.name))
+		.map((server) => ({
+			id: localConnectorId(id, server.name),
+			name: server.name,
+			transport: server.transport,
+			...(server.description ? { description: server.description } : {}),
+			state: online ? server.state : "offline",
+			...(server.detail ? { detail: server.detail } : {}),
+			...(server.allowedTools ? { allowedTools: server.allowedTools } : {}),
+		}));
+	const runtime = servers.find((server) => isBrowserRuntimeServer(server.name));
+	const browser = !runtime
+		? undefined
+		: !online
+			? ("offline" as const)
+			: runtime.state === "ready"
+				? ("ready" as const)
+				: ("problem" as const);
 	return {
 		id,
 		name: device.name,
@@ -65,5 +76,6 @@ async function machineView(device: CodeDevice): Promise<LocalMachineView> {
 		...(device.pairedAt ? { pairedAt: device.pairedAt.toISOString() } : {}),
 		...(device.mcpServersAt ? { serversAt: device.mcpServersAt.toISOString() } : {}),
 		servers: views,
+		...(browser ? { browser } : {}),
 	};
 }

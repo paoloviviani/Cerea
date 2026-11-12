@@ -1021,6 +1021,7 @@ export const MACHINE_CALL_OPS = [
 	"schedule.delete",
 	"connector.list",
 	"connector.call",
+	"browser.key",
 ] as const;
 export type MachineCallOp = (typeof MACHINE_CALL_OPS)[number];
 

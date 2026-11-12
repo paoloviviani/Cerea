@@ -315,10 +315,18 @@ jobs:
           git diff --exit-code -- ../agent/internal/browserrt
 
   client:
+    name: client (shard ${{ matrix.shard }}/3)
     needs: changes
     if: needs.changes.outputs.client == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    # Sharded: one browser page running every client file piled up enough
+    # Playwright route objects to hit "route.fulfill: The object has been
+    # collected to prevent unbounded heap growth" once the suite grew (#204).
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     # The Playwright image's browsers must match the *installed* Playwright
     # exactly, or the project silently reports "no tests" (see AGENTS.md).
     container:
@@ -332,7 +340,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: "${{ env.NODE_VERSION }}", cache: npm }
       - run: npm ci
-      - run: npx vitest run --project=client
+      - run: npx vitest run --project=client --shard=${{ matrix.shard }}/3
 
   # The end-to-end smoke subset: the specs tagged @smoke (sign-in-free landing,
   # a chat turn against the mock upstream, sidebar and projects, workspace

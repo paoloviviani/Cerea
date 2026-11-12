@@ -39,6 +39,24 @@ export interface RenderWithAppOptions {
 	baseElement?: HTMLElement;
 }
 
+const rendered = new Set<{ unmount: () => void }>();
+
+/**
+ * Unmounts everything `renderWithApp` mounted, so a component's poll or pending fetch ends with its
+ * test. Call it in `afterEach` BEFORE `vi.unstubAllGlobals()`: an interval that outlives the test
+ * would otherwise hit the real network once the fetch stub is gone.
+ */
+export function unmountRendered() {
+	for (const screen of rendered) {
+		try {
+			screen.unmount();
+		} catch {
+			// already unmounted by the test
+		}
+	}
+	rendered.clear();
+}
+
 export function renderWithApp<C extends Component>(
 	Component: ComponentType<C>,
 	props?: Props<C>,
@@ -53,7 +71,9 @@ export function renderWithApp<C extends Component>(
 	if (options.artifacts) context.set(ARTIFACTS_CONTEXT_KEY, options.artifacts);
 	if (options.context) for (const [key, value] of options.context) context.set(key, value);
 
-	return render(Component, { props: props ?? ({} as Props<C>), context } as never, {
+	const screen = render(Component, { props: props ?? ({} as Props<C>), context } as never, {
 		baseElement: options.baseElement,
 	});
+	rendered.add(screen);
+	return screen;
 }

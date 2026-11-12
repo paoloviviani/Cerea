@@ -133,6 +133,8 @@ async function enrollWith(choices: EnrollPolicyChoices): Promise<Enrolled> {
 		origin: "https://cerea.example.org/chat",
 		issuer: idpUrl,
 		gatewayOrigin: idpUrl,
+		// The enroll step here has no Cerea to ask for them: spell them out.
+		explicit: true,
 		...choices,
 	});
 	const steps = command.split(" &&\n");

@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { page as browserPage } from "@vitest/browser/context";
-import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
+import { renderWithApp, unmountRendered } from "$lib/components/__tests__/renderWithApp";
 import NeedsYouInbox from "./NeedsYouInbox.svelte";
 import { codeDeviceList } from "$lib/stores/codeDeviceList.svelte";
 import { MessageElicitationUpdateType, MessageUpdateType } from "$lib/types/MessageUpdate";
@@ -131,7 +131,21 @@ function mount(
 
 const inbox = () => document.body.querySelector('[data-testid="needs-you-inbox"]');
 
+afterEach(() => {
+	unmountRendered();
+	vi.unstubAllGlobals();
+	document.body.innerHTML = "";
+});
+
 beforeEach(() => {
+	// The browse source (ADR 0116) answers "nothing pending" unless a test says otherwise.
+	vi.stubGlobal(
+		"fetch",
+		async () =>
+			new Response(JSON.stringify({ approvals: [] }), {
+				headers: { "content-type": "application/json" },
+			})
+	);
 	fake.pendingByDevice = {};
 	fake.permissionCalls = [];
 	fake.questionCalls = [];
@@ -499,5 +513,94 @@ describe("NeedsYouInbox and the session open in the agent view", () => {
 		await expect.element(screen.getByTestId("needs-you-item")).toBeVisible();
 		await screen.getByRole("button", { name: "Skip" }).click();
 		await vi.waitFor(() => expect(inbox()).toBeNull());
+	});
+});
+
+describe("NeedsYouInbox, browse approvals (ADR 0116)", () => {
+	const approval = {
+		elicitationId: "11111111-1111-4111-8111-111111111111",
+		conversationId: "c1",
+		conversationTitle: "Shoes",
+		expiresAt: Date.now() + 600_000,
+		request: {
+			elicitationId: "11111111-1111-4111-8111-111111111111",
+			server: "browser_act",
+			mode: "form",
+			message: "Click",
+			toolApproval: { tool: "browser_act", args: {} },
+			browse: {
+				sentence: 'Click "Pay €120" on shop.example.com',
+				site: "shop.example.com",
+				url: "https://shop.example.com/cart",
+				reason: "verb",
+			},
+		},
+	};
+	const posts: Array<{ url: string; body: unknown }> = [];
+
+	beforeEach(() => {
+		posts.length = 0;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				if (url.includes("/api/v2/browse/approvals")) {
+					return new Response(JSON.stringify({ approvals: [approval] }), {
+						headers: { "content-type": "application/json" },
+					});
+				}
+				if (url.includes("/elicitation")) {
+					posts.push({ url, body: JSON.parse(String(init?.body ?? "{}")) });
+					return new Response(JSON.stringify({ ok: true }), {
+						headers: { "content-type": "application/json" },
+					});
+				}
+				return new Response("{}", { status: 404 });
+			})
+		);
+	});
+
+	it("lists a browsing ask with no machine at all, with its chat, and answers it from the inbox", async () => {
+		await browserPage.viewport(1200, 800);
+		sessionStorage.setItem(EXPANDED_KEY, "1");
+		codeDeviceList.devices = [];
+		codeDeviceList.loading = false;
+		const screen = renderWithApp(NeedsYouInbox);
+		await expect.element(screen.getByTestId("needs-you-browse-item")).toBeVisible();
+		expect(inbox()?.textContent).toContain("Shoes");
+		expect(inbox()?.textContent).toContain('Click "Pay €120" on shop.example.com');
+		expect(inbox()?.textContent).toContain("https://shop.example.com/cart");
+		expect(inbox()?.querySelector('a[href$="/conversation/c1"]')?.getAttribute("href")).toContain(
+			"/conversation/c1"
+		);
+
+		await screen.getByRole("button", { name: "Allow this action" }).click();
+		await vi.waitFor(() => expect(posts).toHaveLength(1));
+		expect(posts[0].url).toContain("/conversation/c1/elicitation");
+		expect(posts[0].body).toMatchObject({
+			elicitationId: approval.elicitationId,
+			action: "accept",
+		});
+	});
+
+	it("works on a phone viewport and counts the ask", async () => {
+		await browserPage.viewport(400, 800);
+		sessionStorage.setItem(EXPANDED_KEY, "1");
+		codeDeviceList.devices = [];
+		codeDeviceList.loading = false;
+		const screen = renderWithApp(NeedsYouInbox);
+		await expect.element(screen.getByTestId("needs-you-browse-item")).toBeVisible();
+		expect(inbox()?.textContent).toContain("1");
+		await screen.getByRole("button", { name: "Deny" }).click();
+		await vi.waitFor(() => expect(posts[0]?.body).toMatchObject({ action: "decline" }));
+	});
+
+	it("is not listed in a pinned view, which belongs to agent sessions", async () => {
+		await browserPage.viewport(1200, 800);
+		codeDeviceList.devices = [];
+		codeDeviceList.loading = false;
+		renderWithApp(NeedsYouInbox, { sessions: [{ deviceId: "d1", sessionId: "a1" }] });
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		expect(document.body.querySelector('[data-testid="needs-you-browse-item"]')).toBeNull();
 	});
 });
