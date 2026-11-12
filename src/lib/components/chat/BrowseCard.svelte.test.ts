@@ -51,6 +51,37 @@ const failed = (message: string): MessageToolUpdate => ({
 const q = (el: HTMLElement, id: string) => el.querySelector(`[data-testid="${id}"]`);
 const click = (el: Element | null) => (el as HTMLElement).click();
 
+describe("the browse card, the page left open", () => {
+	it("says which page it left open, and when the resumed page had changed", async () => {
+		const { baseElement } = render(BrowseCard, {
+			update: state({
+				status: "done",
+				activity: undefined,
+				leftOpen: "Flights to Oslo",
+				pageChanged: true,
+			}),
+			loading: false,
+		});
+		click(baseElement.querySelector("button[aria-expanded]"));
+		await Promise.resolve();
+		expect(q(baseElement, "browse-left-open")?.textContent ?? "").toContain(
+			"Left open: Flights to Oslo"
+		);
+		expect(q(baseElement, "browse-page-changed")).not.toBeNull();
+	});
+
+	it("says nothing about it while the task works, or when nothing was left", () => {
+		const working = render(BrowseCard, {
+			update: state({ leftOpen: "Flights" }),
+			loading: true,
+		});
+		expect(q(working.baseElement, "browse-left-open")).toBeNull();
+		const none = render(BrowseCard, { update: state({ status: "done" }), loading: false });
+		click(none.baseElement.querySelector("button[aria-expanded]"));
+		expect(q(none.baseElement, "browse-left-open")).toBeNull();
+	});
+});
+
 describe("the browse card", () => {
 	it("while it works: open, with the steps streaming in and the page each ran on", () => {
 		const { baseElement } = render(BrowseCard, { update: state(), loading: true });

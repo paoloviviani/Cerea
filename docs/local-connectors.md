@@ -38,11 +38,16 @@ until then `galopin run` is refused with "Sign in to Cerea once before
 connecting a computer".
 
 ```sh
-galopin enroll --connectors-only \
-  --issuer "$OIDC_ISSUER" \
-  --cerea "$CEREA_BASE_URL"
+galopin enroll --connectors-only --cerea "$CEREA_BASE_URL"
 galopin run
 ```
+
+`enroll` asks your Cerea (its public `/galopin/enroll.json`, which holds only the
+sign-in address and the client id) for what it needs, so the address is all you
+type. An older galopin that cannot do that needs
+`--issuer "$OIDC_ISSUER"` as well (and `--client-id` if your deployment uses its
+own); the card in Workspace, Connectors shows that longer form under "Using an
+older galopin?".
 
 `enroll` opens your browser to sign in (or prints a link and code for another
 device), stores the refresh credential in `<config-dir>/galopin/credentials.json`

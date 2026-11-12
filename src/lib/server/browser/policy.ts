@@ -72,7 +72,8 @@ export function decide(ctx: DecideContext): Decision {
 
 	// A commit. The site that governs it is where it leads, when it leaves the page.
 	const governing = target ?? currentHost;
-	if (matchesAny(governing, rules.allow)) {
+	// A tab of the user's own is always asked about: no allow list covers it.
+	if (classification.reason !== "user-tab" && matchesAny(governing, rules.allow)) {
 		return { verdict: "allow", reason: `${governing} is on the allowed list`, viaSiteRule: true };
 	}
 	if (ctx.unattended) {

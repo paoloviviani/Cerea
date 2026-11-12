@@ -282,7 +282,7 @@ describe("runBrowseLoop: the ordinary run", () => {
 		const { deps, model } = setup({ script: [answerTurn("ok")] });
 		await runBrowseLoop({ goal: "look around" }, deps);
 		const names = (model.requests[0].tools ?? []).map((t) => t.function.name);
-		expect(names).toEqual(["snapshot", "diff", "act", "extract", "download"]);
+		expect(names).toEqual(["snapshot", "diff", "act", "extract", "tabs", "download"]);
 	});
 
 	it("offers screenshots only to a model that sees pictures", async () => {

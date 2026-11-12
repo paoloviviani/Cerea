@@ -77,6 +77,7 @@
 		"unknown-element": m["chat.approval.browse.reason.unknown-element"],
 		"bad-url": m["chat.approval.browse.reason.bad-url"],
 		unclassified: m["chat.approval.browse.reason.unclassified"],
+		"user-tab": m["chat.approval.browse.reason.user-tab"],
 	};
 	const browseReason = $derived(browse?.reason ? BROWSE_REASONS[browse.reason]?.() : undefined);
 
@@ -620,7 +621,9 @@
 						{proposesSchedule
 							? m["chat.approval.schedule.create"]()
 							: browse
-								? m["chat.approval.browse.allow"]()
+								? browse.challenge
+									? m["chat.approval.browse.continue"]()
+									: m["chat.approval.browse.allow"]()
 								: approveLabel}
 					</button>
 					<button
@@ -630,7 +633,7 @@
 						class="min-h-9 rounded-lg border border-red-300 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-900/20"
 					>
 						<CarbonClose class="mr-1 inline size-3.5 align-text-bottom" />
-						{m["chat.approval.deny"]()}
+						{browse?.challenge ? m["chat.approval.browse.stop"]() : m["chat.approval.deny"]()}
 					</button>
 					{#if !galopin && !onceOnly && !proposesSchedule && !browse}
 						<button

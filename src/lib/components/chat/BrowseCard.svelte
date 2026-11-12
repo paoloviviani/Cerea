@@ -87,6 +87,7 @@
 			model_error: m["chat.browse.stopped.model_error"](),
 			denied: m["chat.browse.stopped.denied"](),
 			lease_lost: m["chat.browse.stopped.lease_lost"](),
+			verification: m["chat.browse.stopped.verification"](),
 		};
 		return notes[reason];
 	});
@@ -245,6 +246,19 @@
 			{#if stopNote}
 				<p class="text-xs text-amber-700 dark:text-amber-300" data-testid="browse-stop-note">
 					{stopNote}
+				</p>
+			{/if}
+			{#if update.pageChanged}
+				<p class="text-xs text-gray-500 dark:text-gray-400" data-testid="browse-page-changed">
+					{m["chat.browse.page_changed"]()}
+				</p>
+			{/if}
+			{#if update.leftOpen !== undefined && phase !== "working" && phase !== "waiting"}
+				<p
+					class="min-w-0 truncate text-xs text-gray-400 dark:text-gray-500"
+					data-testid="browse-left-open"
+				>
+					{m["chat.browse.left_open"]({ title: update.leftOpen || "-" })}
 				</p>
 			{/if}
 			{#if update.finalUrl && phase !== "working" && phase !== "waiting"}

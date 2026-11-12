@@ -11,6 +11,7 @@ import {
 } from "$lib/server/browser/fakeModel";
 import type { BrowserSettings } from "$lib/server/browser/settings";
 import { FAKE_BROWSER_KEY } from "$lib/server/browser/fakeRuntime";
+import { memoryKeptStore } from "$lib/server/browser/kept";
 import { memoryLeaseStore, type LeaseStore } from "$lib/server/browser/lease";
 import type { NestedAgentDeps } from "./nestedAgent";
 
@@ -382,6 +383,67 @@ describe("browse: arguments and machines", () => {
 		tool.bind(turnDeps);
 		await tool.execute({ goal: "pay" }, { uuid: "u", toolCallId: "c" });
 		expect(runtime.performed).toEqual([]);
+	});
+});
+
+describe("browse: the page left open", () => {
+	function withStore(store: ReturnType<typeof memoryKeptStore>, runtime: FakeBrowserRuntime) {
+		const models: ReturnType<typeof scriptedModel>[] = [];
+		const make = () => {
+			const model = scriptedModel([answerTurn("done")]);
+			models.push(model);
+			return model;
+		};
+		const tool = createBrowseTool({
+			machines: [laptop],
+			settings: settings(),
+			ceiling: "ask",
+			userId: new ObjectId(),
+			runtimeFor: () => runtime,
+			grantKeyFor: async () => FAKE_BROWSER_KEY,
+			leases: memoryLeaseStore(),
+			keptStore: store,
+			approver: async () => ({ verdict: "approved", id: "a" }),
+			completeFor: () => make().complete,
+		});
+		tool.bind(turnDeps);
+		return { tool, models };
+	}
+	const run = async (
+		tool: ReturnType<typeof createBrowseTool>,
+		conversationId: ObjectId,
+		updates: MessageUpdate[]
+	) =>
+		tool.execute({ goal: "look" }, {
+			uuid: "u",
+			toolCallId: "c",
+			conversationId,
+			elicitationSink: { conversationId, emit: (u: MessageUpdate) => void updates.push(u) },
+		} as never);
+
+	it("resumes in the same conversation, never in another, and never shows the token", async () => {
+		const store = memoryKeptStore();
+		const runtime = new FakeBrowserRuntime(pages());
+		const { tool, models } = withStore(store, runtime);
+		const conversation = new ObjectId();
+		const updates: MessageUpdate[] = [];
+		const first = await run(tool, conversation, updates);
+		const token = [...store.tokens.values()][0];
+		expect(token).toBeTruthy();
+		expect(runtime.calls.some((c) => c.tool === "resume")).toBe(false);
+		expect(browseUpdates(updates).at(-1)?.leftOpen).toBeTruthy();
+
+		await run(tool, conversation, updates);
+		expect(runtime.calls.some((c) => c.tool === "resume")).toBe(true);
+
+		runtime.calls.length = 0;
+		await run(tool, new ObjectId(), updates);
+		expect(runtime.calls.some((c) => c.tool === "resume")).toBe(false);
+
+		// Server side only: not in what the chat model reads, nor in what the client is sent.
+		expect(JSON.stringify(first)).not.toContain(token);
+		expect(JSON.stringify(updates)).not.toContain(token);
+		for (const model of models) expect(JSON.stringify(model.requests)).not.toContain(token);
 	});
 });
 

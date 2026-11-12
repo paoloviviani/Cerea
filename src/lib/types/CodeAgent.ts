@@ -330,6 +330,8 @@ export interface CodeDevice {
 	browserKeySealed?: string;
 	/** The browser task holding this machine's browser (ADR 0116): free when absent or past `until`. */
 	browserLease?: { holder: string; until: Date };
+	/** Pages a browse task left open, by conversation id (server-side only; `browser/kept.ts`). */
+	browserKept?: Record<string, { token: string; at: Date }>;
 	userId: ObjectId;
 	/** The machine's own generated id (`X-Pystino-Machine-Id`); stable across
 	 * reconnects, but a fresh one for every re-enroll. Unique per user. */

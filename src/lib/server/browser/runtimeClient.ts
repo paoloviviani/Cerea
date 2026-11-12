@@ -28,6 +28,10 @@ import {
 	type DownloadResult,
 	type EndTaskResult,
 	endTaskResultSchema,
+	resumeResultSchema,
+	tabsResultSchema,
+	type ResumeResult,
+	type TabsResult,
 	type ExtractRequest,
 	type ExtractResult,
 	type RuntimeToolName,
@@ -137,8 +141,21 @@ export class McpBrowserRuntime implements BrowserRuntime {
 		await this.ping?.();
 	}
 
-	endTask(signal?: AbortSignal): Promise<EndTaskResult> {
-		return this.invoke("end_task", {}, endTaskResultSchema, signal);
+	endTask(options?: { keep?: boolean }, signal?: AbortSignal): Promise<EndTaskResult> {
+		return this.invoke(
+			"end_task",
+			options?.keep ? { keep: true } : {},
+			endTaskResultSchema,
+			signal
+		);
+	}
+
+	tabs(signal?: AbortSignal): Promise<TabsResult> {
+		return this.invoke("tabs", {}, tabsResultSchema, signal);
+	}
+
+	resume(token: string, signal?: AbortSignal): Promise<ResumeResult> {
+		return this.invoke("resume", { token }, resumeResultSchema, signal);
 	}
 
 	private async invoke<T>(

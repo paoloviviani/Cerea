@@ -23,6 +23,8 @@ import {
 	type EndTaskResult,
 	type ExtractRequest,
 	type ExtractResult,
+	type ResumeResult,
+	type TabsResult,
 	type RuntimeToolName,
 	type ScreenshotResult,
 	type Snapshot,
@@ -55,6 +57,10 @@ export interface FakePage {
 	elements: FakeElement[];
 	/** What `extract` returns on this page. */
 	extract?: ExtractResult;
+	/** A page the user opened themselves: `tabs()` lists it, `use_tab` adopts it. */
+	userTab?: boolean;
+	/** A bot check on this page: snapshot and diff carry it, and `act` refuses until it is solved. */
+	challenge?: { kind: string };
 }
 
 /** The device key the fake runtime verifies grants with. */
@@ -93,6 +99,10 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 		grantId?: string;
 	}> = [];
 	private current: FakePage;
+	private readonly adopted = new Set<string>();
+	/** The page `end_task({keep})` left open, by token; `resume` finds it again. */
+	private keptPages = new Map<string, { id: string; title: string; url: string }>();
+	private keptCount = 0;
 
 	constructor(
 		pages: FakePage[],
@@ -144,7 +154,24 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 			title: this.current.title,
 			text: elements.map(renderElement).join("\n"),
 			elements,
+			...(this.current.challenge ? { challenge: this.current.challenge } : {}),
 		};
+	}
+
+	/** A bot check appears on the current page (tests). */
+	raiseChallenge(kind: string): void {
+		this.current.challenge = { kind };
+	}
+
+	/** The title of a page changes under the user (tests). */
+	retitle(id: string, title: string): void {
+		const page = this.pages.get(id);
+		if (page) page.title = title;
+	}
+
+	/** The user solved the check in the window. */
+	solveChallenge(): void {
+		delete this.current.challenge;
 	}
 
 	async snapshot(): Promise<Snapshot> {
@@ -165,6 +192,7 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 				removed: [],
 				text: snapshot.text,
 				snapshot,
+				...(this.current.challenge ? { challenge: this.current.challenge } : {}),
 			};
 		}
 		const now = this.current.elements.map((e) => this.strip(e));
@@ -188,6 +216,7 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 			changed,
 			removed,
 			text: lines.length > 0 ? lines.join("\n") : "(no change)",
+			...(this.current.challenge ? { challenge: this.current.challenge } : {}),
 		};
 	}
 
@@ -210,9 +239,19 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 				results.push({ ok: false, error: `No element with ref ${action.ref} on this page.` });
 				break;
 			}
+			if (this.current.challenge) {
+				results.push({ ok: false, refused: "challenge", error: "a verification is on the page" });
+				break;
+			}
+			const tabPage = action.type === "use_tab" ? this.pages.get(action.tab) : undefined;
+			if (action.type === "use_tab" && !tabPage) {
+				results.push({ ok: false, error: `No tab ${action.tab}.` });
+				break;
+			}
 			const ctx = {
 				element: element ? this.strip(element) : undefined,
 				currentUrl: this.current.url,
+				...(tabPage ? { tab: { id: tabPage.id, url: tabPage.url, title: tabPage.title } } : {}),
 			};
 			// The runtime's own refusals: a non-web address, and a commit without a valid grant.
 			if (
@@ -306,6 +345,9 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 				return { ok: true, outcome: `scrolled ${action.direction}` };
 			case "wait_for":
 				return { ok: true, outcome: "waited" };
+			case "use_tab":
+				this.adopted.add(action.tab);
+				return this.goto(action.tab, "using your tab");
 			case "navigate": {
 				const page = [...this.pages.values()].find((p) => p.url === action.url);
 				if (!page) return { ok: false, error: `Could not load ${action.url}.` };
@@ -349,10 +391,45 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 		return { files };
 	}
 
-	async endTask(): Promise<EndTaskResult> {
-		this.record("end_task", {});
+	async tabs(): Promise<TabsResult> {
+		this.record("tabs", {});
+		return {
+			tabs: [...this.pages.values()]
+				.filter((p) => p.userTab || p.id === this.currentId)
+				.map((p) => ({
+					id: p.id,
+					title: p.title,
+					url: p.url,
+					mine: !p.userTab || this.adopted.has(p.id),
+				})),
+		};
+	}
+
+	async resume(token: string): Promise<ResumeResult> {
+		this.record("resume", { token });
+		const kept = this.keptPages.get(token);
+		const page = kept ? this.pages.get(kept.id) : undefined;
+		if (!kept || !page) throw new BrowserRuntimeError("That page is no longer open.", "tool");
+		this.goto(page.id, "resumed");
+		const changed = page.url !== kept.url || page.title !== kept.title;
+		return {
+			id: page.id,
+			title: page.title,
+			url: page.url,
+			changed,
+			...(changed ? { was: { title: kept.title, url: kept.url } } : {}),
+		};
+	}
+
+	async endTask(options?: { keep?: boolean }): Promise<EndTaskResult> {
+		this.record("end_task", options?.keep ? { keep: true } : {});
 		this.ended += 1;
-		return { closed: true };
+		if (!options?.keep) return { closed: true };
+		this.keptCount += 1;
+		const token = `kept-token-${this.keptCount}`;
+		const page = { id: this.current.id, title: this.current.title, url: this.current.url };
+		this.keptPages.set(token, page);
+		return { closed: false, kept: { token, ...page } };
 	}
 
 	async keepAlive(): Promise<void> {
@@ -388,8 +465,12 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 					}
 					case "download":
 						return json(await this.download());
+					case "tabs":
+						return json(await this.tabs());
+					case "resume":
+						return json(await this.resume(String(args.token ?? "")));
 					case "end_task":
-						return json(await this.endTask());
+						return json(await this.endTask(args.keep === true ? { keep: true } : undefined));
 				}
 			} catch (err) {
 				return { text: err instanceof Error ? err.message : String(err), isError: true };

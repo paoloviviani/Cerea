@@ -707,6 +707,37 @@ describe("ToolApprovalCard, a browsing sub-agent's ask (ADR 0116)", () => {
 		},
 	});
 
+	it("a verification asks the user to solve it, with Continue and Stop", () => {
+		const { baseElement } = render(ToolApprovalCard, {
+			conversationId: "c1",
+			request: browseRequest({
+				sentence:
+					"A verification appeared in the browser on Laptop. Solve it in the window, then tap Continue.",
+				reason: undefined,
+				screenshot: undefined,
+				challenge: true,
+			}),
+		});
+		const text = baseElement.textContent ?? "";
+		expect(text).toContain("A verification appeared in the browser on Laptop");
+		expect(text).toContain("Continue");
+		expect(text).toContain("Stop browsing");
+		expect(text).not.toContain("Allow this action");
+	});
+
+	it("a tab of the user's own says why it asks", () => {
+		const { baseElement } = render(ToolApprovalCard, {
+			conversationId: "c1",
+			request: browseRequest({
+				sentence: 'Let Cerea use your tab "Flights" (flights.example.com)?',
+				reason: "user-tab",
+			}),
+		});
+		expect(
+			baseElement.querySelector('[data-testid="browse-approval-reason"]')?.textContent
+		).toContain("a page you opened yourself");
+	});
+
 	it("shows the sentence, the site, why it asks and the element's picture", () => {
 		const { baseElement } = render(ToolApprovalCard, {
 			conversationId: "c1",

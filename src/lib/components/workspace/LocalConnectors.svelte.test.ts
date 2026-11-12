@@ -96,7 +96,11 @@ describe("LocalConnectors", () => {
 			on.baseElement.querySelector(`[data-testid="${id}"]`)?.textContent ?? "";
 		expect(byId("local-browser-install")).toContain("http://localhost:3000/galopin/install.sh");
 		expect(byId("local-browser-enroll")).toContain("--connectors-only");
-		expect(byId("local-browser-enroll")).toContain("--issuer 'https://auth.example.org'");
+		// Short by default: this Cerea tells the binary its issuer; the long form is one click away.
+		expect(byId("local-browser-enroll")).not.toContain("--issuer");
+		expect(byId("local-browser-enroll")).toContain("--cerea 'http://localhost:3000'");
+		expect(byId("local-browser-explicit")).toContain("--issuer 'https://auth.example.org'");
+		expect(text(on)).toContain("Using an older galopin?");
 		expect(byId("local-browser-setup")).toBe(
 			"~/.local/bin/galopin browser setup\n~/.local/bin/galopin browser enable"
 		);
@@ -148,7 +152,8 @@ describe("LocalConnectors", () => {
 		const enroll = byId("local-enroll-command");
 		expect(enroll).toContain("galopin enroll");
 		expect(enroll).toContain("--connectors-only");
-		expect(enroll).toContain("--issuer 'https://auth.example.org'");
+		expect(enroll).not.toContain("--issuer");
+		expect(byId("local-explicit")).toContain("--issuer 'https://auth.example.org'");
 		expect(enroll).toContain("--cerea 'http://localhost:3000'");
 		// A connectors machine needs no gateway, and the default client id is not printed.
 		expect(enroll).not.toContain("--gateway");

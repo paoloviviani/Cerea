@@ -448,6 +448,10 @@ export interface MessageBrowseUpdate {
 	/** The page the browser ended on. */
 	finalUrl?: string;
 	stoppedReason?: string;
+	/** The title of the page left open for the user when the task ended. */
+	leftOpen?: string;
+	/** The task continued on a page the previous task left open, and that page had changed. */
+	pageChanged?: boolean;
 }
 
 /**

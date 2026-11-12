@@ -119,7 +119,7 @@ curl -fsSL 'https://cerea.example.org/galopin/install.sh' | sh
 
 `galopin enroll --cerea <address>` asks the chat for its sign-in settings (the
 issuer and the client id, public facts), so only the address is needed; the card
-prints the explicit flags too. The computer needs Node.js 22.18 or newer. A user
+keeps the long form with explicit flags under "Using an older galopin?". The computer needs Node.js 22.18 or newer. A user
 who **already has galopin for agents** skips the install and the enrol: `browser
 setup` and `browser enable` are enough, and the same `galopin run` serves the
 browser. The per-computer approval key is handed over on the same link

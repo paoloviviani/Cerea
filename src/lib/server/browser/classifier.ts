@@ -21,7 +21,14 @@ import { sanitizeText } from "./sanitize";
 export type ActionClass = "read" | "input" | "commit";
 
 export type CommitReason =
-	"submit" | "verb" | "download" | "new-domain" | "unknown-element" | "unclassified" | "bad-url";
+	| "submit"
+	| "verb"
+	| "download"
+	| "new-domain"
+	| "unknown-element"
+	| "unclassified"
+	| "bad-url"
+	| "user-tab";
 
 export interface Classification {
 	class: ActionClass;
@@ -263,6 +270,8 @@ export interface ClassifyContext {
 	 * for (`start_url`): the one move that may leave a page with no site without asking.
 	 */
 	firstNavigation?: boolean;
+	/** For `use_tab`: the tab as `tabs()` listed it (id, address, title). */
+	tab?: { id: string; url: string; title: string };
 }
 
 /** Submitting a form: a read when it is a GET form (a search), else a commit. */
@@ -284,6 +293,14 @@ export function classifyAction(action: BrowserAction, ctx: ClassifyContext): Cla
 		return { class: "commit", reason: "unknown-element" };
 	}
 	switch (action.type) {
+		case "use_tab":
+			// Always asks: the page is the user's own, with its logins. The tab's host is what the
+			// deny list is checked against; no allow list ever covers it.
+			return {
+				class: "commit",
+				reason: "user-tab",
+				...(ctx.tab ? { targetHost: hostOf(ctx.tab.url) } : {}),
+			};
 		case "scroll":
 		case "wait_for":
 			return { class: "read" };
@@ -394,6 +411,10 @@ export function describeAction(action: BrowserAction, ctx: ClassifyContext): str
 	const site = hostOf(ctx.currentUrl) ?? ctx.currentUrl;
 	const label = ctx.element?.name ? quoted(ctx.element.name, 80) : undefined;
 	switch (action.type) {
+		case "use_tab": {
+			const host = ctx.tab ? (hostOf(ctx.tab.url) ?? "") : "";
+			return `Let Cerea use your tab ${quoted(ctx.tab?.title || "a tab", 80)}${host ? ` (${host})` : ""}?`;
+		}
 		case "click":
 			if (ctx.element?.download) {
 				return `Download ${label ?? "a file"} from ${site}`;
@@ -441,6 +462,8 @@ export function actionValue(action: BrowserAction): string {
 			return action.text ?? String(action.ms ?? "");
 		case "click":
 			return "";
+		case "use_tab":
+			return "";
 	}
 }
 
@@ -451,6 +474,21 @@ export function urlWithoutFragment(url: string): string {
 }
 
 export function actionDigest(action: BrowserAction, ctx: ClassifyContext): string {
+	if (action.type === "use_tab") {
+		// Binds the tab, its address and its title as `tabs()` showed them: a tab that navigated or
+		// was retitled since the user approved no longer matches.
+		const canonical = JSON.stringify([
+			"use_tab",
+			ctx.tab?.id ?? action.tab,
+			"",
+			urlWithoutFragment(ctx.tab?.url ?? ""),
+			ctx.tab?.title ?? "",
+			"user-tab",
+			"",
+			"0",
+		]);
+		return createHash("sha256").update(canonical).digest("hex").slice(0, 32);
+	}
 	const ref = "ref" in action && action.ref ? action.ref : "";
 	// The facts that decided the class are bound too: a page that rewrites a link or a form
 	// action after the approval no longer matches.

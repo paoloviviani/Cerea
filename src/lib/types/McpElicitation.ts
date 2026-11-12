@@ -118,6 +118,8 @@ export interface BrowseApprovalPayload {
 	url?: string;
 	/** Why it asks: "submit", "verb", "download", "new-domain", ... */
 	reason?: string;
+	/** A verification the user is asked to solve in the browser window: the card says Continue. */
+	challenge?: boolean;
 	/** A small picture of the element, when the runtime returned one. */
 	screenshot?: { mime: string; base64: string };
 }

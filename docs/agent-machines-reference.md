@@ -1205,12 +1205,16 @@ install -d ~/.local/bin
 install -m 0755 galopin-darwin-arm64 ~/.local/bin/galopin   # the file for this OS/arch
 xattr -d com.apple.quarantine ~/.local/bin/galopin 2>/dev/null || true   # macOS only
 
-~/.local/bin/galopin enroll \
-  --issuer "$OIDC_ISSUER" \
-  --gateway "$GATEWAY_BASE_URL" \
-  --cerea "$CEREA_BASE_URL"
+~/.local/bin/galopin enroll --cerea "$CEREA_BASE_URL"
 ~/.local/bin/galopin run
 ```
+
+`enroll` asks your Cerea (`GET /galopin/enroll.json`: the OIDC issuer, the
+gateway and the machine client id, public facts only) for what you did not pass,
+and prompts only if it cannot be asked. Flags still win, and a re-enroll keeps
+what is recorded. A galopin older than this release needs `--issuer`, `--gateway`
+(and `--client-id` for a deployment with its own machine client) spelled out; the
+**Pair a computer** dialog shows that form under "Using an older galopin?".
 
 `enroll` opens your browser to sign in (or prints a link and code to open on any device, your phone included), asks which billing group to use if you have several, and writes two files: the opencode config, by default
 `<config-dir>/galopin/opencode.json` (beside the credential, whatever directory

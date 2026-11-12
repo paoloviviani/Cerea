@@ -18,6 +18,7 @@ import { createElicitationApprover, type Approver } from "$lib/server/browser/ap
 import { saveBrowserDownloads } from "$lib/server/browser/downloads";
 import { deviceBrowserKey } from "$lib/server/browser/grants";
 import { mongoLeaseStore, type LeaseStore } from "$lib/server/browser/lease";
+import { mongoKeptStore, type KeptStore } from "$lib/server/browser/kept";
 import { randomUUID } from "node:crypto";
 import {
 	runBrowseLoop,
@@ -58,6 +59,8 @@ export interface BrowseToolParams {
 	chatModelSeesImages?: boolean;
 	/** The user's language (the chat's locale code), for the report. */
 	language?: string;
+	/** Where the page a task leaves open is remembered; the default is the machine's row. */
+	keptStore?: KeptStore;
 	userId?: ObjectId;
 	token?: string;
 	/** Test seams. */
@@ -162,7 +165,8 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 				description:
 					`Drive a real web browser on the user's own computer${machineNames.length === 1 ? ` (${machineNames[0]})` : ""}: ` +
 					"open sites, search, fill in forms, read pages, download files, signed in as the user. " +
-					"Use it whenever the user asks to do something on a website or in their browser. " +
+					"Use it whenever the user asks to do something on a website or in their browser, including the page they are on (say so in `goal`: it can work in the user's own tab, after they approve). " +
+					"Follow-up tasks in the same chat continue on the same page: the browser is left open after each task. " +
 					"A browsing agent does it on its own and returns only the outcome. It asks the user before anything that " +
 					"commits (paying, sending, deleting, downloading, leaving the site). It cannot see this conversation: put " +
 					"everything it needs in `goal`." +
@@ -260,7 +264,12 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 			let status: MessageBrowseUpdate["status"] = "running";
 			let activity: string | undefined = "starting";
 			let waitingOn: string | undefined;
-			const ending: { finalUrl?: string; stoppedReason?: string } = {};
+			const ending: {
+				finalUrl?: string;
+				stoppedReason?: string;
+				leftOpen?: string;
+				pageChanged?: boolean;
+			} = {};
 			const emit = () => {
 				const update: MessageBrowseUpdate = {
 					type: MessageUpdateType.Browse,
@@ -273,6 +282,8 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 					steps: [...steps.values()].slice(-MAX_STEPS_SHOWN),
 					...(ending.finalUrl ? { finalUrl: ending.finalUrl } : {}),
 					...(ending.stoppedReason ? { stoppedReason: ending.stoppedReason } : {}),
+					...(ending.leftOpen !== undefined ? { leftOpen: ending.leftOpen } : {}),
+					...(ending.pageChanged ? { pageChanged: true } : {}),
 				};
 				sink?.emit(update);
 			};
@@ -290,7 +301,18 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 					activity = text;
 					emit();
 				},
+				resumed(info) {
+					if (info.changed) ending.pageChanged = true;
+				},
+				keptOpen(info) {
+					ending.leftOpen = info.title;
+				},
 			};
+			const keptStore = params.keptStore ?? mongoKeptStore;
+			const conversationKey = ctx.conversationId?.toString();
+			const resumeToken = conversationKey
+				? await keptStore.get(machine.id, params.userId, conversationKey).catch(() => undefined)
+				: undefined;
 
 			const saveDownloads = ctx.conversationId
 				? (files: Parameters<typeof saveBrowserDownloads>[0]) =>
@@ -308,7 +330,7 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 					? params.grantKeyFor(machine)
 					: deviceBrowserKey(machine.id, params.userId as ObjectId));
 				result = await runBrowseLoop(
-					{ goal, startUrl, outputSchema, language: params.language },
+					{ goal, startUrl, outputSchema, language: params.language, resumeToken },
 					{
 						runtime,
 						grantKey,
@@ -324,6 +346,11 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 						observer,
 						saveDownloads,
 						signal: ctx.abortSignal,
+						machineName: machine.name,
+						onKept: conversationKey
+							? (kept) =>
+									keptStore.set(machine.id, params.userId as ObjectId, conversationKey, kept)
+							: undefined,
 					}
 				);
 			} catch (err) {

@@ -132,6 +132,18 @@ describe("McpBrowserRuntime over the wire", () => {
 		await new McpBrowserRuntime(fake.asRuntimeCall()).keepAlive();
 	});
 
+	it("lists tabs, keeps the last page on end_task and resumes it, over the wire", async () => {
+		const { client, fake } = runtime();
+		expect((await client.tabs()).tabs.length).toBeGreaterThan(0);
+		const ended = await client.endTask({ keep: true });
+		expect(fake.calls.at(-1)).toEqual({ tool: "end_task", args: { keep: true } });
+		expect(ended.closed).toBe(false);
+		const token = ended.kept?.token ?? "";
+		expect(token).not.toBe("");
+		expect(await client.resume(token)).toMatchObject({ changed: false });
+		await expect(client.resume("gone")).rejects.toBeInstanceOf(BrowserRuntimeError);
+	});
+
 	it("accepts a table with no ref", async () => {
 		const call: RuntimeCall = async () => ({
 			text: JSON.stringify({ tables: [{ headers: ["A"], rows: [["1"]] }] }),

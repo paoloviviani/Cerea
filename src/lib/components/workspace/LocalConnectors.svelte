@@ -287,6 +287,11 @@ loginctl enable-linger "$USER"`;
 
 		{@render step(2, m["workspace.local.howto.step2"]())}
 		{@render code(commands.enroll, "local-enroll-command")}
+		<details class="mt-2 text-xs text-ink-muted" data-testid="local-older">
+			<summary class="cursor-pointer">{m["code.pair.older_galopin"]()}</summary>
+			<p class="mt-2">{m["code.pair.older_galopin_note"]()}</p>
+			<div class="mt-2">{@render code(commands.enrollExplicit, "local-explicit")}</div>
+		</details>
 		<p class="mt-1 text-xs text-ink-muted">
 			{m["workspace.local.howto.enroll_note"]()}
 		</p>
@@ -366,6 +371,11 @@ loginctl enable-linger "$USER"`;
 		{@render code(commands.install, "local-browser-install")}
 		{@render step(2, m["workspace.local.browser.step_enroll"]())}
 		{@render code(commands.enroll, "local-browser-enroll")}
+		<details class="mt-2 text-xs text-ink-muted" data-testid="local-browser-older">
+			<summary class="cursor-pointer">{m["code.pair.older_galopin"]()}</summary>
+			<p class="mt-2">{m["code.pair.older_galopin_note"]()}</p>
+			<div class="mt-2">{@render code(commands.enrollExplicit, "local-browser-explicit")}</div>
+		</details>
 		{@render step(3, m["workspace.local.browser.step_setup"]())}
 		{@render code(`${browserSetup}\n${browserEnable}`, "local-browser-setup")}
 		<p class="mt-1 text-xs text-ink-muted">{m["workspace.local.browser.note_node"]()}</p>

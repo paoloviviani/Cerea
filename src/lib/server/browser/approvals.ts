@@ -48,7 +48,10 @@ export interface ApprovalAsk {
 	/** The page's URL without its fragment, shown on the card and bound into the grant. */
 	url?: string;
 	reason?: string;
-	action: BrowserAction;
+	/** The action asked about; absent for a verification the user is asked to solve. */
+	action?: BrowserAction;
+	/** A verification (captcha, bot check) appeared: the card asks the user to solve it, then Continue. */
+	challenge?: { kind: string };
 	screenshot?: { mime: string; base64: string };
 }
 
@@ -78,6 +81,7 @@ export function createElicitationApprover(options: {
 			site: ask.site,
 			...(ask.url ? { url: ask.url } : {}),
 			...(ask.reason ? { reason: ask.reason } : {}),
+			...(ask.challenge ? { challenge: true } : {}),
 			...(safeScreenshot(ask.screenshot) ? { screenshot: safeScreenshot(ask.screenshot) } : {}),
 		};
 		const request: ElicitationRequestPayload = {
@@ -89,13 +93,16 @@ export function createElicitationApprover(options: {
 				{
 					kind: "select",
 					name: "scope",
-					title: "Allow this action?",
+					title: ask.challenge ? "Continue?" : "Allow this action?",
 					required: true,
 					multiple: false,
-					options: [{ value: "once", label: "Allow this action" }],
+					options: [{ value: "once", label: ask.challenge ? "Continue" : "Allow this action" }],
 				},
 			],
-			toolApproval: { tool: BROWSE_APPROVAL_TOOL, args: { action: ask.action, site: ask.site } },
+			toolApproval: {
+				tool: BROWSE_APPROVAL_TOOL,
+				args: { action: ask.action ?? null, site: ask.site },
+			},
 			browse,
 		};
 		const now = new Date();
@@ -128,7 +135,7 @@ export function createElicitationApprover(options: {
 		if (options.userId) {
 			const { notifyUser } = await import("$lib/server/push/notify");
 			void notifyUser(options.userId, "permission", {
-				title: "Browsing needs your approval",
+				title: ask.challenge ? "A verification needs you" : "Browsing needs your approval",
 				body: ask.sentence,
 				path: `/conversation/${sink.conversationId.toString()}`,
 				tag: `browse-${elicitationId}`,

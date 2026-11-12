@@ -83,6 +83,23 @@ function policyPart(screen: Screen): string {
 }
 
 describe("PairDeviceDialog", () => {
+	it("prints the short command, with the long one behind Using an older galopin?", async () => {
+		await browserPage.viewport(1200, 1000);
+		const screen = mount({ codeOidcClientId: "machine-client" });
+		await expect.element(screen.getByText("Pair a computer")).toBeVisible();
+		const short = command(screen);
+		expect(short).toContain(`--cerea '${ORIGIN}'`);
+		expect(short).not.toMatch(/--issuer|--gateway|--client-id/);
+		const details = screen.getByTestId("pair-older-galopin").element() as HTMLDetailsElement;
+		expect(details.open).toBe(false);
+		const long =
+			screen.getByTestId("galopin-enroll-command-explicit").element().textContent?.trim() ?? "";
+		expect(long).toContain(`--issuer '${ISSUER}'`);
+		expect(long).toContain(`--gateway '${GATEWAY}'`);
+		expect(long).toContain("--client-id 'machine-client'");
+		expect(long).toContain("--default-group");
+	});
+
 	it("opens with every default, and prints exactly the defaults: --default-group, nothing else", async () => {
 		await browserPage.viewport(1200, 1000);
 		const screen = mount();
