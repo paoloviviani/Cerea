@@ -2,6 +2,7 @@ import { paraglideVitePlugin } from "@inlang/paraglide-js";
 import { sveltekit } from "@sveltejs/kit/vite";
 import tailwindcss from "@tailwindcss/vite";
 import Icons from "unplugin-icons/vite";
+import { build } from "esbuild";
 import { promises } from "fs";
 import { defineConfig } from "vitest/config";
 import { config } from "dotenv";
@@ -54,6 +55,44 @@ function clientTestNoApiServer() {
 				res.setHeader("content-type", "application/json");
 				res.end('{"message":"no app server in the client tests"}');
 			});
+		},
+	};
+}
+
+// Paraglide's `message-modules` output is one file per message: about 3,100 modules behind
+// `$lib/paraglide/messages`, and most components import it. Under `vite dev` every client test file
+// therefore starts by fetching thousands of modules. That slows each file down and, worse, lets a
+// pending Playwright mock route (a `vi.mock` factory that is still resolving) be overtaken by more
+// requests than Playwright keeps objects for: "route.fulfill: The object has been collected to
+// prevent unbounded heap growth", which ends the whole run. The client tests get the catalogue as
+// the single module it is (the runtime and registry stay shared, so locale state is the same).
+function clientTestBundledMessages() {
+	let bundled: Promise<string> | undefined;
+	return {
+		name: "client-test-bundled-messages",
+		enforce: "pre" as const,
+		load(id: string) {
+			if (!id.split("?")[0].endsWith("/src/lib/paraglide/messages/_index.js")) return null;
+			bundled ??= build({
+				entryPoints: [id.split("?")[0]],
+				bundle: true,
+				write: false,
+				format: "esm",
+				target: "esnext",
+				logLevel: "silent",
+				plugins: [
+					{
+						name: "keep-paraglide-runtime",
+						setup(b) {
+							b.onResolve({ filter: /^\.\.\/(runtime|registry)\.js$/ }, (args) => ({
+								path: args.path,
+								external: true,
+							}));
+						},
+					},
+				],
+			}).then((result) => result.outputFiles[0].text);
+			return bundled;
 		},
 	};
 }
@@ -219,7 +258,7 @@ export default defineConfig({
 				// Runs a real Chromium via Playwright, so `npx playwright install chromium`
 				// is a prerequisite. Selected with `--project=client`.
 				extends: "./vite.config.ts",
-				plugins: [clientTestNoApiServer()],
+				plugins: [clientTestNoApiServer(), clientTestBundledMessages()],
 				optimizeDeps: { include: clientTestDeps },
 				test: {
 					name: "client",
