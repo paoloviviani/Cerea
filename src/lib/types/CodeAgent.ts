@@ -331,7 +331,10 @@ export interface CodeDevice {
 	/** The browser task holding this machine's browser (ADR 0116): free when absent or past `until`. */
 	browserLease?: { holder: string; until: Date };
 	/** Pages a browse task left open, by conversation id (server-side only; `browser/kept.ts`). */
-	browserKept?: Record<string, { token: string; url?: string; at: Date }>;
+	browserKept?: Record<
+		string,
+		{ token: string; url?: string; at: Date; lent?: boolean; site?: string }
+	>;
 	/** This user's default computer for browsing (one per user, set from Connectors; `browser/machineChoice.ts`). */
 	browserDefault?: boolean;
 	/** When `browserDefault` was set: if several are ever set, the latest wins. */

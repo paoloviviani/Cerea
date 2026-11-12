@@ -169,7 +169,8 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 					"open sites, search, fill in forms, read pages, download files, signed in as the user. " +
 					"Use it whenever the user asks to do something on a website or in their browser. " +
 					"`goal` must describe ONLY the user's latest request, in full: never resume, repeat or continue an earlier plan or task unless the user asks for that. " +
-					"When the user refers to the page or tab they have open, say so in `goal` (it can work in their own tab, after they approve) and do not name a site. " +
+					'When the user refers to the page or tab they have open ("my tab", "the page I\'m on"), say so in `goal` (it works in their own tab, after they approve, and never opens a new tab for it) and do not name a site or pass `start_url`. ' +
+					"A tab the user allows stays lent to this chat: follow-up requests in the same chat continue in it without asking again, while it stays on the same site (for up to an hour after the last request); never pass its address as `start_url`. " +
 					"To only open or show the browser, with no task, set `open_only` to true (with `start_url` if the user gave an address): it opens the page and returns at once. " +
 					"Follow-up tasks in the same chat continue on the same page: the browser is left open after each task. " +
 					"A browsing agent does it on its own and returns only the outcome. It asks the user before anything that " +

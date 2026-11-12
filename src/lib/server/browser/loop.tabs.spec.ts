@@ -412,7 +412,7 @@ describe("resuming a page that changed", () => {
 		expect(runtime.calls.some((c) => c.tool === "end_task" && c.args.keep)).toBe(true);
 	});
 
-	it("never remembers a tab the user opened and the task adopted", async () => {
+	it("remembers a tab the user lent as lent to the conversation, with its site", async () => {
 		const runtime = new FakeBrowserRuntime(pages(), "home");
 		const kept: Array<KeptPage | null> = [];
 		await runBrowseLoop(
@@ -429,7 +429,8 @@ describe("resuming a page that changed", () => {
 				onKept: (k) => void kept.push(k),
 			}
 		);
-		expect(kept).toEqual([null]);
+		expect(kept).toHaveLength(1);
+		expect(kept[0]).toMatchObject({ id: "flights", lent: true, site: "example.com" });
 	});
 });
 
@@ -724,5 +725,174 @@ describe("goalNamesSite", () => {
 		expect(goalNamesSite("open https://maps.google.com/x?q=1", "www.google.com")).toBe(true);
 		expect(goalNamesSite("then google.com.", "www.google.com")).toBe(true);
 		expect(goalNamesSite("use my tab", "google.com")).toBe(false);
+	});
+});
+
+/** The user navigates the lent tab by themselves. */
+function movePage(runtime: FakeBrowserRuntime, url: string) {
+	const page = (runtime as unknown as { pages: Map<string, FakePage> }).pages.get("flights");
+	if (page) page.url = url;
+}
+
+describe("a tab lent to the conversation", () => {
+	const useFlights = () => callTurn("act", { actions: [{ type: "use_tab", tab: "flights" }] });
+
+	/** Task 1 lends the tab; the runtime and the token carry over to task 2. */
+	async function lendFirst(approvalIds: ApprovalAsk[]) {
+		const runtime = new FakeBrowserRuntime(pages(), "home");
+		const kept: Array<KeptPage | null> = [];
+		await runBrowseLoop(
+			{ goal: "use my tab" },
+			{
+				...base(runtime, scriptedModel([callTurn("tabs", {}), useFlights(), answerTurn("done")])),
+				approve: async (ask) => {
+					approvalIds.push(ask);
+					return { verdict: "approved", id: `a${approvalIds.length}` };
+				},
+				onKept: (k) => void kept.push(k),
+			}
+		);
+		expect(kept[0]).toMatchObject({ lent: true, site: "example.com" });
+		return { runtime, token: kept[0]?.token ?? "" };
+	}
+
+	it("the next task of the same conversation continues in it without a second question", async () => {
+		const asks: ApprovalAsk[] = [];
+		const { runtime, token } = await lendFirst(asks);
+		expect(asks).toHaveLength(1);
+		const model = scriptedModel([callTurn("tabs", {}), useFlights(), answerTurn("continued")]);
+		const kept: Array<KeptPage | null> = [];
+		const result = await runBrowseLoop(
+			{ goal: "next step", resumeToken: token },
+			{
+				...base(runtime, model),
+				approve: async (ask) => {
+					asks.push(ask);
+					return { verdict: "approved", id: "again" };
+				},
+				onKept: (k) => void kept.push(k),
+			}
+		);
+		expect(result.stopped_reason).toBeUndefined();
+		expect(asks).toHaveLength(1);
+		const first = JSON.stringify(model.requests[0].messages);
+		expect(first).toContain("lent to this conversation");
+		expect(first).toContain("Cheapest: 89");
+		// The model asking for the same tab again is told it is already this task's.
+		expect(toolTexts(model.requests[model.requests.length - 1].messages).join("\n")).toContain(
+			"already part of"
+		);
+		// And it stays lent for the task after.
+		expect(kept[0]).toMatchObject({ lent: true });
+	});
+
+	it("asks again when the tab moved to another site", async () => {
+		const asks: ApprovalAsk[] = [];
+		const { runtime, token } = await lendFirst(asks);
+		movePage(runtime, "https://bank.example.org/login");
+		const model = scriptedModel([callTurn("tabs", {}), useFlights(), answerTurn("ok")]);
+		await runBrowseLoop(
+			{ goal: "next step", resumeToken: token },
+			{
+				...base(runtime, model),
+				approve: async (ask) => {
+					asks.push(ask);
+					return { verdict: "approved", id: `b${asks.length}` };
+				},
+			}
+		);
+		expect(JSON.stringify(model.requests[0].messages)).toContain("starting a new tab");
+		expect(asks).toHaveLength(2);
+		expect(asks[1].reason).toBe("user-tab");
+	});
+
+	it("a path change on the same site is still the lent tab", async () => {
+		const asks: ApprovalAsk[] = [];
+		const { runtime, token } = await lendFirst(asks);
+		movePage(runtime, "https://flights.example.com/step-2?x=1");
+		const model = scriptedModel([answerTurn("ok")]);
+		await runBrowseLoop({ goal: "next", resumeToken: token }, base(runtime, model));
+		expect(JSON.stringify(model.requests[0].messages)).toContain("lent to this conversation");
+	});
+
+	it("another conversation has no token, so the tab needs approval there", async () => {
+		const asks: ApprovalAsk[] = [];
+		const { runtime } = await lendFirst(asks);
+		await runBrowseLoop(
+			{ goal: "use my tab" },
+			{
+				...base(runtime, scriptedModel([callTurn("tabs", {}), useFlights(), answerTurn("ok")])),
+				approve: async (ask) => {
+					asks.push(ask);
+					return { verdict: "approved", id: "c" };
+				},
+			}
+		);
+		expect(asks).toHaveLength(2);
+	});
+});
+
+describe("no duplicate of a tab the user has open", () => {
+	it("a start address already open in a user's tab proposes use_tab instead of navigating", async () => {
+		const runtime = new FakeBrowserRuntime(pages(), "home");
+		const asks: ApprovalAsk[] = [];
+		const result = await runBrowseLoop(
+			{ goal: "fill the form", startUrl: "https://flights.example.com/search?x=1" },
+			{
+				...base(runtime, scriptedModel([answerTurn("done")])),
+				approve: async (ask) => {
+					asks.push(ask);
+					return { verdict: "approved", id: "d" };
+				},
+			}
+		);
+		expect(result.stopped_reason).toBeUndefined();
+		expect(asks).toHaveLength(1);
+		expect(asks[0].reason).toBe("user-tab");
+		expect(runtime.performed.map((a) => a.type)).toEqual(["use_tab"]);
+	});
+
+	it("a navigate by the model to an open tab's address is turned into use_tab", async () => {
+		const runtime = new FakeBrowserRuntime(pages(), "home");
+		const asks: ApprovalAsk[] = [];
+		await runBrowseLoop(
+			{ goal: "look" },
+			{
+				...base(
+					runtime,
+					scriptedModel([
+						callTurn("act", {
+							actions: [{ type: "navigate", url: "https://flights.example.com/search" }],
+						}),
+						answerTurn("done"),
+					])
+				),
+				approve: async (ask) => {
+					asks.push(ask);
+					return { verdict: "approved", id: "e" };
+				},
+			}
+		);
+		expect(runtime.performed.map((a) => a.type)).toEqual(["use_tab"]);
+		expect(asks.map((a) => a.reason)).toEqual(["user-tab"]);
+	});
+
+	it("an address no user tab has is navigated to as before", async () => {
+		const runtime = new FakeBrowserRuntime(pages(), "home");
+		await runBrowseLoop(
+			{ goal: "look", startUrl: "https://shop.example.com/cart" },
+			base(runtime, scriptedModel([answerTurn("done")]))
+		);
+		expect(runtime.performed.map((a) => a.type)).toEqual(["navigate"]);
+	});
+});
+
+describe("what the sub-agent is told about tabs", () => {
+	it("lists tabs first for 'my tab', never opens a new one, and explains the lent tab", () => {
+		const prompt = systemPrompt(budgets);
+		expect(prompt).toContain('"my tab"');
+		expect(prompt).toContain("never open a new tab for it");
+		expect(prompt).toContain("lent to this chat");
+		expect(prompt).toContain("Never open a page that is already open in a tab of the user's");
 	});
 });

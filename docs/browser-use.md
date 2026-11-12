@@ -108,11 +108,25 @@ pages and **sees their titles and addresses, without the query string**, never
 their content. To work in one it must ask you first: "Let Cerea use your tab
 ..." is an approval like any commit, bound to that tab, its address and its title
 (a tab that changed while you decided is refused), and no allowed-sites list
-covers it. A tab on a site of the deny list is not listed at all. A tab you let
-it use is never remembered for a later task. Once a task works in one of your tabs it stays on
-that page and its site: going to another site is refused unless the goal names it (and it then
-asks as for any new site), and the same tab is never asked about twice. If the goal cannot be done
-on that page, the task stops and says why.
+covers it. A tab on a site of the deny list is not listed at all. Once a task works in one of your
+tabs it stays on that page and its site: going to another site is refused unless the goal names it
+(and it then asks as for any new site), and the same tab is never asked about twice. If the goal
+cannot be done on that page, the task stops and says why.
+
+**A tab you allow stays lent to that chat.** Later requests in the **same conversation** continue
+in it without asking again, as long as the tab is still open and still on the **same site** (the
+page may change, for example to the next step of a form, and the query or path may too). The lend
+lapses after an hour without a task using it, when the tab is closed, or when the tab moves to
+another site: the next task then asks again. It is never closed by Cerea, whether a task ends or
+goes idle. In another conversation it is just one of your tabs, and using it asks you first.
+
+When the goal says "my tab" or "the page I'm on", the agent lists the tabs first and never opens a
+new tab for it. A start address (or a navigation) that is already open in one of your tabs, at the
+same origin and path, is not opened a second time: the agent asks to use that tab instead.
+
+The browser itself does not emulate a window size: in a window you can see, pages use its real
+size, so a tab of yours is never resized. Only a browser with no window uses a default size
+(1280 by 800).
 
 ### Verifications
 
@@ -128,8 +142,15 @@ When a task ends, its last page stays open in the browser, and the card says
 "Left open: <title>". The next `browse` in the **same conversation** continues
 on that page; in another conversation it is just one of your tabs (adopting it
 needs your approval). If the page changed in the meantime, or has been closed, the
-next task starts on a new tab instead and says so. A task that stopped on a site
-of the deny list closes its page.
+next task starts on a new tab instead and says so. A tab of yours that a task
+used is kept the same way, as a tab lent to the chat (see "Your own tabs"): it
+continues while it stays on the same site, for an hour after the last use. A task
+that stopped on a site of the deny list closes its page.
+
+A task opens no page of its own until it needs one: looking at the tab list, or
+using one of your tabs, never leaves a blank tab behind, and a blank page a task
+made but never used is closed when it ends. **Open browser** reuses a blank tab
+if one is open instead of adding another.
 
 ### Opening the browser yourself
 

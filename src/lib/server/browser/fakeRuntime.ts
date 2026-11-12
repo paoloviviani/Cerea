@@ -37,6 +37,7 @@ import {
 } from "./contract";
 import { actionDigest, classifyAction } from "./classifier";
 import { verifyGrant } from "./grants";
+import { hostOf, siteOf } from "./siteRules";
 import type { RuntimeCall } from "./runtimeClient";
 
 export interface FakeEffect {
@@ -103,7 +104,10 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 	private current: FakePage;
 	private readonly adopted = new Set<string>();
 	/** The page `end_task({keep})` left open, by token; `resume` finds it again. */
-	private keptPages = new Map<string, { id: string; title: string; url: string }>();
+	private keptPages = new Map<
+		string,
+		{ id: string; title: string; url: string; lent?: { site: string } }
+	>();
 	private keptCount = 0;
 	private openedCount = 0;
 
@@ -413,6 +417,17 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 		const kept = this.keptPages.get(token);
 		const page = kept ? this.pages.get(kept.id) : undefined;
 		if (!kept || !page) throw new BrowserRuntimeError("That page is no longer open.", "tool");
+		this.keptPages.delete(token);
+		if (kept.lent) {
+			// A lent tab moves freely on its site (a multi-step form), but not off it.
+			const host = hostOf(page.url);
+			if ((host ? siteOf(host) : "") !== kept.lent.site) {
+				return { refused: "page_changed", title: page.title, url: page.url };
+			}
+			this.goto(page.id, "resumed");
+			this.adopted.add(page.id);
+			return { id: page.id, title: page.title, url: page.url, changed: false, lent: true };
+		}
 		this.goto(page.id, "resumed");
 		const changed = page.url !== kept.url || page.title !== kept.title;
 		return {
@@ -463,10 +478,18 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 	async endTask(options?: { keep?: boolean }): Promise<EndTaskResult> {
 		this.record("end_task", options?.keep ? { keep: true } : {});
 		this.ended += 1;
+		const adoptedBefore = new Set(this.adopted);
+		this.adopted.clear();
 		if (!options?.keep) return { closed: true };
 		this.keptCount += 1;
 		const token = `kept-token-${this.keptCount}`;
 		const page = { id: this.current.id, title: this.current.title, url: this.current.url };
+		if (adoptedBefore.has(page.id)) {
+			const host = hostOf(page.url);
+			const site = host ? siteOf(host) : "";
+			this.keptPages.set(token, { ...page, lent: { site } });
+			return { closed: false, kept: { token, ...page, lent: true, site } };
+		}
 		this.keptPages.set(token, page);
 		return { closed: false, kept: { token, ...page } };
 	}

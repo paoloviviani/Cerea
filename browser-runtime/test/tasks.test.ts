@@ -21,15 +21,16 @@ describe("task pages, dialogs, popups and hangs", () => {
 		await stray.close();
 	});
 
-	it("ends a task by closing its pages, and the next call opens a blank one", async () => {
+	it("ends a task by closing its pages, and the next call sees a blank one (made only when needed)", async () => {
 		await r.goto("/form");
 		const ended = await r.call("end_task");
 		assert.equal(ended.isError, undefined);
 		assert.deepEqual(ended.structuredContent, { closed: true });
 		assert.equal((await r.snapshot()).url, "about:blank");
 		// The profile outlives the task: the cookie is still there.
+		// Looking at the blank start made no page, so there is nothing more to close.
 		const closed = await r.session.endTask();
-		assert.equal(closed.closed, 1);
+		assert.equal(closed.closed, 0);
 	});
 
 	it("closes task pages after an idle period", async () => {

@@ -343,6 +343,12 @@ export const endTaskResultSchema = z.object({
 			id: z.string().max(64),
 			title: z.string().max(500),
 			url: z.string().max(4096),
+			/**
+			 * The page is a tab the user lent to this conversation (`use_tab`, approved): it is resumed
+			 * without asking while it stays on `site`, and its token lapses 1 hour after the last use.
+			 */
+			lent: z.boolean().optional(),
+			site: z.string().max(255).optional(),
 		})
 		.optional(),
 });
@@ -351,15 +357,18 @@ export type EndTaskResult = z.infer<typeof endTaskResultSchema>;
 /**
  * `resume({token})`: a kept page becomes the active task page, with no grant. A page that is no
  * longer what was kept is refused with `page_changed` (its address without query or fragment):
- * the task starts fresh. `changed` on a resumed page is the older spelling of the same thing.
+ * the task starts fresh. A lent tab is refused only when its site changed (a path or query change
+ * on the same site is the user filling a multi-step form). `changed` on a resumed page is the older spelling of the same thing.
  */
 export const resumeResultSchema = z.union([
 	z.object({
 		id: z.string().max(64),
 		title: z.string().max(500),
 		url: z.string().max(4096),
-		/** The page is not what it was when it was kept. */
+		/** The page is not what it was when it was kept. Never true for a lent tab. */
 		changed: z.boolean(),
+		/** The resumed page is a tab the user lent: the task stays on its site. */
+		lent: z.boolean().optional(),
 		was: z.object({ title: z.string().max(500), url: z.string().max(4096) }).optional(),
 	}),
 	z.object({

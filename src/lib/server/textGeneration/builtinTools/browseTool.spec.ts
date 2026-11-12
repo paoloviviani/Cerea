@@ -485,6 +485,99 @@ describe("browse: the page left open", () => {
 	});
 });
 
+describe("browse: the tool description on tabs", () => {
+	it("says a lent tab continues across follow-ups in the same chat, and never opens a new tab for it", () => {
+		const t = build({ script: [] });
+		const description = t.tool.definition.function.description ?? "";
+		expect(description).toContain("my tab");
+		expect(description).toContain("never opens a new tab for it");
+		expect(description).toContain("stays lent to this chat");
+		expect(description).toContain(
+			"follow-up requests in the same chat continue in it without asking again"
+		);
+		expect(description).toContain("never pass its address as `start_url`");
+	});
+});
+
+describe("browse: a lent tab across requests", () => {
+	const userPages = (): FakePage[] => [
+		...pages(),
+		{
+			id: "form",
+			url: "https://forms.example.com/jotform/abc",
+			title: "Application form",
+			userTab: true,
+			elements: [{ ref: "e1", role: "textbox", name: "Name" }],
+		},
+	];
+	function setupLent() {
+		const runtime = new FakeBrowserRuntime(userPages());
+		const store = memoryKeptStore();
+		const asks: string[] = [];
+		const scripts: ScriptedTurn[][] = [];
+		const tool = createBrowseTool({
+			machines: [laptop],
+			settings: settings(),
+			ceiling: "ask",
+			userId: new ObjectId(),
+			runtimeFor: () => runtime,
+			grantKeyFor: async () => FAKE_BROWSER_KEY,
+			leases: memoryLeaseStore(),
+			keptStore: store,
+			approver: async (ask) => {
+				asks.push(ask.sentence);
+				return { verdict: "approved", id: `a${asks.length}` };
+			},
+			completeFor: () => scriptedModel(scripts.shift() ?? [answerTurn("done")]).complete,
+		});
+		tool.bind(turnDeps);
+		const run = (conversationId: ObjectId, script: ScriptedTurn[]) => {
+			scripts.push(script);
+			return tool.execute({ goal: "work on my tab" }, {
+				uuid: "u",
+				toolCallId: "c",
+				conversationId,
+				elicitationSink: { conversationId, emit: () => undefined },
+			} as never);
+		};
+		return { runtime, store, asks, run };
+	}
+	const useForm = callTurn("act", { actions: [{ type: "use_tab", tab: "form" }] });
+
+	it("asks once in a conversation, not again on the same site, and asks in another conversation", async () => {
+		const { runtime, store, asks, run } = setupLent();
+		const conversation = new ObjectId();
+		await run(conversation, [callTurn("tabs", {}), useForm, answerTurn("done")]);
+		expect(asks).toHaveLength(1);
+		expect(store.lent.size).toBe(1);
+
+		runtime.calls.length = 0;
+		await run(conversation, [useForm, answerTurn("done again")]);
+		expect(runtime.calls.some((c) => c.tool === "resume")).toBe(true);
+		expect(asks).toHaveLength(1);
+
+		// Another conversation sees a plain user tab.
+		await run(new ObjectId(), [callTurn("tabs", {}), useForm, answerTurn("done")]);
+		expect(asks).toHaveLength(2);
+	});
+
+	it("asks again once the tab has been idle for an hour", async () => {
+		let clock = Date.now();
+		const store = memoryKeptStore(() => clock);
+		await store.set("d", new ObjectId(), "c", {
+			token: "t",
+			id: "form",
+			title: "x",
+			url: "https://forms.example.com/jotform/abc",
+			lent: true,
+			site: "example.com",
+		});
+		expect(await store.get("d", new ObjectId(), "c")).toBe("t");
+		clock += 61 * 60_000;
+		expect(await store.get("d", new ObjectId(), "c")).toBeUndefined();
+	});
+});
+
 describe("browse: when it is offered", () => {
 	const base = {
 		conv: { _id: new ObjectId(), plan: undefined, webSearch: undefined },

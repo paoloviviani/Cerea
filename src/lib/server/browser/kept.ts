@@ -25,6 +25,9 @@ export interface KeptStore {
 	): Promise<void>;
 }
 
+/** A tab lent to a conversation is resumed without asking for this long after the last task used it. */
+export const LENT_IDLE_MS = 60 * 60_000;
+
 /** The most conversations remembered per machine: the oldest are forgotten first. */
 const MAX_PER_MACHINE = 20;
 
@@ -64,7 +67,10 @@ export const mongoKeptStore: KeptStore = {
 			{ _id: new ObjectId(deviceId), userId },
 			{ projection: { browserKept: 1 } }
 		);
-		return device?.browserKept?.[conversationId]?.token;
+		const entry = device?.browserKept?.[conversationId];
+		// A lent tab not used for an hour is a plain user tab again (the runtime lets its token lapse too).
+		if (entry?.lent && Date.now() - entry.at.getTime() > LENT_IDLE_MS) return undefined;
+		return entry?.token;
 	},
 	async set(deviceId, userId, conversationId, kept) {
 		const { ObjectId } = await import("mongodb");
@@ -84,6 +90,7 @@ export const mongoKeptStore: KeptStore = {
 						token: kept.token,
 						url: plainUrl(kept.url),
 						at: new Date(),
+						...(kept.lent ? { lent: true, site: kept.site ?? "" } : {}),
 					},
 				},
 			}
@@ -106,18 +113,23 @@ export const mongoKeptStore: KeptStore = {
 };
 
 /** In memory, for tests. */
-export function memoryKeptStore(): KeptStore & { tokens: Map<string, string> } {
+export function memoryKeptStore(
+	now: () => number = Date.now
+): KeptStore & { tokens: Map<string, string>; lent: Map<string, { site: string; at: number }> } {
 	const tokens = new Map<string, string>();
+	const lent = new Map<string, { site: string; at: number }>();
 	const urls = new Map<string, string>();
 	const key = (d: string, c: string) => `${d}:${c}`;
 	return {
 		tokens,
+		lent,
 		async clearOthers(_userId, conversationId, exceptDeviceId) {
 			for (const k of [...tokens.keys()]) {
 				const [device, conv] = k.split(":");
 				if (conv === conversationId && device !== exceptDeviceId) {
 					tokens.delete(k);
 					urls.delete(k);
+					lent.delete(k);
 				}
 			}
 		},
@@ -125,15 +137,22 @@ export function memoryKeptStore(): KeptStore & { tokens: Map<string, string> } {
 			return urls.get(key(deviceId, conversationId));
 		},
 		async get(deviceId, _userId, conversationId) {
-			return tokens.get(key(deviceId, conversationId));
+			const k = key(deviceId, conversationId);
+			const l = lent.get(k);
+			if (l && now() - l.at > LENT_IDLE_MS) return undefined;
+			return tokens.get(k);
 		},
 		async set(deviceId, _userId, conversationId, kept) {
 			if (kept) {
 				tokens.set(key(deviceId, conversationId), kept.token);
 				urls.set(key(deviceId, conversationId), plainUrl(kept.url));
+				if (kept.lent)
+					lent.set(key(deviceId, conversationId), { site: kept.site ?? "", at: now() });
+				else lent.delete(key(deviceId, conversationId));
 			} else {
 				tokens.delete(key(deviceId, conversationId));
 				urls.delete(key(deviceId, conversationId));
+				lent.delete(key(deviceId, conversationId));
 			}
 		},
 	};

@@ -412,7 +412,7 @@ describe("resuming a page that changed", () => {
 		expect(runtime.calls.some((c) => c.tool === "end_task" && c.args.keep)).toBe(true);
 	});
 
-	it("never remembers a tab the user opened and the task adopted", async () => {
+	it("remembers a tab the user lent as lent to the conversation, with its site", async () => {
 		const runtime = new FakeBrowserRuntime(pages(), "home");
 		const kept: Array<KeptPage | null> = [];
 		await runBrowseLoop(
@@ -429,7 +429,8 @@ describe("resuming a page that changed", () => {
 				onKept: (k) => void kept.push(k),
 			}
 		);
-		expect(kept).toEqual([null]);
+		expect(kept).toHaveLength(1);
+		expect(kept[0]).toMatchObject({ id: "flights", lent: true, site: "example.com" });
 	});
 });
 
