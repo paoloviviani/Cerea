@@ -9,7 +9,7 @@ import type { Approver, ApprovalAsk } from "./approvals";
 import { actionDigest, classifyAction, describeAction } from "./classifier";
 import { FAKE_BROWSER_KEY, FakeBrowserRuntime, type FakePage } from "./fakeRuntime";
 import { answerTurn, callTurn, scriptedModel, toolTexts, type ScriptedTurn } from "./fakeModel";
-import { runBrowseLoop, type KeptPage, type LoopDeps } from "./loop";
+import { runBrowseLoop, systemPrompt, type KeptPage, type LoopDeps } from "./loop";
 import { BrowserRuntimeError } from "./contract";
 import { decide } from "./policy";
 
@@ -25,6 +25,12 @@ const pages = (): FakePage[] => [
 		url: "https://shop.example.com/cart",
 		title: "Your cart",
 		elements: [{ ref: "e1", role: "heading", name: "Cart" }],
+	},
+	{
+		id: "news",
+		url: "https://news.example.net/",
+		title: "News",
+		elements: [{ ref: "e1", role: "heading", name: "News" }],
 	},
 	{
 		id: "flights",
@@ -634,5 +640,74 @@ describe("the lease around a long wait, and error text", () => {
 		expect(text).toContain("<untrusted_page_content>");
 		// The close tag inside the message could not end its own fence.
 		expect(text.match(/<\/untrusted_page_content>/g)).toHaveLength(1);
+	});
+});
+
+describe("working in an adopted tab", () => {
+	const use = () => callTurn("act", { actions: [{ type: "use_tab", tab: "flights" }] });
+	const goShop = () =>
+		callTurn("act", { actions: [{ type: "navigate", url: "https://news.example.net/" }] });
+
+	it("refuses to leave the tab's site when the goal does not name the other one", async () => {
+		const { runtime, model, asks, deps } = setup([
+			callTurn("tabs", {}),
+			use(),
+			goShop(),
+			answerTurn("That page is a flight list, not a form."),
+		]);
+		await runBrowseLoop({ goal: "fill in the form on the page I have open" }, deps);
+		expect(asks).toHaveLength(1); // the tab only; the departure was never asked
+		expect(runtime.url).toBe("https://flights.example.com/search#results");
+		const text = toolTexts(model.requests[3].messages).join("\n");
+		expect(text).toContain("REFUSED");
+		expect(text).toContain("stop and explain");
+	});
+
+	it("lets it leave when the goal names the other site, and still asks", async () => {
+		const { runtime, asks, deps } = setup([
+			callTurn("tabs", {}),
+			use(),
+			goShop(),
+			answerTurn("done"),
+		]);
+		await runBrowseLoop({ goal: "from my tab, go to news.example.net and read it" }, deps);
+		expect(asks).toHaveLength(2);
+		expect(asks[1].reason).toBe("new-domain");
+		expect(runtime.url).toBe("https://news.example.net/");
+	});
+
+	it("stays free to move within the tab's own site", async () => {
+		const { asks, deps } = setup([callTurn("tabs", {}), use(), answerTurn("done")]);
+		await runBrowseLoop({ goal: "look at my tab" }, deps);
+		expect(asks).toHaveLength(1);
+	});
+
+	it("does not ask again for a tab it already adopted", async () => {
+		const { runtime, model, asks, deps } = setup([
+			callTurn("tabs", {}),
+			use(),
+			use(),
+			answerTurn("done"),
+		]);
+		await runBrowseLoop({ goal: "look at my tab" }, deps);
+		expect(asks).toHaveLength(1);
+		expect(runtime.performed.filter((a) => a.type === "use_tab")).toHaveLength(1);
+		expect(toolTexts(model.requests[3].messages).join("\n")).toContain("already part of this task");
+	});
+
+	it("names an untitled tab by its host, never 'a tab'", () => {
+		const tab = { id: "t1", url: "https://www.jotform.com/build/1", title: "" };
+		expect(describeAction({ type: "use_tab", tab: "t1" }, { currentUrl: "about:blank", tab })).toBe(
+			'Let Cerea use your tab "www.jotform.com" (www.jotform.com)?'
+		);
+	});
+});
+
+describe("the sub-agent prompt", () => {
+	it("scopes the task to the goal and keeps it on an adopted tab", () => {
+		const text = systemPrompt(budgets);
+		expect(text).toContain("Do exactly the goal you are given");
+		expect(text).toContain("Never continue, repeat or complete a task from an earlier");
+		expect(text).toContain("stay on that page and its site");
 	});
 });

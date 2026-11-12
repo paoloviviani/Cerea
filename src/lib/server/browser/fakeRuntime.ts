@@ -433,7 +433,8 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 		let url: string;
 		try {
 			const parsed = new URL(raw);
-			const ok = parsed.protocol === "http:" || parsed.protocol === "https:" || raw === "about:blank";
+			const ok =
+				parsed.protocol === "http:" || parsed.protocol === "https:" || raw === "about:blank";
 			if (!ok) throw new Error("scheme");
 			url = raw === "about:blank" ? raw : parsed.toString();
 		} catch {
