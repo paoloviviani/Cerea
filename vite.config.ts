@@ -24,6 +24,40 @@ function loadTTFAsArrayBuffer() {
 	};
 }
 
+// The client tests run inside `vite dev`, whose SvelteKit handler would answer a request a test
+// leaves unstubbed (a component's poll, an <img> pointing at /api/...) with the real app: its hooks
+// try the database, and under CI load those requests hang for seconds. They pile up, hold the
+// browser's connections to the dev server and starve the module loads and the Playwright mock
+// routes behind them, until a test times out or "route.fulfill: The object has been collected" ends
+// the run. No client test needs the app server, so /api/* answers 404 at once.
+function clientTestNoApiServer() {
+	return {
+		name: "client-test-no-api-server",
+		configureServer(server: {
+			middlewares: {
+				use: (
+					fn: (
+						req: { url?: string },
+						res: {
+							statusCode: number;
+							setHeader: (k: string, v: string) => void;
+							end: (body: string) => void;
+						},
+						next: () => void
+					) => void
+				) => void;
+			};
+		}) {
+			server.middlewares.use((req, res, next) => {
+				if (!req.url?.startsWith("/api/")) return next();
+				res.statusCode = 404;
+				res.setHeader("content-type", "application/json");
+				res.end('{"message":"no app server in the client tests"}');
+			});
+		},
+	};
+}
+
 // `vite dev`'s own http server never sees `server.js` (that file only runs
 // the production build's adapter-node output), so the machine link's
 // WebSocket upgrade needs the same wiring here — the app still registers its
@@ -185,6 +219,7 @@ export default defineConfig({
 				// Runs a real Chromium via Playwright, so `npx playwright install chromium`
 				// is a prerequisite. Selected with `--project=client`.
 				extends: "./vite.config.ts",
+				plugins: [clientTestNoApiServer()],
 				optimizeDeps: { include: clientTestDeps },
 				test: {
 					name: "client",
