@@ -62,6 +62,11 @@ function machineAudience(): string {
 /** Exported for the same reason as `machineIssuer`: the feature flags and the
  * pairing dialog's one-liner need this deployment's actual configured client
  * id, not a second guess at `CODE_MACHINE_CLIENT_ID`'s default. */
+export function machineFlow(): "device" | "loopback" | "auto" {
+	const flow = config.CODE_MACHINE_FLOW?.trim().toLowerCase();
+	return flow === "device" || flow === "loopback" ? flow : "auto";
+}
+
 export function machineClientId(): string {
 	return config.CODE_MACHINE_CLIENT_ID?.trim() || "opencode-enrollment";
 }

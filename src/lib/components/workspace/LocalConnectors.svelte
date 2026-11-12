@@ -59,6 +59,7 @@
 			origin,
 			issuer: page.data.codeOidcIssuerUrl ?? "",
 			clientId: page.data.codeOidcClientId,
+			flow: page.data.codeMachineFlow,
 		})
 	);
 

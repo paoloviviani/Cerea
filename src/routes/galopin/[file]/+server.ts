@@ -5,7 +5,7 @@
 import type { RequestHandler } from "@sveltejs/kit";
 import { base } from "$app/paths";
 import { OIDConfig } from "$lib/server/auth";
-import { machineClientId } from "$lib/server/code/machineAuth";
+import { machineClientId, machineFlow } from "$lib/server/code/machineAuth";
 import { config } from "$lib/server/config";
 import { galopinOrigin, serveGalopinFile } from "$lib/server/galopinDist";
 
@@ -14,6 +14,7 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 		origin: galopinOrigin(url.origin, base),
 		issuer: OIDConfig.PROVIDER_URL,
 		clientId: machineClientId(),
+		flow: machineFlow(),
 		// The same fallback the Pair dialog uses: the chat's own origin serves the gateway.
 		gateway: config.CODE_GATEWAY_ORIGIN?.trim() || galopinOrigin(url.origin, ""),
 		ifNoneMatch: request.headers.get("if-none-match"),

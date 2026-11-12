@@ -59,6 +59,9 @@ export interface EnrollCommandOptions extends Partial<EnrollPolicyChoices> {
 	 * Off by default: the binary the same line installs asks this Cerea for them
 	 * (`/galopin/enroll.json`). On for an older galopin that cannot, and for the container. */
 	explicit?: boolean;
+	/** `codeMachineFlow`: how this deployment signs a machine in; `device` or `loopback` is spelled
+	 * out in the explicit form, `auto` (or absent) leaves it to the machine. */
+	flow?: "device" | "loopback" | "auto";
 }
 
 /** The binary's path as the installer installs it by default
@@ -105,6 +108,9 @@ function enrollFlagLines(opts: EnrollCommandOptions): string[] {
 	const clientId = opts.clientId?.trim() || DEFAULT_CODE_CLIENT_ID;
 	if (opts.explicit && clientId !== DEFAULT_CODE_CLIENT_ID) {
 		push("--client-id", quoteShellArg(clientId));
+	}
+	if (opts.explicit && (opts.flow === "device" || opts.flow === "loopback")) {
+		push(`--${opts.flow}`);
 	}
 	push(...policyFlagArgs(policyChoicesOf(opts)));
 	return flags;
@@ -194,6 +200,8 @@ export interface ConnectorsEnrollOptions {
 	issuer: string;
 	/** `codeOidcClientId`; left out of the command when it is the default. */
 	clientId?: string;
+	/** `codeMachineFlow`; `device` or `loopback` is added to the explicit form. */
+	flow?: "device" | "loopback" | "auto";
 }
 
 /**
@@ -219,6 +227,7 @@ export function buildConnectorsCommands(opts: ConnectorsEnrollOptions): {
 	explicit.push(cerea);
 	const clientId = opts.clientId?.trim() || DEFAULT_CODE_CLIENT_ID;
 	if (clientId !== DEFAULT_CODE_CLIENT_ID) explicit.push(`--client-id ${quoteShellArg(clientId)}`);
+	if (opts.flow === "device" || opts.flow === "loopback") explicit.push(`--${opts.flow}`);
 	return {
 		install: `curl -fsSL ${quoteShellArg(`${origin}/galopin/install.sh`)} | sh`,
 		enroll: [`${GALOPIN_BIN} enroll`, "--connectors-only", cerea].join(CONT),

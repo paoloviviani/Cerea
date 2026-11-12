@@ -178,3 +178,29 @@ func TestRegistrableDomain(t *testing.T) {
 		t.Error("different domains match")
 	}
 }
+
+func TestFillFromCereaTakesTheDeploymentsSignInFlow(t *testing.T) {
+	srv := factsServer(t, `{"issuer":"https://127.0.0.1/a","flow":"device"}`, 200)
+	opts := &enrollOptions{cerea: srv.URL + "/chat", clientID: defaultEnrollClientID}
+	if err := fillFromCerea(srv.Client(), opts, map[string]bool{}, yes); err != nil {
+		t.Fatal(err)
+	}
+	if !opts.device || opts.loopback {
+		t.Fatalf("flow not applied: %+v", opts)
+	}
+	// An explicit flag wins over the deployment's.
+	opts = &enrollOptions{cerea: srv.URL + "/chat", clientID: defaultEnrollClientID, loopback: true}
+	_ = fillFromCerea(srv.Client(), opts, map[string]bool{"loopback": true}, yes)
+	if opts.device {
+		t.Fatalf("the deployment overrode --loopback: %+v", opts)
+	}
+	// Absent or unknown (auto) changes nothing.
+	for _, body := range []string{`{"issuer":"https://127.0.0.1/a"}`, `{"issuer":"https://127.0.0.1/a","flow":"weird"}`} {
+		s2 := factsServer(t, body, 200)
+		o := &enrollOptions{cerea: s2.URL + "/chat", clientID: defaultEnrollClientID}
+		_ = fillFromCerea(s2.Client(), o, map[string]bool{}, yes)
+		if o.device || o.loopback {
+			t.Fatalf("%s: %+v", body, o)
+		}
+	}
+}

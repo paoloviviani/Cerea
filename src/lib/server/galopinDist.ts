@@ -251,13 +251,16 @@ export function enrollFacts(input: {
 	issuer?: string;
 	gateway?: string;
 	clientId?: string;
-}): { issuer: string; gateway: string; clientId: string } | null {
+	flow?: string;
+}): { issuer: string; gateway: string; clientId: string; flow?: "device" | "loopback" } | null {
 	const issuer = input.issuer?.trim() ?? "";
 	if (!issuer) return null;
 	return {
 		issuer,
 		gateway: input.gateway?.trim() ?? "",
 		clientId: input.clientId?.trim() ?? "",
+		// Only when the deployment fixes it: `auto` leaves the choice to the machine.
+		...(input.flow === "device" || input.flow === "loopback" ? { flow: input.flow } : {}),
 	};
 }
 
@@ -286,12 +289,14 @@ export async function serveGalopinFile(
 		issuer,
 		clientId,
 		gateway,
+		flow,
 	}: {
 		origin: string;
 		ifNoneMatch?: string | null;
 		issuer?: string;
 		clientId?: string;
 		gateway?: string;
+		flow?: string;
 	}
 ): Promise<DistResponse> {
 	if (!GALOPIN_PUBLIC_NAMES.has(name)) return notFound("Not found.");
@@ -299,7 +304,7 @@ export async function serveGalopinFile(
 	if (name === "enroll.json") {
 		// Public facts only: what `galopin enroll --cerea` would otherwise prompt for. No secret,
 		// no session, no per-user value.
-		const facts = enrollFacts({ issuer, gateway, clientId });
+		const facts = enrollFacts({ issuer, gateway, clientId, flow });
 		if (!facts) return notFound("Not found.");
 		return {
 			status: 200,

@@ -91,6 +91,7 @@
 		issuer: page.data.codeOidcIssuerUrl ?? "",
 		gatewayOrigin,
 		clientId: page.data.codeOidcClientId,
+		flow: page.data.codeMachineFlow,
 		...policyChoices,
 	});
 	const command = $derived(

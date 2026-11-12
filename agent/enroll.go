@@ -397,6 +397,8 @@ type cereaEnrollFacts struct {
 	Issuer   string `json:"issuer"`
 	Gateway  string `json:"gateway"`
 	ClientID string `json:"clientId"`
+	// Flow is "device" or "loopback" when the deployment fixes how machines sign in; empty is auto.
+	Flow string `json:"flow"`
 }
 
 // fillFromCerea completes what the command line and the recorded credentials left open from the
@@ -414,9 +416,10 @@ type cereaEnrollFacts struct {
 // confirm answers a y/N question; a nil confirm (or --yes in the caller) is the caller's choice.
 func fillFromCerea(client *http.Client, opts *enrollOptions, set map[string]bool, confirm func(prompt string) bool) error {
 	needClient := !set["client-id"] && opts.clientID == defaultEnrollClientID
+	needFlow := !set["device"] && !set["loopback"] && !opts.device && !opts.loopback
 	needIssuer := opts.issuer == ""
 	needGateway := !opts.connectorsOnly && opts.gateway == ""
-	if opts.cerea == "" || !(needIssuer || needGateway || needClient) {
+	if opts.cerea == "" || !(needIssuer || needGateway || needClient || needFlow) {
 		return nil
 	}
 	base, err := url.Parse(strings.TrimSuffix(opts.cerea, "/"))
@@ -465,7 +468,11 @@ func fillFromCerea(client *http.Client, opts *enrollOptions, set map[string]bool
 	if needClient && facts.ClientID != "" {
 		clientID = facts.ClientID
 	}
-	if issuer == "" && gateway == "" && clientID == "" {
+	flow := ""
+	if needFlow && (facts.Flow == "device" || facts.Flow == "loopback") {
+		flow = facts.Flow
+	}
+	if issuer == "" && gateway == "" && clientID == "" && flow == "" {
 		return nil
 	}
 	fmt.Fprintf(os.Stderr, "Using the sign-in settings %s gave:\n", base.Host)
@@ -477,6 +484,9 @@ func fillFromCerea(client *http.Client, opts *enrollOptions, set map[string]bool
 	}
 	if clientID != "" {
 		fmt.Fprintf(os.Stderr, "  client:  %s\n", clientID)
+	}
+	if flow != "" {
+		fmt.Fprintf(os.Stderr, "  sign-in: %s flow\n", flow)
 	}
 	var elsewhere []string
 	for _, raw := range []string{issuer, gateway} {
@@ -501,6 +511,13 @@ func fillFromCerea(client *http.Client, opts *enrollOptions, set map[string]bool
 	}
 	if clientID != "" {
 		opts.clientID = clientID
+	}
+	// A flag always wins: the deployment's flow only fills in when neither was given.
+	switch flow {
+	case "device":
+		opts.device = true
+	case "loopback":
+		opts.loopback = true
 	}
 	return nil
 }

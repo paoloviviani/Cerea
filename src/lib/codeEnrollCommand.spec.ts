@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import {
+	buildConnectorsCommands,
 	buildDockerCommand,
 	buildEnrollCommand,
 	cleanContainerName,
@@ -37,6 +38,19 @@ describe("buildEnrollCommand", () => {
 				`${GALOPIN_BIN} run`,
 			].join("\n")
 		);
+	});
+
+	it("shows --device in the long form when the deployment fixes the device flow, never in the short one", () => {
+		const device = { ...BASE_OPTIONS, flow: "device" as const };
+		expect(buildEnrollCommand(device)).not.toContain("--device");
+		expect(buildEnrollCommand({ ...device, explicit: true })).toContain("--device");
+		expect(buildEnrollCommand({ ...BASE_OPTIONS, flow: "auto", explicit: true })).not.toMatch(
+			/--device|--loopback/
+		);
+		expect(
+			buildConnectorsCommands({ origin: "https://c.example", issuer: "https://i", flow: "device" })
+				.enrollExplicit
+		).toContain("--device");
 	});
 
 	it("is short by default: no issuer, gateway or client id, the binary asks this Cerea", () => {

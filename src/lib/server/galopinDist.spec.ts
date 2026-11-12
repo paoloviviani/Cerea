@@ -175,6 +175,23 @@ describe("install.sh", () => {
 			gateway: "https://stack.example.org",
 			clientId: "machine-1",
 		});
+		// The flow rides along only when the deployment fixes it.
+		const flow = async (f?: string) =>
+			JSON.parse(
+				await text(
+					(
+						await serveGalopinFile("enroll.json", {
+							origin: "https://x",
+							issuer: "https://i",
+							flow: f,
+						})
+					).body
+				)
+			);
+		expect((await flow("device")).flow).toBe("device");
+		expect((await flow("loopback")).flow).toBe("loopback");
+		expect("flow" in (await flow("auto"))).toBe(false);
+		expect("flow" in (await flow())).toBe(false);
 		const none = await serveGalopinFile("enroll.json", { origin: "https://x" });
 		expect(none.status).toBe(404);
 	});
