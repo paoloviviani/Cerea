@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -41,9 +43,9 @@ Usage:
                a plain 'galopin run' then runs connectors-only. Without the
                flag the machine is an agent machine (opencode). See
                docs/local-connectors.md.
-  --issuer     OIDC issuer where discovery lives (prompted when missing).
+  --issuer     OIDC issuer where discovery lives (read from the Cerea address when missing, else prompted).
   --gateway    Gateway origin or /v1 base, e.g. https://llm.example.org
-               (a bare origin gets /v1 appended; prompted when missing).
+               (a bare origin gets /v1 appended; read from the Cerea address when missing, else prompted).
   --cerea      Cerea origin 'run' dials by default, e.g. https://cerea.example.org
                (optional: 'run --cerea' overrides it; unset means 'run' has
                no default and --cerea becomes required on that command).
@@ -366,6 +368,7 @@ func runEnroll(args []string) error {
 	if applyRecordedDefaults(&opts, set) {
 		fmt.Fprintf(os.Stderr, "note: re-enrolling: using the settings recorded in %s where you gave no flag.\n", opts.creds)
 	}
+	fillFromCerea(&http.Client{Timeout: 8 * time.Second}, &opts, set)
 	if err := reconcileBillingMode(&opts, set); err != nil {
 		return err
 	}
@@ -373,6 +376,56 @@ func runEnroll(args []string) error {
 		return fmt.Errorf("--connectors-only runs no coding agent: it conflicts with --engine %s", opts.engine)
 	}
 	return enroll(context.Background(), &opts)
+}
+
+// defaultEnrollClientID is the --client-id default: the id baked into both bundled IdPs.
+const defaultEnrollClientID = "opencode-enrollment"
+
+// cereaEnrollFacts is what Cerea's public GET <base>/galopin/enroll.json says about the deployment:
+// public facts only, never a secret.
+type cereaEnrollFacts struct {
+	Issuer   string `json:"issuer"`
+	Gateway  string `json:"gateway"`
+	ClientID string `json:"clientId"`
+}
+
+// fillFromCerea completes what the command line and the recorded credentials left open from the
+// Cerea the person named: the OIDC issuer, the gateway (not for a connectors machine) and the
+// machine's OAuth client id. A flag, or a recorded value, always wins; when Cerea cannot be asked
+// (an older Cerea, no network) nothing is filled and enroll prompts as before.
+func fillFromCerea(client *http.Client, opts *enrollOptions, set map[string]bool) {
+	needClient := !set["client-id"] && opts.clientID == defaultEnrollClientID
+	needIssuer := opts.issuer == ""
+	needGateway := !opts.connectorsOnly && opts.gateway == ""
+	if opts.cerea == "" || !(needIssuer || needGateway || needClient) {
+		return
+	}
+	u := strings.TrimSuffix(opts.cerea, "/")
+	if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
+		return
+	}
+	resp, err := client.Get(u + "/galopin/enroll.json")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "note: could not ask %s for its sign-in settings (%v); you will be asked for what is missing.\n", u, err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return
+	}
+	var facts cereaEnrollFacts
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&facts); err != nil {
+		return
+	}
+	if needIssuer && facts.Issuer != "" {
+		opts.issuer = facts.Issuer
+	}
+	if needGateway && facts.Gateway != "" {
+		opts.gateway = facts.Gateway
+	}
+	if needClient && facts.ClientID != "" {
+		opts.clientID = facts.ClientID
+	}
 }
 
 // reconcileBillingMode settles the billing mode once the recorded defaults

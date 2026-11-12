@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -109,7 +110,7 @@ describe("install.sh", () => {
 		expect(script.startsWith("#!/bin/sh\n")).toBe(true);
 		expect(script).toContain("origin='https://stack.example.org/chat'");
 		expect(script).toContain('fetch "$origin/galopin/$name"');
-		expect(script).toContain("galopin enroll --cerea %s");
+		expect(script).toContain("Cerea shows the exact command for your account");
 		expect(script).toContain("checksum mismatch");
 	});
 
@@ -125,7 +126,9 @@ describe("install.sh", () => {
 		expect(script).toContain('mv "$tmp/goose-x/goose" "$dir/galopin-goose/goose"');
 		expect(script).not.toContain('"$dir/goose"');
 		expect(script).toContain("--engine) [ $# -ge 2 ]");
-		expect(script).toContain("galopin enroll --cerea %s%s");
+		expect(renderInstallScript("https://s.example", { enrollReady: true })).toContain(
+			"galopin enroll --cerea %s%s"
+		);
 	});
 
 	it("installs the pinned opencode, checksum-verified, only with --with-opencode", () => {
@@ -143,6 +146,37 @@ describe("install.sh", () => {
 		expect(script).toContain("/etc/alpine-release");
 		expect(script).toContain('"$tmp/oc-x/opencode" --version');
 		expect(script).not.toContain("opencode.ai");
+	});
+
+	it("prints the complete enroll commands, or none and a pointer", () => {
+		const ready = renderInstallScript("https://stack.example.org/chat", { enrollReady: true });
+		expect(ready).toContain("galopin enroll --cerea %s%s\\n");
+		expect(ready).toContain("galopin enroll --connectors-only --cerea %s\\n");
+		expect(ready).toContain("Workspace, Connectors, On your computers");
+		const none = renderInstallScript("https://stack.example.org/chat");
+		expect(none).not.toContain("galopin enroll --");
+		expect(none).toContain('follow "Pair a computer"');
+		expect(none).toContain("Cerea shows the exact command for your account");
+		expect(spawnSync("sh", ["-n"], { input: ready }).status).toBe(0);
+		expect(spawnSync("sh", ["-n"], { input: none }).status).toBe(0);
+	});
+
+	it("serves enroll.json with public facts only, and 404 without an issuer", async () => {
+		const res = await serveGalopinFile("enroll.json", {
+			origin: "https://stack.example.org/chat",
+			issuer: " https://auth.example.org ",
+			gateway: "https://stack.example.org",
+			clientId: "machine-1",
+		});
+		expect(res.status).toBe(200);
+		expect(res.headers["content-type"]).toMatch(/^application\/json/);
+		expect(JSON.parse(await text(res.body))).toEqual({
+			issuer: "https://auth.example.org",
+			gateway: "https://stack.example.org",
+			clientId: "machine-1",
+		});
+		const none = await serveGalopinFile("enroll.json", { origin: "https://x" });
+		expect(none.status).toBe(404);
 	});
 
 	it("quotes an origin safely", () => {

@@ -103,6 +103,10 @@
 				})
 			: buildEnrollCommand({ ...enrollOptions, installOpencode })
 	);
+	// The long form, for a computer that already has an older galopin and installs nothing.
+	const explicitCommand = $derived(
+		buildEnrollCommand({ ...enrollOptions, installOpencode, explicit: true })
+	);
 	const downloads = [
 		{ name: "galopin-linux-amd64", label: m["code.pair.platform_linux_amd64"]() },
 		{ name: "galopin-linux-arm64", label: m["code.pair.platform_linux_arm64"]() },
@@ -193,6 +197,21 @@
 				value={command}
 			/>
 		</div>
+		{#if !docker}
+			<details class="mb-3 text-xs text-ink-muted" data-testid="pair-older-galopin">
+				<summary class="cursor-pointer">{m["code.pair.older_galopin"]()}</summary>
+				<p class="mt-2">{m["code.pair.older_galopin_note"]()}</p>
+				<div class="mt-2 flex items-center gap-2 rounded-lg border border-line bg-surface p-3">
+					<pre
+						class="min-w-0 flex-1 font-mono text-xs break-all whitespace-pre-wrap text-ink"
+						data-testid="galopin-enroll-command-explicit">{explicitCommand}</pre>
+					<CopyToClipBoardBtn
+						classNames="flex size-8 shrink-0 items-center justify-center rounded-lg border border-line bg-surface text-ink-muted hover:bg-sunken"
+						value={explicitCommand}
+					/>
+				</div>
+			</details>
+		{/if}
 		<p class="mb-4 text-xs text-ink-muted" data-testid="pair-explain">
 			{#if docker}
 				{m["code.pair.docker_explain"]()}

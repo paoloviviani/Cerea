@@ -35,6 +35,8 @@ export const EXTERNAL_BUILTIN_TOOLS: ReadonlySet<string> = new Set([
 	// title is written by the agent too, so the list is outside content like a read.
 	"agent_sessions",
 	"agent_read",
+	// What a browsing sub-agent read on the web (ADR 0116).
+	"browse",
 ]);
 
 /**

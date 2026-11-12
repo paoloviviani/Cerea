@@ -5,6 +5,13 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Browser use (off by default).** The assistant can do a task in a real browser on one of a user's own machines through a new `browse` tool: a browsing agent works on its own, streams its steps into a collapsible card, and asks the user before anything that commits (paying, sending, deleting, publishing, downloading, leaving the site). Administration, Assistant, Browser use sets the switch, the model, the budgets and per-site allow and deny lists (`CHAT_BROWSER_*`). Nothing is offered until a machine runs the browser runtime (coming with `galopin browser`); machines need no update for this change. See "Browser use" in the documentation.
+- **A turn's cost now includes its sub-agents.** The model calls of browse and of delegated sub-agents carry the turn's cost tag and the billing group like the main model's, so the turn's cost and the billing no longer leave them out.
+- **Browser use settings reach the chat.** `compose.yaml` passes `CHAT_BROWSER_ENABLED`, `CHAT_BROWSER_MODEL`, `CHAT_BROWSER_MAX_STEPS`, `CHAT_BROWSER_MAX_TOKENS`, `CHAT_BROWSER_MAX_SECONDS`, `CHAT_BROWSER_SITES_ALLOW` and `CHAT_BROWSER_SITES_DENY` (all empty by default: off, the chat's defaults), documented in `.env.example`; `./configure --browser` / `--no-browser` switches it.
+- **A computer's enroll command is complete by itself.** `galopin enroll --cerea <address>` asks the chat (`/galopin/enroll.json`, public facts only) for the OIDC issuer, the gateway and the machine client id instead of prompting; explicit flags still win. The installer prints that command, or, when the chat cannot say, points to the dialogs that show it. A galopin whose agent (opencode or goose) is missing still serves its local connectors and the browser, with a warning.
+
 ## v0.50.0 — 2026-11-12
 
 Pins: Cerea `0.50.0` (chat, `cerea-documents` and the new `galopin` image), Pystino `0.33.2`.

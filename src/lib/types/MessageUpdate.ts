@@ -26,6 +26,7 @@ export type MessageUpdate =
 	| MessageElicitationUpdate
 	| MessagePlanUpdate
 	| MessageSubAgentUpdate
+	| MessageBrowseUpdate
 	| MessageMemoryUpdate
 	| MessageTurnStateUpdate
 	| MessageBackgroundTaskUpdate
@@ -46,6 +47,7 @@ export enum MessageUpdateType {
 	Elicitation = "elicitation",
 	Plan = "plan",
 	SubAgent = "subAgent",
+	Browse = "browse",
 	Memory = "memory",
 	TurnState = "turnState",
 	BackgroundTask = "backgroundTask",
@@ -232,6 +234,8 @@ export interface MessageFileUpdate {
 	name: string;
 	sha: string;
 	mime: string;
+	/** Set when a privacy rule withheld the file: it is listed, and no tool may read it. */
+	withheld?: { rule: string; pipeline?: string };
 }
 export interface MessageFinalAnswerUpdate {
 	type: MessageUpdateType.FinalAnswer;
@@ -407,6 +411,47 @@ export interface MessageSubAgentUpdate {
 	/** What it is doing right now, for the live status line. */
 	activity?: string;
 	steps: SubAgentStep[];
+}
+
+export type BrowseStatus = "running" | "waiting" | "done" | "failed" | "stopped";
+
+/** One action the browsing sub-agent took, as the card's step list shows it. */
+export interface BrowseStep {
+	id: number;
+	/** What it did, in a few words: "Click 'Search'". */
+	action: string;
+	/** The title of the page it ran on. */
+	page?: string;
+	state: "running" | "ok" | "error" | "refused" | "denied";
+	/** A short outcome: "clicked", "refused by you". */
+	note?: string;
+}
+
+/**
+ * The state of one `browse` call (ADR 0116), re-sent whole as the sub-agent works: a later update
+ * with the same `uuid` replaces the earlier one, in the stored message and in a live view alike.
+ * The result itself is the call's ordinary Tool result; this carries what the card shows around
+ * it. A pending approval is its own elicitation card, right after this one. Plain JSON only.
+ */
+export interface MessageBrowseUpdate {
+	type: MessageUpdateType.Browse;
+	/** uuid of the `browse` tool call. */
+	uuid: string;
+	goal: string;
+	/** The model the sub-agent runs on. */
+	model: string;
+	status: BrowseStatus;
+	activity?: string;
+	/** Set while the loop waits for the user: the sentence they are asked about. */
+	waitingOn?: string;
+	steps: BrowseStep[];
+	/** The page the browser ended on. */
+	finalUrl?: string;
+	stoppedReason?: string;
+	/** The title of the page left open for the user when the task ended. */
+	leftOpen?: string;
+	/** The task continued on a page the previous task left open, and that page had changed. */
+	pageChanged?: boolean;
 }
 
 /**

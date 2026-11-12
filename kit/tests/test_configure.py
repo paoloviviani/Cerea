@@ -361,6 +361,18 @@ class TestFreshInstall(unittest.TestCase):
         self.assertEqual(build(agents=True).values["CODE_AGENTS_ENABLED"], "true")
         self.assertEqual(build().values["CODE_AGENTS_ENABLED"], "")
 
+    def test_browser_switch_and_passthrough(self):
+        self.assertEqual(build().values["CHAT_BROWSER_ENABLED"], "")
+        self.assertEqual(build(browser=True).values["CHAT_BROWSER_ENABLED"], "true")
+        on = dict(build(browser=True).values)
+        # A re-run keeps it; --no-browser turns it off.
+        self.assertEqual(build(existing=on).values["CHAT_BROWSER_ENABLED"], "true")
+        self.assertEqual(build(existing=on, browser=False).values["CHAT_BROWSER_ENABLED"], "")
+        compose = (ROOT / "compose.yaml").read_text()
+        for key in ("ENABLED", "MODEL", "MAX_STEPS", "MAX_TOKENS", "MAX_SECONDS", "SITES_ALLOW", "SITES_DENY"):
+            self.assertIn(f"CHAT_BROWSER_{key}: ${{CHAT_BROWSER_{key}:-}}", compose)
+            self.assertIn(f"CHAT_BROWSER_{key}=", (ROOT / ".env.example").read_text())
+
     def test_terminal_switch_needs_agents(self):
         self.assertEqual(build(agents=True, terminal=True).values["CODE_TERMINAL_ENABLED"], "true")
         self.assertEqual(build(agents=True).values["CODE_TERMINAL_ENABLED"], "")

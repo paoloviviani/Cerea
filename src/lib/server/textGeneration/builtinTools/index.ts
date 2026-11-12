@@ -21,6 +21,7 @@ import type { DocumentCapabilities } from "$lib/server/documents/client";
 import { createWebFetchStructuredBuiltin } from "./webFetchStructuredTool";
 import { createMemoryBuiltins } from "./memoryTool";
 import { configuredBackend } from "$lib/server/fetching";
+import { createBrowseTool, type BrowseToolParams } from "./browseTool";
 import type { BuiltinTool } from "./types";
 import { EXTERNAL_BUILTIN_TOOLS, withUntrustedSuffix } from "../untrusted";
 
@@ -39,6 +40,7 @@ export { CONVERT_DOCUMENT_TOOL_NAME } from "./convertDocumentTool";
 export { LOOK_DOC_TOOL_NAME } from "./lookDocTool";
 export { GENERATE_IMAGE_TOOL_NAME } from "./generateImageTool";
 export { SCHEDULE_TOOL_NAME } from "./scheduleTool";
+export { BROWSE_TOOL_NAME } from "./browseTool";
 export {
 	AGENT_SESSIONS_TOOL_NAME,
 	AGENT_START_TOOL_NAME,
@@ -194,6 +196,12 @@ export function getEnabledBuiltinTools(params: {
 	 * Offered to a scheduled run too: the approval policy refuses them there unless it is on Allow.
 	 */
 	agentSessions?: { profile?: ProjectAgentProfile | null };
+	/**
+	 * Browser use (`browse`, ADR 0116): present only when the deployment switch is on and the
+	 * caller found an online machine of the user's with a browser runtime
+	 * (`browseMachinesFor`, a network read like the others). Absent offers no tool.
+	 */
+	browse?: BrowseToolParams;
 }): BuiltinTool[] {
 	const tools: BuiltinTool[] = [];
 
@@ -374,6 +382,10 @@ export function getEnabledBuiltinTools(params: {
 
 	if (params.agentSessions && params.toolsEnabled) {
 		tools.push(...createAgentSessionBuiltins({ profile: params.agentSessions.profile }));
+	}
+
+	if (params.browse && params.toolsEnabled && params.browse.machines.length > 0) {
+		tools.push(createBrowseTool(params.browse));
 	}
 
 	// External tools carry the guard sentence in their description (untrusted.ts).
