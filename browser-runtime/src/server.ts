@@ -24,12 +24,13 @@ export const SERVER_VERSION = "0.1.0";
 const actionSchemaJson = {
 	type: "object",
 	description:
-		"One step. click {ref}; fill {ref, text, submit?}; select {ref, value}; press {key, ref?}; scroll {direction?, amount?}; wait_for {text?, ms?}; navigate {url}.",
+		"One step. click {ref}; fill {ref, text, submit?}; select {ref, value}; press {key, ref?}; scroll {direction?, amount?}; wait_for {text?, ms?}; navigate {url}; use_tab {tab} (adopt a tab the user opened: always needs approval).",
 	properties: {
 		type: {
 			type: "string",
-			enum: ["click", "fill", "select", "press", "scroll", "wait_for", "navigate"],
+			enum: ["click", "fill", "select", "press", "scroll", "wait_for", "navigate", "use_tab"],
 		},
+		tab: { type: "string" },
 		ref: { type: "string" },
 		text: { type: "string" },
 		value: { type: "string" },
@@ -110,8 +111,24 @@ export const TOOLS = [
 	{
 		name: "end_task",
 		description:
-			"Optional, not part of the six-tool protocol: close the pages this task opened (the profile and its logins stay). The next call opens a fresh blank page. Also happens after 10 minutes without a call.",
+			"Close the pages this task opened (the profile and its logins stay); the next call opens a fresh blank page. With keep: true the active page is left open and a token to resume it is returned. A tab the user lent (use_tab) is released, never closed. Also happens after 10 minutes without a call (a kept page stays).",
+		inputSchema: { type: "object", properties: { keep: { type: "boolean" } } },
+	},
+	{
+		name: "tabs",
+		description:
+			"The pages open in the browser: {id, title, url, mine}. mine is true for a page this task owns; others are the user's. To use one of the user's tabs, act with {type: use_tab, tab: id}, which needs approval.",
 		inputSchema: { type: "object", properties: {} },
+	},
+	{
+		name: "resume",
+		description:
+			"Make the page kept by an earlier task (end_task with keep) the active page again, with the token end_task gave. No approval is needed with the token. The result says if the page is not where it was left.",
+		inputSchema: {
+			type: "object",
+			properties: { token: { type: "string" } },
+			required: ["token"],
+		},
 	},
 ] as const;
 
@@ -163,8 +180,24 @@ export function createToolHandler(session: BrowserSession) {
 					return json(
 						await serial(() => session.download({ all: asObject(rawArgs).all === true }))
 					);
-				case "end_task":
-					return json(await serial(async () => ({ closed: (await session.endTask()).closed > 0 })));
+				case "end_task": {
+					const keep = asObject(rawArgs).keep === true;
+					return json(
+						await serial(async () => {
+							const ended = await session.endTask({ keep });
+							return { closed: ended.closed > 0, ...(ended.kept ? { kept: ended.kept } : {}) };
+						})
+					);
+				}
+				case "tabs":
+					return json(await serial(() => session.tabs()));
+				case "resume": {
+					const token = asObject(rawArgs).token;
+					if (typeof token !== "string" || !token) {
+						throw new ToolError('resume needs the "token" that end_task returned.');
+					}
+					return json(await serial(() => session.resume(token)));
+				}
 				default:
 					return failure(
 						`Unknown tool "${clean(name, 60)}". Tools: ${TOOLS.map((t) => t.name).join(", ")}.`

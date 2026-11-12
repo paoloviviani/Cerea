@@ -22,8 +22,10 @@ async function exercise(client: Client, fx: Fixtures) {
 		"download",
 		"end_task",
 		"extract",
+		"resume",
 		"screenshot",
 		"snapshot",
+		"tabs",
 	]);
 	const nav = (await client.callTool({
 		name: "act",

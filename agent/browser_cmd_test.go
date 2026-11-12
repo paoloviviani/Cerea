@@ -35,18 +35,27 @@ type fakeBrowserRig struct {
 	nodeVersion string
 	hasNPM      bool
 	hasNode     bool
+	// chrome says an installed Google Chrome is found; chromeSelfTest is what it prints.
+	chrome         bool
+	chromeSelfTest string
+	answer         bool
 }
 
 func newBrowserRig(t *testing.T) *fakeBrowserRig {
 	t.Helper()
-	r := &fakeBrowserRig{out: &bytes.Buffer{}, state: t.TempDir(), selfTest: `{"ok":true,"sandbox":true,"version":"158.0.1"}`, nodeVersion: "v24.22.2", hasNPM: true, hasNode: true}
+	r := &fakeBrowserRig{out: &bytes.Buffer{}, state: t.TempDir(), selfTest: `{"ok":true,"sandbox":true,"version":"158.0.1"}`, chromeSelfTest: `{"ok":true,"sandbox":true,"version":"142.0.7"}`, nodeVersion: "v24.22.2", hasNPM: true, hasNode: true}
 	r.mcp = filepath.Join(r.state, "mcp.json")
 	r.env = &browserEnv{
 		stateDir: r.state,
 		mcpPath:  r.mcp,
 		goos:     "linux",
 		getenv:   func(k string) string { return map[string]string{"DISPLAY": ":0"}[k] },
+		exists:   func(path string) bool { return false },
+		confirm:  func(string) bool { return r.answer },
 		lookPath: func(name string) (string, error) {
+			if name == "google-chrome" && r.chrome {
+				return "/usr/bin/google-chrome", nil
+			}
 			if (name == "node" && r.hasNode) || (name == "npm" && r.hasNPM) {
 				return "/fake/bin/" + name, nil
 			}
@@ -62,7 +71,9 @@ func newBrowserRig(t *testing.T) *fakeBrowserRig {
 				_ = os.MkdirAll(pkg, 0o755)
 				_ = os.WriteFile(filepath.Join(pkg, "package.json"), []byte(`{"version":"`+playwrightVersion()+`"}`), 0o644)
 				return nil, nil
-			case len(args) > 0 && args[len(args)-1] == "--self-test":
+			case contains(args, "--self-test") && contains(args, "--channel"):
+				return []byte(r.chromeSelfTest + "\n"), nil
+			case contains(args, "--self-test"):
 				return []byte(r.selfTest + "\n"), nil
 			}
 			return nil, nil
@@ -136,7 +147,7 @@ func TestBrowserSetupInstallsIntoGalopinsOwnDirectoryAndSaysWhatItDid(t *testing
 		}
 	}
 	info, err := readBrowserInfo(p)
-	if err != nil || info.Chromium != "158.0.1" || !info.Sandbox || info.Node != "/fake/bin/node" {
+	if err != nil || info.Version != "158.0.1" || !info.Sandbox || info.Node != "/fake/bin/node" {
 		t.Errorf("info %+v %v", info, err)
 	}
 	// A second run reuses the install.
@@ -250,7 +261,7 @@ func TestBrowserEnableRegistersTheWellKnownConnectorAndKeepsTheRest(t *testing.T
 	if e.Env["PLAYWRIGHT_BROWSERS_PATH"] != p.browsers {
 		t.Errorf("env %v", e.Env)
 	}
-	if !contains(e.AllowedTools, "act") || len(e.AllowedTools) != 7 {
+	if !contains(e.AllowedTools, "act") || len(e.AllowedTools) != 9 {
 		t.Errorf("ceiling %v", e.AllowedTools)
 	}
 	if st, err := os.Stat(p.profile); err != nil || st.Mode().Perm() != 0o700 {
@@ -370,7 +381,7 @@ func TestBrowserStatusReportsEachStep(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := r.out.String()
-	for _, want := range []string{"installed, up to date", "158.0.1, sandboxed", "yes, with a window", "not fetched yet", "yes (cerea-browser 0.1.0, 7 tools)"} {
+	for _, want := range []string{"installed, up to date", "Chromium 158.0.1 (bundled), sandboxed", "yes, with a window", "not fetched yet", "yes (cerea-browser 0.1.0, 9 tools)"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("status lacks %q:\n%s", want, out)
 		}
@@ -578,5 +589,176 @@ func TestFetchBrowserKeyAcceptsTheFixtureAnswer(t *testing.T) {
 	b, _ := os.ReadFile(path)
 	if strings.TrimSpace(string(b)) != "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc" {
 		t.Errorf("%q", b)
+	}
+}
+
+func (r *fakeBrowserRig) ranChromiumInstall() bool {
+	for _, c := range r.calls {
+		if len(c.args) >= 2 && c.args[len(c.args)-2] == "install" && c.args[len(c.args)-1] == "chromium" {
+			return true
+		}
+	}
+	return false
+}
+
+func TestBrowserSetupUsesAnInstalledChromeAndDownloadsNothing(t *testing.T) {
+	r := newBrowserRig(t)
+	r.chrome = true
+	if err := r.run(t, "setup"); err != nil {
+		t.Fatal(err)
+	}
+	if r.ranChromiumInstall() {
+		t.Fatal("Chromium was downloaded although Chrome is installed")
+	}
+	var trySelfTest bool
+	for _, c := range r.calls {
+		if contains(c.args, "--self-test") && contains(c.args, "--channel") && contains(c.args, "chrome") {
+			trySelfTest = true
+		}
+	}
+	if !trySelfTest {
+		t.Error("Chrome was not tried with the runtime's self test")
+	}
+	info, err := readBrowserInfo(pathsFor(r.state))
+	if err != nil || info.Browser != "chrome" || info.Version != "142.0.7" || info.ChromePath != "/usr/bin/google-chrome" {
+		t.Fatalf("%+v %v", info, err)
+	}
+	if !strings.Contains(r.out.String(), "nothing is downloaded") {
+		t.Errorf("%s", r.out.String())
+	}
+	// enable launches Chrome with galopin's own profile, and says nothing about the user's.
+	if err := r.run(t, "enable"); err != nil {
+		t.Fatal(err)
+	}
+	args := entryArgs(t, r)
+	if !contains(args, "--channel") || !contains(args, "chrome") || !contains(args, pathsFor(r.state).profile) {
+		t.Errorf("args %v", args)
+	}
+	r.out.Reset()
+	if err := r.run(t, "status"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(r.out.String(), "browser:     Google Chrome 142.0.7 (installed)") {
+		t.Errorf("status:\n%s", r.out.String())
+	}
+}
+
+func TestBrowserSetupFallsBackToChromiumWhenChromeWillNotStartOrIsAbsent(t *testing.T) {
+	r := newBrowserRig(t)
+	r.chrome = true
+	r.chromeSelfTest = `{"ok":false,"error":"chrome too new"}`
+	if err := r.run(t, "setup"); err != nil {
+		t.Fatal(err)
+	}
+	if !r.ranChromiumInstall() {
+		t.Error("no fallback to Chromium")
+	}
+	info, _ := readBrowserInfo(pathsFor(r.state))
+	if info.Browser != "chromium" || channelOf(info) != "" {
+		t.Errorf("%+v", info)
+	}
+	if !strings.Contains(r.out.String(), "chrome too new") {
+		t.Errorf("the reason was not said:\n%s", r.out.String())
+	}
+	// No Chrome at all: Chromium, and the status names it as bundled.
+	r2 := newBrowserRig(t)
+	if err := r2.run(t, "setup"); err != nil || !r2.ranChromiumInstall() {
+		t.Fatalf("%v", err)
+	}
+	r2.out.Reset()
+	_ = r2.run(t, "status")
+	if !strings.Contains(r2.out.String(), "Chromium 158.0.1 (bundled)") {
+		t.Errorf("%s", r2.out.String())
+	}
+}
+
+func TestBrowserSetupBundledForcesChromium(t *testing.T) {
+	r := newBrowserRig(t)
+	r.chrome = true
+	if err := r.run(t, "setup", "--bundled"); err != nil {
+		t.Fatal(err)
+	}
+	if !r.ranChromiumInstall() {
+		t.Fatal("--bundled did not download Chromium")
+	}
+	info, _ := readBrowserInfo(pathsFor(r.state))
+	if info.Browser != "chromium" {
+		t.Errorf("%+v", info)
+	}
+	for _, c := range r.calls {
+		if contains(c.args, "--channel") {
+			t.Error("Chrome was tried although --bundled was given")
+		}
+	}
+}
+
+func TestBrowserSetupOffersToRemoveAnEarlierChromiumDownload(t *testing.T) {
+	seed := func(r *fakeBrowserRig) string {
+		dir := pathsFor(r.state).browsers
+		_ = os.MkdirAll(filepath.Join(dir, "chromium-1254"), 0o755)
+		_ = os.WriteFile(filepath.Join(dir, "chromium-1254", "chrome"), bytes.Repeat([]byte("x"), 3<<20), 0o644)
+		return dir
+	}
+	// Nobody to ask: it says how, and keeps the files.
+	r := newBrowserRig(t)
+	r.chrome = true
+	dir := seed(r)
+	if err := r.run(t, "setup"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(dir); err != nil || !strings.Contains(r.out.String(), "setup --prune") {
+		t.Errorf("not offered, or removed unasked:\n%s", r.out.String())
+	}
+	// The user says yes.
+	r = newBrowserRig(t)
+	r.chrome, r.answer = true, true
+	dir = seed(r)
+	_ = r.run(t, "setup")
+	if _, err := os.Stat(dir); err == nil || !strings.Contains(r.out.String(), "Removed the downloaded Chromium (3 MB)") {
+		t.Errorf("not removed after yes:\n%s", r.out.String())
+	}
+	// --prune does it without asking.
+	r = newBrowserRig(t)
+	r.chrome = true
+	dir = seed(r)
+	_ = r.run(t, "setup", "--prune")
+	if _, err := os.Stat(dir); err == nil {
+		t.Error("--prune left the download")
+	}
+	// Chromium in use is never removed.
+	r = newBrowserRig(t)
+	dir = seed(r)
+	_ = r.run(t, "setup", "--prune")
+	if _, err := os.Stat(dir); err != nil {
+		t.Error("the Chromium in use was removed")
+	}
+}
+
+func TestFindChromePerOperatingSystem(t *testing.T) {
+	has := map[string]bool{}
+	e := &browserEnv{
+		getenv: func(k string) string {
+			return map[string]string{"HOME": "/Users/u", "ProgramFiles": `C:\Program Files`, "LocalAppData": `C:\Users\u\AppData\Local`}[k]
+		},
+		lookPath: func(string) (string, error) { return "", errors.New("no") },
+		exists:   func(p string) bool { return has[p] },
+	}
+	e.goos = "darwin"
+	if e.findChrome() != "" {
+		t.Error("found a Chrome that is not there")
+	}
+	has["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"] = true
+	if e.findChrome() != "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" {
+		t.Error("macOS")
+	}
+	e.goos = "linux"
+	has["/opt/google/chrome/chrome"] = true
+	if e.findChrome() != "/opt/google/chrome/chrome" {
+		t.Error("linux path")
+	}
+	e.goos = "windows"
+	has[filepath.Join(`C:\Program Files`, "Google", "Chrome", "Application", "chrome.exe")] = true
+	if !strings.HasSuffix(e.findChrome(), "chrome.exe") {
+		t.Error("windows")
 	}
 }

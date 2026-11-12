@@ -1,11 +1,12 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { z } from "zod";
+import { z } from "zod";
 import { actionDigest } from "../src/classifier.ts";
 import { signGrant } from "../src/grants.ts";
 import {
 	actResultSchema,
+	actionResultSchema,
 	diffSchema,
 	downloadResultSchema,
 	extractResultSchema,
@@ -19,9 +20,28 @@ import {
 	type Snapshot,
 	type SnapshotElement,
 } from "../src/contract.ts";
+import { challengeSchema, tabsResultSchema, useTabDigest } from "../src/extensions.ts";
 import { createToolHandler } from "../src/server.ts";
 import { BrowserSession } from "../src/session.ts";
 import { startFixtures, type Fixtures } from "./fixtures.ts";
+
+// What the runtime sends beyond Cerea's current contract copy (src/extensions.ts).
+const actionResultX = actionResultSchema.extend({
+	refused: z
+		.enum([
+			"approval_required",
+			"approval_mismatch",
+			"approval_expired",
+			"scheme_refused",
+			"challenge",
+		])
+		.optional(),
+});
+const actResultX = actResultSchema.extend({ results: z.array(actionResultX) });
+const snapshotX = snapshotSchema.extend({ challenge: challengeSchema.optional() });
+const diffX = diffSchema.extend({ challenge: challengeSchema.optional() });
+export type SnapshotX = z.infer<typeof snapshotX>;
+export type ActResultX = z.infer<typeof actResultX>;
 
 export const TEST_KEY = Buffer.from("0123456789abcdef0123456789abcdef");
 
@@ -32,14 +52,18 @@ export interface Rig {
 	stateDir: string;
 	keyFile: string;
 	call(name: string, args?: unknown): ReturnType<ReturnType<typeof createToolHandler>>;
-	snapshot(): Promise<Snapshot>;
-	diff(): Promise<Diff>;
-	act(actions: unknown, approvals?: unknown): Promise<ActResult>;
+	snapshot(): Promise<SnapshotX>;
+	diff(): Promise<z.infer<typeof diffX>>;
+	act(actions: unknown, approvals?: unknown): Promise<ActResultX>;
+	tabs(): Promise<z.infer<typeof tabsResultSchema>>;
+	/** A grant for a digest Cerea would compute (use_tab and the like). */
+	signed(digest: string, index?: number, id?: string): ApprovalGrant;
+	useTabGrant(tab: { id: string; url: string; title: string }, index?: number): ApprovalGrant;
 	download(): Promise<DownloadResult>;
 	extract(args?: unknown): Promise<ExtractResult>;
-	goto(path: string): Promise<Snapshot>;
-	ref(snap: Snapshot, role: string, name: string): string;
-	element(snap: Snapshot, ref: string): SnapshotElement;
+	goto(path: string): Promise<SnapshotX>;
+	ref(snap: SnapshotX, role: string, name: string): string;
+	element(snap: SnapshotX, ref: string): SnapshotElement;
 	/** The grant Cerea would issue for this action on this snapshot (its own classifier and digest). */
 	grant(
 		snap: Snapshot,
@@ -69,7 +93,13 @@ function parse<T>(
 }
 
 export async function rig(
-	options: { maxSnapshotChars?: number; actionBudgetMs?: number } = {}
+	options: {
+		maxSnapshotChars?: number;
+		actionBudgetMs?: number;
+		keptTtlMs?: number;
+		idleMs?: number;
+		pace?: { minMs: number; maxMs: number };
+	} = {}
 ): Promise<Rig> {
 	const fx = await startFixtures();
 	const profile = await mkdtemp(join(tmpdir(), "cerea-browser-test-"));
@@ -79,6 +109,9 @@ export async function rig(
 	const session = new BrowserSession({
 		stateDir,
 		actionBudgetMs: options.actionBudgetMs,
+		keptTtlMs: options.keptTtlMs,
+		idleMs: options.idleMs,
+		pace: options.pace,
 		profileDir: profile,
 		headless: true,
 		noSandbox: process.env.CEREA_TEST_NO_SANDBOX === "1",
@@ -94,14 +127,19 @@ export async function rig(
 		stateDir,
 		keyFile,
 		call: (name, args) => handler(name, args ?? {}),
-		snapshot: async () => parse(snapshotSchema, await handler("snapshot", {})),
-		diff: async () => parse(diffSchema, await handler("diff", {})),
+		snapshot: async () => parse(snapshotX, await handler("snapshot", {})),
+		diff: async () => parse(diffX, await handler("diff", {})),
 		act: async (actions, approvals) =>
-			parse(
-				actResultSchema,
-				await handler("act", { actions, ...(approvals ? { approvals } : {}) })
-			),
+			parse(actResultX, await handler("act", { actions, ...(approvals ? { approvals } : {}) })),
 		download: async () => parse(downloadResultSchema, await handler("download", {})),
+		tabs: async () => parse(tabsResultSchema, await handler("tabs", {})),
+		signed(digest, index = 0, id = `approval-${Math.random().toString(36).slice(2)}`) {
+			const exp = Date.now() + 60_000;
+			return { index, id, digest, exp, sig: signGrant(TEST_KEY, id, digest, exp) };
+		},
+		useTabGrant(tab, index = 0) {
+			return r.signed(useTabDigest(tab), index);
+		},
 		extract: async (args) => parse(extractResultSchema, await handler("extract", args ?? {})),
 		goto: async (path) => {
 			const url = path.startsWith("http") ? path : fx.base + path;

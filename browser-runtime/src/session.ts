@@ -19,7 +19,14 @@ import {
 	type Locator,
 	type Page,
 } from "playwright-core";
-import { actionDigest, classifyAction, siteOf, type ClassifyContext } from "./classifier.ts";
+import {
+	actionDigest,
+	classifyAction,
+	siteOf,
+	urlWithoutFragment,
+	type ClassifyContext,
+} from "./classifier.ts";
+import { randomBytes } from "node:crypto";
 import { UsedGrants, checkGrant, readKey, type GrantCheck } from "./grants.ts";
 import {
 	MAX_DOWNLOAD_BYTES,
@@ -34,6 +41,13 @@ import {
 	type SnapshotElement,
 } from "./contract.ts";
 import { ToolError } from "./errors.ts";
+import {
+	CHALLENGE_REFUSAL,
+	useTabDigest,
+	type Challenge,
+	type RuntimeAction,
+	type Tab,
+} from "./extensions.ts";
 import { pageExtract, shapeExtract, type ExtractOptions, type RawExtract } from "./extract.ts";
 import { playwrightKey } from "./keys.ts";
 import { clean, safeFileName } from "./sanitize.ts";
@@ -65,6 +79,12 @@ export interface SessionOptions {
 	stateDir?: string;
 	/** How long one action may run before the batch gives up on it (default 30 s). */
 	actionBudgetMs?: number;
+	/** Use an installed browser instead of the bundled Chromium: "chrome". */
+	channel?: string;
+	/** A small random pause between actions and between batches; off when absent. */
+	pace?: { minMs: number; maxMs: number };
+	/** How long a page kept at the end of a task can be resumed with its token (default 24 h). */
+	keptTtlMs?: number;
 }
 
 export const DEFAULT_MAX_SNAPSHOT_CHARS = 9_000;
@@ -78,6 +98,7 @@ const MAX_UNATTRIBUTED = 5;
 const DOWNLOAD_STALL_MS = 20_000;
 const ACTION_BUDGET_MS = 30_000;
 const DEFAULT_IDLE_MS = 10 * 60_000;
+const KEPT_TTL_MS = 24 * 60 * 60_000;
 
 interface Entry {
 	line: string;
@@ -100,6 +121,21 @@ interface Captured {
 	actionIndex?: number;
 	grantId?: string;
 }
+export interface KeptTab {
+	token: string;
+	id: string;
+	title: string;
+	url: string;
+}
+export interface ResumeResult {
+	id: string;
+	title: string;
+	url: string;
+	/** The kept page is not where the task left it: `was` says where it was. */
+	changed: boolean;
+	was?: { title: string; url: string };
+}
+
 interface Built {
 	snapshot: Snapshot;
 	entries: Map<string, Entry>;
@@ -146,7 +182,21 @@ function pageMeta(el: Element): DomMeta {
 		"get"
 	).toLowerCase();
 	const anchor = el.closest("a");
+	// A human-verification widget (reCAPTCHA, hCaptcha, Turnstile, an interstitial) is the user's to solve.
+	const widget =
+		!!el.closest(
+			".g-recaptcha, #recaptcha, .h-captcha, .cf-turnstile, #cf-challenge-running, #challenge-form, #challenge-stage, [data-sitekey]"
+		) ||
+		(tag === "iframe" &&
+			/google\.com\/recaptcha|recaptcha\.net|hcaptcha\.com|challenges\.cloudflare\.com|arkoselabs\.com/i.test(
+				el.getAttribute("src") ?? ""
+			)) ||
+		/(^|\.)(hcaptcha\.com|challenges\.cloudflare\.com|recaptcha\.net|arkoselabs\.com)$/.test(
+			location.hostname
+		) ||
+		(/(^|\.)google\.com$/.test(location.hostname) && location.pathname.startsWith("/recaptcha"));
 	return {
+		...(widget ? { challenge: true } : {}),
 		...(type ? { inputType: type } : {}),
 		...(formId ? { form: formId } : {}),
 		...(form && (rawMethod === "get" || rawMethod === "post")
@@ -185,6 +235,41 @@ async function safeTitle(page: Page): Promise<string> {
 /** Closing a page whose renderer is stuck can wait forever: give it a moment, then let go. */
 async function closeQuickly(page: Page): Promise<void> {
 	await Promise.race([page.close({ runBeforeUnload: false }).catch(() => {}), sleep(3_000)]);
+}
+
+/**
+ * Runs inside the page: the kind of human-verification step on it, if any. Known widgets are found
+ * by their frames and markers; interstitials by their title or their short, telling text.
+ */
+function pageChallenge(): string | undefined {
+	const frames = Array.from(document.querySelectorAll("iframe"))
+		.filter((f) => !f.closest(".grecaptcha-badge"))
+		.map((f) => (f.getAttribute("src") ?? "").toLowerCase());
+	const any = (re: RegExp) => frames.some((src) => re.test(src));
+	if (
+		any(/google\.com\/recaptcha|recaptcha\.net/) ||
+		document.querySelector(".g-recaptcha, #recaptcha")
+	)
+		return "recaptcha";
+	if (any(/hcaptcha\.com/) || document.querySelector(".h-captcha")) return "hcaptcha";
+	if (any(/challenges\.cloudflare\.com/) || document.querySelector(".cf-turnstile"))
+		return "turnstile";
+	if (any(/arkoselabs\.com|funcaptcha/)) return "arkose";
+	if (
+		document.querySelector("#cf-challenge-running, #challenge-form, #challenge-stage") ||
+		/^just a moment/i.test(document.title) ||
+		/attention required.*cloudflare/i.test(document.title)
+	)
+		return "cloudflare";
+	const text = (document.body?.innerText ?? "").slice(0, 2000);
+	if (
+		text.length < 1500 &&
+		/(verify|confirm) (that )?you(?:'re| are) (a )?(human|not a robot)|are you a robot|unusual traffic from your computer|let us know you.re not a robot|press (&|and) hold to confirm|i.m not a robot/i.test(
+			text
+		)
+	)
+		return "human-check";
+	return undefined;
 }
 
 const tooLarge = () => `larger than ${MAX_DOWNLOAD_BYTES / 1024 / 1024} MB`;
@@ -260,6 +345,16 @@ export class BrowserSession {
 		claimed: boolean;
 	};
 	private queue: Promise<unknown> = Promise.resolve();
+	/** Task pages that are the user's own tabs, adopted with a grant: released, never closed. */
+	private readonly adopted = new Set<Page>();
+	private readonly tabIds = new WeakMap<Page, string>();
+	private tabSeq = 0;
+	private lastActEnd = 0;
+	/** Pages kept open at the end of a task, by the token that resumes them. */
+	private readonly kept = new Map<
+		string,
+		{ page: Page; expires: number; url: string; title: string }
+	>();
 	private foreignTabs: string[] = [];
 	private popups: Page[] = [];
 	/** A download that starts within this long of an action's end still belongs to it. */
@@ -291,15 +386,19 @@ export class BrowserSession {
 	 * in a page of its own, opened blank in the persistent context: a page left on another site
 	 * (by an earlier task or by the user) is never reused.
 	 */
-	private async ensure(): Promise<Page> {
-		this.touch();
+	private async ensureContext(): Promise<BrowserContext> {
 		if (!this.context) {
 			this.starting ??= this.launch().finally(() => {
 				this.starting = undefined;
 			});
 			await this.starting;
 		}
-		const context = this.context!;
+		return this.context!;
+	}
+
+	private async ensure(): Promise<Page> {
+		this.touch();
+		const context = await this.ensureContext();
 		if (!this.active || this.active.isClosed()) {
 			const open = [...this.taskPages].filter((p) => !p.isClosed());
 			this.active = open.at(-1);
@@ -319,17 +418,110 @@ export class BrowserSession {
 		this.idleTimer.unref();
 	}
 
-	/** Closes the task's pages (the profile and its logins stay). The next call opens a fresh blank page. */
-	async endTask(): Promise<{ closed: number }> {
+	/**
+	 * Closes the task's pages (the profile and its logins stay). The next call opens a fresh blank
+	 * page. With `keep`, the active page is not closed but released and given a token: the next
+	 * task can `resume` it with that token, and without it the page is just a user tab. A tab the
+	 * user lent to the task is let go, never closed.
+	 */
+	async endTask(options: { keep?: boolean } = {}): Promise<{ closed: number; kept?: KeptTab }> {
 		clearTimeout(this.idleTimer);
 		const pages = [...this.taskPages];
+		const keep = options.keep ? this.active : undefined;
+		let kept: KeptTab | undefined;
+		if (keep && !keep.isClosed() && this.taskPages.has(keep)) {
+			this.purgeKept();
+			const token = randomBytes(18).toString("base64url");
+			const title = clean(await safeTitle(keep), 300);
+			const url = keep.url();
+			this.kept.set(token, {
+				page: keep,
+				url,
+				title,
+				expires: Date.now() + (this.options.keptTtlMs ?? KEPT_TTL_MS),
+			});
+			kept = { token, id: this.tabId(keep), title, url: clean(url, 2000) };
+		}
 		this.taskPages.clear();
-		this.taskLastSite = undefined;
 		this.active = undefined;
 		this.baseline = undefined;
 		this.notes = [];
-		await Promise.all(pages.map((p) => closeQuickly(p)));
-		return { closed: pages.length };
+		// A tab the user opened and lent to the task, and the page being kept, are let go.
+		const own = pages.filter((p) => !this.adopted.has(p) && p !== keep);
+		this.adopted.clear();
+		await Promise.all(own.map((p) => closeQuickly(p)));
+		return { closed: own.length, ...(kept ? { kept } : {}) };
+	}
+
+	/** Forgets kept pages whose token has expired or whose page is gone (they stay open if open). */
+	private purgeKept(): void {
+		const now = Date.now();
+		for (const [token, entry] of this.kept) {
+			if (entry.expires <= now || entry.page.isClosed()) this.kept.delete(token);
+		}
+	}
+
+	/**
+	 * Makes a page kept by an earlier task the active page again, with no grant: the token is the
+	 * proof that it was the task's own. Without it the page counts as a user tab (`use_tab`).
+	 */
+	async resume(token: string): Promise<ResumeResult> {
+		await this.ensureContext();
+		this.purgeKept();
+		const entry = this.kept.get(token);
+		if (!entry) {
+			throw new ToolError(
+				"That token does not name a kept page (it expired, was used, or the page was closed)."
+			);
+		}
+		this.kept.delete(token);
+		const page = entry.page;
+		this.taskPages.add(page);
+		this.active = page;
+		this.baseline = undefined;
+		this.touch();
+		const url = page.url();
+		try {
+			this.taskLastSite = new URL(url).hostname.toLowerCase().replace(/\.$/, "");
+		} catch {
+			this.taskLastSite = undefined;
+		}
+		const title = clean(await safeTitle(page), 300);
+		const moved =
+			urlWithoutFragment(url) !== urlWithoutFragment(entry.url) || title !== entry.title;
+		return {
+			id: this.tabId(page),
+			title,
+			url: clean(url, 2000),
+			changed: moved,
+			...(moved ? { was: { title: entry.title, url: clean(entry.url, 2000) } } : {}),
+		};
+	}
+
+	private tabId(page: Page): string {
+		let id = this.tabIds.get(page);
+		if (!id) {
+			id = `t${(this.tabSeq += 1)}`;
+			this.tabIds.set(page, id);
+		}
+		return id;
+	}
+
+	/** The open pages of the persistent context, task pages and the user's own. */
+	async tabs(): Promise<{ tabs: Tab[] }> {
+		await this.ensureContext();
+		this.touch();
+		const pages = this.context!.pages().filter((p) => !p.isClosed());
+		const tabs: Tab[] = [];
+		for (const page of pages.slice(0, 50)) {
+			tabs.push({
+				id: this.tabId(page),
+				title: clean(await safeTitle(page), 300),
+				url: clean(page.url(), 2000),
+				mine: this.taskPages.has(page),
+			});
+		}
+		return { tabs };
 	}
 
 	private async launch(): Promise<void> {
@@ -354,6 +546,7 @@ export class BrowserSession {
 				acceptDownloads: true,
 				viewport: headless ? (this.options.viewport ?? { width: 1280, height: 800 }) : null,
 				...(this.options.executablePath ? { executablePath: this.options.executablePath } : {}),
+				...(this.options.channel ? { channel: this.options.channel } : {}),
 				chromiumSandbox: !this.options.noSandbox,
 				args: [
 					"--no-first-run",
@@ -675,14 +868,34 @@ export class BrowserSession {
 			`title: ${JSON.stringify(title)}`,
 			...(tabs > 1 ? [`tabs: ${tabs}`] : []),
 		];
-		const snapshot: Snapshot = {
+		const challenge = await this.detectChallenge(page);
+		if (challenge) {
+			header.push(
+				`challenge: ${challenge.kind} (a human-verification step: the user solves it; never click it)`
+			);
+		}
+		const snapshot: Snapshot & { challenge?: Challenge } = {
 			url,
 			title,
+			...(challenge ? { challenge } : {}),
 			text: render(fitted, header),
 			elements: [...entries.values()].map((e) => e.element),
 			...(collapsed > 0 ? { collapsed } : {}),
 		};
 		return { snapshot, entries, textLines };
+	}
+
+	/** reCAPTCHA, hCaptcha, Turnstile, Arkose and the "verify you are human" interstitials. */
+	private async detectChallenge(page: Page): Promise<Challenge | undefined> {
+		try {
+			const kind = await Promise.race([
+				page.evaluate(pageChallenge),
+				sleep(1_500).then(() => undefined),
+			]);
+			return kind ? { kind } : undefined;
+		} catch {
+			return undefined;
+		}
 	}
 
 	async snapshot(): Promise<Snapshot> {
@@ -711,6 +924,9 @@ export class BrowserSession {
 			return {
 				url: snapshot.url,
 				title: snapshot.title,
+				...((snapshot as { challenge?: Challenge }).challenge
+					? { challenge: (snapshot as { challenge?: Challenge }).challenge }
+					: {}),
 				navigated: true,
 				added: [],
 				changed: [],
@@ -759,9 +975,11 @@ export class BrowserSession {
 		if (more > 0) lines.push(`… and ${more} more text changes`);
 		this.baseline = { ...before, entries: now.entries, textLines: now.textLines };
 		const { url, title } = now.snapshot;
+		const challenge = (now.snapshot as { challenge?: Challenge }).challenge;
 		return {
 			url,
 			title,
+			...(challenge ? { challenge } : {}),
 			navigated: false,
 			added,
 			changed,
@@ -779,7 +997,10 @@ export class BrowserSession {
 	// ---- act -------------------------------------------------------------------------------
 
 	/** The element a ref names right now, as Cerea would have it in its snapshot. */
-	private async lookup(page: Page, ref: string): Promise<SnapshotElement> {
+	private async lookup(
+		page: Page,
+		ref: string
+	): Promise<{ element: SnapshotElement; challenge: boolean }> {
 		const node = findNode(await this.model(page), ref);
 		if (!node) {
 			throw new ToolError(
@@ -787,10 +1008,13 @@ export class BrowserSession {
 			);
 		}
 		const { meta, failed } = await this.fetchMeta(page, [ref]);
-		return toElement(node, { currentUrl: page.url(), meta, unknown: failed });
+		return {
+			element: toElement(node, { currentUrl: page.url(), meta, unknown: failed }),
+			challenge: meta.get(ref)?.challenge === true,
+		};
 	}
 
-	async act(actions: BrowserAction[], approvals: ApprovalGrant[] | undefined): Promise<ActResult> {
+	async act(actions: RuntimeAction[], approvals: ApprovalGrant[] | undefined): Promise<ActResult> {
 		const page0 = await this.ensure();
 		const results: ActionResult[] = [];
 		const downloadsBefore = this.downloads.length;
@@ -801,8 +1025,11 @@ export class BrowserSession {
 		this.acting = true;
 		this.openedDuringAct = undefined;
 		try {
+			// A person does not fire a second batch the instant the first ends.
+			if (this.lastActEnd > 0) await this.pause(Date.now() - this.lastActEnd);
 			for (let index = 0; index < actions.length; index += 1) {
 				const action = actions[index];
+				if (index > 0) await this.pause(0);
 				const page = this.active && !this.active.isClosed() ? this.active : await this.ensure();
 				const budget = await this.withBudget(this.runOne(page, action, index, approvals));
 				let result = budget.result;
@@ -827,6 +1054,7 @@ export class BrowserSession {
 			this.acting = false;
 			await Promise.race([Promise.allSettled([...this.pendingDownloads]), sleep(15_000)]);
 			this.currentUntil = Date.now() + 1000;
+			this.lastActEnd = Date.now();
 		}
 		// A page that no longer answers (a script stuck in a loop) is dropped: the next call opens a fresh one.
 		const live = this.active;
@@ -888,6 +1116,14 @@ export class BrowserSession {
 		};
 	}
 
+	/** A small random pause (when pacing is on), less what has already passed. */
+	private async pause(elapsedMs: number): Promise<void> {
+		const pace = this.options.pace;
+		if (!pace || pace.maxMs <= 0) return;
+		const wanted = pace.minMs + Math.random() * Math.max(0, pace.maxMs - pace.minMs);
+		if (wanted > elapsedMs) await sleep(wanted - elapsedMs);
+	}
+
 	/** An action never hangs the batch: past the budget it fails and `act` returns. */
 	private withBudget(
 		work: Promise<ActionResult>
@@ -915,20 +1151,34 @@ export class BrowserSession {
 		this.taskPages.delete(page);
 		if (this.active === page) this.active = undefined;
 		this.baseline = undefined;
+		if (this.adopted.delete(page)) return;
 		void closeQuickly(page);
 	}
 
 	private async runOne(
 		page: Page,
-		action: BrowserAction,
+		action: RuntimeAction,
 		index: number,
 		approvals: ApprovalGrant[] | undefined
 	): Promise<ActionResult> {
 		try {
+			if (action.type === "use_tab") return await this.useTab(action.tab, index, approvals);
 			// What the action touches, read from the page now, not from an earlier snapshot.
 			let element: SnapshotElement | undefined;
 			const ref = "ref" in action ? action.ref : undefined;
-			if (ref) element = await this.lookup(page, ref);
+			if (ref) {
+				const found = await this.lookup(page, ref);
+				element = found.element;
+				if (found.challenge) {
+					// A human-verification widget is the user's to solve: no grant can cover it.
+					return {
+						ok: false,
+						refused: CHALLENGE_REFUSAL,
+						error:
+							"That is a human-verification step (a CAPTCHA or bot check). The user has to solve it; it is never clicked or filled by the agent.",
+					} as unknown as ActionResult;
+				}
+			}
 			const ctx: ClassifyContext = {
 				element,
 				currentUrl: page.url(),
@@ -988,7 +1238,7 @@ export class BrowserSession {
 			const klass = element?.metaUnknown ? "commit" : classified.class;
 			const grant = approvals?.find((g) => g.index === index);
 			if (klass === "commit") {
-				const refusal = this.checkApproval(action, ctx, grant);
+				const refusal = this.checkApproval(actionDigest(action, ctx), grant);
 				if (refusal) return refusal;
 				// Spent before it runs: an approval that ran once (or half ran) is never run again.
 				this.spend(grant!);
@@ -1025,12 +1275,49 @@ export class BrowserSession {
 	}
 
 	/**
+	 * Adopts a tab the user opened as the task's active page. It is always a commit (reason
+	 * `user-tab`): it needs a signed grant bound to the tab's id, address and title as `tabs()` showed
+	 * them. The tab is lent, not taken: ending the task releases it and never closes it.
+	 */
+	private async useTab(
+		tabId: string,
+		index: number,
+		approvals: ApprovalGrant[] | undefined
+	): Promise<ActionResult> {
+		const context = await this.ensureContext();
+		const page = context.pages().find((p) => !p.isClosed() && this.tabIds.get(p) === tabId);
+		if (!page) {
+			return { ok: false, error: `No open tab ${clean(tabId, 30)}. List them with tabs().` };
+		}
+		if (this.taskPages.has(page)) {
+			return { ok: false, error: "That tab is already part of this task." };
+		}
+		const title = clean(await safeTitle(page), 300);
+		const url = page.url();
+		const grant = approvals?.find((g) => g.index === index);
+		const refusal = this.checkApproval(useTabDigest({ id: tabId, url, title }), grant);
+		if (refusal) return refusal;
+		this.spend(grant!);
+		this.purgeKept();
+		for (const [token, entry] of this.kept) if (entry.page === page) this.kept.delete(token);
+		this.taskPages.add(page);
+		this.adopted.add(page);
+		this.active = page;
+		this.baseline = undefined;
+		try {
+			this.taskLastSite = new URL(url).hostname.toLowerCase().replace(/\.$/, "");
+		} catch {
+			this.taskLastSite = undefined;
+		}
+		return { ok: true, outcome: `now using the tab "${clean(title, 80)}"` };
+	}
+
+	/**
 	 * The runtime's half of ADR 0116 §4: a commit runs only with a grant that Cerea signed, that has
 	 * not expired and that was issued for exactly this action as the page is now.
 	 */
 	private checkApproval(
-		action: BrowserAction,
-		ctx: ClassifyContext,
+		digest: string,
 		grant: ApprovalGrant | undefined
 	): ActionResult | undefined {
 		if (!grant) {
@@ -1042,7 +1329,7 @@ export class BrowserSession {
 			};
 		}
 		const key = readKey({ keyFile: this.options.keyFile });
-		const verdict: GrantCheck = checkGrant(grant, actionDigest(action, ctx), key);
+		const verdict: GrantCheck = checkGrant(grant, digest, key);
 		if (verdict === "no_key") {
 			return {
 				ok: false,

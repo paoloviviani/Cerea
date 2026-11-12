@@ -26,6 +26,8 @@ Usage: cerea-browser --profile DIR [options]
   --key-file PATH      File holding this device's approval key (0600), or $CEREA_BROWSER_KEY.
                        Without a key no approval is accepted, so nothing commit-class runs.
   --state-dir DIR      Where spent approvals are remembered (default: beside the profile).
+  --channel NAME       Use an installed browser instead of the bundled Chromium (chrome).
+  --pace MIN-MAX|off   Random pause between actions and batches, in ms (default 150-600).
   --no-sandbox         Start Chromium without its sandbox (containers, root).
   --executable PATH    Use this Chromium instead of the one Playwright installed.
   --max-snapshot-chars N   Size budget of one snapshot (default ${DEFAULT_MAX_SNAPSHOT_CHARS}).
@@ -52,6 +54,8 @@ const { values } = (() => {
 				token: { type: "string" },
 				"no-sandbox": { type: "boolean" },
 				"key-file": { type: "string" },
+				channel: { type: "string" },
+				pace: { type: "string" },
 				"state-dir": { type: "string" },
 				"idle-minutes": { type: "string" },
 				executable: { type: "string" },
@@ -73,7 +77,7 @@ if (values.help) {
 }
 if (values.headless && values.headed) fail("--headless and --headed contradict each other.");
 if (values["self-test"]) {
-	process.exit(await selfTest(values.executable));
+	process.exit(await selfTest(values.executable, values.channel));
 }
 const profileDir = values.profile ?? process.env.CEREA_BROWSER_PROFILE;
 if (!profileDir) fail("--profile DIR is required.");
@@ -92,12 +96,27 @@ if (values.viewport) {
 	viewport = { width: Number(m[1]), height: Number(m[2]) };
 }
 
+function parsePace(text: string | undefined): { minMs: number; maxMs: number } | undefined {
+	if (text === undefined) return { minMs: 150, maxMs: 600 };
+	if (text === "off" || text === "0") return undefined;
+	const m = /^(\d{1,5})(?:-(\d{1,5}))?$/.exec(text);
+	if (!m) fail('--pace must look like 150-600, or "off".');
+	const minMs = Number(m[1]);
+	const maxMs = m[2] === undefined ? minMs : Number(m[2]);
+	if (maxMs < minMs || maxMs > 10_000)
+		fail("--pace: the maximum must be at least the minimum, and at most 10000 ms.");
+	return { minMs, maxMs };
+}
+const pace = parsePace(values.pace);
+
 const session = new BrowserSession({
 	profileDir,
 	headless: !values.headed,
 	noSandbox: values["no-sandbox"] === true,
 	executablePath: values.executable,
 	keyFile: values["key-file"],
+	channel: values.channel,
+	pace,
 	stateDir: values["state-dir"],
 	...(values["idle-minutes"] ? { idleMs: Number(values["idle-minutes"]) * 60_000 } : {}),
 	maxSnapshotChars: maxChars,
@@ -130,7 +149,10 @@ if (values.http !== undefined) {
  * Starts Chromium headless on a throw-away profile, with its sandbox and, failing that, without:
  * the answer tells `galopin browser setup` whether the sandbox works on this computer.
  */
-async function selfTest(executablePath: string | undefined): Promise<number> {
+async function selfTest(
+	executablePath: string | undefined,
+	channel: string | undefined
+): Promise<number> {
 	const profile = await mkdtemp(join(tmpdir(), "cerea-browser-selftest-"));
 	try {
 		for (const sandbox of [true, false]) {
@@ -139,10 +161,13 @@ async function selfTest(executablePath: string | undefined): Promise<number> {
 					headless: true,
 					chromiumSandbox: sandbox,
 					...(executablePath ? { executablePath } : {}),
+					...(channel ? { channel } : {}),
 				});
 				const version = context.browser()?.version() ?? "";
 				await context.close();
-				process.stdout.write(`${JSON.stringify({ ok: true, sandbox, version })}\n`);
+				process.stdout.write(
+					`${JSON.stringify({ ok: true, sandbox, version, channel: channel ?? "chromium" })}\n`
+				);
 				return 0;
 			} catch (err) {
 				if (!sandbox) {

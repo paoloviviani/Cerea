@@ -264,6 +264,30 @@ document.getElementById('box').insertAdjacentHTML('afterbegin','<a href=&quot;/f
 				)
 			);
 		}
+		if (p === "/title") {
+			const t = url.searchParams.get("t") ?? "Titled";
+			return send(200, page(t, `<h1>${esc(t)}</h1><p>A page the user opened.</p>`));
+		}
+		if (p === "/challenge") {
+			const kind = url.searchParams.get("kind") ?? "recaptcha";
+			const widget: Record<string, string> = {
+				recaptcha: `<div class="g-recaptcha" data-sitekey="k"><button type="button">I am not a robot</button></div>`,
+				hcaptcha: `<div class="h-captcha" data-sitekey="k"><button type="button">Check the box</button></div>`,
+				turnstile: `<div class="cf-turnstile"><button type="button">Verify</button></div>`,
+				iframe: `<div><iframe title="reCAPTCHA" src="https://www.google.com/recaptcha/api2/anchor?k=1" width="300" height="80"></iframe></div>`,
+				cloudflare: `<div id="challenge-stage"><button type="button">Verify</button></div>`,
+				text: `<p>Please verify you are human to continue.</p><button type="button">Continue</button>`,
+				none: `<p>An ordinary page.</p>`,
+			};
+			const title = kind === "cloudflare" ? "Just a moment..." : "Sign up";
+			return send(
+				200,
+				page(
+					title,
+					`<h1>${esc(title)}</h1>${widget[kind] ?? ""}<button type="button" onclick="document.title='plain-clicked'">Plain button</button>`
+				)
+			);
+		}
 		if (p === "/disabled") {
 			return send(
 				200,

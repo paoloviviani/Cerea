@@ -27,10 +27,19 @@ galopin browser status    # installed? offered? answering?
 ```
 
 `setup` writes the runtime into `<config-dir>/galopin/browser/runtime`, installs
-its npm dependencies there (one: a pinned `playwright-core`), downloads
-Playwright's Chromium into `<config-dir>/galopin/browser/ms-playwright`, starts
-the browser once to check it works, and prints each step. It needs the network
-for the two downloads.
+its npm dependency there (a pinned `playwright-core`), starts the browser once to check
+it works, and prints each step.
+
+- **An installed Google Chrome is used when there is one**, and then no browser is
+  downloaded at all. It runs with galopin's own profile, never your own Chrome profile
+  (which is locked while Chrome runs and private to you).
+- Only when there is no Chrome, or it will not start under the runtime, or you ask for it
+  with `setup --bundled`, is Playwright's Chromium downloaded into
+  `<config-dir>/galopin/browser/ms-playwright`.
+- If an earlier setup downloaded Chromium and Chrome is now used, `setup` offers to remove
+  the downloaded copy; `setup --prune` removes it without asking.
+- `status` says which one is in use: "Google Chrome 142.0 (installed)" or "Chromium 158.0
+  (bundled)".
 
 `enable` adds the `cerea-browser` entry to your `mcp.json` (every other entry is
 kept) and creates the profile in `<config-dir>/galopin/browser/profile`. The
@@ -49,6 +58,28 @@ sign in in the window. On a server, use a computer with a display for the first
 sign-in and copy the profile directory, or run the browser there with remote
 access of your own. The runtime never types your password: the browse tool does
 not know it.
+
+## Your own tabs, and keeping the last page
+
+The browse task works in pages it opened itself. A tab you opened is never used unless
+you approve it: the agent can list the open tabs (`tabs`) and ask to use one
+(`use_tab`), which always raises an approval card (reason: your own tab). The tab is lent,
+not taken: when the task ends it is let go and never closed.
+
+When a task ends, Cerea can ask the runtime to **keep the last page open**
+(`end_task` with `keep`). The runtime gives back a random token; a later task that
+presents the token (`resume`) gets that page back with no new approval, and is told if
+the page has moved since. Without the token the kept page is just one of your tabs. A
+token works once, for 24 hours, and only while the page is open; the idle close never
+closes a kept page.
+
+## Verification steps (CAPTCHAs)
+
+The runtime recognises reCAPTCHA, hCaptcha, Cloudflare Turnstile and the common "verify
+you are human" pages, says so in the snapshot (`challenge`), and **refuses any action on
+the widget**, whatever approval comes with it: the user solves it, in the window. It does
+not try to solve or avoid them. It also pauses a random 150 to 600 ms between actions and
+batches (`--pace MIN-MAX`, or `--pace off`), as a person would.
 
 ## What the runtime refuses
 

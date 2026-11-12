@@ -6,13 +6,9 @@
  */
 
 import { z } from "zod";
-import {
-	approvalGrantSchema,
-	browserActionSchema,
-	type ApprovalGrant,
-	type BrowserAction,
-} from "./contract.ts";
+import { approvalGrantSchema, type ApprovalGrant } from "./contract.ts";
 import { ToolError } from "./errors.ts";
+import { runtimeActionSchema, type RuntimeAction } from "./extensions.ts";
 
 const MAX_ACTIONS = 12;
 
@@ -35,7 +31,7 @@ export function asObject(args: unknown): Record<string, unknown> {
 	return value as Record<string, unknown>;
 }
 
-const ACTION_TYPES = browserActionSchema.options.map((o) => o.shape.type.value);
+const ACTION_TYPES = runtimeActionSchema.options.map((o) => o.shape.type.value);
 
 function describeIssue(issue: z.ZodIssue): string {
 	const where = issue.path.length > 0 ? issue.path.join(".") : "action";
@@ -48,7 +44,7 @@ function describeIssue(issue: z.ZodIssue): string {
 	return `${where}: ${issue.message}`;
 }
 
-export function parseActions(raw: unknown): BrowserAction[] {
+export function parseActions(raw: unknown): RuntimeAction[] {
 	let value = maybeJson(raw);
 	if (value && typeof value === "object" && !Array.isArray(value)) value = [value];
 	if (!Array.isArray(value)) {
@@ -60,7 +56,7 @@ export function parseActions(raw: unknown): BrowserAction[] {
 	if (value.length > MAX_ACTIONS) throw new ToolError(`At most ${MAX_ACTIONS} actions per call.`);
 	return value.map((item, i) => {
 		const coerced = coerceAction(maybeJson(item));
-		const parsed = browserActionSchema.safeParse(coerced);
+		const parsed = runtimeActionSchema.safeParse(coerced);
 		if (!parsed.success) {
 			throw new ToolError(
 				`actions[${i}] is not valid (${describeIssue(parsed.error.issues[0])}). Nothing was run.`

@@ -42,6 +42,8 @@ export interface DomMeta {
 	formActionHost?: string;
 	download?: boolean;
 	disabled?: boolean;
+	/** The element is part of a human-verification widget: never acted on. */
+	challenge?: boolean;
 	/** The raw `href` attribute of a link. */
 	href?: string;
 	/** A field's value, never a password's. */

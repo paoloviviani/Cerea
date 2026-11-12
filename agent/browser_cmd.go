@@ -33,14 +33,18 @@ const browserConnectorName = "cerea-browser"
 const browserUsage = `galopin browser — the browser Cerea's browse tool uses on this machine.
 
 Usage:
-  galopin browser setup   [--state-dir PATH] [--creds PATH]
+  galopin browser setup   [--bundled] [--prune] [--state-dir PATH] [--creds PATH]
   galopin browser enable  [--headed | --headless] [--no-sandbox] [--state-dir PATH] [--creds PATH] [--mcp-config PATH]
   galopin browser disable [--remove-profile] [--state-dir PATH] [--creds PATH] [--mcp-config PATH]
   galopin browser status  [--state-dir PATH] [--creds PATH] [--mcp-config PATH]
 
   setup    Check that Node (22.18 or newer) is installed, write the runtime into galopin's
-           own directory, install its npm dependencies and Playwright's Chromium there,
-           and try the browser once. Installs nothing system-wide.
+           own directory, install its npm dependency there, and try the browser once.
+           An installed Google Chrome is used, and then nothing is downloaded; Playwright's
+           Chromium is downloaded into galopin's directory only when there is no Chrome, or
+           with --bundled. --prune removes a Chromium an earlier setup downloaded. It
+           always uses galopin's own profile, never your Chrome profile. Installs nothing
+           system-wide.
   enable   Offer the runtime to Cerea as the local connector "cerea-browser" (it is
            added to mcp.json, with a profile under galopin's directory that keeps your
            logins). The window is shown when this machine has a display, unless you say
@@ -64,6 +68,10 @@ type browserEnv struct {
 	run      func(ctx context.Context, dir string, env []string, name string, args ...string) ([]byte, error)
 	check    func(ctx context.Context, cfg mcpconn.Config, name string) (*mcpconn.CheckResult, error)
 	out      io.Writer
+	// exists reports whether a file is there (swapped in tests).
+	exists func(path string) bool
+	// confirm asks the user a yes/no question; false when there is nobody to ask.
+	confirm func(question string) bool
 }
 
 func realBrowserEnv() *browserEnv {
@@ -82,6 +90,11 @@ func realBrowserEnv() *browserEnv {
 		},
 		check: mcpconn.Check,
 		out:   os.Stdout,
+		exists: func(path string) bool {
+			st, err := os.Stat(path)
+			return err == nil && !st.IsDir()
+		},
+		confirm: askYesNo,
 	}
 }
 
@@ -102,7 +115,14 @@ type browserInfo struct {
 	Node       string `json:"node"`
 	NodeVer    string `json:"nodeVersion"`
 	Playwright string `json:"playwright"`
-	Chromium   string `json:"chromium"`
+	// Browser is "chrome" (an installed Google Chrome, which needs no download) or "chromium"
+	// (Playwright's own, downloaded into galopin's directory). Version is its version.
+	Browser string `json:"browser"`
+	Version string `json:"version"`
+	// ChromePath is where an installed Chrome was found.
+	ChromePath string `json:"chromePath,omitempty"`
+	// Chromium is kept for files written by an earlier setup: the bundled version.
+	Chromium string `json:"chromium,omitempty"`
 	// Sandbox says whether Chromium's own sandbox works on this machine; when it does not
 	// (a restricted user namespace, a container), enable starts the browser without it.
 	Sandbox bool `json:"sandbox"`
@@ -123,7 +143,7 @@ func runBrowser(args []string) error {
 
 type browserFlags struct {
 	connectorsOptions
-	headed, headless, noSandbox, removeProfile bool
+	headed, headless, noSandbox, removeProfile, bundled, prune bool
 }
 
 func runBrowserWith(ctx context.Context, env *browserEnv, args []string) error {
@@ -137,6 +157,8 @@ func runBrowserWith(ctx context.Context, env *browserEnv, args []string) error {
 	fs.BoolVar(&f.headless, "headless", false, "")
 	fs.BoolVar(&f.noSandbox, "no-sandbox", false, "")
 	fs.BoolVar(&f.removeProfile, "remove-profile", false, "")
+	fs.BoolVar(&f.bundled, "bundled", false, "")
+	fs.BoolVar(&f.prune, "prune", false, "")
 	if err := fs.Parse(rest); err != nil {
 		return err
 	}
@@ -162,7 +184,7 @@ func runBrowserWith(ctx context.Context, env *browserEnv, args []string) error {
 	}
 	switch sub {
 	case "setup":
-		return browserSetup(ctx, env)
+		return browserSetup(ctx, env, f)
 	case "enable":
 		return browserEnable(env, f)
 	case "disable":
@@ -207,7 +229,7 @@ func playwrightVersion() string {
 	return p.Dependencies["playwright-core"]
 }
 
-func browserSetup(ctx context.Context, env *browserEnv) error {
+func browserSetup(ctx context.Context, env *browserEnv, f browserFlags) error {
 	p := pathsFor(env.stateDir)
 	node, err := env.lookPath("node")
 	if err != nil {
@@ -250,32 +272,68 @@ func browserSetup(ctx context.Context, env *browserEnv) error {
 		}
 	}
 	browsersEnv := []string{"PLAYWRIGHT_BROWSERS_PATH=" + p.browsers}
-	env.say("Installing Chromium into %s ...", p.browsers)
-	cli := filepath.Join("node_modules", "playwright-core", "cli.js")
-	if out, err := env.run(ctx, p.runtime, browsersEnv, node, cli, "install", "chromium"); err != nil {
-		return fmt.Errorf("installing Chromium failed: %w\n%s", err, tail(out))
-	}
-	out, err = env.run(ctx, p.runtime, browsersEnv, node, p.bundle, "--self-test")
-	if err != nil {
-		return fmt.Errorf("the browser did not start: %w\n%s", err, tail(out))
-	}
-	var st struct {
+
+	// An installed Google Chrome is preferred: nothing is downloaded, and it looks like the
+	// browser the user already has. galopin's own profile is used with it, never the user's.
+	type selfTest struct {
 		OK      bool   `json:"ok"`
 		Sandbox bool   `json:"sandbox"`
 		Version string `json:"version"`
 		Error   string `json:"error"`
 	}
-	if err := json.Unmarshal(lastLine(out), &st); err != nil || !st.OK {
-		return fmt.Errorf("the browser did not start: %s", firstNonEmpty(st.Error, string(tail(out))))
+	try := func(channel string) (*selfTest, error) {
+		args := []string{p.bundle, "--self-test"}
+		if channel != "" {
+			args = append(args, "--channel", channel)
+		}
+		out, err := env.run(ctx, p.runtime, browsersEnv, node, args...)
+		var st selfTest
+		if jerr := json.Unmarshal(lastLine(out), &st); jerr != nil || !st.OK {
+			msg := firstNonEmpty(st.Error, string(tail(out)))
+			if err != nil {
+				msg = fmt.Sprintf("%v: %s", err, msg)
+			}
+			return nil, errors.New(msg)
+		}
+		return &st, nil
 	}
-	info := browserInfo{Node: node, NodeVer: version, Playwright: pinned, Chromium: st.Version, Sandbox: st.Sandbox}
+	info := browserInfo{Node: node, NodeVer: version, Playwright: pinned}
+	var st *selfTest
+	if !f.bundled {
+		if chrome := env.findChrome(); chrome != "" {
+			env.say("Found Google Chrome at %s", chrome)
+			if got, err := try("chrome"); err == nil {
+				st = got
+				info.Browser, info.Version, info.ChromePath = "chrome", got.Version, chrome
+				env.say("Google Chrome %s starts: nothing is downloaded.", got.Version)
+			} else {
+				env.say("Google Chrome did not start under the runtime (%v); using Chromium instead.", err)
+			}
+		}
+	}
+	if st == nil {
+		env.say("Installing Chromium into %s ...", p.browsers)
+		cli := filepath.Join("node_modules", "playwright-core", "cli.js")
+		if out, err := env.run(ctx, p.runtime, browsersEnv, node, cli, "install", "chromium"); err != nil {
+			return fmt.Errorf("installing Chromium failed: %w\n%s", err, tail(out))
+		}
+		got, err := try("")
+		if err != nil {
+			return fmt.Errorf("the browser did not start: %w", err)
+		}
+		st = got
+		info.Browser, info.Version = "chromium", got.Version
+		env.say("Chromium %s starts.", got.Version)
+	} else {
+		env.prune(p, f.prune)
+	}
+	info.Sandbox = st.Sandbox
 	body, _ := json.MarshalIndent(info, "", "\t")
 	if err := writeFileAtomic(p.info, append(body, '\n'), 0o600); err != nil {
 		return err
 	}
-	env.say("Chromium %s starts.", st.Version)
 	if !st.Sandbox {
-		env.say("Note: Chromium's sandbox does not work on this machine (a restricted user namespace or a container), so the browser will run without it. Pages it opens are then not isolated from your user account: use it for sites you trust, or fix the restriction and run setup again.")
+		env.say("Note: the browser's sandbox does not work on this machine (a restricted user namespace or a container), so it will run without it. Pages it opens are then not isolated from your user account: use it for sites you trust, or fix the restriction and run setup again.")
 	}
 	env.say("Done. Next: galopin browser enable")
 	return nil
@@ -337,7 +395,7 @@ func (e *browserEnv) hasDisplay() bool {
 
 // runtimeArgs are the runtime's command line for this machine. Everything is in the command line
 // or a file; the approval key is never an argument.
-func runtimeArgs(p browserPaths, headed, noSandbox bool) []string {
+func runtimeArgs(p browserPaths, headed, noSandbox bool, channel string) []string {
 	args := []string{p.bundle, "--profile", p.profile, "--state-dir", p.dir}
 	if headed {
 		args = append(args, "--headed")
@@ -348,11 +406,14 @@ func runtimeArgs(p browserPaths, headed, noSandbox bool) []string {
 	if noSandbox {
 		args = append(args, "--no-sandbox")
 	}
+	if channel != "" {
+		args = append(args, "--channel", channel)
+	}
 	return args
 }
 
-// browserTools is the connector's ceiling: the protocol's six tools and the end-of-task call.
-var browserTools = []string{"snapshot", "diff", "act", "extract", "screenshot", "download", "end_task"}
+// browserTools is the connector's ceiling: the protocol's six tools, the end-of-task call, and the tab and resume calls.
+var browserTools = []string{"snapshot", "diff", "act", "extract", "screenshot", "download", "end_task", "tabs", "resume"}
 
 type browserEntry struct {
 	Command      string            `json:"command"`
@@ -387,7 +448,7 @@ func browserEnable(env *browserEnv, f browserFlags) error {
 	tighten(p.profile)
 	entry := browserEntry{
 		Command:      info.Node,
-		Args:         runtimeArgs(p, headed, noSandbox),
+		Args:         runtimeArgs(p, headed, noSandbox, channelOf(info)),
 		Env:          map[string]string{"PLAYWRIGHT_BROWSERS_PATH": p.browsers},
 		Description:  "Browser for Cerea's browse tool (managed by 'galopin browser'; do not edit)",
 		AllowedTools: browserTools,
@@ -451,13 +512,13 @@ func browserStatus(ctx context.Context, env *browserEnv) error {
 		line("playwright", v)
 	}
 	if info, err := readBrowserInfo(p); err != nil {
-		line("chromium", "not checked (run 'galopin browser setup')")
+		line("browser", "not checked (run 'galopin browser setup')")
 	} else {
 		sandbox := "sandboxed"
 		if !info.Sandbox {
 			sandbox = "no sandbox on this machine"
 		}
-		line("chromium", fmt.Sprintf("%s, %s; node %s", info.Chromium, sandbox, info.NodeVer))
+		line("browser", fmt.Sprintf("%s, %s; node %s", browserLabel(info), sandbox, info.NodeVer))
 	}
 
 	var entry *mcpconn.Entry
@@ -518,4 +579,95 @@ func browserStatus(ctx context.Context, env *browserEnv) error {
 	}
 	line("responding", fmt.Sprintf("yes (%s %s, %d tools)", res.ServerName, res.ServerVersion, len(res.Tools)))
 	return nil
+}
+
+// askYesNo asks on the terminal; with no terminal (a script, a service) it answers no.
+func askYesNo(question string) bool {
+	st, err := os.Stdin.Stat()
+	if err != nil || st.Mode()&os.ModeCharDevice == 0 {
+		return false
+	}
+	fmt.Fprintf(os.Stderr, "%s [y/N] ", question)
+	var answer string
+	_, _ = fmt.Fscanln(os.Stdin, &answer)
+	return strings.EqualFold(strings.TrimSpace(answer), "y") || strings.EqualFold(strings.TrimSpace(answer), "yes")
+}
+
+// findChrome returns the path of an installed Google Chrome, or "".
+func (e *browserEnv) findChrome() string {
+	var candidates []string
+	switch e.goos {
+	case "darwin":
+		home := e.getenv("HOME")
+		candidates = []string{"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"}
+		if home != "" {
+			candidates = append(candidates, filepath.Join(home, "Applications", "Google Chrome.app", "Contents", "MacOS", "Google Chrome"))
+		}
+	case "windows":
+		for _, v := range []string{"ProgramFiles", "ProgramFiles(x86)", "LocalAppData"} {
+			if base := e.getenv(v); base != "" {
+				candidates = append(candidates, filepath.Join(base, "Google", "Chrome", "Application", "chrome.exe"))
+			}
+		}
+	default:
+		for _, name := range []string{"google-chrome", "google-chrome-stable"} {
+			if p, err := e.lookPath(name); err == nil {
+				return p
+			}
+		}
+		candidates = []string{"/opt/google/chrome/chrome", "/usr/bin/google-chrome", "/usr/bin/google-chrome-stable"}
+	}
+	for _, c := range candidates {
+		if e.exists(c) {
+			return c
+		}
+	}
+	return ""
+}
+
+// downloadedChromium is the size in bytes of what an earlier setup downloaded, 0 if nothing.
+func downloadedChromium(dir string) int64 {
+	var total int64
+	_ = filepath.Walk(dir, func(_ string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() {
+			total += info.Size()
+		}
+		return nil
+	})
+	return total
+}
+
+// prune offers to remove a Chromium an earlier setup downloaded, now that Chrome is used (--prune
+// does it without asking; with nobody to ask, it only says how).
+func (e *browserEnv) prune(p browserPaths, force bool) {
+	size := downloadedChromium(p.browsers)
+	if size == 0 {
+		return
+	}
+	mb := size / (1 << 20)
+	if force || e.confirm(fmt.Sprintf("A downloaded Chromium (%d MB) in %s is no longer used. Remove it?", mb, p.browsers)) {
+		if err := os.RemoveAll(p.browsers); err != nil {
+			e.say("Could not remove %s: %v", p.browsers, err)
+			return
+		}
+		e.say("Removed the downloaded Chromium (%d MB).", mb)
+		return
+	}
+	e.say("A downloaded Chromium (%d MB) in %s is no longer used. Remove it with 'galopin browser setup --prune'.", mb, p.browsers)
+}
+
+// channelOf is the Playwright channel the runtime launches: "chrome" for an installed Chrome.
+func channelOf(info *browserInfo) string {
+	if info.Browser == "chrome" {
+		return "chrome"
+	}
+	return ""
+}
+
+// browserLabel is how status names the browser in use.
+func browserLabel(info *browserInfo) string {
+	if info.Browser == "chrome" {
+		return "Google Chrome " + info.Version + " (installed)"
+	}
+	return "Chromium " + firstNonEmpty(info.Version, info.Chromium) + " (bundled)"
 }
