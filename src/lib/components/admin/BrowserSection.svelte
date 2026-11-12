@@ -63,9 +63,11 @@
 		);
 	}
 
+	let loadAbort: AbortController | null = null;
 	async function load() {
+		loadAbort = new AbortController();
 		try {
-			const response = await fetch(`${base}/api/v2/admin/browser`);
+			const response = await fetch(`${base}/api/v2/admin/browser`, { signal: loadAbort.signal });
 			if (!response.ok) throw await problem(response);
 			apply(await response.json());
 		} catch (err) {
@@ -109,7 +111,10 @@
 		}
 	}
 
-	onMount(load);
+	onMount(() => {
+		void load();
+		return () => loadAbort?.abort();
+	});
 </script>
 
 {#snippet code(text: string)}<code>{text}</code>{/snippet}

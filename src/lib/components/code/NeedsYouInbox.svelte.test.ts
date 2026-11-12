@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { page as browserPage } from "@vitest/browser/context";
-import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
+import { renderWithApp, unmountRendered } from "$lib/components/__tests__/renderWithApp";
 import NeedsYouInbox from "./NeedsYouInbox.svelte";
 import { codeDeviceList } from "$lib/stores/codeDeviceList.svelte";
 import { MessageElicitationUpdateType, MessageUpdateType } from "$lib/types/MessageUpdate";
@@ -130,6 +130,12 @@ function mount(
 }
 
 const inbox = () => document.body.querySelector('[data-testid="needs-you-inbox"]');
+
+afterEach(() => {
+	unmountRendered();
+	vi.unstubAllGlobals();
+	document.body.innerHTML = "";
+});
 
 beforeEach(() => {
 	// The browse source (ADR 0116) answers "nothing pending" unless a test says otherwise.

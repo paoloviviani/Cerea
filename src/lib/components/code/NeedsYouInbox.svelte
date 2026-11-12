@@ -234,9 +234,12 @@
 	}
 
 	/** The user's pending browse approvals: a read of the chat's own database, no machine needed. */
+	let browseAbort: AbortController | null = null;
 	async function refreshBrowse(seq: number) {
+		browseAbort?.abort();
+		const abort = (browseAbort = new AbortController());
 		try {
-			const response = await fetch(`${base}/api/v2/browse/approvals`);
+			const response = await fetch(`${base}/api/v2/browse/approvals`, { signal: abort.signal });
 			if (!response.ok) return;
 			const body = (await response.json()) as { approvals?: InboxBrowseItem[] };
 			if (seq !== fetchSeq) return;
@@ -488,6 +491,7 @@
 			document.removeEventListener("visibilitychange", onVisible);
 			clearInterval(timer);
 			fetchSeq += 1;
+			browseAbort?.abort();
 			for (const abort of tails.values()) abort.abort();
 			tails.clear();
 		};

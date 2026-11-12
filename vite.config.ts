@@ -81,6 +81,7 @@ const clientTestDeps = [
 	"svelte/store",
 	"svelte/transition",
 	"svelte/events",
+	"@codemirror/commands",
 	"@codemirror/language",
 	"@codemirror/language-data",
 	"@codemirror/state",
