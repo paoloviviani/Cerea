@@ -76,7 +76,7 @@ async function conversation(userId: ObjectId) {
 
 const locals = (user: ObjectId | null) =>
 	(user ? { user: { _id: user }, sessionId: "s" } : { sessionId: "s" }) as never;
-const post = (user: ObjectId | null, body: unknown) =>
+const post = async (user: ObjectId | null, body: unknown) =>
 	open({
 		locals: locals(user),
 		request: new Request("http://x", { method: "POST", body: JSON.stringify(body) }),
@@ -171,11 +171,36 @@ describe("POST /api/v2/browser/open", () => {
 		});
 		expect(response.status).toBe(200);
 		expect(await response.json()).toMatchObject({ opened: true, computer: "Laptop", tied: true });
-		expect(state.runtimeOpen).toHaveBeenCalledWith({ url: "https://a.example.com/" });
+		expect(state.runtimeOpen).toHaveBeenCalledWith({ url: "https://a.example.com/", deny: [] });
 		const device_ = await collections.codeDevices.findOne({ _id: new ObjectId(id) });
 		expect(device_?.browserKept?.[conv]?.token).toBe("tok");
 		const stored = await collections.conversations.findOne({ _id: new ObjectId(conv) });
 		expect(stored?.browserDeviceId).toBe(id);
+	});
+
+	it("moving a chat to a computer forgets its kept page on all the user's other computers", async () => {
+		const a = await device(owner, "A");
+		const b = await device(owner, "B");
+		const c = await device(owner, "C");
+		const other = await device(stranger, "Theirs");
+		const conv = await conversation(owner);
+		const kept = { token: "old", at: new Date() };
+		for (const id of [a, b, other]) {
+			await collections.codeDevices.updateOne(
+				{ _id: new ObjectId(id) },
+				{ $set: { [`browserKept.${conv}`]: kept } }
+			);
+		}
+		state.ready = [{ id: c, name: "C" }];
+		expect((await post(owner, { deviceId: c, conversationId: conv })).status).toBe(200);
+		const keptOn = async (id: string) =>
+			(await collections.codeDevices.findOne({ _id: new ObjectId(id) }))?.browserKept?.[conv]
+				?.token;
+		expect(await keptOn(a)).toBeUndefined();
+		expect(await keptOn(b)).toBeUndefined();
+		expect(await keptOn(c)).toBe("tok");
+		// Somebody else's computer is never touched.
+		expect(await keptOn(other)).toBe("old");
 	});
 
 	it("without a conversation, ties nothing", async () => {
@@ -190,7 +215,7 @@ describe("POST /api/v2/browser/open", () => {
 });
 
 describe("PUT /api/v2/browser/default", () => {
-	const put = (user: ObjectId | null, body: unknown) =>
+	const put = async (user: ObjectId | null, body: unknown) =>
 		setDefault({
 			locals: locals(user),
 			request: new Request("http://x", { method: "PUT", body: JSON.stringify(body) }),
@@ -217,6 +242,23 @@ describe("PUT /api/v2/browser/default", () => {
 		expect((await collections.codeDevices.findOne({ _id: new ObjectId(c) }))?.browserDefault).toBe(
 			true
 		);
+	});
+});
+
+describe("the default computer, when two are flagged (a race)", () => {
+	it("is the one set last", async () => {
+		const { mongoChoiceStore } = await import("$lib/server/browser/machineChoice");
+		const a = await device(owner, "Old");
+		const b = await device(owner, "New");
+		await collections.codeDevices.updateOne(
+			{ _id: new ObjectId(a) },
+			{ $set: { browserDefault: true, browserDefaultAt: new Date(1000) } }
+		);
+		await collections.codeDevices.updateOne(
+			{ _id: new ObjectId(b) },
+			{ $set: { browserDefault: true, browserDefaultAt: new Date(2000) } }
+		);
+		expect(await mongoChoiceStore.defaultDevice(owner)).toBe(b);
 	});
 });
 

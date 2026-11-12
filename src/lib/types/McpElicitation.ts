@@ -99,6 +99,8 @@ export interface ElicitationRequestPayload {
 	 * surface that lists approvals keeps working.
 	 */
 	browse?: BrowseApprovalPayload;
+	/** A "Which computer?" question (ADR 0116, C109): the Needs-you inbox lists it by this, not by `server`. */
+	browseComputer?: true;
 	/** Why the reviewer did not settle this ask (ADR 0107): shown on the card. */
 	reviewNote?: string;
 	/** The reviewer is still deciding: shown as a quiet status, with no buttons and not counted as waiting on the user. */

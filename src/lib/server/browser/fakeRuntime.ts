@@ -395,7 +395,7 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 	}
 
 	async tabs(options?: { deny?: string[] }): Promise<TabsResult> {
-		this.record("tabs", options?.deny?.length ? { deny: options.deny } : {});
+		this.record("tabs", options?.deny ? { deny: options.deny } : {});
 		return {
 			tabs: [...this.pages.values()]
 				.filter((p) => p.userTab || p.id === this.currentId)
@@ -427,7 +427,7 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 	async open(request?: OpenRequest): Promise<OpenResult> {
 		this.record("open", {
 			...(request?.url ? { url: request.url } : {}),
-			...(request?.deny?.length ? { deny: request.deny } : {}),
+			...(request?.deny ? { deny: request.deny } : {}),
 		});
 		const raw = request?.url?.trim() || "about:blank";
 		let url: string;

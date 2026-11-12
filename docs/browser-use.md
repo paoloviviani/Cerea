@@ -167,8 +167,10 @@ assistant never chooses:
 
 If the computer the rules point at (the chat's or your default) is offline or its browser is not
 ready, the task stops with "<computer> is offline." and does not move to another one. The
-`machine` the assistant may name is only a hint: it counts when it is the exact name of one of your
-ready computers and nothing above decides.
+`machine` the assistant may name is only a hint: it counts only when it is the exact name of one of your
+ready computers, your latest message names that computer, and nothing above decides (never in a
+scheduled run). If the assistant wants to open a different site than the page the chat already has
+open, you are asked first.
 
 ## For users without agents
 

@@ -26,6 +26,7 @@ import {
 	type ChoiceStore,
 } from "$lib/server/browser/machineChoice";
 import { createComputerAsker, type ComputerAsker } from "$lib/server/browser/computerAsk";
+import { hostOf, siteOf } from "$lib/server/browser/siteRules";
 import { openBrowserPage, parseOpenUrl, type OpenDeps } from "$lib/server/browser/open";
 import { randomUUID } from "node:crypto";
 import {
@@ -81,6 +82,8 @@ export interface BrowseToolParams {
 	/** The site lists as they are now; default: read from settings again. */
 	rulesNow?: () => BrowserSettings["rules"];
 	completeFor?: (deps: NestedAgentDeps, model: string, sameModel: boolean) => CompleteFn;
+	/** The user's latest message: a `machine` hint counts only when it names that computer. */
+	latestUserText?: () => string;
 	/** Which computer: what the rules read (default: the database) and the "Which computer?" ask. */
 	choiceStore?: ChoiceStore;
 	asker?: ComputerAsker;
@@ -172,7 +175,7 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 					"A browsing agent does it on its own and returns only the outcome. It asks the user before anything that " +
 					"commits (paying, sending, deleting, downloading, leaving the site). It cannot see this conversation: put " +
 					"everything it needs in `goal`. " +
-					"The computer is chosen by Cerea (the chat's own, the user's default, or the user is asked); `machine` is only a hint and counts only when it is the exact name of one of the user's computers with a ready browser.",
+					"The computer is chosen by Cerea (the chat's own, the user's default, or the user is asked); `machine` is only a hint and counts only when it is the exact name of one of the user's computers with a ready browser and the user's own message names it.",
 				parameters: {
 					type: "object",
 					properties: {
@@ -239,6 +242,8 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 				ready: params.machines,
 				conversationId: conversationKey,
 				hint: typeof args.machine === "string" ? args.machine : undefined,
+				// An unattended run has nobody whose words could name a computer: no hint at all.
+				userText: params.unattended ? undefined : params.latestUserText?.(),
 				store: params.choiceStore,
 			});
 			let machine: BrowseMachine;
@@ -281,6 +286,44 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 			if (openOnly) {
 				const parsed = parseOpenUrl(startUrl);
 				if ("error" in parsed) return { error: parsed.error };
+				// The model replacing the chat's page with another site is leaving the site: the user
+				// is asked first (as for any commit), and nobody is there to ask in an unattended run.
+				const keptUrl = conversationKey
+					? await (params.keptStore ?? mongoKeptStore)
+							.url(machine.id, params.userId, conversationKey)
+							.catch(() => undefined)
+					: undefined;
+				const currentHost = keptUrl ? hostOf(keptUrl) : undefined;
+				const targetHost = parsed.url ? hostOf(parsed.url) : undefined;
+				if (currentHost && (!targetHost || siteOf(targetHost) !== siteOf(currentHost))) {
+					if (params.unattended) {
+						return {
+							error: `The chat's browser page is on ${currentHost}; opening ${targetHost ?? "a blank page"} would leave that site, and nobody is here to ask.`,
+						};
+					}
+					const sink = ctx.elicitationSink;
+					const approve: Approver | undefined =
+						params.approver ??
+						(sink
+							? createElicitationApprover({ sink, toolUuid: ctx.uuid, userId: params.userId })
+							: undefined);
+					const answer = approve
+						? await approve(
+								{
+									sentence: `Open ${targetHost ?? "a blank page"} in the browser on ${machine.name}, leaving ${currentHost}`,
+									site: targetHost ?? currentHost,
+									reason: "new-domain",
+								},
+								ctx.abortSignal
+							)
+						: { verdict: "denied" as const };
+					if (answer.verdict === "aborted") return { error: "Aborted by user" };
+					if (answer.verdict !== "approved") {
+						return {
+							error: "The user did not allow leaving the page that is open. Nothing was opened.",
+						};
+					}
+				}
 				const opened = await openBrowserPage({
 					userId: params.userId,
 					machine,

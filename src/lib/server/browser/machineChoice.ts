@@ -8,8 +8,10 @@
  *    is not ready, "<computer> is offline".
  * 3. Exactly one ready computer: that one, no question.
  * 4. Otherwise the user is asked ("Which computer?"). The model's `machine` argument is only a
- *    hint, honoured at this step when it names one of the ready computers (exact name, any case):
- *    the user's own words in the request are then the answer. Nothing else the model passes picks.
+ *    hint, honoured at this step when it names one of the ready computers (exact name, any case)
+ *    AND that name appears, as a whole word, in the user's latest message (`userText`): the user's
+ *    own words are then the answer. Never in an unattended run (no `userText`). Nothing else the
+ *    model passes picks.
  *
  * A device that is revoked, not paired or not the caller's never counts as a remembered computer.
  */
@@ -40,7 +42,16 @@ export interface ChooseInput {
 	conversationId?: string;
 	/** The model's `machine` argument. */
 	hint?: string;
+	/** The user's latest message; the hint counts only when it names the computer. Absent: unattended. */
+	userText?: string;
 	store?: ChoiceStore;
+}
+
+/** Whether `name` appears in `text` as a whole word (case-insensitive; names with symbols included). */
+export function textNamesComputer(text: string, name: string): boolean {
+	const escaped = name.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	if (!escaped) return false;
+	return new RegExp(`(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`, "iu").test(text);
 }
 
 export async function chooseMachine(input: ChooseInput): Promise<MachineChoice> {
@@ -71,8 +82,10 @@ export async function chooseMachine(input: ChooseInput): Promise<MachineChoice> 
 	}
 	if (ready.length === 1) return { kind: "use", machine: ready[0], why: "only" };
 	const wanted = input.hint?.trim().toLowerCase();
-	if (wanted) {
-		const named = ready.filter((m) => m.name.toLowerCase() === wanted);
+	if (wanted && input.userText) {
+		const named = ready.filter(
+			(m) => m.name.toLowerCase() === wanted && textNamesComputer(input.userText ?? "", m.name)
+		);
 		if (named.length === 1) return { kind: "use", machine: named[0], why: "hint" };
 	}
 	return { kind: "ask", options: ready };
@@ -94,9 +107,10 @@ export const mongoChoiceStore: ChoiceStore = {
 		return holder?._id.toString();
 	},
 	async defaultDevice(userId) {
+		// Several can exist only after a race: the one set last wins.
 		const device = await collections.codeDevices.findOne(
 			{ userId, status: "paired", browserDefault: true },
-			{ projection: { _id: 1 } }
+			{ projection: { _id: 1 }, sort: { browserDefaultAt: -1 } }
 		);
 		return device?._id.toString();
 	},
@@ -134,7 +148,7 @@ export async function setDefaultDevice(
 	if (deviceId === null) {
 		await collections.codeDevices.updateMany(
 			{ userId, browserDefault: true },
-			{ $unset: { browserDefault: "" } }
+			{ $unset: { browserDefault: "", browserDefaultAt: "" } }
 		);
 		return true;
 	}
@@ -145,11 +159,16 @@ export async function setDefaultDevice(
 		{ projection: { _id: 1 } }
 	);
 	if (!device) return false;
+	// The new one first, then the others: no moment without a default, and if two requests race the
+	// one with the later `browserDefaultAt` is the default (see `defaultDevice`).
+	await collections.codeDevices.updateOne(
+		{ _id, userId },
+		{ $set: { browserDefault: true, browserDefaultAt: new Date() } }
+	);
 	await collections.codeDevices.updateMany(
 		{ userId, browserDefault: true, _id: { $ne: _id } },
-		{ $unset: { browserDefault: "" } }
+		{ $unset: { browserDefault: "", browserDefaultAt: "" } }
 	);
-	await collections.codeDevices.updateOne({ _id, userId }, { $set: { browserDefault: true } });
 	return true;
 }
 

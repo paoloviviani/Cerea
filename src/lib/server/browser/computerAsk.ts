@@ -46,6 +46,7 @@ export function createComputerAsker(options: {
 		const request: ElicitationRequestPayload = {
 			elicitationId,
 			server: BROWSE_COMPUTER_SERVER,
+			browseComputer: true,
 			mode: "form",
 			message,
 			fields: [

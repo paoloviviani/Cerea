@@ -9,7 +9,6 @@
  */
 import { error, json, type RequestHandler } from "@sveltejs/kit";
 import { collections } from "$lib/server/database";
-import { BROWSE_COMPUTER_SERVER } from "$lib/server/browser/computerAsk";
 
 const MAX_LISTED = 50;
 /** Base64 characters: about 100 KB. */
@@ -21,7 +20,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 		.find({
 			userId: locals.user._id,
 			status: "pending",
-			$or: [{ "request.browse": { $exists: true } }, { "request.server": BROWSE_COMPUTER_SERVER }],
+			$or: [{ "request.browse": { $exists: true } }, { "request.browseComputer": true }],
 			expiresAt: { $gt: new Date() },
 		})
 		.sort({ createdAt: -1 })

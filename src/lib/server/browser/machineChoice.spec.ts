@@ -62,26 +62,28 @@ describe("which computer", () => {
 		expect(await choose([laptop, desk])).toEqual({ kind: "ask", options: [laptop, desk] });
 	});
 
-	it("4b. the model's machine argument is only a hint: an exact ready name, else the user is asked", async () => {
-		expect(await choose([laptop, desk], undefined, { hint: "DESK" })).toEqual({
+	it("4b. the machine hint counts only when the user's latest message names the computer, as a whole word", async () => {
+		const hinted = (hint: string, userText?: string) =>
+			choose([laptop, desk], undefined, { hint, userText });
+		expect(await hinted("DESK", "use my desk please")).toEqual({
 			kind: "use",
 			machine: desk,
 			why: "hint",
 		});
-		expect(await choose([laptop, desk], undefined, { hint: "Phone" })).toMatchObject({
-			kind: "ask",
-		});
-		expect(await choose([laptop, desk], undefined, { hint: desk.id })).toMatchObject({
-			kind: "ask",
-		});
-		expect(await choose([laptop, desk], undefined, { hint: "des" })).toMatchObject({
-			kind: "ask",
-		});
+		// The hint alone (the model's say-so) is not enough, nor is an unattended run (no user text).
+		expect(await hinted("Desk", "check the flights")).toMatchObject({ kind: "ask" });
+		expect(await hinted("Desk")).toMatchObject({ kind: "ask" });
+		// Not a whole word: "desktop" does not name "Desk".
+		expect(await hinted("Desk", "use my desktop")).toMatchObject({ kind: "ask" });
+		// Not a ready computer, an id, a partial name.
+		expect(await hinted("Phone", "use the Phone")).toMatchObject({ kind: "ask" });
+		expect(await hinted(desk.id, `use ${desk.id}`)).toMatchObject({ kind: "ask" });
+		expect(await hinted("des", "use des")).toMatchObject({ kind: "ask" });
 		// The hint never beats the chat's computer or the default.
 		const store = memoryChoiceStore({ devices, default: laptop.id });
-		expect(await choose([laptop, desk], store, { hint: "Desk" })).toMatchObject({
-			machine: laptop,
-		});
+		expect(
+			await choose([laptop, desk], store, { hint: "Desk", userText: "use Desk" })
+		).toMatchObject({ machine: laptop });
 	});
 
 	it("5. a chosen computer that is offline stops, with no fallback", async () => {

@@ -1622,7 +1622,8 @@ exactly `true`; user docs in `docs/browser-use.md`. What is not obvious:
   (`computerAsk.ts`: an `mcpElicitations` row, `server: browse_computer`, rendered by the generic
   `ElicitationForm` and listed in the Needs-you inbox by `/api/v2/browse/approvals`). A remembered
   computer that is not ready is "<name> is offline", never a fallback. `machine` is only a hint,
-  used when it is the exact name of a ready computer and nothing above decides. `open` is a
+  used when it is the exact name of a ready computer, the user's latest message names it as a whole
+  word, and nothing above decides (never unattended). `open` is a
   runtime tool (contract + `browser-runtime/`, synced both ways): it opens a page of its own and
   returns a resume token; `openBrowserPage` ties it to a conversation through `kept.ts` (so the
   next browse resumes it with no `use_tab`), takes the machine's lease ("busy" while a task runs)

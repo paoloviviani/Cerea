@@ -9,7 +9,7 @@ import type { Approver, ApprovalAsk } from "./approvals";
 import { actionDigest, classifyAction, describeAction } from "./classifier";
 import { FAKE_BROWSER_KEY, FakeBrowserRuntime, type FakePage } from "./fakeRuntime";
 import { answerTurn, callTurn, scriptedModel, toolTexts, type ScriptedTurn } from "./fakeModel";
-import { runBrowseLoop, systemPrompt, type KeptPage, type LoopDeps } from "./loop";
+import { goalNamesSite, runBrowseLoop, systemPrompt, type KeptPage, type LoopDeps } from "./loop";
 import { BrowserRuntimeError } from "./contract";
 import { decide } from "./policy";
 
@@ -709,5 +709,20 @@ describe("the sub-agent prompt", () => {
 		expect(text).toContain("Do exactly the goal you are given");
 		expect(text).toContain("Never continue, repeat or complete a task from an earlier");
 		expect(text).toContain("stay on that page and its site");
+	});
+});
+
+describe("goalNamesSite", () => {
+	it("does not match inside another name", () => {
+		expect(goalNamesSite("track the parcel on fedex.com", "x.com")).toBe(false);
+		expect(goalNamesSite("write to us at contact.com", "t.co")).toBe(false);
+		expect(goalNamesSite("search google.com for it", "oogle.com")).toBe(false);
+		expect(goalNamesSite("mail me at me@x.com", "x.com")).toBe(false);
+	});
+	it("matches a real mention, by site", () => {
+		expect(goalNamesSite("go to www.google.com and search", "google.com")).toBe(true);
+		expect(goalNamesSite("open https://maps.google.com/x?q=1", "www.google.com")).toBe(true);
+		expect(goalNamesSite("then google.com.", "www.google.com")).toBe(true);
+		expect(goalNamesSite("use my tab", "google.com")).toBe(false);
 	});
 });

@@ -423,6 +423,11 @@ export async function* runMcpFlow({
 					chatModelSeesImages: Boolean(forceMultimodal ?? model.multimodal) && !model.toolImagesOff,
 					userId: locals?.user?._id,
 					token: turnToken,
+					// The user's own words: the only thing a `machine` hint may be checked against.
+					latestUserText: () =>
+						String(
+							[...messages].reverse().find((message) => message.from === "user")?.content ?? ""
+						),
 				};
 			})()
 		: undefined;

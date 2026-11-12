@@ -104,7 +104,8 @@ export async function openBrowserPage(options: {
 		try {
 			page = await runtime.open({
 				...(options.url ? { url: options.url } : {}),
-				...(rules.deny.length > 0 ? { deny: rules.deny } : {}),
+				// Always sent, even empty: the runtime then forgets a list it was given before.
+				deny: rules.deny,
 			});
 		} catch (err) {
 			const message =
@@ -125,15 +126,9 @@ export async function openBrowserPage(options: {
 		}
 		if (conversationId) {
 			const store = deps.keptStore ?? mongoKeptStore;
-			const choice = deps.choiceStore ?? mongoChoiceStore;
-			// An explicit "Open browser" moves the chat to this computer: the page kept on the old one
-			// is forgotten, so there is one kept page per conversation.
-			const previous = await choice
-				.conversationDevice(userId, conversationId)
-				.catch(() => undefined);
-			if (previous && previous !== machine.id) {
-				await store.set(previous, userId, conversationId, null).catch(() => undefined);
-			}
+			// An explicit "Open browser" moves the chat to this computer: the page kept on any other
+			// one is forgotten (one write), so there is one kept page per conversation.
+			await store.clearOthers(userId, conversationId, machine.id).catch(() => undefined);
 			await store.set(machine.id, userId, conversationId, page);
 			await (deps.remember ?? rememberConversationDevice)(userId, conversationId, machine.id);
 		}

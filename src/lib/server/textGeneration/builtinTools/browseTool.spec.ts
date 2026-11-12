@@ -66,6 +66,8 @@ function build(options: {
 	choice?: ReturnType<typeof memoryChoiceStore>;
 	asker?: ComputerAsker;
 	unattended?: boolean;
+	userText?: string;
+	approve2?: boolean;
 	keptStore?: ReturnType<typeof memoryKeptStore>;
 }) {
 	const runtime = options.runtime ?? new FakeBrowserRuntime(pages());
@@ -80,6 +82,7 @@ function build(options: {
 		ceiling: "ask",
 		userId: new ObjectId(),
 		unattended: options.unattended,
+		latestUserText: () => options.userText ?? "",
 		choiceStore:
 			options.choice ??
 			memoryChoiceStore({ devices: { [laptop.id]: "Laptop", [desk.id]: "Desk" } }),
@@ -305,8 +308,13 @@ describe("browse: arguments and machines", () => {
 		// A name that is not one of the ready computers is no pick: the user is asked.
 		await t.tool.execute({ goal: "look", machine: "Phone" }, t.ctx);
 		expect(asked).toEqual([["Laptop", "Desk"]]);
-		// An exact name (any case) is honoured with no question.
-		const t2 = build({ script: [answerTurn("x")], machines: [laptop, desk], asker });
+		// An exact name (any case) is honoured with no question, when the user's message names it.
+		const t2 = build({
+			script: [answerTurn("x")],
+			machines: [laptop, desk],
+			asker,
+			userText: "look at the news on my Desk",
+		});
 		expect("resultText" in (await t2.tool.execute({ goal: "look", machine: "desk" }, t2.ctx))).toBe(
 			true
 		);
@@ -690,6 +698,33 @@ describe("browse: which computer (rules, never the model)", () => {
 		expect(t.runtime.calls).toEqual([]);
 	});
 
+	it("ignores a hint the user's message does not name, and in an unattended run", async () => {
+		const asker = vi.fn(async (options: Array<{ id: string; name: string }>) => ({
+			verdict: "chosen" as const,
+			machine: options[0],
+			remember: false,
+		}));
+		const t = build({
+			script: [answerTurn("x")],
+			machines: [laptop, desk],
+			asker,
+			userText: "look at the news",
+		});
+		await t.tool.execute({ goal: "look", machine: "Desk" }, t.ctx);
+		expect(asker).toHaveBeenCalledTimes(1);
+		expect(t.remembered[0][1]).toBe(laptop.id);
+		const u = build({
+			script: [answerTurn("x")],
+			machines: [laptop, desk],
+			asker,
+			unattended: true,
+			userText: "use Desk",
+		});
+		const out = await u.tool.execute({ goal: "look", machine: "Desk" }, u.ctx);
+		expect(out).toEqual({ error: expect.stringContaining("Do not choose one yourself") });
+		expect(asker).toHaveBeenCalledTimes(1);
+	});
+
 	it("never asks in an unattended run: it explains, and does not pick", async () => {
 		const asker = vi.fn();
 		const t = build({
@@ -742,5 +777,67 @@ describe("browse: goal scoping and open_only", () => {
 		expect(t.runtime.calls.map((c) => c.tool)).toEqual(["open"]);
 		expect(t.models).toEqual([]);
 		expect(kept.tokens.size).toBe(1);
+	});
+});
+
+describe("browse: open_only to another site", () => {
+	const convId = () => new ObjectId();
+	async function withKept(
+		url: string,
+		options: { unattended?: boolean; approve?: "approved" | "denied" } = {}
+	) {
+		const kept = memoryKeptStore();
+		const t = build({
+			script: [],
+			keptStore: kept,
+			approve: options.approve,
+			unattended: options.unattended,
+		});
+		const key = t.ctx.conversationId.toString();
+		await kept.set(laptop.id, new ObjectId(), key, { token: "k", id: "x", title: "", url });
+		return { t, kept };
+	}
+
+	it("opens directly with no kept page, or on the same site", async () => {
+		const none = build({ script: [], keptStore: memoryKeptStore() });
+		await none.tool.execute(
+			{ open_only: true, start_url: "https://shop.example.com/cart" },
+			none.ctx
+		);
+		expect(none.asks).toEqual([]);
+		expect(none.runtime.calls.map((c) => c.tool)).toEqual(["open"]);
+		const { t } = await withKept("https://shop.example.com/a?token=1");
+		await t.tool.execute(
+			{ open_only: true, start_url: "https://www.shop.example.com/cart" },
+			t.ctx
+		);
+		expect(t.asks).toEqual([]);
+		expect(t.runtime.calls.map((c) => c.tool)).toEqual(["open"]);
+	});
+
+	it("asks first when it would change site, and opens only when allowed", async () => {
+		const { t } = await withKept("https://shop.example.com/a");
+		await t.tool.execute({ open_only: true, start_url: "https://news.example.net/" }, t.ctx);
+		expect(t.asks).toHaveLength(1);
+		expect(t.asks[0]).toContain("leaving shop.example.com");
+		expect(t.runtime.calls.map((c) => c.tool)).toEqual(["open"]);
+		const denied = await withKept("https://shop.example.com/a", { approve: "denied" });
+		const out = await denied.t.tool.execute(
+			{ open_only: true, start_url: "https://news.example.net/" },
+			denied.t.ctx
+		);
+		expect(out).toEqual({ error: expect.stringContaining("did not allow") });
+		expect(denied.t.runtime.calls).toEqual([]);
+	});
+
+	it("is refused in an unattended run when it would change site", async () => {
+		const { t } = await withKept("https://shop.example.com/a", { unattended: true });
+		const out = await t.tool.execute(
+			{ open_only: true, start_url: "https://news.example.net/" },
+			t.ctx
+		);
+		expect(out).toEqual({ error: expect.stringContaining("nobody is here to ask") });
+		expect(t.runtime.calls).toEqual([]);
+		void convId;
 	});
 });

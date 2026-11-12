@@ -158,11 +158,21 @@ export interface LoopRequest {
 	resumeToken?: string;
 }
 
-/** Whether the goal names this site (its host, or its registrable domain without `www.`). */
+/**
+ * Whether the goal names this site: it has an address or host in it (`https://www.google.com/x`,
+ * `google.com`) whose site is the same as `host`'s. Whole tokens only, so `fedex.com` does not name
+ * `x.com` and `google.com` does not name `oogle.com`.
+ */
 export function goalNamesSite(goal: string, host: string): boolean {
-	const text = goal.toLowerCase();
-	const bare = host.toLowerCase().replace(/^www\./, "");
-	return text.includes(bare) || text.includes(siteOf(bare));
+	const wanted = siteOf(host.toLowerCase());
+	const tokens = goal.matchAll(
+		/(?<![\p{L}\p{N}_.@-])(?:[a-z][a-z0-9+.-]*:\/\/)?((?:[\p{L}\p{N}-]+\.)+[\p{L}]{2,})(?![\p{L}\p{N}_-])/giu
+	);
+	for (const token of tokens) {
+		const named = hostOf(`https://${token[1]}`);
+		if (named && siteOf(named) === wanted) return true;
+	}
+	return false;
 }
 
 // ----- prompts and tools ------------------------------------------------------------------
