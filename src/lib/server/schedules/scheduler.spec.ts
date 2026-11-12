@@ -420,6 +420,53 @@ describe("the per-user cap", () => {
 		);
 		expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(3);
 		expect(await collections.schedules.countDocuments({ userId: user })).toBe(3);
+		expect((await collections.scheduleCounts.findOne({ _id: user }))?.count).toBe(3);
+	});
+
+	it("frees a slot when a schedule is deleted", async () => {
+		limits.cap = 2;
+		const first = await createSchedule(user, base);
+		await createSchedule(user, base);
+		await expect(createSchedule(user, base)).rejects.toMatchObject({ status: 409 });
+		await deleteSchedule(user, first._id.toString());
+		expect((await collections.scheduleCounts.findOne({ _id: user }))?.count).toBe(1);
+		await createSchedule(user, base);
+		await expect(createSchedule(user, base)).rejects.toMatchObject({ status: 409 });
+	});
+
+	it("rebuilds a missing counter from the rows the user already has", async () => {
+		limits.cap = 2;
+		await createSchedule(user, base);
+		await createSchedule(user, base);
+		await collections.scheduleCounts.deleteMany({ _id: user });
+		await expect(createSchedule(user, base)).rejects.toMatchObject({ status: 409 });
+		expect(await collections.schedules.countDocuments({ userId: user })).toBe(2);
+	});
+
+	it("keeps existing schedules and refuses new ones when the cap drops below the count", async () => {
+		limits.cap = 3;
+		const rows = [];
+		for (let i = 0; i < 3; i++) rows.push(await createSchedule(user, base));
+		limits.cap = 1;
+		await expect(createSchedule(user, base)).rejects.toMatchObject({ status: 409 });
+		expect(await collections.schedules.countDocuments({ userId: user })).toBe(3);
+		await deleteSchedule(user, rows[0]._id.toString());
+		await deleteSchedule(user, rows[1]._id.toString());
+		await expect(createSchedule(user, base)).rejects.toMatchObject({ status: 409 });
+		await deleteSchedule(user, rows[2]._id.toString());
+		await createSchedule(user, base);
+	});
+
+	it("gives the slot back when the insert fails", async () => {
+		limits.cap = 2;
+		const spy = vi
+			.spyOn(collections.schedules, "insertOne")
+			.mockRejectedValueOnce(new Error("insert failed"));
+		await expect(createSchedule(user, base)).rejects.toThrow("insert failed");
+		spy.mockRestore();
+		expect((await collections.scheduleCounts.findOne({ _id: user }))?.count).toBe(0);
+		await createSchedule(user, base);
+		await createSchedule(user, base);
 	});
 });
 

@@ -50,6 +50,7 @@
  */
 
 import { dropGrant } from "$lib/server/schedules/grants";
+import { dropScheduleCount, reconcileScheduleCount } from "$lib/server/schedules/slots";
 import type { Collection, Document, ObjectId } from "mongodb";
 
 import { collections, Database } from "$lib/server/database";
@@ -691,9 +692,24 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		// grant; without one they skip and show the sign-in warning until the target has given it.
 		merge: async (stray, target) => {
 			await dropGrant(stray);
-			return reassignSimple(collections.schedules, "userId", stray, target);
+			const moved = await reassignSimple(collections.schedules, "userId", stray, target);
+			// The rows moved, so the cap counts follow them.
+			await dropScheduleCount(stray);
+			await reconcileScheduleCount(target);
+			return moved;
 		},
 		erase: (userId) => eraseByField(collections.schedules, "userId", userId),
+	},
+	{
+		name: "scheduleCounts",
+		owner: "_id",
+		mergeRule: "no-op",
+		eraseRule: "by-owner",
+		ownerField: "_id",
+		// The cap counter, keyed by the user's id. The schedules merge above drops the stray's and
+		// rebuilds the target's, so there is nothing to move here; it goes with the account.
+		merge: async () => 0,
+		erase: (userId) => eraseByField(collections.scheduleCounts, "_id", userId),
 	},
 	{
 		name: "scheduleGrants",
