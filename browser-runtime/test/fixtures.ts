@@ -21,7 +21,10 @@ export interface Fixtures {
 }
 
 const esc = (s: unknown) =>
-	String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+	String(s).replace(
+		/[&<>"]/g,
+		(c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!
+	);
 
 const page = (title: string, body: string) =>
 	`<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title>
@@ -59,7 +62,10 @@ export async function startFixtures(): Promise<Fixtures> {
 				hits.posts.push({ path: url.pathname, body });
 				if (url.pathname === "/login") {
 					if (body.user === "demo" && body.pass === "s3cret-pass") {
-						return send(302, "", { location: "/dashboard", "set-cookie": "sid=ok; Path=/; Max-Age=3600" });
+						return send(302, "", {
+							location: "/dashboard",
+							"set-cookie": "sid=ok; Path=/; Max-Age=3600",
+						});
 					}
 					return send(
 						401,
@@ -177,7 +183,8 @@ export async function startFixtures(): Promise<Fixtures> {
 					"Long page",
 					`<h1>Long page</h1>${Array.from(
 						{ length: 400 },
-						(_, i) => `<p>Paragraph ${i + 1}: ${"lorem ipsum ".repeat(6)}</p><a href="/long?i=${i}">Link ${i + 1}</a>`
+						(_, i) =>
+							`<p>Paragraph ${i + 1}: ${"lorem ipsum ".repeat(6)}</p><a href="/long?i=${i}">Link ${i + 1}</a>`
 					).join("")}`
 				)
 			);
@@ -221,10 +228,7 @@ document.getElementById('box').insertAdjacentHTML('afterbegin','<a href=&quot;/f
 		if (p === "/popup") {
 			return send(
 				200,
-				page(
-					"Popup",
-					`<h1>Popup</h1><a href="/form" target="_blank">Open form in a new tab</a>`
-				)
+				page("Popup", `<h1>Popup</h1><a href="/form" target="_blank">Open form in a new tab</a>`)
 			);
 		}
 		if (p === "/outbound") {

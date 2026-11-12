@@ -90,6 +90,8 @@ galopin auth     sign in again with no re-enroll ('login', alias 'refresh'),
 galopin serve    the local refreshing proxy shim alone (opencode with no /code panel)
 galopin run      serve, plus supervise opencode (or an ACP agent) and dial out to Cerea
 galopin models   'models refresh': re-discover the gateway's models, no re-enroll
+galopin browser  'setup', 'enable', 'disable', 'status': the browser Cerea's browse tool drives
+                 on this machine (see below)
 galopin policy   show, or locally tighten, this machine's policy.json
 galopin licenses the third-party licence notices compiled into the binary
 ```
@@ -370,6 +372,30 @@ loosen the rest back; loosening always requires `enroll` again, since the
 policy is never writable over the link (§4). The **file editor is on by default**
 (`enroll --no-file-write` turns it off; `--allow-file-write` is accepted and
 restates the default).
+
+## The browser runtime: `galopin browser`
+
+ADR 0116. `browser-runtime/` at the repository root is a Node/TypeScript MCP server
+(Playwright's AI snapshot, pinned, with our own runtime around it: pruned snapshots
+with stable refs, diffs, batched actions with approval checks, model-free extract,
+screenshots, downloads). `npm run bundle` there writes one ES module into
+`internal/browserrt/`, which galopin embeds (a test fails when it is stale), so the
+binary carries its runtime and needs no source checkout.
+
+```
+galopin browser setup     check Node (20+), write the runtime and install playwright-core
+                          and Chromium into <state dir>/browser, try the browser once
+galopin browser enable    add the local connector "cerea-browser" to mcp.json (persistent
+                          profile in <state dir>/browser/profile; a window when there is a display)
+galopin browser disable   remove it (the profile stays; --remove-profile deletes it)
+galopin browser status    installed, registered, key fetched, answering
+```
+
+It uses the existing local-connector path (§10 of PROTOCOL.md): the entry is a stdio server
+that galopin starts when the chat opens it. Just before it starts, galopin fetches the
+device's approval key with the machine call `browser.key` (PROTOCOL.md §10.7) and writes it
+0600 to `<state dir>/browser/key`; the runtime verifies Cerea's signed approvals with it.
+Nothing is installed system-wide. See `docs/browser-runtime.md`.
 
 ## State directory
 

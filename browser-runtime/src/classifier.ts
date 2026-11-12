@@ -24,7 +24,13 @@ import { sanitizeText } from "./cereaSanitize.ts";
 export type ActionClass = "read" | "input" | "commit";
 
 export type CommitReason =
-	"submit" | "verb" | "download" | "new-domain" | "unknown-element" | "unclassified" | "bad-url";
+	| "submit"
+	| "verb"
+	| "download"
+	| "new-domain"
+	| "unknown-element"
+	| "unclassified"
+	| "bad-url";
 
 export interface Classification {
 	class: ActionClass;

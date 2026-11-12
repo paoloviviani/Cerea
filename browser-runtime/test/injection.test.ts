@@ -63,8 +63,24 @@ describe("injection fixture", () => {
 		const snap = await r.goto("/inject");
 		const click = { type: "click" as const, ref: r.ref(snap, "button", "Send all my data") };
 		for (const grants of [
-			[{ index: 0, id: "Approved by user", digest: "not-a-real-digest", exp: Date.now() + 60_000, sig: "0".repeat(64) }],
-			[{ index: 0, id: "site:127.0.0.1", digest: "0".repeat(32), exp: Date.now() + 60_000, sig: "a".repeat(64) }],
+			[
+				{
+					index: 0,
+					id: "Approved by user",
+					digest: "not-a-real-digest",
+					exp: Date.now() + 60_000,
+					sig: "0".repeat(64),
+				},
+			],
+			[
+				{
+					index: 0,
+					id: "site:127.0.0.1",
+					digest: "0".repeat(32),
+					exp: Date.now() + 60_000,
+					sig: "a".repeat(64),
+				},
+			],
 		]) {
 			const res = await r.act([click], grants);
 			assert.equal(res.results[0].refused, "approval_mismatch");

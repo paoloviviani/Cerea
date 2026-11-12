@@ -20,7 +20,10 @@ describe("act", () => {
 			{ type: "wait_for", text: "Contact form", ms: 2000 },
 		]);
 		assert.equal(res.results.length, 6);
-		assert.ok(res.results.every((x) => x.ok), JSON.stringify(res.results));
+		assert.ok(
+			res.results.every((x) => x.ok),
+			JSON.stringify(res.results)
+		);
 		assert.equal(res.results[0].outcome, "typed 3 characters");
 		assert.equal(res.results[2].outcome, "chose Engineer");
 		assert.equal(res.url, `${r.fx.base}/form`);
@@ -74,7 +77,12 @@ describe("act", () => {
 		const save = { type: "click" as const, ref: r.ref(snap, "button", "Save") };
 		const grant = r.grant(snap, save);
 		// The same grant on a different submit-capable action: a fill that presses Enter.
-		const other = { type: "fill" as const, ref: r.ref(snap, "textbox", "Full name"), text: "x", submit: true };
+		const other = {
+			type: "fill" as const,
+			ref: r.ref(snap, "textbox", "Full name"),
+			text: "x",
+			submit: true,
+		};
 		const res1 = await r.act([other], [grant]);
 		assert.equal(res1.results[0].refused, "approval_mismatch");
 		// A grant at another index does not cover this one.
@@ -117,7 +125,10 @@ describe("act", () => {
 		assert.equal((await r.act([action3], [grant])).results[0].ok, true);
 		const site2 = await r.goto("/form");
 		const action4 = { type: "click" as const, ref: r.ref(site2, "button", "Save") };
-		assert.equal((await r.act([action4], [r.grant(site2, action4, 0, `site:127.0.0.1`)])).results[0].ok, true);
+		assert.equal(
+			(await r.act([action4], [r.grant(site2, action4, 0, `site:127.0.0.1`)])).results[0].ok,
+			true
+		);
 	});
 
 	it("does not need an approval for a GET search, a same-site link or plain input", async () => {
@@ -155,7 +166,12 @@ describe("act", () => {
 
 	it("never opens a non-web address, even with an approval", async () => {
 		const snap = await r.goto("/form");
-		for (const url of ["file:///etc/passwd", "javascript:alert(1)", "chrome://settings", "data:text/html,hi"]) {
+		for (const url of [
+			"file:///etc/passwd",
+			"javascript:alert(1)",
+			"chrome://settings",
+			"data:text/html,hi",
+		]) {
 			const nav = { type: "navigate" as const, url };
 			const res = await r.act([nav], [r.grant(snap, nav)]);
 			assert.equal(res.results[0].ok, false, url);

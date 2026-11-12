@@ -106,11 +106,16 @@ const extractSchema = z.object({
  * The contract's request is `{ref?, mode?}`. A request nested under `schema` (an earlier draft of
  * the contract) is accepted too; any JSON Schema in it is ignored: the runtime has no model.
  */
-export function parseExtract(raw: unknown): { ref?: string; mode?: "auto" | "tables" | "lists" | "text" } {
+export function parseExtract(raw: unknown): {
+	ref?: string;
+	mode?: "auto" | "tables" | "lists" | "text";
+} {
 	const args = asObject(raw);
 	const inner = maybeJson(args.schema);
 	const source: Record<string, unknown> = {
-		...(inner && typeof inner === "object" && !Array.isArray(inner) ? (inner as Record<string, unknown>) : {}),
+		...(inner && typeof inner === "object" && !Array.isArray(inner)
+			? (inner as Record<string, unknown>)
+			: {}),
 		...args,
 	};
 	const picked = {
@@ -138,6 +143,7 @@ export function parseScreenshot(raw: unknown): { ref?: string; format?: "png" | 
 		ref: typeof args.ref === "string" && args.ref ? coerceRef(args.ref) : undefined,
 		format: args.format,
 	});
-	if (!parsed.success) throw new ToolError('screenshot takes an optional "ref" and "format" (png or jpeg).');
+	if (!parsed.success)
+		throw new ToolError('screenshot takes an optional "ref" and "format" (png or jpeg).');
 	return parsed.data;
 }

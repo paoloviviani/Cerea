@@ -26,7 +26,10 @@ const actionSchemaJson = {
 	description:
 		"One step. click {ref}; fill {ref, text, submit?}; select {ref, value}; press {key, ref?}; scroll {direction?, amount?}; wait_for {text?, ms?}; navigate {url}.",
 	properties: {
-		type: { type: "string", enum: ["click", "fill", "select", "press", "scroll", "wait_for", "navigate"] },
+		type: {
+			type: "string",
+			enum: ["click", "fill", "select", "press", "scroll", "wait_for", "navigate"],
+		},
 		ref: { type: "string" },
 		text: { type: "string" },
 		value: { type: "string" },
@@ -66,7 +69,11 @@ export const TOOLS = [
 					description: "Grants for commit-class actions: {index, id, digest}.",
 					items: {
 						type: "object",
-						properties: { index: { type: "integer" }, id: { type: "string" }, digest: { type: "string" } },
+						properties: {
+							index: { type: "integer" },
+							id: { type: "string" },
+							digest: { type: "string" },
+						},
 						required: ["index", "id", "digest"],
 					},
 				},
@@ -109,7 +116,9 @@ export const TOOLS = [
 ] as const;
 
 type ToolResult = {
-	content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }>;
+	content: Array<
+		{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }
+	>;
 	structuredContent?: Record<string, unknown>;
 	isError?: boolean;
 };
@@ -155,22 +164,31 @@ export function createToolHandler(session: BrowserSession) {
 					return { content: [{ type: "image", data: shot.base64, mimeType: shot.mime }] };
 				}
 				case "download":
-					return json(await serial(() => session.download({ all: asObject(rawArgs).all === true })));
+					return json(
+						await serial(() => session.download({ all: asObject(rawArgs).all === true }))
+					);
 				case "end_task":
 					return json(await serial(() => session.endTask()));
 				default:
-					return failure(`Unknown tool "${clean(name, 60)}". Tools: ${TOOLS.map((t) => t.name).join(", ")}.`);
+					return failure(
+						`Unknown tool "${clean(name, 60)}". Tools: ${TOOLS.map((t) => t.name).join(", ")}.`
+					);
 			}
 		} catch (err) {
 			if (err instanceof ToolError) return failure(err.message);
-			return failure(`The browser runtime failed: ${clean(err instanceof Error ? err.message : err, 300)}`);
+			return failure(
+				`The browser runtime failed: ${clean(err instanceof Error ? err.message : err, 300)}`
+			);
 		}
 	};
 }
 
 export function createServer(session: BrowserSession): Server {
 	const handler = createToolHandler(session);
-	const server = new Server({ name: SERVER_NAME, version: SERVER_VERSION }, { capabilities: { tools: {} } });
+	const server = new Server(
+		{ name: SERVER_NAME, version: SERVER_VERSION },
+		{ capabilities: { tools: {} } }
+	);
 	server.setRequestHandler(ListToolsRequestSchema, async () => ({
 		tools: TOOLS.map((t) => ({ ...t })),
 	}));
@@ -213,7 +231,8 @@ export function serveHttp(session: BrowserSession, options: HttpOptions): Promis
 			res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message }, id: null }));
 		};
 		if (req.headers.origin) return reject(403, "Browsers may not call this server.");
-		if (new URL(req.url ?? "/", "http://x").pathname !== "/mcp") return reject(404, "Not found. The endpoint is /mcp.");
+		if (new URL(req.url ?? "/", "http://x").pathname !== "/mcp")
+			return reject(404, "Not found. The endpoint is /mcp.");
 		if (expected) {
 			const given = Buffer.from(String(req.headers.authorization ?? ""));
 			if (given.length !== expected.length || !timingSafeEqual(given, expected)) {
@@ -236,7 +255,10 @@ export function serveHttp(session: BrowserSession, options: HttpOptions): Promis
 				return reject(400, "The body is not JSON.");
 			}
 			const mcp = createServer(session);
-			const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+			const transport = new StreamableHTTPServerTransport({
+				sessionIdGenerator: undefined,
+				enableJsonResponse: true,
+			});
 			res.on("close", () => {
 				void transport.close();
 				void mcp.close();

@@ -1,0 +1,105 @@
+# The browser on your computer
+
+!!! info "For users who want Cerea's browse tool to use a browser on their own computer"
+
+    `galopin browser` sets up and manages the browser that Cerea's `browse` tool
+    drives on a computer you control: your laptop, or a development server. For
+    what the tool does and how approvals work, see [Browser use](browser-use.md);
+    for local connectors in general, see [Local connectors](local-connectors.md).
+
+The browser is a small program (the **browser runtime**) with a Chromium of its
+own. galopin offers it to the chat as a [local connector](local-connectors.md)
+named `cerea-browser`, so it travels over the link galopin already has: no port is
+opened. It keeps its **own profile** on your computer, so you can sign in to a
+site by hand once and the browse tool can use that session. Nothing is installed
+system-wide, and nothing is sent anywhere by the runtime itself (it has no
+telemetry).
+
+## Set it up
+
+You need Node.js 20 or newer (from [nodejs.org](https://nodejs.org) or your package
+manager) and a computer that [runs galopin](agent-machines.md).
+
+```sh
+galopin browser setup     # once, and again after a galopin update
+galopin browser enable    # offer it to Cerea
+galopin browser status    # installed? offered? answering?
+```
+
+`setup` writes the runtime into `<config-dir>/galopin/browser/runtime`, installs
+its npm dependencies there (one: a pinned `playwright-core`), downloads
+Playwright's Chromium into `<config-dir>/galopin/browser/ms-playwright`, starts
+the browser once to check it works, and prints each step. It needs the network
+for the two downloads.
+
+`enable` adds the `cerea-browser` entry to your `mcp.json` (every other entry is
+kept) and creates the profile in `<config-dir>/galopin/browser/profile`. The
+window is **shown when the computer has a display**, so you can watch and sign in;
+without one (a server) the browser runs headless. `--headed` and `--headless`
+choose. `galopin run` picks the change up by itself.
+
+`disable` removes the entry. The profile, with your logins, is kept unless you
+add `--remove-profile`.
+
+## Signing in to a site
+
+Sign in once, by hand, in the profile's browser. With a window, `galopin browser
+enable --headed` and start a browse task that opens the site's sign-in page;
+sign in in the window. On a server, use a computer with a display for the first
+sign-in and copy the profile directory, or run the browser there with remote
+access of your own. The runtime never types your password: the browse tool does
+not know it.
+
+## What the runtime refuses
+
+The runtime is the second line of defence behind Cerea's approvals. It checks
+every action itself:
+
+- an action that **submits a form, spends, sends, deletes, publishes or signs,
+  starts a download, or leaves the site** runs only with an approval that Cerea
+  signed for exactly that action on exactly that page; an approval that is
+  missing, expired, edited, for another action or already used is refused;
+- it never opens an address that is not `http` or `https` (no `file:`, `javascript:`
+  or `data:` pages), whatever was approved;
+- it dismisses JavaScript dialogs (`confirm` answers no) and says so, and it does
+  not open file pickers, so a page cannot hang a task;
+- page text is handed to the model as content, with hidden and look-alike
+  characters removed, never as instructions. A page can still say anything to
+  the model: it cannot approve its own buttons.
+
+Cerea gives the computer a **key** for these signatures the first time the browser
+is used (over the same link, `browser.key`; see `agent/PROTOCOL.md` §10.7). galopin
+keeps it in `<config-dir>/galopin/browser/key` (mode 0600) and the runtime reads
+it from there; `disable` deletes it. The key is never shown, logged or put on a
+command line.
+
+## One browser at a time
+
+The runtime has one browser (one profile) per computer. Each browse task opens
+its own page, starting blank, and closes it when the task ends (or after ten
+minutes without a call); a page left open by you is never used. Two tasks at once
+on one computer are refused by Cerea. If you also open the same profile in
+another Chromium, the runtime says the profile is already in use.
+
+## Sandbox
+
+Chromium runs in its own sandbox when the computer allows it. Some systems
+restrict the user namespaces the sandbox needs (Ubuntu 24.04 and containers do,
+by default). `setup` notices, says so, and `enable` then starts Chromium without
+its sandbox: pages the browser opens are then not isolated from your user account,
+so use the browser for sites you trust, or lift the restriction and run `setup`
+again.
+
+## If something is off
+
+| `galopin browser status` says         | What to do                                                                                      |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `runtime: not installed`              | Run `galopin browser setup`.                                                                    |
+| `playwright: ... (this galopin pins)` | galopin was updated: run `galopin browser setup` again.                                         |
+| `registered: no`                      | Run `galopin browser enable`.                                                                   |
+| `key: not fetched yet`                | Normal until the browser is first used. It needs `galopin run` and a Cerea with browser use on. |
+| `responding: no: ...`                 | The reason follows; `galopin connectors test cerea-browser` shows the runtime's own message.    |
+
+The runtime can also run by hand: `node <config-dir>/galopin/browser/runtime/cerea-browser.mjs
+--profile DIR --headless` speaks MCP over stdio, or over Streamable HTTP on
+loopback with `--http PORT --token TOKEN`. `--help` lists the options.

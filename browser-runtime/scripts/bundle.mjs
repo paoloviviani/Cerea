@@ -12,9 +12,14 @@ const root = join(import.meta.dirname, "..");
 const target = join(root, "..", "agent", "internal", "browserrt");
 
 export function sourceHash() {
-	const files = readdirSync(join(root, "src")).filter((f) => f.endsWith(".ts")).sort();
+	const files = readdirSync(join(root, "src"))
+		.filter((f) => f.endsWith(".ts"))
+		.sort();
 	const h = createHash("sha256");
-	for (const f of files) h.update(f).update("\0").update(readFileSync(join(root, "src", f)));
+	for (const f of files)
+		h.update(f)
+			.update("\0")
+			.update(readFileSync(join(root, "src", f)));
 	h.update(readFileSync(join(root, "package.json")));
 	return h.digest("hex");
 }

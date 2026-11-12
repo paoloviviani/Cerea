@@ -38,16 +38,30 @@ export interface Rig {
 	ref(snap: Snapshot, role: string, name: string): string;
 	element(snap: Snapshot, ref: string): SnapshotElement;
 	/** The grant Cerea would issue for this action on this snapshot (its own classifier and digest). */
-	grant(snap: Snapshot, action: BrowserAction, index?: number, id?: string, opts?: { exp?: number; key?: Buffer }): ApprovalGrant;
+	grant(
+		snap: Snapshot,
+		action: BrowserAction,
+		index?: number,
+		id?: string,
+		opts?: { exp?: number; key?: Buffer }
+	): ApprovalGrant;
 	close(): Promise<void>;
 }
 
-function parse<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, result: { structuredContent?: unknown; content: Array<{ type: string; text?: string }>; isError?: boolean }): T {
+function parse<T>(
+	schema: z.ZodType<T, z.ZodTypeDef, unknown>,
+	result: {
+		structuredContent?: unknown;
+		content: Array<{ type: string; text?: string }>;
+		isError?: boolean;
+	}
+): T {
 	if (result.isError) throw new Error(`tool error: ${result.content[0]?.text}`);
 	// Cerea reads structuredContent first, then the JSON text block: both must agree.
 	const structured = result.structuredContent;
 	const text = JSON.parse(result.content[0]!.text!);
-	if (JSON.stringify(structured) !== JSON.stringify(text)) throw new Error("structuredContent and text differ");
+	if (JSON.stringify(structured) !== JSON.stringify(text))
+		throw new Error("structuredContent and text differ");
 	return schema.parse(structured);
 }
 
@@ -72,7 +86,10 @@ export async function rig(options: { maxSnapshotChars?: number } = {}): Promise<
 		snapshot: async () => parse(snapshotSchema, await handler("snapshot", {})),
 		diff: async () => parse(diffSchema, await handler("diff", {})),
 		act: async (actions, approvals) =>
-			parse(actResultSchema, await handler("act", { actions, ...(approvals ? { approvals } : {}) })),
+			parse(
+				actResultSchema,
+				await handler("act", { actions, ...(approvals ? { approvals } : {}) })
+			),
 		download: async () => parse(downloadResultSchema, await handler("download", {})),
 		extract: async (args) => parse(extractResultSchema, await handler("extract", args ?? {})),
 		goto: async (path) => {
@@ -91,8 +108,15 @@ export async function rig(options: { maxSnapshotChars?: number } = {}): Promise<
 			if (!el) throw new Error(`no ref ${ref}`);
 			return el;
 		},
-		grant(snap, action, index = 0, id = `approval-${Math.random().toString(36).slice(2)}`, opts = {}) {
-			const element = "ref" in action && action.ref ? snap.elements.find((e) => e.ref === action.ref) : undefined;
+		grant(
+			snap,
+			action,
+			index = 0,
+			id = `approval-${Math.random().toString(36).slice(2)}`,
+			opts = {}
+		) {
+			const element =
+				"ref" in action && action.ref ? snap.elements.find((e) => e.ref === action.ref) : undefined;
 			const digest = actionDigest(action, { element, currentUrl: snap.url });
 			const exp = opts.exp ?? Date.now() + 60_000;
 			return { index, id, digest, exp, sig: signGrant(opts.key ?? TEST_KEY, id, digest, exp) };

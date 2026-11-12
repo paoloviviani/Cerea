@@ -50,7 +50,9 @@ describe("extract", () => {
 		assert.equal(bare.tables[0].rows.length, 10);
 		assert.equal(bare.tables[0].rows[9][1], "SKU-1009");
 		// A real JSON Schema is ignored, not an error: the sub-agent maps the data.
-		const schema = await r.extract({ schema: { type: "object", properties: { rows: { type: "array" } } } });
+		const schema = await r.extract({
+			schema: { type: "object", properties: { rows: { type: "array" } } },
+		});
 		assert.equal(schema.tables.length, 1);
 	});
 
@@ -61,7 +63,10 @@ describe("extract", () => {
 		assert.match(String(bad.content[0].type === "text" && bad.content[0].text), /mode/);
 		const stale = await r.call("extract", { ref: "e9999" });
 		assert.equal(stale.isError, true);
-		assert.match(String(stale.content[0].type === "text" && stale.content[0].text), /No element with ref e9999/);
+		assert.match(
+			String(stale.content[0].type === "text" && stale.content[0].text),
+			/No element with ref e9999/
+		);
 	});
 
 	it("returns clean strings: no zero-width or tag characters", async () => {

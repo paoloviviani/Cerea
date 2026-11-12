@@ -1,4 +1,4 @@
-// cerea-browser runtime 0.1.0; source-hash: e7c9dfa63341b79f7ef55cd27f302e69709c39386d0962bbfd7f1ece873ddcf6
+// cerea-browser runtime 0.1.0; source-hash: 9416f0e938a01c38f4f587ae1e8d038e039e8c4beccd2ccd5e95b52c5fd005cc
 import { createRequire as __cr } from "node:module";
 const require = __cr(import.meta.url);
 var __create = Object.create;
@@ -21738,7 +21738,8 @@ function parseScreenshot(raw) {
     ref: typeof args.ref === "string" && args.ref ? coerceRef(args.ref) : void 0,
     format: args.format
   });
-  if (!parsed.success) throw new ToolError('screenshot takes an optional "ref" and "format" (png or jpeg).');
+  if (!parsed.success)
+    throw new ToolError('screenshot takes an optional "ref" and "format" (png or jpeg).');
   return parsed.data;
 }
 
@@ -21778,7 +21779,10 @@ var actionSchemaJson = {
   type: "object",
   description: "One step. click {ref}; fill {ref, text, submit?}; select {ref, value}; press {key, ref?}; scroll {direction?, amount?}; wait_for {text?, ms?}; navigate {url}.",
   properties: {
-    type: { type: "string", enum: ["click", "fill", "select", "press", "scroll", "wait_for", "navigate"] },
+    type: {
+      type: "string",
+      enum: ["click", "fill", "select", "press", "scroll", "wait_for", "navigate"]
+    },
     ref: { type: "string" },
     text: { type: "string" },
     value: { type: "string" },
@@ -21814,7 +21818,11 @@ var TOOLS = [
           description: "Grants for commit-class actions: {index, id, digest}.",
           items: {
             type: "object",
-            properties: { index: { type: "integer" }, id: { type: "string" }, digest: { type: "string" } },
+            properties: {
+              index: { type: "integer" },
+              id: { type: "string" },
+              digest: { type: "string" }
+            },
             required: ["index", "id", "digest"]
           }
         }
@@ -21891,21 +21899,30 @@ function createToolHandler(session2) {
           return { content: [{ type: "image", data: shot.base64, mimeType: shot.mime }] };
         }
         case "download":
-          return json2(await serial(() => session2.download({ all: asObject(rawArgs).all === true })));
+          return json2(
+            await serial(() => session2.download({ all: asObject(rawArgs).all === true }))
+          );
         case "end_task":
           return json2(await serial(() => session2.endTask()));
         default:
-          return failure(`Unknown tool "${clean(name, 60)}". Tools: ${TOOLS.map((t) => t.name).join(", ")}.`);
+          return failure(
+            `Unknown tool "${clean(name, 60)}". Tools: ${TOOLS.map((t) => t.name).join(", ")}.`
+          );
       }
     } catch (err) {
       if (err instanceof ToolError) return failure(err.message);
-      return failure(`The browser runtime failed: ${clean(err instanceof Error ? err.message : err, 300)}`);
+      return failure(
+        `The browser runtime failed: ${clean(err instanceof Error ? err.message : err, 300)}`
+      );
     }
   };
 }
 function createServer2(session2) {
   const handler = createToolHandler(session2);
-  const server = new Server({ name: SERVER_NAME, version: SERVER_VERSION }, { capabilities: { tools: {} } });
+  const server = new Server(
+    { name: SERVER_NAME, version: SERVER_VERSION },
+    { capabilities: { tools: {} } }
+  );
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: TOOLS.map((t) => ({ ...t }))
   }));
@@ -21934,7 +21951,8 @@ function serveHttp(session2, options) {
       res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32e3, message }, id: null }));
     };
     if (req.headers.origin) return reject(403, "Browsers may not call this server.");
-    if (new URL(req.url ?? "/", "http://x").pathname !== "/mcp") return reject(404, "Not found. The endpoint is /mcp.");
+    if (new URL(req.url ?? "/", "http://x").pathname !== "/mcp")
+      return reject(404, "Not found. The endpoint is /mcp.");
     if (expected) {
       const given = Buffer.from(String(req.headers.authorization ?? ""));
       if (given.length !== expected.length || !timingSafeEqual(given, expected)) {
@@ -21957,7 +21975,10 @@ function serveHttp(session2, options) {
         return reject(400, "The body is not JSON.");
       }
       const mcp = createServer2(session2);
-      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: void 0, enableJsonResponse: true });
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: void 0,
+        enableJsonResponse: true
+      });
       res.on("close", () => {
         void transport.close();
         void mcp.close();
@@ -22313,10 +22334,14 @@ function pageExtract(root, opts) {
         (r) => r.closest("table, [role=table], [role=grid]") === table
       );
       if (rowEls.length === 0) continue;
-      const cellsOf = (row) => Array.from(row.querySelectorAll("th, td, [role=cell], [role=gridcell], [role=columnheader], [role=rowheader]")).filter(
-        (c) => c.closest("tr, [role=row]") === row
+      const cellsOf = (row) => Array.from(
+        row.querySelectorAll(
+          "th, td, [role=cell], [role=gridcell], [role=columnheader], [role=rowheader]"
+        )
+      ).filter((c) => c.closest("tr, [role=row]") === row);
+      let headerRow = rowEls.find(
+        (r) => cellsOf(r).length > 0 && cellsOf(r).every((c) => c.tagName === "TH" || c.getAttribute("role") === "columnheader")
       );
-      let headerRow = rowEls.find((r) => cellsOf(r).length > 0 && cellsOf(r).every((c) => c.tagName === "TH" || c.getAttribute("role") === "columnheader"));
       if (!headerRow) headerRow = void 0;
       const headers = headerRow ? cellsOf(headerRow).map(txt) : [];
       const bodyRows = rowEls.filter((r) => r !== headerRow && cellsOf(r).length > 0);
@@ -22327,14 +22352,18 @@ function pageExtract(root, opts) {
         total: bodyRows.length,
         rows: bodyRows.slice(0, opts.maxRows).map((row) => ({
           cells: cellsOf(row).map(txt),
-          links: Array.from(row.querySelectorAll("a[href]")).slice(0, 5).map((a) => ({ text: txt(a), href: a.getAttribute("href") ?? "" }))
+          links: Array.from(row.querySelectorAll("a[href]")).slice(0, 5).map((a) => ({
+            text: txt(a),
+            href: a.getAttribute("href") ?? ""
+          }))
         }))
       });
     }
   }
   if (wantLists) {
     for (const list of within("ul, ol, [role=list]")) {
-      if (!visible(list) || lists.length >= 20 || list.closest("table, nav, [role=navigation]")) continue;
+      if (!visible(list) || lists.length >= 20 || list.closest("table, nav, [role=navigation]"))
+        continue;
       const items = Array.from(list.children).filter(
         (c) => c.tagName === "LI" || c.getAttribute("role") === "listitem"
       );
@@ -22387,7 +22416,9 @@ function shapeExtract(raw, opts, wantText) {
     return {
       ...t.caption ? { caption: clean(t.caption, 300) } : {},
       headers: t.headers.length > 0 ? names : [],
-      rows: t.rows.map((row) => Array.from({ length: width }, (_, i) => clean(row.cells[i] ?? "", 2e3))),
+      rows: t.rows.map(
+        (row) => Array.from({ length: width }, (_, i) => clean(row.cells[i] ?? "", 2e3))
+      ),
       ...t.total > t.rows.length ? { truncated: t.total - t.rows.length } : {}
     };
   });
@@ -22979,7 +23010,9 @@ var BrowserSession = class {
       });
     } catch (err) {
       const message = firstLine(err, 600);
-      if (/ProcessSingleton|profile.*in use|SingletonLock|user data directory is already in use/i.test(message)) {
+      if (/ProcessSingleton|profile.*in use|SingletonLock|user data directory is already in use/i.test(
+        message
+      )) {
         throw new ToolError(
           `The browser profile ${profileDir2} is already open in another browser. Close it, or stop the other runtime that uses it.`
         );
@@ -23063,19 +23096,37 @@ var BrowserSession = class {
     const origin = this.current && (this.acting || Date.now() < this.currentUntil) ? { actionIndex: this.current.index, grantId: this.current.grantId } : {};
     const failure2 = await download.failure();
     if (failure2) {
-      this.downloads.push({ name, mime, size: 0, skipped: `the download failed: ${clean(failure2, 100)}`, ...origin });
+      this.downloads.push({
+        name,
+        mime,
+        size: 0,
+        skipped: `the download failed: ${clean(failure2, 100)}`,
+        ...origin
+      });
       return;
     }
     await download.saveAs(path);
     const size = (await stat(path)).size;
     if (this.downloads.length >= MAX_DOWNLOADS) {
       await rm(path, { force: true });
-      this.downloads.push({ name, mime, size, skipped: "too many files captured at once", ...origin });
+      this.downloads.push({
+        name,
+        mime,
+        size,
+        skipped: "too many files captured at once",
+        ...origin
+      });
       return;
     }
     if (size > MAX_DOWNLOAD_BYTES) {
       await rm(path, { force: true });
-      this.downloads.push({ name, mime, size, skipped: `larger than ${MAX_DOWNLOAD_BYTES / 1024 / 1024} MB`, ...origin });
+      this.downloads.push({
+        name,
+        mime,
+        size,
+        skipped: `larger than ${MAX_DOWNLOAD_BYTES / 1024 / 1024} MB`,
+        ...origin
+      });
       return;
     }
     this.downloads.push({ name, mime, size, path, ...origin });
@@ -23088,8 +23139,9 @@ var BrowserSession = class {
     this.active = void 0;
     await context?.close().catch(() => {
     });
-    if (this.downloadDir) await rm(this.downloadDir, { recursive: true, force: true }).catch(() => {
-    });
+    if (this.downloadDir)
+      await rm(this.downloadDir, { recursive: true, force: true }).catch(() => {
+      });
     this.downloadDir = void 0;
   }
   /** Extension point for phase 2: run something against the active page (a CDP session, say). */
@@ -23113,7 +23165,10 @@ var BrowserSession = class {
       while (next < refs.length) {
         const ref = refs[next++];
         try {
-          meta.set(ref, await page.getByRef(ref).evaluate(pageMeta, void 0, { timeout: META_TIMEOUT_MS }));
+          meta.set(
+            ref,
+            await page.getByRef(ref).evaluate(pageMeta, void 0, { timeout: META_TIMEOUT_MS })
+          );
         } catch {
         }
       }
@@ -23144,7 +23199,11 @@ var BrowserSession = class {
       }
     }
     const tabs = [...this.taskPages].filter((p) => !p.isClosed()).length || 1;
-    const header = [`url: ${url}`, `title: ${JSON.stringify(title)}`, ...tabs > 1 ? [`tabs: ${tabs}`] : []];
+    const header = [
+      `url: ${url}`,
+      `title: ${JSON.stringify(title)}`,
+      ...tabs > 1 ? [`tabs: ${tabs}`] : []
+    ];
     const snapshot = {
       url,
       title,
@@ -23225,7 +23284,13 @@ var BrowserSession = class {
       added,
       changed,
       removed,
-      text: [`<page-content untrusted="true">`, `url: ${url} (same page)`, `title: ${JSON.stringify(title)}`, ...lines.length > 0 ? lines : ["(no change)"], `</page-content>`].join("\n")
+      text: [
+        `<page-content untrusted="true">`,
+        `url: ${url} (same page)`,
+        `title: ${JSON.stringify(title)}`,
+        ...lines.length > 0 ? lines : ["(no change)"],
+        `</page-content>`
+      ].join("\n")
     };
   }
   // ---- act -------------------------------------------------------------------------------
@@ -23255,7 +23320,10 @@ var BrowserSession = class {
         let result = await this.withBudget(this.runOne(page2, action, index, approvals));
         if (result.ok && this.chooserOpened) {
           this.chooserOpened = false;
-          result = { ok: false, error: "The page asked for a file to upload. File choosers are not supported; nothing was chosen." };
+          result = {
+            ok: false,
+            error: "The page asked for a file to upload. File choosers are not supported; nothing was chosen."
+          };
         }
         results.push(result);
         if (!result.ok) break;
@@ -23267,14 +23335,23 @@ var BrowserSession = class {
     }
     const live = this.active;
     if (live && !live.isClosed() && results.some((x) => !x.ok && !x.refused)) {
-      const answered = await Promise.race([live.evaluate(() => 1).then(() => true, () => true), sleep(2e3).then(() => false)]);
+      const answered = await Promise.race([
+        live.evaluate(() => 1).then(
+          () => true,
+          () => true
+        ),
+        sleep(2e3).then(() => false)
+      ]);
       if (!answered) {
         this.taskPages.delete(live);
         this.active = void 0;
         this.baseline = void 0;
         void closeQuickly(live);
         const last2 = results.at(-1);
-        last2.error = clean(`${last2.error ?? "failed"}; the page stopped responding and was closed`, 1e3);
+        last2.error = clean(
+          `${last2.error ?? "failed"}; the page stopped responding and was closed`,
+          1e3
+        );
       }
     }
     const opened = this.takeOpened();
@@ -23291,7 +23368,14 @@ var BrowserSession = class {
       else last.error = clean(`${last.error ?? "failed"}; ${said}`, 1e3);
     }
     const downloads = this.downloads.slice(downloadsBefore).flatMap(
-      (d) => d.actionIndex === void 0 ? [] : [{ name: d.name, mime: d.mime, actionIndex: d.actionIndex, ...d.grantId ? { grantId: d.grantId } : {} }]
+      (d) => d.actionIndex === void 0 ? [] : [
+        {
+          name: d.name,
+          mime: d.mime,
+          actionIndex: d.actionIndex,
+          ...d.grantId ? { grantId: d.grantId } : {}
+        }
+      ]
     );
     return {
       results,
@@ -23305,7 +23389,10 @@ var BrowserSession = class {
     let timer;
     const timeout = new Promise((ok) => {
       timer = setTimeout(
-        () => ok({ ok: false, error: "The action did not finish in time (30 s). The page may be stuck." }),
+        () => ok({
+          ok: false,
+          error: "The action did not finish in time (30 s). The page may be stuck."
+        }),
         ACTION_BUDGET_MS
       );
     });
@@ -23343,7 +23430,11 @@ var BrowserSession = class {
           }
         })();
         if (target && target.protocol !== "http:" && target.protocol !== "https:" && target.href !== "about:blank") {
-          return { ok: false, refused: "scheme_refused", error: "That link does not lead to a web address, and is never opened." };
+          return {
+            ok: false,
+            refused: "scheme_refused",
+            error: "That link does not lead to a web address, and is never opened."
+          };
         }
       }
       const klass = classifyAction(action, ctx).class;
@@ -23386,14 +23477,22 @@ var BrowserSession = class {
       };
     }
     if (verdict === "expired") {
-      return { ok: false, refused: "approval_expired", error: "The approval has expired. Ask again." };
+      return {
+        ok: false,
+        refused: "approval_expired",
+        error: "The approval has expired. Ask again."
+      };
     }
     if (verdict !== "ok") {
       const why = verdict === "bad_signature" ? "The approval's signature is not valid." : "The approval does not match this action as the page is now (the page or the control changed).";
       return { ok: false, refused: "approval_mismatch", error: why };
     }
     if (!grant.id.startsWith("site:") && this.usedApprovals.has(grant.id)) {
-      return { ok: false, refused: "approval_mismatch", error: "This approval was already used for an earlier action." };
+      return {
+        ok: false,
+        refused: "approval_mismatch",
+        error: "This approval was already used for an earlier action."
+      };
     }
     return void 0;
   }
@@ -23436,12 +23535,18 @@ var BrowserSession = class {
         return `typed ${action.text.length} characters`;
       }
       case "select": {
-        const chosen = await this.target(page, action.ref).selectOption(action.value, { timeout: ACTION_TIMEOUT_MS });
-        if (chosen.length === 0) throw new ToolError(`No option "${clean(action.value, 60)}" in that list.`);
+        const chosen = await this.target(page, action.ref).selectOption(action.value, {
+          timeout: ACTION_TIMEOUT_MS
+        });
+        if (chosen.length === 0)
+          throw new ToolError(`No option "${clean(action.value, 60)}" in that list.`);
         return `chose ${clean(action.value, 60)}`;
       }
       case "press": {
-        if (action.ref) await this.target(page, action.ref).press(playwrightKey(action.key), { timeout: ACTION_TIMEOUT_MS });
+        if (action.ref)
+          await this.target(page, action.ref).press(playwrightKey(action.key), {
+            timeout: ACTION_TIMEOUT_MS
+          });
         else await page.keyboard.press(playwrightKey(action.key));
         await sleep(100);
         await this.settle(page);
@@ -23455,7 +23560,10 @@ var BrowserSession = class {
             const before = window.scrollY;
             window.scrollBy({ top: d * n * window.innerHeight * 0.8, behavior: "instant" });
             const max = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
-            return { moved: window.scrollY !== before, percent: Math.round(window.scrollY / max * 100) };
+            return {
+              moved: window.scrollY !== before,
+              percent: Math.round(window.scrollY / max * 100)
+            };
           },
           { direction, screens }
         );
@@ -23468,7 +23576,9 @@ var BrowserSession = class {
           try {
             await page.getByText(action.text).first().waitFor({ state: "visible", timeout: budget });
           } catch {
-            throw new ToolError(`The text "${clean(action.text, 60)}" did not appear within ${budget} ms.`);
+            throw new ToolError(
+              `The text "${clean(action.text, 60)}" did not appear within ${budget} ms.`
+            );
           }
           return "text appeared";
         }
@@ -23483,7 +23593,10 @@ var BrowserSession = class {
       case "navigate": {
         const target = new URL(action.url, page.url()).href;
         try {
-          const response = await page.goto(target, { waitUntil: "domcontentloaded", timeout: NAVIGATION_TIMEOUT_MS });
+          const response = await page.goto(target, {
+            waitUntil: "domcontentloaded",
+            timeout: NAVIGATION_TIMEOUT_MS
+          });
           await this.settle(page);
           const status = response?.status();
           return status && status >= 400 ? `navigated (the site answered HTTP ${status})` : "navigated";
@@ -23521,7 +23634,11 @@ var BrowserSession = class {
     const page = await this.ensure();
     const type = request.format === "jpeg" ? "jpeg" : "png";
     try {
-      const buffer = request.ref ? await page.getByRef(request.ref).screenshot({ type, timeout: 5e3, ...type === "jpeg" ? { quality: 70 } : {} }) : await page.screenshot({ type, ...type === "jpeg" ? { quality: 70 } : {}, timeout: 8e3 });
+      const buffer = request.ref ? await page.getByRef(request.ref).screenshot({ type, timeout: 5e3, ...type === "jpeg" ? { quality: 70 } : {} }) : await page.screenshot({
+        type,
+        ...type === "jpeg" ? { quality: 70 } : {},
+        timeout: 8e3
+      });
       return { mime: `image/${type}`, base64: buffer.toString("base64") };
     } catch (err) {
       if (request.ref && /Timeout/.test(String(err))) {
@@ -23548,14 +23665,32 @@ var BrowserSession = class {
         ...file.grantId ? { grantId: file.grantId } : {}
       };
       if (file.skipped || !file.path) {
-        files.push({ name: file.name, mime: file.mime, size: file.size, skipped: file.skipped ?? "not captured", ...origin });
+        files.push({
+          name: file.name,
+          mime: file.mime,
+          size: file.size,
+          skipped: file.skipped ?? "not captured",
+          ...origin
+        });
         continue;
       }
       if (file.size > MAX_DOWNLOAD_BYTES) {
-        files.push({ name: file.name, mime: file.mime, size: file.size, skipped: `larger than ${MAX_DOWNLOAD_BYTES / 1024 / 1024} MB`, ...origin });
+        files.push({
+          name: file.name,
+          mime: file.mime,
+          size: file.size,
+          skipped: `larger than ${MAX_DOWNLOAD_BYTES / 1024 / 1024} MB`,
+          ...origin
+        });
       } else {
         const bytes = await readFile(file.path);
-        files.push({ name: file.name, mime: file.mime, size: bytes.byteLength, base64: bytes.toString("base64"), ...origin });
+        files.push({
+          name: file.name,
+          mime: file.mime,
+          size: bytes.byteLength,
+          base64: bytes.toString("base64"),
+          ...origin
+        });
       }
       await rm(file.path, { force: true });
     }
@@ -23654,8 +23789,10 @@ if (values.http !== void 0) {
     token: values.token ?? process.env.CEREA_BROWSER_TOKEN
   });
   const address = server.address();
-  process.stderr.write(`cerea-browser: serving MCP on http://${values.host ?? "127.0.0.1"}:${typeof address === "object" && address ? address.port : port}/mcp
-`);
+  process.stderr.write(
+    `cerea-browser: serving MCP on http://${values.host ?? "127.0.0.1"}:${typeof address === "object" && address ? address.port : port}/mcp
+`
+  );
   const stop = () => {
     server.close();
     void session.close().finally(() => process.exit(0));

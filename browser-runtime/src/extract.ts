@@ -46,7 +46,9 @@ export function pageExtract(
 ): RawExtract {
 	const visible = (el: Element) => {
 		const style = getComputedStyle(el);
-		return style.display !== "none" && style.visibility !== "hidden" && el.getClientRects().length > 0;
+		return (
+			style.display !== "none" && style.visibility !== "hidden" && el.getClientRects().length > 0
+		);
 	};
 	const txt = (el: Element) => ((el as HTMLElement).innerText ?? el.textContent ?? "").trim();
 	const within = (selector: string): Element[] => {
@@ -67,14 +69,21 @@ export function pageExtract(
 			);
 			if (rowEls.length === 0) continue;
 			const cellsOf = (row: Element) =>
-				Array.from(row.querySelectorAll("th, td, [role=cell], [role=gridcell], [role=columnheader], [role=rowheader]")).filter(
-					(c) => c.closest("tr, [role=row]") === row
-				);
-			let headerRow = rowEls.find((r) => cellsOf(r).length > 0 && cellsOf(r).every((c) => c.tagName === "TH" || c.getAttribute("role") === "columnheader"));
+				Array.from(
+					row.querySelectorAll(
+						"th, td, [role=cell], [role=gridcell], [role=columnheader], [role=rowheader]"
+					)
+				).filter((c) => c.closest("tr, [role=row]") === row);
+			let headerRow = rowEls.find(
+				(r) =>
+					cellsOf(r).length > 0 &&
+					cellsOf(r).every((c) => c.tagName === "TH" || c.getAttribute("role") === "columnheader")
+			);
 			if (!headerRow) headerRow = undefined;
 			const headers = headerRow ? cellsOf(headerRow).map(txt) : [];
 			const bodyRows = rowEls.filter((r) => r !== headerRow && cellsOf(r).length > 0);
-			const caption = table.querySelector("caption")?.textContent ?? table.getAttribute("aria-label") ?? "";
+			const caption =
+				table.querySelector("caption")?.textContent ?? table.getAttribute("aria-label") ?? "";
 			tables.push({
 				caption,
 				headers,
@@ -83,14 +92,18 @@ export function pageExtract(
 					cells: cellsOf(row).map(txt),
 					links: Array.from(row.querySelectorAll("a[href]"))
 						.slice(0, 5)
-						.map((a) => ({ text: txt(a), href: (a as HTMLAnchorElement).getAttribute("href") ?? "" })),
+						.map((a) => ({
+							text: txt(a),
+							href: (a as HTMLAnchorElement).getAttribute("href") ?? "",
+						})),
 				})),
 			});
 		}
 	}
 	if (wantLists) {
 		for (const list of within("ul, ol, [role=list]")) {
-			if (!visible(list) || lists.length >= 20 || list.closest("table, nav, [role=navigation]")) continue;
+			if (!visible(list) || lists.length >= 20 || list.closest("table, nav, [role=navigation]"))
+				continue;
 			const items = Array.from(list.children).filter(
 				(c) => c.tagName === "LI" || c.getAttribute("role") === "listitem"
 			);
@@ -139,14 +152,20 @@ function headerNames(headers: string[], width: number): string[] {
 	});
 }
 
-export function shapeExtract(raw: RawExtract, opts: ExtractOptions, wantText: boolean): ExtractResult {
+export function shapeExtract(
+	raw: RawExtract,
+	opts: ExtractOptions,
+	wantText: boolean
+): ExtractResult {
 	const tables = raw.tables.map((t) => {
 		const width = Math.max(t.headers.length, ...t.rows.map((r) => r.cells.length), 0);
 		const names = headerNames(t.headers, width);
 		return {
 			...(t.caption ? { caption: clean(t.caption, 300) } : {}),
 			headers: t.headers.length > 0 ? names : [],
-			rows: t.rows.map((row) => Array.from({ length: width }, (_, i) => clean(row.cells[i] ?? "", 2000))),
+			rows: t.rows.map((row) =>
+				Array.from({ length: width }, (_, i) => clean(row.cells[i] ?? "", 2000))
+			),
 			...(t.total > t.rows.length ? { truncated: t.total - t.rows.length } : {}),
 		};
 	});

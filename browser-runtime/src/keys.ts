@@ -1,6 +1,16 @@
 /** Key names as the page sees them, so a rule cannot be dodged by another spelling of Enter. */
 
-const MODIFIERS = new Set(["control", "ctrl", "shift", "alt", "meta", "command", "cmd", "controlormeta", "altgraph"]);
+const MODIFIERS = new Set([
+	"control",
+	"ctrl",
+	"shift",
+	"alt",
+	"meta",
+	"command",
+	"cmd",
+	"controlormeta",
+	"altgraph",
+]);
 
 export interface ParsedKey {
 	/** Canonical name: NumpadEnter and Return are Enter; " " and Spacebar are Space. */
@@ -12,7 +22,10 @@ export interface ParsedKey {
 export function parseKey(key: string): ParsedKey {
 	if (key === " ") return { base: "Space", modifiers: [] };
 	// "Control++" is Control and "+"; split on a plus that has something after it.
-	const parts = key.endsWith("+") && key.length > 1 ? [...key.slice(0, -2).split("+").filter(Boolean), "+"] : key.split("+");
+	const parts =
+		key.endsWith("+") && key.length > 1
+			? [...key.slice(0, -2).split("+").filter(Boolean), "+"]
+			: key.split("+");
 	const base = parts.pop() ?? "";
 	const modifiers = parts.filter((p) => MODIFIERS.has(p.toLowerCase()));
 	const lower = base.toLowerCase();

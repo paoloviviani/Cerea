@@ -535,7 +535,8 @@ export function fit(lines: Line[], maxChars: number): Fitted {
 		below = kept.length - end;
 		kept = kept.slice(0, end);
 	}
-	const topHint = above > 0 ? `… ${above} lines above the viewport (scroll up to see them)` : undefined;
+	const topHint =
+		above > 0 ? `… ${above} lines above the viewport (scroll up to see them)` : undefined;
 	const bottomHint =
 		below > 0
 			? `… truncated: ${below} more lines below (scroll down to see them, or use extract for tables and lists)`

@@ -108,7 +108,9 @@ if (values.http !== undefined) {
 		token: values.token ?? process.env.CEREA_BROWSER_TOKEN,
 	});
 	const address = server.address();
-	process.stderr.write(`cerea-browser: serving MCP on http://${values.host ?? "127.0.0.1"}:${typeof address === "object" && address ? address.port : port}/mcp\n`);
+	process.stderr.write(
+		`cerea-browser: serving MCP on http://${values.host ?? "127.0.0.1"}:${typeof address === "object" && address ? address.port : port}/mcp\n`
+	);
 	const stop = () => {
 		server.close();
 		void session.close().finally(() => process.exit(0));

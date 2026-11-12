@@ -12,7 +12,9 @@
 		"typecheck": "tsc --noEmit",
 		"test": "node --test --test-concurrency=1 test/*.test.ts",
 		"bundle": "node scripts/bundle.mjs",
-		"start": "node src/main.ts"
+		"start": "node src/main.ts",
+		"format": "prettier --write .",
+		"lint": "prettier --check . && tsc --noEmit"
 	},
 	"dependencies": {
 		"@modelcontextprotocol/sdk": "1.32.2",
@@ -23,6 +25,7 @@
 	"devDependencies": {
 		"@types/node": "^24.0.0",
 		"esbuild": "^0.28.2",
+		"prettier": "3.8.4",
 		"typescript": "^5.9.0"
 	}
 }

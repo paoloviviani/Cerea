@@ -18,7 +18,9 @@ describe("downloads", () => {
 		const grant = r.grant(snap, click);
 		const res = await r.act([click], [grant]);
 		assert.equal(res.results[0].ok, true, JSON.stringify(res));
-		assert.deepEqual(res.downloads, [{ name: "report.csv", mime: "text/csv", actionIndex: 0, grantId: grant.id }]);
+		assert.deepEqual(res.downloads, [
+			{ name: "report.csv", mime: "text/csv", actionIndex: 0, grantId: grant.id },
+		]);
 		const got = await r.download();
 		assert.equal(got.files.length, 1);
 		assert.equal(got.files[0].name, "report.csv");

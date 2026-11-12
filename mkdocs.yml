@@ -116,6 +116,7 @@ nav:
           - "Getting started": agent-machines.md
           - "Reference": agent-machines-reference.md
       - "Local connectors": local-connectors.md
+      - "The browser on your computer": browser-runtime.md
       - "The headless browser": browser.md
       - "Word, Excel, PowerPoint and PDF files": office.md
   - Operating Cerea:

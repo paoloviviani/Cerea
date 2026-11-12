@@ -265,7 +265,12 @@ export class BrowserSession {
 
 	private async launch(): Promise<void> {
 		const { headless, profileDir } = this.options;
-		if (!headless && process.platform === "linux" && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
+		if (
+			!headless &&
+			process.platform === "linux" &&
+			!process.env.DISPLAY &&
+			!process.env.WAYLAND_DISPLAY
+		) {
 			throw new ToolError(
 				"The browser is set to show a window, but this computer has no display. Start the runtime with --headless."
 			);
@@ -288,7 +293,11 @@ export class BrowserSession {
 			});
 		} catch (err) {
 			const message = firstLine(err, 600);
-			if (/ProcessSingleton|profile.*in use|SingletonLock|user data directory is already in use/i.test(message)) {
+			if (
+				/ProcessSingleton|profile.*in use|SingletonLock|user data directory is already in use/i.test(
+					message
+				)
+			) {
 				throw new ToolError(
 					`The browser profile ${profileDir} is already open in another browser. Close it, or stop the other runtime that uses it.`
 				);
@@ -350,7 +359,9 @@ export class BrowserSession {
 			if (this.taskPages.has(page)) this.taskPages.add(popup);
 		});
 		page.on("download", (download) => {
-			const work = this.capture(download).catch((e) => { if (process.env.CEREA_DEBUG) console.error("capture failed", e); });
+			const work = this.capture(download).catch((e) => {
+				if (process.env.CEREA_DEBUG) console.error("capture failed", e);
+			});
 			this.pendingDownloads.add(work);
 			void work.finally(() => this.pendingDownloads.delete(work));
 		});
@@ -374,22 +385,43 @@ export class BrowserSession {
 			MIME_BY_EXTENSION[extension] ??
 			"application/octet-stream";
 		// Provenance is read now: the event fires while the action that caused it is running.
-		const origin = this.current && (this.acting || Date.now() < this.currentUntil) ? { actionIndex: this.current.index, grantId: this.current.grantId } : {};
+		const origin =
+			this.current && (this.acting || Date.now() < this.currentUntil)
+				? { actionIndex: this.current.index, grantId: this.current.grantId }
+				: {};
 		const failure = await download.failure();
 		if (failure) {
-			this.downloads.push({ name, mime, size: 0, skipped: `the download failed: ${clean(failure, 100)}`, ...origin });
+			this.downloads.push({
+				name,
+				mime,
+				size: 0,
+				skipped: `the download failed: ${clean(failure, 100)}`,
+				...origin,
+			});
 			return;
 		}
 		await download.saveAs(path);
 		const size = (await stat(path)).size;
 		if (this.downloads.length >= MAX_DOWNLOADS) {
 			await rm(path, { force: true });
-			this.downloads.push({ name, mime, size, skipped: "too many files captured at once", ...origin });
+			this.downloads.push({
+				name,
+				mime,
+				size,
+				skipped: "too many files captured at once",
+				...origin,
+			});
 			return;
 		}
 		if (size > MAX_DOWNLOAD_BYTES) {
 			await rm(path, { force: true });
-			this.downloads.push({ name, mime, size, skipped: `larger than ${MAX_DOWNLOAD_BYTES / 1024 / 1024} MB`, ...origin });
+			this.downloads.push({
+				name,
+				mime,
+				size,
+				skipped: `larger than ${MAX_DOWNLOAD_BYTES / 1024 / 1024} MB`,
+				...origin,
+			});
 			return;
 		}
 		this.downloads.push({ name, mime, size, path, ...origin });
@@ -402,7 +434,8 @@ export class BrowserSession {
 		this.context = undefined;
 		this.active = undefined;
 		await context?.close().catch(() => {});
-		if (this.downloadDir) await rm(this.downloadDir, { recursive: true, force: true }).catch(() => {});
+		if (this.downloadDir)
+			await rm(this.downloadDir, { recursive: true, force: true }).catch(() => {});
 		this.downloadDir = undefined;
 	}
 
@@ -430,7 +463,10 @@ export class BrowserSession {
 			while (next < refs.length) {
 				const ref = refs[next++];
 				try {
-					meta.set(ref, await page.getByRef(ref).evaluate(pageMeta, undefined, { timeout: META_TIMEOUT_MS }));
+					meta.set(
+						ref,
+						await page.getByRef(ref).evaluate(pageMeta, undefined, { timeout: META_TIMEOUT_MS })
+					);
 				} catch {
 					// Gone or detached between the snapshot and now: it has no metadata.
 				}
@@ -467,7 +503,11 @@ export class BrowserSession {
 			}
 		}
 		const tabs = [...this.taskPages].filter((p) => !p.isClosed()).length || 1;
-		const header = [`url: ${url}`, `title: ${JSON.stringify(title)}`, ...(tabs > 1 ? [`tabs: ${tabs}`] : [])];
+		const header = [
+			`url: ${url}`,
+			`title: ${JSON.stringify(title)}`,
+			...(tabs > 1 ? [`tabs: ${tabs}`] : []),
+		];
 		const snapshot: Snapshot = {
 			url,
 			title,
@@ -494,7 +534,12 @@ export class BrowserSession {
 	async diff(): Promise<Diff> {
 		const page = await this.ensure();
 		const before = this.baseline;
-		if (!before || before.page !== page || before.seq !== (this.navSeq.get(page) ?? 0) || before.url !== page.url()) {
+		if (
+			!before ||
+			before.page !== page ||
+			before.seq !== (this.navSeq.get(page) ?? 0) ||
+			before.url !== page.url()
+		) {
 			const snapshot = await this.snapshot();
 			return {
 				url: snapshot.url,
@@ -539,7 +584,11 @@ export class BrowserSession {
 		const removedText = [...counts].flatMap(([t, n]) => Array.from({ length: n }, () => t));
 		for (const t of addedText.slice(0, 20)) lines.push(`+ ${t}`);
 		for (const t of removedText.slice(0, 20)) lines.push(`- ${t}`);
-		const more = addedText.length + removedText.length - Math.min(addedText.length, 20) - Math.min(removedText.length, 20);
+		const more =
+			addedText.length +
+			removedText.length -
+			Math.min(addedText.length, 20) -
+			Math.min(removedText.length, 20);
 		if (more > 0) lines.push(`… and ${more} more text changes`);
 		this.baseline = { ...before, entries: now.entries, textLines: now.textLines };
 		const { url, title } = now.snapshot;
@@ -550,7 +599,13 @@ export class BrowserSession {
 			added,
 			changed,
 			removed,
-			text: [`<page-content untrusted="true">`, `url: ${url} (same page)`, `title: ${JSON.stringify(title)}`, ...(lines.length > 0 ? lines : ["(no change)"]), `</page-content>`].join("\n"),
+			text: [
+				`<page-content untrusted="true">`,
+				`url: ${url} (same page)`,
+				`title: ${JSON.stringify(title)}`,
+				...(lines.length > 0 ? lines : ["(no change)"]),
+				`</page-content>`,
+			].join("\n"),
 		};
 	}
 
@@ -583,7 +638,11 @@ export class BrowserSession {
 				let result = await this.withBudget(this.runOne(page, action, index, approvals));
 				if (result.ok && this.chooserOpened) {
 					this.chooserOpened = false;
-					result = { ok: false, error: "The page asked for a file to upload. File choosers are not supported; nothing was chosen." };
+					result = {
+						ok: false,
+						error:
+							"The page asked for a file to upload. File choosers are not supported; nothing was chosen.",
+					};
 				}
 				results.push(result);
 				if (!result.ok) break;
@@ -596,14 +655,25 @@ export class BrowserSession {
 		// A page that no longer answers (a script stuck in a loop) is dropped: the next call opens a fresh one.
 		const live = this.active;
 		if (live && !live.isClosed() && results.some((x) => !x.ok && !x.refused)) {
-			const answered = await Promise.race([live.evaluate(() => 1).then(() => true, () => true), sleep(2_000).then(() => false)]);
+			const answered = await Promise.race([
+				live
+					.evaluate(() => 1)
+					.then(
+						() => true,
+						() => true
+					),
+				sleep(2_000).then(() => false),
+			]);
 			if (!answered) {
 				this.taskPages.delete(live);
 				this.active = undefined;
 				this.baseline = undefined;
 				void closeQuickly(live);
 				const last = results.at(-1)!;
-				last.error = clean(`${last.error ?? "failed"}; the page stopped responding and was closed`, 1000);
+				last.error = clean(
+					`${last.error ?? "failed"}; the page stopped responding and was closed`,
+					1000
+				);
 			}
 		}
 		const opened = this.takeOpened();
@@ -620,13 +690,18 @@ export class BrowserSession {
 		}
 		// Each file says which action of this batch made it and the grant it ran under: Cerea keeps
 		// only files an approved download action produced.
-		const downloads = this.downloads
-			.slice(downloadsBefore)
-			.flatMap((d) =>
-				d.actionIndex === undefined
-					? []
-					: [{ name: d.name, mime: d.mime, actionIndex: d.actionIndex, ...(d.grantId ? { grantId: d.grantId } : {}) }]
-			);
+		const downloads = this.downloads.slice(downloadsBefore).flatMap((d) =>
+			d.actionIndex === undefined
+				? []
+				: [
+						{
+							name: d.name,
+							mime: d.mime,
+							actionIndex: d.actionIndex,
+							...(d.grantId ? { grantId: d.grantId } : {}),
+						},
+					]
+		);
 		return {
 			results,
 			url: page.url(),
@@ -640,7 +715,11 @@ export class BrowserSession {
 		let timer: NodeJS.Timeout;
 		const timeout = new Promise<ActionResult>((ok) => {
 			timer = setTimeout(
-				() => ok({ ok: false, error: "The action did not finish in time (30 s). The page may be stuck." }),
+				() =>
+					ok({
+						ok: false,
+						error: "The action did not finish in time (30 s). The page may be stuck.",
+					}),
 				ACTION_BUDGET_MS
 			);
 		});
@@ -668,12 +747,17 @@ export class BrowserSession {
 						return undefined;
 					}
 				})();
-				const ok = target && (target.protocol === "http:" || target.protocol === "https:" || target.href === "about:blank");
+				const ok =
+					target &&
+					(target.protocol === "http:" ||
+						target.protocol === "https:" ||
+						target.href === "about:blank");
 				if (!ok) {
 					return {
 						ok: false,
 						refused: "scheme_refused",
-						error: "Only http and https addresses can be opened (about:blank too), whatever the approval.",
+						error:
+							"Only http and https addresses can be opened (about:blank too), whatever the approval.",
 					};
 				}
 			}
@@ -687,8 +771,17 @@ export class BrowserSession {
 						return undefined;
 					}
 				})();
-				if (target && target.protocol !== "http:" && target.protocol !== "https:" && target.href !== "about:blank") {
-					return { ok: false, refused: "scheme_refused", error: "That link does not lead to a web address, and is never opened." };
+				if (
+					target &&
+					target.protocol !== "http:" &&
+					target.protocol !== "https:" &&
+					target.href !== "about:blank"
+				) {
+					return {
+						ok: false,
+						refused: "scheme_refused",
+						error: "That link does not lead to a web address, and is never opened.",
+					};
 				}
 			}
 			const klass = classifyAction(action, ctx).class;
@@ -723,7 +816,8 @@ export class BrowserSession {
 			return {
 				ok: false,
 				refused: "approval_required",
-				error: "This action needs the user's approval first (it submits, spends, sends, deletes or leaves the site).",
+				error:
+					"This action needs the user's approval first (it submits, spends, sends, deletes or leaves the site).",
 			};
 		}
 		const key = readKey({ keyFile: this.options.keyFile });
@@ -732,11 +826,16 @@ export class BrowserSession {
 			return {
 				ok: false,
 				refused: "approval_required",
-				error: "This runtime has no approval key, so it cannot accept approvals. Run `galopin browser enable` again.",
+				error:
+					"This runtime has no approval key, so it cannot accept approvals. Run `galopin browser enable` again.",
 			};
 		}
 		if (verdict === "expired") {
-			return { ok: false, refused: "approval_expired", error: "The approval has expired. Ask again." };
+			return {
+				ok: false,
+				refused: "approval_expired",
+				error: "The approval has expired. Ask again.",
+			};
 		}
 		if (verdict !== "ok") {
 			const why =
@@ -747,7 +846,11 @@ export class BrowserSession {
 		}
 		// A user's approval is for one action. A site rule (`site:` ids) is a standing grant.
 		if (!grant.id.startsWith("site:") && this.usedApprovals.has(grant.id)) {
-			return { ok: false, refused: "approval_mismatch", error: "This approval was already used for an earlier action." };
+			return {
+				ok: false,
+				refused: "approval_mismatch",
+				error: "This approval was already used for an earlier action.",
+			};
 		}
 		return undefined;
 	}
@@ -795,12 +898,18 @@ export class BrowserSession {
 				return `typed ${action.text.length} characters`;
 			}
 			case "select": {
-				const chosen = await this.target(page, action.ref).selectOption(action.value, { timeout: ACTION_TIMEOUT_MS });
-				if (chosen.length === 0) throw new ToolError(`No option "${clean(action.value, 60)}" in that list.`);
+				const chosen = await this.target(page, action.ref).selectOption(action.value, {
+					timeout: ACTION_TIMEOUT_MS,
+				});
+				if (chosen.length === 0)
+					throw new ToolError(`No option "${clean(action.value, 60)}" in that list.`);
 				return `chose ${clean(action.value, 60)}`;
 			}
 			case "press": {
-				if (action.ref) await this.target(page, action.ref).press(playwrightKey(action.key), { timeout: ACTION_TIMEOUT_MS });
+				if (action.ref)
+					await this.target(page, action.ref).press(playwrightKey(action.key), {
+						timeout: ACTION_TIMEOUT_MS,
+					});
 				else await page.keyboard.press(playwrightKey(action.key));
 				await sleep(100);
 				await this.settle(page);
@@ -814,7 +923,10 @@ export class BrowserSession {
 						const before = window.scrollY;
 						window.scrollBy({ top: d * n * window.innerHeight * 0.8, behavior: "instant" });
 						const max = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
-						return { moved: window.scrollY !== before, percent: Math.round((window.scrollY / max) * 100) };
+						return {
+							moved: window.scrollY !== before,
+							percent: Math.round((window.scrollY / max) * 100),
+						};
 					},
 					{ direction, screens }
 				);
@@ -827,9 +939,14 @@ export class BrowserSession {
 				const budget = action.ms ?? 10_000;
 				if (action.text) {
 					try {
-						await page.getByText(action.text).first().waitFor({ state: "visible", timeout: budget });
+						await page
+							.getByText(action.text)
+							.first()
+							.waitFor({ state: "visible", timeout: budget });
 					} catch {
-						throw new ToolError(`The text "${clean(action.text, 60)}" did not appear within ${budget} ms.`);
+						throw new ToolError(
+							`The text "${clean(action.text, 60)}" did not appear within ${budget} ms.`
+						);
 					}
 					return "text appeared";
 				}
@@ -843,10 +960,15 @@ export class BrowserSession {
 			case "navigate": {
 				const target = new URL(action.url, page.url()).href;
 				try {
-					const response = await page.goto(target, { waitUntil: "domcontentloaded", timeout: NAVIGATION_TIMEOUT_MS });
+					const response = await page.goto(target, {
+						waitUntil: "domcontentloaded",
+						timeout: NAVIGATION_TIMEOUT_MS,
+					});
 					await this.settle(page);
 					const status = response?.status();
-					return status && status >= 400 ? `navigated (the site answered HTTP ${status})` : "navigated";
+					return status && status >= 400
+						? `navigated (the site answered HTTP ${status})`
+						: "navigated";
 				} catch (err) {
 					if (/Download is starting/i.test(String(err))) return "navigation started a download";
 					throw new ToolError(`Could not load ${clean(target, 120)}: ${firstLine(err, 160)}`);
@@ -882,13 +1004,22 @@ export class BrowserSession {
 		return shapeExtract(raw, options, request.ref !== undefined || mode === "text");
 	}
 
-	async screenshot(request: { ref?: string; format?: "png" | "jpeg" }): Promise<{ mime: string; base64: string }> {
+	async screenshot(request: {
+		ref?: string;
+		format?: "png" | "jpeg";
+	}): Promise<{ mime: string; base64: string }> {
 		const page = await this.ensure();
 		const type = request.format === "jpeg" ? "jpeg" : "png";
 		try {
 			const buffer = request.ref
-				? await page.getByRef(request.ref).screenshot({ type, timeout: 5_000, ...(type === "jpeg" ? { quality: 70 } : {}) })
-				: await page.screenshot({ type, ...(type === "jpeg" ? { quality: 70 } : {}), timeout: 8_000 });
+				? await page
+						.getByRef(request.ref)
+						.screenshot({ type, timeout: 5_000, ...(type === "jpeg" ? { quality: 70 } : {}) })
+				: await page.screenshot({
+						type,
+						...(type === "jpeg" ? { quality: 70 } : {}),
+						timeout: 8_000,
+					});
 			return { mime: `image/${type}`, base64: buffer.toString("base64") };
 		} catch (err) {
 			if (request.ref && /Timeout/.test(String(err))) {
@@ -916,15 +1047,33 @@ export class BrowserSession {
 				...(file.grantId ? { grantId: file.grantId } : {}),
 			};
 			if (file.skipped || !file.path) {
-				files.push({ name: file.name, mime: file.mime, size: file.size, skipped: file.skipped ?? "not captured", ...origin });
+				files.push({
+					name: file.name,
+					mime: file.mime,
+					size: file.size,
+					skipped: file.skipped ?? "not captured",
+					...origin,
+				});
 				continue;
 			}
 			// The size was checked when the file was saved, before anything is read or encoded.
 			if (file.size > MAX_DOWNLOAD_BYTES) {
-				files.push({ name: file.name, mime: file.mime, size: file.size, skipped: `larger than ${MAX_DOWNLOAD_BYTES / 1024 / 1024} MB`, ...origin });
+				files.push({
+					name: file.name,
+					mime: file.mime,
+					size: file.size,
+					skipped: `larger than ${MAX_DOWNLOAD_BYTES / 1024 / 1024} MB`,
+					...origin,
+				});
 			} else {
 				const bytes = await readFile(file.path);
-				files.push({ name: file.name, mime: file.mime, size: bytes.byteLength, base64: bytes.toString("base64"), ...origin });
+				files.push({
+					name: file.name,
+					mime: file.mime,
+					size: bytes.byteLength,
+					base64: bytes.toString("base64"),
+					...origin,
+				});
 			}
 			await rm(file.path, { force: true });
 		}

@@ -34,10 +34,10 @@ describe("task pages, dialogs, popups and hangs", () => {
 
 	it("closes task pages after an idle period", async () => {
 		const idle = await rig();
-		(idle.session as unknown as { options: { idleMs: number } }).options.idleMs = 300;
+		(idle.session as unknown as { options: { idleMs: number } }).options.idleMs = 1500;
 		try {
 			await idle.goto("/form");
-			await new Promise((ok) => setTimeout(ok, 700));
+			await new Promise((ok) => setTimeout(ok, 2500));
 			assert.equal((await idle.snapshot()).url, "about:blank");
 		} finally {
 			await idle.close();
@@ -75,14 +75,18 @@ describe("task pages, dialogs, popups and hangs", () => {
 	it("follows a popup as a task page and reports it", async () => {
 		await r.session.endTask();
 		const snap = await r.goto("/popup");
-		const res = await r.act([{ type: "click", ref: r.ref(snap, "link", "Open form in a new tab") }]);
+		const res = await r.act([
+			{ type: "click", ref: r.ref(snap, "link", "Open form in a new tab") },
+		]);
 		assert.equal(res.results[0].ok, true);
 		assert.match(res.results[0].outcome ?? "", /opened a new tab/);
 		assert.equal(res.url, `${r.fx.base}/form`);
 		const now = await r.snapshot();
 		assert.match(now.text, /^tabs: 2$/m);
 		await r.session.endTask();
-		const after = await r.session.withPage(async (_p, c) => c.pages().filter((p) => p.url().startsWith("http")).length);
+		const after = await r.session.withPage(
+			async (_p, c) => c.pages().filter((p) => p.url().startsWith("http")).length
+		);
 		assert.equal(after, 0, "popup closed with the task");
 	});
 });

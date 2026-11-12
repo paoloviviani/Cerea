@@ -20,7 +20,9 @@ describe("signed grants", () => {
 	it("refuses a grant signed with another key, an expired one, and one with a changed digest", async () => {
 		const { snap, action } = await save();
 		const posts = r.fx.hits.posts.length;
-		const wrongKey = r.grant(snap, action, 0, undefined, { key: Buffer.from("another-device-key-another-device") });
+		const wrongKey = r.grant(snap, action, 0, undefined, {
+			key: Buffer.from("another-device-key-another-device"),
+		});
 		const a = await r.act([action], [wrongKey]);
 		assert.equal(a.results[0].refused, "approval_mismatch");
 		assert.match(a.results[0].error ?? "", /signature/);
@@ -50,7 +52,8 @@ describe("signed grants", () => {
 		const keyless = await rig();
 		try {
 			await keyless.session.close();
-			(keyless.session as unknown as { options: { keyFile?: string } }).options.keyFile = "/nonexistent/key";
+			(keyless.session as unknown as { options: { keyFile?: string } }).options.keyFile =
+				"/nonexistent/key";
 			const snap2 = await keyless.goto("/form");
 			const act2 = { type: "click" as const, ref: keyless.ref(snap2, "button", "Save") };
 			const res = await keyless.act([act2], [keyless.grant(snap2, act2)]);
@@ -84,7 +87,15 @@ describe("keys, navigation and downloads", () => {
 		const field = r.ref(snap, "textbox", "Full name");
 		await r.act([{ type: "click", ref: field }]);
 		const posts = r.fx.hits.posts.length;
-		for (const key of ["Enter", "NumpadEnter", "Return", " ", "Space", "Control+Enter", "Shift+Enter"]) {
+		for (const key of [
+			"Enter",
+			"NumpadEnter",
+			"Return",
+			" ",
+			"Space",
+			"Control+Enter",
+			"Shift+Enter",
+		]) {
 			const res = await r.act([{ type: "press", key }]);
 			assert.equal(res.results[0].refused, "approval_required", key);
 		}
@@ -111,14 +122,20 @@ describe("keys, navigation and downloads", () => {
 		const snap = await r.goto("/xform");
 		const res = await r.act([{ type: "fill", ref: r.ref(snap, "textbox", "Auto"), text: "x" }]);
 		assert.equal(res.results[0].ok, true);
-		assert.match(res.results[0].outcome ?? "", /the page navigated to http:\/\/127\.0\.0\.1:\d+\/list/);
+		assert.match(
+			res.results[0].outcome ?? "",
+			/the page navigated to http:\/\/127\.0\.0\.1:\d+\/list/
+		);
 		assert.equal(res.url, `${r.fx.base}/list`);
 	});
 
 	it("never goes to a local file, from a link or from the page's own script", async () => {
 		const snap = await r.goto("/xform");
 		const link = { type: "click" as const, ref: r.ref(snap, "link", "Local file") };
-		for (const action of [link, { type: "click" as const, ref: r.ref(snap, "button", "Open local") }]) {
+		for (const action of [
+			link,
+			{ type: "click" as const, ref: r.ref(snap, "button", "Open local") },
+		]) {
 			// Even with a signed grant for exactly this action.
 			const res = await r.act([action], [r.grant(snap, action)]);
 			assert.match(res.url, /^http:/, JSON.stringify(res));
@@ -132,7 +149,10 @@ describe("keys, navigation and downloads", () => {
 
 	it("caps a batch at 12 actions, and runs none of a longer one", async () => {
 		await r.goto("/form");
-		const many = Array.from({ length: 13 }, () => ({ type: "scroll" as const, direction: "down" as const }));
+		const many = Array.from({ length: 13 }, () => ({
+			type: "scroll" as const,
+			direction: "down" as const,
+		}));
 		const res = await r.call("act", { actions: many });
 		assert.equal(res.isError, true);
 		assert.match(String(res.content[0].type === "text" && res.content[0].text), /At most 12/);
@@ -144,7 +164,10 @@ describe("keys, navigation and downloads", () => {
 		const snap = await r.goto("/downloads");
 		const click = { type: "click" as const, ref: r.ref(snap, "link", "Report (CSV)") };
 		const grant = r.grant(snap, click, 0, "elicitation-xyz");
-		const res = await r.act([{ type: "scroll", direction: "down" }, click], [{ ...grant, index: 1 }]);
+		const res = await r.act(
+			[{ type: "scroll", direction: "down" }, click],
+			[{ ...grant, index: 1 }]
+		);
 		assert.equal(res.results[1].ok, true, JSON.stringify(res));
 		// A download the page starts long after the action (a timer) has no provenance.
 		await new Promise((ok) => setTimeout(ok, 1200));
@@ -163,11 +186,19 @@ describe("keys, navigation and downloads", () => {
 			[got.files[0].name, got.files[0].actionIndex, got.files[0].grantId],
 			["report.csv", 1, "elicitation-xyz"]
 		);
-		assert.deepEqual(res.downloads, [{ name: "report.csv", mime: "text/csv", actionIndex: 1, grantId: "elicitation-xyz" }]);
+		assert.deepEqual(res.downloads, [
+			{ name: "report.csv", mime: "text/csv", actionIndex: 1, grantId: "elicitation-xyz" },
+		]);
 		const all = await (async () => {
 			const out = await r.call("download", { all: true });
-			return JSON.parse((out.content[0] as { text: string }).text).files as Array<{ name: string; actionIndex?: number }>;
+			return JSON.parse((out.content[0] as { text: string }).text).files as Array<{
+				name: string;
+				actionIndex?: number;
+			}>;
 		})();
-		assert.deepEqual(all.map((f) => [f.name, f.actionIndex]), [["unprompted.txt", undefined]]);
+		assert.deepEqual(
+			all.map((f) => [f.name, f.actionIndex]),
+			[["unprompted.txt", undefined]]
+		);
 	});
 });
