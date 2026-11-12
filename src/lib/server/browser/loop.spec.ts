@@ -767,8 +767,8 @@ describe("runBrowseLoop: failures", () => {
 			script: [callTurn("act", { actions: [{ type: "click", ref: "e3" }] }), answerTurn("looked")],
 		});
 		const act = runtime.act.bind(runtime);
-		runtime.act = async (actions, approvals, signal) => {
-			const result = await act(actions, approvals, signal);
+		runtime.act = async (actions, approvals) => {
+			const result = await act(actions, approvals);
 			// A stale ref, as the runtime reports it: a plain failure, not a refusal.
 			return { ...result, results: [{ ok: false, error: "No element with ref e3." }] };
 		};
