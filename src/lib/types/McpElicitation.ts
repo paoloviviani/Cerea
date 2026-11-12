@@ -92,6 +92,13 @@ export interface ElicitationRequestPayload {
 	 */
 	childSessionId?: string;
 	childTitle?: string | null;
+	/**
+	 * A browsing sub-agent's ask (ADR 0116): the sentence the card shows ("Click 'Pay €120' on
+	 * shop.example.com") and, when the runtime could take one, a picture of the element. The card
+	 * reads this in place of the tool name and arguments; `toolApproval` is still set, so every
+	 * surface that lists approvals keeps working.
+	 */
+	browse?: BrowseApprovalPayload;
 	/** Why the reviewer did not settle this ask (ADR 0107): shown on the card. */
 	reviewNote?: string;
 	/** The reviewer is still deciding: shown as a quiet status, with no buttons and not counted as waiting on the user. */
@@ -102,12 +109,27 @@ export interface ElicitationRequestPayload {
 	readOnly?: boolean | null;
 }
 
+/** What a browse approval card shows. Server-authored text, never markup. */
+export interface BrowseApprovalPayload {
+	sentence: string;
+	/** The site the action runs on (or leads to). */
+	site: string;
+	/** The page the action runs on, without its fragment. */
+	url?: string;
+	/** Why it asks: "submit", "verb", "download", "new-domain", ... */
+	reason?: string;
+	/** A small picture of the element, when the runtime returned one. */
+	screenshot?: { mime: string; base64: string };
+}
+
 /** In the database because the pod serving the answer need not be the one waiting on it. */
 export interface McpElicitation extends Timestamps {
 	_id: ObjectId;
 	elicitationId: string;
 	conversationId: Conversation["_id"];
 	generationId?: string;
+	/** Who the ask is for, stored by the browse approver so the inbox reads only the caller's rows. */
+	userId?: ObjectId;
 	status: "pending" | "resolved";
 	request: ElicitationRequestPayload;
 	action?: ElicitationAction;

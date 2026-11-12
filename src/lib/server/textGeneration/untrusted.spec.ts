@@ -83,6 +83,8 @@ const BUILTIN_TABLE: Record<string, "external" | "internal"> = {
 	agent_sessions: "external",
 	agent_start: "internal",
 	agent_send: "internal",
+	// What a browsing sub-agent read on the web (ADR 0116).
+	browse: "external",
 	// Built where the turn's skills and connectors are resolved, not here.
 	load_tools: "internal",
 	load_skill: "internal",
@@ -104,6 +106,16 @@ function everyBuiltin(): BuiltinTool[] {
 		modelArtifacts: { supportsArtifacts: true, supportsTools: true, artifactsMode: "tool" },
 		delegation: { models: [{ id: "m", name: "m" } as never] },
 		agentSessions: {},
+		browse: {
+			machines: [{ id: "a".repeat(24), name: "Laptop" }],
+			settings: {
+				enabled: true,
+				model: "",
+				budgets: { maxSteps: 5, maxTokens: 10_000, maxSeconds: 60 },
+				rules: { allow: [], deny: [] },
+			},
+			ceiling: "ask",
+		},
 		documentCapabilities: {
 			formats: {
 				docx: { outline: true, read: true, operations: ["replace_text"] },
