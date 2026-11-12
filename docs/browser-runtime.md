@@ -76,8 +76,8 @@ count), `resume` **refuses** with `page_changed`, gives back its title and addre
 the token is spent: Cerea then asks you to lend the tab (`use_tab`) or opens a new one.
 Only a changed title still resumes, and says so. Without the token a kept page is just
 one of your tabs. A token works once, for 24 hours, and only while the page is open; the
-idle close never closes a kept page. When a task ends because you denied an approval and
-stopped it, Cerea closes the page instead of keeping it.
+idle close never closes a kept page. When a task stops because the browser reached a site on
+the administrator's deny list, Cerea closes the page instead of keeping it.
 
 ## Verification steps (CAPTCHAs)
 
