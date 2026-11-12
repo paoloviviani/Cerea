@@ -419,6 +419,9 @@ describe("schedule.create", () => {
 			"limit",
 			/running schedules/
 		);
+		// However the refusals went, the cap counter still matches the rows.
+		const rows = await collections.schedules.countDocuments({ userId: person.user._id });
+		expect((await collections.scheduleCounts.findOne({ _id: person.user._id }))?.count).toBe(rows);
 	});
 
 	it(`allows at most ${MAX_CALLS_PER_HOUR} changes per machine per hour, but always lets it stop`, async () => {

@@ -50,6 +50,7 @@ const ALL_COLLECTIONS: Record<string, boolean> = {
 	agentReviewLog: true, // what the reviewer decided for a person's machines; owner-keyed, 90 days
 	agentReviewUserSettings: true, // one document per account (ADR 0109); the target's survives a merge
 	agentReviewConfig: false, // the deployment's auto-approval settings, not user content
+	scheduleCounts: true, // the per-user schedule cap counter, _id is the user; rebuilt on merge, dropped with the schedules
 	scheduleRuns: true, // one row per occurrence considered: the record of what a schedule did
 	scheduleGrants: true, // a person's background OIDC grant for scheduled chats; owner-keyed, dropped on merge, revoked and erased with the account
 	pushSubscriptions: true, // the browsers a person turned Web Push on for; owner-keyed
@@ -408,6 +409,29 @@ describe("schedules and scheduleRuns: a schedule goes with its person", () => {
 		expect(await collections.scheduleRuns.countDocuments({ userId: kept })).toBe(1);
 		await collections.schedules.deleteMany({ userId: kept });
 		await collections.scheduleRuns.deleteMany({ userId: kept });
+	});
+
+	it("drops the cap counter with the account, and drops both counters on a merge", async () => {
+		const stray = new ObjectId();
+		const target = new ObjectId();
+		await collections.schedules.insertMany([schedule(stray), schedule(stray), schedule(target)]);
+		await collections.scheduleCounts.insertMany([
+			{ _id: stray, count: 2 },
+			{ _id: target, count: 1 },
+		]);
+		const entry = USER_KEYED_COLLECTIONS.find((e) => e.name === "schedules");
+		if (!entry) throw new Error("schedules must be registered");
+		await entry.merge(stray, target);
+		expect(await collections.scheduleCounts.findOne({ _id: stray })).toBeNull();
+		// Both dropped: the next create reseeds the target's from its three rows.
+		expect(await collections.scheduleCounts.findOne({ _id: target })).toBeNull();
+		await collections.scheduleCounts.insertOne({ _id: target, count: 3 });
+		const countsEntry = USER_KEYED_COLLECTIONS.find((e) => e.name === "scheduleCounts");
+		if (!countsEntry) throw new Error("scheduleCounts must be registered");
+		await entry.erase(target, NO_CONVERSATIONS);
+		await countsEntry.erase(target, NO_CONVERSATIONS);
+		expect(await collections.scheduleCounts.findOne({ _id: target })).toBeNull();
+		await collections.scheduleRuns.deleteMany({});
 	});
 
 	it("moves a stray's schedules and runs onto the target on a merge", async () => {

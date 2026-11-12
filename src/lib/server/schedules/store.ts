@@ -9,6 +9,7 @@
 
 import { ObjectId } from "mongodb";
 import { z } from "zod";
+import { claimScheduleSlot, releaseScheduleSlot } from "./slots";
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import { getExecutor } from "./executors";
@@ -138,13 +139,14 @@ export async function createSchedule(
 	if (!parsed.success) throw new ScheduleError(400, "The schedule is missing a field.");
 	const input = parsed.data;
 	const cap = maxSchedulesPerUser();
-	if ((await collections.schedules.countDocuments({ userId })) >= cap) {
-		throw new ScheduleError(409, `You can have at most ${cap} schedules. Delete one first.`);
-	}
 	const name = checkName(input.name);
 	const prompt = checkPrompt(input.prompt);
 	const timezone = checkTimezone(input.timezone);
 	const recurrence = checkRecurrence(input.recurrence, timezone);
+	// A cheap early refusal, before anything calls outside; the atomic claim below is what holds the cap.
+	if ((await collections.schedules.countDocuments({ userId })) >= cap) {
+		throw new ScheduleError(409, `You can have at most ${cap} schedules. Delete one first.`);
+	}
 	const target = await checkTarget(input.kind, input.target, userId, options.token);
 
 	const now = new Date();
@@ -169,14 +171,19 @@ export async function createSchedule(
 		...(input.maxOccurrences != null ? { maxOccurrences: input.maxOccurrences } : {}),
 		...(options.createdBy ? { createdBy: options.createdBy } : {}),
 	};
-	await collections.schedules.insertOne(schedule);
-	// Two creates racing past the check above would both land: settle it
-	// after the fact, so the cap is a cap and not a suggestion. A row keeps its
-	// place only if no more than `cap` of the person's rows are at or before
-	// its id, so of any racing set the earliest ids stay and the rest withdraw.
-	if ((await collections.schedules.countDocuments({ userId, _id: { $lte: schedule._id } })) > cap) {
-		await collections.schedules.deleteOne({ _id: schedule._id });
+	// The slot is taken atomically, after validation so a refusal costs nothing, and given back if
+	// the row does not land. A cap lowered below the count leaves rows alone and refuses new ones.
+	if (!(await claimScheduleSlot(userId, cap))) {
 		throw new ScheduleError(409, `You can have at most ${cap} schedules. Delete one first.`);
+	}
+	try {
+		await collections.schedules.insertOne(schedule);
+	} catch (err) {
+		// An insert that threw after committing keeps its row, and so its slot.
+		if (!(await collections.schedules.findOne({ _id: schedule._id }, { projection: { _id: 1 } }))) {
+			await releaseScheduleSlot(userId);
+		}
+		throw err;
 	}
 	return schedule;
 }
@@ -282,6 +289,7 @@ export async function deleteSchedule(
 	void options;
 	const removed = await collections.schedules.findOneAndDelete({ _id: parseId(id), userId });
 	if (!removed?.value) throw new ScheduleError(404, "No such schedule.");
+	await releaseScheduleSlot(userId);
 	// Whatever the kind kept for it (chat: the grant, when it was the last) goes with it.
 	try {
 		await getExecutor(removed.value.kind)?.afterDelete?.(removed.value);

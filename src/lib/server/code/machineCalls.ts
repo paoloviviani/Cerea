@@ -31,6 +31,7 @@ import { MachineLink } from "$lib/server/code/machines";
 import { CONNECTOR_CALL_OPS, handleConnectorCall } from "$lib/server/code/machineConnectors";
 import "$lib/server/code/scheduleAgentExecutor";
 import { parseTarget, type AgentTarget } from "$lib/server/code/scheduleAgentExecutor";
+import { releaseScheduleSlot } from "$lib/server/schedules/slots";
 import { recurrenceSchema } from "$lib/server/schedules/recurrence";
 import {
 	createSchedule,
@@ -396,7 +397,9 @@ async function opCreate(ctx: CallContext) {
 			_id: { $lte: schedule._id },
 		});
 		if (earlier > MAX_ACTIVE_AGENT_SCHEDULES) {
-			await collections.schedules.deleteOne({ _id: schedule._id });
+			// Release only for a row this call really removed, never twice.
+			const { deletedCount } = await collections.schedules.deleteOne({ _id: schedule._id });
+			if (deletedCount === 1) await releaseScheduleSlot(ctx.userId);
 			throw activeCapError();
 		}
 	}
