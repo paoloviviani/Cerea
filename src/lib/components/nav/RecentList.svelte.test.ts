@@ -20,8 +20,6 @@ vi.mock("$lib/codeApi", async (importOriginal) => ({
 	loadCodeStatus: vi.fn(async () => undefined),
 }));
 
-void ACTIVE_GENERATIONS_CONTEXT_KEY;
-
 const ago = (hours: number) => new Date(Date.now() - hours * 3_600_000);
 const conv = (id: string, hours: number, extra: Partial<ConvSidebar> = {}): ConvSidebar => ({
 	id,
@@ -71,7 +69,14 @@ describe("NavMenu's Recent selector", () => {
 				gatewayIsAdmin: false,
 				codeAgentsEnabled: opts.agents ?? false,
 			} as never,
-			{ page: { route: { id: "/" }, data: { models: [], ...opts.data } }, baseElement: host }
+			{
+				page: { route: { id: "/" }, data: { models: [], ...opts.data } },
+				baseElement: host,
+				// If the view flips back to Chats, a conversation row asks for its live-turn badge.
+				context: new Map<unknown, unknown>([
+					[ACTIVE_GENERATIONS_CONTEXT_KEY, { has: () => false }],
+				]),
+			}
 		);
 	}
 

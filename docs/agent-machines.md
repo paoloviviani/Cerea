@@ -104,8 +104,9 @@ pairing in a volume you name: see
 
 ![The Agents panel on a phone.](assets/screenshots/agents-phone.webp)
 
-**Chats | Agents**, at the top of the sidebar under the logo, switches it between
-the two, and the button below it follows: **New session** asks for the
+**Chats | Recent | Agents**, at the top of the sidebar under the logo, switches it
+between them (**Recent** mixes chats and sessions, newest first; see
+[Chat](chat.md)), and the button below it follows: **New session** asks for the
 computer and the folder (starting on the ones you used last; a **Pair a computer**
 dialog opens instead if none is paired yet). The Agents side is a tree: paired
 computers, each with its workspaces, each with its sessions.

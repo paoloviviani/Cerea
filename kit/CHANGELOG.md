@@ -5,6 +5,10 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **A Recent list in the sidebar.** A third option beside Chats and Agents lists, newest first, everything active in the last 48 hours (filled up to ten rows with older items): your chats, project chats included, and your agent sessions across your computers, each with its project or computer and how long ago. New chat, Schedules and the rest stay as in Chats; without agent access it lists chats only.
+
 ## v0.50.0 — 2026-11-12
 
 Pins: Cerea `0.50.0` (chat, `cerea-documents` and the new `galopin` image), Pystino `0.33.2`.
