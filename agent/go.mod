@@ -18,3 +18,5 @@ require (
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	golang.org/x/oauth2 v0.30.0 // indirect
 )
+
+replace fyne.io/systray => ./third_party/systray
