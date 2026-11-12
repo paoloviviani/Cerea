@@ -25,6 +25,7 @@ import {
 	type BrowserRuntime,
 	type Diff,
 	type DownloadResult,
+	type ExtractRequest,
 	type ExtractResult,
 	type RuntimeToolName,
 	type ScreenshotResult,
@@ -146,8 +147,8 @@ export class McpBrowserRuntime implements BrowserRuntime {
 		);
 	}
 
-	extract(schema: Record<string, unknown>, signal?: AbortSignal): Promise<ExtractResult> {
-		return this.invoke("extract", { schema }, extractResultSchema, signal);
+	extract(request: ExtractRequest, signal?: AbortSignal): Promise<ExtractResult> {
+		return this.invoke("extract", { ...request }, extractResultSchema, signal);
 	}
 
 	async screenshot(ref?: string, signal?: AbortSignal): Promise<ScreenshotResult> {

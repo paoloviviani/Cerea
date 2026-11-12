@@ -136,6 +136,17 @@ export type BrowserAction = z.infer<typeof browserActionSchema>;
 /**
  * Cerea's grant for one action of a batch. The runtime refuses a commit-class action that has no
  * grant whose `digest` matches the action it is about to run (ADR 0116 §4, defence in depth).
+ *
+ * The digest binds the grant to the exact action. It is the first 32 hex characters of
+ * SHA-256 over `JSON.stringify([kind, ref, value, origin, name])`, where
+ * - `kind` is the action's `type`;
+ * - `ref` is the action's element ref, or "";
+ * - `value` is `fill`: the text, plus "\n#submit" when `submit` is set; `select`: the value;
+ *   `press`: the key; `navigate`: the url as given; `scroll`: direction, a colon, amount or "";
+ *   `wait_for`: text or the ms as a string; `click`: "";
+ * - `origin` is the page's `URL.origin` when the action runs;
+ * - `name` is the element's accessible name as the runtime reports it in the snapshot, or "".
+ * Reference implementation: `actionDigest` in `classifier.ts`.
  */
 export const approvalGrantSchema = z.object({
 	/** Index of the action in the batch this grant covers. */
@@ -172,7 +183,46 @@ export type ActResult = z.infer<typeof actResultSchema>;
 
 // ----- extract, screenshot, download ------------------------------------------------------
 
-export const extractResultSchema = z.object({ data: z.unknown() });
+/**
+ * `extract` is model-free: the runtime reads tables, lists and text off the page and returns them
+ * as they are. Mapping them onto a caller's JSON Schema happens in Cerea's sub-agent, never in
+ * the runtime (which has no model).
+ */
+export const extractRequestSchema = z.object({
+	/** Limit it to the region under this element; absent means the whole page. */
+	ref: z.string().min(1).max(64).optional(),
+	/** What to read. `auto` returns tables and lists, and the region's text when `ref` is set. */
+	mode: z.enum(["auto", "tables", "lists", "text"]).default("auto"),
+});
+export type ExtractRequest = z.input<typeof extractRequestSchema>;
+
+export const extractResultSchema = z.object({
+	tables: z
+		.array(
+			z.object({
+				ref: z.string().max(64).optional(),
+				caption: z.string().max(300).optional(),
+				headers: z.array(z.string().max(300)).max(100),
+				rows: z.array(z.array(z.string().max(2000)).max(100)).max(2000),
+				/** Rows left out ("... and 37 more rows"). */
+				truncated: z.number().int().nonnegative().optional(),
+			})
+		)
+		.max(50)
+		.default([]),
+	lists: z
+		.array(
+			z.object({
+				ref: z.string().max(64).optional(),
+				items: z.array(z.string().max(2000)).max(2000),
+				truncated: z.number().int().nonnegative().optional(),
+			})
+		)
+		.max(50)
+		.default([]),
+	/** The region's visible text (with `ref`, or `mode: "text"`). */
+	text: z.string().max(100_000).optional(),
+});
 export type ExtractResult = z.infer<typeof extractResultSchema>;
 
 export const screenshotResultSchema = z.object({
@@ -216,7 +266,7 @@ export interface BrowserRuntime {
 		approvals: ApprovalGrant[] | undefined,
 		signal?: AbortSignal
 	): Promise<ActResult>;
-	extract(schema: Record<string, unknown>, signal?: AbortSignal): Promise<ExtractResult>;
+	extract(request: ExtractRequest, signal?: AbortSignal): Promise<ExtractResult>;
 	screenshot(ref?: string, signal?: AbortSignal): Promise<ScreenshotResult>;
 	download(signal?: AbortSignal): Promise<DownloadResult>;
 }

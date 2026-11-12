@@ -20,6 +20,7 @@ import {
 	type BrowserRuntime,
 	type Diff,
 	type DownloadResult,
+	type ExtractRequest,
 	type ExtractResult,
 	type RuntimeToolName,
 	type ScreenshotResult,
@@ -27,6 +28,7 @@ import {
 	type SnapshotElement,
 	BrowserRuntimeError,
 	browserActionSchema,
+	extractRequestSchema,
 } from "./contract";
 import { actionDigest, classifyAction } from "./classifier";
 import type { RuntimeCall } from "./runtimeClient";
@@ -50,7 +52,7 @@ export interface FakePage {
 	title: string;
 	elements: FakeElement[];
 	/** What `extract` returns on this page. */
-	extract?: unknown;
+	extract?: ExtractResult;
 }
 
 /** A 1x1 PNG. */
@@ -268,9 +270,9 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 		return { ok: true, outcome };
 	}
 
-	async extract(schema: Record<string, unknown>): Promise<ExtractResult> {
-		this.record("extract", { schema });
-		return { data: this.current.extract ?? {} };
+	async extract(request: ExtractRequest): Promise<ExtractResult> {
+		this.record("extract", { ...request });
+		return this.current.extract ?? { tables: [], lists: [] };
 	}
 
 	async screenshot(ref?: string): Promise<ScreenshotResult> {
@@ -311,7 +313,7 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 						return json(await this.act(actions, args.approvals as ApprovalGrant[] | undefined));
 					}
 					case "extract":
-						return json(await this.extract((args.schema as Record<string, unknown>) ?? {}));
+						return json(await this.extract(extractRequestSchema.parse(args)));
 					case "screenshot": {
 						const shot = await this.screenshot(args.ref as string | undefined);
 						return {

@@ -284,6 +284,26 @@ export function describeAction(action: BrowserAction, ctx: ClassifyContext): str
  * The runtime recomputes it from what it is about to do, so a grant for "Pay €120" does not
  * cover a different click, a changed button or another site.
  */
+/** The action's value, as the digest defines it (see `approvalGrantSchema`). */
+export function actionValue(action: BrowserAction): string {
+	switch (action.type) {
+		case "fill":
+			return action.text + (action.submit ? "\n#submit" : "");
+		case "select":
+			return action.value;
+		case "press":
+			return action.key;
+		case "navigate":
+			return action.url;
+		case "scroll":
+			return `${action.direction}:${action.amount ?? ""}`;
+		case "wait_for":
+			return action.text ?? String(action.ms ?? "");
+		case "click":
+			return "";
+	}
+}
+
 export function actionDigest(action: BrowserAction, ctx: ClassifyContext): string {
 	let origin = "";
 	try {
@@ -291,10 +311,13 @@ export function actionDigest(action: BrowserAction, ctx: ClassifyContext): strin
 	} catch {
 		origin = ctx.currentUrl;
 	}
-	const canonical = JSON.stringify({
-		a: Object.fromEntries(Object.entries(action).sort(([x], [y]) => x.localeCompare(y))),
-		name: ctx.element?.name ?? null,
+	const ref = "ref" in action && action.ref ? action.ref : "";
+	const canonical = JSON.stringify([
+		action.type,
+		ref,
+		actionValue(action),
 		origin,
-	});
+		ctx.element?.name ?? "",
+	]);
 	return createHash("sha256").update(canonical).digest("hex").slice(0, 32);
 }

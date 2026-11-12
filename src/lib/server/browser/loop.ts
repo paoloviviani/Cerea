@@ -211,12 +211,16 @@ export function toolDefinitions(vision: boolean, hasSchema: boolean): OpenAiTool
 			function: {
 				name: "extract",
 				description:
-					"Read structured data from the page as JSON matching a JSON Schema." +
-					(hasSchema ? " Omit `schema` to use the output schema the task asks for." : ""),
+					"Read tables (headers and rows), lists and text straight off the page, without scrolling through them. " +
+					"Pass `ref` to read only the region under one element." +
+					(hasSchema ? " The data the task asks for is built from what you read." : ""),
 				parameters: {
 					type: "object",
-					properties: { schema: { type: "object" } },
-					required: hasSchema ? [] : ["schema"],
+					properties: {
+						ref: STR,
+						mode: { type: "string", enum: ["auto", "tables", "lists", "text"] },
+					},
+					required: [],
 				},
 			},
 		},
@@ -628,23 +632,19 @@ export async function runBrowseLoop(request: LoopRequest, deps: LoopDeps): Promi
 		pushToolMessage(callId, lines.join("\n"), page);
 	};
 	const doExtract = async (callId: string, args: Record<string, unknown>) => {
-		const schema =
-			args.schema && typeof args.schema === "object" && !Array.isArray(args.schema)
-				? (args.schema as Record<string, unknown>)
-				: request.outputSchema;
-		if (!schema) {
-			pushToolMessage(callId, "Error: extract needs a JSON Schema in `schema`.");
-			return;
-		}
+		const extractRequest = {
+			...(typeof args.ref === "string" && args.ref ? { ref: args.ref } : {}),
+			...(typeof args.mode === "string" && ["auto", "tables", "lists", "text"].includes(args.mode)
+				? { mode: args.mode as "auto" | "tables" | "lists" | "text" }
+				: {}),
+		};
 		const step = recordStep({
 			action: "Read data from the page",
 			page: currentTitle || undefined,
 			state: "running",
 		});
 		try {
-			const result = await guarded(() => runtime.extract(schema, deps.signal));
-			data = result.data;
-			hasData = true;
+			const result = await guarded(() => runtime.extract(extractRequest, deps.signal));
 			updateStep(step, {
 				action: "Read data from the page",
 				page: currentTitle,
@@ -653,7 +653,8 @@ export async function runBrowseLoop(request: LoopRequest, deps: LoopDeps): Promi
 			});
 			pushToolMessage(
 				callId,
-				wrapPage(finalUrl, currentTitle, clip(JSON.stringify(result.data ?? null), 6_000))
+				"",
+				wrapPage(finalUrl, currentTitle, clip(JSON.stringify(result), 6_000))
 			);
 		} catch (err) {
 			if (err instanceof Stop) throw err;
@@ -740,7 +741,7 @@ export async function runBrowseLoop(request: LoopRequest, deps: LoopDeps): Promi
 		const first = await takeSnapshot();
 		let intro = `Goal: ${request.goal}`;
 		if (request.outputSchema) {
-			intro += `\n\nReturn the data with extract, matching this JSON Schema:\n${JSON.stringify(request.outputSchema)}`;
+			intro += `\n\nWhen you are done, the data is built from what you read, matching this JSON Schema (read it with extract; do not write it yourself):\n${JSON.stringify(request.outputSchema)}`;
 		}
 		if (request.startUrl) intro += `\n\nStart at ${request.startUrl}.`;
 		messages.push({
@@ -877,11 +878,25 @@ export async function runBrowseLoop(request: LoopRequest, deps: LoopDeps): Promi
 		finalText = await partialReport(stopped);
 	}
 
-	// The data the task asked for, when the model did not extract it itself.
-	if (request.outputSchema && !hasData && stopped !== "aborted" && stopped !== "runtime_error") {
+	// The data the task asked for: mapped onto the schema by the model from what it read. The
+	// runtime has no model, so `extract` only returns rows and text.
+	if (request.outputSchema && stopped !== "aborted" && stopped !== "runtime_error") {
 		try {
-			const result = await runtime.extract(request.outputSchema, deps.signal);
-			data = result.data;
+			const turn = await deps.complete(
+				{
+					messages: [
+						...messages,
+						{
+							role: "user",
+							content: `Now return ONLY a JSON value matching this JSON Schema, built from what you read on the pages, with nothing else:\n${JSON.stringify(request.outputSchema)}`,
+						},
+					],
+				},
+				deps.signal
+			);
+			const text = (turn.content ?? "").trim();
+			const json = /^```(?:json)?\s*([\s\S]*?)```$/.exec(text)?.[1] ?? text;
+			data = JSON.parse(json);
 			hasData = true;
 		} catch {
 			// The report says what it says; data stays absent.

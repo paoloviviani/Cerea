@@ -53,7 +53,18 @@ const shop = (): FakePage[] => [
 				onClick: { reveal: [{ ref: "e4", role: "link", name: "Green shoe 40 €50", href: "/p/3" }] },
 			},
 		],
-		extract: { items: [{ name: "Red shoe", price: 60 }] },
+		extract: {
+			tables: [
+				{
+					headers: ["Name", "Price"],
+					rows: [
+						["Red shoe", "60"],
+						["Blue shoe", "55"],
+					],
+				},
+			],
+			lists: [],
+		},
 	},
 	{
 		id: "cart",
@@ -161,7 +172,7 @@ describe("runBrowseLoop: the ordinary run", () => {
 						{ type: "click", ref: "e2" },
 					],
 				}),
-				callTurn("extract", { schema: { type: "object" } }),
+				callTurn("extract", { mode: "tables" }),
 				answerTurn("The cheapest shoe is the Blue shoe at €55."),
 			],
 		});
@@ -169,10 +180,13 @@ describe("runBrowseLoop: the ordinary run", () => {
 
 		expect(result).toEqual({
 			result: "The cheapest shoe is the Blue shoe at €55.",
-			data: { items: [{ name: "Red shoe", price: 60 }] },
 			final_url: "https://shop.example.com/search?q=shoes",
 			steps: 2,
 		});
+		// The rows came back as rows: no model ran inside the runtime.
+		expect(toolTexts(model.requests[2].messages).join("\n")).toContain(
+			'"headers":["Name","Price"]'
+		);
 		// No approval was needed: a search is a read.
 		expect(runtime.performed.map((a) => a.type)).toEqual(["fill", "click"]);
 		// The page after the batch reached the model without a second call.
@@ -227,17 +241,34 @@ describe("runBrowseLoop: the ordinary run", () => {
 		expect(runtime.url).toBe("https://shop.example.com/");
 	});
 
-	it("extracts the requested data itself when the model did not", async () => {
-		const { deps, runtime } = setup({
+	it("maps what it read onto the output schema in the sub-agent, not the runtime", async () => {
+		const { deps, runtime, model } = setup({
 			start: "results",
-			script: [answerTurn("I saw the list.")],
+			script: [
+				callTurn("extract", {}),
+				answerTurn("I saw the list."),
+				answerTurn('```json\n{"items":[{"name":"Red shoe","price":60}]}\n```'),
+			],
 		});
 		const result = await runBrowseLoop(
 			{ goal: "list the shoes", outputSchema: { type: "object" } },
 			deps
 		);
 		expect(result.data).toEqual({ items: [{ name: "Red shoe", price: 60 }] });
-		expect(runtime.calls.filter((c) => c.tool === "extract")).toHaveLength(1);
+		expect(runtime.calls.find((c) => c.tool === "extract")?.args).toEqual({});
+		const last = model.requests.at(-1)?.messages.at(-1);
+		expect(String(last?.content)).toContain("ONLY a JSON value");
+	});
+
+	it("leaves data out when the mapping is not JSON", async () => {
+		const { deps } = setup({
+			script: [answerTurn("done"), answerTurn("not json")],
+		});
+		const result = await runBrowseLoop(
+			{ goal: "list them", outputSchema: { type: "object" } },
+			deps
+		);
+		expect(result.data).toBeUndefined();
 	});
 
 	it("offers only the runtime's tools", async () => {

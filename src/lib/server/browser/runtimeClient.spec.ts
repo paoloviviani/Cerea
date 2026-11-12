@@ -21,7 +21,7 @@ const pages: FakePage[] = [
 				onClick: { download: { name: "invoice.pdf", mime: "application/pdf", content: "%PDF-1" } },
 			},
 		],
-		extract: { total: 120 },
+		extract: { tables: [{ headers: ["Item", "Total"], rows: [["Shoe", "120"]] }], lists: [] },
 	},
 ];
 
@@ -72,8 +72,11 @@ describe("McpBrowserRuntime over the wire", () => {
 
 	it("extracts structured data", async () => {
 		const { client, fake } = runtime();
-		expect(await client.extract({ type: "object" })).toEqual({ data: { total: 120 } });
-		expect(fake.calls.at(-1)).toEqual({ tool: "extract", args: { schema: { type: "object" } } });
+		expect(await client.extract({ ref: "e1", mode: "tables" })).toEqual({
+			tables: [{ headers: ["Item", "Total"], rows: [["Shoe", "120"]] }],
+			lists: [],
+		});
+		expect(fake.calls.at(-1)).toEqual({ tool: "extract", args: { ref: "e1", mode: "tables" } });
 	});
 
 	it("reads a screenshot from an MCP image block", async () => {

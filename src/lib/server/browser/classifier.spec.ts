@@ -343,6 +343,27 @@ describe("describeAction", () => {
 	});
 });
 
+describe("actionDigest test vectors (the runtime must reproduce these)", () => {
+	const at = "https://shop.example.com/checkout";
+	it("matches the documented canonical form", () => {
+		expect(
+			actionDigest(
+				{ type: "click", ref: "e3" },
+				{ element: el({ name: "Pay €120" }), currentUrl: at }
+			)
+		).toBe("863952682726aad5b01956bba9406f2a");
+		expect(
+			actionDigest(
+				{ type: "fill", ref: "e1", text: "hello", submit: true },
+				{ element: el({ role: "textbox", name: "Search" }), currentUrl: at }
+			)
+		).toBe("31cce360e2c982995f3d49cabd365186");
+		expect(
+			actionDigest({ type: "navigate", url: "https://other.example.org/x" }, { currentUrl: at })
+		).toBe("f9d78abdc298f2f2015a565378d87b59");
+	});
+});
+
 describe("actionDigest", () => {
 	const click: BrowserAction = { type: "click", ref: "e1" };
 	const ctx = { element: el({ name: "Pay €120" }), currentUrl: SHOP };

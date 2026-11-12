@@ -500,6 +500,56 @@ describe("sub-agent updates", () => {
 	});
 });
 
+describe("browse updates", () => {
+	const state = (
+		uuid: string,
+		steps: number,
+		status: "running" | "waiting" | "done"
+	): MessageUpdate => ({
+		type: MessageUpdateType.Browse,
+		uuid,
+		goal: "find it",
+		model: "m",
+		status,
+		steps: Array.from({ length: steps }, (_, i) => ({
+			id: i + 1,
+			action: `Click ${i}`,
+			state: "ok" as const,
+		})),
+	});
+
+	it("stores one record per browse call, each state replacing the last, apart from a sub-agent with the same uuid", () => {
+		const m = message();
+		applyUpdateToMessage(state("a", 1, "running"), ctx(m));
+		applyUpdateToMessage(state("b", 0, "running"), ctx(m));
+		applyUpdateToMessage(state("a", 2, "waiting"), ctx(m));
+		applyUpdateToMessage(state("a", 4, "done"), ctx(m));
+		applyUpdateToMessage(
+			{
+				type: MessageUpdateType.SubAgent,
+				uuid: "a",
+				title: "t",
+				model: "m",
+				status: "done",
+				steps: [],
+			},
+			ctx(m)
+		);
+
+		const stored = (m.updates ?? []).filter((u) => u.type === MessageUpdateType.Browse);
+		expect(stored).toHaveLength(2);
+		expect(stored[0]).toMatchObject({ uuid: "a", status: "done" });
+		expect((stored[0] as { steps: unknown[] }).steps).toHaveLength(4);
+		expect((m.updates ?? []).filter((u) => u.type === MessageUpdateType.SubAgent)).toHaveLength(1);
+	});
+
+	it("leaves the answer text alone", () => {
+		const m = message();
+		applyUpdateToMessage(state("a", 1, "running"), ctx(m));
+		expect(m.content).toBe("");
+	});
+});
+
 describe("applyUpdateToMessage turn stats", () => {
 	const stats = {
 		model: "Test",
