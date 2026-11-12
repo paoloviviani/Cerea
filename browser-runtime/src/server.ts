@@ -117,8 +117,11 @@ export const TOOLS = [
 	{
 		name: "tabs",
 		description:
-			"The pages open in the browser: {id, title, url, mine}. mine is true for a page this task owns; others are the user's. To use one of the user's tabs, act with {type: use_tab, tab: id}, which needs approval.",
-		inputSchema: { type: "object", properties: {} },
+			"The pages open in the browser: {id, title, url, mine}. mine is true for a page this task owns; others are the user's (shown without query or fragment). To use one of the user's tabs, act with {type: use_tab, tab: id}, which needs approval. deny: sites whose tabs are hidden.",
+		inputSchema: {
+			type: "object",
+			properties: { deny: { type: "array", items: { type: "string" } } },
+		},
 	},
 	{
 		name: "resume",
@@ -189,8 +192,13 @@ export function createToolHandler(session: BrowserSession) {
 						})
 					);
 				}
-				case "tabs":
-					return json(await serial(() => session.tabs()));
+				case "tabs": {
+					const raw = asObject(rawArgs).deny;
+					const deny = Array.isArray(raw)
+						? raw.filter((x): x is string => typeof x === "string").slice(0, 200)
+						: undefined;
+					return json(await serial(() => session.tabs({ deny })));
+				}
 				case "resume": {
 					const token = asObject(rawArgs).token;
 					if (typeof token !== "string" || !token) {

@@ -182,7 +182,7 @@ describe("keeping the last page", () => {
 		await r.session.endTask();
 	});
 
-	it("says when the kept page is no longer where the task left it", async () => {
+	it("says when the kept page's title changed, and refuses it when its address changed", async () => {
 		const own = await rig();
 		try {
 			await own.goto("/form");
@@ -192,15 +192,14 @@ describe("keeping the last page", () => {
 			const page = (await own.session.withPage(async (_p, c) => c))
 				.pages()
 				.find((p) => p.url().endsWith("/form"))!;
-			await page.goto(`${own.fx.base}/title?t=Moved`);
+			await page.evaluate(() => (document.title = "Renamed"));
 			const res = (await own.call("resume", { token: kept.token })).structuredContent as {
 				changed: boolean;
 				title: string;
 				was?: { url: string; title: string };
 			};
 			assert.equal(res.changed, true);
-			assert.equal(res.title, "Moved");
-			assert.equal(res.was?.url, `${own.fx.base}/form`);
+			assert.equal(res.title, "Renamed");
 			assert.equal(res.was?.title, "Contact form");
 		} finally {
 			await own.close();

@@ -1,4 +1,4 @@
-// cerea-browser runtime 0.1.0; source-hash: a89d7ae4493b1ebe829edf8353b5121a471fbaacb57760382070ecf44d38211b
+// cerea-browser runtime 0.1.0; source-hash: 7e74eed6e2f4978cc824d3d2d26c803a012bff5ea15e3f06a62030ec0508eeaa
 // inlined: @hono/node-server@2.1.8 @modelcontextprotocol/sdk@1.32.2 ajv@8.20.0 ajv-formats@3.0.1 content-type@1.0.5 fast-deep-equal@3.1.3 fast-uri@3.1.9 hono@4.13.18 json-schema-traverse@1.0.0 tldts@7.4.26 zod@3.25.76 zod-to-json-schema@3.25.2
 import { createRequire as __cr } from "node:module";
 const require = __cr(import.meta.url);
@@ -21908,8 +21908,11 @@ var TOOLS = [
   },
   {
     name: "tabs",
-    description: "The pages open in the browser: {id, title, url, mine}. mine is true for a page this task owns; others are the user's. To use one of the user's tabs, act with {type: use_tab, tab: id}, which needs approval.",
-    inputSchema: { type: "object", properties: {} }
+    description: "The pages open in the browser: {id, title, url, mine}. mine is true for a page this task owns; others are the user's (shown without query or fragment). To use one of the user's tabs, act with {type: use_tab, tab: id}, which needs approval. deny: sites whose tabs are hidden.",
+    inputSchema: {
+      type: "object",
+      properties: { deny: { type: "array", items: { type: "string" } } }
+    }
   },
   {
     name: "resume",
@@ -21966,8 +21969,11 @@ function createToolHandler(session2) {
             })
           );
         }
-        case "tabs":
-          return json2(await serial(() => session2.tabs()));
+        case "tabs": {
+          const raw = asObject(rawArgs).deny;
+          const deny = Array.isArray(raw) ? raw.filter((x) => typeof x === "string").slice(0, 200) : void 0;
+          return json2(await serial(() => session2.tabs({ deny })));
+        }
         case "resume": {
           const token = asObject(rawArgs).token;
           if (typeof token !== "string" || !token) {
@@ -22097,6 +22103,26 @@ function siteOf(host) {
 }
 function sameSite(a, b) {
   return siteOf(a) === siteOf(b);
+}
+function parseSiteList(value) {
+  const entries = [];
+  for (const raw of (value ?? "").split(/[\n,]/)) {
+    const text = raw.trim().toLowerCase();
+    if (!text || text.startsWith("#")) continue;
+    const wildcard = text.startsWith("*.");
+    const host = hostOf(wildcard ? text.slice(2) : text);
+    if (!host) continue;
+    const entry = wildcard ? `*.${host}` : host;
+    if (!entries.includes(entry)) entries.push(entry);
+  }
+  return entries;
+}
+function hostMatches(host, rawEntry) {
+  const entry = rawEntry.toLowerCase().replace(/\.+$/, "");
+  const h = host.toLowerCase().replace(/\.+$/, "");
+  if (psl(h).isIp) return h === entry;
+  if (entry.startsWith("*.")) return h.endsWith(entry.slice(1)) && h.length > entry.length - 1;
+  return h === entry || h.endsWith(`.${entry}`);
 }
 
 // src/classifier.ts
@@ -23095,12 +23121,37 @@ function pageMeta(el) {
     ...type !== "password" && "value" in control && typeof control.value === "string" ? { value: control.value.slice(0, 500) } : {}
   };
 }
+function stripUserUrl(url) {
+  try {
+    const u = new URL(url);
+    u.search = "";
+    u.hash = "";
+    u.username = "";
+    u.password = "";
+    return u.href;
+  } catch {
+    return "";
+  }
+}
 async function safeTitle(page) {
   return Promise.race([page.title().catch(() => ""), sleep(2e3).then(() => "")]);
 }
 async function closeQuickly(page) {
   await Promise.race([page.close({ runBeforeUnload: false }).catch(() => {
   }), sleep(3e3)]);
+}
+function focusInChallenge() {
+  const el = document.activeElement;
+  if (!el || el === document.body) {
+    return /(^|\.)(hcaptcha\.com|challenges\.cloudflare\.com|recaptcha\.net|arkoselabs\.com)$/.test(
+      location.hostname
+    );
+  }
+  return !!el.closest(
+    ".g-recaptcha, #recaptcha, .h-captcha, .cf-turnstile, #cf-challenge-running, #challenge-form, #challenge-stage, [data-sitekey]"
+  ) || el.tagName === "IFRAME" && /google\.com\/recaptcha|recaptcha\.net|hcaptcha\.com|challenges\.cloudflare\.com|arkoselabs\.com/i.test(
+    el.getAttribute("src") ?? ""
+  );
 }
 function pageChallenge() {
   const frames = Array.from(document.querySelectorAll("iframe")).filter((f) => !f.closest(".grecaptcha-badge")).map((f) => (f.getAttribute("src") ?? "").toLowerCase());
@@ -23183,6 +23234,7 @@ var BrowserSession = class {
   tabIds = /* @__PURE__ */ new WeakMap();
   tabSeq = 0;
   lastActEnd = 0;
+  tabDeny = [];
   /** Pages kept open at the end of a task, by the token that resumes them. */
   kept = /* @__PURE__ */ new Map();
   foreignTabs = [];
@@ -23253,7 +23305,7 @@ var BrowserSession = class {
     const pages = [...this.taskPages];
     const keep = options.keep ? this.active : void 0;
     let kept;
-    if (keep && !keep.isClosed() && this.taskPages.has(keep)) {
+    if (keep && !keep.isClosed() && this.taskPages.has(keep) && !this.adopted.has(keep)) {
       this.purgeKept();
       const token = randomBytes(18).toString("base64url");
       const title = clean(await safeTitle(keep), 300);
@@ -23270,7 +23322,7 @@ var BrowserSession = class {
     this.active = void 0;
     this.baseline = void 0;
     this.notes = [];
-    const own = pages.filter((p) => !this.adopted.has(p) && p !== keep);
+    const own = pages.filter((p) => !this.adopted.has(p) && p !== (kept ? keep : void 0));
     this.adopted.clear();
     await Promise.all(own.map((p) => closeQuickly(p)));
     return { closed: own.length, ...kept ? { kept } : {} };
@@ -23297,18 +23349,21 @@ var BrowserSession = class {
     }
     this.kept.delete(token);
     const page = entry.page;
+    const url = page.url();
+    const title = clean(await safeTitle(page), 300);
+    if (urlWithoutFragment(url) !== urlWithoutFragment(entry.url)) {
+      return { refused: "page_changed", title, url: clean(stripUserUrl(url), 2e3) };
+    }
     this.taskPages.add(page);
     this.active = page;
     this.baseline = void 0;
     this.touch();
-    const url = page.url();
     try {
       this.taskLastSite = new URL(url).hostname.toLowerCase().replace(/\.$/, "");
     } catch {
       this.taskLastSite = void 0;
     }
-    const title = clean(await safeTitle(page), 300);
-    const moved = urlWithoutFragment(url) !== urlWithoutFragment(entry.url) || title !== entry.title;
+    const moved = title !== entry.title;
     return {
       id: this.tabId(page),
       title,
@@ -23326,20 +23381,31 @@ var BrowserSession = class {
     return id;
   }
   /** The open pages of the persistent context, task pages and the user's own. */
-  async tabs() {
+  async tabs(options = {}) {
     await this.ensureContext();
     this.touch();
+    if (options.deny) this.tabDeny = parseSiteList(options.deny.join("\n"));
     const pages = this.context.pages().filter((p) => !p.isClosed());
     const tabs = [];
     for (const page of pages.slice(0, 50)) {
+      const mine = this.taskPages.has(page);
+      if (!mine && this.denied(page.url())) {
+        tabs.push({ id: this.tabId(page), title: "a page on a denied site", url: "", mine: false });
+        continue;
+      }
       tabs.push({
         id: this.tabId(page),
         title: clean(await safeTitle(page), 300),
-        url: clean(page.url(), 2e3),
-        mine: this.taskPages.has(page)
+        // The task's own pages show in full; a user's tab never shows its query or fragment.
+        url: clean(mine ? page.url() : stripUserUrl(page.url()), 2e3),
+        mine
       });
     }
     return { tabs };
+  }
+  denied(url) {
+    const host = hostOf(url);
+    return !!host && this.tabDeny.some((entry) => hostMatches(host, entry));
   }
   async launch() {
     const { headless, profileDir: profileDir2 } = this.options;
@@ -23909,6 +23975,19 @@ var BrowserSession = class {
   async runOne(page, action, index, approvals) {
     try {
       if (action.type === "use_tab") return await this.useTab(action.tab, index, approvals);
+      if (action.type === "press" && !action.ref) {
+        const inside = await Promise.race([
+          page.evaluate(focusInChallenge).catch(() => false),
+          sleep(1500).then(() => false)
+        ]);
+        if (inside) {
+          return {
+            ok: false,
+            refused: "challenge",
+            error: "Focus is in a human-verification step (a CAPTCHA or bot check). The user has to solve it; keys are not sent there."
+          };
+        }
+      }
       let element;
       const ref = "ref" in action ? action.ref : void 0;
       if (ref) {
@@ -24009,8 +24088,11 @@ var BrowserSession = class {
     if (this.taskPages.has(page)) {
       return { ok: false, error: "That tab is already part of this task." };
     }
+    if (this.denied(page.url())) {
+      return { ok: false, error: "That tab is on a site the user's rules keep the agent out of." };
+    }
     const title = clean(await safeTitle(page), 300);
-    const url = page.url();
+    const url = stripUserUrl(page.url());
     const grant = approvals?.find((g) => g.index === index);
     const refusal = this.checkApproval(
       actionDigest(

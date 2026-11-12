@@ -27,6 +27,7 @@ import {
 	type ClassifyContext,
 } from "./classifier.ts";
 import { randomBytes } from "node:crypto";
+import { hostMatches, hostOf, parseSiteList } from "./siteRules.ts";
 import { UsedGrants, checkGrant, readKey, type GrantCheck } from "./grants.ts";
 import {
 	MAX_DOWNLOAD_BYTES,
@@ -209,6 +210,30 @@ function pageMeta(el: Element): DomMeta {
 	};
 }
 
+/**
+ * PROPOSED (contract): `resume` answers this instead of a ResumeResult when the kept page has been
+ * moved since it was kept. Cerea then goes through `use_tab` (with approval) or starts afresh.
+ */
+export interface ResumeRefused {
+	refused: "page_changed";
+	title: string;
+	url: string;
+}
+
+/** A user's tab shown without what a query string or fragment can carry (tokens, searches). */
+export function stripUserUrl(url: string): string {
+	try {
+		const u = new URL(url);
+		u.search = "";
+		u.hash = "";
+		u.username = "";
+		u.password = "";
+		return u.href;
+	} catch {
+		return "";
+	}
+}
+
 /** A hung page never answers: the title is then empty rather than a hang. */
 async function safeTitle(page: Page): Promise<string> {
 	return Promise.race([page.title().catch(() => ""), sleep(2_000).then(() => "")]);
@@ -223,6 +248,24 @@ async function closeQuickly(page: Page): Promise<void> {
  * Runs inside the page: the kind of human-verification step on it, if any. Known widgets are found
  * by their frames and markers; interstitials by their title or their short, telling text.
  */
+function focusInChallenge(): boolean {
+	const el = document.activeElement;
+	if (!el || el === document.body) {
+		return /(^|\.)(hcaptcha\.com|challenges\.cloudflare\.com|recaptcha\.net|arkoselabs\.com)$/.test(
+			location.hostname
+		);
+	}
+	return (
+		!!el.closest(
+			".g-recaptcha, #recaptcha, .h-captcha, .cf-turnstile, #cf-challenge-running, #challenge-form, #challenge-stage, [data-sitekey]"
+		) ||
+		(el.tagName === "IFRAME" &&
+			/google\.com\/recaptcha|recaptcha\.net|hcaptcha\.com|challenges\.cloudflare\.com|arkoselabs\.com/i.test(
+				el.getAttribute("src") ?? ""
+			))
+	);
+}
+
 function pageChallenge(): string | undefined {
 	const frames = Array.from(document.querySelectorAll("iframe"))
 		.filter((f) => !f.closest(".grecaptcha-badge"))
@@ -332,6 +375,7 @@ export class BrowserSession {
 	private readonly tabIds = new WeakMap<Page, string>();
 	private tabSeq = 0;
 	private lastActEnd = 0;
+	private tabDeny: string[] = [];
 	/** Pages kept open at the end of a task, by the token that resumes them. */
 	private readonly kept = new Map<
 		string,
@@ -413,7 +457,8 @@ export class BrowserSession {
 		const pages = [...this.taskPages];
 		const keep = options.keep ? this.active : undefined;
 		let kept: EndTaskResult["kept"];
-		if (keep && !keep.isClosed() && this.taskPages.has(keep)) {
+		// A tab the user lent is released, never kept: only a page the task opened can be.
+		if (keep && !keep.isClosed() && this.taskPages.has(keep) && !this.adopted.has(keep)) {
 			this.purgeKept();
 			const token = randomBytes(18).toString("base64url");
 			const title = clean(await safeTitle(keep), 300);
@@ -431,7 +476,7 @@ export class BrowserSession {
 		this.baseline = undefined;
 		this.notes = [];
 		// A tab the user opened and lent to the task, and the page being kept, are let go.
-		const own = pages.filter((p) => !this.adopted.has(p) && p !== keep);
+		const own = pages.filter((p) => !this.adopted.has(p) && p !== (kept ? keep : undefined));
 		this.adopted.clear();
 		await Promise.all(own.map((p) => closeQuickly(p)));
 		return { closed: own.length, ...(kept ? { kept } : {}) };
@@ -449,7 +494,7 @@ export class BrowserSession {
 	 * Makes a page kept by an earlier task the active page again, with no grant: the token is the
 	 * proof that it was the task's own. Without it the page counts as a user tab (`use_tab`).
 	 */
-	async resume(token: string): Promise<ResumeResult> {
+	async resume(token: string): Promise<ResumeResult | ResumeRefused> {
 		await this.ensureContext();
 		this.purgeKept();
 		const entry = this.kept.get(token);
@@ -458,21 +503,26 @@ export class BrowserSession {
 				"That token does not name a kept page (it expired, was used, or the page was closed)."
 			);
 		}
+		// The token is spent either way: a refused page is just one of the user's tabs from now on.
 		this.kept.delete(token);
 		const page = entry.page;
+		const url = page.url();
+		const title = clean(await safeTitle(page), 300);
+		if (urlWithoutFragment(url) !== urlWithoutFragment(entry.url)) {
+			// Someone moved it since: it is no longer the page the task left, so it is not the task's
+			// to take back without asking (use_tab) or starting afresh.
+			return { refused: "page_changed", title, url: clean(stripUserUrl(url), 2000) };
+		}
 		this.taskPages.add(page);
 		this.active = page;
 		this.baseline = undefined;
 		this.touch();
-		const url = page.url();
 		try {
 			this.taskLastSite = new URL(url).hostname.toLowerCase().replace(/\.$/, "");
 		} catch {
 			this.taskLastSite = undefined;
 		}
-		const title = clean(await safeTitle(page), 300);
-		const moved =
-			urlWithoutFragment(url) !== urlWithoutFragment(entry.url) || title !== entry.title;
+		const moved = title !== entry.title;
 		return {
 			id: this.tabId(page),
 			title,
@@ -492,20 +542,33 @@ export class BrowserSession {
 	}
 
 	/** The open pages of the persistent context, task pages and the user's own. */
-	async tabs(): Promise<{ tabs: Tab[] }> {
+	async tabs(options: { deny?: string[] } = {}): Promise<{ tabs: Tab[] }> {
 		await this.ensureContext();
 		this.touch();
+		// The sites Cerea keeps the agent out of (its deny list): remembered, so use_tab refuses them too.
+		if (options.deny) this.tabDeny = parseSiteList(options.deny.join("\n"));
 		const pages = this.context!.pages().filter((p) => !p.isClosed());
 		const tabs: Tab[] = [];
 		for (const page of pages.slice(0, 50)) {
+			const mine = this.taskPages.has(page);
+			if (!mine && this.denied(page.url())) {
+				tabs.push({ id: this.tabId(page), title: "a page on a denied site", url: "", mine: false });
+				continue;
+			}
 			tabs.push({
 				id: this.tabId(page),
 				title: clean(await safeTitle(page), 300),
-				url: clean(page.url(), 2000),
-				mine: this.taskPages.has(page),
+				// The task's own pages show in full; a user's tab never shows its query or fragment.
+				url: clean(mine ? page.url() : stripUserUrl(page.url()), 2000),
+				mine,
 			});
 		}
 		return { tabs };
+	}
+
+	private denied(url: string): boolean {
+		const host = hostOf(url);
+		return !!host && this.tabDeny.some((entry) => hostMatches(host, entry));
 	}
 
 	private async launch(): Promise<void> {
@@ -1145,6 +1208,21 @@ export class BrowserSession {
 	): Promise<ActionResult> {
 		try {
 			if (action.type === "use_tab") return await this.useTab(action.tab, index, approvals);
+			if (action.type === "press" && !action.ref) {
+				// Keys go to whatever has focus: if that is a human-verification widget, it is the user's.
+				const inside = await Promise.race([
+					page.evaluate(focusInChallenge).catch(() => false),
+					sleep(1_500).then(() => false),
+				]);
+				if (inside) {
+					return {
+						ok: false,
+						refused: "challenge",
+						error:
+							"Focus is in a human-verification step (a CAPTCHA or bot check). The user has to solve it; keys are not sent there.",
+					};
+				}
+			}
 			// What the action touches, read from the page now, not from an earlier snapshot.
 			let element: SnapshotElement | undefined;
 			const ref = "ref" in action ? action.ref : undefined;
@@ -1274,8 +1352,12 @@ export class BrowserSession {
 		if (this.taskPages.has(page)) {
 			return { ok: false, error: "That tab is already part of this task." };
 		}
+		if (this.denied(page.url())) {
+			return { ok: false, error: "That tab is on a site the user's rules keep the agent out of." };
+		}
+		// The digest binds the tab as `tabs()` showed it: its address without query or fragment.
 		const title = clean(await safeTitle(page), 300);
-		const url = page.url();
+		const url = stripUserUrl(page.url());
 		const grant = approvals?.find((g) => g.index === index);
 		const refusal = this.checkApproval(
 			actionDigest(
