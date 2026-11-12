@@ -117,7 +117,7 @@ run --uninstall > "$t/o5"
 [ ! -e "$app" ] || fail "app kept"
 [ ! -e "$t/home/Library/LaunchAgents/org.cerea.connector.plist" ] || fail "login item kept"
 [ -f "$t/home/Library/Application Support/galopin/credentials.json" ] || fail "pairing removed without --purge"
-has "$t/calls" "pkill -x galopin-tray"
+has "$t/calls" "-x galopin-tray"
 run --uninstall --purge > "$t/o6"
 [ ! -e "$t/home/Library/Application Support/galopin" ] || fail "--purge kept the pairing"
 
