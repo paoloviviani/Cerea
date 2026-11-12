@@ -124,16 +124,16 @@ The install line above avoids this step, because `curl` does not mark what it do
 
 **Using it.** A small icon appears in the menu bar. Its menu shows whether the Mac is _Connected_, _Offline_ or _Not paired_ and the Cerea address, and whether the browser is ready.
 
-| Menu item              | What it does                                                                                                                                                                                |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Pair with Cerea...** | Asks for your Cerea's address, then opens a sign-in page and shows a code to type if it asks. Under **Advanced**, _Pair as a coding-agent computer_ also lets Cerea use coding agents here. |
-| **Set up browser**     | Installs galopin's browser runtime and offers it to Cerea. It uses Google Chrome if you have it; otherwise it downloads Chromium, which can take a few minutes.                             |
+| Menu item              | What it does                                                                                                                                                                                                                     |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Pair with Cerea...** | Asks for your Cerea's address, then opens a sign-in page and shows a code to type if it asks. Under **Advanced**, _Pair as a coding-agent computer_ also lets Cerea use coding agents here.                                      |
+| **Set up browser**     | Installs galopin's browser runtime and offers it to Cerea. It uses Google Chrome if you have it; otherwise it downloads Chromium, which can take a few minutes.                                                                  |
 | **Edit connectors...** | Opens your connectors file (`mcp.json`) in TextEdit, creating an empty one (`{"mcpServers": {}}`) first if there is none. Saved changes are picked up automatically; the format is in [`mcp.json`](local-connectors.md#mcpjson). |
-| **Open Cerea**         | Opens the address in your browser.                                                                                                                                                          |
-| **Start** / **Stop**   | Starts or stops galopin (Stop lasts until the app is next opened).                                                                                                                          |
-| **Start at login**     | Opens the app, and starts galopin, when you log in. On by default.                                                                                                                          |
-| **Show logs**          | Opens galopin's log in Console.                                                                                                                                                             |
-| **Quit**               | Closes the menu-bar icon. galopin keeps running; use **Stop** first to stop it.                                                                                                             |
+| **Open Cerea**         | Opens the address in your browser.                                                                                                                                                                                               |
+| **Start** / **Stop**   | Starts or stops galopin (Stop lasts until the app is next opened).                                                                                                                                                               |
+| **Start at login**     | Opens the app, and starts galopin, when you log in. On by default.                                                                                                                                                               |
+| **Show logs**          | Opens galopin's log in Console.                                                                                                                                                                                                  |
+| **Quit**               | Closes the menu-bar icon. galopin keeps running; use **Stop** first to stop it.                                                                                                                                                  |
 
 **Remove it** with `curl -fsSL https://github.com/paoloviviani/Cerea/releases/latest/download/install-cerea-connector.sh | sh -s -- --uninstall`, then remove the Mac in the Agents panel. See [Removing the macOS app](agent-machines-reference.md#removing-the-macos-app).
 
