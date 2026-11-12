@@ -23,6 +23,7 @@ import { logger } from "$lib/server/logger";
 import { isMachineOnline, MachineLink } from "$lib/server/code/machines";
 import { localConnectorsEnabled } from "$lib/server/codeEnabled";
 import { loadSwitches } from "./deploymentModes";
+import { isBrowserRuntimeServer } from "$lib/server/browser/contract";
 import { machineMode, type McpServer } from "$lib/types/machineProtocol";
 import type { CodeDevice } from "$lib/types/CodeAgent";
 import type { McpConnectorView, McpLocalView } from "$lib/types/McpConnector";
@@ -188,14 +189,17 @@ export async function localConnectorViews(userId: ObjectId): Promise<McpConnecto
 	const switches = await loadSwitches(userId);
 	return devices.flatMap((device, index) => {
 		const online = isMachineOnline(device._id.toString());
-		return lists[index].servers.map((server) =>
-			viewOf(
-				device,
-				server,
-				online,
-				switches.on.has(localConnectorId(device._id.toString(), server.name))
-			)
-		);
+		// The browser runtime (ADR 0116) is the `browse` tool's, never a connector of the user's own.
+		return lists[index].servers
+			.filter((server) => !isBrowserRuntimeServer(server.name))
+			.map((server) =>
+				viewOf(
+					device,
+					server,
+					online,
+					switches.on.has(localConnectorId(device._id.toString(), server.name))
+				)
+			);
 	});
 }
 
@@ -244,6 +248,8 @@ export async function resolveLocalSelection(options: {
 		const device = byId.get(deviceId);
 		// Not this person's, or not paired any more: nothing to say about it.
 		if (!device) continue;
+		// The browser runtime is reached by `browse` only; no chat connector can name it.
+		if (isBrowserRuntimeServer(server)) continue;
 		const name = localDisplayName(server, device.name);
 		if (!isMachineOnline(deviceId)) {
 			unavailable.push({ name, reason: `${device.name} is offline` });

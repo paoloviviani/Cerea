@@ -555,6 +555,15 @@ services:
       MCP_INTERNAL_HOSTS: ${MCP_INTERNAL_HOSTS:-}
       CHAT_FILE_RETENTION_DAYS: ${CHAT_FILE_RETENTION_DAYS:-}
       CHAT_WEBFETCH_CACHE_DAYS: ${CHAT_WEBFETCH_CACHE_DAYS:-}
+      # Browser use (ADR 0116): the `browse` tool, off unless exactly "true". Empty values take the
+      # chat's defaults (a saved Administration value overrides these).
+      CHAT_BROWSER_ENABLED: ${CHAT_BROWSER_ENABLED:-}
+      CHAT_BROWSER_MODEL: ${CHAT_BROWSER_MODEL:-}
+      CHAT_BROWSER_MAX_STEPS: ${CHAT_BROWSER_MAX_STEPS:-}
+      CHAT_BROWSER_MAX_TOKENS: ${CHAT_BROWSER_MAX_TOKENS:-}
+      CHAT_BROWSER_MAX_SECONDS: ${CHAT_BROWSER_MAX_SECONDS:-}
+      CHAT_BROWSER_SITES_ALLOW: ${CHAT_BROWSER_SITES_ALLOW:-}
+      CHAT_BROWSER_SITES_DENY: ${CHAT_BROWSER_SITES_DENY:-}
       CHAT_WEBFETCH_FRESH_MINUTES: ${CHAT_WEBFETCH_FRESH_MINUTES:-}
       # One issuer for all three clients: the machine link reads the same
       # OIDC_ISSUER, OIDC_AUDIENCE and OIDC_MACHINE_CLIENT_ID as the console
@@ -562,6 +571,9 @@ services:
       CODE_MACHINE_ISSUER: ${OIDC_ISSUER:-}
       CODE_MACHINE_AUDIENCE: ${OIDC_AUDIENCE:-pystino-api}
       CODE_MACHINE_CLIENT_ID: ${OIDC_MACHINE_CLIENT_ID:-opencode-enrollment}
+      # How galopin signs in: device, loopback, or auto (it decides on the machine). Handed to
+      # `galopin enroll` through /galopin/enroll.json.
+      CODE_MACHINE_FLOW: ${OIDC_MACHINE_FLOW:-auto}
       OPENID_PROVIDER_URL: ${OIDC_ISSUER:-}
       # Same back-channel rule as the gateway: discovery, token and JWKS go
       # to the IdP on the compose network, never through the proxy.

@@ -690,3 +690,98 @@ describe("ToolApprovalCard, plain words", () => {
 		await vi.waitFor(() => expect(answers).toEqual([["accept", "always"]]));
 	});
 });
+
+describe("ToolApprovalCard, a browsing sub-agent's ask (ADR 0116)", () => {
+	const browseRequest = (over: Record<string, unknown> = {}) => ({
+		elicitationId: "browse-1",
+		server: "browser_act",
+		mode: "form" as const,
+		message: "Click 'Pay €120' on shop.example.com",
+		toolApproval: { tool: "browser_act", args: { site: "shop.example.com" } },
+		browse: {
+			sentence: "Click 'Pay €120' on shop.example.com",
+			site: "shop.example.com",
+			reason: "verb",
+			screenshot: { mime: "image/png", base64: "iVBORw0KGgo=" },
+			...over,
+		},
+	});
+
+	it("a verification asks the user to solve it, with Continue and Stop", () => {
+		const { baseElement } = render(ToolApprovalCard, {
+			conversationId: "c1",
+			request: browseRequest({
+				sentence:
+					"A verification appeared in the browser on Laptop. Solve it in the window, then tap Continue.",
+				reason: undefined,
+				screenshot: undefined,
+				challenge: true,
+			}),
+		});
+		const text = baseElement.textContent ?? "";
+		expect(text).toContain("A verification appeared in the browser on Laptop");
+		expect(text).toContain("Continue");
+		expect(text).toContain("Stop browsing");
+		expect(text).not.toContain("Allow this action");
+	});
+
+	it("a tab of the user's own says why it asks", () => {
+		const { baseElement } = render(ToolApprovalCard, {
+			conversationId: "c1",
+			request: browseRequest({
+				sentence: 'Let Cerea use your tab "Flights" (flights.example.com)?',
+				reason: "user-tab",
+			}),
+		});
+		expect(
+			baseElement.querySelector('[data-testid="browse-approval-reason"]')?.textContent
+		).toContain("a page you opened yourself");
+	});
+
+	it("shows the sentence, the site, why it asks and the element's picture", () => {
+		const { baseElement } = render(ToolApprovalCard, {
+			conversationId: "c1",
+			request: browseRequest(),
+		});
+		expect(baseElement.querySelector('[data-testid="approval-title"]')?.textContent).toContain(
+			"Click 'Pay €120' on shop.example.com"
+		);
+		expect(baseElement.querySelector('[data-testid="browse-approval"]')?.textContent).toContain(
+			"shop.example.com"
+		);
+		expect(
+			baseElement.querySelector('[data-testid="browse-approval-reason"]')?.textContent
+		).toContain("pays, sends");
+		const img = baseElement.querySelector('[data-testid="browse-approval-screenshot"]');
+		expect(img?.getAttribute("src")).toBe("data:image/png;base64,iVBORw0KGgo=");
+	});
+
+	it("shows the page URL, and a reason for a button it could not read", () => {
+		const { baseElement } = render(ToolApprovalCard, {
+			conversationId: "c1",
+			request: browseRequest({
+				url: "https://shop.example.com/cart",
+				reason: "unclassified",
+				screenshot: undefined,
+			}),
+		});
+		expect(baseElement.querySelector('[data-testid="browse-approval-url"]')?.textContent).toBe(
+			"https://shop.example.com/cart"
+		);
+		expect(
+			baseElement.querySelector('[data-testid="browse-approval-reason"]')?.textContent
+		).toContain("could not tell what this button does");
+	});
+
+	it("offers allow and deny, and no standing grant", () => {
+		const { baseElement } = render(ToolApprovalCard, {
+			conversationId: "c1",
+			request: browseRequest({ screenshot: undefined }),
+		});
+		const labels = [...baseElement.querySelectorAll("button")].map((b) => b.textContent?.trim());
+		expect(labels).toContain("Allow this action");
+		expect(labels.some((l) => l?.startsWith("Deny"))).toBe(true);
+		expect(labels.some((l) => l?.includes("conversation"))).toBe(false);
+		expect(baseElement.querySelector('[data-testid="browse-approval-screenshot"]')).toBeNull();
+	});
+});

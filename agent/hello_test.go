@@ -123,3 +123,18 @@ func TestHelloReportsFileWriteCapabilityAndPolicy(t *testing.T) {
 		t.Errorf("connectors hello: capability %v, policy %q", c.Machine.Capabilities["fileWrite"], c.Policy.FileWrite)
 	}
 }
+
+func TestConnectorsHelloOfAnAgentWhoseBackendWouldNotStart(t *testing.T) {
+	pol := policy.Default()
+	plain := connectorsHello(pol, "")
+	if plain.Machine.Mode != "connectors" || len(plain.Policy.Warnings) != 0 {
+		t.Fatalf("plain: %+v", plain.Machine)
+	}
+	h := connectorsHello(pol, "agent sessions unavailable: x")
+	if h.Machine.Mode != "agent" || len(h.Backends) != 0 || !h.Machine.Capabilities["mcp"] || h.Machine.Capabilities["terminal"] {
+		t.Fatalf("machine: %+v backends %v", h.Machine, h.Backends)
+	}
+	if len(h.Policy.Warnings) != 1 || h.Policy.Warnings[0] != "agent sessions unavailable: x" {
+		t.Fatalf("warnings: %v", h.Policy.Warnings)
+	}
+}

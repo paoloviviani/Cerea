@@ -193,6 +193,8 @@ type ExtraConfigKeys =
 	/** The authorized party (`azp`/`client_id`) a machine link's bearer must
 	 * carry — the enrollment CLI's OAuth client id. */
 	| "CODE_MACHINE_CLIENT_ID"
+	/** How galopin signs in: `device`, `loopback` or `auto` (the default: it decides on the machine). */
+	| "CODE_MACHINE_FLOW"
 	/** The gateway's own service credential for `/internal/*` (ADR 0093
 	 * §9.3): minted by `./configure`, passed over the compose network only,
 	 * compared in constant time (`internalAuth.ts`). Not in `.env` — a
