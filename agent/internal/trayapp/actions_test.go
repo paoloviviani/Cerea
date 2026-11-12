@@ -2,6 +2,7 @@ package trayapp
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -200,5 +201,58 @@ func TestFirstRunOnce(t *testing.T) {
 	}
 	if _, err := os.Stat(a.Paths.TrayPlist()); !os.IsNotExist(err) {
 		t.Fatal("login item came back")
+	}
+}
+
+func TestEditConnectors(t *testing.T) {
+	a, f := newApp(t)
+	path := filepath.Join(a.Paths.StateDir(), "mcp.json")
+	if err := a.EditConnectors(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	st, err := os.Stat(path)
+	if err != nil || st.Mode().Perm() != 0o600 {
+		t.Fatalf("stat %v %v", st, err)
+	}
+	body, _ := os.ReadFile(path)
+	var v struct {
+		S map[string]any `json:"mcpServers"`
+	}
+	if json.Unmarshal(body, &v) != nil || v.S == nil {
+		t.Fatalf("template not valid: %s", body)
+	}
+	last := f.calls[len(f.calls)-1]
+	if last.name != "open" || len(last.args) != 2 || last.args[0] != "-e" || last.args[1] != path {
+		t.Fatalf("call %+v", last)
+	}
+	// An existing file (e.g. with cerea-browser) is left alone.
+	mine := `{"mcpServers":{"cerea-browser":{"command":"x"}}}`
+	os.WriteFile(path, []byte(mine), 0o644)
+	if err := a.EditConnectors(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(path); string(got) != mine {
+		t.Fatalf("overwritten: %s", got)
+	}
+}
+
+func TestEditConnectorsEnvPath(t *testing.T) {
+	a, f := newApp(t)
+	p := filepath.Join(t.TempDir(), "x", "c.json")
+	a.Getenv = func(string) string { return p }
+	if err := a.EditConnectors(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(p); err != nil {
+		t.Fatal(err)
+	}
+	if f.calls[len(f.calls)-1].args[1] != p {
+		t.Fatal("wrong path")
+	}
+}
+
+func TestMenuHasEditItem(t *testing.T) {
+	if !Build(Input{Now: time.Now()}).EditEnabled {
+		t.Fatal("edit item must always be enabled")
 	}
 }

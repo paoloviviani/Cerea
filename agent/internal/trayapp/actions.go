@@ -56,6 +56,8 @@ type App struct {
 	UID    int
 	Run    Runner
 	Now    func() time.Time
+	// Getenv reads the app's environment (nil: os.Getenv). Only GALOPIN_MCP_CONFIG is read.
+	Getenv func(string) string
 }
 
 func (a *App) env() []string { return []string{"PATH=" + a.Layout.PathEnv(a.Paths.Home)} }
@@ -236,4 +238,57 @@ func (a *App) FirstRun() (bool, error) {
 		return true, err
 	}
 	return true, os.WriteFile(marker, []byte("1\n"), 0o600)
+}
+
+// EditedNote is shown after the connectors file is opened.
+const EditedNote = "Saved changes are picked up automatically."
+
+// mcpTemplate is the minimal valid mcp.json, so there is something to open.
+const mcpTemplate = `{"mcpServers": {}}` + "\n"
+
+// McpConfigPath is the connectors file galopin reads: $GALOPIN_MCP_CONFIG
+// (a leading ~ is the home folder, a relative path is taken from the home
+// folder here) or <state dir>/mcp.json.
+func (a *App) McpConfigPath() string {
+	getenv := a.Getenv
+	if getenv == nil {
+		getenv = os.Getenv
+	}
+	raw := getenv("GALOPIN_MCP_CONFIG")
+	if raw == "" {
+		return filepath.Join(a.Paths.StateDir(), "mcp.json")
+	}
+	if raw == "~" || strings.HasPrefix(raw, "~/") {
+		raw = filepath.Join(a.Paths.Home, raw[1:])
+	}
+	if !filepath.IsAbs(raw) {
+		raw = filepath.Join(a.Paths.Home, raw)
+	}
+	return raw
+}
+
+// EditConnectors makes sure the connectors file exists (created 0600 from a
+// small template when missing, never overwritten) and opens it in TextEdit.
+func (a *App) EditConnectors(ctx context.Context) error {
+	path := a.McpConfigPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	switch {
+	case err == nil:
+		_, werr := f.WriteString(mcpTemplate)
+		if cerr := f.Close(); werr == nil {
+			werr = cerr
+		}
+		if werr != nil {
+			return werr
+		}
+	case !os.IsExist(err):
+		return err
+	}
+	if out, err := a.Run(ctx, "open", []string{"-e", path}, nil, nil); err != nil {
+		return errors.New(FriendlyError("Opening the connectors file", out))
+	}
+	return nil
 }

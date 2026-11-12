@@ -55,6 +55,7 @@ type Menu struct {
 	BrowserLine  string
 	PairEnabled  bool
 	BrowserSetup bool // "Set up browser" enabled
+	EditEnabled  bool // "Edit connectors..." enabled (always: it needs no pairing)
 	OpenEnabled  bool
 	StartEnabled bool
 	StopEnabled  bool
@@ -65,7 +66,7 @@ type Menu struct {
 
 // Build works the menu out.
 func Build(in Input) Menu {
-	m := Menu{LoginChecked: in.LoginItem}
+	m := Menu{LoginChecked: in.LoginItem, EditEnabled: true}
 	fresh := in.StatusOK && in.Status.Fresh(in.Now)
 	m.Address = in.CredsCerea
 	if fresh && in.Status.Cerea != "" {

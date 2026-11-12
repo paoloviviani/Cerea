@@ -9,6 +9,7 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -63,6 +64,7 @@ func onReady(app *trayapp.App) {
 	advanced := systray.AddMenuItem("Advanced", "")
 	pairAgent := advanced.AddSubMenuItem("Pair as a coding-agent computer...", "Also lets Cerea use coding agents on this Mac")
 	setup := systray.AddMenuItem("Set up browser", "Let Cerea use a browser on this Mac")
+	edit := systray.AddMenuItem("Edit connectors...", "Open the connectors file (mcp.json) in TextEdit")
 	open := systray.AddMenuItem("Open Cerea", "")
 	systray.AddSeparator()
 	start := systray.AddMenuItem("Start", "")
@@ -93,6 +95,7 @@ func onReady(app *trayapp.App) {
 		set(pair, m.PairEnabled)
 		set(pairAgent, m.PairEnabled)
 		set(setup, m.BrowserSetup)
+		set(edit, m.EditEnabled)
 		set(open, m.OpenEnabled)
 		set(start, m.StartEnabled)
 		set(stop, m.StopEnabled)
@@ -166,6 +169,12 @@ func onReady(app *trayapp.App) {
 					}
 					app.Alert(ctx, "The browser is ready.")
 				})
+			case <-edit.ClickedCh:
+				if err := app.EditConnectors(ctx); err != nil {
+					app.Alert(ctx, err.Error())
+				} else {
+					log.Print(trayapp.EditedNote)
+				}
 			case <-open.ClickedCh:
 				if a, _ := address.Load().(string); a != "" {
 					app.OpenURL(ctx, a)
