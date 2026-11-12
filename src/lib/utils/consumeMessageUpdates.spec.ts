@@ -126,6 +126,38 @@ describe("sub-agent updates in a live view", () => {
 	});
 });
 
+describe("browse updates in a live view", () => {
+	const state = (uuid: string, status: "running" | "waiting" | "done"): MessageUpdate => ({
+		type: MessageUpdateType.Browse,
+		uuid,
+		goal: "find it",
+		model: "m",
+		status,
+		steps: [],
+	});
+
+	it("keeps one entry per browse call, replaced in place", async () => {
+		const message: Message = { id: "m", from: "assistant", content: "", updates: [] };
+		await consumeMessageUpdates(
+			fromArray([
+				state("a", "running"),
+				{ type: MessageUpdateType.Stream, token: "text" },
+				state("a", "waiting"),
+				state("a", "done"),
+			]),
+			message,
+			context()
+		);
+		const kept = (message.updates ?? []).filter((u) => u.type === MessageUpdateType.Browse);
+		expect(kept).toHaveLength(1);
+		expect(kept[0]).toMatchObject({ status: "done" });
+		expect(message.updates?.map((u) => u.type)).toEqual([
+			MessageUpdateType.Browse,
+			MessageUpdateType.Stream,
+		]);
+	});
+});
+
 describe("turn stats in a live view", () => {
 	it("lands on the message's stats and stays out of its update log", async () => {
 		const message: Message = {

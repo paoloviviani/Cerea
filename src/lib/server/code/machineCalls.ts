@@ -31,6 +31,7 @@ import { MachineLink } from "$lib/server/code/machines";
 import { CONNECTOR_CALL_OPS, handleConnectorCall } from "$lib/server/code/machineConnectors";
 import "$lib/server/code/scheduleAgentExecutor";
 import { parseTarget, type AgentTarget } from "$lib/server/code/scheduleAgentExecutor";
+import { releaseScheduleSlot } from "$lib/server/schedules/slots";
 import { recurrenceSchema } from "$lib/server/schedules/recurrence";
 import {
 	createSchedule,
@@ -52,7 +53,7 @@ import {
 import type { Schedule } from "$lib/types/Schedule";
 
 /** The op families `welcome.features.machineCalls` advertises. */
-export const MACHINE_CALL_FEATURES = ["schedule", "connector"];
+export const MACHINE_CALL_FEATURES = ["schedule", "connector", "browser"];
 
 export const MAX_ACTIVE_AGENT_SCHEDULES = 5;
 export const MAX_CALLS_PER_HOUR = 10;
@@ -61,6 +62,7 @@ const HOUR_MS = 60 * 60 * 1000;
 const MUTATING_ACTIONS = ["schedule.create", "schedule.update", "schedule.delete"];
 
 import { CallError } from "$lib/server/code/machineCallError";
+import { BROWSER_CALL_OPS, handleBrowserCall } from "$lib/server/browser/keyCall";
 
 /** The opencode agent mode a run starts in: the executor's `modeId`. Not
  * bounded by the caller — the permission word bounds what a run may do. */
@@ -396,7 +398,9 @@ async function opCreate(ctx: CallContext) {
 			_id: { $lte: schedule._id },
 		});
 		if (earlier > MAX_ACTIVE_AGENT_SCHEDULES) {
-			await collections.schedules.deleteOne({ _id: schedule._id });
+			// Release only for a row this call really removed, never twice.
+			const { deletedCount } = await collections.schedules.deleteOne({ _id: schedule._id });
+			if (deletedCount === 1) await releaseScheduleSlot(ctx.userId);
 			throw activeCapError();
 		}
 	}
@@ -488,7 +492,7 @@ async function opDelete(ctx: CallContext) {
 }
 
 const OPS: Record<
-	Exclude<MachineCallOp, "connector.list" | "connector.call">,
+	Exclude<MachineCallOp, "connector.list" | "connector.call" | "browser.key">,
 	{ mutating: boolean; run: (ctx: CallContext) => Promise<unknown> }
 > = {
 	"schedule.context": { mutating: false, run: opContext },
@@ -524,6 +528,8 @@ export async function handleMachineCall(deviceId: string, frame: CallFrame): Pro
 	// The connector family (ADR 0108, item 3) is its own handler: it has no schedules kill switch
 	// and no serialising queue, and its rules are the connector resolver's.
 	if (CONNECTOR_CALL_OPS.includes(frame.op)) return handleConnectorCall(deviceId, frame);
+	// The browser family: the runtime fetches its grant-signing key (PROTOCOL.md 10.7).
+	if (BROWSER_CALL_OPS.includes(frame.op)) return handleBrowserCall(deviceId, frame);
 	const op = Object.hasOwn(OPS, frame.op) ? OPS[frame.op as keyof typeof OPS] : undefined;
 	if (!op) return fail("unsupported", `This Cerea does not know the call "${frame.op}".`);
 

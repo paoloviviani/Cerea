@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"galopin/internal/backend"
 	"galopin/internal/link"
@@ -372,4 +373,42 @@ func TestConnectorListOverTheCapIsShortenedAndOneConnectorCanBeAsked(t *testing.
 	refusedWith(t, err, "no tool")
 	_, err = r.call("caller", "connector_list", map[string]any{"tool": "find"})
 	refusedWith(t, err, "tool needs connector")
+}
+
+func TestConnectorListNeverOffersTheBrowserRuntimeToAnAgent(t *testing.T) {
+	r, fc := connectorRig(t, permrules.Allow, nil)
+	// This machine has the browser runtime registered beside a normal connector, and a Cerea that
+	// lists both as opted in.
+	dir := t.TempDir()
+	cfg := `{"mcpServers":{"notes":{"command":` + jsonString(os.Args[0]) + `,"env":{"MCPFAKE_SERVER":"1","FAKE_VALUE":"local"}},"cerea-browser":{"command":` + jsonString(os.Args[0]) + `,"env":{"MCPFAKE_SERVER":"1","FAKE_VALUE":"browser"}}}}`
+	if err := os.WriteFile(filepath.Join(dir, mcpConfigFileName), []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r.mc.mcp = mcpconn.New(mcpconn.Config{Path: filepath.Join(dir, mcpConfigFileName), StateDir: dir, Logf: t.Logf,
+		LocalExclude: map[string]bool{browserConnectorName: true},
+		Audit:        func(server, tool, outcome string) { r.mc.audit.mcpCall(server, tool, outcome) }})
+	t.Cleanup(r.mc.mcp.Shutdown)
+	fc.list = `{"connectors":[],"local":["notes","cerea-browser"]}`
+
+	out, err := r.call("caller", "connector_list", map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "cerea-browser") {
+		t.Fatalf("the browser runtime was offered as a connector: %s", out)
+	}
+	if !strings.Contains(out, "local:notes") {
+		t.Fatalf("an ordinary local connector went missing: %s", out)
+	}
+	// Even by name, without the list.
+	if _, err := r.call("caller", "connector_call", map[string]any{"connector": "local:cerea-browser", "tool": "snapshot"}); err == nil || !strings.Contains(err.Error(), "not a connector an agent can use") {
+		t.Fatalf("a call to the browser runtime was not refused: %v", err)
+	}
+	// And the hub itself refuses the in-process path.
+	if _, err := r.mc.mcp.LocalCall(context.Background(), "cerea-browser", "snapshot", nil, time.Second); err == nil {
+		t.Fatal("the hub served the browser runtime to an agent")
+	}
+	if _, err := r.mc.mcp.LocalTools(context.Background(), "cerea-browser"); err == nil {
+		t.Fatal("the hub listed the browser runtime's tools to an agent")
+	}
 }

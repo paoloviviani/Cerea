@@ -7,6 +7,7 @@
  * chat's own resolver (ADR 0104): a connector the administrator set Off, one the user switched
  * off in Workspace, one that needs a sign-in or a key: all are left out, exactly as in the chat.
  */
+import { isBrowserRuntimeServer } from "$lib/server/browser/contract";
 import type { ObjectId } from "mongodb";
 import { collections } from "$lib/server/database";
 import { localConnectorsEnabled } from "$lib/server/codeEnabled";
@@ -76,6 +77,8 @@ export async function connectorOptions(
 		if (device && device.status === "paired" && servesLocalConnectors(device)) {
 			const { servers } = await serversOf(device);
 			for (const s of servers) {
+				// The browser runtime is `browse`'s, never a connector an agent session can opt in to.
+				if (isBrowserRuntimeServer(s.name)) continue;
 				options.push({
 					key: localConnectorId(deviceId, s.name),
 					name: s.name,

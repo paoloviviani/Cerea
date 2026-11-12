@@ -14,3 +14,7 @@ yarn.lock
 
 # The generated docs build output (mkdocs), like .svelte-kit above.
 site
+
+# The browser runtime is linted by its own `npm run lint` (prettier and tsc); the bundle is generated.
+browser-runtime
+agent/internal/browserrt

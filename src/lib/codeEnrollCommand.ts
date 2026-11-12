@@ -55,6 +55,13 @@ export interface EnrollCommandOptions extends Partial<EnrollPolicyChoices> {
 	 * a reason to know that. Off by default because a machine that already
 	 * has opencode (or runs the acp backend) should not re-install it. */
 	installOpencode?: boolean;
+	/** Print the deployment's facts as flags (`--issuer`, `--gateway`, a non-default `--client-id`).
+	 * Off by default: the binary the same line installs asks this Cerea for them
+	 * (`/galopin/enroll.json`). On for an older galopin that cannot, and for the container. */
+	explicit?: boolean;
+	/** `codeMachineFlow`: how this deployment signs a machine in; `device` or `loopback` is spelled
+	 * out in the explicit form, `auto` (or absent) leaves it to the machine. */
+	flow?: "device" | "loopback" | "auto";
 }
 
 /** The binary's path as the installer installs it by default
@@ -93,12 +100,17 @@ function enrollFlagLines(opts: EnrollCommandOptions): string[] {
 			else flags[flags.length - 1] += ` ${arg}`;
 		}
 	};
-	push("--issuer", quoteShellArg(opts.issuer));
-	push("--gateway", quoteShellArg(opts.gatewayOrigin));
+	if (opts.explicit) {
+		push("--issuer", quoteShellArg(opts.issuer));
+		push("--gateway", quoteShellArg(opts.gatewayOrigin));
+	}
 	push("--cerea", quoteShellArg(origin));
 	const clientId = opts.clientId?.trim() || DEFAULT_CODE_CLIENT_ID;
-	if (clientId !== DEFAULT_CODE_CLIENT_ID) {
+	if (opts.explicit && clientId !== DEFAULT_CODE_CLIENT_ID) {
 		push("--client-id", quoteShellArg(clientId));
+	}
+	if (opts.explicit && (opts.flow === "device" || opts.flow === "loopback")) {
+		push(`--${opts.flow}`);
 	}
 	push(...policyFlagArgs(policyChoicesOf(opts)));
 	return flags;
@@ -169,7 +181,12 @@ export interface DockerCommandOptions extends EnrollCommandOptions {
  */
 export function buildDockerCommand(opts: DockerCommandOptions): string {
 	const name = cleanContainerName(opts.name ?? "");
-	const flags = enrollFlagLines({ ...opts, engine: "opencode", installOpencode: false });
+	const flags = enrollFlagLines({
+		...opts,
+		engine: "opencode",
+		installOpencode: false,
+		explicit: true,
+	});
 	const lines = ["docker run -it --rm", `--hostname ${name}`];
 	if (opts.keepPairing) lines.push(`-v galopin-${name}:/home/galopin`);
 	lines.push('-v "$PWD":/workspace', `${GALOPIN_IMAGE}:${opts.version}`, "start", ...flags);
@@ -183,6 +200,8 @@ export interface ConnectorsEnrollOptions {
 	issuer: string;
 	/** `codeOidcClientId`; left out of the command when it is the default. */
 	clientId?: string;
+	/** `codeMachineFlow`; `device` or `loopback` is added to the explicit form. */
+	flow?: "device" | "loopback" | "auto";
 }
 
 /**
@@ -195,18 +214,24 @@ export interface ConnectorsEnrollOptions {
  */
 export function buildConnectorsCommands(opts: ConnectorsEnrollOptions): {
 	install: string;
+	/** The short form: `--connectors-only --cerea <base>`; `enroll` asks this Cerea for the rest. */
 	enroll: string;
+	/** The same with the deployment's issuer (and a non-default client id) as flags, for an older galopin. */
+	enrollExplicit: string;
 	run: string;
 } {
 	const origin = opts.origin.replace(/\/+$/, "");
-	const flags: string[] = ["--connectors-only"];
-	flags.push(`--issuer ${quoteShellArg(opts.issuer)}`);
-	flags.push(`--cerea ${quoteShellArg(origin)}`);
+	const cerea = `--cerea ${quoteShellArg(origin)}`;
+	const explicit: string[] = ["--connectors-only"];
+	explicit.push(`--issuer ${quoteShellArg(opts.issuer)}`);
+	explicit.push(cerea);
 	const clientId = opts.clientId?.trim() || DEFAULT_CODE_CLIENT_ID;
-	if (clientId !== DEFAULT_CODE_CLIENT_ID) flags.push(`--client-id ${quoteShellArg(clientId)}`);
+	if (clientId !== DEFAULT_CODE_CLIENT_ID) explicit.push(`--client-id ${quoteShellArg(clientId)}`);
+	if (opts.flow === "device" || opts.flow === "loopback") explicit.push(`--${opts.flow}`);
 	return {
 		install: `curl -fsSL ${quoteShellArg(`${origin}/galopin/install.sh`)} | sh`,
-		enroll: [`${GALOPIN_BIN} enroll`, ...flags].join(CONT),
+		enroll: [`${GALOPIN_BIN} enroll`, "--connectors-only", cerea].join(CONT),
+		enrollExplicit: [`${GALOPIN_BIN} enroll`, ...explicit].join(CONT),
 		run: `${GALOPIN_BIN} run`,
 	};
 }

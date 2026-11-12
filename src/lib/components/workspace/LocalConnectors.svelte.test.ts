@@ -3,11 +3,11 @@
  * collapsed behind "Add a computer" once there is one; approval of a machine that checked in;
  * and each machine's servers with their states.
  */
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, afterEach } from "vitest";
 
 import LocalConnectors from "./LocalConnectors.svelte";
 import type { LocalMachineView } from "$lib/types/LocalConnectors";
-import { renderWithApp } from "../__tests__/renderWithApp";
+import { renderWithApp, unmountRendered } from "../__tests__/renderWithApp";
 
 vi.mock("$env/dynamic/public", () => ({ env: { PUBLIC_APP_NAME: "chat-ui" } }));
 
@@ -65,7 +65,10 @@ function mount(extraData: Record<string, unknown> = {}) {
 const text = (screen: ReturnType<typeof mount>) => screen.baseElement.textContent ?? "";
 
 describe("LocalConnectors", () => {
-	beforeEach(() => vi.unstubAllGlobals());
+	afterEach(() => {
+		unmountRendered();
+		vi.unstubAllGlobals();
+	});
 
 	it("says the administrator has not enabled it, instead of the how-to, without the capability", async () => {
 		stubApi(() => []);
@@ -78,6 +81,56 @@ describe("LocalConnectors", () => {
 			.toBeInTheDocument();
 		expect(screen.baseElement.querySelector('[data-testid="local-howto"]')).toBeNull();
 		expect(text(screen)).not.toContain("Connect a computer");
+	});
+
+	it("shows the browser card, with this deployment's commands, only when browser use is on", async () => {
+		stubApi(() => [machine({ id: "m1", browser: "ready" }), machine({ id: "m2", name: "desk" })]);
+		const off = mount();
+		await expect.element(off.getByText("laptop").first()).toBeInTheDocument();
+		expect(off.baseElement.querySelector('[data-testid="local-browser-card"]')).toBeNull();
+		await off.unmount();
+
+		stubApi(() => [machine({ id: "m1", browser: "ready" }), machine({ id: "m2", name: "desk" })]);
+		const on = mount({ browserUseEnabled: true });
+		await expect
+			.element(on.getByRole("heading", { name: "Use the browser on your computer" }))
+			.toBeInTheDocument();
+		const byId = (id: string) =>
+			on.baseElement.querySelector(`[data-testid="${id}"]`)?.textContent ?? "";
+		expect(byId("local-browser-install")).toContain("http://localhost:3000/galopin/install.sh");
+		expect(byId("local-browser-enroll")).toContain("--connectors-only");
+		// Short by default: this Cerea tells the binary its issuer; the long form is one click away.
+		expect(byId("local-browser-enroll")).not.toContain("--issuer");
+		expect(byId("local-browser-enroll")).toContain("--cerea 'http://localhost:3000'");
+		expect(byId("local-browser-explicit")).toContain("--issuer 'https://auth.example.org'");
+		expect(text(on)).toContain("Using an older galopin?");
+		expect(byId("local-browser-setup")).toBe(
+			"~/.local/bin/galopin browser setup\n~/.local/bin/galopin browser enable"
+		);
+		expect(byId("local-browser-run")).toBe("~/.local/bin/galopin run");
+		expect(text(on)).toContain("Node.js 22.18");
+		expect(byId("local-browser-states")).toContain("Browser ready");
+		expect(byId("local-browser-states")).toContain("No browser registered yet");
+	});
+
+	it("shows the machine's browser instead of saying it lists no servers", async () => {
+		stubApi(() => [
+			machine({ id: "m1", browser: "ready" }),
+			machine({ id: "m2", name: "desk", browser: "problem" }),
+			machine({ id: "m3", name: "bare" }),
+		]);
+		const screen = mount();
+		await expect.element(screen.getByText("Browser: ready")).toBeInTheDocument();
+		await expect.element(screen.getByText("Browser: not responding")).toBeInTheDocument();
+		// Only the machine with neither server nor browser says it lists none.
+		expect(text(screen).match(/It lists no servers yet/g)?.length).toBe(1);
+	});
+
+	it("hides the browser card without local-connectors access", async () => {
+		stubApi(() => []);
+		const screen = mount({ browserUseEnabled: true, localConnectorsDenied: "not_granted" });
+		await expect.element(screen.getByText(/has not enabled local connectors/)).toBeInTheDocument();
+		expect(screen.baseElement.querySelector('[data-testid="local-browser-card"]')).toBeNull();
 	});
 
 	it("says the gateway is not configured for the chat when it reports neither capability", async () => {
@@ -102,7 +155,8 @@ describe("LocalConnectors", () => {
 		const enroll = byId("local-enroll-command");
 		expect(enroll).toContain("galopin enroll");
 		expect(enroll).toContain("--connectors-only");
-		expect(enroll).toContain("--issuer 'https://auth.example.org'");
+		expect(enroll).not.toContain("--issuer");
+		expect(byId("local-explicit")).toContain("--issuer 'https://auth.example.org'");
 		expect(enroll).toContain("--cerea 'http://localhost:3000'");
 		// A connectors machine needs no gateway, and the default client id is not printed.
 		expect(enroll).not.toContain("--gateway");

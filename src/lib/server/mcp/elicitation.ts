@@ -134,7 +134,7 @@ async function abandon(
 }
 
 /** Polled, not pushed: the answer lands on whichever pod served the user's POST. */
-async function awaitAnswer(
+export async function awaitAnswer(
 	elicitationId: string,
 	{
 		deadlineAt,

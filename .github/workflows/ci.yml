@@ -239,55 +239,11 @@ jobs:
     outputs:
       client: ${{ steps.diff.outputs.client }}
       documents: ${{ steps.diff.outputs.documents }}
+      browser: ${{ steps.diff.outputs.browser }}
       e2e: ${{ steps.diff.outputs.e2e }}
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
-      # The trailer rule has a local hook (.husky/commit-msg, the shared script
-      # scripts/check_no_ai_trailers.sh), but a hook only runs where its shims
-      # exist, and MAINTAINING.md rule 1 wants the history clean regardless.
-      # This job has the one full-history checkout and runs on most pushes,
-      # PRs and dispatches — but this workflow's own paths-ignore (docs,
-      # markdown, kit) skips it when every changed file is excluded, so it is
-      # not the whole guarantee: commit-messages.yml carries the same check
-      # with no paths-ignore, so the rule holds whatever the local hook state
-      # and whatever the changed files.
-      - name: Commit messages carry no AI attribution
-        env:
-          EVENT: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        run: |
-          # The commits new to the event: the pushed range on a push, the PR's
-          # base on a pull_request. A created ref (before all zeros) or a
-          # manual dispatch on the default branch has no before: the commits
-          # ahead of the default branch. When even that names nothing (a
-          # created ref carries no distinct merge-base), nothing is checked —
-          # the whole ancestry must never be scanned, because the fork kept
-          # upstream chat-ui's history, which predates this rule and carries
-          # upstream's own AI-attribution trailers.
-          base=""
-          if [ "$EVENT" = pull_request ] && [ -n "$PR_BASE" ]; then
-            base="$PR_BASE"
-          elif [ -n "$BEFORE" ] && [ "$BEFORE" != 0000000000000000000000000000000000000000 ]; then
-            base="$BEFORE"
-          fi
-          if [ -z "$base" ]; then
-            base="$(git merge-base "origin/$DEFAULT_BRANCH" "$GITHUB_SHA" 2>/dev/null || true)"
-            [ -n "$base" ] && [ "$base" != "$GITHUB_SHA" ] || {
-              echo "No range of new commits for this event; nothing checked."
-              exit 0
-            }
-          fi
-          messages="$(mktemp)"
-          # One header per commit: a message boundary must not butt one
-          # message's last line against the next's first.
-          git log --format='--- commit %H ---%n%B' "$base..$GITHUB_SHA" > "$messages"
-          if ! ./scripts/check_no_ai_trailers.sh "$messages"; then
-            cat "$messages" >&2
-            exit 1
-          fi
       - id: diff
         env:
           EVENT: ${{ github.event_name }}
@@ -296,6 +252,7 @@ jobs:
           if [ "$EVENT" != pull_request ]; then
             echo "client=true" >> "$GITHUB_OUTPUT"
             echo "documents=true" >> "$GITHUB_OUTPUT"
+            echo "browser=true" >> "$GITHUB_OUTPUT"
             echo "e2e=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -320,12 +277,56 @@ jobs:
           else
             echo "documents=false" >> "$GITHUB_OUTPUT"
           fi
+          # the browser runtime (ADR 0116): its sources, the bundle galopin embeds, or this workflow
+          if grep -qE '^(browser-runtime/|agent/internal/browserrt/|\.github/workflows/ci\.yml$)' <<<"$changed"; then
+            echo "browser=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "browser=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # The browser runtime (ADR 0116), browser-runtime/: format, strict types, its tests against local
+  # fixture pages in a real Chromium, and a check that the bundle galopin embeds is the one the
+  # sources make. Nothing here touches an external site.
+  browser-runtime:
+    needs: changes
+    if: github.event_name != 'schedule' && needs.changes.outputs.browser == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: browser-runtime
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "${{ env.NODE_VERSION }}"
+          cache: npm
+          cache-dependency-path: browser-runtime/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npx playwright-core install --with-deps chromium
+      # Hosted runners restrict user namespaces, so Chromium's sandbox is off for the fixtures.
+      - run: npm test
+        env:
+          CEREA_TEST_NO_SANDBOX: "1"
+      - name: The embedded bundle is current
+        run: |
+          npm run bundle
+          git diff --exit-code -- ../agent/internal/browserrt
 
   client:
+    name: client (shard ${{ matrix.shard }}/3)
     needs: changes
     if: needs.changes.outputs.client == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    # Sharded: one browser page running every client file piled up enough
+    # Playwright route objects to hit "route.fulfill: The object has been
+    # collected to prevent unbounded heap growth" once the suite grew (#204).
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     # The Playwright image's browsers must match the *installed* Playwright
     # exactly, or the project silently reports "no tests" (see AGENTS.md).
     container:
@@ -339,7 +340,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: "${{ env.NODE_VERSION }}", cache: npm }
       - run: npm ci
-      - run: npx vitest run --project=client
+      - run: npx vitest run --project=client --shard=${{ matrix.shard }}/3
 
   # The end-to-end smoke subset: the specs tagged @smoke (sign-in-free landing,
   # a chat turn against the mock upstream, sidebar and projects, workspace

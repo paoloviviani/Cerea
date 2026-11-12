@@ -1,6 +1,7 @@
 package mcpconn
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -348,5 +349,48 @@ func TestSignInStoredRightAfterFlagClearsNeedsLogin(t *testing.T) {
 			t.Fatalf("round %d: still needs-login right after a sign-in was stored", i)
 		}
 		r.hub.Tokens().Delete("web")
+	}
+}
+
+func TestBeforeStartRunsBeforeAStdioProcessAndCanRefuseTheOpen(t *testing.T) {
+	var started []string
+	refuse := false
+	r := newRig(t, fakeConfig("", ""), func(c *Config) {
+		c.BeforeStart = func(_ context.Context, e *Entry) *OpenError {
+			started = append(started, e.Name)
+			if refuse {
+				return &OpenError{Code: "forbidden", Message: "no key for you"}
+			}
+			return nil
+		}
+	})
+	r.open("fake")
+	if len(started) != 1 || started[0] != "fake" {
+		t.Fatalf("the hook did not run before the open: %v", started)
+	}
+	refuse = true
+	_, err := r.hub.Open(t_ctx(t), "fake")
+	if err == nil || err.Code != "forbidden" || !strings.Contains(err.Message, "no key for you") {
+		t.Fatalf("a refusing hook must refuse the open: %+v", err)
+	}
+	if got := r.hub.List()[0].OpenChannels; got != 1 {
+		t.Errorf("a refused open left a channel: %d", got)
+	}
+}
+
+func TestServerLimitsHoldOneServerToFewerChannels(t *testing.T) {
+	r := newRig(t, fakeConfig("", ""), func(c *Config) { c.ServerLimits = map[string]int{"fake": 1} })
+	r.open("fake")
+	_, err := r.hub.Open(t_ctx(t), "fake")
+	if err == nil || err.Code != "unavailable" || !strings.Contains(err.Message, "already has 1 open channels") {
+		t.Fatalf("second open of a one-channel server: %+v", err)
+	}
+	// A limit cannot raise the default, and 0 means no special limit.
+	r2 := newRig(t, fakeConfig("", ""), func(c *Config) { c.ServerLimits = map[string]int{"fake": 9} })
+	for i := 0; i < 4; i++ {
+		r2.open("fake")
+	}
+	if _, err := r2.hub.Open(t_ctx(t), "fake"); err == nil {
+		t.Error("the limit raised the default of four")
 	}
 }

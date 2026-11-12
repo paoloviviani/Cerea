@@ -13,7 +13,7 @@ import Knowledge from "./knowledge/+page.svelte";
 import Storage from "./storage/+page.svelte";
 import Web from "./web/+page.svelte";
 import Assistant from "./assistant/+page.svelte";
-import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
+import { renderWithApp, unmountRendered } from "$lib/components/__tests__/renderWithApp";
 import {
 	unbracketedWords,
 	useEnglish,
@@ -39,6 +39,7 @@ function stub(routes: Record<string, unknown>) {
 }
 
 afterEach(() => {
+	unmountRendered();
 	useEnglish();
 	vi.unstubAllGlobals();
 	document.body.innerHTML = "";
@@ -100,6 +101,22 @@ describe("Administration, in the pseudo-locale", () => {
 			"/admin/hidden-models": { configurable: false, models: [] },
 			"/admin/slides": { defaults: {}, configurable: false },
 			"/admin/starters": { enabled: false, configurable: false },
+			"/admin/browser": {
+				enabled: false,
+				model: null,
+				max_steps: 25,
+				max_tokens: 200000,
+				max_seconds: 300,
+				sites_allow: [],
+				sites_deny: [],
+				limits: {
+					maxSteps: { min: 1, max: 100 },
+					maxTokens: { min: 5000, max: 2000000 },
+					maxSeconds: { min: 10, max: 3600 },
+				},
+				available_models: [],
+				configurable: false,
+			},
 			"/admin/dictation": {
 				mode: "browser",
 				transcriptionModel: "whisper",
@@ -119,6 +136,7 @@ describe("Administration, in the pseudo-locale", () => {
 				"ADMIN_INSTRUCTIONS",
 				"CHAT_DELEGATION",
 				"CHAT_DICTATION",
+				"CHAT_BROWSER_ENABLED",
 				"CHAT_TRANSCRIPTION_MODEL",
 				"CHAT_IMAGE_MODEL",
 				"generate_image",

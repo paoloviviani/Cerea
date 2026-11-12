@@ -59,7 +59,7 @@ import type { ConfigKey } from "$lib/types/ConfigKey";
 import type { Skill } from "$lib/types/Skill";
 import type { Memory } from "$lib/types/Memory";
 import { dropPerModelPrompts } from "$lib/server/dropPerModelPrompts";
-import type { Schedule, ScheduleGrant, ScheduleRun } from "$lib/types/Schedule";
+import type { Schedule, ScheduleCount, ScheduleGrant, ScheduleRun } from "$lib/types/Schedule";
 import type { PushSubscriptionRow } from "$lib/types/PushSubscription";
 import type { CustomModel } from "$lib/types/CustomModel";
 import type { ProjectMemory } from "$lib/types/ProjectMemory";
@@ -313,6 +313,8 @@ export class Database {
 		// one row per occurrence considered — fired or not — which is the record.
 		const schedules = db.collection<Schedule>("schedules");
 		const scheduleRuns = db.collection<ScheduleRun>("scheduleRuns");
+		// One `{ _id: userId, count }` row per user: the atomic count behind the per-user cap.
+		const scheduleCounts = db.collection<ScheduleCount>("scheduleCounts");
 		// Each person's background grant for scheduled chats (`schedules/grants.ts`).
 		const scheduleGrants = db.collection<ScheduleGrant>("scheduleGrants");
 		// Browsers a person turned Web Push on for (`server/push/`).
@@ -373,6 +375,7 @@ export class Database {
 			codeSessionConnectors,
 			schedules,
 			scheduleRuns,
+			scheduleCounts,
 			scheduleGrants,
 			pushSubscriptions,
 			conversationStats,
@@ -801,6 +804,12 @@ export class Database {
 		mcpElicitations
 			.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 24 * 60 * 60 })
 			.catch((e) => logger.error(e, "Error creating TTL index for mcpElicitations by expiresAt"));
+
+		// The Needs-you inbox's browse asks (ADR 0116): one user's pending rows, sparse because
+		// only the browse approver stores a `userId`.
+		mcpElicitations
+			.createIndex({ userId: 1, status: 1, expiresAt: 1 }, { sparse: true })
+			.catch((e) => logger.error(e, "Error creating index for mcpElicitations by userId"));
 
 		settings
 			.createIndex({ sessionId: 1 }, { unique: true, sparse: true })
