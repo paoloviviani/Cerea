@@ -1,4 +1,4 @@
-// cerea-browser runtime 0.1.0; source-hash: 02fb5c0827fa5da45e2f3c9b0709261b23e558272c73175f704659248d9d567e
+// cerea-browser runtime 0.1.0; source-hash: 8eff2809b273eee3e8944059f064bf274332846799d85316da33a5ea75a28a04
 // inlined: @hono/node-server@2.1.8 @modelcontextprotocol/sdk@1.32.2 ajv@8.20.0 ajv-formats@3.0.1 content-type@1.0.5 fast-deep-equal@3.1.3 fast-uri@3.1.9 hono@4.13.18 json-schema-traverse@1.0.0 tldts@7.4.26 zod@3.25.76 zod-to-json-schema@3.25.2
 import { createRequire as __cr } from "node:module";
 const require = __cr(import.meta.url);

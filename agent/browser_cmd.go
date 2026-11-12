@@ -259,6 +259,10 @@ func browserSetup(ctx context.Context, env *browserEnv, f browserFlags) error {
 	if err := writeFileAtomic(filepath.Join(p.runtime, "package.json"), browserrt.PackageJSON, 0o600); err != nil {
 		return err
 	}
+	// The lock carries the tarball's sha512: `npm ci` installs that exact artifact or fails.
+	if err := writeFileAtomic(filepath.Join(p.runtime, "package-lock.json"), browserrt.PackageLock, 0o600); err != nil {
+		return err
+	}
 	env.say("Wrote the runtime to %s", p.runtime)
 
 	pinned := playwrightVersion()
@@ -266,8 +270,8 @@ func browserSetup(ctx context.Context, env *browserEnv, f browserFlags) error {
 	if installed == pinned && pinned != "" {
 		env.say("playwright-core %s is already installed", pinned)
 	} else {
-		env.say("Installing playwright-core %s (npm, into %s) ...", pinned, p.runtime)
-		if out, err := env.run(ctx, p.runtime, nil, npm, "install", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund", "--package-lock=false"); err != nil {
+		env.say("Installing playwright-core %s (npm ci from a lockfile with its sha512, into %s) ...", pinned, p.runtime)
+		if out, err := env.run(ctx, p.runtime, nil, npm, "ci", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"); err != nil {
 			return fmt.Errorf("npm install failed: %w\n%s", err, tail(out))
 		}
 	}

@@ -14,12 +14,7 @@ import { dirname } from "node:path";
 import type { ApprovalGrant } from "./contract.ts";
 
 export type GrantCheck =
-	| "ok"
-	| "no_key"
-	| "bad_signature"
-	| "expired"
-	| "exp_too_far"
-	| "digest_mismatch";
+	"ok" | "no_key" | "bad_signature" | "expired" | "exp_too_far" | "digest_mismatch";
 
 /** Cerea's grants live 10 minutes; one that claims much longer means the two clocks disagree. */
 export const MAX_GRANT_LIFETIME_MS = 15 * 60_000;

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"galopin/internal/browserrt"
 	"galopin/internal/link"
 	"galopin/internal/mcpconn"
 )
@@ -66,7 +67,7 @@ func newBrowserRig(t *testing.T) *fakeBrowserRig {
 			switch {
 			case len(args) == 1 && args[0] == "--version":
 				return []byte(r.nodeVersion + "\n"), nil
-			case len(args) > 0 && args[0] == "install" && strings.HasSuffix(name, "npm"):
+			case len(args) > 0 && args[0] == "ci" && strings.HasSuffix(name, "npm"):
 				pkg := filepath.Join(dir, "node_modules", "playwright-core")
 				_ = os.MkdirAll(pkg, 0o755)
 				_ = os.WriteFile(filepath.Join(pkg, "package.json"), []byte(`{"version":"`+playwrightVersion()+`"}`), 0o644)
@@ -122,6 +123,14 @@ func TestBrowserSetupInstallsIntoGalopinsOwnDirectoryAndSaysWhatItDid(t *testing
 		switch {
 		case strings.HasSuffix(c.name, "npm"):
 			sawNpm = true
+			// A clean install from the lockfile, which carries the tarball's sha512: never `npm install`,
+			// and never with the lock switched off.
+			if c.args[0] != "ci" || contains(c.args, "--package-lock=false") {
+				t.Errorf("npm must run `ci` against the lockfile: %v", c.args)
+			}
+			if got, _ := os.ReadFile(filepath.Join(p.runtime, "package-lock.json")); !bytes.Equal(got, browserrt.PackageLock) {
+				t.Error("the lockfile was not written before npm ran")
+			}
 			if c.dir != p.runtime || !contains(c.args, "--ignore-scripts") || !contains(c.args, "--omit=dev") {
 				t.Errorf("npm ran as %+v", c)
 			}

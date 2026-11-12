@@ -15,3 +15,9 @@ var Bundle []byte
 //
 //go:embed package.json
 var PackageJSON []byte
+
+// PackageLock pins the exact playwright-core tarball by its sha512 integrity; setup installs with
+// `npm ci`, which fetches that artifact or fails.
+//
+//go:embed package-lock.json
+var PackageLock []byte

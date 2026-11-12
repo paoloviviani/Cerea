@@ -27,7 +27,8 @@ galopin browser status    # installed? offered? answering?
 ```
 
 `setup` writes the runtime into `<config-dir>/galopin/browser/runtime`, installs
-its npm dependency there (a pinned `playwright-core`), starts the browser once to check
+its npm dependency there (a pinned `playwright-core`, installed with `npm ci` from a lockfile that
+carries the tarball's sha512, so that exact file is fetched or the install fails), starts the browser once to check
 it works, and prints each step.
 
 - **An installed Google Chrome is used when there is one**, and then no browser is
@@ -67,11 +68,16 @@ you approve it: the agent can list the open tabs (`tabs`) and ask to use one
 not taken: when the task ends it is let go and never closed.
 
 When a task ends, Cerea can ask the runtime to **keep the last page open**
-(`end_task` with `keep`). The runtime gives back a random token; a later task that
-presents the token (`resume`) gets that page back with no new approval, and is told if
-the page has moved since. Without the token the kept page is just one of your tabs. A
-token works once, for 24 hours, and only while the page is open; the idle close never
-closes a kept page.
+(`end_task` with `keep`). Only a page the task opened itself is kept: **a tab you lent is
+never kept**, it is released and stays yours. The runtime gives back a random token, and a
+later task that presents it (`resume`) gets that page back with no new approval. If the
+page was **moved since** (a different address, query included; a fragment alone does not
+count), `resume` **refuses** with `page_changed`, gives back its title and address, and
+the token is spent: Cerea then asks you to lend the tab (`use_tab`) or opens a new one.
+Only a changed title still resumes, and says so. Without the token a kept page is just
+one of your tabs. A token works once, for 24 hours, and only while the page is open; the
+idle close never closes a kept page. When a task ends because you denied an approval and
+stopped it, Cerea closes the page instead of keeping it.
 
 ## Verification steps (CAPTCHAs)
 

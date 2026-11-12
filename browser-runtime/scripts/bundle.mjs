@@ -120,6 +120,37 @@ writeFileSync(
 	`${body.slice(0, firstLine)}\n// inlined: ${packages.map((p) => `${p.name}@${p.version}`).join(" ")}${body.slice(firstLine)}`
 );
 writeNotices(packages);
+// The install is pinned by integrity: a lockfile carrying the exact tarball's sha512, made from
+// this package's own lock, so `npm ci` in galopin's directory fetches that artifact or fails.
+const lock = JSON.parse(readFileSync(join(root, "package-lock.json"), "utf8"));
+const entry = lock.packages["node_modules/playwright-core"];
+if (
+	!entry?.integrity?.startsWith("sha512-") ||
+	entry.version !== pkg.dependencies["playwright-core"]
+) {
+	throw new Error(
+		"package-lock.json does not pin playwright-core to the version package.json names"
+	);
+}
+writeFileSync(
+	join(target, "package-lock.json"),
+	`${JSON.stringify(
+		{
+			name: "cerea-browser-runtime-install",
+			lockfileVersion: 3,
+			requires: true,
+			packages: {
+				"": {
+					name: "cerea-browser-runtime-install",
+					dependencies: { "playwright-core": pkg.dependencies["playwright-core"] },
+				},
+				"node_modules/playwright-core": entry,
+			},
+		},
+		null,
+		"\t"
+	)}\n`
+);
 writeFileSync(
 	join(target, "package.json"),
 	`${JSON.stringify(

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -85,5 +86,56 @@ func TestEveryInlinedPackageHasALicenceNotice(t *testing.T) {
 		if !strings.Contains(string(notices), name+" "+version) {
 			t.Errorf("no licence notice for %s: run `npm run bundle` in browser-runtime/ and commit the result", p)
 		}
+	}
+}
+
+// The install is pinned by tarball integrity: the lock names exactly one package, at the version
+// package.json pins, with a sha512 and the npm registry address, and it is the one the runtime's
+// own lock (browser-runtime/package-lock.json) has.
+func TestInstallLockPinsThePlaywrightTarballByIntegrity(t *testing.T) {
+	var lock struct {
+		LockfileVersion int `json:"lockfileVersion"`
+		Packages        map[string]struct {
+			Version   string `json:"version"`
+			Resolved  string `json:"resolved"`
+			Integrity string `json:"integrity"`
+		} `json:"packages"`
+	}
+	if err := json.Unmarshal(PackageLock, &lock); err != nil {
+		t.Fatal(err)
+	}
+	var pkg struct {
+		Dependencies map[string]string `json:"dependencies"`
+	}
+	if err := json.Unmarshal(PackageJSON, &pkg); err != nil {
+		t.Fatal(err)
+	}
+	if lock.LockfileVersion != 3 || len(lock.Packages) != 2 {
+		t.Fatalf("the lock must hold the root and playwright-core only: %+v", lock.Packages)
+	}
+	e := lock.Packages["node_modules/playwright-core"]
+	if e.Version == "" || e.Version != pkg.Dependencies["playwright-core"] {
+		t.Errorf("lock version %q, package.json %q", e.Version, pkg.Dependencies["playwright-core"])
+	}
+	if !regexp.MustCompile(`^sha512-[A-Za-z0-9+/]{86}==$`).MatchString(e.Integrity) {
+		t.Errorf("no sha512 integrity: %q", e.Integrity)
+	}
+	if !strings.HasPrefix(e.Resolved, "https://registry.npmjs.org/playwright-core/-/playwright-core-"+e.Version+".tgz") {
+		t.Errorf("resolved %q", e.Resolved)
+	}
+	own, err := os.ReadFile(filepath.Join("..", "..", "..", "browser-runtime", "package-lock.json"))
+	if err != nil {
+		t.Skip("browser-runtime/ is not in this checkout")
+	}
+	var runtimeLock struct {
+		Packages map[string]struct {
+			Integrity string `json:"integrity"`
+		} `json:"packages"`
+	}
+	if err := json.Unmarshal(own, &runtimeLock); err != nil {
+		t.Fatal(err)
+	}
+	if runtimeLock.Packages["node_modules/playwright-core"].Integrity != e.Integrity {
+		t.Error("the embedded lock disagrees with browser-runtime/package-lock.json: run `npm run bundle`")
 	}
 }
