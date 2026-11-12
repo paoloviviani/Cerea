@@ -22,6 +22,7 @@ ARG TARGETOS
 ARG TARGETARCH
 WORKDIR /src
 COPY go.mod go.sum ./
+COPY third_party/ ./third_party/
 RUN go mod download
 COPY . .
 # The same flags as packaging/build-dist.sh: static (no libc dependency), stripped.
