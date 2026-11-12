@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
-import { useTabDigest } from "../src/extensions.ts";
+import { actionDigest } from "../src/classifier.ts";
+const useTabDigest = (tab: { id: string; url: string; title: string }) =>
+	actionDigest({ type: "use_tab", tab: tab.id }, { currentUrl: "", tab });
 import { rig, type Rig } from "./helpers.ts";
 
 /** A tab the user opened, in the same persistent context. */

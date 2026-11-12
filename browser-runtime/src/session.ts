@@ -35,19 +35,16 @@ import {
 	type ApprovalGrant,
 	type BrowserAction,
 	type Diff,
+	type Challenge,
 	type DownloadResult,
+	type EndTaskResult,
+	type ResumeResult,
+	type Tab,
 	type ExtractResult,
 	type Snapshot,
 	type SnapshotElement,
 } from "./contract.ts";
 import { ToolError } from "./errors.ts";
-import {
-	CHALLENGE_REFUSAL,
-	useTabDigest,
-	type Challenge,
-	type RuntimeAction,
-	type Tab,
-} from "./extensions.ts";
 import { pageExtract, shapeExtract, type ExtractOptions, type RawExtract } from "./extract.ts";
 import { playwrightKey } from "./keys.ts";
 import { clean, safeFileName } from "./sanitize.ts";
@@ -121,21 +118,6 @@ interface Captured {
 	actionIndex?: number;
 	grantId?: string;
 }
-export interface KeptTab {
-	token: string;
-	id: string;
-	title: string;
-	url: string;
-}
-export interface ResumeResult {
-	id: string;
-	title: string;
-	url: string;
-	/** The kept page is not where the task left it: `was` says where it was. */
-	changed: boolean;
-	was?: { title: string; url: string };
-}
-
 interface Built {
 	snapshot: Snapshot;
 	entries: Map<string, Entry>;
@@ -424,11 +406,13 @@ export class BrowserSession {
 	 * task can `resume` it with that token, and without it the page is just a user tab. A tab the
 	 * user lent to the task is let go, never closed.
 	 */
-	async endTask(options: { keep?: boolean } = {}): Promise<{ closed: number; kept?: KeptTab }> {
+	async endTask(
+		options: { keep?: boolean } = {}
+	): Promise<{ closed: number; kept?: NonNullable<EndTaskResult["kept"]> }> {
 		clearTimeout(this.idleTimer);
 		const pages = [...this.taskPages];
 		const keep = options.keep ? this.active : undefined;
-		let kept: KeptTab | undefined;
+		let kept: EndTaskResult["kept"];
 		if (keep && !keep.isClosed() && this.taskPages.has(keep)) {
 			this.purgeKept();
 			const token = randomBytes(18).toString("base64url");
@@ -874,7 +858,7 @@ export class BrowserSession {
 				`challenge: ${challenge.kind} (a human-verification step: the user solves it; never click it)`
 			);
 		}
-		const snapshot: Snapshot & { challenge?: Challenge } = {
+		const snapshot: Snapshot = {
 			url,
 			title,
 			...(challenge ? { challenge } : {}),
@@ -924,9 +908,7 @@ export class BrowserSession {
 			return {
 				url: snapshot.url,
 				title: snapshot.title,
-				...((snapshot as { challenge?: Challenge }).challenge
-					? { challenge: (snapshot as { challenge?: Challenge }).challenge }
-					: {}),
+				...(snapshot.challenge ? { challenge: snapshot.challenge } : {}),
 				navigated: true,
 				added: [],
 				changed: [],
@@ -975,7 +957,7 @@ export class BrowserSession {
 		if (more > 0) lines.push(`… and ${more} more text changes`);
 		this.baseline = { ...before, entries: now.entries, textLines: now.textLines };
 		const { url, title } = now.snapshot;
-		const challenge = (now.snapshot as { challenge?: Challenge }).challenge;
+		const challenge = now.snapshot.challenge;
 		return {
 			url,
 			title,
@@ -1014,7 +996,7 @@ export class BrowserSession {
 		};
 	}
 
-	async act(actions: RuntimeAction[], approvals: ApprovalGrant[] | undefined): Promise<ActResult> {
+	async act(actions: BrowserAction[], approvals: ApprovalGrant[] | undefined): Promise<ActResult> {
 		const page0 = await this.ensure();
 		const results: ActionResult[] = [];
 		const downloadsBefore = this.downloads.length;
@@ -1157,7 +1139,7 @@ export class BrowserSession {
 
 	private async runOne(
 		page: Page,
-		action: RuntimeAction,
+		action: BrowserAction,
 		index: number,
 		approvals: ApprovalGrant[] | undefined
 	): Promise<ActionResult> {
@@ -1173,10 +1155,10 @@ export class BrowserSession {
 					// A human-verification widget is the user's to solve: no grant can cover it.
 					return {
 						ok: false,
-						refused: CHALLENGE_REFUSAL,
+						refused: "challenge",
 						error:
 							"That is a human-verification step (a CAPTCHA or bot check). The user has to solve it; it is never clicked or filled by the agent.",
-					} as unknown as ActionResult;
+					};
 				}
 			}
 			const ctx: ClassifyContext = {
@@ -1295,7 +1277,13 @@ export class BrowserSession {
 		const title = clean(await safeTitle(page), 300);
 		const url = page.url();
 		const grant = approvals?.find((g) => g.index === index);
-		const refusal = this.checkApproval(useTabDigest({ id: tabId, url, title }), grant);
+		const refusal = this.checkApproval(
+			actionDigest(
+				{ type: "use_tab", tab: tabId },
+				{ currentUrl: "", tab: { id: tabId, url, title } }
+			),
+			grant
+		);
 		if (refusal) return refusal;
 		this.spend(grant!);
 		this.purgeKept();
@@ -1422,6 +1410,9 @@ export class BrowserSession {
 
 	private async perform(page: Page, action: BrowserAction): Promise<string> {
 		switch (action.type) {
+			case "use_tab":
+				// Handled before anything else in runOne: it needs its own grant check.
+				throw new ToolError("use_tab is not an action on a page.");
 			case "click": {
 				await this.target(page, action.ref).click({ timeout: ACTION_TIMEOUT_MS });
 				await sleep(150);

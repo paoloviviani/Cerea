@@ -1,4 +1,4 @@
-// cerea-browser runtime 0.1.0; source-hash: c914e224845387e9e7a85ea8e655bd287f3251454fc93109e010bac1582b779c
+// cerea-browser runtime 0.1.0; source-hash: a89d7ae4493b1ebe829edf8353b5121a471fbaacb57760382070ecf44d38211b
 // inlined: @hono/node-server@2.1.8 @modelcontextprotocol/sdk@1.32.2 ajv@8.20.0 ajv-formats@3.0.1 content-type@1.0.5 fast-deep-equal@3.1.3 fast-uri@3.1.9 hono@4.13.18 json-schema-traverse@1.0.0 tldts@7.4.26 zod@3.25.76 zod-to-json-schema@3.25.2
 import { createRequire as __cr } from "node:module";
 const require = __cr(import.meta.url);
@@ -21490,6 +21490,7 @@ var snapshotElementSchema = external_exports.object({
   /** A field's current value; never for a password field. */
   value: external_exports.string().max(500).optional()
 });
+var challengeSchema = external_exports.object({ kind: external_exports.string().max(32) });
 var snapshotSchema = external_exports.object({
   url: external_exports.string().max(4096),
   title: external_exports.string().max(500).default(""),
@@ -21497,7 +21498,8 @@ var snapshotSchema = external_exports.object({
   text: external_exports.string(),
   elements: external_exports.array(snapshotElementSchema).max(2e3),
   /** Rows the runtime folded away ("... and 37 more rows like this; use extract"). */
-  collapsed: external_exports.number().int().nonnegative().optional()
+  collapsed: external_exports.number().int().nonnegative().optional(),
+  challenge: challengeSchema.optional()
 });
 var diffSchema = external_exports.object({
   url: external_exports.string().max(4096),
@@ -21509,7 +21511,8 @@ var diffSchema = external_exports.object({
   removed: external_exports.array(external_exports.string().max(64)).max(2e3).default([]),
   /** The diff as text for the model. */
   text: external_exports.string().default(""),
-  snapshot: snapshotSchema.optional()
+  snapshot: snapshotSchema.optional(),
+  challenge: challengeSchema.optional()
 });
 var browserActionSchema = external_exports.discriminatedUnion("type", [
   external_exports.object({ type: external_exports.literal("click"), ref: external_exports.string().min(1).max(64) }),
@@ -21542,7 +21545,9 @@ var browserActionSchema = external_exports.discriminatedUnion("type", [
     text: external_exports.string().max(200).optional(),
     ms: external_exports.number().int().positive().max(3e4).optional()
   }),
-  external_exports.object({ type: external_exports.literal("navigate"), url: external_exports.string().min(1).max(4096) })
+  external_exports.object({ type: external_exports.literal("navigate"), url: external_exports.string().min(1).max(4096) }),
+  /** Adopt a page the user opened (an id from `tabs()`). Always commit-class, reason `user-tab`. */
+  external_exports.object({ type: external_exports.literal("use_tab"), tab: external_exports.string().min(1).max(64) })
 ]);
 var approvalGrantSchema = external_exports.object({
   /** Index of the action in the batch this grant covers. */
@@ -21559,7 +21564,13 @@ var actionResultSchema = external_exports.object({
   outcome: external_exports.string().max(300).optional(),
   error: external_exports.string().max(1e3).optional(),
   /** The runtime refused it: a commit-class action with no matching approval. */
-  refused: external_exports.enum(["approval_required", "approval_mismatch", "approval_expired", "scheme_refused"]).optional()
+  refused: external_exports.enum([
+    "approval_required",
+    "approval_mismatch",
+    "approval_expired",
+    "scheme_refused",
+    "challenge"
+  ]).optional()
 });
 var actResultSchema = external_exports.object({
   /** One entry per action that was attempted, in order; the batch stops at the first failure. */
@@ -21615,7 +21626,30 @@ var screenshotResultSchema = external_exports.object({
 });
 var MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024;
 var downloadRequestSchema = external_exports.object({ all: external_exports.boolean().optional() });
-var endTaskResultSchema = external_exports.object({ closed: external_exports.boolean() });
+var tabSchema = external_exports.object({
+  id: external_exports.string().max(64),
+  title: external_exports.string().max(500),
+  url: external_exports.string().max(4096),
+  mine: external_exports.boolean()
+});
+var tabsResultSchema = external_exports.object({ tabs: external_exports.array(tabSchema).max(100) });
+var endTaskResultSchema = external_exports.object({
+  closed: external_exports.boolean(),
+  kept: external_exports.object({
+    token: external_exports.string().min(1).max(256),
+    id: external_exports.string().max(64),
+    title: external_exports.string().max(500),
+    url: external_exports.string().max(4096)
+  }).optional()
+});
+var resumeResultSchema = external_exports.object({
+  id: external_exports.string().max(64),
+  title: external_exports.string().max(500),
+  url: external_exports.string().max(4096),
+  /** The page is not what it was when it was kept. */
+  changed: external_exports.boolean(),
+  was: external_exports.object({ title: external_exports.string().max(500), url: external_exports.string().max(4096) }).optional()
+});
 var downloadResultSchema = external_exports.object({
   files: external_exports.array(
     external_exports.object({
@@ -21641,377 +21675,6 @@ var ToolError = class extends Error {
   }
 };
 
-// src/extensions.ts
-import { createHash as createHash2 } from "node:crypto";
-
-// src/siteRules.ts
-var import_tldts = __toESM(require_cjs(), 1);
-function hostOf(input) {
-  const trimmed = input.trim();
-  if (!trimmed || trimmed.startsWith("/")) return void 0;
-  try {
-    const url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
-    return url.hostname.toLowerCase().replace(/\.+$/, "") || void 0;
-  } catch {
-    return void 0;
-  }
-}
-var psl = (host) => (0, import_tldts.parse)(host, { allowPrivateDomains: true });
-function siteOf(host) {
-  const h = host.toLowerCase().replace(/\.+$/, "");
-  const parsed = psl(h);
-  if (parsed.isIp) return h;
-  return parsed.domain ?? h;
-}
-function sameSite(a, b) {
-  return siteOf(a) === siteOf(b);
-}
-
-// src/classifier.ts
-import { createHash } from "node:crypto";
-var COMMIT_WORDS = /* @__PURE__ */ new Set([
-  // en
-  "pay",
-  "buy",
-  "purchase",
-  "order",
-  "checkout",
-  "send",
-  "submit",
-  "delete",
-  "remove",
-  "confirm",
-  "publish",
-  "sign",
-  "book",
-  "reserve",
-  "donate",
-  "subscribe",
-  "transfer",
-  "post",
-  "save",
-  "apply",
-  "accept",
-  "approve",
-  "share",
-  "reply",
-  "upload",
-  "cancel",
-  "unsubscribe",
-  "deactivate",
-  // it
-  "paga",
-  "pagare",
-  "paghi",
-  "acquista",
-  "acquistare",
-  "compra",
-  "comprare",
-  "ordina",
-  "ordinare",
-  "invia",
-  "inviare",
-  "elimina",
-  "eliminare",
-  "cancella",
-  "cancellare",
-  "rimuovi",
-  "rimuovere",
-  "conferma",
-  "confermare",
-  "pubblica",
-  "pubblicare",
-  "firma",
-  "firmare",
-  "prenota",
-  "prenotare",
-  "iscriviti",
-  "dona",
-  "trasferisci",
-  "bonifico",
-  "salva",
-  "salvare",
-  "applica",
-  "applicare",
-  "accetta",
-  "accettare",
-  "approva",
-  "approvare",
-  "condividi",
-  "condividere",
-  "rispondi",
-  "rispondere",
-  "carica",
-  "caricare",
-  "annulla",
-  "annullare",
-  "disiscriviti",
-  "disattiva",
-  "disattivare",
-  // es
-  "pagar",
-  "comprar",
-  "enviar",
-  "eliminar",
-  "borrar",
-  "confirmar",
-  "publicar",
-  "firmar",
-  "reservar",
-  "pedir",
-  // fr
-  "payer",
-  "acheter",
-  "commander",
-  "envoyer",
-  "supprimer",
-  "confirmer",
-  "publier",
-  "signer",
-  "reserver",
-  // de
-  "bezahlen",
-  "kaufen",
-  "bestellen",
-  "senden",
-  "absenden",
-  "loschen",
-  "entfernen",
-  "bestatigen",
-  "veroffentlichen",
-  "unterschreiben",
-  "buchen"
-]);
-var NOT_A_SIGNATURE = /\b(sign|log)\s*(in|up|out|on|off)\b/;
-function normalizeName(name) {
-  return name.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-}
-function nameMeansCommit(name) {
-  const text = normalizeName(name);
-  if (!text.trim()) return false;
-  const words = text.split(/[^a-z]+/).filter(Boolean);
-  return words.some((word) => {
-    if (!COMMIT_WORDS.has(word)) return false;
-    return !(word === "sign" && NOT_A_SIGNATURE.test(text));
-  });
-}
-function hasLatinLetters(name) {
-  return /[a-z]/i.test(normalizeName(name));
-}
-var MODIFIER = /^(control|ctrl|shift|alt|meta|cmd|command|option|mod|controlormeta)$/i;
-var SHORTCUT_MODIFIER = /^(control|ctrl|alt|meta|cmd|command|option|mod|controlormeta)$/i;
-var SAFE_NAMED = /* @__PURE__ */ new Set([
-  "tab",
-  "escape",
-  "esc",
-  "backspace",
-  "delete",
-  "arrowup",
-  "arrowdown",
-  "arrowleft",
-  "arrowright",
-  "home",
-  "end",
-  "pageup",
-  "pagedown"
-]);
-function normalizeKey(raw) {
-  let modifiers;
-  let last;
-  if (raw.endsWith("++") || raw === "+") {
-    modifiers = raw === "+" ? [] : raw.slice(0, -2).split("+");
-    last = "+";
-  } else {
-    const parts = raw.split("+");
-    last = parts.at(-1) ?? "";
-    modifiers = parts.slice(0, -1);
-  }
-  const modified = modifiers.length > 0;
-  const unknown2 = () => ({
-    key: last.toLowerCase(),
-    modified,
-    kind: "unknown"
-  });
-  if (!modifiers.every((m) => MODIFIER.test(m.trim()))) return unknown2();
-  const lower = last.toLowerCase();
-  if (last === "\n" || last === "\r" || last === "\r\n" || ["enter", "return", "numpadenter"].includes(lower)) {
-    return { key: "enter", modified, kind: "enter" };
-  }
-  const shortcut = modifiers.some((m) => SHORTCUT_MODIFIER.test(m.trim()));
-  if (last === " " || lower === "space" || lower === "spacebar") {
-    return shortcut ? unknown2() : { key: "space", modified, kind: "space" };
-  }
-  if (/[\s\u0000-\u001f\u007f]/.test(last)) return unknown2();
-  if (shortcut) return unknown2();
-  if (SAFE_NAMED.has(lower)) return { key: lower, modified, kind: "safe" };
-  if ([...last].length === 1) return { key: last, modified, kind: "safe" };
-  return unknown2();
-}
-function resolveUrl(url, base) {
-  try {
-    return new URL(url, base);
-  } catch {
-    return void 0;
-  }
-}
-function submitClass(el, currentUrl) {
-  const current = hostOf(currentUrl);
-  const target = el?.formActionHost ? hostOf(el.formActionHost) : void 0;
-  if (target && current && !sameSite(target, current)) {
-    return { class: "commit", reason: "new-domain", targetHost: target };
-  }
-  if (el?.formMethod === "get" && !nameMeansCommit(el.name)) return { class: "read" };
-  return { class: "commit", reason: "submit" };
-}
-function classifyAction(action, ctx) {
-  const current = hostOf(ctx.currentUrl);
-  if ("ref" in action && action.ref && ctx.element?.metaUnknown) {
-    return { class: "commit", reason: "unknown-element" };
-  }
-  switch (action.type) {
-    case "scroll":
-    case "wait_for":
-      return { class: "read" };
-    case "select":
-      return { class: "input" };
-    case "fill":
-      return action.submit ? submitClass(ctx.element, ctx.currentUrl) : { class: "input" };
-    case "press": {
-      const { kind, modified } = normalizeKey(action.key);
-      if (kind === "unknown") return { class: "commit", reason: "unknown-element" };
-      if (kind === "safe") return { class: "input" };
-      if (!action.ref) return { class: "commit", reason: "unknown-element" };
-      const el = ctx.element;
-      if (!el) return { class: "commit", reason: "unknown-element" };
-      if (kind === "enter" && modified) return { class: "commit", reason: "submit" };
-      const typing = el.role === "textbox" || el.role === "searchbox" || el.role === "combobox";
-      if (!typing) return classifyAction({ type: "click", ref: el.ref }, ctx);
-      if (kind === "enter") {
-        if (el.form || el.submits) return submitClass(el, ctx.currentUrl);
-        if (el.role === "searchbox") return { class: "input" };
-        return { class: "commit", reason: "submit" };
-      }
-      return { class: "input" };
-    }
-    case "navigate": {
-      const target = resolveUrl(action.url, ctx.currentUrl);
-      if (!target || !isWebUrl(target)) {
-        return { class: "commit", reason: "bad-url" };
-      }
-      const host = target.hostname.toLowerCase();
-      const from = current ?? ctx.lastSite;
-      if (!from) {
-        return ctx.firstNavigation ? { class: "read", targetHost: host } : { class: "commit", reason: "new-domain", targetHost: host };
-      }
-      if (!sameSite(host, from)) {
-        return { class: "commit", reason: "new-domain", targetHost: host };
-      }
-      return { class: "read", targetHost: host };
-    }
-    case "click": {
-      const el = ctx.element;
-      if (!el) return { class: "commit", reason: "unknown-element" };
-      if (el.download) return { class: "commit", reason: "download" };
-      if (el.href) {
-        const target = resolveUrl(el.href, ctx.currentUrl);
-        if (target && !isWebUrl(target) && !(target.protocol === "about:" && target.pathname === "blank")) {
-          return { class: "commit", reason: "bad-url" };
-        }
-      }
-      if (el.submits) {
-        const submitted = submitClass(el, ctx.currentUrl);
-        if (submitted.class === "commit") return submitted;
-      }
-      if (nameMeansCommit(el.name)) return { class: "commit", reason: "verb" };
-      if (el.role === "button" && (!el.name.trim() || !hasLatinLetters(el.name))) {
-        return { class: "commit", reason: "unclassified" };
-      }
-      const hrefHost = el.href ? resolveUrl(el.href, ctx.currentUrl)?.hostname.toLowerCase() : void 0;
-      const linkHost = el.linkDomain ? hostOf(el.linkDomain) : hrefHost && hostOf(hrefHost);
-      const from = current ?? ctx.lastSite;
-      if (linkHost && (!from || !sameSite(linkHost, from))) {
-        return { class: "commit", reason: "new-domain", targetHost: linkHost };
-      }
-      return { class: "read" };
-    }
-  }
-}
-function isWebUrl(url) {
-  return url.protocol === "http:" || url.protocol === "https:";
-}
-function actionValue(action) {
-  switch (action.type) {
-    case "fill":
-      return action.text + (action.submit ? "\n#submit" : "");
-    case "select":
-      return action.value;
-    case "press": {
-      const { key, modified } = normalizeKey(action.key);
-      return key + (modified ? "+mod" : "");
-    }
-    case "navigate":
-      return action.url;
-    case "scroll":
-      return `${action.direction}:${action.amount ?? ""}`;
-    case "wait_for":
-      return action.text ?? String(action.ms ?? "");
-    case "click":
-      return "";
-  }
-}
-function urlWithoutFragment(url) {
-  const hash = url.indexOf("#");
-  return hash === -1 ? url : url.slice(0, hash);
-}
-function actionDigest(action, ctx) {
-  const ref = "ref" in action && action.ref ? action.ref : "";
-  const decided = classifyAction(action, ctx);
-  const canonical = JSON.stringify([
-    action.type,
-    ref,
-    actionValue(action),
-    urlWithoutFragment(ctx.currentUrl),
-    ctx.element?.name ?? "",
-    decided.reason ?? "",
-    decided.targetHost ?? "",
-    ctx.element?.download ? "1" : "0"
-  ]);
-  return createHash("sha256").update(canonical).digest("hex").slice(0, 32);
-}
-
-// src/extensions.ts
-var useTabActionSchema = external_exports.object({
-  type: external_exports.literal("use_tab"),
-  /** A tab id from `tabs()`. */
-  tab: external_exports.string().min(1).max(64)
-});
-var runtimeActionSchema = external_exports.discriminatedUnion("type", [
-  ...browserActionSchema.options,
-  useTabActionSchema
-]);
-var tabSchema = external_exports.object({
-  id: external_exports.string().max(64),
-  title: external_exports.string().max(500),
-  url: external_exports.string().max(4096),
-  mine: external_exports.boolean()
-});
-var tabsResultSchema = external_exports.object({ tabs: external_exports.array(tabSchema).max(100) });
-var CHALLENGE_REFUSAL = "challenge";
-var challengeSchema = external_exports.object({ kind: external_exports.string().max(32) });
-function useTabDigest(tab) {
-  const canonical = JSON.stringify([
-    "use_tab",
-    tab.id,
-    "",
-    urlWithoutFragment(tab.url),
-    tab.title,
-    "user-tab",
-    "",
-    "0"
-  ]);
-  return createHash2("sha256").update(canonical).digest("hex").slice(0, 32);
-}
-
 // src/args.ts
 var MAX_ACTIONS = 12;
 function maybeJson(value) {
@@ -22031,7 +21694,7 @@ function asObject(args) {
   }
   return value;
 }
-var ACTION_TYPES = runtimeActionSchema.options.map((o) => o.shape.type.value);
+var ACTION_TYPES = browserActionSchema.options.map((o) => o.shape.type.value);
 function describeIssue(issue2) {
   const where = issue2.path.length > 0 ? issue2.path.join(".") : "action";
   if (issue2.code === "invalid_union_discriminator") {
@@ -22054,7 +21717,7 @@ function parseActions(raw) {
   if (value.length > MAX_ACTIONS) throw new ToolError(`At most ${MAX_ACTIONS} actions per call.`);
   return value.map((item, i) => {
     const coerced = coerceAction(maybeJson(item));
-    const parsed = runtimeActionSchema.safeParse(coerced);
+    const parsed = browserActionSchema.safeParse(coerced);
     if (!parsed.success) {
       throw new ToolError(
         `actions[${i}] is not valid (${describeIssue(parsed.error.issues[0])}). Nothing was run.`
@@ -22412,6 +22075,364 @@ import { pipeline } from "node:stream/promises";
 import {
   chromium
 } from "playwright-core";
+
+// src/siteRules.ts
+var import_tldts = __toESM(require_cjs(), 1);
+function hostOf(input) {
+  const trimmed = input.trim();
+  if (!trimmed || trimmed.startsWith("/")) return void 0;
+  try {
+    const url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
+    return url.hostname.toLowerCase().replace(/\.+$/, "") || void 0;
+  } catch {
+    return void 0;
+  }
+}
+var psl = (host) => (0, import_tldts.parse)(host, { allowPrivateDomains: true });
+function siteOf(host) {
+  const h = host.toLowerCase().replace(/\.+$/, "");
+  const parsed = psl(h);
+  if (parsed.isIp) return h;
+  return parsed.domain ?? h;
+}
+function sameSite(a, b) {
+  return siteOf(a) === siteOf(b);
+}
+
+// src/classifier.ts
+import { createHash } from "node:crypto";
+var COMMIT_WORDS = /* @__PURE__ */ new Set([
+  // en
+  "pay",
+  "buy",
+  "purchase",
+  "order",
+  "checkout",
+  "send",
+  "submit",
+  "delete",
+  "remove",
+  "confirm",
+  "publish",
+  "sign",
+  "book",
+  "reserve",
+  "donate",
+  "subscribe",
+  "transfer",
+  "post",
+  "save",
+  "apply",
+  "accept",
+  "approve",
+  "share",
+  "reply",
+  "upload",
+  "cancel",
+  "unsubscribe",
+  "deactivate",
+  // it
+  "paga",
+  "pagare",
+  "paghi",
+  "acquista",
+  "acquistare",
+  "compra",
+  "comprare",
+  "ordina",
+  "ordinare",
+  "invia",
+  "inviare",
+  "elimina",
+  "eliminare",
+  "cancella",
+  "cancellare",
+  "rimuovi",
+  "rimuovere",
+  "conferma",
+  "confermare",
+  "pubblica",
+  "pubblicare",
+  "firma",
+  "firmare",
+  "prenota",
+  "prenotare",
+  "iscriviti",
+  "dona",
+  "trasferisci",
+  "bonifico",
+  "salva",
+  "salvare",
+  "applica",
+  "applicare",
+  "accetta",
+  "accettare",
+  "approva",
+  "approvare",
+  "condividi",
+  "condividere",
+  "rispondi",
+  "rispondere",
+  "carica",
+  "caricare",
+  "annulla",
+  "annullare",
+  "disiscriviti",
+  "disattiva",
+  "disattivare",
+  // es
+  "pagar",
+  "comprar",
+  "enviar",
+  "eliminar",
+  "borrar",
+  "confirmar",
+  "publicar",
+  "firmar",
+  "reservar",
+  "pedir",
+  // fr
+  "payer",
+  "acheter",
+  "commander",
+  "envoyer",
+  "supprimer",
+  "confirmer",
+  "publier",
+  "signer",
+  "reserver",
+  // de
+  "bezahlen",
+  "kaufen",
+  "bestellen",
+  "senden",
+  "absenden",
+  "loschen",
+  "entfernen",
+  "bestatigen",
+  "veroffentlichen",
+  "unterschreiben",
+  "buchen"
+]);
+var NOT_A_SIGNATURE = /\b(sign|log)\s*(in|up|out|on|off)\b/;
+function normalizeName(name) {
+  return name.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+}
+function nameMeansCommit(name) {
+  const text = normalizeName(name);
+  if (!text.trim()) return false;
+  const words = text.split(/[^a-z]+/).filter(Boolean);
+  return words.some((word) => {
+    if (!COMMIT_WORDS.has(word)) return false;
+    return !(word === "sign" && NOT_A_SIGNATURE.test(text));
+  });
+}
+function hasLatinLetters(name) {
+  return /[a-z]/i.test(normalizeName(name));
+}
+var MODIFIER = /^(control|ctrl|shift|alt|meta|cmd|command|option|mod|controlormeta)$/i;
+var SHORTCUT_MODIFIER = /^(control|ctrl|alt|meta|cmd|command|option|mod|controlormeta)$/i;
+var SAFE_NAMED = /* @__PURE__ */ new Set([
+  "tab",
+  "escape",
+  "esc",
+  "backspace",
+  "delete",
+  "arrowup",
+  "arrowdown",
+  "arrowleft",
+  "arrowright",
+  "home",
+  "end",
+  "pageup",
+  "pagedown"
+]);
+function normalizeKey(raw) {
+  let modifiers;
+  let last;
+  if (raw.endsWith("++") || raw === "+") {
+    modifiers = raw === "+" ? [] : raw.slice(0, -2).split("+");
+    last = "+";
+  } else {
+    const parts = raw.split("+");
+    last = parts.at(-1) ?? "";
+    modifiers = parts.slice(0, -1);
+  }
+  const modified = modifiers.length > 0;
+  const unknown2 = () => ({
+    key: last.toLowerCase(),
+    modified,
+    kind: "unknown"
+  });
+  if (!modifiers.every((m) => MODIFIER.test(m.trim()))) return unknown2();
+  const lower = last.toLowerCase();
+  if (last === "\n" || last === "\r" || last === "\r\n" || ["enter", "return", "numpadenter"].includes(lower)) {
+    return { key: "enter", modified, kind: "enter" };
+  }
+  const shortcut = modifiers.some((m) => SHORTCUT_MODIFIER.test(m.trim()));
+  if (last === " " || lower === "space" || lower === "spacebar") {
+    return shortcut ? unknown2() : { key: "space", modified, kind: "space" };
+  }
+  if (/[\s\u0000-\u001f\u007f]/.test(last)) return unknown2();
+  if (shortcut) return unknown2();
+  if (SAFE_NAMED.has(lower)) return { key: lower, modified, kind: "safe" };
+  if ([...last].length === 1) return { key: last, modified, kind: "safe" };
+  return unknown2();
+}
+function resolveUrl(url, base) {
+  try {
+    return new URL(url, base);
+  } catch {
+    return void 0;
+  }
+}
+function submitClass(el, currentUrl) {
+  const current = hostOf(currentUrl);
+  const target = el?.formActionHost ? hostOf(el.formActionHost) : void 0;
+  if (target && current && !sameSite(target, current)) {
+    return { class: "commit", reason: "new-domain", targetHost: target };
+  }
+  if (el?.formMethod === "get" && !nameMeansCommit(el.name)) return { class: "read" };
+  return { class: "commit", reason: "submit" };
+}
+function classifyAction(action, ctx) {
+  const current = hostOf(ctx.currentUrl);
+  if ("ref" in action && action.ref && ctx.element?.metaUnknown) {
+    return { class: "commit", reason: "unknown-element" };
+  }
+  switch (action.type) {
+    case "use_tab":
+      return {
+        class: "commit",
+        reason: "user-tab",
+        ...ctx.tab ? { targetHost: hostOf(ctx.tab.url) } : {}
+      };
+    case "scroll":
+    case "wait_for":
+      return { class: "read" };
+    case "select":
+      return { class: "input" };
+    case "fill":
+      return action.submit ? submitClass(ctx.element, ctx.currentUrl) : { class: "input" };
+    case "press": {
+      const { kind, modified } = normalizeKey(action.key);
+      if (kind === "unknown") return { class: "commit", reason: "unknown-element" };
+      if (kind === "safe") return { class: "input" };
+      if (!action.ref) return { class: "commit", reason: "unknown-element" };
+      const el = ctx.element;
+      if (!el) return { class: "commit", reason: "unknown-element" };
+      if (kind === "enter" && modified) return { class: "commit", reason: "submit" };
+      const typing = el.role === "textbox" || el.role === "searchbox" || el.role === "combobox";
+      if (!typing) return classifyAction({ type: "click", ref: el.ref }, ctx);
+      if (kind === "enter") {
+        if (el.form || el.submits) return submitClass(el, ctx.currentUrl);
+        if (el.role === "searchbox") return { class: "input" };
+        return { class: "commit", reason: "submit" };
+      }
+      return { class: "input" };
+    }
+    case "navigate": {
+      const target = resolveUrl(action.url, ctx.currentUrl);
+      if (!target || !isWebUrl(target)) {
+        return { class: "commit", reason: "bad-url" };
+      }
+      const host = target.hostname.toLowerCase();
+      const from = current ?? ctx.lastSite;
+      if (!from) {
+        return ctx.firstNavigation ? { class: "read", targetHost: host } : { class: "commit", reason: "new-domain", targetHost: host };
+      }
+      if (!sameSite(host, from)) {
+        return { class: "commit", reason: "new-domain", targetHost: host };
+      }
+      return { class: "read", targetHost: host };
+    }
+    case "click": {
+      const el = ctx.element;
+      if (!el) return { class: "commit", reason: "unknown-element" };
+      if (el.download) return { class: "commit", reason: "download" };
+      if (el.href) {
+        const target = resolveUrl(el.href, ctx.currentUrl);
+        if (target && !isWebUrl(target) && !(target.protocol === "about:" && target.pathname === "blank")) {
+          return { class: "commit", reason: "bad-url" };
+        }
+      }
+      if (el.submits) {
+        const submitted = submitClass(el, ctx.currentUrl);
+        if (submitted.class === "commit") return submitted;
+      }
+      if (nameMeansCommit(el.name)) return { class: "commit", reason: "verb" };
+      if (el.role === "button" && (!el.name.trim() || !hasLatinLetters(el.name))) {
+        return { class: "commit", reason: "unclassified" };
+      }
+      const hrefHost = el.href ? resolveUrl(el.href, ctx.currentUrl)?.hostname.toLowerCase() : void 0;
+      const linkHost = el.linkDomain ? hostOf(el.linkDomain) : hrefHost && hostOf(hrefHost);
+      const from = current ?? ctx.lastSite;
+      if (linkHost && (!from || !sameSite(linkHost, from))) {
+        return { class: "commit", reason: "new-domain", targetHost: linkHost };
+      }
+      return { class: "read" };
+    }
+  }
+}
+function isWebUrl(url) {
+  return url.protocol === "http:" || url.protocol === "https:";
+}
+function actionValue(action) {
+  switch (action.type) {
+    case "fill":
+      return action.text + (action.submit ? "\n#submit" : "");
+    case "select":
+      return action.value;
+    case "press": {
+      const { key, modified } = normalizeKey(action.key);
+      return key + (modified ? "+mod" : "");
+    }
+    case "navigate":
+      return action.url;
+    case "scroll":
+      return `${action.direction}:${action.amount ?? ""}`;
+    case "wait_for":
+      return action.text ?? String(action.ms ?? "");
+    case "click":
+      return "";
+    case "use_tab":
+      return "";
+  }
+}
+function urlWithoutFragment(url) {
+  const hash = url.indexOf("#");
+  return hash === -1 ? url : url.slice(0, hash);
+}
+function actionDigest(action, ctx) {
+  if (action.type === "use_tab") {
+    const canonical2 = JSON.stringify([
+      "use_tab",
+      ctx.tab?.id ?? action.tab,
+      "",
+      urlWithoutFragment(ctx.tab?.url ?? ""),
+      ctx.tab?.title ?? "",
+      "user-tab",
+      "",
+      "0"
+    ]);
+    return createHash("sha256").update(canonical2).digest("hex").slice(0, 32);
+  }
+  const ref = "ref" in action && action.ref ? action.ref : "";
+  const decided = classifyAction(action, ctx);
+  const canonical = JSON.stringify([
+    action.type,
+    ref,
+    actionValue(action),
+    urlWithoutFragment(ctx.currentUrl),
+    ctx.element?.name ?? "",
+    decided.reason ?? "",
+    decided.targetHost ?? "",
+    ctx.element?.download ? "1" : "0"
+  ]);
+  return createHash("sha256").update(canonical).digest("hex").slice(0, 32);
+}
+
+// src/session.ts
 import { randomBytes } from "node:crypto";
 
 // src/grants.ts
@@ -23896,7 +23917,7 @@ var BrowserSession = class {
         if (found.challenge) {
           return {
             ok: false,
-            refused: CHALLENGE_REFUSAL,
+            refused: "challenge",
             error: "That is a human-verification step (a CAPTCHA or bot check). The user has to solve it; it is never clicked or filled by the agent."
           };
         }
@@ -23991,7 +24012,13 @@ var BrowserSession = class {
     const title = clean(await safeTitle(page), 300);
     const url = page.url();
     const grant = approvals?.find((g) => g.index === index);
-    const refusal = this.checkApproval(useTabDigest({ id: tabId, url, title }), grant);
+    const refusal = this.checkApproval(
+      actionDigest(
+        { type: "use_tab", tab: tabId },
+        { currentUrl: "", tab: { id: tabId, url, title } }
+      ),
+      grant
+    );
     if (refusal) return refusal;
     this.spend(grant);
     this.purgeKept();
@@ -24101,6 +24128,8 @@ var BrowserSession = class {
   }
   async perform(page, action) {
     switch (action.type) {
+      case "use_tab":
+        throw new ToolError("use_tab is not an action on a page.");
       case "click": {
         await this.target(page, action.ref).click({ timeout: ACTION_TIMEOUT_MS });
         await sleep(150);

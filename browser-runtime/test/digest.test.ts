@@ -147,3 +147,33 @@ describe("approval digest (Cerea's literal vectors)", () => {
 		);
 	});
 });
+
+// Cerea's loop.tabs.spec.ts: a use_tab grant binds the tab id, its address without fragment and
+// its title, computed here independently of the classifier.
+describe("use_tab digest", () => {
+	it("matches the documented canonical form", () => {
+		const tab = { id: "t9", url: "https://flights.example.com/s?q=1#frag", title: "Flights" };
+		const want = createHash("sha256")
+			.update(
+				JSON.stringify([
+					"use_tab",
+					"t9",
+					"",
+					"https://flights.example.com/s?q=1",
+					"Flights",
+					"user-tab",
+					"",
+					"0",
+				])
+			)
+			.digest("hex")
+			.slice(0, 32);
+		assert.equal(
+			actionDigest(
+				{ type: "use_tab", tab: "t9" },
+				{ currentUrl: "https://shop.example.com/", tab }
+			),
+			want
+		);
+	});
+});

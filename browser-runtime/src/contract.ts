@@ -34,6 +34,8 @@ export const RUNTIME_TOOLS = [
 	"extract",
 	"screenshot",
 	"download",
+	"tabs",
+	"resume",
 	"end_task",
 ] as const;
 export type RuntimeToolName = (typeof RUNTIME_TOOLS)[number];
@@ -89,6 +91,13 @@ export const snapshotElementSchema = z.object({
 });
 export type SnapshotElement = z.infer<typeof snapshotElementSchema>;
 
+/**
+ * A bot check the runtime saw on the page (recaptcha, hcaptcha, turnstile, arkose, cloudflare,
+ * human-check). The loop pauses for the user to solve it; nothing here is ever solved by a model.
+ */
+export const challengeSchema = z.object({ kind: z.string().max(32) });
+export type Challenge = z.infer<typeof challengeSchema>;
+
 export const snapshotSchema = z.object({
 	url: z.string().max(4096),
 	title: z.string().max(500).default(""),
@@ -97,6 +106,7 @@ export const snapshotSchema = z.object({
 	elements: z.array(snapshotElementSchema).max(2000),
 	/** Rows the runtime folded away ("... and 37 more rows like this; use extract"). */
 	collapsed: z.number().int().nonnegative().optional(),
+	challenge: challengeSchema.optional(),
 });
 export type Snapshot = z.infer<typeof snapshotSchema>;
 
@@ -111,6 +121,7 @@ export const diffSchema = z.object({
 	/** The diff as text for the model. */
 	text: z.string().default(""),
 	snapshot: snapshotSchema.optional(),
+	challenge: challengeSchema.optional(),
 });
 export type Diff = z.infer<typeof diffSchema>;
 
@@ -157,6 +168,8 @@ export const browserActionSchema = z.discriminatedUnion("type", [
 		ms: z.number().int().positive().max(30_000).optional(),
 	}),
 	z.object({ type: z.literal("navigate"), url: z.string().min(1).max(4096) }),
+	/** Adopt a page the user opened (an id from `tabs()`). Always commit-class, reason `user-tab`. */
+	z.object({ type: z.literal("use_tab"), tab: z.string().min(1).max(64) }),
 ]);
 export type BrowserAction = z.infer<typeof browserActionSchema>;
 
@@ -209,7 +222,13 @@ export const actionResultSchema = z.object({
 	error: z.string().max(1000).optional(),
 	/** The runtime refused it: a commit-class action with no matching approval. */
 	refused: z
-		.enum(["approval_required", "approval_mismatch", "approval_expired", "scheme_refused"])
+		.enum([
+			"approval_required",
+			"approval_mismatch",
+			"approval_expired",
+			"scheme_refused",
+			"challenge",
+		])
 		.optional(),
 });
 export type ActionResult = z.infer<typeof actionResultSchema>;
@@ -301,11 +320,47 @@ export const downloadRequestSchema = z.object({ all: z.boolean().optional() });
 export type DownloadRequest = z.infer<typeof downloadRequestSchema>;
 
 /**
- * `end_task()` closes the task's pages and forgets its refs. Cerea calls it whenever a task ends,
- * whatever the reason (result, stop, budget, error). It takes no arguments.
+ * `tabs()` lists the open pages of the persistent browser. `mine` is true for a page the task
+ * owns (opened by it, or adopted with `use_tab`); the others are the user's own.
  */
-export const endTaskResultSchema = z.object({ closed: z.boolean() });
+export const tabSchema = z.object({
+	id: z.string().max(64),
+	title: z.string().max(500),
+	url: z.string().max(4096),
+	mine: z.boolean(),
+});
+export const tabsResultSchema = z.object({ tabs: z.array(tabSchema).max(100) });
+export type Tab = z.infer<typeof tabSchema>;
+export type TabsResult = z.infer<typeof tabsResultSchema>;
+
+/**
+ * `end_task({keep?})` ends the task and forgets its refs. Cerea calls it whenever a task ends,
+ * whatever the reason (result, stop, budget, error), always with `keep: true`: the task's last page
+ * stays open for the user, and `kept.token` lets a later task of the same conversation `resume` it.
+ */
+export const endTaskResultSchema = z.object({
+	closed: z.boolean(),
+	kept: z
+		.object({
+			token: z.string().min(1).max(256),
+			id: z.string().max(64),
+			title: z.string().max(500),
+			url: z.string().max(4096),
+		})
+		.optional(),
+});
 export type EndTaskResult = z.infer<typeof endTaskResultSchema>;
+
+/** `resume({token})`: a kept page becomes the active task page, with no grant. */
+export const resumeResultSchema = z.object({
+	id: z.string().max(64),
+	title: z.string().max(500),
+	url: z.string().max(4096),
+	/** The page is not what it was when it was kept. */
+	changed: z.boolean(),
+	was: z.object({ title: z.string().max(500), url: z.string().max(4096) }).optional(),
+});
+export type ResumeResult = z.infer<typeof resumeResultSchema>;
 
 export const downloadResultSchema = z.object({
 	files: z

@@ -6,9 +6,9 @@ import { actionDigest } from "../src/classifier.ts";
 import { signGrant } from "../src/grants.ts";
 import {
 	actResultSchema,
-	actionResultSchema,
 	diffSchema,
 	downloadResultSchema,
+	tabsResultSchema,
 	extractResultSchema,
 	snapshotSchema,
 	type ApprovalGrant,
@@ -20,28 +20,12 @@ import {
 	type Snapshot,
 	type SnapshotElement,
 } from "../src/contract.ts";
-import { challengeSchema, tabsResultSchema, useTabDigest } from "../src/extensions.ts";
 import { createToolHandler } from "../src/server.ts";
 import { BrowserSession } from "../src/session.ts";
 import { startFixtures, type Fixtures } from "./fixtures.ts";
 
-// What the runtime sends beyond Cerea's current contract copy (src/extensions.ts).
-const actionResultX = actionResultSchema.extend({
-	refused: z
-		.enum([
-			"approval_required",
-			"approval_mismatch",
-			"approval_expired",
-			"scheme_refused",
-			"challenge",
-		])
-		.optional(),
-});
-const actResultX = actResultSchema.extend({ results: z.array(actionResultX) });
-const snapshotX = snapshotSchema.extend({ challenge: challengeSchema.optional() });
-const diffX = diffSchema.extend({ challenge: challengeSchema.optional() });
-export type SnapshotX = z.infer<typeof snapshotX>;
-export type ActResultX = z.infer<typeof actResultX>;
+export type SnapshotX = Snapshot;
+export type ActResultX = ActResult;
 
 export const TEST_KEY = Buffer.from("0123456789abcdef0123456789abcdef");
 
@@ -53,7 +37,7 @@ export interface Rig {
 	keyFile: string;
 	call(name: string, args?: unknown): ReturnType<ReturnType<typeof createToolHandler>>;
 	snapshot(): Promise<SnapshotX>;
-	diff(): Promise<z.infer<typeof diffX>>;
+	diff(): Promise<z.infer<typeof diffSchema>>;
 	act(actions: unknown, approvals?: unknown): Promise<ActResultX>;
 	tabs(): Promise<z.infer<typeof tabsResultSchema>>;
 	/** A grant for a digest Cerea would compute (use_tab and the like). */
@@ -127,10 +111,13 @@ export async function rig(
 		stateDir,
 		keyFile,
 		call: (name, args) => handler(name, args ?? {}),
-		snapshot: async () => parse(snapshotX, await handler("snapshot", {})),
-		diff: async () => parse(diffX, await handler("diff", {})),
+		snapshot: async () => parse(snapshotSchema, await handler("snapshot", {})),
+		diff: async () => parse(diffSchema, await handler("diff", {})),
 		act: async (actions, approvals) =>
-			parse(actResultX, await handler("act", { actions, ...(approvals ? { approvals } : {}) })),
+			parse(
+				actResultSchema,
+				await handler("act", { actions, ...(approvals ? { approvals } : {}) })
+			),
 		download: async () => parse(downloadResultSchema, await handler("download", {})),
 		tabs: async () => parse(tabsResultSchema, await handler("tabs", {})),
 		signed(digest, index = 0, id = `approval-${Math.random().toString(36).slice(2)}`) {
@@ -138,7 +125,10 @@ export async function rig(
 			return { index, id, digest, exp, sig: signGrant(TEST_KEY, id, digest, exp) };
 		},
 		useTabGrant(tab, index = 0) {
-			return r.signed(useTabDigest(tab), index);
+			return r.signed(
+				actionDigest({ type: "use_tab", tab: tab.id }, { currentUrl: "", tab }),
+				index
+			);
 		},
 		extract: async (args) => parse(extractResultSchema, await handler("extract", args ?? {})),
 		goto: async (path) => {
