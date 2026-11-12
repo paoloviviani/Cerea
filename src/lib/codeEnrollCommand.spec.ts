@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import {
+	buildConnectorsCommands,
 	buildDockerCommand,
 	buildEnrollCommand,
 	cleanContainerName,
@@ -32,13 +33,41 @@ describe("buildEnrollCommand", () => {
 			[
 				"curl -fsSL 'https://cerea.example.org/chat/galopin/install.sh' | sh &&",
 				`${GALOPIN_BIN} enroll \\`,
-				"  --issuer 'https://idp.example.org' \\",
-				"  --gateway 'https://gateway.example.org' \\",
 				"  --cerea 'https://cerea.example.org/chat' \\",
 				"  --default-group &&",
 				`${GALOPIN_BIN} run`,
 			].join("\n")
 		);
+	});
+
+	it("shows --device in the long form when the deployment fixes the device flow, never in the short one", () => {
+		const device = { ...BASE_OPTIONS, flow: "device" as const };
+		expect(buildEnrollCommand(device)).not.toContain("--device");
+		expect(buildEnrollCommand({ ...device, explicit: true })).toContain("--device");
+		expect(buildEnrollCommand({ ...BASE_OPTIONS, flow: "auto", explicit: true })).not.toMatch(
+			/--device|--loopback/
+		);
+		expect(
+			buildConnectorsCommands({ origin: "https://c.example", issuer: "https://i", flow: "device" })
+				.enrollExplicit
+		).toContain("--device");
+	});
+
+	it("is short by default: no issuer, gateway or client id, the binary asks this Cerea", () => {
+		const command = buildEnrollCommand({ ...BASE_OPTIONS, clientId: "custom-client" });
+		expect(command).not.toMatch(/--issuer|--gateway|--client-id/);
+		expect(command).toContain("--cerea 'https://cerea.example.org/chat'");
+	});
+
+	it("spells the deployment's facts out when explicit, for an older galopin", () => {
+		const command = buildEnrollCommand({
+			...BASE_OPTIONS,
+			clientId: "custom-client",
+			explicit: true,
+		});
+		expect(command).toContain("--issuer 'https://idp.example.org' \\");
+		expect(command).toContain("--gateway 'https://gateway.example.org' \\");
+		expect(command).toContain("--client-id 'custom-client'");
 	});
 
 	it("invokes the binary by its installed path, not a bare name", () => {
@@ -70,7 +99,11 @@ describe("buildEnrollCommand", () => {
 	});
 
 	it("prints --client-id only when it differs from the default", () => {
-		const command = buildEnrollCommand({ ...BASE_OPTIONS, clientId: "custom-client" });
+		const command = buildEnrollCommand({
+			...BASE_OPTIONS,
+			clientId: "custom-client",
+			explicit: true,
+		});
 		expect(command).toContain("--client-id 'custom-client'");
 	});
 
@@ -107,6 +140,7 @@ describe("buildEnrollCommand", () => {
 			...BASE_OPTIONS,
 			clientId: "custom-client",
 			allowTerminal: false,
+			explicit: true,
 		});
 		expect(command).toContain(
 			"  --client-id 'custom-client' \\\n  --default-group \\\n  --no-terminal"
@@ -140,7 +174,11 @@ describe("quoteShellArg", () => {
 
 	it("keeps a value with shell metacharacters inert once quoted", () => {
 		const dangerous = "$(rm -rf /); echo pwned";
-		const quoted = buildEnrollCommand({ ...BASE_OPTIONS, gatewayOrigin: dangerous });
+		const quoted = buildEnrollCommand({
+			...BASE_OPTIONS,
+			gatewayOrigin: dangerous,
+			explicit: true,
+		});
 		expect(quoted).toContain(`--gateway ${quoteShellArg(dangerous)}`);
 		// no unquoted occurrence of the raw payload
 		expect(quoted).not.toContain(`--gateway ${dangerous}`);
@@ -240,7 +278,7 @@ describe("buildDockerCommand", () => {
 				.split(/ &&\n|$/)[0]
 				.replace(/ \\\n {2}/g, " ")
 				.trim();
-		const native = flagsOf(buildEnrollCommand(choices), "galopin enroll");
+		const native = flagsOf(buildEnrollCommand({ ...choices, explicit: true }), "galopin enroll");
 		const docker = flagsOf(buildDockerCommand({ ...choices, version: "1.2.3" }), "  start");
 		expect(docker).toBe(native);
 		expect(docker).toContain("--workspace-root '/my projects/*'");

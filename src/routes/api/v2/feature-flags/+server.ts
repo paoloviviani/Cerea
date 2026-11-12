@@ -9,7 +9,7 @@ import { knowledgeEnabled } from "$lib/server/knowledgeEnabled";
 import { memoryEnabled } from "$lib/server/memoryEnabled";
 import { delegationEnabled } from "$lib/server/delegation";
 import { codeAgentsAllowedFor, consoleAllowedFor } from "$lib/server/codeEnabled";
-import { machineClientId } from "$lib/server/code/machineAuth";
+import { machineClientId, machineFlow } from "$lib/server/code/machineAuth";
 import type { FeatureFlags } from "$lib/server/api/types";
 import { dictationMode, dictationOffersFor } from "$lib/server/dictation";
 import { codeRunTimeoutMs } from "$lib/server/codeRunLimit";
@@ -83,6 +83,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 		codeAgentsEnabled: await codeAgentsAllowedFor(locals),
 		codeOidcIssuerUrl: OIDConfig.PROVIDER_URL,
 		codeOidcClientId: machineClientId(),
+		codeMachineFlow: machineFlow(),
 		// No fallback here on purpose (§12): the browser-origin fallback only
 		// makes sense client-side, where "the browser's own origin" is a
 		// meaningful default; guessing at a gateway address server-side would

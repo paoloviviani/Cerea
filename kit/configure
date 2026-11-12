@@ -962,6 +962,8 @@ class Answers:
     # The headless browser (the fetch profile): None leaves it to the preset
     # and to a hand-enabled profile; True/False add or remove it.
     fetch: bool | None = None
+    # Browser use (CHAT_BROWSER_ENABLED): None leaves it as it is.
+    browser: bool | None = None
     # Office previews and the convert_document tool (the office profile:
     # Gotenberg). Off unless asked for; None leaves it as it is.
     office: bool | None = None
@@ -1043,6 +1045,7 @@ def answers_from(values: dict) -> Answers:
         idp="authelia" if "authelia" in profiles or not profiles else "external",
         agents=values.get("CODE_AGENTS_ENABLED", "") == "true",
         terminal=values.get("CODE_TERMINAL_ENABLED", "") == "true",
+        browser=values.get("CHAT_BROWSER_ENABLED", "") == "true",
         office="office" in profiles,
         rustfs="rustfs" in profiles,
     )
@@ -1368,6 +1371,10 @@ def build(answers: Answers, existing: dict, template: str, discovery: dict | Non
             values["GATEWAY_UPSTREAM__API_KEY"] = answers.upstream_api_key
     if preset.standalone:
         values["GATEWAY_UPSTREAM__API_KEY"] = ""
+
+    # --- browser use ----------------------------------------------------------------
+    if answers.browser is not None:
+        values["CHAT_BROWSER_ENABLED"] = "true" if answers.browser else ""
 
     # --- agent machines -------------------------------------------------------------
     if answers.agents is not None:
@@ -2674,6 +2681,9 @@ def parser() -> argparse.ArgumentParser:
                    help="the browser terminal on agent machines (a full remote shell; needs --agents)")
     o.add_argument("--fetch", action=argparse.BooleanOptionalAction, default=None,
                    help="the headless browser for web fetch (the fetch profile); --no-fetch removes it")
+    o.add_argument("--browser", action=argparse.BooleanOptionalAction, default=None,
+                   help="browser use: the assistant does tasks in a browser on a user's own computer "
+                        "(CHAT_BROWSER_ENABLED; off by default); --no-browser turns it off")
     o.add_argument("--office-preview", dest="office", action=argparse.BooleanOptionalAction, default=None,
                    help="Office documents as PDF previews, and the convert_document tool, through Gotenberg "
                         "(the office profile; off by default); --no-office-preview removes it")

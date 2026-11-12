@@ -118,6 +118,7 @@ nav:
       - "Local connectors": local-connectors.md
       - "The browser on your computer": browser-runtime.md
       - "The headless browser": browser.md
+      - "Browser use": browser-use.md
       - "Word, Excel, PowerPoint and PDF files": office.md
   - Operating Cerea:
       - Deploying: deploy.md
