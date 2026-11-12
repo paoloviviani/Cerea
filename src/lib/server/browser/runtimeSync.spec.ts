@@ -1,42 +1,47 @@
 /**
- * Cerea's contract and the runtime's `browser-runtime/src/extensions.ts` agree. The runtime keeps
- * its own copy of the contract (synced from `contract.ts`); once the two are merged this checks
- * that the `use_tab` digest, the tools and the new fields are the same on both sides. Skipped on a
- * branch without the runtime.
+ * The runtime keeps copies of the files Cerea owns (`browser-runtime/scripts/sync-contract.mjs`
+ * writes them). On a branch that has the runtime, this recomputes what the sync would write from
+ * Cerea's files and fails when the runtime's copy differs: a contract that drifted shows up here,
+ * not as a parse error on a user's machine. Skipped on a branch without the runtime.
  */
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { actionDigest } from "./classifier";
-import {
-	RUNTIME_TOOLS,
-	browserActionSchema,
-	tabsResultSchema,
-	endTaskResultSchema,
-} from "./contract";
 
-const extensions = resolve(process.cwd(), "browser-runtime/src/extensions.ts");
+const here = resolve(process.cwd(), "src/lib/server/browser");
+const runtime = resolve(process.cwd(), "browser-runtime/src");
+const read = (dir: string, name: string) => readFileSync(join(dir, name), "utf8");
 
-describe.skipIf(!existsSync(extensions))("the runtime's extensions", () => {
-	it("agree with the contract", async () => {
-		const ext = await import(/* @vite-ignore */ extensions);
-		const tab = { id: "t1", url: "https://flights.example.com/s#frag", title: "Flights" };
-		expect(ext.useTabDigest(tab)).toBe(
-			actionDigest({ type: "use_tab", tab: "t1" }, { currentUrl: "https://x.test/", tab })
-		);
-		expect(RUNTIME_TOOLS).toEqual(expect.arrayContaining([ext.TABS_TOOL, "resume", "end_task"]));
-		const sample = { type: "use_tab", tab: "t1" };
-		expect(browserActionSchema.safeParse(sample).success).toBe(true);
-		expect(ext.useTabActionSchema.safeParse(sample).success).toBe(true);
-		const tabs = { tabs: [{ id: "a", title: "t", url: "https://x.test/", mine: false }] };
-		expect(tabsResultSchema.safeParse(tabs).success).toBe(
-			ext.tabsResultSchema.safeParse(tabs).success
-		);
-		expect(
-			endTaskResultSchema.safeParse({
-				closed: false,
-				kept: { token: "k", id: "1", title: "t", url: "u" },
-			}).success
-		).toBe(true);
-	});
-});
+// The same transforms as sync-contract.mjs.
+const fix = (text: string) =>
+	text
+		.replace(/from "\.\/(\w+)";/g, 'from "./$1.ts";')
+		.replace('from "./sanitize.ts"', 'from "./cereaSanitize.ts"');
+const header = (what: string) =>
+	`/**\n * COPY of Cerea's \`src/lib/server/browser/${what}\` (made by scripts/sync-contract.mjs): never edit it here.\n */\n`;
+
+function expectedContract(): string {
+	let contract = read(here, "contract.ts");
+	contract =
+		contract.slice(0, contract.indexOf("// ----- the runtime, as Cerea calls it")).trimEnd() + "\n";
+	return contract.replace(
+		"/**\n",
+		"/**\n * COPY of Cerea's `src/lib/server/browser/contract.ts` (made by scripts/sync-contract.mjs): never\n * edit it here. The runtime validates its own answers against these schemas in tests, so a drift\n * shows up as a failing test, not as a parse error in production.\n *\n"
+	);
+}
+
+describe.skipIf(!existsSync(join(runtime, "contract.ts")))(
+	"the runtime's copies of Cerea's files",
+	() => {
+		it("contract.ts is in sync (run browser-runtime/scripts/sync-contract.mjs)", () => {
+			expect(read(runtime, "contract.ts")).toBe(expectedContract());
+		});
+		it.each([
+			["classifier.ts", "classifier.ts", "classifier.ts"],
+			["siteRules.ts", "siteRules.ts", "siteRules.ts"],
+			["cereaSanitize.ts", "sanitize.ts", "sanitize.ts"],
+		])("%s is in sync", (copy, source, label) => {
+			expect(read(runtime, copy)).toBe(header(label) + fix(read(here, source)));
+		});
+	}
+);

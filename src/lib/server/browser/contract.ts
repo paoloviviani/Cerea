@@ -347,15 +347,26 @@ export const endTaskResultSchema = z.object({
 });
 export type EndTaskResult = z.infer<typeof endTaskResultSchema>;
 
-/** `resume({token})`: a kept page becomes the active task page, with no grant. */
-export const resumeResultSchema = z.object({
-	id: z.string().max(64),
-	title: z.string().max(500),
-	url: z.string().max(4096),
-	/** The page is not what it was when it was kept. */
-	changed: z.boolean(),
-	was: z.object({ title: z.string().max(500), url: z.string().max(4096) }).optional(),
-});
+/**
+ * `resume({token})`: a kept page becomes the active task page, with no grant. A page that is no
+ * longer what was kept is refused with `page_changed` (its address without query or fragment):
+ * the task starts fresh. `changed` on a resumed page is the older spelling of the same thing.
+ */
+export const resumeResultSchema = z.union([
+	z.object({
+		id: z.string().max(64),
+		title: z.string().max(500),
+		url: z.string().max(4096),
+		/** The page is not what it was when it was kept. */
+		changed: z.boolean(),
+		was: z.object({ title: z.string().max(500), url: z.string().max(4096) }).optional(),
+	}),
+	z.object({
+		refused: z.literal("page_changed"),
+		title: z.string().max(500),
+		url: z.string().max(4096),
+	}),
+]);
 export type ResumeResult = z.infer<typeof resumeResultSchema>;
 
 export const downloadResultSchema = z.object({

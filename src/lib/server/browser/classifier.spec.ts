@@ -921,6 +921,34 @@ describe("actionDigest test vectors (the runtime must reproduce these)", () => {
 	});
 });
 
+describe("use_tab digest test vectors (the runtime checks the same hashes)", () => {
+	const action = { type: "use_tab", tab: "t9" } as const;
+	const here = { currentUrl: "https://shop.example.com/" };
+	it("binds the tab's address exactly as tabs() showed it", () => {
+		// The runtime's own page, with its query.
+		expect(
+			actionDigest(action, {
+				...here,
+				tab: { id: "t9", url: "https://flights.example.com/s?q=1", title: "Flights" },
+			})
+		).toBe("4926591722c931f4d9033c687ce9d65f");
+		// A user's tab as tabs() lists it: no query, fragment or credentials.
+		expect(
+			actionDigest(action, {
+				...here,
+				tab: { id: "t9", url: "https://flights.example.com/s", title: "Flights" },
+			})
+		).toBe("79d8984bad3254116aa6f26ac30df54b");
+		// A fragment is never part of it.
+		expect(
+			actionDigest(action, {
+				...here,
+				tab: { id: "t9", url: "https://flights.example.com/s#top", title: "Flights" },
+			})
+		).toBe("79d8984bad3254116aa6f26ac30df54b");
+	});
+});
+
 describe("actionDigest", () => {
 	const click: BrowserAction = { type: "click", ref: "e1" };
 	const ctx = { element: el({ name: "Pay €120" }), currentUrl: SHOP };

@@ -1040,12 +1040,16 @@ async function runInner(
 				const back = await guarded(() =>
 					runtime.resume(request.resumeToken as string, deps.signal)
 				);
-				observer?.resumed?.({ title: short(sanitizeText(back.title), 120), changed: back.changed });
-				if (back.changed || shared.adopted.has(back.id)) {
+				if ("refused" in back) {
+					observer?.resumed?.({ title: short(sanitizeText(back.title), 120), changed: true });
+					resumedNote = changedNote;
+				} else if (back.changed || shared.adopted.has(back.id)) {
+					observer?.resumed?.({ title: short(sanitizeText(back.title), 120), changed: true });
 					// Release it (it stays open for the user) so the task begins on a blank page of its own.
 					await runtime.endTask({ keep: true }, AbortSignal.timeout(10_000)).catch(() => undefined);
 					resumedNote = changedNote;
 				} else {
+					observer?.resumed?.({ title: short(sanitizeText(back.title), 120), changed: false });
 					resumedNote =
 						"\n\nThe browser is on the page the previous task in this conversation left open.";
 				}

@@ -392,6 +392,20 @@ describe("resuming a page that changed", () => {
 		expect(JSON.stringify(model.requests[0].messages)).toContain("starting a new tab");
 	});
 
+	it("takes the runtime's page_changed result as start fresh", async () => {
+		const runtime = new FakeBrowserRuntime(pages(), "home");
+		runtime.resume = async () => ({
+			refused: "page_changed" as const,
+			title: "Cart",
+			url: "https://shop.example.com/cart",
+		});
+		const model = scriptedModel([answerTurn("Fresh.")]);
+		const result = await runBrowseLoop({ goal: "look", resumeToken: "t" }, base(runtime, model));
+		expect(result.stopped_reason).toBeUndefined();
+		expect(JSON.stringify(model.requests[0].messages)).toContain("starting a new tab");
+		expect(runtime.calls.some((c) => c.tool === "end_task" && c.args.keep)).toBe(true);
+	});
+
 	it("never remembers a tab the user opened and the task adopted", async () => {
 		const runtime = new FakeBrowserRuntime(pages(), "home");
 		const kept: Array<KeptPage | null> = [];
