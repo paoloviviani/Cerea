@@ -236,6 +236,12 @@ export class BrowserSession {
 	private chooserOpened = false;
 	private starting?: Promise<void>;
 	private readonly navSeq = new WeakMap<Page, number>();
+	/**
+	 * The host of the last real (http/https) site this task's pages were on, mirroring Cerea's
+	 * classifier context: a page with no host (`about:blank`) is judged against it, and while it is
+	 * unset the task has not left its blank start page yet (its first navigation).
+	 */
+	private taskLastSite: string | undefined;
 	private baseline?: Baseline;
 	private downloadDir?: string;
 	private downloads: Captured[] = [];
@@ -301,6 +307,7 @@ export class BrowserSession {
 				this.active = await context.newPage();
 				this.taskPages.add(this.active);
 				this.baseline = undefined;
+				this.taskLastSite = undefined;
 			}
 		}
 		return this.active;
@@ -317,6 +324,7 @@ export class BrowserSession {
 		clearTimeout(this.idleTimer);
 		const pages = [...this.taskPages];
 		this.taskPages.clear();
+		this.taskLastSite = undefined;
 		this.active = undefined;
 		this.baseline = undefined;
 		this.notes = [];
@@ -414,7 +422,18 @@ export class BrowserSession {
 	private hook(page: Page): void {
 		this.navSeq.set(page, 0);
 		page.on("framenavigated", (frame) => {
-			if (frame === page.mainFrame()) this.navSeq.set(page, (this.navSeq.get(page) ?? 0) + 1);
+			if (frame !== page.mainFrame()) return;
+			this.navSeq.set(page, (this.navSeq.get(page) ?? 0) + 1);
+			if (this.taskPages.has(page)) {
+				try {
+					const u = new URL(frame.url());
+					if (u.protocol === "http:" || u.protocol === "https:") {
+						this.taskLastSite = u.hostname.toLowerCase().replace(/\.$/, "");
+					}
+				} catch {
+					// not a URL: nothing to remember
+				}
+			}
 		});
 		page.on("dialog", (dialog) => {
 			if (this.notes.length < 5) {
@@ -910,7 +929,14 @@ export class BrowserSession {
 			let element: SnapshotElement | undefined;
 			const ref = "ref" in action ? action.ref : undefined;
 			if (ref) element = await this.lookup(page, ref);
-			const ctx: ClassifyContext = { element, currentUrl: page.url() };
+			const ctx: ClassifyContext = {
+				element,
+				currentUrl: page.url(),
+				lastSite: this.taskLastSite,
+				// Mirrors Cerea's "first navigation from the blank start page": the runtime knows only
+				// that the task has not been on any site yet, which is the same moment.
+				firstNavigation: this.taskLastSite === undefined,
+			};
 
 			if (action.type === "navigate") {
 				const target = (() => {

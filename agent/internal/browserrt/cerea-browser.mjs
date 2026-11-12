@@ -1,4 +1,4 @@
-// cerea-browser runtime 0.1.0; source-hash: c02d569f3a9298eaa1073a310cc1cf117a2cdec8a053582bfb3f2d09e5c1bc2d
+// cerea-browser runtime 0.1.0; source-hash: 9605646b7c896989bc392f8d376fb22a48af6effc91c79b3ad6c539e93a87afd
 // inlined: @hono/node-server@2.1.8 @modelcontextprotocol/sdk@1.32.2 ajv@8.20.0 ajv-formats@3.0.1 content-type@1.0.5 fast-deep-equal@3.1.3 fast-uri@3.1.9 hono@4.13.18 json-schema-traverse@1.0.0 tldts@7.4.26 zod@3.25.76 zod-to-json-schema@3.25.2
 import { createRequire as __cr } from "node:module";
 const require = __cr(import.meta.url);
@@ -21516,7 +21516,8 @@ var browserActionSchema = external_exports.discriminatedUnion("type", [
   external_exports.object({
     type: external_exports.literal("fill"),
     ref: external_exports.string().min(1).max(64),
-    text: external_exports.string().max(5e3),
+    // No line breaks or control characters: Enter is a separate `press`, which is classified.
+    text: external_exports.string().max(5e3).regex(/^[^\u0000-\u001f\u007f]*$/, "text without line breaks or control characters"),
     /** Press Enter after typing. */
     submit: external_exports.boolean().optional()
   }),
@@ -22250,26 +22251,26 @@ function classifyAction(action, ctx) {
       const el = ctx.element;
       if (!el) return { class: "commit", reason: "unknown-element" };
       if (kind === "enter" && modified) return { class: "commit", reason: "submit" };
-      if (el.role === "button" || el.role === "link") {
-        return classifyAction({ type: "click", ref: el.ref }, ctx);
-      }
+      const typing = el.role === "textbox" || el.role === "searchbox" || el.role === "combobox";
+      if (!typing) return classifyAction({ type: "click", ref: el.ref }, ctx);
       if (kind === "enter") {
         if (el.form || el.submits) return submitClass(el, ctx.currentUrl);
         if (el.role === "searchbox") return { class: "input" };
-        if (el.role === "textbox") return { class: "commit", reason: "submit" };
+        return { class: "commit", reason: "submit" };
       }
       return { class: "input" };
     }
     case "navigate": {
       const target = resolveUrl(action.url, ctx.currentUrl);
-      if (!target || target.protocol !== "http:" && target.protocol !== "https:") {
-        if (target && target.protocol === "about:" && target.pathname === "blank") {
-          return { class: "read" };
-        }
+      if (!target || !isWebUrl(target)) {
         return { class: "commit", reason: "bad-url" };
       }
       const host = target.hostname.toLowerCase();
-      if (current && !sameSite(host, current)) {
+      const from = current ?? ctx.lastSite;
+      if (!from) {
+        return ctx.firstNavigation ? { class: "read", targetHost: host } : { class: "commit", reason: "new-domain", targetHost: host };
+      }
+      if (!sameSite(host, from)) {
         return { class: "commit", reason: "new-domain", targetHost: host };
       }
       return { class: "read", targetHost: host };
@@ -22294,7 +22295,8 @@ function classifyAction(action, ctx) {
       }
       const hrefHost = el.href ? resolveUrl(el.href, ctx.currentUrl)?.hostname.toLowerCase() : void 0;
       const linkHost = el.linkDomain ? hostOf(el.linkDomain) : hrefHost && hostOf(hrefHost);
-      if (el.role === "link" && linkHost && current && !sameSite(linkHost, current)) {
+      const from = current ?? ctx.lastSite;
+      if (linkHost && (!from || !sameSite(linkHost, from))) {
         return { class: "commit", reason: "new-domain", targetHost: linkHost };
       }
       return { class: "read" };
@@ -23044,6 +23046,12 @@ var BrowserSession = class {
   chooserOpened = false;
   starting;
   navSeq = /* @__PURE__ */ new WeakMap();
+  /**
+   * The host of the last real (http/https) site this task's pages were on, mirroring Cerea's
+   * classifier context: a page with no host (`about:blank`) is judged against it, and while it is
+   * unset the task has not left its blank start page yet (its first navigation).
+   */
+  taskLastSite;
   baseline;
   downloadDir;
   downloads = [];
@@ -23098,6 +23106,7 @@ var BrowserSession = class {
         this.active = await context.newPage();
         this.taskPages.add(this.active);
         this.baseline = void 0;
+        this.taskLastSite = void 0;
       }
     }
     return this.active;
@@ -23112,6 +23121,7 @@ var BrowserSession = class {
     clearTimeout(this.idleTimer);
     const pages = [...this.taskPages];
     this.taskPages.clear();
+    this.taskLastSite = void 0;
     this.active = void 0;
     this.baseline = void 0;
     this.notes = [];
@@ -23200,7 +23210,17 @@ var BrowserSession = class {
   hook(page) {
     this.navSeq.set(page, 0);
     page.on("framenavigated", (frame) => {
-      if (frame === page.mainFrame()) this.navSeq.set(page, (this.navSeq.get(page) ?? 0) + 1);
+      if (frame !== page.mainFrame()) return;
+      this.navSeq.set(page, (this.navSeq.get(page) ?? 0) + 1);
+      if (this.taskPages.has(page)) {
+        try {
+          const u = new URL(frame.url());
+          if (u.protocol === "http:" || u.protocol === "https:") {
+            this.taskLastSite = u.hostname.toLowerCase().replace(/\.$/, "");
+          }
+        } catch {
+        }
+      }
     });
     page.on("dialog", (dialog) => {
       if (this.notes.length < 5) {
@@ -23641,7 +23661,14 @@ var BrowserSession = class {
       let element;
       const ref = "ref" in action ? action.ref : void 0;
       if (ref) element = await this.lookup(page, ref);
-      const ctx = { element, currentUrl: page.url() };
+      const ctx = {
+        element,
+        currentUrl: page.url(),
+        lastSite: this.taskLastSite,
+        // Mirrors Cerea's "first navigation from the blank start page": the runtime knows only
+        // that the task has not been on any site yet, which is the same moment.
+        firstNavigation: this.taskLastSite === void 0
+      };
       if (action.type === "navigate") {
         const target = (() => {
           try {

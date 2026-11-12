@@ -297,3 +297,25 @@ describe("housekeeping", () => {
 		void mkdtemp;
 	});
 });
+
+describe("a blank page is no stepping stone (mirrors Cerea's task context)", () => {
+	let r: Rig;
+	before(async () => {
+		r = await rig();
+	});
+	after(() => r.close());
+
+	it("lets the task's first move leave its blank start page, then judges blank pages by the last site", async () => {
+		await r.call("end_task", {});
+		// A fresh task page starts at about:blank: its first navigation needs no approval.
+		const first = await r.act([{ type: "navigate", url: r.fx.base + "/buttons" }]);
+		assert.equal(first.results[0].ok, true, JSON.stringify(first));
+		// Mid-task, going to a blank page is refused without an approval.
+		const blank = await r.act([{ type: "navigate", url: "about:blank" }]);
+		assert.equal(blank.results[0].ok, false);
+		assert.ok(blank.results[0].refused, JSON.stringify(blank));
+		// And from the site, another site still needs an approval.
+		const away = await r.act([{ type: "navigate", url: r.fx.other + "/buttons" }]);
+		assert.equal(away.results[0].refused, "approval_required", JSON.stringify(away));
+	});
+});

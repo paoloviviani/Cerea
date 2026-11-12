@@ -262,6 +262,16 @@ export interface ClassifyContext {
 	element?: SnapshotElement;
 	/** The page the action runs on. */
 	currentUrl: string;
+	/**
+	 * The host of the last real site the task was on. A page with no host (`about:blank`) is judged
+	 * against it, so a blank page is no stepping stone to another site.
+	 */
+	lastSite?: string;
+	/**
+	 * This is the task's first navigation, from a blank start page, to the address the chat asked
+	 * for (`start_url`): the one move that may leave a page with no site without asking.
+	 */
+	firstNavigation?: boolean;
 }
 
 /** Submitting a form: a read when it is a GET form (a search), else a commit. */
@@ -300,29 +310,35 @@ export function classifyAction(action: BrowserAction, ctx: ClassifyContext): Cla
 			if (!el) return { class: "commit", reason: "unknown-element" };
 			// A modified Enter (Control+Enter, Meta+Enter, Shift+Enter) sends or submits in most apps.
 			if (kind === "enter" && modified) return { class: "commit", reason: "submit" };
-			if (el.role === "button" || el.role === "link") {
-				return classifyAction({ type: "click", ref: el.ref }, ctx);
-			}
+			const typing = el.role === "textbox" || el.role === "searchbox" || el.role === "combobox";
+			// Enter or Space on anything that is not a place to type is a click on it: the verb,
+			// href, download and cross-site rules apply whatever its role.
+			if (!typing) return classifyAction({ type: "click", ref: el.ref }, ctx);
 			if (kind === "enter") {
 				if (el.form || el.submits) return submitClass(el, ctx.currentUrl);
-				// A search box is a read; any other text box with no form is a chat box or a
+				// A search box is a read; a text box or a combobox with no form is a chat box or a
 				// contenteditable that sends on Enter (Slack, WhatsApp Web, Discord).
 				if (el.role === "searchbox") return { class: "input" };
-				if (el.role === "textbox") return { class: "commit", reason: "submit" };
+				return { class: "commit", reason: "submit" };
 			}
 			return { class: "input" };
 		}
 		case "navigate": {
 			const target = resolveUrl(action.url, ctx.currentUrl);
-			if (!target || (target.protocol !== "http:" && target.protocol !== "https:")) {
-				// about:blank is the one non-web address a browser starts from.
-				if (target && target.protocol === "about:" && target.pathname === "blank") {
-					return { class: "read" };
-				}
+			if (!target || !isWebUrl(target)) {
+				// Not even about:blank: a blank page is a stepping stone, never a destination.
 				return { class: "commit", reason: "bad-url" };
 			}
 			const host = target.hostname.toLowerCase();
-			if (current && !sameSite(host, current)) {
+			// A page with no host is judged against the last real site of the task; with none,
+			// anywhere is a new site, except the task's own first move to its start address.
+			const from = current ?? ctx.lastSite;
+			if (!from) {
+				return ctx.firstNavigation
+					? { class: "read", targetHost: host }
+					: { class: "commit", reason: "new-domain", targetHost: host };
+			}
+			if (!sameSite(host, from)) {
 				return { class: "commit", reason: "new-domain", targetHost: host };
 			}
 			return { class: "read", targetHost: host };
@@ -358,7 +374,9 @@ export function classifyAction(action: BrowserAction, ctx: ClassifyContext): Cla
 				? resolveUrl(el.href, ctx.currentUrl)?.hostname.toLowerCase()
 				: undefined;
 			const linkHost = el.linkDomain ? hostOf(el.linkDomain) : hrefHost && hostOf(hrefHost);
-			if (el.role === "link" && linkHost && current && !sameSite(linkHost, current)) {
+			const from = current ?? ctx.lastSite;
+			// Any element that leads away counts, not only a link: a menu item with an href too.
+			if (linkHost && (!from || !sameSite(linkHost, from))) {
 				return { class: "commit", reason: "new-domain", targetHost: linkHost };
 			}
 			return { class: "read" };
