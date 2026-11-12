@@ -559,6 +559,7 @@ async function runInner(
 	// ---- the model's tools ----------------------------------------------------------------
 
 	const doDiff = async (callId: string) => {
+		await assertLease();
 		const text = await refresh();
 		pushToolMessage(callId, "", text);
 	};
@@ -792,6 +793,8 @@ async function runInner(
 				const approvedDigest = actionDigest(action, ctx);
 				// A tab is re-listed: one that navigated or was retitled while the user decided no
 				// longer matches what they approved.
+				// The user may have been away a long while: still this task's browser?
+				await assertLease();
 				if (action.type === "use_tab") await relistTabs();
 				else pendingPage = await refresh();
 				const stale = wantedRef !== undefined && !elements.has(wantedRef);
@@ -937,7 +940,7 @@ async function runInner(
 				state: "error",
 				note: short(message, 80),
 			});
-			pushToolMessage(callId, `Error: ${message}`);
+			pushToolMessage(callId, `Error: ${fenceInline(short(message, 300))}`);
 		}
 	};
 
@@ -1043,7 +1046,7 @@ async function runInner(
 				if ("refused" in back) {
 					observer?.resumed?.({ title: short(sanitizeText(back.title), 120), changed: true });
 					resumedNote = changedNote;
-				} else if (back.changed || shared.adopted.has(back.id)) {
+				} else if (back.changed) {
 					observer?.resumed?.({ title: short(sanitizeText(back.title), 120), changed: true });
 					// Release it (it stays open for the user) so the task begins on a blank page of its own.
 					await runtime.endTask({ keep: true }, AbortSignal.timeout(10_000)).catch(() => undefined);
@@ -1150,6 +1153,7 @@ async function runInner(
 				try {
 					switch (call.name) {
 						case "snapshot": {
+							await assertLease();
 							const snap = await takeSnapshot();
 							recordStep({
 								action: "Look at the page",
@@ -1185,7 +1189,10 @@ async function runInner(
 				} catch (err) {
 					if (err instanceof Stop) throw err;
 					// A tool failure the model can read and work around.
-					pushToolMessage(call.id, `Error: ${err instanceof Error ? err.message : String(err)}`);
+					pushToolMessage(
+						call.id,
+						`Error: ${fenceInline(short(err instanceof Error ? err.message : String(err), 300))}`
+					);
 				}
 				if (denied && deps.unattended) throw new Stop("denied");
 			}

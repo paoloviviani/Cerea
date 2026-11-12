@@ -3,8 +3,9 @@
 !!! info "For operators"
 
     Browser use is off by default. Turning it on is an administrator decision
-    (Administration, Assistant, Browser use). The runtime that drives the
-    browser is not part of this release: it is coming with `galopin browser`.
+    (Administration, Assistant, Browser use). The browser itself runs on a user's
+    own computer, set up with `galopin browser setup` and `galopin browser enable`
+    ("The browser on your computer").
 
 With browser use, the assistant can do a task in a real browser on one of your
 own machines, signed in as you are: search and filter, fill in forms, page
@@ -33,8 +34,9 @@ page at a given address. Browser use _acts_.
   the usual push notification ("Permission" events in your notification settings),
   so you can answer from your phone with the chat closed.
 - **Downloads go into the conversation** as files, like an attachment, stored
-  once. Only files that an action you approved produced are kept; a file a page
-  started by itself is dropped and said so. Files a privacy rule withholds stay
+  once. Only files that these produced are kept: an action you approved, the
+  start address the chat asked the browser to open, and a site the administrator
+  trusts (the allowed list); a file a page started by itself is dropped and said so. Files a privacy rule withholds stay
   withheld: they are listed, reported as withheld, and no tool can read them.
   Audio downloads are not transcribed.
 - **Stop works.** Stopping the turn stops the browsing agent, and the card shows
@@ -91,9 +93,40 @@ it. Allow-listed sites get signed grants too.
   holds across servers and restarts, and a task that dies frees the machine within
   a minute.
 
-How to enable the runtime on a machine: coming with `galopin browser`. Until it
-ships, the setting can be turned on but no machine offers a browser, so `browse`
-is never offered.
+To enable the runtime on a machine, install galopin there and run
+`galopin browser setup` (Node.js 22.18 or newer; it installs the runtime and a
+Chromium of its own into galopin's directory) and `galopin browser enable`, then
+keep `galopin run` going. See "The browser on your computer"
+and, for users who have no agents, "For users without agents" below. Until a
+machine offers a browser, `browse` is never offered.
+
+### Your own tabs
+
+The browser may hold pages you opened yourself. When the goal refers to the page
+you are on ("this site", "the current tab"), the browsing agent lists the open
+pages and **sees their titles and addresses, without the query string**, never
+their content. To work in one it must ask you first: "Let Cerea use your tab
+..." is an approval like any commit, bound to that tab, its address and its title
+(a tab that changed while you decided is refused), and no allowed-sites list
+covers it. A tab on a site of the deny list is not listed at all. A tab you let
+it use is never remembered for a later task.
+
+### Verifications
+
+A verification (a captcha or a bot check) is never solved by the model. The task
+pauses, a card (also in the Needs you bar and as a push) says "A verification
+appeared in the browser on <machine>. Solve it in the window, then tap Continue.",
+and the task goes on from a fresh look at the page. The wait does not count toward
+the time budget. Stopping, or a scheduled run with nobody to ask, ends the task.
+
+### The page stays open
+
+When a task ends, its last page stays open in the browser, and the card says
+"Left open: <title>". The next `browse` in the **same conversation** continues
+on that page; in another conversation it is just one of your tabs (adopting it
+needs your approval). If the page changed in the meantime, or has been closed, the
+next task starts on a new tab instead and says so. A task that stopped on a site
+of the deny list closes its page.
 
 ## For users without agents
 
@@ -173,11 +206,11 @@ leaves for another site.
 
 - An approval waits inside the running turn. If the chat restarts while one is
   open, the task ends and the card shows it as expired.
-- The runtime, `galopin browser`, live view and taking over the browser, and
-  replaying known tasks are not part of this release.
+- Live view and taking over the browser, and replaying known tasks, are not part
+  of this release.
 
 ## For developers
 
-The runtime contract (six MCP tools: `snapshot`, `diff`, `act`, `extract`,
-`screenshot`, `download`) is in `src/lib/server/browser/contract.ts`, with a fake
+The runtime contract (MCP tools: `snapshot`, `diff`, `act`, `extract`,
+`screenshot`, `download`, `tabs`, `resume`, `end_task`) is in `src/lib/server/browser/contract.ts`, with a fake
 runtime for tests in `fakeRuntime.ts`. The design is ADR 0116.
