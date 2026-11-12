@@ -97,6 +97,39 @@ container can also enroll by itself from environment variables, and keep its
 pairing in a volume you name: see
 [Running galopin in a container](agent-machines-reference.md#running-galopin-in-a-container).
 
+## macOS app (menu bar)
+
+**Cerea connector** is a small menu-bar app for a Mac, for someone who just wants Cerea to reach their own files and a browser and would rather not use a terminal. It pairs the Mac as a _connectors-only_ computer (no coding agent), sets up the browser, and keeps galopin running. Everything it needs, including Node for the browser, is inside the app.
+
+**Install it** by pasting this in Terminal (the Mac's own, one line):
+
+```sh
+curl -fsSL https://github.com/paoloviviani/Cerea/releases/latest/download/install-cerea-connector.sh | sh
+```
+
+It downloads the build for your Mac (Apple Silicon or Intel), checks it, puts **Cerea connector** in `~/Applications`, and opens it. Run the same line again to update; your pairing is kept.
+
+**Or download the zip** from the [releases page](https://github.com/paoloviviani/Cerea/releases/latest): `Cerea-connector-macos-arm64.zip` for Apple Silicon (M1 and later) or `Cerea-connector-macos-amd64.zip` for Intel. Unzip it and drag **Cerea connector** to Applications. The app is not signed with an Apple developer account, so the first time you open it, macOS asks you to confirm. Which steps depend on your macOS version (Apple menu, then **About This Mac**, shows it):
+
+- **macOS 14 (Sonoma) and older:** right-click (or Control-click) the app, choose **Open**, then **Open** again.
+- **macOS 15 (Sequoia) and later:** open the app once and dismiss the warning. Then go to **System Settings, Privacy & Security**, scroll to the message about **Cerea connector**, click **Open Anyway**, confirm, and enter your Mac's password. You only do this once.
+
+The install line above avoids this step, because `curl` does not mark what it downloads.
+
+**Using it.** A small icon appears in the menu bar. Its menu shows whether the Mac is _Connected_, _Offline_ or _Not paired_ and the Cerea address, and whether the browser is ready.
+
+| Menu item              | What it does                                                                                                                                                                                |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Pair with Cerea...** | Asks for your Cerea's address, then opens a sign-in page and shows a code to type if it asks. Under **Advanced**, _Pair as a coding-agent computer_ also lets Cerea use coding agents here. |
+| **Set up browser**     | Installs galopin's browser runtime and offers it to Cerea. It uses Google Chrome if you have it; otherwise it downloads Chromium, which can take a few minutes.                             |
+| **Open Cerea**         | Opens the address in your browser.                                                                                                                                                          |
+| **Start** / **Stop**   | Starts or stops galopin (Stop lasts until the app is next opened).                                                                                                                          |
+| **Start at login**     | Opens the app, and starts galopin, when you log in. On by default.                                                                                                                          |
+| **Show logs**          | Opens galopin's log in Console.                                                                                                                                                             |
+| **Quit**               | Closes the menu-bar icon. galopin keeps running; use **Stop** first to stop it.                                                                                                             |
+
+**Remove it** with `curl -fsSL https://github.com/paoloviviani/Cerea/releases/latest/download/install-cerea-connector.sh | sh -s -- --uninstall`, then remove the Mac in the Agents panel. See [Removing the macOS app](agent-machines-reference.md#removing-the-macos-app).
+
 ## The panel
 
 ![An agent session waiting for you: an edit approval card, the Plan, Ask, Auto and Allow selector and the pane buttons.](assets/screenshots/agents-session-waiting.webp#only-light)

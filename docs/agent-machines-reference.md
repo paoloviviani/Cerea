@@ -1544,6 +1544,16 @@ again. The agent reports this at once instead of hanging; the
 3. Delete `<config-dir>/galopin/`. Re-enrolling later mints a new computer
    id, which is paired afresh.
 
+### Removing the macOS app
+
+The [menu-bar app](agent-machines.md#macos-app-menu-bar) ("Cerea connector") is removed like any computer, with its own files:
+
+1. Revoke the Mac in the `/code` panel, as above.
+2. Run the installer with `--uninstall`: `curl -fsSL https://github.com/paoloviviani/Cerea/releases/latest/download/install-cerea-connector.sh | sh -s -- --uninstall`. It stops the services (`launchctl bootout gui/$(id -u)/org.cerea.galopin` and `.../org.cerea.connector`), deletes the two LaunchAgent files (`~/Library/LaunchAgents/org.cerea.connector.plist`, the login item, and `~/Library/Application Support/galopin/org.cerea.galopin.plist`, the service) and `~/Applications/Cerea connector.app`. Without a connection, do the same by hand.
+3. It keeps the pairing, so installing again needs no new sign-in. To delete it too, add `--purge`, or delete `~/Library/Application Support/galopin/` and `~/Library/Logs/galopin.log`. Re-enrolling later mints a new computer id.
+
+The app starts galopin from its own copy of the LaunchAgent in `~/Library/Application Support/galopin/`, not from `~/Library/LaunchAgents/org.cerea.galopin.plist` as in the manual install above. If that file exists from an earlier manual install, the installer removes it.
+
 ### What is kept where
 
 |                                                             | Where it lives                                                   |

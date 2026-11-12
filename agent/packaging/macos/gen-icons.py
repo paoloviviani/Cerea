@@ -1,3 +1,5 @@
+# Draws the two icons (template PNG for the menu bar, 1024px app icon).
+# Usage: python3 gen-icons.py OUT_DIR  (icon.png -> agent/cmd/galopin-tray/, app-icon-1024.png -> here)
 import zlib,struct,math,sys
 def png(path,size,fn):
     rows=[]
