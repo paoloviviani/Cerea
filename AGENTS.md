@@ -552,6 +552,23 @@ Four rules:
   opposite on purpose: it is the "find anything" list, so it includes them and
   marks each with its project.
 
+**Recent** (`components/nav/RecentList.svelte`, `utils/recentItems.ts`) is the
+third option of the Chats | Recent | Agents switch (`codeNav.view`, memory only
+like the other two). It is one list of chats (project chats included, badge from
+the projects the sidebar already reads) and agent sessions, newest first, built on
+the client from stores that already exist: the layout's chat list (`lastActivityAt`,
+kept live by the same watcher, so a new message moves a chat up) and the Agents
+tree's cache (`codeTreeCache`, read through the proxy for paired machines that are online; a machine that has gone offline keeps its last sessions, shown dimmed).
+There is **no endpoint and no server-side session store**: the machine owns its
+sessions and `CodeAgent.ts` forbids a second agent store, so a server list would
+either have to ask every machine or mirror them. A session's clock is its
+`updatedAt` as the machine reports it. The window is `RECENT_WINDOW_MS` (48 h),
+filled to `RECENT_MIN_ITEMS` (10) with older items; while more chat pages exist,
+sessions older than the oldest loaded chat are held back so order never needs
+correcting. Everything around the list (New chat, Schedules, the foot) is the Chats
+mode's, shared; only the list differs. Users without agent access get the switch
+without Agents and a chats-only list.
+
 **`/chats` and its search** (`components/chats/ChatsList.svelte`). A search box
 focused on open, rows of title, last updated (relative), model and the project
 badge, newest first, more rows as the end scrolls into view. The filter is the
