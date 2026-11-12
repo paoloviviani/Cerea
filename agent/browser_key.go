@@ -19,6 +19,26 @@ import (
 
 const browserKeyFamily = "browser"
 
+type browserKeyCaller struct {
+	WorkspaceID    string   `json:"workspaceId"`
+	PermissionMode string   `json:"permissionMode"`
+	Coordination   []string `json:"coordination"`
+}
+
+// browserKeyCalls makes the one machine call of the browser family. The frame is the one
+// protocol-fixtures/calls/browser.key.call.json documents: a machine-level call, not a session's,
+// so the session ids are the fixed word "browser".
+type browserKeyCalls struct{}
+
+func (browserKeyCalls) browserCall(ctx context.Context, calls machineCaller, op string) (json.RawMessage, *link.OpError) {
+	return calls.Call(ctx, link.Call{
+		Op: op, SessionID: "browser", RootSessionID: "browser",
+		Caller:  browserKeyCaller{PermissionMode: "ask", Coordination: []string{}},
+		Args:    map[string]any{},
+		Timeout: 20 * time.Second,
+	})
+}
+
 // fetchBrowserKey asks Cerea for this machine's key and stores it at path.
 func fetchBrowserKey(ctx context.Context, calls machineCaller, path string) *mcpconn.OpenError {
 	if calls == nil {
@@ -27,7 +47,7 @@ func fetchBrowserKey(ctx context.Context, calls machineCaller, path string) *mcp
 	if !calls.Supports(browserKeyFamily) {
 		return &mcpconn.OpenError{Code: "unavailable", Message: "this Cerea does not support browser use; update it"}
 	}
-	res, operr := calls.Call(ctx, link.Call{Op: "browser.key", Args: map[string]any{}, Timeout: 20 * time.Second})
+	res, operr := browserKeyCalls{}.browserCall(ctx, calls, "browser.key")
 	if operr != nil {
 		code := "unavailable"
 		if operr.Code == "forbidden" {

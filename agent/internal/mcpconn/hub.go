@@ -42,6 +42,9 @@ type Config struct {
 	// ServerLimits lowers the channel limit of a named server (the browser runtime
 	// owns one profile, so one process: its limit is 1).
 	ServerLimits map[string]int
+	// LocalExclude names servers the in-process (agent session) connector path
+	// must never reach: LocalTools and LocalCall refuse them.
+	LocalExclude map[string]bool
 	// OpenCheck is how long an opened process is watched for an immediate
 	// exit (default 150 ms).
 	OpenCheck  time.Duration

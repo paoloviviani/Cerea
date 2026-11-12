@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -420,11 +421,13 @@ type fakeCaller struct {
 	res      json.RawMessage
 	err      *link.OpError
 	ops      []string
+	calls    []link.Call
 }
 
 func (f *fakeCaller) Supports(family string) bool { return f.supports && family == "browser" }
 func (f *fakeCaller) Call(_ context.Context, c link.Call) (json.RawMessage, *link.OpError) {
 	f.ops = append(f.ops, c.Op)
+	f.calls = append(f.calls, c)
 	return f.res, f.err
 }
 
@@ -437,6 +440,30 @@ func TestFetchBrowserKeyWritesItPrivately(t *testing.T) {
 	}
 	if len(f.ops) != 1 || f.ops[0] != "browser.key" {
 		t.Errorf("ops %v", f.ops)
+	}
+	// The frame is the one the protocol fixture documents.
+	var fixture struct {
+		Frame struct {
+			Op, SessionID, RootSessionID string
+			Caller                       json.RawMessage
+			Args                         json.RawMessage
+		}
+	}
+	raw, err := os.ReadFile(filepath.Join("protocol-fixtures", "calls", "browser.key.call.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	got := f.calls[0]
+	gotCaller, _ := json.Marshal(got.Caller)
+	var wantCaller, haveCaller map[string]any
+	_ = json.Unmarshal(fixture.Frame.Caller, &wantCaller)
+	_ = json.Unmarshal(gotCaller, &haveCaller)
+	if got.SessionID != fixture.Frame.SessionID || got.RootSessionID != fixture.Frame.RootSessionID ||
+		!reflect.DeepEqual(wantCaller, haveCaller) {
+		t.Errorf("call %+v caller %v, fixture %+v caller %v", got, haveCaller, fixture.Frame, wantCaller)
 	}
 	b, _ := os.ReadFile(path)
 	if strings.TrimSpace(string(b)) != key {
@@ -527,5 +554,29 @@ func TestBrowserEnableTightensALooseProfileAndStateDirectory(t *testing.T) {
 	}
 	if !contains(entryArgs(t, r), "--state-dir") {
 		t.Error("the runtime is not told where to keep spent approvals")
+	}
+}
+
+// The documented answer (protocol-fixtures/calls/browser.key.callres.json) is accepted as it is.
+func TestFetchBrowserKeyAcceptsTheFixtureAnswer(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("protocol-fixtures", "calls", "browser.key.callres.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		Frame struct {
+			Result json.RawMessage `json:"result"`
+		} `json:"frame"`
+	}
+	if err := json.Unmarshal(raw, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "key")
+	if oerr := fetchBrowserKey(context.Background(), &fakeCaller{supports: true, res: fixture.Frame.Result}, path); oerr != nil {
+		t.Fatal(oerr)
+	}
+	b, _ := os.ReadFile(path)
+	if strings.TrimSpace(string(b)) != "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc" {
+		t.Errorf("%q", b)
 	}
 }

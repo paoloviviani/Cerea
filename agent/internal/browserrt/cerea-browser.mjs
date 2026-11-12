@@ -1,4 +1,4 @@
-// cerea-browser runtime 0.1.0; source-hash: 46f9141eb35e3e01a81424883ac4b2c19dedf8f80d4b6b644e89d68e80143226
+// cerea-browser runtime 0.1.0; source-hash: c02d569f3a9298eaa1073a310cc1cf117a2cdec8a053582bfb3f2d09e5c1bc2d
 // inlined: @hono/node-server@2.1.8 @modelcontextprotocol/sdk@1.32.2 ajv@8.20.0 ajv-formats@3.0.1 content-type@1.0.5 fast-deep-equal@3.1.3 fast-uri@3.1.9 hono@4.13.18 json-schema-traverse@1.0.0 tldts@7.4.26 zod@3.25.76 zod-to-json-schema@3.25.2
 import { createRequire as __cr } from "node:module";
 const require = __cr(import.meta.url);
@@ -23578,6 +23578,10 @@ var BrowserSession = class {
       }
     }
     await this.settlePopups();
+    if (this.openedDuringAct) {
+      const done = results.findLast((x) => x.ok);
+      if (done) done.outcome = clean(`${done.outcome ?? "done"}; opened a new tab, now on it`, 300);
+    }
     const page = this.active && !this.active.isClosed() ? this.active : page0;
     const last = results.at(-1);
     for (const host of this.foreignTabs) {
@@ -23801,7 +23805,7 @@ var BrowserSession = class {
         await this.target(page, action.ref).click({ timeout: ACTION_TIMEOUT_MS });
         await sleep(150);
         await this.settle(page);
-        return this.openedDuringAct ? "clicked (opened a new tab, now on it)" : "clicked";
+        return "clicked";
       }
       case "fill": {
         const locator = this.target(page, action.ref);

@@ -121,3 +121,29 @@ describe("approval digest (contract vectors)", () => {
 		);
 	});
 });
+
+// The literal vectors in Cerea's classifier.spec.ts ("the runtime must reproduce these").
+describe("approval digest (Cerea's literal vectors)", () => {
+	const at = "https://shop.example.com/checkout";
+	const el = (over: { name: string; role?: string }) => ({ ref: "e1", role: "button", ...over });
+	it("matches them", () => {
+		assert.equal(
+			actionDigest(
+				{ type: "click", ref: "e3" },
+				{ element: { ...el({ name: "Pay €120" }), ref: "e3" }, currentUrl: at }
+			),
+			"3127a4f00b0eb649d1dbc6c853147aa6"
+		);
+		assert.equal(
+			actionDigest(
+				{ type: "fill", ref: "e1", text: "hello", submit: true },
+				{ element: el({ role: "textbox", name: "Search" }), currentUrl: at }
+			),
+			"0ecbe3c8aa998d7f50d6f12fdc49ba51"
+		);
+		assert.equal(
+			actionDigest({ type: "navigate", url: "https://other.example.org/x" }, { currentUrl: at }),
+			"a6c7a2fae7c2c894dd073001020ab7da"
+		);
+	});
+});

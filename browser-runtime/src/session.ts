@@ -831,6 +831,10 @@ export class BrowserSession {
 			}
 		}
 		await this.settlePopups();
+		if (this.openedDuringAct) {
+			const done = results.findLast((x) => x.ok);
+			if (done) done.outcome = clean(`${done.outcome ?? "done"}; opened a new tab, now on it`, 300);
+		}
 		const page = this.active && !this.active.isClosed() ? this.active : page0;
 		const last = results.at(-1);
 		for (const host of this.foreignTabs) {
@@ -1109,7 +1113,7 @@ export class BrowserSession {
 				await this.target(page, action.ref).click({ timeout: ACTION_TIMEOUT_MS });
 				await sleep(150);
 				await this.settle(page);
-				return this.openedDuringAct ? "clicked (opened a new tab, now on it)" : "clicked";
+				return "clicked";
 			}
 			case "fill": {
 				const locator = this.target(page, action.ref);
