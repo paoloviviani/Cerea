@@ -7,13 +7,15 @@ const conversationId = new ObjectId();
 const b64 = (text: string) => Buffer.from(text).toString("base64");
 
 function seams(options: { withheld?: boolean; storeFails?: boolean } = {}) {
-	const attach = vi.fn(async (file: File): Promise<MessageFile> => ({
-		type: "hash",
-		value: "sha",
-		mime: file.type,
-		name: file.name,
-		...(options.withheld ? { withheld: { rule: "no-health-data", pipeline: "strict" } } : {}),
-	}));
+	const attach = vi.fn(
+		async (file: File, _owner?: string, _token?: string): Promise<MessageFile> => ({
+			type: "hash",
+			value: "sha",
+			mime: file.type,
+			name: file.name,
+			...(options.withheld ? { withheld: { rule: "no-health-data", pipeline: "strict" } } : {}),
+		})
+	);
 	const store = vi.fn(async (input: { name: string; bytes: Buffer }) =>
 		options.storeFails
 			? { ok: false as const, status: 413 as const, error: "limit reached" }

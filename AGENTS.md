@@ -1584,6 +1584,34 @@ and `src/service-worker.ts`, the Settings screen
   general settings routes post a whole copy loaded at page open and would
   overwrite a toggle made since.
 
+## Browser use: the `browse` tool (ADR 0116)
+
+Code: `src/lib/server/browser/` (the contract, the loop, the policy), `builtinTools/browseTool.ts`
+(the chat's tool), `components/chat/BrowseCard.svelte`. Off unless `CHAT_BROWSER_ENABLED` is
+exactly `true`; user docs in `docs/browser-use.md`. What is not obvious:
+
+- **The runtime is a machine's `cerea-browser` MCP server**, reached through the local-connector
+  path (`mcpRuntimeCall`). `isBrowserRuntimeServer` keeps it out of the connector list, the
+  settings machine view and `resolveLocalSelection`. `browseMachinesFor` finds machines that are
+  online with a `ready` runtime; `browse` is offered only then.
+- **The contract is `contract.ts`.** `extract` is model-free (tables, lists, text); mapping onto an
+  `output_schema` is one extra model call in the loop. An approval grant carries a digest of the
+  exact action (`actionDigest`, specified in `contract.ts`, test vectors in `classifier.spec.ts`);
+  the runtime recomputes it. Change the digest and the runtime package together.
+- **Classify, then decide** (`classifier.ts`, `policy.ts`): read and input run, commit asks even under
+  always-allow, a deny-listed site refuses everything, an allow-listed one lets commits through, and
+  an unattended run refuses commits. Unknown elements are commits (fail closed). A batch is cut
+  into runs at every action that can change the page, and the element map is refreshed between.
+- **An approval waits in process.** The sub-agent loop cannot be parked, so `approvals.ts` writes a
+  plain `mcpElicitations` row (no `pending`, so the answer endpoint has nothing to resume), emits
+  the chat's own approval card with a `browse` payload, and polls the row like a 2025-era MCP
+  prompt (`awaitAnswer`). The loop's wall clock excludes the wait. A restart mid-wait ends the task.
+- **Downloads** are written as conversation attachments first (`writeAttachment`: where the privacy
+  pipelines read a document and mark a withheld one), then stored as deliverables so the document
+  tools and the sandbox see them. A withheld file is never stored as a deliverable.
+- `browse` is in `EXTERNAL_BUILTIN_TOOLS` and not in `SUBAGENT_BUILTIN_TOOLS`. Its card is a
+  `MessageBrowseUpdate`, replaced by `uuid` like a sub-agent's.
+
 ## The plan tool and sub-agents
 
 Both are builtin tools (`textGeneration/builtinTools/`), offered to any chat whose

@@ -86,7 +86,7 @@ function build(options: {
 		toolCallId: "call-1",
 		elicitationSink: {
 			conversationId: new ObjectId(),
-			emit: (u: MessageUpdate) => updates.push(u),
+			emit: (u: MessageUpdate) => void updates.push(u),
 		},
 	};
 	return { tool, runtime, model, models, asks, updates, ctx };

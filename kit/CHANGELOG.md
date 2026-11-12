@@ -5,6 +5,10 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Browser use (off by default).** The assistant can do a task in a real browser on one of a user's own machines through a new `browse` tool: a browsing agent works on its own, streams its steps into a collapsible card, and asks the user before anything that commits (paying, sending, deleting, publishing, downloading, leaving the site). Administration, Assistant, Browser use sets the switch, the model, the budgets and per-site allow and deny lists (`CHAT_BROWSER_*`). Nothing is offered until a machine runs the browser runtime (coming with `galopin browser`); machines need no update for this change. See "Browser use" in the documentation.
+
 ## v0.50.0 — 2026-11-12
 
 Pins: Cerea `0.50.0` (chat, `cerea-documents` and the new `galopin` image), Pystino `0.33.2`.
