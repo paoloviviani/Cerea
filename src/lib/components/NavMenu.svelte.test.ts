@@ -537,11 +537,12 @@ describe("NavMenu's agents list and the /code sign-in", () => {
 		expect(listDevices.mock.calls.length).toBe(calls);
 	});
 
-	it("renders no Chats | Agents switch, and asks /status for nobody, when the person is denied", () => {
-		// ADR 0096: the switch is per-person. `codeAgentsEnabled` reaches this
+	it("offers no Agents button, and asks /status for nobody, when the person is denied", () => {
+		// ADR 0096: the agents half is per-person. `codeAgentsEnabled` reaches this
 		// component already decided (the layout's awaited /v1/me answer, and
 		// feature-flags' own per-person answer) — with it false nothing of the
-		// panel exists: no switch, no tree, no /status request.
+		// panel exists: no Agents button, no tree, no /status request. The
+		// Chats | Recent switch stays: Recent lists chats only for them.
 		const fetchSpy = vi.fn(async (input: RequestInfo | URL) =>
 			String(input).includes("/api/v2/code/status")
 				? new Response(superjson.stringify({ enabled: true, fresh: true }), { status: 200 })
@@ -560,7 +561,8 @@ describe("NavMenu's agents list and the /code sign-in", () => {
 		);
 
 		expect(host.querySelector('[data-testid="sidebar-view-agents"]')).toBeNull();
-		expect(host.querySelector('[data-testid="sidebar-view-chats"]')).toBeNull();
+		expect(host.querySelector('[data-testid="sidebar-view-chats"]')).not.toBeNull();
+		expect(host.querySelector('[data-testid="sidebar-view-recent"]')).not.toBeNull();
 		expect(host.querySelector("[data-testid='device-rail']")).toBeNull();
 		expect(fetchSpy.mock.calls.filter(([input]) => String(input).includes("/api/v2/code"))).toEqual(
 			[]

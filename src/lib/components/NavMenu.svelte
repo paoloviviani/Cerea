@@ -17,7 +17,7 @@
 </script>
 
 <!--
-	The left panel, top to bottom: the logo, the Chats | Agents switch, the one
+	The left panel, top to bottom: the logo, the Chats | Recent | Agents switch, the one
 	"New …" button that follows the switch, the list (two trees in Chats, the
 	machines tree in Agents), then the foot — Schedules, Workspace, and the user
 	row with its menu.
@@ -82,6 +82,8 @@
 	import { useMoveConversation } from "$lib/utils/useMoveConversation";
 	import CarbonChat from "~icons/carbon/chat";
 	import CarbonCode from "~icons/carbon/code";
+	import CarbonRecent from "~icons/carbon/recently-viewed";
+	import RecentList from "./nav/RecentList.svelte";
 	import CarbonEdit from "~icons/carbon/edit";
 	import CarbonSettings from "~icons/carbon/settings";
 	import CodeNavTree from "./code/CodeNavTree.svelte";
@@ -231,14 +233,17 @@
 	const schedulesActive = $derived(page.url.pathname === `${base}/schedules`);
 	// Agents only exist where the deployment has them: with the switch gone, the
 	// list is always chats.
-	const effectiveView = $derived(
-		!codeAgentsEnabled
-			? "chats"
-			: codeNav.view === "auto"
-				? page.route.id === "/code"
-					? "agents"
-					: "chats"
-				: codeNav.view
+	// "recent" needs no agents: without them it lists chats only.
+	const effectiveView = $derived<"chats" | "agents" | "recent">(
+		codeNav.view === "recent"
+			? "recent"
+			: !codeAgentsEnabled
+				? "chats"
+				: codeNav.view === "auto"
+					? page.route.id === "/code"
+						? "agents"
+						: "chats"
+					: codeNav.view
 	);
 	// One Schedules page for both kinds. The row opens it filtered to the mode
 	// you are in; the page's own filter changes that.
@@ -269,29 +274,43 @@
 		>
 			<Logo variant="tile" decorative classNames="h-8 w-8 max-sm:h-9 max-sm:w-9" />
 		</a>
-		{#if codeAgentsEnabled}
-			<!-- The panel switch: chats and coding agents are two contents of the same
+		<!-- The panel switch: chats, coding agents and what was recent are contents of the same
 		     list, not two destinations. It decides what the button below makes.
 		     Two boxes of padding rather than margins: +layout.svelte pins every
 		     NavMenu child to the nav's column (`--nav-width`), so horizontal insets
 		     must be padding inside that box. -->
-			<div
-				class="@container flex h-8 min-w-0 flex-1 rounded-lg bg-gray-100 p-0.5 max-sm:h-9 dark:bg-gray-800"
-				data-testid="sidebar-switch"
+		<div
+			class="@container flex h-8 min-w-0 flex-1 rounded-lg bg-gray-100 p-0.5 max-sm:h-9 dark:bg-gray-800"
+			data-testid="sidebar-switch"
+		>
+			<button
+				data-testid="sidebar-view-chats"
+				class="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors {effectiveView ===
+				'chats'
+					? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600/60 dark:text-white'
+					: 'text-ink-muted hover:text-ink'}"
+				aria-label={m["app.nav.chats"]()}
+				title={m["app.nav.chats"]()}
+				onclick={() => (codeNav.view = "chats")}
 			>
-				<button
-					data-testid="sidebar-view-chats"
-					class="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors {effectiveView ===
-					'chats'
-						? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600/60 dark:text-white'
-						: 'text-ink-muted hover:text-ink'}"
-					aria-label={m["app.nav.chats"]()}
-					title={m["app.nav.chats"]()}
-					onclick={() => (codeNav.view = "chats")}
-				>
-					<CarbonChat class="size-3.5 shrink-0" />
-					<span class="hidden @[9rem]:inline">{m["app.nav.chats"]()}</span>
-				</button>
+				<CarbonChat class="size-3.5 shrink-0" />
+				<span class="hidden @[9rem]:inline">{m["app.nav.chats"]()}</span>
+			</button>
+			<button
+				data-testid="sidebar-view-recent"
+				class="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors {effectiveView ===
+				'recent'
+					? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600/60 dark:text-white'
+					: 'text-ink-muted hover:text-ink'}"
+				aria-label={m["app.nav.recent"]()}
+				aria-pressed={effectiveView === "recent"}
+				title={m["app.nav.recent"]()}
+				onclick={() => (codeNav.view = "recent")}
+			>
+				<CarbonRecent class="size-3.5 shrink-0" />
+				<span class="hidden @[9rem]:inline">{m["app.nav.recent"]()}</span>
+			</button>
+			{#if codeAgentsEnabled}
 				<button
 					data-testid="sidebar-view-agents"
 					class="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors {effectiveView ===
@@ -315,8 +334,8 @@
 						>
 					{/if}
 				</button>
-			</div>
-		{/if}
+			{/if}
+		</div>
 	</div>
 
 	<!-- Follows the switch. The same bordered, quiet button in both modes so the
@@ -362,6 +381,13 @@
 		{:else if codeReauth.checked}
 			<CodeNavTree />
 		{/if}
+	{:else if effectiveView === "recent"}
+		<RecentList
+			{conversations}
+			{hasMore}
+			onloadmore={handleVisible}
+			agentsEnabled={codeAgentsEnabled}
+		/>
 	{:else}
 		{#if signedIn}
 			<ProjectsBranch />
