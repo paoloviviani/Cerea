@@ -430,7 +430,11 @@ describe("resuming a page that changed", () => {
 			}
 		);
 		expect(kept).toHaveLength(1);
-		expect(kept[0]).toMatchObject({ id: "flights", lent: true, site: "example.com" });
+		expect(kept[0]).toMatchObject({
+			id: "flights",
+			lent: true,
+			origin: "https://flights.example.com",
+		});
 	});
 });
 

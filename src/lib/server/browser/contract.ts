@@ -345,10 +345,11 @@ export const endTaskResultSchema = z.object({
 			url: z.string().max(4096),
 			/**
 			 * The page is a tab the user lent to this conversation (`use_tab`, approved): it is resumed
-			 * without asking while it stays on `site`, and its token lapses 1 hour after the last use.
+			 * without asking while it stays on `origin` (scheme, host and port, pinned when the user approved it),
+			 * and its token lapses 1 hour after the last use, and 8 hours after the approval at the latest.
 			 */
 			lent: z.boolean().optional(),
-			site: z.string().max(255).optional(),
+			origin: z.string().max(300).optional(),
 		})
 		.optional(),
 });

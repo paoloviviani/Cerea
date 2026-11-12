@@ -1,4 +1,4 @@
-// cerea-browser runtime 0.1.0; source-hash: a2f9a679d0e0951dcf61e1650e2c5d817857bb02d8f8d38971e7083342bd4401
+// cerea-browser runtime 0.1.0; source-hash: 86475f4d17d3f008a727794dadf440386489b480507c78dd062a24493ebe8798
 // inlined: @hono/node-server@2.1.8 @modelcontextprotocol/sdk@1.32.2 ajv@8.20.0 ajv-formats@3.0.1 content-type@1.0.5 fast-deep-equal@3.1.3 fast-uri@3.1.9 hono@4.13.18 json-schema-traverse@1.0.0 tldts@7.4.26 zod@3.25.76 zod-to-json-schema@3.25.2
 import { createRequire as __cr } from "node:module";
 const require = __cr(import.meta.url);
@@ -21642,10 +21642,11 @@ var endTaskResultSchema = external_exports.object({
     url: external_exports.string().max(4096),
     /**
      * The page is a tab the user lent to this conversation (`use_tab`, approved): it is resumed
-     * without asking while it stays on `site`, and its token lapses 1 hour after the last use.
+     * without asking while it stays on `origin` (scheme, host and port, pinned when the user approved it),
+     * and its token lapses 1 hour after the last use, and 8 hours after the approval at the latest.
      */
     lent: external_exports.boolean().optional(),
-    site: external_exports.string().max(255).optional()
+    origin: external_exports.string().max(300).optional()
   }).optional()
 });
 var resumeResultSchema = external_exports.union([
@@ -23107,6 +23108,7 @@ var ACTION_BUDGET_MS = 3e4;
 var DEFAULT_IDLE_MS = 10 * 6e4;
 var KEPT_TTL_MS = 24 * 60 * 6e4;
 var LENT_TTL_MS = 60 * 6e4;
+var LENT_MAX_MS = 8 * 60 * 6e4;
 var MIME_BY_EXTENSION = {
   csv: "text/csv",
   pdf: "application/pdf",
@@ -23177,9 +23179,13 @@ function stripUserUrl(url) {
     return "";
   }
 }
-function siteOfUrl(url) {
-  const host = hostOf(url);
-  return host ? siteOf(host) : "";
+function originOfUrl(url) {
+  try {
+    const u = new URL(url);
+    return u.protocol === "http:" || u.protocol === "https:" ? u.origin : "";
+  } catch {
+    return "";
+  }
 }
 async function safeTitle(page) {
   return Promise.race([page.title().catch(() => ""), sleep(2e3).then(() => "")]);
@@ -23304,6 +23310,10 @@ var BrowserSession = class {
   kept = /* @__PURE__ */ new Map();
   /** Pages this runtime made lazily for a task: one still blank at the end was never used. */
   fresh = /* @__PURE__ */ new WeakSet();
+  /** The origin an adopted tab was lent on (fixed at approval) and when it was approved. */
+  lentInfo = /* @__PURE__ */ new WeakMap();
+  /** Pages this runtime made itself (the launch page, its own new pages). */
+  ours = /* @__PURE__ */ new WeakSet();
   foreignTabs = [];
   popups = [];
   /** A download that starts within this long of an action's end still belongs to it. */
@@ -23350,6 +23360,7 @@ var BrowserSession = class {
       if (!this.active) {
         this.active = await context.newPage();
         this.fresh.add(this.active);
+        this.ours.add(this.active);
         this.taskPages.add(this.active);
         this.baseline = void 0;
         this.taskLastSite = void 0;
@@ -23381,17 +23392,21 @@ var BrowserSession = class {
     const keep = options.keep ? this.active : void 0;
     let kept;
     const unused = (p) => this.fresh.has(p) && p.url() === "about:blank";
-    if (keep && !keep.isClosed() && this.taskPages.has(keep) && !unused(keep)) {
+    const info = keep ? this.lentInfo.get(keep) : void 0;
+    const capEnd = info ? info.since + (this.options.lentMaxMs ?? LENT_MAX_MS) : 0;
+    const lendable = !!keep && !!info && info.origin !== "" && originOfUrl(keep.url()) === info.origin && Date.now() < capEnd;
+    const adoptedKeep = !!keep && this.adopted.has(keep);
+    if (keep && !keep.isClosed() && this.taskPages.has(keep) && !unused(keep) && (!adoptedKeep || lendable)) {
       this.purgeKept();
       const token = randomBytes(18).toString("base64url");
       const title = clean(await safeTitle(keep), 300);
       const url = keep.url();
-      const lent = this.adopted.has(keep) ? { site: siteOfUrl(url) } : void 0;
+      const lent = adoptedKeep && info ? info : void 0;
       this.kept.set(token, {
         page: keep,
         url,
         title,
-        expires: Date.now() + (lent ? this.options.lentTtlMs ?? LENT_TTL_MS : this.options.keptTtlMs ?? KEPT_TTL_MS),
+        expires: lent ? Math.min(Date.now() + (this.options.lentTtlMs ?? LENT_TTL_MS), capEnd) : Date.now() + (this.options.keptTtlMs ?? KEPT_TTL_MS),
         ...lent ? { lent } : {}
       });
       kept = {
@@ -23399,7 +23414,7 @@ var BrowserSession = class {
         id: this.tabId(keep),
         title,
         url: clean(lent ? stripUserUrl(url) : url, 2e3),
-        ...lent ? { lent: true, site: lent.site } : {}
+        ...lent ? { lent: true, origin: lent.origin } : {}
       };
     }
     this.taskPages.clear();
@@ -23434,13 +23449,19 @@ var BrowserSession = class {
     this.kept.delete(token);
     const page = entry.page;
     const url = page.url();
+    if (entry.lent && this.denied(url)) {
+      return { refused: "page_changed", title: "", url: "" };
+    }
     const title = clean(await safeTitle(page), 300);
-    const moved0 = entry.lent ? siteOfUrl(url) !== entry.lent.site : urlWithoutFragment(url) !== urlWithoutFragment(entry.url);
+    const moved0 = entry.lent ? entry.lent.origin === "" || originOfUrl(url) !== entry.lent.origin : urlWithoutFragment(url) !== urlWithoutFragment(entry.url);
     if (moved0) {
       return { refused: "page_changed", title, url: clean(stripUserUrl(url), 2e3) };
     }
     this.taskPages.add(page);
-    if (entry.lent) this.adopted.add(page);
+    if (entry.lent) {
+      this.adopted.add(page);
+      this.lentInfo.set(page, entry.lent);
+    }
     this.active = page;
     this.baseline = void 0;
     this.touch();
@@ -23486,10 +23507,17 @@ var BrowserSession = class {
         target = parsed.href;
       }
     }
-    const spare = context.pages().find(
-      (p) => !p.isClosed() && p.url() === "about:blank" && !this.taskPages.has(p) && ![...this.kept.values()].some((e) => e.page === p)
-    );
+    let spare;
+    for (const p of context.pages()) {
+      if (p.isClosed() || p.url() !== "about:blank" || this.taskPages.has(p) || [...this.kept.values()].some((e) => e.page === p))
+        continue;
+      if (this.ours.has(p) || await p.opener().catch(() => p) === null) {
+        spare = p;
+        break;
+      }
+    }
     const page = spare ?? await context.newPage();
+    this.ours.add(page);
     const discard = (p) => spare ? p.goto("about:blank").then(
       () => void 0,
       () => void 0
@@ -23546,7 +23574,7 @@ var BrowserSession = class {
         id: this.tabId(page),
         title: clean(await safeTitle(page), 300),
         // The task's own pages show in full; a user's tab never shows its query or fragment.
-        url: clean(mine ? page.url() : stripUserUrl(page.url()), 2e3),
+        url: clean(mine && !this.adopted.has(page) ? page.url() : stripUserUrl(page.url()), 2e3),
         mine
       });
     }
@@ -23601,7 +23629,10 @@ var BrowserSession = class {
       this.hook(page);
       void this.adopt(page);
     });
-    for (const page of context.pages()) this.hook(page);
+    for (const page of context.pages()) {
+      this.hook(page);
+      this.ours.add(page);
+    }
     context.on("response", (response) => {
       const headers = response.headers();
       const type = headers["content-type"];
@@ -23855,7 +23886,7 @@ var BrowserSession = class {
     }
     const tabs = [...this.taskPages].filter((p) => !p.isClosed()).length || 1;
     const header = [
-      `url: ${url}`,
+      `url: ${this.adopted.has(page) ? stripUserUrl(url) : url}`,
       `title: ${JSON.stringify(title)}`,
       ...tabs > 1 ? [`tabs: ${tabs}`] : []
     ];
@@ -23991,7 +24022,7 @@ url: about:blank
       removed,
       text: [
         `<page-content untrusted="true">`,
-        `url: ${url} (same page)`,
+        `url: ${this.adopted.has(page) ? stripUserUrl(url) : url} (same page)`,
         `title: ${JSON.stringify(title)}`,
         ...lines.length > 0 ? lines : ["(no change)"],
         `</page-content>`
@@ -24276,6 +24307,7 @@ url: about:blank
     for (const [token, entry] of this.kept) if (entry.page === page) this.kept.delete(token);
     this.taskPages.add(page);
     this.adopted.add(page);
+    this.lentInfo.set(page, { origin: originOfUrl(url), since: Date.now() });
     this.active = page;
     this.baseline = void 0;
     try {

@@ -14,7 +14,12 @@ import type { KeptPage } from "./loop";
 export interface KeptStore {
 	/** The kept page's address without query or fragment (for "is this the same site?"), when known. */
 	url(deviceId: string, userId: ObjectId, conversationId: string): Promise<string | undefined>;
-	get(deviceId: string, userId: ObjectId, conversationId: string): Promise<string | undefined>;
+	/** The token, and whether the page is a tab the user lent (an unattended run never resumes those). */
+	get(
+		deviceId: string,
+		userId: ObjectId,
+		conversationId: string
+	): Promise<{ token: string; lent: boolean } | undefined>;
 	/** Forget the conversation's kept page on every computer of the user's but this one (one write). */
 	clearOthers(userId: ObjectId, conversationId: string, exceptDeviceId: string): Promise<void>;
 	set(
@@ -59,7 +64,9 @@ export const mongoKeptStore: KeptStore = {
 			{ _id: new ObjectId(deviceId), userId },
 			{ projection: { browserKept: 1 } }
 		);
-		return device?.browserKept?.[conversationId]?.url || undefined;
+		const entry = device?.browserKept?.[conversationId];
+		if (entry?.lent && Date.now() - entry.at.getTime() > LENT_IDLE_MS) return undefined;
+		return entry?.url || undefined;
 	},
 	async get(deviceId, userId, conversationId) {
 		const { ObjectId } = await import("mongodb");
@@ -70,7 +77,7 @@ export const mongoKeptStore: KeptStore = {
 		const entry = device?.browserKept?.[conversationId];
 		// A lent tab not used for an hour is a plain user tab again (the runtime lets its token lapse too).
 		if (entry?.lent && Date.now() - entry.at.getTime() > LENT_IDLE_MS) return undefined;
-		return entry?.token;
+		return entry ? { token: entry.token, lent: entry.lent === true } : undefined;
 	},
 	async set(deviceId, userId, conversationId, kept) {
 		const { ObjectId } = await import("mongodb");
@@ -90,7 +97,7 @@ export const mongoKeptStore: KeptStore = {
 						token: kept.token,
 						url: plainUrl(kept.url),
 						at: new Date(),
-						...(kept.lent ? { lent: true, site: kept.site ?? "" } : {}),
+						...(kept.lent ? { lent: true, origin: kept.origin ?? "" } : {}),
 					},
 				},
 			}
@@ -115,9 +122,9 @@ export const mongoKeptStore: KeptStore = {
 /** In memory, for tests. */
 export function memoryKeptStore(
 	now: () => number = Date.now
-): KeptStore & { tokens: Map<string, string>; lent: Map<string, { site: string; at: number }> } {
+): KeptStore & { tokens: Map<string, string>; lent: Map<string, { origin: string; at: number }> } {
 	const tokens = new Map<string, string>();
-	const lent = new Map<string, { site: string; at: number }>();
+	const lent = new Map<string, { origin: string; at: number }>();
 	const urls = new Map<string, string>();
 	const key = (d: string, c: string) => `${d}:${c}`;
 	return {
@@ -134,20 +141,24 @@ export function memoryKeptStore(
 			}
 		},
 		async url(deviceId, _userId, conversationId) {
-			return urls.get(key(deviceId, conversationId));
+			const k = key(deviceId, conversationId);
+			const l = lent.get(k);
+			if (l && now() - l.at > LENT_IDLE_MS) return undefined;
+			return urls.get(k);
 		},
 		async get(deviceId, _userId, conversationId) {
 			const k = key(deviceId, conversationId);
 			const l = lent.get(k);
 			if (l && now() - l.at > LENT_IDLE_MS) return undefined;
-			return tokens.get(k);
+			const token = tokens.get(k);
+			return token ? { token, lent: l !== undefined } : undefined;
 		},
 		async set(deviceId, _userId, conversationId, kept) {
 			if (kept) {
 				tokens.set(key(deviceId, conversationId), kept.token);
 				urls.set(key(deviceId, conversationId), plainUrl(kept.url));
 				if (kept.lent)
-					lent.set(key(deviceId, conversationId), { site: kept.site ?? "", at: now() });
+					lent.set(key(deviceId, conversationId), { origin: kept.origin ?? "", at: now() });
 				else lent.delete(key(deviceId, conversationId));
 			} else {
 				tokens.delete(key(deviceId, conversationId));

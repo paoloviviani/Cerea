@@ -561,20 +561,57 @@ describe("browse: a lent tab across requests", () => {
 		expect(asks).toHaveLength(2);
 	});
 
-	it("asks again once the tab has been idle for an hour", async () => {
+	it("an unattended run never resumes a lent tab", async () => {
+		const runtime = new FakeBrowserRuntime(userPages());
+		const store = memoryKeptStore();
+		const conversation = new ObjectId();
+		const mk = (unattended: boolean, script: ScriptedTurn[]) => {
+			const tool = createBrowseTool({
+				machines: [laptop],
+				settings: settings(),
+				ceiling: "ask",
+				userId: new ObjectId(),
+				unattended,
+				runtimeFor: () => runtime,
+				grantKeyFor: async () => FAKE_BROWSER_KEY,
+				leases: memoryLeaseStore(),
+				keptStore: store,
+				approver: async () => ({ verdict: "approved", id: "a" }),
+				completeFor: () => scriptedModel(script).complete,
+			});
+			tool.bind(turnDeps);
+			return () =>
+				tool.execute({ goal: "work" }, {
+					uuid: "u",
+					toolCallId: "c",
+					conversationId: conversation,
+					elicitationSink: { conversationId: conversation, emit: () => undefined },
+				} as never);
+		};
+		await mk(false, [callTurn("tabs", {}), useForm, answerTurn("done")])();
+		expect(store.lent.size).toBe(1);
+		runtime.calls.length = 0;
+		await mk(true, [answerTurn("scheduled")])();
+		expect(runtime.calls.some((c) => c.tool === "resume")).toBe(false);
+	});
+
+	it("a lent tab idle for an hour is a plain tab again (token and url)", async () => {
 		let clock = Date.now();
 		const store = memoryKeptStore(() => clock);
-		await store.set("d", new ObjectId(), "c", {
+		const user = new ObjectId();
+		await store.set("d", user, "c", {
 			token: "t",
 			id: "form",
 			title: "x",
 			url: "https://forms.example.com/jotform/abc",
 			lent: true,
-			site: "example.com",
+			origin: "https://forms.example.com",
 		});
-		expect(await store.get("d", new ObjectId(), "c")).toBe("t");
+		expect(await store.get("d", user, "c")).toEqual({ token: "t", lent: true });
+		expect(await store.url("d", user, "c")).toBe("https://forms.example.com/jotform/abc");
 		clock += 61 * 60_000;
-		expect(await store.get("d", new ObjectId(), "c")).toBeUndefined();
+		expect(await store.get("d", user, "c")).toBeUndefined();
+		expect(await store.url("d", user, "c")).toBeUndefined();
 	});
 });
 

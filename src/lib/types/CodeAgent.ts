@@ -333,7 +333,7 @@ export interface CodeDevice {
 	/** Pages a browse task left open, by conversation id (server-side only; `browser/kept.ts`). */
 	browserKept?: Record<
 		string,
-		{ token: string; url?: string; at: Date; lent?: boolean; site?: string }
+		{ token: string; url?: string; at: Date; lent?: boolean; origin?: string }
 	>;
 	/** This user's default computer for browsing (one per user, set from Connectors; `browser/machineChoice.ts`). */
 	browserDefault?: boolean;

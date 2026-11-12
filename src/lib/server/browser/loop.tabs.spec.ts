@@ -430,7 +430,11 @@ describe("resuming a page that changed", () => {
 			}
 		);
 		expect(kept).toHaveLength(1);
-		expect(kept[0]).toMatchObject({ id: "flights", lent: true, site: "example.com" });
+		expect(kept[0]).toMatchObject({
+			id: "flights",
+			lent: true,
+			origin: "https://flights.example.com",
+		});
 	});
 });
 
@@ -752,7 +756,7 @@ describe("a tab lent to the conversation", () => {
 				onKept: (k) => void kept.push(k),
 			}
 		);
-		expect(kept[0]).toMatchObject({ lent: true, site: "example.com" });
+		expect(kept[0]).toMatchObject({ lent: true, origin: "https://flights.example.com" });
 		return { runtime, token: kept[0]?.token ?? "" };
 	}
 
@@ -894,5 +898,46 @@ describe("what the sub-agent is told about tabs", () => {
 		expect(prompt).toContain("never open a new tab for it");
 		expect(prompt).toContain("lent to this chat");
 		expect(prompt).toContain("Never open a page that is already open in a tab of the user's");
+	});
+});
+
+describe("a lent tab and unattended runs, and what the model sees of it", () => {
+	const useFlights = () => callTurn("act", { actions: [{ type: "use_tab", tab: "flights" }] });
+
+	async function lentToken() {
+		const runtime = new FakeBrowserRuntime(pages(), "home");
+		const kept: Array<KeptPage | null> = [];
+		await runBrowseLoop(
+			{ goal: "use my tab" },
+			{
+				...base(runtime, scriptedModel([callTurn("tabs", {}), useFlights(), answerTurn("done")])),
+				onKept: (k) => void kept.push(k),
+			}
+		);
+		return { runtime, token: kept[0]?.token ?? "" };
+	}
+
+	it("an unattended run refuses to resume a lent tab, releases it, and keeps nothing", async () => {
+		const { runtime, token } = await lentToken();
+		const kept: Array<KeptPage | null> = [];
+		const model = scriptedModel([answerTurn("ok")]);
+		await runBrowseLoop(
+			{ goal: "scheduled", resumeToken: token },
+			{ ...base(runtime, model), unattended: true, onKept: (k) => void kept.push(k) }
+		);
+		expect(JSON.stringify(model.requests[0].messages)).not.toContain("lent to this conversation");
+		expect(runtime.calls.some((c) => c.tool === "end_task" && !c.args.keep)).toBe(true);
+		// Nothing is lent again (the fake runtime still points at the page; the real one has none).
+		expect(kept.every((k) => !k?.lent)).toBe(true);
+	});
+
+	it("shows the lent page without its query or fragment, in the page text and in tabs", async () => {
+		const { runtime, token } = await lentToken();
+		movePage(runtime, "https://flights.example.com/step-2?session=SECRET#frag");
+		const model = scriptedModel([callTurn("tabs", {}), answerTurn("ok")]);
+		await runBrowseLoop({ goal: "next", resumeToken: token }, base(runtime, model));
+		const seen = JSON.stringify(model.requests);
+		expect(seen).toContain("https://flights.example.com/step-2");
+		expect(seen).not.toContain("SECRET");
 	});
 });

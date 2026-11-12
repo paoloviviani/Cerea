@@ -37,7 +37,15 @@ import {
 } from "./contract";
 import { actionDigest, classifyAction } from "./classifier";
 import { verifyGrant } from "./grants";
-import { hostOf, siteOf } from "./siteRules";
+
+function originOf(url: string): string {
+	try {
+		const u = new URL(url);
+		return u.protocol === "http:" || u.protocol === "https:" ? u.origin : "";
+	} catch {
+		return "";
+	}
+}
 import type { RuntimeCall } from "./runtimeClient";
 
 export interface FakeEffect {
@@ -106,7 +114,7 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 	/** The page `end_task({keep})` left open, by token; `resume` finds it again. */
 	private keptPages = new Map<
 		string,
-		{ id: string; title: string; url: string; lent?: { site: string } }
+		{ id: string; title: string; url: string; lent?: { origin: string } }
 	>();
 	private keptCount = 0;
 	private openedCount = 0;
@@ -420,8 +428,7 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 		this.keptPages.delete(token);
 		if (kept.lent) {
 			// A lent tab moves freely on its site (a multi-step form), but not off it.
-			const host = hostOf(page.url);
-			if ((host ? siteOf(host) : "") !== kept.lent.site) {
+			if (originOf(page.url) !== kept.lent.origin || kept.lent.origin === "") {
 				return { refused: "page_changed", title: page.title, url: page.url };
 			}
 			this.goto(page.id, "resumed");
@@ -485,10 +492,9 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 		const token = `kept-token-${this.keptCount}`;
 		const page = { id: this.current.id, title: this.current.title, url: this.current.url };
 		if (adoptedBefore.has(page.id)) {
-			const host = hostOf(page.url);
-			const site = host ? siteOf(host) : "";
-			this.keptPages.set(token, { ...page, lent: { site } });
-			return { closed: false, kept: { token, ...page, lent: true, site } };
+			const origin = originOf(page.url);
+			this.keptPages.set(token, { ...page, lent: { origin } });
+			return { closed: false, kept: { token, ...page, lent: true, origin } };
 		}
 		this.keptPages.set(token, page);
 		return { closed: false, kept: { token, ...page } };

@@ -101,7 +101,7 @@ export interface KeptPage {
 	url: string;
 	/** A tab the user lent to this conversation: resumed without asking while on the same site. */
 	lent?: boolean;
-	site?: string;
+	origin?: string;
 }
 
 // ----- the model ---------------------------------------------------------------------------
@@ -419,6 +419,16 @@ export const KEEPALIVE_MS = 2 * 60_000;
  * (`end_task`). While it runs, a ping keeps the one channel to the runtime alive through long
  * waits (an approval can take an hour).
  */
+/** An address without its query, fragment and credentials (they can carry tokens). */
+function plainAddress(raw: string): string {
+	try {
+		const u = new URL(raw);
+		return `${u.origin}${u.pathname}`;
+	} catch {
+		return raw;
+	}
+}
+
 export async function runBrowseLoop(request: LoopRequest, deps: LoopDeps): Promise<BrowseResult> {
 	const timer = setInterval(() => {
 		void deps.runtime.keepAlive?.().catch(() => undefined);
@@ -607,23 +617,26 @@ async function runInner(
 		if (diff.challenge) {
 			await pauseForChallenge(diff.challenge.kind);
 			const snap = await takeSnapshot();
-			return wrapPage(snap.url, snap.title, snap.text);
+			return showPage(snap.url, snap.title, snap.text);
 		}
 		if (diff.navigated && diff.snapshot) {
 			remember(diff.snapshot.elements, true);
-			return wrapPage(diff.url, diff.title, diff.snapshot.text);
+			return showPage(diff.url, diff.title, diff.snapshot.text);
 		}
 		remember([...diff.added, ...diff.changed]);
 		for (const ref of diff.removed) elements.delete(ref);
-		return wrapPage(diff.url, diff.title, diff.text || "(no change)");
+		return showPage(diff.url, diff.title, diff.text || "(no change)");
 	};
 
 	/** The whole page again, with fresh refs: after a failure that may be a stale ref. */
 	const freshPage = async (): Promise<string> => {
 		const snap = await takeSnapshot();
-		return wrapPage(snap.url, snap.title, snap.text);
+		return showPage(snap.url, snap.title, snap.text);
 	};
 
+	/** A page as the model reads it; while a tab of the user's is in use, with no query or fragment. */
+	const showPage = (url: string, title: string, text: string): string =>
+		wrapPage(shared.adopted.size > 0 ? plainAddress(url) : url, title, text);
 	/** The tabs as the last `tabs()` listed them: what a `use_tab` is judged and approved against. */
 	const knownTabs = new Map<string, Tab>();
 	const relistTabs = async () => {
@@ -638,7 +651,7 @@ async function runInner(
 	};
 	/** A user's own tab is shown to the model without its query string and fragment (tokens, searches). */
 	const shownUrl = (t: Tab): string => {
-		if (t.mine) return urlWithoutFragment(t.url);
+		if (t.mine && !shared.adopted.has(t.id)) return urlWithoutFragment(t.url);
 		try {
 			const u = new URL(t.url);
 			return `${u.origin}${u.pathname}`;
@@ -1024,7 +1037,7 @@ async function runInner(
 			pushToolMessage(
 				callId,
 				"",
-				wrapPage(finalUrl, currentTitle, clip(JSON.stringify(result), 6_000))
+				showPage(finalUrl, currentTitle, clip(JSON.stringify(result), 6_000))
 			);
 		} catch (err) {
 			if (err instanceof Stop) throw err;
@@ -1147,6 +1160,13 @@ async function runInner(
 					// Release it (it stays open for the user) so the task begins on a blank page of its own.
 					await runtime.endTask({ keep: true }, AbortSignal.timeout(10_000)).catch(() => undefined);
 					resumedNote = changedNote;
+				} else if (back.lent && deps.unattended) {
+					// Nobody can approve in an unattended run: the lent tab is released (it stays open for
+					// the user), never kept again, and the task starts on a page of its own.
+					await runtime
+						.endTask({ keep: false }, AbortSignal.timeout(10_000))
+						.catch(() => undefined);
+					resumedNote = changedNote;
 				} else if (back.lent) {
 					observer?.resumed?.({ title: short(sanitizeText(back.title), 120), changed: false });
 					// The tab the user lent to this chat, on the site it was lent on: no new question.
@@ -1174,7 +1194,7 @@ async function runInner(
 		if (request.startUrl) intro += `\n\nStart at ${request.startUrl}.`;
 		messages.push({
 			role: "user",
-			content: `${intro}\n\nThe browser's current page:\n${wrapPage(first.url, first.title, first.text)}`,
+			content: `${intro}\n\nThe browser's current page:\n${showPage(first.url, first.title, first.text)}`,
 		});
 
 		// A tab lent earlier that is already on the start address is not reloaded: a form being
@@ -1278,7 +1298,7 @@ async function runInner(
 								state: "ok",
 								note: "read",
 							});
-							pushToolMessage(call.id, "", wrapPage(snap.url, snap.title, snap.text));
+							pushToolMessage(call.id, "", showPage(snap.url, snap.title, snap.text));
 							break;
 						}
 						case "diff":

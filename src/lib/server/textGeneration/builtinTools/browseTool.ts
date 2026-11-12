@@ -435,9 +435,12 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 				},
 			};
 			const keptStore = params.keptStore ?? mongoKeptStore;
-			const resumeToken = conversationKey
+			const keptEntry = conversationKey
 				? await keptStore.get(machine.id, params.userId, conversationKey).catch(() => undefined)
 				: undefined;
+			// A scheduled run has nobody to ask: it never continues in a tab the user lent to a chat.
+			const resumeToken =
+				keptEntry && !(params.unattended && keptEntry.lent) ? keptEntry.token : undefined;
 
 			const saveDownloads = ctx.conversationId
 				? (files: Parameters<typeof saveBrowserDownloads>[0]) =>

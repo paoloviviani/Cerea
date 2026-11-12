@@ -117,6 +117,33 @@ describe("open reuses a blank tab", () => {
 	});
 });
 
+describe("open never takes a popup", () => {
+	it("a blank popup (it has an opener) is left alone: open makes a page of its own", async () => {
+		const own = await rig();
+		try {
+			await own.tabs();
+			const context = await own.session.withPage(async (_p, c) => c);
+			const opener = await context.newPage();
+			await opener.goto(`${own.fx.base}/form`);
+			const [popup] = await Promise.all([
+				opener.waitForEvent("popup"),
+				opener.evaluate(() => void window.open("about:blank")),
+			]);
+			// No other blank tab is left, so the only candidate is the popup.
+			for (const p of context.pages()) {
+				if (p !== popup && p.url() === "about:blank") await p.close();
+			}
+			const before = context.pages().length;
+			const body = openResultSchema.parse((await own.call("open", {})).structuredContent);
+			assert.equal(context.pages().length, before + 1, "the popup was taken");
+			assert.equal(popup.isClosed(), false);
+			assert.ok(body.id);
+		} finally {
+			await own.close();
+		}
+	});
+});
+
 describe("viewport", () => {
 	const base = { profileDir: "/tmp/x" };
 	it("a headed browser has no emulated viewport", () => {

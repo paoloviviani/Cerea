@@ -82,6 +82,7 @@ export async function rig(
 		actionBudgetMs?: number;
 		keptTtlMs?: number;
 		lentTtlMs?: number;
+		lentMaxMs?: number;
 		idleMs?: number;
 		pace?: { minMs: number; maxMs: number };
 	} = {}
@@ -96,6 +97,7 @@ export async function rig(
 		actionBudgetMs: options.actionBudgetMs,
 		keptTtlMs: options.keptTtlMs,
 		lentTtlMs: options.lentTtlMs,
+		lentMaxMs: options.lentMaxMs,
 		idleMs: options.idleMs,
 		pace: options.pace,
 		profileDir: profile,

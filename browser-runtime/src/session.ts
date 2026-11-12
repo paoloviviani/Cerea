@@ -85,6 +85,8 @@ export interface SessionOptions {
 	keptTtlMs?: number;
 	/** How long a tab lent to a conversation can be resumed after the last task used it (default 1 h). */
 	lentTtlMs?: number;
+	/** The longest a tab stays lent, counted from the approval (default 8 h). */
+	lentMaxMs?: number;
 	/** How long a page may stay silent after a failed action before it is dropped (default 8 s). */
 	probeMs?: number;
 }
@@ -105,6 +107,8 @@ const DEFAULT_IDLE_MS = 10 * 60_000;
 const KEPT_TTL_MS = 24 * 60 * 60_000;
 /** A tab the user lent stays resumable this long after the last task used it. */
 const LENT_TTL_MS = 60 * 60_000;
+/** A tab is lent for at most this long from the approval that lent it, however often it is used. */
+const LENT_MAX_MS = 8 * 60 * 60_000;
 
 interface Entry {
 	line: string;
@@ -242,10 +246,14 @@ export function stripUserUrl(url: string): string {
 	}
 }
 
-/** The site (registrable domain) an address is on; empty when it has none. */
-function siteOfUrl(url: string): string {
-	const host = hostOf(url);
-	return host ? siteOf(host) : "";
+/** The origin (scheme, host, port) of an http(s) address; empty for anything else (blank, data, file). */
+function originOfUrl(url: string): string {
+	try {
+		const u = new URL(url);
+		return u.protocol === "http:" || u.protocol === "https:" ? u.origin : "";
+	} catch {
+		return "";
+	}
 }
 
 /** A hung page never answers: the title is then empty rather than a hang. */
@@ -416,10 +424,20 @@ export class BrowserSession {
 	/** Pages kept open at the end of a task, by the token that resumes them. */
 	private readonly kept = new Map<
 		string,
-		{ page: Page; expires: number; url: string; title: string; lent?: { site: string } }
+		{
+			page: Page;
+			expires: number;
+			url: string;
+			title: string;
+			lent?: { origin: string; since: number };
+		}
 	>();
 	/** Pages this runtime made lazily for a task: one still blank at the end was never used. */
 	private readonly fresh = new WeakSet<Page>();
+	/** The origin an adopted tab was lent on (fixed at approval) and when it was approved. */
+	private readonly lentInfo = new WeakMap<Page, { origin: string; since: number }>();
+	/** Pages this runtime made itself (the launch page, its own new pages). */
+	private readonly ours = new WeakSet<Page>();
 	private foreignTabs: string[] = [];
 	private popups: Page[] = [];
 	/** A download that starts within this long of an action's end still belongs to it. */
@@ -470,6 +488,7 @@ export class BrowserSession {
 			if (!this.active) {
 				this.active = await context.newPage();
 				this.fresh.add(this.active);
+				this.ours.add(this.active);
 				this.taskPages.add(this.active);
 				this.baseline = undefined;
 				this.taskLastSite = undefined;
@@ -507,23 +526,37 @@ export class BrowserSession {
 		let kept: EndTaskResult["kept"];
 		// A page the task made and never used (still blank) is not worth keeping: it is closed below.
 		const unused = (p: Page) => this.fresh.has(p) && p.url() === "about:blank";
-		if (keep && !keep.isClosed() && this.taskPages.has(keep) && !unused(keep)) {
+		// A tab the user lent stays theirs and stays lent to this conversation, but only on the origin
+		// it was lent on (fixed when they approved it, never read back from where it is now), and
+		// for at most the lend cap. Otherwise it is released with no token.
+		const info = keep ? this.lentInfo.get(keep) : undefined;
+		const capEnd = info ? info.since + (this.options.lentMaxMs ?? LENT_MAX_MS) : 0;
+		const lendable =
+			!!keep &&
+			!!info &&
+			info.origin !== "" &&
+			originOfUrl(keep.url()) === info.origin &&
+			Date.now() < capEnd;
+		const adoptedKeep = !!keep && this.adopted.has(keep);
+		if (
+			keep &&
+			!keep.isClosed() &&
+			this.taskPages.has(keep) &&
+			!unused(keep) &&
+			(!adoptedKeep || lendable)
+		) {
 			this.purgeKept();
 			const token = randomBytes(18).toString("base64url");
 			const title = clean(await safeTitle(keep), 300);
 			const url = keep.url();
-			// A tab the user lent stays theirs and stays lent to this conversation: its token expires an
-			// hour after this last use, and it is resumed only while it is on the site it was lent on.
-			const lent = this.adopted.has(keep) ? { site: siteOfUrl(url) } : undefined;
+			const lent = adoptedKeep && info ? info : undefined;
 			this.kept.set(token, {
 				page: keep,
 				url,
 				title,
-				expires:
-					Date.now() +
-					(lent
-						? (this.options.lentTtlMs ?? LENT_TTL_MS)
-						: (this.options.keptTtlMs ?? KEPT_TTL_MS)),
+				expires: lent
+					? Math.min(Date.now() + (this.options.lentTtlMs ?? LENT_TTL_MS), capEnd)
+					: Date.now() + (this.options.keptTtlMs ?? KEPT_TTL_MS),
 				...(lent ? { lent } : {}),
 			});
 			kept = {
@@ -531,7 +564,7 @@ export class BrowserSession {
 				id: this.tabId(keep),
 				title,
 				url: clean(lent ? stripUserUrl(url) : url, 2000),
-				...(lent ? { lent: true, site: lent.site } : {}),
+				...(lent ? { lent: true, origin: lent.origin } : {}),
 			};
 		}
 		this.taskPages.clear();
@@ -571,10 +604,15 @@ export class BrowserSession {
 		this.kept.delete(token);
 		const page = entry.page;
 		const url = page.url();
+		// A lent tab on a site the deny list now covers is refused before anything about it is said.
+		if (entry.lent && this.denied(url)) {
+			return { refused: "page_changed", title: "", url: "" };
+		}
 		const title = clean(await safeTitle(page), 300);
-		// A lent tab may move around its site (a multi-step form); a page the task left may not move.
+		// A lent tab may move around its origin (a multi-step form); a page the task left may not move.
+		// An empty origin (blank, data, file) never matches.
 		const moved0 = entry.lent
-			? siteOfUrl(url) !== entry.lent.site
+			? entry.lent.origin === "" || originOfUrl(url) !== entry.lent.origin
 			: urlWithoutFragment(url) !== urlWithoutFragment(entry.url);
 		if (moved0) {
 			// Someone moved it since: it is no longer the page the task left, so it is not the task's
@@ -582,7 +620,10 @@ export class BrowserSession {
 			return { refused: "page_changed", title, url: clean(stripUserUrl(url), 2000) };
 		}
 		this.taskPages.add(page);
-		if (entry.lent) this.adopted.add(page);
+		if (entry.lent) {
+			this.adopted.add(page);
+			this.lentInfo.set(page, entry.lent);
+		}
 		this.active = page;
 		this.baseline = undefined;
 		this.touch();
@@ -635,17 +676,24 @@ export class BrowserSession {
 				target = parsed.href;
 			}
 		}
-		// A blank tab nobody is using is reused rather than opening another one beside it.
-		const spare = context
-			.pages()
-			.find(
-				(p) =>
-					!p.isClosed() &&
-					p.url() === "about:blank" &&
-					!this.taskPages.has(p) &&
-					![...this.kept.values()].some((e) => e.page === p)
-			);
+		// A blank tab nobody is using is reused rather than opening another one beside it: only one
+		// this runtime made, or one with no opener (a tab the user opened), never a popup.
+		let spare: Page | undefined;
+		for (const p of context.pages()) {
+			if (
+				p.isClosed() ||
+				p.url() !== "about:blank" ||
+				this.taskPages.has(p) ||
+				[...this.kept.values()].some((e) => e.page === p)
+			)
+				continue;
+			if (this.ours.has(p) || (await p.opener().catch(() => p)) === null) {
+				spare = p;
+				break;
+			}
+		}
 		const page = spare ?? (await context.newPage());
+		this.ours.add(page);
 		// A reused tab is the user's: a refusal sends it back to blank instead of closing it.
 		const discard = (p: Page) =>
 			spare
@@ -709,7 +757,7 @@ export class BrowserSession {
 				id: this.tabId(page),
 				title: clean(await safeTitle(page), 300),
 				// The task's own pages show in full; a user's tab never shows its query or fragment.
-				url: clean(mine ? page.url() : stripUserUrl(page.url()), 2000),
+				url: clean(mine && !this.adopted.has(page) ? page.url() : stripUserUrl(page.url()), 2000),
 				mine,
 			});
 		}
@@ -773,7 +821,10 @@ export class BrowserSession {
 			this.hook(page);
 			void this.adopt(page);
 		});
-		for (const page of context.pages()) this.hook(page);
+		for (const page of context.pages()) {
+			this.hook(page);
+			this.ours.add(page);
+		}
 		context.on("response", (response) => {
 			const headers = response.headers();
 			const type = headers["content-type"];
@@ -1048,7 +1099,7 @@ export class BrowserSession {
 		}
 		const tabs = [...this.taskPages].filter((p) => !p.isClosed()).length || 1;
 		const header = [
-			`url: ${url}`,
+			`url: ${this.adopted.has(page) ? stripUserUrl(url) : url}`,
 			`title: ${JSON.stringify(title)}`,
 			...(tabs > 1 ? [`tabs: ${tabs}`] : []),
 		];
@@ -1194,7 +1245,7 @@ export class BrowserSession {
 			removed,
 			text: [
 				`<page-content untrusted="true">`,
-				`url: ${url} (same page)`,
+				`url: ${this.adopted.has(page) ? stripUserUrl(url) : url} (same page)`,
 				`title: ${JSON.stringify(title)}`,
 				...(lines.length > 0 ? lines : ["(no change)"]),
 				`</page-content>`,
@@ -1543,6 +1594,8 @@ export class BrowserSession {
 		for (const [token, entry] of this.kept) if (entry.page === page) this.kept.delete(token);
 		this.taskPages.add(page);
 		this.adopted.add(page);
+		// The origin is pinned now, at approval: an empty one (blank, data, file) is never lent.
+		this.lentInfo.set(page, { origin: originOfUrl(url), since: Date.now() });
 		this.active = page;
 		this.baseline = undefined;
 		try {
