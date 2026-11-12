@@ -9,6 +9,7 @@
  */
 import { error, json, type RequestHandler } from "@sveltejs/kit";
 import { collections } from "$lib/server/database";
+import { BROWSE_COMPUTER_SERVER } from "$lib/server/browser/computerAsk";
 
 const MAX_LISTED = 50;
 /** Base64 characters: about 100 KB. */
@@ -20,7 +21,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 		.find({
 			userId: locals.user._id,
 			status: "pending",
-			"request.browse": { $exists: true },
+			$or: [{ "request.browse": { $exists: true } }, { "request.server": BROWSE_COMPUTER_SERVER }],
 			expiresAt: { $gt: new Date() },
 		})
 		.sort({ createdAt: -1 })
@@ -38,6 +39,16 @@ export const GET: RequestHandler = async ({ locals }) => {
 		approvals: pending
 			.filter((row) => titles.has(row.conversationId.toString()))
 			.map((row) => {
+				// A "Which computer?" question carries no browse payload.
+				if (!row.request.browse) {
+					return {
+						elicitationId: row.elicitationId,
+						conversationId: row.conversationId.toString(),
+						conversationTitle: titles.get(row.conversationId.toString()) ?? "",
+						request: row.request,
+						expiresAt: row.expiresAt?.getTime(),
+					};
+				}
 				const { screenshot, ...browse } = row.request.browse ?? { sentence: "", site: "" };
 				return {
 					elicitationId: row.elicitationId,

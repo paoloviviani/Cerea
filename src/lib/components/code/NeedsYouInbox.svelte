@@ -65,6 +65,7 @@
 	import IconLaunch from "~icons/carbon/launch";
 	import ToolApprovalCard from "$lib/components/chat/ToolApprovalCard.svelte";
 	import AskQuestion from "$lib/components/chat/AskQuestion.svelte";
+	import ElicitationForm from "$lib/components/chat/ElicitationForm.svelte";
 	import AlwaysCappedScope from "./AlwaysCappedScope.svelte";
 	import FirstTurnScope from "./FirstTurnScope.svelte";
 	import { ceilingOfPolicy, isCapped } from "$lib/utils/permissionRules";
@@ -626,11 +627,20 @@
 									<IconLaunch class="size-3.5" />
 								</a>
 							</div>
-							<ToolApprovalCard
-								conversationId={item.conversationId}
-								request={item.request}
-								expiresAt={item.expiresAt}
-							/>
+							{#if item.request.browse}
+								<ToolApprovalCard
+									conversationId={item.conversationId}
+									request={item.request}
+									expiresAt={item.expiresAt}
+								/>
+							{:else}
+								<!-- "Which computer?": a plain question, answered like any form. -->
+								<ElicitationForm
+									conversationId={item.conversationId}
+									request={item.request}
+									expiresAt={item.expiresAt}
+								/>
+							{/if}
 						</li>
 					{/each}
 				</ul>

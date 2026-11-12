@@ -98,7 +98,7 @@ export const DELETE: RequestHandler = async ({ locals, url }) => {
 		{ _id: objectId, userId: locals.user?._id },
 		{
 			$set: { status: "revoked", updatedAt: new Date() },
-			$unset: { revokedAt: "", revokedReason: "" },
+			$unset: { revokedAt: "", revokedReason: "", browserDefault: "" },
 		}
 	);
 	if (result.matchedCount === 0) error(404, "No such paired device.");

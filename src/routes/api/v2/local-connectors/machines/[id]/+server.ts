@@ -59,7 +59,7 @@ export const DELETE: RequestHandler = async ({ locals, params }) => {
 		{ _id: device._id },
 		{
 			$set: { status: "revoked", updatedAt: new Date() },
-			$unset: { mcpServers: "", mcpServersAt: "" },
+			$unset: { mcpServers: "", mcpServersAt: "", browserDefault: "" },
 		}
 	);
 	resetLocalListCache(device._id.toString());
