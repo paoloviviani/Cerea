@@ -1,4 +1,4 @@
-// cerea-browser runtime 0.1.0; source-hash: 7e74eed6e2f4978cc824d3d2d26c803a012bff5ea15e3f06a62030ec0508eeaa
+// cerea-browser runtime 0.1.0; source-hash: 02fb5c0827fa5da45e2f3c9b0709261b23e558272c73175f704659248d9d567e
 // inlined: @hono/node-server@2.1.8 @modelcontextprotocol/sdk@1.32.2 ajv@8.20.0 ajv-formats@3.0.1 content-type@1.0.5 fast-deep-equal@3.1.3 fast-uri@3.1.9 hono@4.13.18 json-schema-traverse@1.0.0 tldts@7.4.26 zod@3.25.76 zod-to-json-schema@3.25.2
 import { createRequire as __cr } from "node:module";
 const require = __cr(import.meta.url);
@@ -21642,14 +21642,21 @@ var endTaskResultSchema = external_exports.object({
     url: external_exports.string().max(4096)
   }).optional()
 });
-var resumeResultSchema = external_exports.object({
-  id: external_exports.string().max(64),
-  title: external_exports.string().max(500),
-  url: external_exports.string().max(4096),
-  /** The page is not what it was when it was kept. */
-  changed: external_exports.boolean(),
-  was: external_exports.object({ title: external_exports.string().max(500), url: external_exports.string().max(4096) }).optional()
-});
+var resumeResultSchema = external_exports.union([
+  external_exports.object({
+    id: external_exports.string().max(64),
+    title: external_exports.string().max(500),
+    url: external_exports.string().max(4096),
+    /** The page is not what it was when it was kept. */
+    changed: external_exports.boolean(),
+    was: external_exports.object({ title: external_exports.string().max(500), url: external_exports.string().max(4096) }).optional()
+  }),
+  external_exports.object({
+    refused: external_exports.literal("page_changed"),
+    title: external_exports.string().max(500),
+    url: external_exports.string().max(4096)
+  })
+]);
 var downloadResultSchema = external_exports.object({
   files: external_exports.array(
     external_exports.object({
