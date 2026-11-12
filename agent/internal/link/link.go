@@ -37,6 +37,20 @@ type Credential interface {
 	NextRenewal() time.Time
 }
 
+// Rotator is implemented by a Credential that can say when its access token
+// changed without the link asking: the shim's own timed refresh, a refresh a
+// proxied request triggered, a newer credential file adopted. Rotated returns
+// a channel that gets a signal after each change (one pending signal is
+// enough: the link reads the current token when it wakes). The link then hands
+// the new token to Cerea over the open connection at once. Without this an IdP
+// that revokes the previous access token on refresh (GitLab's) leaves the
+// link holding a token the IdP no longer accepts, and Cerea closes it with
+// 4401 at its next check. A Credential that is not a Rotator keeps the old
+// behaviour: renewal at ~70% of the token's lifetime only.
+type Rotator interface {
+	Rotated() <-chan struct{}
+}
+
 // AgentInfo, BackendInfo and PolicyInfo mirror the hello frame's nested
 // objects (PROTOCOL.md §5) without this package importing internal/backend
 // or internal/policy — the caller assembling a Hello already holds real
@@ -189,6 +203,11 @@ type Config struct {
 	// MinBackoff/MaxBackoff bound reconnect backoff (default 1s / 30s).
 	MinBackoff time.Duration
 	MaxBackoff time.Duration
+	// HealthyAfter is how long a connection must have been up for it to count
+	// as healthy (default 1 minute): the next reconnect then starts from
+	// MinBackoff again instead of carrying the backoff of earlier failures, and
+	// the quick re-dials after a 4401 (see Run) are available again.
+	HealthyAfter time.Duration
 	// DefaultOpTimeout/SyncOpTimeout bound req handling (default 15s / 20s).
 	DefaultOpTimeout time.Duration
 	SyncOpTimeout    time.Duration
@@ -223,6 +242,22 @@ func isRevokedClose(err error) bool {
 // the way serve.go's shim already does to a dead credential.
 var ErrExpired = errors.New("link: credential refresh failed")
 
+// redialError ends a connection Cerea closed with 4401 once the credential
+// holds a token to try: there is nothing to wait for, so Run dials again at
+// once (within maxQuickRedials) instead of after the reconnect backoff.
+type redialError struct{ msg string }
+
+func (e *redialError) Error() string { return e.msg }
+
+// maxQuickRedials bounds the back-to-back re-dials after a 4401, counted
+// since the last healthy connection: a fresh token that Cerea keeps refusing
+// is a real failure, and it goes through the ordinary backoff from the next
+// one on.
+const maxQuickRedials = 3
+
+// maxEarlyFrames bounds the frames kept from before the welcome.
+const maxEarlyFrames = 32
+
 // Link is one machine's connection to Cerea. Not safe for concurrent Run
 // calls; everything else is.
 type Link struct {
@@ -236,6 +271,11 @@ type Link struct {
 	// machineCalls is welcome.features.machineCalls of the current
 	// connection: the call families this Cerea answers.
 	machineCalls []string
+	// held is the access token Cerea has for the current connection: the one
+	// dialled with, then each one handed over in an auth frame. welcomedAt is
+	// when the current connection's welcome arrived (zero before it).
+	held       string
+	welcomedAt time.Time
 
 	callSeq uint64
 	pending map[string]chan callResult // call id -> its waiter, for the current connection
@@ -250,6 +290,9 @@ func New(cfg Config) *Link {
 	}
 	if cfg.MaxBackoff == 0 {
 		cfg.MaxBackoff = 30 * time.Second
+	}
+	if cfg.HealthyAfter == 0 {
+		cfg.HealthyAfter = time.Minute
 	}
 	if cfg.DefaultOpTimeout == 0 {
 		cfg.DefaultOpTimeout = 15 * time.Second
@@ -292,8 +335,17 @@ func (l *Link) Close() error {
 // Run dials, serves, and reconnects with backoff until ctx is cancelled or
 // Cerea closes with 4403 (revoked — PROTOCOL.md §3/§4), which Run treats as
 // permanent and returns errGiveUp for.
+//
+// The backoff is for failures. A connection that stayed up for HealthyAfter
+// starts the next wait from MinBackoff again (it used to carry every earlier
+// failure's doubling, so after a few drops each one cost the maximum). And a
+// 4401 that the credential could answer (the token the connection held is no
+// longer acceptable, and a newer one is ready) is a redial, not a failure: it
+// goes straight back, up to maxQuickRedials in a row without a healthy
+// connection in between.
 func (l *Link) Run(ctx context.Context) error {
 	backoff := l.cfg.MinBackoff
+	quick := 0
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -305,6 +357,16 @@ func (l *Link) Run(ctx context.Context) error {
 		}
 		if ctx.Err() != nil {
 			return ctx.Err()
+		}
+		if up := l.takeUptime(); up >= l.cfg.HealthyAfter {
+			backoff = l.cfg.MinBackoff
+			quick = 0
+		}
+		var redial *redialError
+		if errors.As(err, &redial) && quick < maxQuickRedials {
+			quick++
+			l.cfg.Logf("link: disconnected (%v), reconnecting now", err)
+			continue
 		}
 		// The close code and reason are the one clue to a rejected handshake
 		// or hello (4000/4401/4403), so they are always worth the line.
@@ -319,6 +381,32 @@ func (l *Link) Run(ctx context.Context) error {
 			backoff = l.cfg.MaxBackoff
 		}
 	}
+}
+
+// takeUptime is how long the connection that just ended was up (zero when it
+// never got its welcome), and forgets it.
+func (l *Link) takeUptime() time.Duration {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	since := l.welcomedAt
+	l.welcomedAt = time.Time{}
+	if since.IsZero() {
+		return 0
+	}
+	return time.Since(since)
+}
+
+// heldToken is the access token Cerea has for the current connection.
+func (l *Link) heldToken() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.held
+}
+
+func (l *Link) setHeld(token string) {
+	l.mu.Lock()
+	l.held = token
+	l.mu.Unlock()
 }
 
 func jitter(d time.Duration) time.Duration {
@@ -377,6 +465,10 @@ func (l *Link) runOnce(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("getting access token: %w", err)
 	}
+	l.mu.Lock()
+	l.held = token
+	l.welcomedAt = time.Time{}
+	l.mu.Unlock()
 
 	dialCtx, cancel := context.WithTimeout(ctx, l.cfg.DialTimeout)
 	defer cancel()
@@ -452,18 +544,45 @@ func (l *Link) runOnce(ctx context.Context) error {
 			MachineCalls []string `json:"machineCalls"`
 		} `json:"features"`
 	}
-	if err := l.readFrame(connCtx, &welcome); err != nil {
-		if isRevokedClose(err) {
-			return errGiveUp
+	// A server may put a frame of its own (a req about a session it is
+	// watching, a status) ahead of the welcome: Cerea's connection listeners
+	// used to run before the welcome was sent. Those frames are kept and
+	// handled once the machine is paired, as if they had come after it; a
+	// frame that is not JSON is dropped, and a server that sends more than
+	// maxEarlyFrames without ever welcoming is not speaking the protocol.
+	var early [][]byte
+	for {
+		typ, raw, err := l.readTyped(connCtx, conn)
+		if err != nil {
+			if isRevokedClose(err) {
+				return errGiveUp
+			}
+			return fmt.Errorf("reading welcome: %w", err)
 		}
-		return fmt.Errorf("reading welcome: %w", err)
-	}
-	if welcome.Type != "welcome" {
-		return fmt.Errorf("expected welcome, got %q", welcome.Type)
+		if typ == websocket.MessageBinary {
+			continue
+		}
+		var head struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal(raw, &head) != nil {
+			continue
+		}
+		if head.Type == "welcome" {
+			if err := json.Unmarshal(raw, &welcome); err != nil {
+				return fmt.Errorf("reading welcome: %w", err)
+			}
+			break
+		}
+		if len(early) >= maxEarlyFrames {
+			return fmt.Errorf("expected welcome, got %q", head.Type)
+		}
+		early = append(early, raw)
 	}
 	l.setPaired(welcome.Status == "paired")
 	l.mu.Lock()
 	l.machineCalls = welcome.Features.MachineCalls
+	l.welcomedAt = time.Now()
 	l.mu.Unlock()
 	l.cfg.Logf("link: connected (device %s, status %s)", welcome.DeviceID, welcome.Status)
 
@@ -474,6 +593,9 @@ func (l *Link) runOnce(ctx context.Context) error {
 	}()
 	defer func() { connCancel(); <-renewalDone }()
 
+	for _, raw := range early {
+		l.dispatch(connCtx, websocket.MessageText, raw)
+	}
 	return l.serve(connCtx, conn)
 }
 
@@ -495,19 +617,34 @@ func (l *Link) setPaired(v bool) {
 // that cannot move it on) must cost one frame a minute, not a flood.
 const minRenewalGap = time.Minute
 
-// renewalLoop proactively renews the access token at ~70% of its lifetime
-// (PROTOCOL.md §3) and pushes an auth frame, for as long as this connection
-// lives.
+// renewalLoop keeps Cerea holding a token the IdP will still accept, for as
+// long as this connection lives, by pushing auth frames (PROTOCOL.md §3). Two
+// things make it push:
 //
-// A due renewal ROTATES the token (ForceRefresh). It used to ask Token, which
-// hands back the cached token until its last minute: the same token was
-// pushed, NextRenewal stayed in the past, and the loop pushed it again with no
-// wait until the token nearly expired, thousands of frames the chat checked
-// one by one (for GitLab's opaque tokens, a token-info call each). The real
-// rotation then queued behind them, while GitLab, which revokes the old
-// access token on refresh, already refused the token the chat still held, so
-// the chat's revalidation revoked the device.
+//   - the token reaches ~70% of its lifetime: it ROTATES the token
+//     (ForceRefresh) and pushes the new one. It used to ask Token, which hands
+//     back the cached token until its last minute: the same token was pushed,
+//     NextRenewal stayed in the past, and the loop pushed it again with no wait
+//     until the token nearly expired, thousands of frames the chat checked one
+//     by one (for GitLab's opaque tokens, a token-info call each). The real
+//     rotation then queued behind them, while GitLab, which revokes the old
+//     access token on refresh, already refused the token the chat still held,
+//     so the chat's revalidation revoked the device.
+//   - the credential rotated on its own (a Rotator): the shim refreshes every
+//     15 minutes and on a request that finds the token near expiry, without
+//     asking the link. Against GitLab that refresh revokes the token Cerea
+//     holds for this connection, and Cerea closes the link with 4401 at its
+//     next check: the machine went offline for 30 s about every 15 minutes. The
+//     current token is handed over at once (no rotation: Token, not
+//     ForceRefresh), when it is not the one Cerea already has.
+//
+// The wait for the 70% mark is worked out again after every wake-up, so it
+// follows a token that rotated meanwhile.
 func (l *Link) renewalLoop(ctx context.Context) {
+	var rotated <-chan struct{}
+	if r, ok := l.cfg.Cred.(Rotator); ok {
+		rotated = r.Rotated()
+	}
 	var last time.Time
 	for {
 		wait := time.Until(l.cfg.Cred.NextRenewal())
@@ -517,13 +654,26 @@ func (l *Link) renewalLoop(ctx context.Context) {
 		if wait < 0 {
 			wait = 0
 		}
+		timer := time.NewTimer(wait)
+		var token string
+		var err error
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return
-		case <-time.After(wait):
+		case <-rotated:
+			timer.Stop()
+			token, err = l.cfg.Cred.Token(ctx)
+			if err == nil && (token == "" || token == l.heldToken()) {
+				continue // nothing new to hand over
+			}
+			if err != nil {
+				last = time.Now()
+			}
+		case <-timer.C:
+			last = time.Now()
+			token, err = l.cfg.Cred.ForceRefresh(ctx)
 		}
-		last = time.Now()
-		token, err := l.cfg.Cred.ForceRefresh(ctx)
 		if err != nil {
 			l.cfg.Logf("link: token renewal failed: %v", err)
 			continue
@@ -531,15 +681,13 @@ func (l *Link) renewalLoop(ctx context.Context) {
 		if err := l.writeFrame(ctx, map[string]any{"type": "auth", "token": token}); err != nil {
 			return
 		}
+		l.setHeld(token)
 	}
 }
 
 // serve reads frames until the connection ends, dispatching each.
 func (l *Link) serve(ctx context.Context, conn *websocket.Conn) error {
 	for {
-		var envelope struct {
-			Type string `json:"type"`
-		}
 		typ, raw, err := l.readTyped(ctx, conn)
 		if err != nil {
 			var closeErr websocket.CloseError
@@ -554,58 +702,81 @@ func (l *Link) serve(ctx context.Context, conn *websocket.Conn) error {
 					// token is fine), not a revocation.
 					return fmt.Errorf("link: outside the access groups (4404), retrying")
 				case 4401:
-					if _, refreshErr := l.cfg.Cred.ForceRefresh(ctx); refreshErr != nil {
-						return fmt.Errorf("%w: %v", ErrExpired, refreshErr)
-					}
-					return fmt.Errorf("link: token rejected (4401), refreshed for next dial")
+					return l.reauthAfter4401(ctx)
 				}
 			}
 			return err
 		}
-		if typ == websocket.MessageBinary {
-			l.handleBinaryFrame(raw)
-			continue
+		l.dispatch(ctx, typ, raw)
+	}
+}
+
+// reauthAfter4401 answers Cerea closing the link with 4401: the token it held
+// for this connection is not acceptable any more. If the credential has moved
+// on since (the shim refreshed on its own), the newer token is what the next
+// dial uses and no further rotation is made (each one revokes the previous
+// token at an IdP like GitLab). Otherwise the token is rotated now. Either way
+// the result is a redialError, which Run dials again at once; a refresh that
+// fails is ErrExpired, and the ordinary backoff.
+func (l *Link) reauthAfter4401(ctx context.Context) error {
+	held := l.heldToken()
+	if current, err := l.cfg.Cred.Token(ctx); err == nil && current != "" && current != held {
+		return &redialError{msg: "link: token rejected (4401), a newer token is ready"}
+	}
+	if _, err := l.cfg.Cred.ForceRefresh(ctx); err != nil {
+		return fmt.Errorf("%w: %v", ErrExpired, err)
+	}
+	return &redialError{msg: "link: token rejected (4401), refreshed for next dial"}
+}
+
+// dispatch handles one frame from Cerea.
+func (l *Link) dispatch(ctx context.Context, typ websocket.MessageType, raw []byte) {
+	if typ == websocket.MessageBinary {
+		l.handleBinaryFrame(raw)
+		return
+	}
+	var envelope struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return // malformed frame: ignore, per PROTOCOL.md §5 forward-compat rule
+	}
+	switch envelope.Type {
+	case "status":
+		var status struct {
+			Status string `json:"status"`
 		}
-		if err := json.Unmarshal(raw, &envelope); err != nil {
-			continue // malformed frame: ignore, per PROTOCOL.md §5 forward-compat rule
+		if json.Unmarshal(raw, &status) == nil && status.Status == "paired" {
+			l.setPaired(true)
+			l.cfg.Logf("link: paired")
 		}
-		switch envelope.Type {
-		case "status":
-			var status struct {
-				Status string `json:"status"`
-			}
-			if json.Unmarshal(raw, &status) == nil && status.Status == "paired" {
-				l.setPaired(true)
-				l.cfg.Logf("link: paired")
-			}
-		case "req":
-			var req struct {
-				ID   string          `json:"id"`
-				Op   string          `json:"op"`
-				Args json.RawMessage `json:"args"`
-			}
-			if json.Unmarshal(raw, &req) != nil {
-				continue
-			}
-			go l.handleReq(ctx, req.ID, req.Op, req.Args)
-		case "mcp":
-			if !l.Paired() || l.cfg.Mcp == nil {
-				continue
-			}
-			var f struct {
-				ChannelID string          `json:"channelId"`
-				Message   json.RawMessage `json:"message"`
-			}
-			if json.Unmarshal(raw, &f) != nil || f.ChannelID == "" || len(f.Message) == 0 {
-				continue
-			}
-			l.cfg.Mcp.HandleMcp(f.ChannelID, f.Message)
-		case "callres":
-			l.handleCallRes(raw)
-		default:
-			// Unknown frame types are ignored (forward compatibility,
-			// PROTOCOL.md §5).
+	case "req":
+		var req struct {
+			ID   string          `json:"id"`
+			Op   string          `json:"op"`
+			Args json.RawMessage `json:"args"`
 		}
+		if json.Unmarshal(raw, &req) != nil {
+			return
+		}
+		go l.handleReq(ctx, req.ID, req.Op, req.Args)
+	case "mcp":
+		if !l.Paired() || l.cfg.Mcp == nil {
+			return
+		}
+		var f struct {
+			ChannelID string          `json:"channelId"`
+			Message   json.RawMessage `json:"message"`
+		}
+		if json.Unmarshal(raw, &f) != nil || f.ChannelID == "" || len(f.Message) == 0 {
+			return
+		}
+		l.cfg.Mcp.HandleMcp(f.ChannelID, f.Message)
+	case "callres":
+		l.handleCallRes(raw)
+	default:
+		// Unknown frame types are ignored (forward compatibility,
+		// PROTOCOL.md §5).
 	}
 }
 

@@ -740,7 +740,12 @@ it only takes it off the list. A refused **token** is not a refused account:
 when the gateway refuses the token a computer holds, the chat checks the token
 on its own first, and if that token no longer validates (it expired, or the
 identity provider revoked it on refresh, as GitLab does) the link is closed
-with 4401 and the computer renews and reconnects, with nothing revoked.
+with 4401 and the computer renews and reconnects, with nothing revoked. The
+chat gives such a token one minute of grace first, because the computer hands
+its new token over on the open link as soon as it refreshes: with an identity
+provider that revokes the previous access token on refresh (GitLab), a computer
+used to drop offline for about half a minute every 15 minutes, and now stays
+connected.
 
 A computer refused for **access groups or capabilities** is neither: the link
 is closed with 4404 and the device **stays enrolled** — no re-enroll, no bin

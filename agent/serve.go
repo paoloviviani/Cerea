@@ -67,10 +67,14 @@ type shim struct {
 	// usageSink, if set, receives each chat-completion's token usage (see
 	// setUsageSink in shimusage.go). Guarded by s.mu.
 	usageSink func(sessionID string, u usageSample)
+	// rotated gets a signal each time the access token changes (see Rotated).
+	// One pending signal is enough; guarded by s.mu only for the send.
+	rotated chan struct{}
 }
 
 func newShim(creds *credentials, credsPath, statusPath string, port int) *shim {
-	return &shim{creds: creds, credsPath: credsPath, statusPath: statusPath, client: &http.Client{}, port: port}
+	return &shim{creds: creds, credsPath: credsPath, statusPath: statusPath, client: &http.Client{}, port: port,
+		rotated: make(chan struct{}, 1)}
 }
 
 // tagHeader is the label Pystino stores on a request's usage row (ADR 0108
@@ -115,6 +119,24 @@ func (s *shim) ForceRefresh(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return s.creds.AccessToken, nil
+}
+
+// Rotated implements link.Rotator: it signals each time the access token
+// changes, whoever caused it (the timed refresh below, a request that found
+// the token near expiry, the link's own renewal, a newer credential file
+// adopted). The link then hands the new token to Cerea over the open
+// connection: against an IdP that revokes the previous access token on
+// refresh (GitLab), the token Cerea holds for the link stops working the
+// moment the shim refreshes, and Cerea closes the link with 4401.
+func (s *shim) Rotated() <-chan struct{} { return s.rotated }
+
+// signalRotatedLocked records that the access token changed. Never blocks: a
+// signal already pending says the same thing. Caller holds s.mu.
+func (s *shim) signalRotatedLocked() {
+	select {
+	case s.rotated <- struct{}{}:
+	default:
+	}
 }
 
 // NextRenewal is ~70% of the current access token's lifetime from when it
@@ -244,10 +266,14 @@ func (s *shim) adoptWarnings(warnings []string) {
 // Caller holds s.mu.
 func (s *shim) refreshLocked() error {
 	now := time.Now()
+	before := s.creds.AccessToken
 	err := refreshCredential(s.credsPath, s.creds)
 	if err == nil {
 		s.deadErr = nil
 		s.transitionLocked(stateOK, now, "token refreshed")
+		if s.creds.AccessToken != before {
+			s.signalRotatedLocked()
+		}
 		return nil
 	}
 	var perr *permanentRefreshError
@@ -281,7 +307,11 @@ func (s *shim) recoverExpiredLocked() {
 	if onDisk.RefreshToken == s.creds.RefreshToken {
 		return
 	}
+	before := s.creds.AccessToken
 	*s.creds = *onDisk
+	if s.creds.AccessToken != before {
+		s.signalRotatedLocked()
+	}
 	if !s.creds.needsRefresh(time.Now()) {
 		s.deadErr = nil
 		s.transitionLocked(stateOK, time.Now(), "adopted the newer credential 'galopin auth login' wrote")
