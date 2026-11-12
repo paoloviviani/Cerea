@@ -485,3 +485,48 @@ the channel has seen no traffic for 10 minutes (`closed`, `reason: "idle"`). gal
 supervises it like opencode (process group, parent-death signal). Its stderr goes to
 galopin's log, never over the link. Cerea keeps at most one channel per (person, server) open
 between turns and closes it after 10 idle minutes of its own.
+
+### 10.7 The browser runtime (ADR 0116)
+
+A machine can offer a browser to Cerea's `browse` tool as a local MCP server named
+`cerea-browser` (§10.1). It is never listed among the user's connectors. Its six tools
+(`snapshot`, `diff`, `act`, `extract`, `screenshot`, `download`) and their arguments and results
+are defined by `src/lib/server/browser/contract.ts`, which is the contract.
+
+**Approval grants.** `act` refuses a commit-class action (submitting a form, a pay/send/delete
+style control, a download, leaving the site) unless the call carries a grant for it:
+`{index, id, digest, exp, sig}`. The runtime recomputes `digest` from the action it is about
+to run (the rules are in the `approvalGrantSchema` comment: kind, ref, value, page URL
+without its fragment, the element's accessible name), recomputes
+`sig = HMAC-SHA256(key, id|digest|exp)` (lowercase hex), compares it in constant time, and
+checks `exp` (epoch ms) against its clock. A runtime also refuses every non-http(s) address
+except `about:blank`.
+
+**The key (machine call family `browser`).** The key is 32 random bytes per device, made by
+Cerea the first time it is asked, kept sealed on the device row, and never shown anywhere
+else. The machine fetches it over the authenticated link (a `call` frame, §5), when
+`galopin browser enable` registers the runtime and again on each runtime start:
+
+The call is not made by a session: `sessionId` and `rootSessionId` are the fixed string
+`browser`, and `caller` is `{workspaceId:"", permissionMode:"ask", coordination:[]}`.
+
+- `browser.key {}` → `{"key":"<base64url, 32 bytes>","alg":"HMAC-SHA256"}`. `forbidden` for an
+  unpaired machine, `unavailable` when browser use is off or Cerea cannot keep the key.
+
+Welcome lists the family in `features.machineCalls` (`"browser"`); a galopin uses it only
+when listed, and a Cerea that predates it ignores the unknown call.
+
+**Downloads.** `act` reports each file a page offered as `{name, mime?, actionIndex,
+grantId?}`, and `download` returns `{name, mime, size, base64?, actionIndex?, grantId?}`.
+`actionIndex` is the action of the batch that produced it and `grantId` the id of the grant
+that action ran under. Cerea keeps only files whose `grantId` is one it issued for this task.
+
+**Task lifetime.** Cerea keeps one MCP channel to the runtime (one process, one profile) for all
+calls of a task, pings it while the task waits (an approval can take an hour; the machine closes a
+channel idle for 10 minutes, §10.6), and calls `end_task {}` → `{closed}` when a task ends, by
+result, stop, budget or error, so the task's pages close. `download` returns only files with
+provenance unless `{all: true}` is passed, which Cerea never does. A control whose subtree changed
+gets a new ref, so `act` answers `ok: false` ("no element with ref …"), never a refusal; Cerea then
+looks at the page again and never reads that as an approval. An element whose metadata the runtime
+could not read carries `metaUnknown: true`, and Cerea treats any action on it as a commit.
+`press.key` has no control characters; `\n`, `\r` and a lone space are not key names.
