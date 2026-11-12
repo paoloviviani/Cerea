@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"galopin/internal/procreap"
 	"net/http"
 	"os"
 	"os/signal"
@@ -182,6 +183,9 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	}
 
 	stateDir := resolveStateDir(opts.stateDir, credsPath)
+	if n := procreap.Init(stateDir); len(n) > 0 {
+		logf("stopped %d child process group(s) left by a previous galopin", len(n))
+	}
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
 		return fmt.Errorf("creating state dir: %w", err)
 	}

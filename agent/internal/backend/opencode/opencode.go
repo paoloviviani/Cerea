@@ -13,6 +13,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"galopin/internal/procreap"
 	"net"
 	"net/http"
 	"os"
@@ -549,6 +550,7 @@ func (b *Backend) runOnce(ctx context.Context) error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("starting opencode: %w", err)
 	}
+	procreap.Track(cmd)
 	// A new process is a new server: the cached /doc probe answer belongs to
 	// the previous one, so the next capabilities() call re-probes.
 	b.commandsMu.Lock()
