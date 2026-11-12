@@ -87,8 +87,8 @@ it. Allow-listed sites get signed grants too.
 - A machine of yours that is online and runs the browser runtime. The runtime
   appears on a machine as a server named `cerea-browser`. It is **not** listed
   among your connectors and cannot be picked in the composer: only `browse` uses it.
-- `browse` is offered to the assistant only when such a machine is online. With
-  several, the assistant names the machine; otherwise the first one is used.
+- `browse` is offered to the assistant only when such a machine is online. Which one is used
+  is decided by rules ("Which computer"), not by the assistant.
   One task runs at a time on a machine; this is enforced in the database, so it
   holds across servers and restarts, and a task that dies frees the machine within
   a minute.
@@ -109,7 +109,10 @@ their content. To work in one it must ask you first: "Let Cerea use your tab
 ..." is an approval like any commit, bound to that tab, its address and its title
 (a tab that changed while you decided is refused), and no allowed-sites list
 covers it. A tab on a site of the deny list is not listed at all. A tab you let
-it use is never remembered for a later task.
+it use is never remembered for a later task. Once a task works in one of your tabs it stays on
+that page and its site: going to another site is refused unless the goal names it (and it then
+asks as for any new site), and the same tab is never asked about twice. If the goal cannot be done
+on that page, the task stops and says why.
 
 ### Verifications
 
@@ -127,6 +130,45 @@ on that page; in another conversation it is just one of your tabs (adopting it
 needs your approval). If the page changed in the meantime, or has been closed, the
 next task starts on a new tab instead and says so. A task that stopped on a site
 of the deny list closes its page.
+
+### Opening the browser yourself
+
+You can open a page in the browser on one of your computers without asking for a task:
+
+- **In a chat:** **+ menu, Open browser…**. It takes an optional address (a bare `example.com` is
+  opened over https; only http and https are opened) and, when several computers are ready, asks
+  which one. The page opens there and is **tied to this chat**, exactly like the page a task leaves
+  open: the next browsing task in the chat continues on it, with no approval to use the tab. You
+  see "Opened on <computer>". The item is shown only when browser use is on and at least one of
+  your computers has its browser ready. On the home page, where no chat exists yet, the page opens
+  as one of your own tabs. Opening a page from a chat on another computer moves the chat there.
+- **In Workspace, Connectors:** each computer's card has **Open browser** beside "Browser:
+  ready". That page is tied to no chat: for the assistant it is one of your tabs, and using it
+  asks you first, as it does for any tab you opened.
+
+Opening is refused while a browsing task is using that computer's browser ("busy": try again when
+it finishes), for a site on the deny list, and for any address that is not http or https. The
+assistant can also open the browser for you when you only ask to open it.
+
+### Which computer
+
+Several of your computers can have a browser. Cerea decides which one by these rules, in order; the
+assistant never chooses:
+
+1. **The chat's computer.** Once a chat has used a computer (a task ran there, or you opened a page
+   from the chat), it always uses that one. It never jumps to another.
+2. **Your default.** On a computer's card in Connectors, **Use for browsing by default**. There is
+   one default per user; it is cleared when that computer is removed.
+3. **The only one.** With one computer ready, it is used and nothing is asked.
+4. **Otherwise you are asked.** A **Which computer?** card lists the ready computers, with
+   **Remember as default** ticked. It appears in the chat and in the **Needs you** bar, so a chat
+   running on its own waits for your answer there. A scheduled run with nobody to ask stops and
+   says so.
+
+If the computer the rules point at (the chat's or your default) is offline or its browser is not
+ready, the task stops with "<computer> is offline." and does not move to another one. The
+`machine` the assistant may name is only a hint: it counts when it is the exact name of one of your
+ready computers and nothing above decides.
 
 ## For users without agents
 
@@ -212,5 +254,5 @@ leaves for another site.
 ## For developers
 
 The runtime contract (MCP tools: `snapshot`, `diff`, `act`, `extract`,
-`screenshot`, `download`, `tabs`, `resume`, `end_task`) is in `src/lib/server/browser/contract.ts`, with a fake
+`screenshot`, `download`, `tabs`, `open`, `resume`, `end_task`) is in `src/lib/server/browser/contract.ts`, with a fake
 runtime for tests in `fakeRuntime.ts`. The design is ADR 0116.

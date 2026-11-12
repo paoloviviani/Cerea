@@ -13,6 +13,8 @@ import type { BrowserSettings } from "$lib/server/browser/settings";
 import { FAKE_BROWSER_KEY } from "$lib/server/browser/fakeRuntime";
 import { memoryKeptStore } from "$lib/server/browser/kept";
 import { memoryLeaseStore, type LeaseStore } from "$lib/server/browser/lease";
+import { memoryChoiceStore } from "$lib/server/browser/machineChoice";
+import type { ComputerAsker } from "$lib/server/browser/computerAsk";
 import type { NestedAgentDeps } from "./nestedAgent";
 
 const saveBrowserDownloads = vi.hoisted(() => vi.fn());
@@ -61,16 +63,34 @@ function build(options: {
 	approve?: "approved" | "denied";
 	runtime?: FakeBrowserRuntime;
 	leases?: LeaseStore;
+	choice?: ReturnType<typeof memoryChoiceStore>;
+	asker?: ComputerAsker;
+	unattended?: boolean;
+	keptStore?: ReturnType<typeof memoryKeptStore>;
 }) {
 	const runtime = options.runtime ?? new FakeBrowserRuntime(pages());
 	const model = scriptedModel(options.script);
 	const models: string[] = [];
 	const asks: string[] = [];
+	const remembered: Array<[string, string]> = [];
+	const defaults: string[] = [];
 	const tool = createBrowseTool({
 		machines: options.machines ?? [laptop],
 		settings: options.settings ?? settings(),
 		ceiling: "ask",
 		userId: new ObjectId(),
+		unattended: options.unattended,
+		choiceStore:
+			options.choice ??
+			memoryChoiceStore({ devices: { [laptop.id]: "Laptop", [desk.id]: "Desk" } }),
+		asker: options.asker,
+		keptStore: options.keptStore,
+		remember: async (_user, conversation, device) => {
+			remembered.push([conversation, device]);
+		},
+		saveDefault: async (_user, device) => {
+			defaults.push(device);
+		},
 		runtimeFor: () => runtime,
 		grantKeyFor: async () => FAKE_BROWSER_KEY,
 		leases: options.leases ?? memoryLeaseStore(),
@@ -87,15 +107,17 @@ function build(options: {
 	});
 	tool.bind(turnDeps);
 	const updates: MessageUpdate[] = [];
+	const conversationId = new ObjectId();
 	const ctx = {
 		uuid: "call-uuid",
+		conversationId,
 		toolCallId: "call-1",
 		elicitationSink: {
-			conversationId: new ObjectId(),
+			conversationId,
 			emit: (u: MessageUpdate) => void updates.push(u),
 		},
 	};
-	return { tool, runtime, model, models, asks, updates, ctx };
+	return { tool, runtime, model, models, asks, updates, ctx, remembered, defaults };
 }
 
 const browseUpdates = (updates: MessageUpdate[]) =>
@@ -273,14 +295,22 @@ describe("browse: arguments and machines", () => {
 		});
 	});
 
-	it("picks a machine by name, and says which exist when the name is wrong", async () => {
-		const t = build({ script: [answerTurn("x")], machines: [laptop, desk] });
-		expect(await t.tool.execute({ goal: "look", machine: "Phone" }, t.ctx)).toEqual({
-			error: expect.stringContaining("Available: Laptop, Desk"),
-		});
-		expect("resultText" in (await t.tool.execute({ goal: "look", machine: "desk" }, t.ctx))).toBe(
+	it("honours the machine hint only when it names a ready computer, else asks; it never picks", async () => {
+		const asked: string[][] = [];
+		const asker: ComputerAsker = async (options) => {
+			asked.push(options.map((o) => o.name));
+			return { verdict: "chosen", machine: options[1], remember: false };
+		};
+		const t = build({ script: [answerTurn("x")], machines: [laptop, desk], asker });
+		// A name that is not one of the ready computers is no pick: the user is asked.
+		await t.tool.execute({ goal: "look", machine: "Phone" }, t.ctx);
+		expect(asked).toEqual([["Laptop", "Desk"]]);
+		// An exact name (any case) is honoured with no question.
+		const t2 = build({ script: [answerTurn("x")], machines: [laptop, desk], asker });
+		expect("resultText" in (await t2.tool.execute({ goal: "look", machine: "desk" }, t2.ctx))).toBe(
 			true
 		);
+		expect(asked).toHaveLength(1);
 	});
 
 	it("allows one task at a time on a machine", async () => {
@@ -479,7 +509,7 @@ describe("browse: when it is offered", () => {
 		const withBrowse = getEnabledBuiltinTools({ ...base, browse });
 		const tool = withBrowse.find((t) => t.name === BROWSE_TOOL_NAME);
 		expect(tool?.definition.function.description).toMatch(
-			/^Drive a real web browser on the user's own computer \(Laptop\)/
+			/^Drive a real web browser on the user's own computer: /
 		);
 		const tools = withBrowse.map((t) => t.definition);
 		const on = buildToolPreprompt(tools, undefined, withBrowse);
@@ -564,5 +594,153 @@ describe("openAiComplete", () => {
 		expect(request.temperature).toBeUndefined();
 		expect(request.max_tokens).toBeUndefined();
 		expect(request.tool_choice).toBe("auto");
+	});
+});
+
+describe("browse: which computer (rules, never the model)", () => {
+	const chosen =
+		(index: number, remember: boolean): ComputerAsker =>
+		async (options) => ({
+			verdict: "chosen",
+			machine: options[index],
+			remember,
+		});
+
+	it("uses the only ready computer without asking", async () => {
+		const asker = vi.fn();
+		const t = build({ script: [answerTurn("ok")], machines: [laptop], asker });
+		const out = await t.tool.execute({ goal: "look" }, t.ctx);
+		expect("resultText" in out).toBe(true);
+		expect(asker).not.toHaveBeenCalled();
+		expect(t.remembered).toEqual([[t.ctx.conversationId.toString(), laptop.id]]);
+	});
+
+	it("keeps a conversation on its computer, and says it is offline rather than jumping", async () => {
+		const conversationId = new ObjectId();
+		const choice = memoryChoiceStore({
+			devices: { [laptop.id]: "Laptop", [desk.id]: "Desk" },
+			conversation: { [conversationId.toString()]: desk.id },
+		});
+		const asker = vi.fn();
+		const t = build({ script: [answerTurn("ok")], machines: [laptop], choice, asker });
+		t.ctx.conversationId = conversationId;
+		expect(await t.tool.execute({ goal: "look" }, t.ctx)).toEqual({ error: "Desk is offline." });
+		expect(asker).not.toHaveBeenCalled();
+		// Ready: used, even with another one ready and a different default.
+		const t2 = build({
+			script: [answerTurn("ok")],
+			machines: [laptop, desk],
+			choice: memoryChoiceStore({
+				devices: { [laptop.id]: "Laptop", [desk.id]: "Desk" },
+				conversation: { [conversationId.toString()]: desk.id },
+				default: laptop.id,
+			}),
+			asker,
+		});
+		t2.ctx.conversationId = conversationId;
+		await t2.tool.execute({ goal: "look" }, t2.ctx);
+		expect(t2.remembered[0][1]).toBe(desk.id);
+	});
+
+	it("uses the user's default, and stops when it is offline", async () => {
+		const choice = memoryChoiceStore({
+			devices: { [laptop.id]: "Laptop", [desk.id]: "Desk" },
+			default: desk.id,
+		});
+		const t = build({ script: [answerTurn("ok")], machines: [laptop, desk], choice });
+		await t.tool.execute({ goal: "look" }, t.ctx);
+		expect(t.remembered[0][1]).toBe(desk.id);
+		const off = build({ script: [answerTurn("ok")], machines: [laptop], choice });
+		expect(await off.tool.execute({ goal: "look" }, off.ctx)).toEqual({
+			error: "Desk is offline.",
+		});
+	});
+
+	it("asks which computer, saves the default when remembered, and runs there", async () => {
+		const t = build({
+			script: [answerTurn("ok")],
+			machines: [laptop, desk],
+			asker: chosen(1, true),
+		});
+		const out = await t.tool.execute({ goal: "look" }, t.ctx);
+		expect("resultText" in out).toBe(true);
+		expect(t.defaults).toEqual([desk.id]);
+		expect(t.remembered[0][1]).toBe(desk.id);
+	});
+
+	it("does not save a default when 'Remember as default' is cleared", async () => {
+		const t = build({
+			script: [answerTurn("ok")],
+			machines: [laptop, desk],
+			asker: chosen(0, false),
+		});
+		await t.tool.execute({ goal: "look" }, t.ctx);
+		expect(t.defaults).toEqual([]);
+		expect(t.remembered[0][1]).toBe(laptop.id);
+	});
+
+	it("returns an error that tells the model not to choose when nobody answers", async () => {
+		const t = build({
+			script: [answerTurn("ok")],
+			machines: [laptop, desk],
+			asker: async () => ({ verdict: "expired" }),
+		});
+		const out = await t.tool.execute({ goal: "look" }, t.ctx);
+		expect(out).toEqual({ error: expect.stringContaining("Do not choose one for them") });
+		expect(t.runtime.calls).toEqual([]);
+	});
+
+	it("never asks in an unattended run: it explains, and does not pick", async () => {
+		const asker = vi.fn();
+		const t = build({
+			script: [answerTurn("ok")],
+			machines: [laptop, desk],
+			unattended: true,
+			asker,
+		});
+		const out = await t.tool.execute({ goal: "look" }, t.ctx);
+		expect(out).toEqual({ error: expect.stringContaining("Do not choose one yourself") });
+		expect(asker).not.toHaveBeenCalled();
+		expect(t.runtime.calls).toEqual([]);
+	});
+});
+
+describe("browse: goal scoping and open_only", () => {
+	const description = () => {
+		const t = build({ script: [] });
+		return t.tool.definition.function.description ?? "";
+	};
+
+	it("tells the model the goal is only the latest request, and what the machine argument is", () => {
+		const text = description();
+		expect(text).toContain("ONLY the user's latest request");
+		expect(text).toContain("never resume, repeat or continue an earlier plan");
+		expect(text).toContain("do not name a site");
+		expect(text).toContain("`machine` is only a hint");
+		expect(text).toContain("open_only");
+	});
+
+	it("the prompt line scopes the goal too", () => {
+		const t = build({ script: [] });
+		expect(t.tool.preprompt).toContain("latest message alone");
+		expect(t.tool.preprompt).toContain("open_only");
+	});
+
+	it("opens a page and ties it to the conversation with no task and no model call", async () => {
+		const kept = memoryKeptStore();
+		const t = build({ script: [], keptStore: kept });
+		const out = await t.tool.execute(
+			{ open_only: true, start_url: "https://shop.example.com/cart" },
+			t.ctx
+		);
+		const body = JSON.parse((out as { resultText: string }).resultText);
+		expect(body).toMatchObject({
+			opened: true,
+			computer: "Laptop",
+			url: "https://shop.example.com/cart",
+		});
+		expect(t.runtime.calls.map((c) => c.tool)).toEqual(["open"]);
+		expect(t.models).toEqual([]);
+		expect(kept.tokens.size).toBe(1);
 	});
 });
