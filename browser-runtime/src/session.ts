@@ -83,11 +83,15 @@ export interface SessionOptions {
 	pace?: { minMs: number; maxMs: number };
 	/** How long a page kept at the end of a task can be resumed with its token (default 24 h). */
 	keptTtlMs?: number;
+	/** How long a page may stay silent after a failed action before it is dropped (default 8 s). */
+	probeMs?: number;
 }
 
 export const DEFAULT_MAX_SNAPSHOT_CHARS = 9_000;
 const ACTION_TIMEOUT_MS = 5_000;
 const NAVIGATION_TIMEOUT_MS = 20_000;
+/** How long a failed action's page may stay silent before it counts as stuck and is dropped. */
+const PROBE_MS = 8_000;
 const META_TIMEOUT_MS = 1_500;
 const MAX_DOWNLOADS = 20;
 /** Files the page started on its own are kept back; only a few, so they never crowd out approved ones. */
@@ -1164,7 +1168,13 @@ export class BrowserSession {
 		}
 		// A page that no longer answers (a script stuck in a loop) is dropped: the next call opens a fresh one.
 		const live = this.active;
-		if (live && !live.isClosed() && results.some((x) => !x.ok && !x.refused)) {
+		// A stale ref is the model's mistake, not a sign of a stuck page, and a heavy page can be
+		// slow to answer for a while: a page is dropped only when it stays silent for PROBE_MS, and
+		// never for a failure that says the page answered ("No element with ref").
+		const stuckSuspect = results.some(
+			(x) => !x.ok && !x.refused && !/^No element with ref /.test(x.error ?? "")
+		);
+		if (live && !live.isClosed() && stuckSuspect) {
 			const answered = await Promise.race([
 				live
 					.evaluate(() => 1)
@@ -1172,7 +1182,7 @@ export class BrowserSession {
 						() => true,
 						() => true
 					),
-				sleep(2_000).then(() => false),
+				sleep(this.options.probeMs ?? PROBE_MS).then(() => false),
 			]);
 			if (!answered) {
 				this.taintPage(live);

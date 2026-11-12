@@ -79,3 +79,33 @@ describe("open: a page of its own, no task", () => {
 		assert.equal((await r.tabs()).tabs.length, before);
 	});
 });
+
+describe("a failed action does not drop the page", () => {
+	it("keeps the page after a stale ref, even when the page is slow to answer", async () => {
+		const own = await rig();
+		(own.session as unknown as { options: { probeMs: number } }).options.probeMs = 0;
+		try {
+			await own.goto("/form");
+			const res = await own.act([{ type: "click", ref: "e99999" }]);
+			assert.equal(res.results[0].ok, false);
+			assert.match(res.results[0].error ?? "", /^No element with ref/);
+			assert.doesNotMatch(res.results[0].error ?? "", /closed/);
+			// Still on the same page, not a fresh blank one (the repeated "from about:blank" of a live test).
+			assert.equal((await own.snapshot()).url, `${own.fx.base}/form`);
+		} finally {
+			await own.close();
+		}
+	});
+
+	it("reports another kind of failure as a failure", async () => {
+		const own = await rig();
+		(own.session as unknown as { options: { probeMs: number } }).options.probeMs = 0;
+		try {
+			await own.goto("/form");
+			const res = await own.act([{ type: "navigate", url: "http://127.0.0.1:1/" }]);
+			assert.equal(res.results[0].ok, false);
+		} finally {
+			await own.close();
+		}
+	});
+});
