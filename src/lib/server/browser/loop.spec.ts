@@ -1285,3 +1285,81 @@ describe("ML2: budgets are checked all the time", () => {
 		expect(JSON.stringify(model.requests[1].messages)).not.toContain("image_url");
 	});
 });
+
+describe("N1 and N2: no stepping stone, no Enter around the click rules", () => {
+	it("refuses navigate about:blank, so a blank page is never a way to leave the site unasked", async () => {
+		const ap = approveAll();
+		const { deps, runtime, model } = setup({
+			script: [
+				callTurn("act", { actions: [{ type: "navigate", url: "about:blank" }] }),
+				answerTurn("refused"),
+			],
+			approver: ap.approve,
+		});
+		await runBrowseLoop({ goal: "x y z" }, deps);
+		expect(ap.asks).toEqual([]);
+		expect(runtime.performed).toEqual([]);
+		expect(toolTexts(model.requests[1].messages).at(-1)).toContain("REFUSED");
+	});
+
+	it("asks to leave for another site from a blank page that was reached mid-task", async () => {
+		const blank: FakePage = {
+			id: "blank",
+			url: "about:blank",
+			title: "",
+			elements: [
+				{
+					ref: "e1",
+					role: "link",
+					name: "Out",
+					href: "https://partner.test/",
+					onClick: { goto: "partner" },
+				},
+			],
+		};
+		const ap = answerWith("denied");
+		const runtime = withPages([blank], "blank");
+		const { deps } = setup({
+			script: [
+				callTurn("act", { actions: [{ type: "navigate", url: "https://evil.example.net/?q=x" }] }),
+				answerTurn("no"),
+			],
+			approver: ap.approve,
+		});
+		// The task was on the shop earlier; the blank page is judged against it.
+		await runBrowseLoop({ goal: "x y z" }, { ...deps, runtime });
+		expect(ap.asks).toHaveLength(1);
+		expect(ap.asks[0]).toMatchObject({ reason: "new-domain", site: "evil.example.net" });
+	});
+
+	it("asks about Enter on a menu item named Delete account", async () => {
+		const page: FakePage = {
+			id: "m",
+			url: "https://shop.example.com/m",
+			title: "Menu",
+			elements: [{ ref: "e1", role: "menuitem", name: "Delete account" }],
+		};
+		const ap = answerWith("denied");
+		const { deps } = setup({
+			script: [
+				callTurn("act", { actions: [{ type: "press", key: "Enter", ref: "e1" }] }),
+				answerTurn("no"),
+			],
+			approver: ap.approve,
+		});
+		await runBrowseLoop({ goal: "x y z" }, { ...deps, runtime: withPages([page], "m") });
+		expect(ap.asks.map((a) => a.reason)).toEqual(["verb"]);
+	});
+
+	it("rejects typed text with a line break before it reaches the runtime", async () => {
+		const { deps, runtime, model } = setup({
+			script: [
+				callTurn("act", { actions: [{ type: "fill", ref: "e1", text: "a\nb" }] }),
+				answerTurn("no"),
+			],
+		});
+		await runBrowseLoop({ goal: "x y z" }, deps);
+		expect(runtime.performed).toEqual([]);
+		expect(toolTexts(model.requests[1].messages).at(-1)).toContain("not valid");
+	});
+});

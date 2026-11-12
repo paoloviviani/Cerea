@@ -117,7 +117,12 @@ export const browserActionSchema = z.discriminatedUnion("type", [
 	z.object({
 		type: z.literal("fill"),
 		ref: z.string().min(1).max(64),
-		text: z.string().max(5000),
+		// No line breaks or control characters: Enter is a separate `press`, which is classified.
+		text: z
+			.string()
+			.max(5000)
+			// eslint-disable-next-line no-control-regex
+			.regex(/^[^\u0000-\u001f\u007f]*$/, "text without line breaks or control characters"),
 		/** Press Enter after typing. */
 		submit: z.boolean().optional(),
 	}),
@@ -165,6 +170,9 @@ export type BrowserAction = z.infer<typeof browserActionSchema>;
  *     amount or ""; `wait_for`: text or the ms as a string; `click`: "";
  *   - `url` is the page's URL when the action runs, **without its fragment** (`#...`);
  *   - `name` is the element's accessible name as the runtime reports it in the snapshot, or "";
+ *     (A page with no host, `about:blank`, is judged against the task's last real site, and with
+ *     none every site is "new": only the task's first navigation from a blank start page, to
+ *     its start address, is exempt, and the runtime gets a grant for it as for any new site.)
  *   - `reason`, `targetHost` and `download` are the facts that decided the action's class:
  *     the classification's `reason` ("submit", "verb", "download", "new-domain", "unclassified",
  *     "unknown-element", "bad-url") or "", its `targetHost` or "", and "1" when the element is

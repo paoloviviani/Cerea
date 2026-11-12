@@ -27,6 +27,7 @@ type Row = {
 	action: BrowserAction;
 	element?: SnapshotElement;
 	url?: string;
+	ctx?: { lastSite?: string; firstNavigation?: boolean };
 	expect: ActionClass;
 	reason?: CommitReason;
 };
@@ -53,10 +54,57 @@ const rows: Row[] = [
 		expect: "read",
 	},
 	{
-		label: "navigate from a blank tab",
+		label: "the task's first navigation from a blank start page",
 		action: { type: "navigate", url: "https://shop.example.com/" },
 		url: "about:blank",
+		ctx: { firstNavigation: true },
 		expect: "read",
+	},
+	// N1: a blank page is not a stepping stone
+	{
+		label: "any other navigation from a blank page, with no site seen, is a new domain",
+		action: { type: "navigate", url: "https://evil.example.net/?q=secret" },
+		url: "about:blank",
+		expect: "commit",
+		reason: "new-domain",
+	},
+	{
+		label: "navigate from a blank page back to the last real site reads",
+		action: { type: "navigate", url: "https://shop.example.com/cart" },
+		url: "about:blank",
+		ctx: { lastSite: "shop.example.com" },
+		expect: "read",
+	},
+	{
+		label: "navigate from a blank page to another site than the last real one",
+		action: { type: "navigate", url: "https://evil.example.net/?q=secret" },
+		url: "about:blank",
+		ctx: { lastSite: "shop.example.com" },
+		expect: "commit",
+		reason: "new-domain",
+	},
+	{
+		label: "navigate to about:blank is refused",
+		action: { type: "navigate", url: "about:blank" },
+		expect: "commit",
+		reason: "bad-url",
+	},
+	{
+		label: "the first-navigation exemption does not cover a second site after a blank",
+		action: { type: "navigate", url: "https://evil.example.net/" },
+		url: "about:blank",
+		ctx: { lastSite: "shop.example.com", firstNavigation: false },
+		expect: "commit",
+		reason: "new-domain",
+	},
+	{
+		label: "a link followed from a blank page to another site",
+		action: { type: "click", ref: "e1" },
+		element: el({ role: "link", name: "Elsewhere", href: "https://evil.example.net/" }),
+		url: "about:blank",
+		ctx: { lastSite: "shop.example.com" },
+		expect: "commit",
+		reason: "new-domain",
 	},
 	{
 		label: "plain link on the same site",
@@ -391,10 +439,90 @@ const rows: Row[] = [
 		expect: "read",
 	},
 	{
-		label: "Enter in a combobox that is not a text box is input",
+		label: "Enter on a plain checkbox follows the click rules and reads",
 		action: { type: "press", key: "Enter", ref: "e1" },
 		element: el({ role: "checkbox", name: "Agree" }),
+		expect: "read",
+	},
+	// L3: a combobox with no form sends like a text box
+	{
+		label: "Enter in a combobox with no form",
+		action: { type: "press", key: "Enter", ref: "e1" },
+		element: el({ role: "combobox", name: "To" }),
+		expect: "commit",
+		reason: "submit",
+	},
+	{
+		label: "Enter in a search combobox in a same-site GET form",
+		action: { type: "press", key: "Enter", ref: "e1" },
+		element: el({
+			role: "combobox",
+			name: "Search",
+			form: "f1",
+			formMethod: "get",
+			formActionHost: "www.example.com",
+		}),
+		expect: "read",
+	},
+	{
+		label: "Space in a combobox is input",
+		action: { type: "press", key: "Space", ref: "e1" },
+		element: el({ role: "combobox", name: "To" }),
 		expect: "input",
+	},
+	// N2: Enter and Space on any role that is not a place to type follow the click rules
+	...[
+		"menuitem",
+		"option",
+		"tab",
+		"switch",
+		"checkbox",
+		"gridcell",
+		"generic",
+		"treeitem",
+		"row",
+	].flatMap((role): Row[] =>
+		["Enter", "Space", " "].map((key) => ({
+			label: `${JSON.stringify(key)} on a ${role} named Delete account`,
+			action: { type: "press", key, ref: "e1" },
+			element: el({ role, name: "Delete account" }),
+			expect: "commit",
+			reason: "verb",
+		}))
+	),
+	{
+		label: "Enter on a menuitem with a cross-site href",
+		action: { type: "press", key: "Enter", ref: "e1" },
+		element: el({ role: "menuitem", name: "Partner", href: "https://evil.example.net/x" }),
+		expect: "commit",
+		reason: "new-domain",
+	},
+	{
+		label: "Space on a tab that downloads",
+		action: { type: "press", key: "Space", ref: "e1" },
+		element: el({ role: "tab", name: "Report", download: true }),
+		expect: "commit",
+		reason: "download",
+	},
+	{
+		label: "Enter on a switch with a javascript: href",
+		action: { type: "press", key: "Enter", ref: "e1" },
+		element: el({ role: "switch", name: "Dark", href: "javascript:x()" }),
+		expect: "commit",
+		reason: "bad-url",
+	},
+	{
+		label: "Enter on a menuitem that submits a POST form",
+		action: { type: "press", key: "Enter", ref: "e1" },
+		element: el({ role: "menuitem", name: "Continue", submits: true, formMethod: "post" }),
+		expect: "commit",
+		reason: "submit",
+	},
+	{
+		label: "a link with an absolute href on the same site is a read for any role",
+		action: { type: "click", ref: "e1" },
+		element: el({ role: "menuitem", name: "Orders", href: "https://www.example.com/orders" }),
+		expect: "read",
 	},
 	// Review: an element whose metadata could not be read
 	...(["click", "fill", "select", "press"] as const).map((type): Row => ({
@@ -560,6 +688,7 @@ describe("classifyAction", () => {
 		const result = classifyAction(row.action, {
 			element: row.element,
 			currentUrl: row.url ?? SHOP,
+			...row.ctx,
 		});
 		expect(result.class).toBe(row.expect);
 		if (row.reason) expect(result.reason).toBe(row.reason);
@@ -649,6 +778,19 @@ describe("keys fail closed", () => {
 		expect(normalizeKey("+").kind).toBe("safe");
 		expect(normalizeKey("Shift++").kind).toBe("safe");
 		expect(normalizeKey("Shift+a")).toMatchObject({ kind: "safe", modified: true });
+	});
+	it("rejects typed text that holds a line break or a control character (L4)", () => {
+		for (const text of ["a\nb", "a\r", "\u0000", "x\u001b[2J", "tab\there"]) {
+			expect(
+				browserActionSchema.safeParse({ type: "fill", ref: "e1", text }).success,
+				JSON.stringify(text)
+			).toBe(false);
+		}
+		for (const text of ["", "hello world", "résumé €120", "a'b\"c"]) {
+			expect(browserActionSchema.safeParse({ type: "fill", ref: "e1", text }).success, text).toBe(
+				true
+			);
+		}
 	});
 	it("is rejected by the contract's schema when it holds a control character", () => {
 		for (const key of ["\n", "\r", "a\u0000", "Shift+\r", "\t"]) {

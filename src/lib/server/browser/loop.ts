@@ -348,8 +348,6 @@ async function runInner(request: LoopRequest, deps: LoopDeps): Promise<BrowseRes
 	let stopped: StoppedReason | undefined;
 	/** Grant ids this task issued: a download counts only when an approved action made it. */
 	const issued = new Set<string>();
-	/** Files the pages offered, by name, with the grant of the action that produced them. */
-	const offered = new Map<string, string | undefined>();
 
 	const messages: ChatCompletionMessageParam[] = [
 		{ role: "system", content: systemPrompt(budgets) },
@@ -451,6 +449,13 @@ async function runInner(request: LoopRequest, deps: LoopDeps): Promise<BrowseRes
 
 	let pendingPage: string | undefined;
 	let denied = false;
+	let allowFirstNavigation = false;
+	/** The host of the last real site the task was on: a blank page is judged against it. */
+	let lastSite: string | undefined;
+	const noteSite = () => {
+		const host = hostOf(finalUrl);
+		if (host) lastSite = host;
+	};
 
 	/** Runs a batch one action at a time: classify on fresh state, decide, ask where needed, act. */
 	const doAct = async (callId: string, rawActions: unknown) => {
@@ -480,10 +485,13 @@ async function runInner(request: LoopRequest, deps: LoopDeps): Promise<BrowseRes
 		}
 
 		const lines: string[] = [];
-		const evaluate = (action: BrowserAction) => {
+		const evaluate = (action: BrowserAction, firstNavigation = false) => {
+			noteSite();
 			const ctx = {
 				element: "ref" in action && action.ref ? elements.get(action.ref) : undefined,
 				currentUrl: finalUrl,
+				lastSite,
+				firstNavigation,
 			};
 			const classification = classifyAction(action, ctx);
 			const decision = decide({
@@ -526,7 +534,10 @@ async function runInner(request: LoopRequest, deps: LoopDeps): Promise<BrowseRes
 					lines.push(`(${parsed.length - index - 1} later action(s) were not run.)`);
 				break;
 			}
-			let { ctx, classification, decision } = evaluate(action);
+			// Only the task's own first move, to its start address, may leave a blank start page.
+			const first = allowFirstNavigation;
+			allowFirstNavigation = false;
+			let { ctx, classification, decision } = evaluate(action, first);
 			const ranOn = currentTitle || undefined;
 			const sentence = short(describeAction(action, ctx), 120);
 			const id = recordStep({ action: sentence, page: ranOn, state: "running" });
@@ -605,12 +616,21 @@ async function runInner(request: LoopRequest, deps: LoopDeps): Promise<BrowseRes
 				approvedBy = `site:${classification.targetHost ?? hostOf(finalUrl) ?? "rule"}`;
 			}
 
+			// The task's own first move: the runtime cannot know it is the first, so it gets a
+			// grant, bound to the action as the runtime classifies it (a new site).
+			if (!approvedBy && first && action.type === "navigate") {
+				approvedBy = `start:${classification.targetHost ?? "start"}`;
+			}
 			if (approvedBy) {
 				issued.add(approvedBy);
 				grants = [
 					makeGrant(
 						deps.grantKey,
-						{ index: 0, id: approvedBy, digest: actionDigest(action, ctx) },
+						{
+							index: 0,
+							id: approvedBy,
+							digest: actionDigest(action, { ...ctx, firstNavigation: false }),
+						},
 						now()
 					),
 				];
@@ -629,7 +649,6 @@ async function runInner(request: LoopRequest, deps: LoopDeps): Promise<BrowseRes
 					`${fenceInline(r.outcome ?? "ok")}${approvedBy && !approvedBy.startsWith("site:") ? " (approved by the user)" : ""}`
 				);
 				if (outcome.downloads?.length) {
-					for (const d of outcome.downloads) offered.set(d.name, d.grantId);
 					lines.push(
 						`The page offered ${outcome.downloads.map((d) => fenceInline(d.name)).join(", ")} for download; call download to collect it.`
 					);
@@ -807,7 +826,9 @@ async function runInner(request: LoopRequest, deps: LoopDeps): Promise<BrowseRes
 					},
 				],
 			});
+			allowFirstNavigation = true;
 			await doAct("start", [{ type: "navigate", url: request.startUrl }]);
+			allowFirstNavigation = false;
 			if (denied) throw new Stop("denied");
 		}
 
