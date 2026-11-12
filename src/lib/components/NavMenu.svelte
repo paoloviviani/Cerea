@@ -181,26 +181,38 @@
 		)
 	);
 
+	// One page request at a time: the scroll marker fires every 250 ms while it
+	// is on screen, and a second request would ask for a page the first is
+	// already fetching.
+	let loadingMore = false;
 	async function handleVisible() {
+		if (loadingMore || !hasMore) return;
+		loadingMore = true;
 		p++;
-		const newConvs = await client.conversations
-			.get({
-				query: {
-					p,
-				},
-			})
-			.then(handleResponse)
-			.then((r) => r.conversations)
-			.catch((): ConvSidebar[] => []);
+		try {
+			const result = await client.conversations
+				.get({
+					query: {
+						p,
+					},
+				})
+				.then(handleResponse)
+				.catch(() => null);
+			const newConvs: ConvSidebar[] = result?.conversations ?? [];
 
-		if (newConvs.length === 0) {
-			hasMore = false;
+			// The server says whether more pages exist; an empty page (or a failed
+			// read) also ends the paging.
+			if (newConvs.length === 0 || result?.hasMore === false) {
+				hasMore = false;
+			}
+
+			// A list that shifted between pages can hand back a chat already shown:
+			// keep one row per id (the keyed list would throw on a duplicate).
+			const seen = new Set(conversations.map((c) => c.id));
+			conversations = [...conversations, ...newConvs.filter((c: ConvSidebar) => !seen.has(c.id))];
+		} finally {
+			loadingMore = false;
 		}
-
-		// A list that shifted between pages can hand back a chat already shown:
-		// keep one row per id (the keyed list would throw on a duplicate).
-		const seen = new Set(conversations.map((c) => c.id));
-		conversations = [...conversations, ...newConvs.filter((c: ConvSidebar) => !seen.has(c.id))];
 	}
 
 	$effect(() => {
@@ -290,6 +302,7 @@
 					? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600/60 dark:text-white'
 					: 'text-ink-muted hover:text-ink'}"
 				aria-label={m["app.nav.chats"]()}
+				aria-pressed={effectiveView === "chats"}
 				title={m["app.nav.chats"]()}
 				onclick={() => (codeNav.view = "chats")}
 			>
@@ -320,6 +333,7 @@
 					aria-label={needsYouCount > 0
 						? m["app.nav.agents_needs_you"]({ count: needsYouCount })
 						: undefined}
+					aria-pressed={effectiveView === "agents"}
 					title={m["app.nav.agents"]()}
 					onclick={() => (codeNav.view = "agents")}
 				>
@@ -371,7 +385,7 @@
 		<!-- While the sign-in is stale the tree draws no machines and no counts;
 		     the card says why and offers the way back (as the main panel does).
 		     Before /status has answered nothing is drawn: a card shown then would
-		     flash for every signed-in user. The Chats | Agents switch above stays. -->
+		     flash for every signed-in user. The Chats | Recent | Agents switch above stays. -->
 		{#if codeReauth.required}
 			<!-- On /code the panel itself already shows the full card, right
 			     beside this column: one prompt there, not two. -->

@@ -66,7 +66,7 @@ active in the last **48 hours**; when that is fewer than ten, the list is filled
 up to ten with older items, so it is never nearly empty. A chat counts from the
 last time you wrote in it or an answer finished (not from a rename or a move),
 and a session from the last time it moved, as its computer reports it. A click
-opens the chat, or the session in the Agents view. **New chat**, **Schedules** and
+opens the chat, or the session, in the main panel; the sidebar stays on Recent. **New chat**, **Schedules** and
 the rest around the list stay as in Chats. Without agent access Recent lists
 chats only. It reads what the sidebar already has and asks the computers the
 same way the Agents list does; nothing about your sessions is stored on the

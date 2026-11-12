@@ -169,7 +169,7 @@ describe("NavMenu's foot", () => {
 		expect(logo.getAttribute("href")).toMatch(/\/$/);
 	});
 
-	it("puts the Chats | Agents switch on the logo's row, with names for icon-only widths", async () => {
+	it("puts the Chats | Recent | Agents switch on the logo's row, with names for icon-only widths", async () => {
 		renderWithApp(
 			NavMenu,
 			{
@@ -292,7 +292,7 @@ describe("NavMenu's Chats header", () => {
 
 /**
  * The agents side of the sidebar while the /code sign-in is stale: the
- * Chats | Agents switch stays, and the machine tree does not exist — nothing
+ * Chats | Recent | Agents switch stays, and the machine tree does not exist — nothing
  * is asked of a machine, so nothing it said can be drawn.
  */
 describe("NavMenu's agents list and the /code sign-in", () => {
@@ -410,7 +410,7 @@ describe("NavMenu's agents list and the /code sign-in", () => {
 		expect(host.querySelector('[data-testid="code-reauth-card"]')).toBeNull();
 	});
 
-	it("keeps only the Chats | Agents switch, and asks no machine, while stale", async () => {
+	it("keeps only the Chats | Recent | Agents switch, and asks no machine, while stale", async () => {
 		stubFetch({ enabled: true, fresh: false, reauthPath: "/login?reauth=1&next=/code" });
 		mount();
 		await vi.waitFor(() =>

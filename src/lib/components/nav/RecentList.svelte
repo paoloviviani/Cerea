@@ -20,12 +20,19 @@
 	import CarbonChat from "~icons/carbon/chat";
 	import CarbonCode from "~icons/carbon/code";
 	import CarbonFolder from "~icons/carbon/folder";
+	import IconHelp from "~icons/carbon/help-filled";
+	import IconRenew from "~icons/carbon/renew";
 	import InfiniteScroll from "$lib/components/InfiniteScroll.svelte";
 	import type { ConvSidebar } from "$lib/types/ConvSidebar";
 	import type { ProjectView } from "$lib/types/Project";
-	import { buildRecent, type RecentMachine } from "$lib/utils/recentItems";
+	import {
+		buildRecent,
+		RECENT_MIN_ITEMS,
+		RECENT_WINDOW_MS,
+		type RecentMachine,
+	} from "$lib/utils/recentItems";
 	import { formatRelativeTime } from "$lib/utils/relativeTime";
-	import { projectsTreeCache } from "$lib/stores/projectsTreeCache.svelte";
+	import { bindProjectsCacheOwner, projectsTreeCache } from "$lib/stores/projectsTreeCache.svelte";
 	import { reconcileById } from "$lib/utils/reconcileById";
 	import {
 		bindCodeCacheOwner,
@@ -59,12 +66,42 @@
 	const projectNames = $derived(
 		Object.fromEntries(projectsTreeCache.projects.map((project) => [project.id, project.name]))
 	);
-	const needsProjects = $derived(conversations.some((conv) => conv.projectId));
+	// Which projects the listed chats name that the cache does not know yet. The
+	// list is read again only when this set changes (a chat moved into a new
+	// project), and never twice for the same set: a project that is gone would
+	// otherwise be asked for forever.
+	const unknownProjects = $derived(
+		[
+			...new Set(
+				conversations.flatMap((conv) =>
+					conv.projectId && !(conv.projectId in projectNames) ? [conv.projectId] : []
+				)
+			),
+		]
+			.sort()
+			.join(",")
+	);
+	// A read that began before the account changed must not land in the next
+	// account's cache.
+	let owner = $state<string | undefined>(undefined);
+	let projectsRead = 0;
+	let askedFor = "";
+	$effect(() => {
+		const userId = page.data.user?.id as string | undefined;
+		bindProjectsCacheOwner(userId);
+		if (owner !== userId) {
+			owner = userId;
+			projectsRead += 1;
+			askedFor = "";
+		}
+	});
 	async function loadProjects() {
+		const read = ++projectsRead;
 		try {
 			const response = await fetch(`${base}/api/v2/projects`);
-			if (!response.ok) return;
+			if (!response.ok || read !== projectsRead) return;
 			const listed = ((await response.json()) as { data: ProjectView[] }).data;
+			if (read !== projectsRead) return;
 			const merged = reconcileById(projectsTreeCache.projects, listed);
 			if (merged !== projectsTreeCache.projects) projectsTreeCache.projects = merged;
 			projectsTreeCache.fetchedAt = Date.now();
@@ -74,10 +111,9 @@
 			// Project chats then show without their badge: the list still works.
 		}
 	}
-	let projectsAsked = false;
 	$effect(() => {
-		if (needsProjects && !projectsAsked && !projectsTreeCache.loaded) {
-			projectsAsked = true;
+		if (unknownProjects && unknownProjects !== askedFor) {
+			askedFor = unknownProjects;
 			void loadProjects();
 		}
 	});
@@ -85,12 +121,11 @@
 	// Sessions: the same shared device poll and subtree reads the Agents tree
 	// uses, for the paired machines that are online.
 	const agentsOn = $derived(agentsEnabled && codeReauth.checked && !codeReauth.required);
+	// A machine that must be enrolled again has nothing to answer.
+	const usable = (device: (typeof codeDeviceList.devices)[number]) =>
+		device.status === "paired" && device.reenroll !== "revoked";
 	const loadable = $derived(
-		agentsOn
-			? codeDeviceList.devices.filter(
-					(device) => device.status === "paired" && device.online !== false
-				)
-			: []
+		agentsOn ? codeDeviceList.devices.filter((d) => usable(d) && d.online !== false) : []
 	);
 	$effect(() => {
 		bindCodeCacheOwner(page.data.user?.id);
@@ -131,7 +166,7 @@
 	const machines = $derived<RecentMachine[]>(
 		agentsOn
 			? codeDeviceList.devices
-					.filter((device) => device.status === "paired" && codeTreeCache.trees[device.id])
+					.filter((device) => usable(device) && codeTreeCache.trees[device.id])
 					.map((device) => ({
 						id: device.id,
 						name: device.name,
@@ -151,6 +186,20 @@
 		})
 	);
 
+	// More chat pages are fetched only while they can still matter: the oldest
+	// chat loaded is inside the window, or the list is still short. Otherwise a
+	// short list would page through the whole history.
+	const oldestChat = $derived(
+		conversations.reduce(
+			(oldest, conv) =>
+				Math.min(oldest, new Date(conv.lastActivityAt ?? conv.updatedAt).getTime() || 0),
+			Infinity
+		)
+	);
+	const wantMore = $derived(
+		hasMore && (now - oldestChat <= RECENT_WINDOW_MS || items.length < RECENT_MIN_ITEMS)
+	);
+
 	const ROW =
 		"group flex h-8 min-w-0 flex-none items-center gap-1.5 rounded-lg pr-2 pl-2 text-smd no-underline max-sm:h-10 sm:text-sm";
 	const rowClass = (active: boolean) =>
@@ -164,7 +213,7 @@
 </script>
 
 <div class="flex flex-col gap-px" data-testid="recent-list">
-	{#each items as item (`${item.kind}:${item.id}`)}
+	{#each items as item (item.kind === "agent" ? `agent:${item.machine.id}:${item.id}` : `chat:${item.id}`)}
 		{#if item.kind === "chat"}
 			<a
 				href="{base}/conversation/{item.id}"
@@ -173,7 +222,16 @@
 				data-testid="recent-row"
 				data-kind="chat"
 			>
-				<CarbonChat class="size-3.5 shrink-0" aria-label={m["app.nav.recent_chat"]()} />
+				<CarbonChat class="size-3.5 shrink-0" aria-hidden="true" />
+				<span class="sr-only">{m["app.nav.recent_chat"]()}</span>
+				{#if item.unread && page.params.id !== item.id}
+					<span
+						class="size-1.5 flex-none rounded-full bg-accent-solid"
+						title={m["app.nav_item.unread"]()}
+						aria-label={m["app.nav_item.unread"]()}
+						data-testid="unread-dot"
+					></span>
+				{/if}
 				<span class="min-w-0 flex-1 truncate">{item.title}</span>
 				{#if item.project?.name}
 					<span class={BADGE} data-testid="recent-project" title={item.project.name}>
@@ -190,15 +248,35 @@
 		{:else}
 			<a
 				href="{base}/code?device={item.machine.id}&ws={item.workspaceId}&agent={item.id}"
-				class="{rowClass(page.url.searchParams.get('agent') === item.id)} {item.machine.online
-					? ''
-					: 'opacity-70'}"
+				class="{rowClass(
+					page.route.id === '/code' && page.url.searchParams.get('agent') === item.id
+				)} {item.machine.online ? '' : 'opacity-70'}"
 				title={item.title}
 				data-testid="recent-row"
 				data-kind="agent"
 			>
-				<CarbonCode class="size-3.5 shrink-0" aria-label={m["app.nav.recent_agent"]()} />
+				<CarbonCode class="size-3.5 shrink-0" aria-hidden="true" />
+				<span class="sr-only">{m["app.nav.recent_agent"]()}</span>
 				<span class="min-w-0 flex-1 truncate">{item.title}</span>
+				{#if item.state === "waiting-permission"}
+					<span
+						class="flex shrink-0 items-center text-amber-500 dark:text-amber-400"
+						title={m["code.nav.waiting_title"]()}
+						data-testid="recent-needs-you"
+					>
+						<IconHelp class="size-3.5" aria-hidden="true" />
+						<span class="sr-only">{m["code.nav.needs_you"]()}</span>
+					</span>
+				{:else if item.state === "running"}
+					<span
+						class="flex shrink-0 items-center text-blue-600 dark:text-blue-400"
+						title={m["code.nav.state_running"]()}
+						data-testid="recent-running"
+					>
+						<IconRenew class="size-3.5 animate-spin" aria-hidden="true" />
+						<span class="sr-only">{m["code.nav.state_running"]()}</span>
+					</span>
+				{/if}
 				<span class={BADGE} data-testid="recent-machine" title={item.machine.name}>
 					<span
 						role="img"
@@ -226,7 +304,16 @@
 			{m["app.nav.no_recent"]()}
 		</p>
 	{/if}
-	{#if hasMore}
+	{#if agentsEnabled && codeReauth.required}
+		<a
+			href="{base}/code"
+			class="px-3 py-2 text-xs text-ink-faint no-underline hover:underline"
+			data-testid="recent-reauth"
+		>
+			{m["app.nav.recent_sign_in"]()}
+		</a>
+	{/if}
+	{#if wantMore}
 		<InfiniteScroll onvisible={onloadmore} />
 	{/if}
 </div>

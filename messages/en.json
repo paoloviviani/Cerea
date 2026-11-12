@@ -948,6 +948,7 @@
 	"app.nav.recent": "Recent",
 	"app.nav.recent_agent": "Agent session",
 	"app.nav.recent_chat": "Chat",
+	"app.nav.recent_sign_in": "Sign in again to see agent sessions",
 	"app.nav.schedules": "Schedules",
 	"app.nav.settings": "Settings",
 	"app.nav.workspace": "Workspace",

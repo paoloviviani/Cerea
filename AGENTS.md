@@ -558,7 +558,7 @@ like the other two). It is one list of chats (project chats included, badge from
 the projects the sidebar already reads) and agent sessions, newest first, built on
 the client from stores that already exist: the layout's chat list (`lastActivityAt`,
 kept live by the same watcher, so a new message moves a chat up) and the Agents
-tree's cache (`codeTreeCache`, read through the proxy for online machines only).
+tree's cache (`codeTreeCache`, read through the proxy for paired machines that are online; a machine that has gone offline keeps its last sessions, shown dimmed).
 There is **no endpoint and no server-side session store**: the machine owns its
 sessions and `CodeAgent.ts` forbids a second agent store, so a server list would
 either have to ask every machine or mirror them. A session's clock is its
