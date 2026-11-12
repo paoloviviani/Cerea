@@ -521,7 +521,18 @@ loginctl enable-linger "$USER"`;
 									</span>
 								</div>
 
-								{#if machine.servers.length === 0}
+								{#if machine.browser}
+									<p class="mb-2 text-xs text-ink-muted" data-testid="local-machine-browser">
+										{machine.browser === "ready"
+											? m["workspace.local.browser.line_ready"]()
+											: machine.browser === "offline"
+												? m["workspace.local.browser.line_offline"]()
+												: m["workspace.local.browser.line_problem"]()}
+									</p>
+								{/if}
+								{#if machine.servers.length === 0 && machine.browser}
+									<!-- the browser is the machine's offer: never "no servers" beside it -->
+								{:else if machine.servers.length === 0}
 									<p class="text-xs text-ink-muted">
 										{machine.online
 											? m["workspace.local.no_servers_online"]()

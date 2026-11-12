@@ -412,6 +412,26 @@ describe("browse: when it is offered", () => {
 		);
 		expect(tool?.definition.function.description).toContain("comes from outside");
 	});
+	it("leads with the capability and says so in the prompt exactly when it is offered", async () => {
+		const { buildToolPreprompt } = await import("$lib/server/textGeneration/utils/toolPrompt");
+		const withBrowse = getEnabledBuiltinTools({ ...base, browse });
+		const tool = withBrowse.find((t) => t.name === BROWSE_TOOL_NAME);
+		expect(tool?.definition.function.description).toMatch(
+			/^Drive a real web browser on the user's own computer \(Laptop\)/
+		);
+		const tools = withBrowse.map((t) => t.definition);
+		const on = buildToolPreprompt(tools, undefined, withBrowse);
+		expect(on).toContain("you CAN use a real web browser");
+		// Cache-stable: nothing of the page or the machine's state is in the line.
+		expect(buildToolPreprompt(tools, undefined, withBrowse)).toBe(on);
+		const plain = getEnabledBuiltinTools({ ...base });
+		const off = buildToolPreprompt(
+			plain.map((t) => t.definition),
+			undefined,
+			plain
+		);
+		expect(off).not.toContain("real web browser on the user's own computer");
+	});
 	it("is not available to a delegated sub-agent", () => {
 		expect(SUBAGENT_BUILTIN_TOOLS.has(BROWSE_TOOL_NAME)).toBe(false);
 	});
@@ -442,7 +462,12 @@ describe("openAiComplete", () => {
 				tool_choice: "auto",
 				stream: true,
 			},
-			requestHeaders: { Authorization: "Bearer user-token", "ChatUI-Conversation-ID": "c" },
+			requestHeaders: {
+				Authorization: "Bearer user-token",
+				"ChatUI-Conversation-ID": "c",
+				"x-pystino-tag": "turn:m1",
+				"x-bill-to": "org-1",
+			},
 		} as unknown as NestedAgentDeps;
 	}
 
@@ -455,6 +480,8 @@ describe("openAiComplete", () => {
 			{ headers: Record<string, string> },
 		];
 		expect(options.headers.Authorization).toBe("Bearer user-token");
+		expect(options.headers["x-pystino-tag"]).toBe("turn:m1");
+		expect(options.headers["x-bill-to"]).toBe("org-1");
 		expect(request).toMatchObject({ model: "chat-model", stream: false, temperature: 0.2 });
 		expect(request.tools).toBeUndefined();
 		expect(request.tool_choice).toBeUndefined();

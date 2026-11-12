@@ -419,6 +419,7 @@ export async function* runMcpFlow({
 					settings: browserSettings(),
 					ceiling: ceilingOf(toolApprovalPolicy),
 					unattended: Boolean(locals?.scheduledRun),
+					language: locals?.locale,
 					chatModelSeesImages: Boolean(forceMultimodal ?? model.multimodal) && !model.toolImagesOff,
 					userId: locals?.user?._id,
 					token: turnToken,
@@ -863,6 +864,10 @@ export async function* runMcpFlow({
 			completionBase,
 			requestHeaders: {
 				"ChatUI-Conversation-ID": conv._id.toString(),
+				// Like the main model's calls: a sub-agent's spend belongs to this turn and to the
+				// same billing group (browse, delegates, the sandbox and the rest all use these).
+				...billToHeader(locals?.billingOrganization),
+				...turnTagHeader(messageId),
 				...(config.USE_USER_TOKEN === "true" && locals?.token
 					? { Authorization: `Bearer ${locals.token}` }
 					: {}),

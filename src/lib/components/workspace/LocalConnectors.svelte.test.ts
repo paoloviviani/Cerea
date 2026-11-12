@@ -106,6 +106,19 @@ describe("LocalConnectors", () => {
 		expect(byId("local-browser-states")).toContain("No browser registered yet");
 	});
 
+	it("shows the machine's browser instead of saying it lists no servers", async () => {
+		stubApi(() => [
+			machine({ id: "m1", browser: "ready" }),
+			machine({ id: "m2", name: "desk", browser: "problem" }),
+			machine({ id: "m3", name: "bare" }),
+		]);
+		const screen = mount();
+		await expect.element(screen.getByText("Browser: ready")).toBeInTheDocument();
+		await expect.element(screen.getByText("Browser: not responding")).toBeInTheDocument();
+		// Only the machine with neither server nor browser says it lists none.
+		expect(text(screen).match(/It lists no servers yet/g)?.length).toBe(1);
+	});
+
 	it("hides the browser card without local-connectors access", async () => {
 		stubApi(() => []);
 		const screen = mount({ browserUseEnabled: true, localConnectorsDenied: "not_granted" });

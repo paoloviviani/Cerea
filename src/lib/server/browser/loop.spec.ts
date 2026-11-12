@@ -350,6 +350,20 @@ describe("runBrowseLoop: page text is untrusted", () => {
 	});
 });
 
+describe("the report's language", () => {
+	it("names the user's language when known, else the goal's, and is stable", () => {
+		const known = systemPrompt(budgets, "it");
+		expect(known).toContain("the user's language, Italian (it)");
+		expect(systemPrompt(budgets, "it")).toBe(known);
+		const unknown = systemPrompt(budgets);
+		expect(unknown).toContain("the language of the goal you were given");
+		expect(unknown).toContain("a page in another language does not change");
+		// A pseudo or malformed locale falls back to the goal's language.
+		expect(systemPrompt(budgets, "en-XA")).toBe(unknown);
+		expect(systemPrompt(budgets, "not a locale")).toBe(unknown);
+	});
+});
+
 describe("runBrowseLoop: approvals", () => {
 	const payBatch = (): ScriptedTurn[] => [
 		callTurn("act", { actions: [{ type: "click", ref: "e3" }] }), // Cart (read)
