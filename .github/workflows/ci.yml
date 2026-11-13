@@ -280,7 +280,7 @@ jobs:
             echo "documents=false" >> "$GITHUB_OUTPUT"
           fi
           # the sandbox manager and socket proxy (ADR 0115): their sources, or this workflow
-          if grep -qE '^(sandbox/|\.github/workflows/ci\.yml$)' <<<"$changed"; then
+          if grep -qE '^(sandbox/|src/lib/server/(sandbox|codeExecution)/|src/lib/utils/execution/figures\.ts$|\.github/workflows/ci\.yml$)' <<<"$changed"; then
             echo "sandbox=true" >> "$GITHUB_OUTPUT"
           else
             echo "sandbox=false" >> "$GITHUB_OUTPUT"
@@ -309,10 +309,14 @@ jobs:
         with:
           node-version: "${{ env.NODE_VERSION }}"
           cache: npm
-          cache-dependency-path: sandbox/package-lock.json
+          cache-dependency-path: |
+            sandbox/package-lock.json
+            package-lock.json
       - run: npm ci
       - run: npm run lint
       - run: npm test
+      - name: The exec daemon's Python tests
+        run: python3 -m unittest discover -s exec-image/tests -v
       - name: Install gVisor (runsc) and register it with Docker
         working-directory: .
         run: |
@@ -329,6 +333,27 @@ jobs:
       - name: The image builds
         working-directory: .
         run: docker build -t cerea-sandbox:ci sandbox/
+      - name: Build the Python exec image
+        working-directory: .
+        run: docker build -t cerea-sandbox-python:ci sandbox/exec-image/
+      - name: The exec image in a gVisor sandbox (numpy, a plot, files, state, no network)
+        run: SANDBOX_INTEGRATION=1 SANDBOX_EXEC_IMAGE=cerea-sandbox-python:ci SANDBOX_RUNTIME=runsc node --test --test-concurrency=1 --test-timeout=240000 test/execimage.integration.test.ts
+      - name: execute_code through the chat's client, a real manager and the exec image
+        working-directory: .
+        env:
+          SANDBOX_INTEGRATION_TOKEN: ci-integration-token-0123456789
+        run: |
+          npm ci
+          cd sandbox
+          SANDBOX_INSTANCE=ci SANDBOX_RUNTIME=runsc SANDBOX_ALLOWED_IMAGES=cerea-sandbox-python:ci \
+            SANDBOX_PROXY_PORT=2375 node src/socket-proxy/main.ts > "$RUNNER_TEMP/proxy.log" 2>&1 &
+          SANDBOX_MANAGER_TOKEN="$SANDBOX_INTEGRATION_TOKEN" SANDBOX_INSTANCE=ci SANDBOX_RUNTIME=runsc \
+            SANDBOX_EXEC_IMAGE=cerea-sandbox-python:ci SANDBOX_DOCKER_URL=http://127.0.0.1:2375 \
+            SANDBOX_MANAGER_HOST=127.0.0.1 SANDBOX_MANAGER_PORT=8080 SANDBOX_AUDIT_LOG= \
+            SANDBOX_EXEC_MEMORY_MB=1024 node src/manager/main.ts > "$RUNNER_TEMP/manager.log" 2>&1 &
+          cd ..
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8080/v1/health && break; sleep 1; done
+          SANDBOX_INTEGRATION_URL=http://127.0.0.1:8080 npx vitest run --project=server src/lib/server/codeExecution/sandboxSessions.integration.spec.ts || { tail -40 "$RUNNER_TEMP/manager.log"; exit 1; }
 
   # The browser runtime (ADR 0116), browser-runtime/: format, strict types, its tests against local
   # fixture pages in a real Chromium, and a check that the bundle galopin embeds is the one the

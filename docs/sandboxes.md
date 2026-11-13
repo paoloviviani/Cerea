@@ -7,14 +7,63 @@
     to switch them on, what they cost, and what protects the host. The design is in
     ADR 0115.
 
-!!! warning "Status: the control plane only"
+!!! note "What runs on it today"
 
-    This release ships the **sandbox manager**, its Docker **socket proxy** and Cerea's
-    client for them. Nothing sends code to them yet: `execute_code` still runs in the
-    browser (Pyodide), whatever you set here. Switching sandboxes on now is a way to
-    install, size and check the service before the `execute_code` backend arrives in the
-    next step. Hosted agent machines (a later phase) and the egress proxy they need are not
-    built; a request for one is refused.
+    The model's `execute_code` tool can run in a server sandbox (below). Python code blocks in the
+    chat still run in the user's browser (Pyodide), whatever you set here. Hosted agent machines
+    (a later phase) and the egress proxy they need are not built; a request for one is refused.
+
+## Run `execute_code` on the server
+
+Two settings, both off by default: the sandboxes themselves (`SANDBOX`, below) and where the
+model's code runs (`CHAT_CODE_EXECUTION`).
+
+```sh
+./configure --sandbox local --code-execution server
+docker compose up -d
+```
+
+`--code-execution browser|server|off` sets `CHAT_CODE_EXECUTION`. `server` needs `SANDBOX` to be
+`local` or `remote`; with `SANDBOX=off`, or while the manager is not answering, the chat runs the
+tool in the browser instead, **automatically**, and logs it (`[code-execution] ... code runs in the
+person's browser`, once when it starts and again when it recovers). A call whose sandbox cannot be
+leased is handed to the browser too, before any code has run. After the code has started there is
+no fallback: a failure is reported as the run's error.
+
+The model sees the same `execute_code` tool, with the same argument and the same result format.
+What differs is the engine, which the tool's description says:
+
+- **Preinstalled stack, no network.** Python 3.13 with numpy, pandas, scipy, scikit-learn,
+  matplotlib, seaborn, sympy, Pillow, lxml, python-docx, openpyxl, XlsxWriter, python-pptx, pypdf and
+  reportlab (the image `cerea-sandbox-python`, versions pinned in `sandbox/exec-image/requirements.txt`).
+  Nothing can be installed or downloaded.
+- **State lasts.** One sandbox per conversation: variables, imports and files stay between calls.
+  The manager releases it after about twenty idle minutes (`SANDBOX_IDLE_SECONDS`); the next call
+  makes a new one, and the result tells the model its earlier state is gone.
+- **Files in.** The conversation's attachments are copied to `/mnt/data/<name>` on demand, by the same
+  plan as the browser (same names, the extracted text beside each file as `<name>.md`, the same size
+  caps). A file a privacy rule withheld is never copied: it is neither planned nor readable.
+  Files the document tools produced are not copied yet.
+- **Files out.** Files the code writes under `/mnt/output/` come back as the conversation's files and
+  show as download cards, kept as long as any deliverable (`CHAT_FILE_RETENTION_DAYS`). At most 20 files
+  and 8 MB each per run; a figure drawn with matplotlib is saved as `figure-N.png` for the model, as in the browser.
+- **Rich output.** Results come back as text, like the browser's: a DataFrame prints as a table. (A
+  full Jupyter kernel, with inline HTML tables and widgets, is not used: the exec daemon in the image,
+  `sandbox/exec-image/execd.py`, is a small standard-library program that keeps one interpreter and
+  returns `stdout`, `stderr`, the last value, the error and the files. It is the seam to swap if
+  inline HTML is ever wanted.)
+- **Limits.** One run is stopped after the configured limit (`CHAT_CODE_RUN_TIMEOUT_SECONDS`, 60 s by
+  default); a stopped run restarts the interpreter and the model is told. Memory, CPU, processes, workspace
+  and the other limits are the sandbox's (see [Sizing](#sizing)); one sandbox is leased per conversation,
+  so `SANDBOX_MAX_LEASES_PER_OWNER` is also the number of conversations a user can run code in at once.
+
+**What users see.** The same code card as before: it shows "Running code" while the sandbox works (no
+"keep this page open" hint, because nothing runs in their page), then the output and the file cards. A
+turn does not need the page to stay open, and a scheduled run can use the tool.
+
+The sandbox lease is kept in the chat process's memory. With several chat replicas, a conversation's
+next call may land on another one, which leases a second sandbox; the first is released by the idle
+timeout. Run a single replica, or accept the extra start-up.
 
 ## The switch
 
@@ -50,8 +99,8 @@ chat treats it as off. It is never half on. At start the chat logs one line: `[s
 `[sandbox] manager healthy` with the runtime, or a warning that the configured manager does not
 answer.
 
-When `execute_code` is wired to the manager, its backend choice stays a separate setting.
-With `SANDBOX=off` it is forced to the browser.
+`CHAT_CODE_EXECUTION` stays a separate setting (above). With `SANDBOX=off` it is forced to the
+browser.
 
 ## Install gVisor
 
@@ -236,5 +285,6 @@ chat's typed client is `src/lib/server/sandbox/client.ts`.
 
 ## Not built yet
 
-The `execute_code` backend, the warm pool and staging from the attachment store (the next step);
+The warm pool (the first call of a conversation pays for a start, a second or two with the image
+already pulled; the first ever pays for the image pull) and staging files the document tools made;
 hosted agent machines and the default-deny egress proxy they need (a later phase).

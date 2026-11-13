@@ -113,6 +113,31 @@ class Switch(unittest.TestCase):
         self.assertEqual([p for p in profiles(build(sandbox="local").values) if p != "sandbox"], plain)
 
 
+class CodeExecution(unittest.TestCase):
+    """--code-execution: where execute_code runs; `server` needs the sandbox switch on."""
+
+    def test_server_needs_sandboxes(self):
+        with self.assertRaises(cfg.ConfigError):
+            build(code_execution="server")
+        values = build(sandbox="local", code_execution="server").values
+        self.assertEqual(values["CHAT_CODE_EXECUTION"], "server")
+        self.assertEqual(sandbox_errors(values), [])
+
+    def test_browser_is_the_empty_default_and_off_is_kept(self):
+        self.assertEqual(build(code_execution="browser").values.get("CHAT_CODE_EXECUTION", ""), "")
+        self.assertEqual(build(code_execution="off").values["CHAT_CODE_EXECUTION"], "off")
+        with self.assertRaises(cfg.ConfigError):
+            build(code_execution="maybe")
+
+    def test_turning_sandboxes_off_leaves_the_setting_but_says_it_cannot_work(self):
+        on = dict(build(sandbox="local", code_execution="server").values)
+        result = build(existing=on, sandbox="off")
+        self.assertEqual(result.values["CHAT_CODE_EXECUTION"], "server")
+        self.assertTrue(any("execute_code runs in the browser" in n for n in result.notes), result.notes)
+        report = check(result.values)
+        self.assertTrue(any("CHAT_CODE_EXECUTION=server" in w for w in report.warnings), report.warnings)
+
+
 class Mismatch(unittest.TestCase):
     """A mix is an error from ./configure --check, never silently half-on."""
 
@@ -227,7 +252,7 @@ class ComposeRules(unittest.TestCase):
         for text in (COMPOSE, STANDALONE):
             self.assertIn("SANDBOX_ALLOWED_IMAGES: *sandbox-exec-image", service(text, "sandbox-socket-proxy"))
             self.assertIn("SANDBOX_EXEC_IMAGE: *sandbox-exec-image", service(text, "sandbox-manager"))
-            self.assertIn("@sha256:", text, "the sandbox image is pinned by digest")
+            self.assertIn("cerea-sandbox-python:${CEREA_VERSION:-", text, "the sandbox image is the versioned Python image")
             for name in ("sandbox-socket-proxy", "sandbox-manager"):
                 self.assertIn("SANDBOX_RUNTIME: ${SANDBOX_RUNTIME:-runsc}", service(text, name))
 
@@ -249,11 +274,21 @@ class ComposeRules(unittest.TestCase):
         self.assertRegex(EXAMPLE, r"(?m)^SANDBOX_MACHINES_ENABLED=''$")
         self.assertRegex(EXAMPLE, r"(?m)^SANDBOX_ALLOW_RUNC=''$")
 
-    def test_the_default_image_matches_the_managers_own(self):
-        digest = re.search(r"python:3\.13-slim@sha256:[0-9a-f]{64}", COMPOSE).group(0)
-        self.assertIn(digest, STANDALONE)
-        source = (ROOT.parent / "sandbox" / "src" / "manager" / "config.ts").read_text(encoding="utf-8")
-        self.assertIn(digest, source)
+    def test_the_exec_image_is_built_from_a_digest_pinned_base(self):
+        dockerfile = (ROOT.parent / "sandbox" / "exec-image" / "Dockerfile").read_text(encoding="utf-8")
+        self.assertRegex(dockerfile, r"(?m)^FROM python:3\.13-slim@sha256:[0-9a-f]{64}$")
+        requirements = (ROOT.parent / "sandbox" / "exec-image" / "requirements.txt").read_text(encoding="utf-8")
+        lines = [l for l in requirements.splitlines() if l.strip()]
+        self.assertTrue(lines and all("==" in l for l in lines), "every package is pinned to a version")
+        for want in ("numpy", "pandas", "matplotlib", "scipy", "pillow", "openpyxl", "python-docx", "python-pptx"):
+            self.assertTrue(any(l.lower().startswith(want + "==") for l in lines), want)
+
+    def test_the_exec_image_is_published_and_checked_with_the_others(self):
+        images = (ROOT.parent / ".github" / "workflows" / "images.yml").read_text(encoding="utf-8")
+        self.assertIn("images: ghcr.io/${{ github.repository_owner }}/cerea-sandbox-python", images)
+        self.assertIn("context: sandbox/exec-image", images)
+        release = (ROOT.parent / "scripts" / "release" / "release.sh").read_text(encoding="utf-8")
+        self.assertIn("cerea-sandbox-python", release)
 
 
 if __name__ == "__main__":

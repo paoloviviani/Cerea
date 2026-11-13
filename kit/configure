@@ -976,6 +976,8 @@ class Answers:
     sandbox: str | None = None
     sandbox_url: str | None = None
     sandbox_token: str | None = None
+    #: Where the model's execute_code runs (CHAT_CODE_EXECUTION): browser, server or off. None leaves it.
+    code_execution: str | None = None
     #: The numeric group that owns the Docker socket (local only); read by cmd_configure.
     sandbox_docker_gid: str | None = None
     # The bundled S3-compatible object store for the chat's files (the rustfs
@@ -1258,6 +1260,22 @@ def build(answers: Answers, existing: dict, template: str, discovery: dict | Non
                 values["SANDBOX_MANAGER_TOKEN"] = ""
     profiles = [p for p in PROFILES if p in profiles] + [p for p in profiles if p not in PROFILES]
     values["COMPOSE_PROFILES"] = ",".join(dict.fromkeys(profiles))
+    # Where execute_code runs. `server` needs a sandbox manager (SANDBOX local or remote); the chat
+    # would fall back to the browser anyway, but a setting that cannot work is refused here.
+    if answers.code_execution is not None:
+        if answers.code_execution not in ("browser", "server", "off"):
+            raise ConfigError("--code-execution is one of browser, server, off")
+        if answers.code_execution == "server" and (values.get("SANDBOX") or "off") == "off":
+            raise ConfigError(
+                "--code-execution server needs server sandboxes: run ./configure --sandbox local "
+                "(or remote) first, or together with this option"
+            )
+        values["CHAT_CODE_EXECUTION"] = "" if answers.code_execution == "browser" else answers.code_execution
+    elif (values.get("SANDBOX") or "off") == "off" and values.get("CHAT_CODE_EXECUTION") == "server":
+        notes.append(
+            "CHAT_CODE_EXECUTION=server but SANDBOX is off: execute_code runs in the browser "
+            "until server sandboxes are on (./configure --sandbox local|remote)"
+        )
     # The chat's renderer address follows the fetch profile. An address that
     # is not ours (a renderer elsewhere) is left alone.
     if "fetch" in profiles:
@@ -1981,6 +1999,11 @@ def check_values(values: dict, report: Report) -> None:
                 "SANDBOX=off but the sandbox profile or SANDBOX_MANAGER_URL / SANDBOX_MANAGER_TOKEN are set: "
                 "run ./configure --sandbox off (or --sandbox local / remote)"
             )
+    if values.get("CHAT_CODE_EXECUTION") == "server" and mode not in ("local", "remote"):
+        report.warnings.append(
+            "CHAT_CODE_EXECUTION=server but SANDBOX is off: execute_code runs in the browser. "
+            "Run ./configure --sandbox local (or remote), or --code-execution browser"
+        )
     store = values.get("CHAT_BLOB_STORE", "")
     if store not in ("", "gridfs", "s3"):
         report.errors.append(f"CHAT_BLOB_STORE='{store}' is not 'gridfs' or 's3'")
@@ -2500,6 +2523,9 @@ def cmd_configure(args, root: Path) -> int:
             # Never half-on: without the runtime the feature stays off, and the rest of the run goes on.
             print(f"configure: {problem}\nconfigure: leaving server sandboxes off (SANDBOX=off)", file=sys.stderr)
             answers.sandbox = "off"
+            if answers.code_execution == "server":
+                print("configure: not setting --code-execution server without sandboxes", file=sys.stderr)
+                answers.code_execution = None
         else:
             try:
                 sock = Path(existing.get("SANDBOX_DOCKER_SOCKET_HOST") or "/var/run/docker.sock")
@@ -2825,6 +2851,9 @@ def parser() -> argparse.ArgumentParser:
                         "manager in this compose (the sandbox profile; needs the gVisor runsc runtime "
                         "registered with Docker), remote uses a manager on another host (--sandbox-url, "
                         "--sandbox-token-env), off removes both")
+    o.add_argument("--code-execution", dest="code_execution", choices=("browser", "server", "off"),
+                   help="where the model's execute_code runs (CHAT_CODE_EXECUTION): the user's browser "
+                        "(default), a server sandbox (needs --sandbox local or remote), or nowhere")
     o.add_argument("--sandbox-url", dest="sandbox_url", help="--sandbox remote: the manager's http(s):// address")
     o.add_argument("--sandbox-token-env", metavar="VAR",
                    help="--sandbox remote: read the manager's token from this environment variable")

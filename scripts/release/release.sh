@@ -78,7 +78,7 @@ owner=${REPO%%/*}
 # manager (ADR 0115).
 # A package's first push is private on GitHub: its visibility is the owner's to
 # set once, and this step is what notices when it has not been.
-for image in cerea cerea-documents cerea-sandbox; do
+for image in cerea cerea-documents cerea-sandbox cerea-sandbox-python; do
 	DOCKER_CONFIG=$anon docker manifest inspect "ghcr.io/${owner,,}/$image:$V" >/dev/null ||
 		stop "$image:$V not pullable anonymously"
 done
