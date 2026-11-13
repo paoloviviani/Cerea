@@ -161,12 +161,12 @@ class Check(unittest.TestCase):
         return report
 
     def test_mongo8_without_avx_is_an_error(self):
-        r = self.report("mongo:8.0.34", False, "6.8.0")
+        r = self.report("mongo:8.0.37", False, "6.8.0")
         self.assertEqual(len(r.errors), 1)
         self.assertIn("AVX", r.errors[0])
 
     def test_mongo8_on_affected_kernel_is_an_error(self):
-        r = self.report("mongo:8.0.34", True, "7.0.0-38-generic")
+        r = self.report("mongo:8.0.37", True, "7.0.0-38-generic")
         self.assertEqual(len(r.errors), 1)
         self.assertIn("7.0.0-38-generic", r.errors[0])
 
@@ -187,7 +187,7 @@ class Check(unittest.TestCase):
         self.assertFalse(self.report("mongo:7.0.45", True, "7.0.0").errors)
 
     def test_unknown_host_is_not_an_error(self):
-        self.assertFalse(self.report("mongo:8.0.34", None, "weird").errors)
+        self.assertFalse(self.report("mongo:8.0.37", None, "weird").errors)
 
     def test_other_images_are_noted_not_checked(self):
         r = self.report("registry.example/mongo:8", False, "6.8.0")
@@ -195,7 +195,7 @@ class Check(unittest.TestCase):
         self.assertTrue(r.notes)
 
     def test_no_chat_profile_no_check(self):
-        self.assertFalse(self.report("mongo:8.0.34", False, "6.8.0", profiles="gateway").errors)
+        self.assertFalse(self.report("mongo:8.0.37", False, "6.8.0", profiles="gateway").errors)
 
     def test_4_4_on_a_capable_host_suggests_the_upgrade(self):
         r = self.report("mongo:4.4.30", True, "6.8.0")
