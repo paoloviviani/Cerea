@@ -443,7 +443,7 @@ services:
     # MONGO_IMAGE=mongo:4.4.30, which MongoDB 8 cannot open data from; ./configure
     # writes the pin for a new install on such a host, and tools/mongo-upgrade
     # moves an old one to 8. A test keeps this equal to configure's MONGO_DEFAULT.
-    image: ${MONGO_IMAGE:-mongo:8.0.37}
+    image: ${MONGO_IMAGE:-mongo:8.0.38}
     restart: unless-stopped
     volumes:
       - chat-mongo-data:/data/db
