@@ -439,6 +439,8 @@ export async function* runMcpFlow({
 		modelSeesImages: Boolean(forceMultimodal ?? model.multimodal) && !model.toolImagesOff,
 		pictureState,
 		memoryEnabled: memoryAllowed,
+		// A chat's own notes need the deployment flag only: they die with the chat.
+		conversationMemoryEnabled: memoryEnabled() && Boolean(locals?.user),
 		...(memoryProject ? { projectMemoryProjectId: memoryProject._id } : {}),
 		askUserQuestionEnabled: (
 			await import("$lib/server/askUserQuestionEnabled")
@@ -808,6 +810,26 @@ export async function* runMcpFlow({
 			}
 		} else if (mergedPreprompt.length > 0) {
 			messagesOpenAI = [{ role: "system", content: mergedPreprompt }, ...messagesOpenAI];
+		}
+
+		// The uncached tail, in front of the newest user message and never in the system
+		// prompt: this chat's own notes, and any personal or project memory written since
+		// the chat's snapshot (see `memory/snapshot`). Editing any of it leaves every
+		// earlier token of the request byte-identical, so the cache holds.
+		if (memoryEnabled() && locals?.user) {
+			const { memoryTail } = await import("$lib/server/memory/tail");
+			const { injectConversationNotes } =
+				await import("$lib/server/memory/injectConversationNotes");
+			messagesOpenAI = injectConversationNotes(
+				messagesOpenAI,
+				await memoryTail({
+					conversationId: conv._id,
+					snapshot: conv.memorySnapshot,
+					userId: locals.user._id,
+					globalOn: memoryAllowed,
+					projectId: memoryProject?._id,
+				})
+			);
 		}
 
 		// Tail-injected once per turn; within the turn, freshness travels in the tool

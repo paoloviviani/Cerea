@@ -1,33 +1,46 @@
 import { MessageUpdateType } from "$lib/types/MessageUpdate";
 import type { ObjectId } from "mongodb";
 import {
+	CONVERSATION_MEMORY_TEXT_MAX_CHARS,
 	forgetFact,
+	forgetForConversation,
 	forgetForProject,
 	MemoryValidationError,
 	MEMORY_TEXT_MAX_CHARS,
 	PROJECT_MEMORY_TEXT_MAX_CHARS,
 	rememberFact,
+	rememberForConversation,
 	rememberForProject,
 } from "$lib/server/memory/service";
-import type { BuiltinTool } from "./types";
+import type { BuiltinTool, BuiltinToolContext } from "./types";
 
 export const REMEMBER_TOOL_NAME = "remember";
 export const FORGET_TOOL_NAME = "forget";
-export const REMEMBER_FOR_PROJECT_TOOL_NAME = "remember_for_project";
-export const FORGET_FOR_PROJECT_TOOL_NAME = "forget_for_project";
+
+/** The three places a note can go, narrowest first. */
+export type MemoryToolScope = "conversation" | "project" | "global";
 
 /**
- * Writing and unwriting the standing facts about a person (see
- * `$lib/types/Memory` for why memory is a short list rather than a store to
- * search).
+ * Writing and unwriting notes: one pair of tools, with the place named in
+ * every call (see `$lib/types/Memory` for why memory is a short list rather
+ * than a store to search, and `$lib/types/ScopedMemory` for the two narrower
+ * lists).
  *
- * ## Why two tools rather than one with a mode
+ * ## Why one pair with a `scope`, where there used to be two pairs
  *
- * A single `memory(action, text)` reads to a model as one capability with a
- * switch, and models flip switches. Two named verbs make forgetting a
- * deliberate choice of tool, which is the behaviour worth biasing toward
- * when one branch deletes something the person may not be able to
- * reconstruct. It is also what LibreChat settled on, for what that is worth.
+ * "Remember this for this chat" used to reach the one tool that existed and
+ * wrote to the personal list, so a note about one chat came back in every
+ * later one. Writing too broadly is the worse failure, and the cure is to make
+ * the model say where a note goes, every time, with the narrow choices first.
+ * The scopes offered are only those that exist for this turn: the enum is the
+ * first guard, and each branch below is the second, because a model can name
+ * a value it was not offered.
+ *
+ * `global` is the widest and the only one a model may not pick on its own
+ * judgement: it must quote the user's own words that make a note permanent
+ * (`user_words`), and a call without them is refused with an instruction to
+ * ask. That cannot prove what the user meant, but it turns "default to
+ * global" into a deliberate act the transcript card then shows.
  *
  * ## Why these are not behind the approval gate
  *
@@ -35,119 +48,257 @@ export const FORGET_FOR_PROJECT_TOOL_NAME = "forget_for_project";
  * memory write has neither: it touches one document in this app's own
  * database, on behalf of the person who owns it. An approval card per
  * remembered fact would be the most frequent interruption in the product and
- * would teach people to dismiss approval cards without reading them —
- * degrading the gate where it actually matters. The safeguard here is
- * different and, for this operation, better: the write is **shown** in the
- * transcript as it happens, and can be undone from there in one click.
+ * would teach people to dismiss approval cards without reading them. The
+ * safeguard is instead that the write is **shown** in the transcript as it
+ * happens, says where it went, and can be undone in one click.
  *
  * ## The prompt guidance does most of the work
  *
  * Nothing stops a model from remembering something silly. The doctrine below
  * is the real control, and it is deliberately conservative: durable facts
- * only, nothing transient, nothing about third parties, nothing secret. A
- * store that fills with "the user is currently debugging a Postgres error"
- * is worse than an empty one, because every later turn carries it.
+ * only, nothing secret, and the narrowest scope that fits.
  */
-const DOCTRINE =
-	"MEMORY: You can keep a short list of standing facts about the person you are talking to, " +
-	`carried into every future conversation. Call ${REMEMBER_TOOL_NAME} when they ask you to ` +
-	"remember something, or when they state something durable about themselves that would change " +
-	"how you answer them months from now — how they want to be addressed, a language or format " +
-	"preference, their role, a long-running project, a standing constraint. " +
-	`Call ${FORGET_TOOL_NAME} when they ask you to forget something, or when they tell you a ` +
-	"remembered fact is now wrong.\n" +
-	"Do not remember: anything that is only true today (what they are debugging right now, what " +
-	"a file currently contains), anything already obvious from the conversation you are in, " +
-	"facts about other people, or credentials, keys and other secrets — a secret in memory is a " +
-	"secret in every future prompt. Do not remember something just because it was interesting. " +
-	"When in doubt, do not: the person can add a memory themselves, and an unremembered fact " +
-	"costs far less than a wrong one repeated forever.\n" +
-	"Write one self-contained sentence, in the third person, that will still make sense with no " +
-	'surrounding context: "Prefers replies in Italian", not "yes, do that from now on". Never ' +
-	"announce that you are about to use these tools, and do not repeat the saved fact back — the " +
-	"person is shown the change as it happens.";
-
-/**
- * Doctrine for the project pair. Shorter than the personal one because the
- * rules it shares (nothing transient, nothing secret, one self-contained
- * sentence) are already stated there when both are offered; what it adds is
- * the one thing a model gets wrong between the two lists — which one a fact
- * belongs in — and the fact that the note is read by other people.
- */
-const PROJECT_DOCTRINE =
-	"PROJECT MEMORY: This conversation belongs to a project, which keeps a shared list of notes " +
-	"read by every member in every conversation in it. Call " +
-	`${REMEMBER_FOR_PROJECT_TOOL_NAME} when they ask you to remember something for the project, or ` +
-	"when a durable fact about the project's work comes up that the next person to open it would " +
-	"otherwise have to rediscover — a decision and its reason, a convention, a constraint, where " +
-	`something lives. Call ${FORGET_FOR_PROJECT_TOOL_NAME} when a note is wrong or they ask for ` +
-	`it to go. Use ${REMEMBER_TOOL_NAME} instead for facts about the person themselves ` +
-	"(their preferences, how they want to be addressed): a project note is read by colleagues. " +
-	"The same limits apply as for personal memory: nothing transient, no secrets or credentials, " +
-	"one self-contained sentence or short paragraph that makes sense with no surrounding context, " +
-	"and never announce that you are using these tools.";
-
-/** What differs between the personal pair and the project pair. */
-interface Flavor {
-	rememberName: string;
-	forgetName: string;
-	textMax: number;
-	doctrine: string;
-	rememberDescription: string;
-	rememberFactDescription: string;
-	forgetDescription: string;
-	forgetFactDescription: string;
-	remember(
-		text: string,
-		ctx: { userId: ObjectId; conversationId?: ObjectId }
-	): Promise<{ text: string; id: string; created: boolean }>;
-	forget(text: string, ctx: { userId: ObjectId }): Promise<{ text: string }>;
-	/** Added to the transcript card so its undo can reach the right route. */
-	updateScope: { scope?: "project"; projectId?: string };
-	unavailable: string;
+function doctrine(scopes: MemoryToolScope[]): string {
+	const has = (scope: MemoryToolScope) => scopes.includes(scope);
+	const lines = [
+		`MEMORY: You can keep short notes with ${REMEMBER_TOOL_NAME} and remove them with ${FORGET_TOOL_NAME}. ` +
+			"Every call says where the note goes (scope), and the choice matters more than the wording: " +
+			"a note kept too widely is repeated in places it does not belong, and a note kept too narrowly " +
+			"is only lost, so always take the narrowest scope that fits.",
+	];
+	if (has("conversation")) {
+		lines.push(
+			'- scope "conversation": for this chat only. Use it for "remember this for this chat", ' +
+				'"for now", "in this conversation", or any detail that matters here and nowhere else (a naming ' +
+				"choice, a constraint of this task, what the user has decided so far). These notes are shown to " +
+				"you on every turn of this chat and never appear in another."
+		);
+	}
+	if (has("project")) {
+		lines.push(
+			'- scope "project": this chat belongs to a project, and the notes are read by every member in every ' +
+				'chat in it. Use it when the user says "for this project", or for a durable fact about the ' +
+				"project's work that the next person to open it would otherwise have to rediscover. Never for " +
+				"facts about the user themselves: colleagues read these."
+		);
+	}
+	if (has("global")) {
+		lines.push(
+			'- scope "global": standing facts about the user, kept in every future chat. Only when they clearly ' +
+				'mean always or about themselves ("always", "from now on", "about me", "in every chat"). ' +
+				"You must pass their own words in user_words. If it is unclear whether a note should be for " +
+				'this chat or for every chat, ask the user, and do not guess "global".'
+		);
+	}
+	lines.push(
+		"Do not remember: anything already obvious from the conversation you are in, facts about other " +
+			"people, or credentials, keys and other secrets: a secret in memory is a secret in every later " +
+			"prompt. Do not remember something just because it was interesting. Write one self-contained " +
+			'sentence that will still make sense with no surrounding context: "Prefers replies in Italian", ' +
+			'not "yes, do that". Never announce that you are about to use these tools. After a save, the ' +
+			'result tells you where the note went: tell the user in a few words (for example "Saved to ' +
+			"this chat's notes\"), and do not repeat the note."
+	);
+	return lines.join("\n");
 }
 
-function build(flavor: Flavor): BuiltinTool[] {
+/** Where a write landed, in the words the model passes on to the user. */
+const PLACE: Record<MemoryToolScope, string> = {
+	conversation: "this chat's notes",
+	project: "this project's notes (shared with every member)",
+	global: "your memory, for every chat",
+};
+
+interface ScopeContext {
+	userId: ObjectId;
+	conversationId?: ObjectId;
+	projectId?: ObjectId;
+}
+
+interface Stored {
+	text: string;
+	id: string;
+	created: boolean;
+}
+
+async function rememberAt(
+	scope: MemoryToolScope,
+	text: string,
+	ctx: ScopeContext
+): Promise<Stored> {
+	switch (scope) {
+		case "conversation": {
+			if (!ctx.conversationId)
+				throw new MemoryValidationError("There is no chat to keep notes in.");
+			const { memory, created } = await rememberForConversation({
+				conversationId: ctx.conversationId,
+				ownerUserId: ctx.userId,
+				text,
+				source: "model",
+			});
+			return { text: memory.text, id: memory._id.toString(), created };
+		}
+		case "project": {
+			if (!ctx.projectId) throw new MemoryValidationError("This chat is not in a project.");
+			const { memory, created } = await rememberForProject({
+				projectId: ctx.projectId,
+				authorUserId: ctx.userId,
+				text,
+				source: "model",
+				...(ctx.conversationId ? { conversationId: ctx.conversationId } : {}),
+			});
+			return { text: memory.text, id: memory._id.toString(), created };
+		}
+		case "global": {
+			const { memory, created } = await rememberFact({
+				userId: ctx.userId,
+				text,
+				source: "model",
+				...(ctx.conversationId ? { conversationId: ctx.conversationId } : {}),
+			});
+			return { text: memory.text, id: memory._id.toString(), created };
+		}
+	}
+}
+
+async function forgetAt(
+	scope: MemoryToolScope,
+	text: string,
+	ctx: ScopeContext
+): Promise<{ text: string }> {
+	switch (scope) {
+		case "conversation":
+			if (!ctx.conversationId)
+				throw new MemoryValidationError("There is no chat to keep notes in.");
+			return forgetForConversation({ conversationId: ctx.conversationId, text });
+		case "project":
+			if (!ctx.projectId) throw new MemoryValidationError("This chat is not in a project.");
+			return forgetForProject({ projectId: ctx.projectId, text });
+		case "global":
+			return forgetFact({ userId: ctx.userId, text });
+	}
+}
+
+function textMaxFor(scopes: MemoryToolScope[]): number {
+	const limits: Record<MemoryToolScope, number> = {
+		conversation: CONVERSATION_MEMORY_TEXT_MAX_CHARS,
+		project: PROJECT_MEMORY_TEXT_MAX_CHARS,
+		global: MEMORY_TEXT_MAX_CHARS,
+	};
+	return Math.max(...scopes.map((scope) => limits[scope]));
+}
+
+/**
+ * The scope a call asked for, or a refusal the model can act on. Anything
+ * outside what this turn offers is refused, whatever the schema said; with a
+ * single scope on offer the argument may be left out.
+ */
+function resolveScope(
+	raw: unknown,
+	scopes: MemoryToolScope[]
+): { scope: MemoryToolScope } | { error: string } {
+	if (raw === undefined || raw === null || raw === "") {
+		if (scopes.length === 1) return { scope: scopes[0] };
+		return {
+			error: `Say where this goes: scope must be one of ${scopes.join(", ")}. Take the narrowest that fits.`,
+		};
+	}
+	if (typeof raw === "string" && (scopes as string[]).includes(raw)) {
+		return { scope: raw as MemoryToolScope };
+	}
+	return {
+		error: `scope "${String(raw)}" is not available here. Use one of: ${scopes.join(", ")}.`,
+	};
+}
+
+function guardsFor(ctx: BuiltinToolContext): ObjectId | undefined {
+	return ctx.userId;
+}
+
+function build(scopes: MemoryToolScope[], projectId: ObjectId | undefined): BuiltinTool[] {
+	const textMax = textMaxFor(scopes);
+	const scopeProperty = {
+		type: "string",
+		enum: scopes,
+		description:
+			"Where the note goes. " +
+			(scopes.includes("conversation")
+				? '"conversation" is this chat only (the default for "remember this for this chat"). '
+				: "") +
+			(scopes.includes("project")
+				? '"project" is shared with every member of this chat\'s project. '
+				: "") +
+			(scopes.includes("global")
+				? '"global" is every future chat, only when the user clearly means always or about themselves. '
+				: "") +
+			"Take the narrowest that fits.",
+	};
+	const withGlobal = scopes.includes("global");
+	const userWords = {
+		type: "string",
+		description:
+			'Required for scope "global": the user\'s own words that make this note permanent ("always", ' +
+			'"about me", "in every chat"). Leave out for other scopes. If you have no such words, ask the user instead.',
+	};
+
 	const remember: BuiltinTool = {
-		name: flavor.rememberName,
+		name: REMEMBER_TOOL_NAME,
 		definition: {
 			type: "function" as const,
 			function: {
-				name: flavor.rememberName,
-				description: flavor.rememberDescription,
+				name: REMEMBER_TOOL_NAME,
+				description:
+					"Keep one short note. The scope says where: this chat only, this chat's project, or " +
+					"(only when the user clearly means always or about themselves) every future chat. " +
+					"Use it for things that stay true for that scope, not for the state of the current task. " +
+					"The result tells you where it was saved.",
 				parameters: {
 					type: "object",
 					properties: {
 						fact: {
 							type: "string",
-							maxLength: flavor.textMax,
-							description: flavor.rememberFactDescription,
+							maxLength: textMax,
+							description:
+								"One self-contained sentence, understandable with no surrounding context. " +
+								'For example: "Prefers concise answers with no preamble".',
 						},
+						scope: scopeProperty,
+						...(withGlobal ? { user_words: userWords } : {}),
 					},
-					required: ["fact"],
+					required: scopes.length > 1 ? ["fact", "scope"] : ["fact"],
 				},
 			},
 		},
-		preprompt: flavor.doctrine,
+		preprompt: doctrine(scopes),
 
 		async execute(args, ctx) {
-			if (!ctx.userId) {
-				// Anonymous sessions have nowhere durable to write; say so plainly
-				// rather than failing in a way the model reads as "try again".
-				return { error: flavor.unavailable };
+			const userId = guardsFor(ctx);
+			if (!userId) {
+				return { error: "Memory is only available to a signed-in person. Continue without it." };
+			}
+			const picked = resolveScope(args.scope, scopes);
+			if ("error" in picked) return picked;
+			const { scope } = picked;
+			if (scope === "global" && !String(args.user_words ?? "").trim()) {
+				return {
+					error:
+						"A global note needs the user's own words saying it should last (pass them as user_words). " +
+						"If they did not say so, ask whether it is for this chat only or for every chat.",
+				};
 			}
 			try {
-				const { text, id, created } = await flavor.remember(String(args.fact ?? ""), {
-					userId: ctx.userId,
+				const { text, id, created } = await rememberAt(scope, String(args.fact ?? ""), {
+					userId,
 					conversationId: ctx.conversationId,
+					projectId,
 				});
 				return {
-					// A no-op is reported as one. Told "Remembered" for something it
-					// already knew, a model tends to announce a save that did not
-					// happen, and on the next turn tends to save it again.
+					// A no-op is reported as one. Told "Saved" for something it already
+					// knew, a model tends to announce a save that did not happen, and on
+					// the next turn tends to save it again.
 					resultText: created
-						? `Remembered: ${text}`
-						: `Already in memory, nothing changed: ${text}`,
+						? `Saved to ${PLACE[scope]}: ${text}`
+						: `Already in ${PLACE[scope]}, nothing changed: ${text}`,
 					extraUpdates: created
 						? [
 								{
@@ -156,7 +307,11 @@ function build(flavor: Flavor): BuiltinTool[] {
 									action: "remembered" as const,
 									text,
 									memoryId: id,
-									...flavor.updateScope,
+									scope,
+									...(scope === "project" && projectId ? { projectId: projectId.toString() } : {}),
+									...(scope === "conversation" && ctx.conversationId
+										? { conversationId: ctx.conversationId.toString() }
+										: {}),
 								},
 							]
 						: [],
@@ -169,39 +324,59 @@ function build(flavor: Flavor): BuiltinTool[] {
 	};
 
 	const forget: BuiltinTool = {
-		name: flavor.forgetName,
+		name: FORGET_TOOL_NAME,
 		definition: {
 			type: "function" as const,
 			function: {
-				name: flavor.forgetName,
-				description: flavor.forgetDescription,
+				name: FORGET_TOOL_NAME,
+				description:
+					"Remove one note from the scope it was kept in. Use it when the user asks you to forget " +
+					"something, or when a note has become wrong.",
 				parameters: {
 					type: "object",
 					properties: {
 						fact: {
 							type: "string",
-							maxLength: flavor.textMax,
-							description: flavor.forgetFactDescription,
+							maxLength: textMax,
+							description:
+								"The note to remove, repeated as closely as you can to how it appears in the " +
+								"list you were given. If more than one matches you will be told, and can retry " +
+								"with the exact wording.",
 						},
+						scope: { ...scopeProperty, description: "The list the note is in." },
 					},
-					required: ["fact"],
+					required: scopes.length > 1 ? ["fact", "scope"] : ["fact"],
 				},
 			},
 		},
 
 		async execute(args, ctx) {
-			if (!ctx.userId) return { error: flavor.unavailable };
+			const userId = guardsFor(ctx);
+			if (!userId) {
+				return { error: "Memory is only available to a signed-in person. Continue without it." };
+			}
+			const picked = resolveScope(args.scope, scopes);
+			if ("error" in picked) return picked;
+			const { scope } = picked;
 			try {
-				const removed = await flavor.forget(String(args.fact ?? ""), { userId: ctx.userId });
+				const removed = await forgetAt(scope, String(args.fact ?? ""), {
+					userId,
+					conversationId: ctx.conversationId,
+					projectId,
+				});
 				return {
-					resultText: `Forgotten: ${removed.text}`,
+					resultText: `Forgotten from ${PLACE[scope]}: ${removed.text}`,
 					extraUpdates: [
 						{
 							type: MessageUpdateType.Memory as const,
 							uuid: ctx.uuid,
 							action: "forgot" as const,
 							text: removed.text,
-							...flavor.updateScope,
+							scope,
+							...(scope === "project" && projectId ? { projectId: projectId.toString() } : {}),
+							...(scope === "conversation" && ctx.conversationId
+								? { conversationId: ctx.conversationId.toString() }
+								: {}),
 						},
 					],
 				};
@@ -221,103 +396,25 @@ function build(flavor: Flavor): BuiltinTool[] {
 /**
  * The tools, or none at all.
  *
- * `enabled` is resolved by the caller (runMcpFlow) from the deployment flag
- * and the person's own setting, because it needs a database read and
- * `getEnabledBuiltinTools` is deliberately synchronous — the same division
- * `searchModelIds` and `playwrightReachable` already follow. Returning an
- * empty array rather than throwing keeps the "a tool withholds itself" shape
- * every other builtin here uses.
- *
- * `project` is the second pair, offered *in addition* in a project's
- * conversation and only when the caller has already confirmed this person is
- * a member and the deployment flag is on. It is independent of `enabled`: the
- * personal opt-in is a decision about facts concerning oneself, and a shared
- * project's notes are not that.
+ * `enabled` is the person's own opt-in for standing facts about themselves
+ * (deployment flag and `Settings.memoryEnabled`, resolved by the caller
+ * because it needs a database read and `getEnabledBuiltinTools` is
+ * deliberately synchronous). It gates only the `global` scope.
+ * `conversation` is the deployment flag alone: a note that dies with the chat
+ * is not a decision about the person, so it needs no opt-in. `project` is
+ * offered in a project's chat when the caller has confirmed this person is a
+ * member and the deployment flag is on.
  */
 export function createMemoryBuiltins(params: {
 	enabled: boolean;
+	/** The deployment flag is on, so this chat may keep its own notes. */
+	conversation?: boolean;
 	project?: { projectId: ObjectId };
 }): BuiltinTool[] {
-	const tools: BuiltinTool[] = [];
-
-	if (params.enabled) {
-		tools.push(
-			...build({
-				rememberName: REMEMBER_TOOL_NAME,
-				forgetName: FORGET_TOOL_NAME,
-				textMax: MEMORY_TEXT_MAX_CHARS,
-				doctrine: DOCTRINE,
-				rememberDescription:
-					"Store one standing fact about the person you are talking to, so it is available " +
-					"in every future conversation. Use it for things that stay true, not for the state " +
-					"of the current task.",
-				rememberFactDescription:
-					"One self-contained sentence in the third person, understandable with no " +
-					'surrounding context. For example: "Works on the Pystino gateway for ' +
-					'his personal deployment" or "Prefers concise answers with no preamble".',
-				forgetDescription:
-					"Remove one standing fact from memory. Use it when the person asks you to forget " +
-					"something, or when a remembered fact has become wrong.",
-				forgetFactDescription:
-					"The fact to remove, repeated as closely as you can to how it appears in " +
-					"the memory list you were given. If more than one matches you will be " +
-					"told, and can retry with the exact wording.",
-				unavailable: "Memory is only available to a signed-in person. Continue without it.",
-				updateScope: {},
-				async remember(text, ctx) {
-					const { memory, created } = await rememberFact({
-						userId: ctx.userId,
-						text,
-						source: "model",
-						...(ctx.conversationId ? { conversationId: ctx.conversationId } : {}),
-					});
-					return { text: memory.text, id: memory._id.toString(), created };
-				},
-				forget: (text, ctx) => forgetFact({ userId: ctx.userId, text }),
-			})
-		);
-	}
-
-	if (params.project) {
-		const { projectId } = params.project;
-		tools.push(
-			...build({
-				rememberName: REMEMBER_FOR_PROJECT_TOOL_NAME,
-				forgetName: FORGET_FOR_PROJECT_TOOL_NAME,
-				textMax: PROJECT_MEMORY_TEXT_MAX_CHARS,
-				doctrine: PROJECT_DOCTRINE,
-				rememberDescription:
-					"Store one note on this project's shared memory, available to every member in " +
-					"every conversation in this project. Use it for durable facts about the work, " +
-					"not for facts about the person you are talking to and not for the state of the " +
-					"current task.",
-				rememberFactDescription:
-					"One self-contained note, understandable by a colleague with no surrounding " +
-					'context. For example: "Deploys go through the release branch; the staging ' +
-					'database is reset every Monday".',
-				forgetDescription:
-					"Remove one note from this project's shared memory. Use it when a note is wrong " +
-					"or the person asks for it to go.",
-				forgetFactDescription:
-					"The note to remove, repeated as closely as you can to how it appears in the " +
-					"project memory you were given. If more than one matches you will be told, " +
-					"and can retry with the exact wording.",
-				unavailable: "Project memory is only available to a signed-in person. Continue without it.",
-				updateScope: { scope: "project", projectId: projectId.toString() },
-				async remember(text, ctx) {
-					const { memory, created } = await rememberForProject({
-						projectId,
-						authorUserId: ctx.userId,
-						text,
-						source: "model",
-						...(ctx.conversationId ? { conversationId: ctx.conversationId } : {}),
-					});
-					return { text: memory.text, id: memory._id.toString(), created };
-				},
-				forget: (text) => forgetForProject({ projectId, text }),
-			})
-		);
-	}
-
-	return tools;
+	const scopes: MemoryToolScope[] = [];
+	if (params.conversation) scopes.push("conversation");
+	if (params.project) scopes.push("project");
+	if (params.enabled) scopes.push("global");
+	if (scopes.length === 0) return [];
+	return build(scopes, params.project?.projectId);
 }

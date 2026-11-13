@@ -63,6 +63,7 @@ import type { Schedule, ScheduleCount, ScheduleGrant, ScheduleRun } from "$lib/t
 import type { PushSubscriptionRow } from "$lib/types/PushSubscription";
 import type { CustomModel } from "$lib/types/CustomModel";
 import type { ProjectMemory } from "$lib/types/ProjectMemory";
+import type { AgentMemory, ConversationMemory } from "$lib/types/ScopedMemory";
 import type { CodeSessionConnectorsRow } from "$lib/types/CodeSessionConnectors";
 import type { ProjectAgentProfileRow } from "$lib/types/ProjectAgentProfileRow";
 import type { ProjectDocument } from "$lib/types/ProjectDocument";
@@ -279,6 +280,10 @@ export class Database {
 		// every turn in that project's chats; primary for the same reason as
 		// `memories` (see `ProjectMemory`).
 		const projectMemories = db.collection<ProjectMemory>("projectMemories");
+		// Notes that belong to one chat, and notes a coding agent keeps for one
+		// session or workspace (see `$lib/types/ScopedMemory`).
+		const conversationMemories = db.collection<ConversationMemory>("conversationMemories");
+		const agentMemories = db.collection<AgentMemory>("agentMemories");
 		// The index of a project's context documents; the bytes and the text are
 		// in the bucket under `project:<id>` (see `ProjectDocument`).
 		const projectDocuments = db.collection<ProjectDocument>("projectDocuments");
@@ -353,6 +358,8 @@ export class Database {
 			memories,
 			customModels,
 			projectMemories,
+			conversationMemories,
+			agentMemories,
 			projectDocuments,
 			projectAgentProfiles,
 			vectorStores,
@@ -414,6 +421,8 @@ export class Database {
 			memories,
 			customModels,
 			projectMemories,
+			conversationMemories,
+			agentMemories,
 			projectDocuments,
 			projectAgentProfiles,
 			mcpConnectors,
@@ -613,6 +622,13 @@ export class Database {
 		projectMemories
 			.createIndex({ projectId: 1, createdAt: 1 })
 			.catch((e) => logger.error(e, "Error creating index for projectMemories by projectId"));
+		// A chat's own notes, and an agent's notes per owner, computer and session or workspace.
+		conversationMemories
+			.createIndex({ conversationId: 1, createdAt: 1 })
+			.catch((e) => logger.error(e, "Error creating index for conversationMemories"));
+		agentMemories
+			.createIndex({ userId: 1, deviceId: 1, scope: 1, key: 1, createdAt: 1 })
+			.catch((e) => logger.error(e, "Error creating index for agentMemories"));
 		// A project's documents, read whole on every turn in its chats and listed
 		// on its page: both by project, oldest first.
 		projectDocuments

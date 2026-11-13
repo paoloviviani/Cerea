@@ -28,12 +28,7 @@ import { EXTERNAL_BUILTIN_TOOLS, withUntrustedSuffix } from "../untrusted";
 export type { BuiltinTool, BuiltinToolContext, BuiltinToolResult } from "./types";
 export { PLAN_TOOL_NAME } from "./planTool";
 export { ARTIFACT_TOOL_NAME } from "./artifactTool";
-export {
-	REMEMBER_TOOL_NAME,
-	FORGET_TOOL_NAME,
-	REMEMBER_FOR_PROJECT_TOOL_NAME,
-	FORGET_FOR_PROJECT_TOOL_NAME,
-} from "./memoryTool";
+export { REMEMBER_TOOL_NAME, FORGET_TOOL_NAME } from "./memoryTool";
 export { isNestedAgentTool } from "./nestedAgent";
 export { DELEGATE_TOOL_NAME, RESEARCH_TOOL_NAME } from "./delegateTool";
 export { CONVERT_DOCUMENT_TOOL_NAME } from "./convertDocumentTool";
@@ -96,11 +91,16 @@ export function getEnabledBuiltinTools(params: {
 	/**
 	 * The conversation's project, set only when the caller has confirmed that
 	 * the deployment flag is on and this person is still a member of it.
-	 * Adds `remember_for_project`/`forget_for_project` alongside the personal
-	 * pair; independent of `memoryEnabled`, which is the person's own opt-in
+	 * Adds the `project` scope to `remember`/`forget`; independent of `memoryEnabled`, which is the person's own opt-in
 	 * for facts about themselves.
 	 */
 	projectMemoryProjectId?: ObjectId;
+	/**
+	 * The deployment flag for memory is on, so the conversation may keep its
+	 * own notes (`scope: "conversation"`). Needs no personal opt-in: those notes
+	 * die with the chat.
+	 */
+	conversationMemoryEnabled?: boolean;
 	/**
 	 * Whether `ask_user_question` joins this conversation even outside the ML
 	 * Assistant preset (which always has it): the deployment switch
@@ -272,6 +272,7 @@ export function getEnabledBuiltinTools(params: {
 	tools.push(
 		...createMemoryBuiltins({
 			enabled: params.memoryEnabled === true,
+			conversation: params.conversationMemoryEnabled === true,
 			...(params.projectMemoryProjectId
 				? { project: { projectId: params.projectMemoryProjectId } }
 				: {}),

@@ -2413,3 +2413,122 @@ describe("runMcpFlow and look_doc", () => {
 		});
 	});
 });
+
+// ---------------------------------------------------------------------------
+// Memory and the prompt cache
+//
+// The provider's prompt cache matches a byte-identical prefix. Memory must
+// therefore never change anything before the newest user message: the system
+// prompt carries the snapshot taken when the chat started, and every later write
+// (a chat note, a personal fact, a project note) travels in the tail.
+// ---------------------------------------------------------------------------
+
+describe("runMcpFlow: memory and the prompt cache", () => {
+	const history = [
+		{ from: "user", content: "first question" },
+		{ from: "assistant", content: "first answer" },
+		{ from: "user", content: "second question" },
+	];
+
+	async function setup() {
+		const user = { _id: new ObjectId(), username: "cachey" };
+		await collections.settings.insertOne({
+			_id: new ObjectId(),
+			userId: user._id,
+			memoryEnabled: true,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		} as never);
+		const conv = { _id: new ObjectId() } as never as Record<string, unknown> & { _id: ObjectId };
+		return { user, conv };
+	}
+
+	/** One whole turn: what the gateway was sent, system prompt built from the snapshot like the real path. */
+	async function sentRequest(
+		user: { _id: ObjectId },
+		conv: Record<string, unknown> & { _id: ObjectId },
+		available: { globalOn: boolean }
+	) {
+		const { takeMemorySnapshot, snapshotApplies, snapshotBlocks } =
+			await import("$lib/server/memory/snapshot");
+		const wanted = { userId: user._id, globalOn: available.globalOn };
+		if (!snapshotApplies(conv.memorySnapshot as never, wanted)) {
+			conv.memorySnapshot = await takeMemorySnapshot(wanted);
+		}
+		const preprompt = snapshotBlocks(conv.memorySnapshot as never).global;
+		mocks.create.mockReset();
+		scriptRounds([{ content: "ok" }]);
+		await runFlow({
+			conv,
+			messages: history,
+			preprompt,
+			locals: { user },
+		} as never);
+		return requestMessages(0);
+	}
+
+	afterEach(async () => {
+		await collections.settings.deleteMany({ memoryEnabled: true });
+	});
+
+	it("editing a chat note changes only the newest user message", async () => {
+		const { user, conv } = await setup();
+		const { rememberForConversation, updateConversationMemory } =
+			await import("$lib/server/memory/service");
+		const { memory } = await rememberForConversation({
+			conversationId: conv._id,
+			text: "Use metric units.",
+			source: "user",
+		});
+		const before = await sentRequest(user, conv, { globalOn: true });
+		await updateConversationMemory(conv._id, memory._id, "Use imperial units.");
+		const after = await sentRequest(user, conv, { globalOn: true });
+
+		expect(before).toHaveLength(after.length);
+		// Everything but the newest message, the system prompt included, is the same bytes.
+		expect(JSON.stringify(after.slice(0, -1))).toBe(JSON.stringify(before.slice(0, -1)));
+		expect(String(before.at(-1)?.content)).toContain("Use metric units.");
+		expect(String(after.at(-1)?.content)).toContain("Use imperial units.");
+		expect(String(after.at(-1)?.content)).toMatch(/second question$/);
+		// The notes never reach the system prompt.
+		expect(String(before[0].content)).not.toContain("Use metric");
+	});
+
+	it("renders unchanged notes as identical bytes, turn after turn", async () => {
+		const { user, conv } = await setup();
+		const { rememberForConversation } = await import("$lib/server/memory/service");
+		for (const text of ["Note A.", "Note B."]) {
+			await rememberForConversation({ conversationId: conv._id, text, source: "user" });
+		}
+		const one = await sentRequest(user, conv, { globalOn: true });
+		const two = await sentRequest(user, conv, { globalOn: true });
+		expect(JSON.stringify(two)).toBe(JSON.stringify(one));
+	});
+
+	it("a personal-memory write mid-conversation reaches the tail, never the prefix", async () => {
+		const { user, conv } = await setup();
+		const { rememberFact, deleteMemory } = await import("$lib/server/memory/service");
+		const { memory } = await rememberFact({
+			userId: user._id,
+			text: "Prefers short answers.",
+			source: "user",
+		});
+		const before = await sentRequest(user, conv, { globalOn: true });
+		expect(String(before[0].content)).toContain("Prefers short answers.");
+		expect(String(before.at(-1)?.content)).not.toContain("UPDATED IN THIS CONVERSATION");
+
+		await rememberFact({ userId: user._id, text: "Lives in Rome.", source: "model" });
+		await deleteMemory(user._id, memory._id);
+		const after = await sentRequest(user, conv, { globalOn: true });
+
+		expect(JSON.stringify(after.slice(0, -1))).toBe(JSON.stringify(before.slice(0, -1)));
+		const tail = String(after.at(-1)?.content);
+		expect(tail).toContain("UPDATED IN THIS CONVERSATION");
+		expect(tail).toContain("added: Lives in Rome.");
+		expect(tail).toContain("removed: Prefers short answers.");
+		// A new conversation takes a fresh snapshot, so the prefix then carries it.
+		const fresh = await sentRequest(user, { _id: new ObjectId() } as never, { globalOn: true });
+		expect(String(fresh[0].content)).toContain("Lives in Rome.");
+		expect(String(fresh[0].content)).not.toContain("Prefers short answers.");
+	});
+});

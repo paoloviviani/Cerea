@@ -15,6 +15,7 @@
 	import * as styles from "$lib/components/overlay/styles";
 
 	import SidePane from "./SidePane.svelte";
+	import ChatNotes from "./ChatNotes.svelte";
 
 	import CarbonCode from "~icons/carbon/code";
 	import CarbonDashboard from "~icons/carbon/dashboard";
@@ -83,6 +84,13 @@
 	}
 
 	let conversationId = $derived(page.params?.id);
+	// This chat's notes sit at the top of the same view. Hidden when the deployment
+	// keeps no memory or nobody is signed in (there is nowhere to keep a note).
+	let notesAvailable = $derived(
+		Boolean(conversationId) &&
+			Boolean((page.data as { user?: unknown }).user) &&
+			(page.data as { memoryEnabled?: boolean }).memoryEnabled !== false
+	);
 
 	type LoadState = "idle" | "loading" | "ready" | "failed";
 	let loadState = $state<LoadState>("idle");
@@ -236,6 +244,9 @@
 		{/snippet}
 		{#snippet children()}
 			<div class="scrollbar-custom min-h-0 flex-1 overflow-y-auto bg-surface p-4">
+				{#if notesAvailable && conversationId}
+					<ChatNotes {conversationId} />
+				{/if}
 				{#snippet fileRow(file: DeliverableFile)}
 					{@const target = artifactTarget(file)}
 					<li
