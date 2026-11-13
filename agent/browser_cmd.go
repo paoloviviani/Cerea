@@ -416,8 +416,8 @@ func runtimeArgs(p browserPaths, headed, noSandbox bool, channel string) []strin
 	return args
 }
 
-// browserTools is the connector's ceiling: the protocol's six tools, the end-of-task call, and the tab and resume calls.
-var browserTools = []string{"snapshot", "diff", "act", "extract", "screenshot", "download", "end_task", "tabs", "resume"}
+// browserTools is the connector's ceiling: the protocol's six tools, the end-of-task call, and the tab, resume and open calls.
+var browserTools = []string{"snapshot", "diff", "act", "extract", "screenshot", "download", "end_task", "tabs", "resume", "open"}
 
 type browserEntry struct {
 	Command      string            `json:"command"`

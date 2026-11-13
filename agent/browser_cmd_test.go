@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -270,7 +271,7 @@ func TestBrowserEnableRegistersTheWellKnownConnectorAndKeepsTheRest(t *testing.T
 	if e.Env["PLAYWRIGHT_BROWSERS_PATH"] != p.browsers {
 		t.Errorf("env %v", e.Env)
 	}
-	if !contains(e.AllowedTools, "act") || len(e.AllowedTools) != 9 {
+	if !contains(e.AllowedTools, "act") || len(e.AllowedTools) != len(browserTools) || !contains(e.AllowedTools, "open") {
 		t.Errorf("ceiling %v", e.AllowedTools)
 	}
 	if st, err := os.Stat(p.profile); err != nil || st.Mode().Perm() != 0o700 {
@@ -390,7 +391,7 @@ func TestBrowserStatusReportsEachStep(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := r.out.String()
-	for _, want := range []string{"installed, up to date", "Chromium 158.0.1 (bundled), sandboxed", "yes, with a window", "not fetched yet", "yes (cerea-browser 0.1.0, 9 tools)"} {
+	for _, want := range []string{"installed, up to date", "Chromium 158.0.1 (bundled), sandboxed", "yes, with a window", "not fetched yet", "yes (cerea-browser 0.1.0, 10 tools)"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("status lacks %q:\n%s", want, out)
 		}
@@ -769,5 +770,29 @@ func TestFindChromePerOperatingSystem(t *testing.T) {
 	has[filepath.Join(`C:\Program Files`, "Google", "Chrome", "Application", "chrome.exe")] = true
 	if !strings.HasSuffix(e.findChrome(), "chrome.exe") {
 		t.Error("windows")
+	}
+}
+
+// Every tool Cerea calls on the browser runtime must be inside galopin's ceiling, or galopin
+// refuses it (an "open" missing here made Open browser fail with "did not answer").
+func TestBrowserToolsCoverCereaRuntimeTools(t *testing.T) {
+	src, err := os.ReadFile("../src/lib/server/browser/contract.ts")
+	if err != nil {
+		t.Skipf("Cerea sources not beside the agent: %v", err)
+	}
+	s := string(src)
+	start := strings.Index(s, "export const RUNTIME_TOOLS = [")
+	if start < 0 {
+		t.Fatal("RUNTIME_TOOLS not found in contract.ts")
+	}
+	end := strings.Index(s[start:], "]")
+	have := map[string]bool{}
+	for _, tool := range browserTools {
+		have[tool] = true
+	}
+	for _, m := range regexp.MustCompile(`"([a-z_]+)"`).FindAllStringSubmatch(s[start:start+end], -1) {
+		if !have[m[1]] {
+			t.Errorf("Cerea calls %q but galopin's browser ceiling lacks it", m[1])
+		}
 	}
 }
