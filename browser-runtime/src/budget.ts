@@ -13,6 +13,8 @@ import { CONTENT_TAG } from "./sanitize.ts";
 export const RESULT_LIMIT = 900_000;
 /** What the per-tool bounds aim for on the wire: a margin under RESULT_LIMIT. */
 export const WIRE_BUDGET = 700_000;
+/** A download result carries nothing but files: its own budget, just under RESULT_LIMIT. */
+export const DOWNLOAD_WIRE_BUDGET = 880_000;
 /** The most base64 characters of one screenshot. */
 export const SCREENSHOT_LIMIT = 700_000;
 

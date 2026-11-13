@@ -6,7 +6,7 @@
  * a takeover pauses the protocol operations by holding the same queue.
  */
 
-import { SCREENSHOT_LIMIT, WIRE_BUDGET, wire } from "./budget.ts";
+import { DOWNLOAD_WIRE_BUDGET, SCREENSHOT_LIMIT, wire } from "./budget.ts";
 import { createWriteStream } from "node:fs";
 import { chmod, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -2070,14 +2070,14 @@ export class BrowserSession {
 				continue;
 			}
 			// The result travels twice: a file whose base64 alone is over half the budget never fits.
-			if (Math.ceil(file.size / 3) * 4 * 2 > WIRE_BUDGET) {
+			if (Math.ceil(file.size / 3) * 4 * 2 > DOWNLOAD_WIRE_BUDGET) {
 				// It can never fit one result: say so once, and let it go.
 				taken.add(file);
 				files.push({
 					name: file.name,
 					mime: file.mime,
 					size: file.size,
-					skipped: `too large to return over the link (${file.size} bytes; the limit is about ${Math.floor((WIRE_BUDGET / 8) * 3)})`,
+					skipped: `too large to return over the link (${file.size} bytes; the limit is about ${Math.floor((DOWNLOAD_WIRE_BUDGET / 8) * 3)})`,
 					...origin,
 				});
 				await rm(file.path, { force: true });
@@ -2091,7 +2091,7 @@ export class BrowserSession {
 				base64: bytes.toString("base64"),
 				...origin,
 			};
-			if (wire({ files: [...files, entry] }) > WIRE_BUDGET) {
+			if (wire({ files: [...files, entry] }) > DOWNLOAD_WIRE_BUDGET) {
 				// Fits alone, not with the others: it stays for the next call.
 				files.push({
 					name: file.name,

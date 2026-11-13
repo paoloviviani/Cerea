@@ -1,4 +1,4 @@
-// cerea-browser runtime 0.1.0; source-hash: 61e3d2283d3f812643dcc1c0013a6bf37daceb4c40127eb844310c0febced740
+// cerea-browser runtime 0.1.0; source-hash: 15f750fd3090b1ac6fec9a129fff859671d8c465e077d8ef404a686d336f1c9b
 // inlined: @hono/node-server@2.1.8 @modelcontextprotocol/sdk@1.32.2 ajv@8.20.0 ajv-formats@3.0.1 content-type@1.0.5 fast-deep-equal@3.1.3 fast-uri@3.1.9 hono@4.13.18 json-schema-traverse@1.0.0 tldts@7.4.26 zod@3.25.76 zod-to-json-schema@3.25.2
 import { createRequire as __cr } from "node:module";
 const require = __cr(import.meta.url);
@@ -21482,6 +21482,7 @@ function safeFileName(name) {
 // src/budget.ts
 var RESULT_LIMIT = 9e5;
 var WIRE_BUDGET = 7e5;
+var DOWNLOAD_WIRE_BUDGET = 88e4;
 var SCREENSHOT_LIMIT = 7e5;
 var bytesOf = (value) => Buffer.byteLength(JSON.stringify(value));
 var wire = (value) => bytesOf({ content: [{ type: "text", text: JSON.stringify(value) }], structuredContent: value });
@@ -24895,13 +24896,13 @@ url: about:blank
         await rm(file.path, { force: true });
         continue;
       }
-      if (Math.ceil(file.size / 3) * 4 * 2 > WIRE_BUDGET) {
+      if (Math.ceil(file.size / 3) * 4 * 2 > DOWNLOAD_WIRE_BUDGET) {
         taken.add(file);
         files.push({
           name: file.name,
           mime: file.mime,
           size: file.size,
-          skipped: `too large to return over the link (${file.size} bytes; the limit is about ${Math.floor(WIRE_BUDGET / 8 * 3)})`,
+          skipped: `too large to return over the link (${file.size} bytes; the limit is about ${Math.floor(DOWNLOAD_WIRE_BUDGET / 8 * 3)})`,
           ...origin
         });
         await rm(file.path, { force: true });
@@ -24915,7 +24916,7 @@ url: about:blank
         base64: bytes.toString("base64"),
         ...origin
       };
-      if (wire({ files: [...files, entry] }) > WIRE_BUDGET) {
+      if (wire({ files: [...files, entry] }) > DOWNLOAD_WIRE_BUDGET) {
         files.push({
           name: file.name,
           mime: file.mime,
