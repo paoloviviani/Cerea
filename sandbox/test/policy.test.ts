@@ -8,6 +8,7 @@ import {
 	type PolicyDeps,
 } from "../src/socket-proxy/policy.ts";
 import { Demuxer, frame } from "../src/shared/dockerStream.ts";
+import { isSliceName } from "../src/shared/slice.ts";
 import { testConfig } from "./fakes.ts";
 
 const cfg: PolicyConfig = {
@@ -226,6 +227,39 @@ describe("socket proxy: create bodies", () => {
 		});
 		it("refuses a proxy configured with a bad slice name", async () => {
 			assert.equal((await verdict(body(slice), withParent("bad/../name.slice"))).allow, false);
+		});
+		it("refuses systemd's own slices, the root slice and odd dashes, even when configured", async () => {
+			for (const bad of [
+				"-.slice",
+				"system.slice",
+				"user.slice",
+				"machine.slice",
+				"user-1000.slice",
+				"system-foo.slice",
+				"-foo.slice",
+				"foo-.slice",
+				"foo--bar.slice",
+				".slice",
+			]) {
+				assert.equal(isSliceName(bad), false, bad);
+				const b = body(slice);
+				b.HostConfig.CgroupParent = bad;
+				assert.equal((await verdict(b, withParent(bad))).allow, false, bad);
+			}
+			for (const ok of ["cerea-sandbox.slice", "cerea.sandbox_1.slice", "sandbox.slice"]) {
+				assert.equal(isSliceName(ok), true, ok);
+			}
+		});
+		it("caps CpuShares at 1024 per CPU of the maximum", async () => {
+			const at = (shares: number, maxCpus?: number) => {
+				const b = body(slice);
+				b.HostConfig.CpuShares = shares;
+				return verdict(b, { ...withParent(slice), maxCpus });
+			};
+			assert.equal((await at(2048)).allow, true); // the default maximum is 2 CPUs
+			assert.equal((await at(2049)).allow, false);
+			assert.equal((await at(4096, 4)).allow, true);
+			assert.equal((await at(4097, 4)).allow, false);
 		});
 		it("bounds the reservation and the shares, and refuses extra keys", async () => {
 			const c = withParent(slice);

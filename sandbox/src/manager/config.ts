@@ -2,6 +2,8 @@
  * The manager's settings, all from the environment. Every number has a default sized for a small
  * box (see docs/sandboxes.md, "Sizing") and a maximum a request may not pass.
  */
+import { isSliceName } from "../shared/slice.ts";
+
 export const DEFAULT_EXEC_IMAGE =
 	"python:3.13-slim@sha256:e48f59cdba69a3cbd9ed2cf0f348d90d45a8d350d98134cf1070bc106ee9ed90";
 
@@ -23,9 +25,6 @@ export interface Reservation {
 	memoryMb: number;
 	cpus: number;
 }
-
-/** The shape of a systemd slice name; the manager and the socket proxy both hold to it. */
-export const CGROUP_PARENT_RE = /^[a-zA-Z0-9_.-]+\.slice$/;
 
 export interface ManagerConfig {
 	token: string;
@@ -175,7 +174,7 @@ export function loadConfig(env: Env = process.env): ManagerConfig {
 		}
 	}
 	const cgroupParent = (env.SANDBOX_CGROUP_PARENT ?? "").trim() || null;
-	if (cgroupParent !== null && !CGROUP_PARENT_RE.test(cgroupParent)) {
+	if (cgroupParent !== null && !isSliceName(cgroupParent)) {
 		throw new ConfigError(
 			"SANDBOX_CGROUP_PARENT must be the name of a systemd slice, such as cerea-sandbox.slice (letters, digits, _ . - and a .slice ending)"
 		);

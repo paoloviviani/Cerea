@@ -220,10 +220,10 @@ def completed(out: str, code: int = 0):
 class SharedSlice(unittest.TestCase):
     VALUES = {"SANDBOX": "local", "SANDBOX_CGROUP_PARENT": "cerea-sandbox.slice"}
 
-    def warnings(self, systemctl: str, driver: str = "systemd", code: int = 0) -> list:
+    def warnings(self, systemctl: str, driver: str = "systemd", code: int = 0, version: str = "2") -> list:
         def run(cmd, timeout=30, cwd=None):
             if cmd[0] == "docker":
-                return completed(driver + "\n")
+                return completed((version if "CgroupVersion" in cmd[-1] else driver) + "\n")
             return completed(systemctl, code)
 
         with mock.patch.object(cfg, "_run", side_effect=run):
@@ -250,6 +250,10 @@ class SharedSlice(unittest.TestCase):
         (warning,) = self.warnings("", driver="cgroupfs")
         self.assertIn("cgroupfs", warning)
 
+    def test_cgroup_v1_is_explained(self):
+        (warning,) = self.warnings("", version="1")
+        self.assertIn("cgroup v2", warning)
+
     def test_an_unaskable_systemd_is_a_note_not_a_failure(self):
         (warning,) = self.warnings("", code=1)
         self.assertIn("not checked", warning)
@@ -264,7 +268,10 @@ class SharedSlice(unittest.TestCase):
         self.assertNotIn("slice problem", " ".join(report.errors))
 
     def test_a_malformed_slice_name_is_an_error(self):
-        for bad in ("cerea", "../x.slice", "a/b.slice"):
+        for bad in (
+            "cerea", "../x.slice", "a/b.slice", "-.slice", "system.slice", "user.slice", "machine.slice",
+            "user-1000.slice", "-a.slice", "a-.slice", "a--b.slice",
+        ):
             report = check({**build(sandbox="local").values, "SANDBOX_CGROUP_PARENT": bad})
             self.assertTrue([e for e in report.errors if "SANDBOX_CGROUP_PARENT" in e], bad)
         good = check({**build(sandbox="local").values, "SANDBOX_CGROUP_PARENT": "cerea-sandbox.slice"})
@@ -275,6 +282,7 @@ class SharedSlice(unittest.TestCase):
             proxy = service(text, "sandbox-socket-proxy")
             manager = service(text, "sandbox-manager")
             self.assertIn("SANDBOX_CGROUP_PARENT: ${SANDBOX_CGROUP_PARENT:-}", proxy)
+            self.assertIn("SANDBOX_EXEC_MAX_CPUS: ${SANDBOX_EXEC_MAX_CPUS:-}", proxy)
             for var in (
                 "SANDBOX_CGROUP_PARENT",
                 "SANDBOX_TOTAL_MEMORY_MB",

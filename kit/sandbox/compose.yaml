@@ -30,6 +30,7 @@ services:
       SANDBOX_ALLOW_RUNC: ${SANDBOX_ALLOW_RUNC:-}
       SANDBOX_ALLOWED_IMAGES: *sandbox-exec-image
       SANDBOX_CGROUP_PARENT: ${SANDBOX_CGROUP_PARENT:-}
+      SANDBOX_EXEC_MAX_CPUS: ${SANDBOX_EXEC_MAX_CPUS:-}
       SANDBOX_DOCKER_SOCKET: /var/run/docker.sock
     volumes:
       - ${SANDBOX_DOCKER_SOCKET_HOST:-/var/run/docker.sock}:/var/run/docker.sock

@@ -4,7 +4,7 @@ import { describe, it } from "node:test";
 import { createApi, tokenMatches } from "../src/manager/api.ts";
 import { MemoryAudit } from "../src/manager/audit.ts";
 import { ConfigError, loadConfig } from "../src/manager/config.ts";
-import { execContainerSpec } from "../src/manager/spec.ts";
+import { execContainerSpec, reservationBytes } from "../src/manager/spec.ts";
 import { LeaseManager, type UsageRecord } from "../src/manager/leases.ts";
 import { BadPath, workspaceDir, workspacePath } from "../src/manager/paths.ts";
 import { HttpError } from "../src/shared/http.ts";
@@ -672,6 +672,37 @@ describe("quotas and accounting", () => {
 			assert.equal(await leases.sweepOrphans(), 1);
 			await leases.create({ kind: "exec", owner: "u" });
 		});
+	});
+
+	it("rounds the memory reservation down to whole MB, never above the memory limit", () => {
+		assert.equal(reservationBytes(512, 1024), 512 * 1048576);
+		assert.equal(reservationBytes(512.9, 1024), 512 * 1048576);
+		assert.equal(reservationBytes(1024, 700.5), 700 * 1048576);
+		assert.equal(reservationBytes(0.4, 1024), 1048576);
+		const s = setup({
+			SANDBOX_EXEC_MEMORY_MB: "700.5",
+			SANDBOX_EXEC_MEMORY_RESERVATION_MB: "700.5",
+		});
+		const hc = execContainerSpec(s.config, { id: "a", owner: "u", kind: "exec" }, s.config.defaults)
+			.HostConfig as Record<string, number>;
+		assert.ok(hc.MemoryReservation <= hc.Memory);
+	});
+
+	it("refuses a bad or reserved slice name at start-up", () => {
+		for (const bad of [
+			"-.slice",
+			"system.slice",
+			"user.slice",
+			"machine.slice",
+			"a--b.slice",
+			"a-.slice",
+		]) {
+			assert.throws(() => testConfig({ SANDBOX_CGROUP_PARENT: bad }), ConfigError, bad);
+		}
+		assert.equal(
+			testConfig({ SANDBOX_CGROUP_PARENT: "cerea-sandbox.slice" }).cgroupParent,
+			"cerea-sandbox.slice"
+		);
 	});
 
 	it("records exec time and CPU per lease and hands it to the billing seam", async () => {

@@ -1,3 +1,4 @@
+import { isSliceName } from "../shared/slice.ts";
 import { LABEL_INSTANCE, LABEL_MANAGED, NAME_PREFIX, isManaged } from "../shared/labels.ts";
 
 /**
@@ -17,10 +18,9 @@ export interface PolicyConfig {
 	 * When set, every sandbox must name exactly it; when unset, none may name any.
 	 */
 	cgroupParent?: string;
+	/** The most CPUs a sandbox may be given (`SANDBOX_EXEC_MAX_CPUS`): CpuShares stay within 1024 each. Default 2. */
+	maxCpus?: number;
 }
-
-/** A systemd slice name, nothing that could be a path, a nested cgroup or an option. */
-export const CGROUP_PARENT_RE = /^[a-zA-Z0-9_.-]+\.slice$/;
 
 export interface PolicyDeps {
 	/** A container by id or name: its full id and labels, or null when it does not exist. */
@@ -164,8 +164,9 @@ export function validateCreate(body: unknown, cfg: PolicyConfig): string | null 
 	}
 	if (h.CpuShares !== undefined) {
 		const c = h.CpuShares;
-		if (!Number.isInteger(c) || (c as number) < 2 || (c as number) > 262144) {
-			return "CpuShares must be a whole number from 2 to 262144";
+		const cap = Math.ceil(1024 * (cfg.maxCpus ?? 2));
+		if (!Number.isInteger(c) || (c as number) < 2 || (c as number) > cap) {
+			return `CpuShares must be a whole number from 2 to ${cap} (1024 per CPU of the maximum)`;
 		}
 	}
 	const parent = cgroupParentProblem(h.CgroupParent, cfg.cgroupParent);
@@ -201,13 +202,13 @@ export function validateCreate(body: unknown, cfg: PolicyConfig): string | null 
  * operator configured one) would escape it, or land in a cgroup the operator never chose.
  */
 function cgroupParentProblem(asked: unknown, allowed: string | undefined): string | null {
-	if (allowed !== undefined && !CGROUP_PARENT_RE.test(allowed)) {
+	if (allowed !== undefined && !isSliceName(allowed)) {
 		return "the proxy's own cgroup parent is not a valid slice name";
 	}
 	if (asked === undefined) {
 		return allowed === undefined ? null : `CgroupParent must be ${allowed}`;
 	}
-	if (typeof asked !== "string" || !CGROUP_PARENT_RE.test(asked)) {
+	if (typeof asked !== "string" || !isSliceName(asked)) {
 		return "CgroupParent must be a systemd slice name";
 	}
 	if (allowed === undefined || asked !== allowed) return "that CgroupParent is not allowed";

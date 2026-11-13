@@ -1,5 +1,5 @@
 import { createProxy } from "./server.ts";
-import { CGROUP_PARENT_RE } from "./policy.ts";
+import { isSliceName } from "../shared/slice.ts";
 import { logLine } from "../shared/http.ts";
 
 const instance = (process.env.SANDBOX_INSTANCE || "cerea").trim();
@@ -17,18 +17,23 @@ if (images.length === 0) {
 	process.exit(2);
 }
 const cgroupParent = (process.env.SANDBOX_CGROUP_PARENT ?? "").trim() || undefined;
-if (cgroupParent !== undefined && !CGROUP_PARENT_RE.test(cgroupParent)) {
+if (cgroupParent !== undefined && !isSliceName(cgroupParent)) {
 	logLine({
 		level: "fatal",
 		msg: "SANDBOX_CGROUP_PARENT is not a systemd slice name (such as cerea-sandbox.slice)",
 	});
 	process.exit(2);
 }
+const maxCpus = Number(process.env.SANDBOX_EXEC_MAX_CPUS || 2);
+if (!(maxCpus > 0)) {
+	logLine({ level: "fatal", msg: "SANDBOX_EXEC_MAX_CPUS must be a positive number" });
+	process.exit(2);
+}
 const runtimes = runtime === "runc" && allowRunc ? ["runc"] : ["runsc"];
 const port = Number(process.env.SANDBOX_PROXY_PORT || 2375);
 const socketPath = process.env.SANDBOX_DOCKER_SOCKET || "/var/run/docker.sock";
 
-createProxy({ socketPath }, { instance, runtimes, images, cgroupParent }).listen(
+createProxy({ socketPath }, { instance, runtimes, images, cgroupParent, maxCpus }).listen(
 	port,
 	"0.0.0.0",
 	() =>

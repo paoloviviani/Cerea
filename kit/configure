@@ -1712,6 +1712,17 @@ def sandbox_runtime_problem(values: dict) -> str | None:
 
 
 CGROUP_PARENT_RE = re.compile(r"^[a-zA-Z0-9_.-]+\.slice$")
+SYSTEMD_OWN_SLICES = ("system", "user", "machine")
+
+
+def is_slice_name(name: str) -> bool:
+    """Mirror of the manager's and the proxy's rule (sandbox/src/shared/slice.ts)."""
+    if not CGROUP_PARENT_RE.match(name):
+        return False
+    stem = name[: -len(".slice")]
+    if stem.startswith(("-", ".")) or stem.endswith("-") or "--" in stem:
+        return False
+    return stem.split("-")[0] not in SYSTEMD_OWN_SLICES
 
 
 def sandbox_slice_warnings(values: dict) -> list:
@@ -1721,9 +1732,15 @@ def sandbox_slice_warnings(values: dict) -> list:
     slice the operator never defined is told apart by having neither a unit file nor a drop-in.
     """
     parent = values.get("SANDBOX_CGROUP_PARENT", "")
-    if not parent or not CGROUP_PARENT_RE.match(parent):
+    if not parent or not is_slice_name(parent):
         return []
     out = []
+    version = _run(["docker", "info", "--format", "{{.CgroupVersion}}"], timeout=30)
+    if version and version.returncode == 0 and version.stdout.strip() == "1":
+        return [
+            "Docker is on cgroup v1: MemoryMax and CPUQuota on a slice need cgroup v2 (`docker info --format "
+            "'{{.CgroupVersion}}'` says 2), so SANDBOX_CGROUP_PARENT would not cap the sum of the sandboxes"
+        ]
     driver = _run(["docker", "info", "--format", "{{.CgroupDriver}}"], timeout=30)
     if driver and driver.returncode == 0 and driver.stdout.strip() == "cgroupfs":
         out.append(
@@ -2044,7 +2061,7 @@ def check_values(values: dict, report: Report) -> None:
                 "run ./configure --sandbox off (or --sandbox local / remote)"
             )
     parent = values.get("SANDBOX_CGROUP_PARENT", "")
-    if parent and not CGROUP_PARENT_RE.match(parent):
+    if parent and not is_slice_name(parent):
         report.errors.append(
             f"SANDBOX_CGROUP_PARENT='{parent}' is not a systemd slice name (letters, digits, _ . - "
             "and a .slice ending, such as cerea-sandbox.slice): the sandbox proxy would refuse to start"
