@@ -29,7 +29,15 @@ import {
 	type SnapshotElement,
 	type Tab,
 } from "./contract";
-import { actionDigest, classifyAction, describeAction, urlWithoutFragment } from "./classifier";
+import { randomUUID } from "node:crypto";
+import {
+	actionDigest,
+	classifyAction,
+	describeAction,
+	urlWithoutFragment,
+	type Classification,
+} from "./classifier";
+import { scopeKey, scopeOrigin } from "./siteScope";
 import { sanitizeText, stripFence } from "./sanitize";
 import { makeGrant } from "./grants";
 import { decide, type Ceiling } from "./policy";
@@ -148,6 +156,14 @@ export interface LoopDeps {
 	machineName?: string;
 	/** The page the task left open (null: none): the caller keeps the token for the next task. */
 	onKept?: (kept: KeptPage | null) => void | Promise<void>;
+	/**
+	 * "Allow on this site for this chat" for this conversation: whether an allowance exists (and
+	 * renews it), and a new one. Absent: only single approvals. Never used when `unattended`.
+	 */
+	scopes?: {
+		has(key: string): Promise<boolean>;
+		add(key: string): Promise<void>;
+	};
 	now?: () => number;
 }
 
@@ -427,6 +443,17 @@ function plainAddress(raw: string): string {
 	} catch {
 		return raw;
 	}
+}
+
+/** The allowance an ask falls under (origin and kind), when it may be allowed for the site. */
+function scopeAllowanceKey(
+	action: BrowserAction,
+	classification: Classification,
+	url: string
+): string | undefined {
+	const kind = scopeKey(action, classification);
+	const origin = scopeOrigin(url);
+	return kind && origin ? `${origin}|${kind}` : undefined;
 }
 
 export async function runBrowseLoop(request: LoopRequest, deps: LoopDeps): Promise<BrowseResult> {
@@ -853,7 +880,18 @@ async function runInner(
 			let grants: ApprovalGrant[] = [];
 			let approvedBy: string | undefined;
 
-			if (decision.verdict === "ask") {
+			// An ask the user already allowed for this site, in this chat: no new question, and a grant
+			// of its own for this one action as ever. Never in an unattended run.
+			const scopes = deps.unattended ? undefined : deps.scopes;
+			const allowance =
+				decision.verdict === "ask" && scopes
+					? scopeAllowanceKey(action, classification, finalUrl)
+					: undefined;
+			const allowed = allowance !== undefined && (await scopes?.has(allowance).catch(() => false));
+
+			if (decision.verdict === "ask" && allowed) {
+				approvedBy = `scope:${randomUUID()}`;
+			} else if (decision.verdict === "ask") {
 				// A picture of the element helps the user decide; it is optional.
 				const ref = "ref" in action ? action.ref : undefined;
 				const screenshot = ref
@@ -870,6 +908,7 @@ async function runInner(
 						),
 						reason: classification.reason,
 						action,
+						...(allowance ? { siteScope: true } : {}),
 						...(screenshot ? { screenshot } : {}),
 					},
 					deps.signal
@@ -921,6 +960,9 @@ async function runInner(
 					break;
 				}
 				approvedBy = answer.id;
+				if (answer.scope === "site" && allowance) {
+					await deps.scopes?.add(allowance).catch(() => undefined);
+				}
 			} else if (decision.verdict === "deny") {
 				fail("denied", "not allowed");
 				note(
@@ -969,11 +1011,22 @@ async function runInner(
 					const tabHost = ctx.tab ? hostOf(ctx.tab.url) : undefined;
 					if (tabHost) adoptedSites.add(siteOf(tabHost));
 				}
+				// Cerea itself took the user's lent tab to another site, with its own approval: the tab
+				// stays lent, on the new site (the runtime follows it, so no new "use your tab" later).
+				if (
+					action.type === "navigate" &&
+					shared.adopted.size > 0 &&
+					approvedBy &&
+					classification.reason === "new-domain"
+				) {
+					const movedTo = hostOf(finalUrl);
+					if (movedTo) adoptedSites.add(siteOf(movedTo));
+				}
 				fail("ok", short(sanitizeText(r.outcome ?? "done"), 80));
 				note(
 					lines.length + 1,
 					sentence,
-					`${fenceInline(r.outcome ?? "ok")}${approvedBy && !approvedBy.startsWith("site:") ? " (approved by the user)" : ""}`
+					`${fenceInline(r.outcome ?? "ok")}${approvedBy && approvedBy.startsWith("scope:") ? " (allowed by the user for this site)" : approvedBy && !approvedBy.startsWith("site:") ? " (approved by the user)" : ""}`
 				);
 				if (outcome.downloads?.length) {
 					lines.push(

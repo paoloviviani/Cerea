@@ -122,6 +122,8 @@ export interface BrowseApprovalPayload {
 	reason?: string;
 	/** A verification the user is asked to solve in the browser window: the card says Continue. */
 	challenge?: boolean;
+	/** The card also offers "Allow on this site for this chat" (not for a hard commit). */
+	siteScope?: boolean;
 	/** A small picture of the element, when the runtime returned one. */
 	screenshot?: { mime: string; base64: string };
 }

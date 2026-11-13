@@ -366,7 +366,11 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 			case "navigate": {
 				const page = [...this.pages.values()].find((p) => p.url === action.url);
 				if (!page) return { ok: false, error: `Could not load ${action.url}.` };
-				return this.goto(page.id, "navigated");
+				// A tab the user lent is the same tab after Cerea navigates it: it stays lent.
+				const wasLent = this.adopted.has(this.currentId);
+				const moved = this.goto(page.id, "navigated");
+				if (wasLent && moved.ok) this.adopted.add(page.id);
+				return moved;
 			}
 		}
 	}

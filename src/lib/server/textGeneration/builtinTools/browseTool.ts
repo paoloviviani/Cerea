@@ -475,6 +475,14 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 						saveDownloads,
 						signal: ctx.abortSignal,
 						machineName: machine.name,
+						scopes: conversationKey
+							? {
+									has: (key) =>
+										keptStore.scopeHas(machine.id, params.userId as ObjectId, conversationKey, key),
+									add: (key) =>
+										keptStore.scopeAdd(machine.id, params.userId as ObjectId, conversationKey, key),
+								}
+							: undefined,
 						onKept: conversationKey
 							? (kept) =>
 									keptStore.set(machine.id, params.userId as ObjectId, conversationKey, kept)

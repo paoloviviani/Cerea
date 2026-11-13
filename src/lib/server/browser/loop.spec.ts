@@ -1525,3 +1525,150 @@ describe("N1 and N2: no stepping stone, no Enter around the click rules", () => 
 		expect(toolTexts(model.requests[1].messages).at(-1)).toContain("not valid");
 	});
 });
+
+describe("allow on this site for this chat (ADR 0116 section 4)", () => {
+	const icons: FakePage = {
+		id: "icons",
+		url: "https://shop.example.com/icons",
+		title: "Icons",
+		elements: [
+			{ ref: "e1", role: "button", name: "+" },
+			{ ref: "e2", role: "button", name: "Pay €120" },
+			{ ref: "e3", role: "textbox", name: "Notes" },
+		],
+	};
+	const partnerIcons: FakePage = {
+		id: "partner-icons",
+		url: "https://partner.test/icons",
+		title: "Partner icons",
+		elements: [{ ref: "e1", role: "button", name: "+" }],
+	};
+	const memoryScopes = () => {
+		const keys = new Set<string>();
+		return {
+			keys,
+			scopes: {
+				has: async (k: string) => keys.has(k),
+				add: async (k: string) => void keys.add(k),
+			},
+		};
+	};
+	const allowSite = (asks: ApprovalAsk[]): Approver => {
+		return async (ask) => {
+			asks.push(ask);
+			return {
+				verdict: "approved",
+				id: `a${asks.length}`,
+				scope: ask.siteScope ? "site" : undefined,
+			};
+		};
+	};
+	const click = (ref: string) => callTurn("act", { actions: [{ type: "click", ref }] });
+	const run = async (script: ScriptedTurn[], deps: Partial<LoopDeps>, approve: Approver) => {
+		const runtime = withPages([icons, partnerIcons], "icons");
+		const { deps: base } = setup({ script, approver: approve, deps });
+		const result = await runBrowseLoop({ goal: "click the icons" }, { ...base, runtime });
+		return { runtime, result };
+	};
+
+	it("offers the site scope for an unreadable button, then does not ask again on that site", async () => {
+		const asks: ApprovalAsk[] = [];
+		const m = memoryScopes();
+		const { runtime } = await run(
+			[click("e1"), click("e1"), answerTurn("done")],
+			{ scopes: m.scopes },
+			allowSite(asks)
+		);
+		expect(asks).toHaveLength(1);
+		expect(asks[0].siteScope).toBe(true);
+		expect([...m.keys]).toEqual(["https://shop.example.com|click:unclassified"]);
+		// Both clicks ran: the second under a grant of its own that the runtime checked.
+		expect(runtime.performed.map((a) => a.type)).toEqual(["click", "click"]);
+	});
+
+	it("a single approval is not remembered", async () => {
+		const asks: ApprovalAsk[] = [];
+		const m = memoryScopes();
+		await run([click("e1"), click("e1"), answerTurn("done")], { scopes: m.scopes }, async (ask) => {
+			asks.push(ask);
+			return { verdict: "approved", id: `a${asks.length}` };
+		});
+		expect(asks).toHaveLength(2);
+		expect(m.keys.size).toBe(0);
+	});
+
+	it("never offers it for a hard commit, and asks every time", async () => {
+		const asks: ApprovalAsk[] = [];
+		const m = memoryScopes();
+		await run(
+			[click("e2"), click("e2"), answerTurn("done")],
+			{ scopes: m.scopes },
+			allowSite(asks)
+		);
+		expect(asks).toHaveLength(2);
+		expect(asks.every((a) => a.siteScope !== true)).toBe(true);
+		expect(m.keys.size).toBe(0);
+	});
+
+	it("never offers it for a paste, or for Enter with no target", async () => {
+		const asks: ApprovalAsk[] = [];
+		await run(
+			[
+				callTurn("act", { actions: [{ type: "press", key: "Control+v" }] }),
+				callTurn("act", { actions: [{ type: "press", key: "Enter" }] }),
+				answerTurn("done"),
+			],
+			{ scopes: memoryScopes().scopes },
+			allowSite(asks)
+		);
+		expect(asks).toHaveLength(2);
+		expect(asks.every((a) => a.siteScope !== true)).toBe(true);
+	});
+
+	it("offers it for a key the browser does not know, per key", async () => {
+		const asks: ApprovalAsk[] = [];
+		const m = memoryScopes();
+		await run(
+			[
+				callTurn("act", { actions: [{ type: "press", key: "F5" }] }),
+				callTurn("act", { actions: [{ type: "press", key: "F5" }] }),
+				callTurn("act", { actions: [{ type: "press", key: "F6" }] }),
+				answerTurn("done"),
+			],
+			{ scopes: m.scopes },
+			allowSite(asks)
+		);
+		expect(asks.map((a) => a.siteScope)).toEqual([true, true]);
+		expect([...m.keys]).toEqual([
+			"https://shop.example.com|press:f5",
+			"https://shop.example.com|press:f6",
+		]);
+	});
+
+	it("asks again on another site", async () => {
+		const asks: ApprovalAsk[] = [];
+		const m = memoryScopes();
+		m.keys.add("https://shop.example.com|click:unclassified");
+		const runtime = withPages([icons, partnerIcons], "partner-icons");
+		const { deps } = setup({
+			script: [click("e1"), answerTurn("done")],
+			approver: allowSite(asks),
+			deps: { scopes: m.scopes, rules: { allow: [], deny: [] } },
+		});
+		await runBrowseLoop({ goal: "click" }, { ...deps, runtime });
+		expect(asks).toHaveLength(1);
+	});
+
+	it("is never used in an unattended run", async () => {
+		const has = vi.fn(async () => true);
+		const asks: ApprovalAsk[] = [];
+		const { runtime } = await run(
+			[click("e1"), answerTurn("stopped")],
+			{ unattended: true, scopes: { has, add: async () => undefined } },
+			allowSite(asks)
+		);
+		expect(has).not.toHaveBeenCalled();
+		expect(asks).toHaveLength(0);
+		expect(runtime.performed).toHaveLength(0);
+	});
+});

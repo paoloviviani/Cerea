@@ -94,6 +94,21 @@ export async function startFixtures(): Promise<Fixtures> {
 				)
 			);
 		}
+		if (p === "/meta") {
+			return send(
+				200,
+				page(
+					"Meta",
+					`<h1>Meta</h1>
+<form method="post" action="/form" aria-label="Attendances"><label>First <input name="a" type="text"></label><label>Second <input name="b" type="text"></label>
+<button type="button" aria-description="Add attendee"><svg width="10" height="10"><path d="M0 0h10"/></svg></button></form>
+<form method="post" action="/form"><label>Lone <input name="c" type="text"></label></form>
+<div role="search"><label>Where to <input name="where" type="text"></label></div>
+<div role="textbox" contenteditable="true" aria-label="Message"></div>
+<label>Free <input name="free" type="text"></label>`
+				)
+			);
+		}
 		if (p === "/search") {
 			const q = url.searchParams.get("q") ?? "";
 			return send(

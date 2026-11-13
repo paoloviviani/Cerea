@@ -28,6 +28,30 @@ export interface KeptStore {
 		conversationId: string,
 		kept: KeptPage | null
 	): Promise<void>;
+	/**
+	 * "Allow on this site for this chat" (ADR 0116 §4): whether this conversation was allowed
+	 * `key` (an origin and an action kind). It lives as long as a lent tab does: it lapses after
+	 * `LENT_IDLE_MS` without use and `SCOPE_MAX_MS` from the first allowance. Using it renews it.
+	 */
+	scopeHas(
+		deviceId: string,
+		userId: ObjectId,
+		conversationId: string,
+		key: string
+	): Promise<boolean>;
+	scopeAdd(deviceId: string, userId: ObjectId, conversationId: string, key: string): Promise<void>;
+}
+
+/** The longest a site allowance lasts from when it was first given (a lent tab's own cap). */
+export const SCOPE_MAX_MS = 8 * 60 * 60_000;
+
+/** Whether an allowance record is still within its idle and total lifetimes. */
+function scopeAlive(entry: { since: Date; at: Date } | undefined, now: number): boolean {
+	return (
+		!!entry &&
+		now - entry.at.getTime() <= LENT_IDLE_MS &&
+		now - entry.since.getTime() <= SCOPE_MAX_MS
+	);
 }
 
 /** A tab lent to a conversation is resumed without asking for this long after the last task used it. */
@@ -47,6 +71,39 @@ function plainUrl(raw: string): string {
 }
 
 export const mongoKeptStore: KeptStore = {
+	async scopeHas(deviceId, userId, conversationId, key) {
+		const { ObjectId } = await import("mongodb");
+		const _id = new ObjectId(deviceId);
+		const device = await collections.codeDevices.findOne(
+			{ _id, userId },
+			{ projection: { browserScopes: 1 } }
+		);
+		const entry = device?.browserScopes?.[conversationId];
+		if (!entry || !scopeAlive(entry, Date.now()) || !entry.keys.includes(key)) return false;
+		await collections.codeDevices.updateOne(
+			{ _id, userId },
+			{ $set: { [`browserScopes.${conversationId}.at`]: new Date() } }
+		);
+		return true;
+	},
+	async scopeAdd(deviceId, userId, conversationId, key) {
+		const { ObjectId } = await import("mongodb");
+		const _id = new ObjectId(deviceId);
+		const device = await collections.codeDevices.findOne(
+			{ _id, userId },
+			{ projection: { browserScopes: 1 } }
+		);
+		const now = new Date();
+		const entry = device?.browserScopes?.[conversationId];
+		const next =
+			entry && scopeAlive(entry, now.getTime())
+				? { since: entry.since, at: now, keys: [...new Set([...entry.keys, key])].slice(-50) }
+				: { since: now, at: now, keys: [key] };
+		await collections.codeDevices.updateOne(
+			{ _id, userId },
+			{ $set: { [`browserScopes.${conversationId}`]: next } }
+		);
+	},
 	async clearOthers(userId, conversationId, exceptDeviceId) {
 		const { ObjectId } = await import("mongodb");
 		await collections.codeDevices.updateMany(
@@ -123,6 +180,7 @@ export const mongoKeptStore: KeptStore = {
 export function memoryKeptStore(
 	now: () => number = Date.now
 ): KeptStore & { tokens: Map<string, string>; lent: Map<string, { origin: string; at: number }> } {
+	const scopes = new Map<string, { since: number; at: number; keys: Set<string> }>();
 	const tokens = new Map<string, string>();
 	const lent = new Map<string, { origin: string; at: number }>();
 	const urls = new Map<string, string>();
@@ -130,6 +188,22 @@ export function memoryKeptStore(
 	return {
 		tokens,
 		lent,
+		async scopeHas(deviceId, _userId, conversationId, key) {
+			const entry = scopes.get(`${deviceId}:${conversationId}`);
+			if (!entry || now() - entry.at > LENT_IDLE_MS || now() - entry.since > SCOPE_MAX_MS)
+				return false;
+			if (!entry.keys.has(key)) return false;
+			entry.at = now();
+			return true;
+		},
+		async scopeAdd(deviceId, _userId, conversationId, key) {
+			const k = `${deviceId}:${conversationId}`;
+			const entry = scopes.get(k);
+			if (entry && now() - entry.at <= LENT_IDLE_MS && now() - entry.since <= SCOPE_MAX_MS) {
+				entry.keys.add(key);
+				entry.at = now();
+			} else scopes.set(k, { since: now(), at: now(), keys: new Set([key]) });
+		},
 		async clearOthers(_userId, conversationId, exceptDeviceId) {
 			for (const k of [...tokens.keys()]) {
 				const [device, conv] = k.split(":");

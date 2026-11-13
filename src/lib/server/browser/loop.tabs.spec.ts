@@ -941,3 +941,67 @@ describe("a lent tab and unattended runs, and what the model sees of it", () => 
 		expect(seen).not.toContain("SECRET");
 	});
 });
+
+describe("a lent tab that Cerea itself moves to another site", () => {
+	const useFlights = () => callTurn("act", { actions: [{ type: "use_tab", tab: "flights" }] });
+	const goNews = () =>
+		callTurn("act", { actions: [{ type: "navigate", url: "https://news.example.net/" }] });
+
+	it("stays lent: the next task resumes it with no second 'use your tab'", async () => {
+		const runtime = new FakeBrowserRuntime(pages(), "home");
+		const asks: ApprovalAsk[] = [];
+		const approve: Approver = async (ask) => {
+			asks.push(ask);
+			return { verdict: "approved", id: `a${asks.length}` };
+		};
+		const kept: Array<KeptPage | null> = [];
+		await runBrowseLoop(
+			{ goal: "use my tab, then open news.example.net" },
+			{
+				...base(
+					runtime,
+					scriptedModel([callTurn("tabs", {}), useFlights(), goNews(), answerTurn("done")])
+				),
+				approve,
+				onKept: (k) => void kept.push(k),
+			}
+		);
+		// The tab, then the leaving: each asked once.
+		expect(asks.map((a) => a.reason)).toEqual(["user-tab", "new-domain"]);
+		expect(kept[0]).toMatchObject({ lent: true, origin: "https://news.example.net" });
+
+		const model = scriptedModel([answerTurn("continued")]);
+		await runBrowseLoop(
+			{ goal: "next step", resumeToken: kept[0]?.token },
+			{ ...base(runtime, model), approve }
+		);
+		expect(JSON.stringify(model.requests[0].messages)).toContain("lent to this conversation");
+		expect(asks.map((a) => a.reason)).toEqual(["user-tab", "new-domain"]);
+	});
+
+	it("still asks once for the new site when the user moved the tab themselves", async () => {
+		const runtime = new FakeBrowserRuntime(pages(), "home");
+		const asks: ApprovalAsk[] = [];
+		const approve: Approver = async (ask) => {
+			asks.push(ask);
+			return { verdict: "approved", id: `a${asks.length}` };
+		};
+		const kept: Array<KeptPage | null> = [];
+		await runBrowseLoop(
+			{ goal: "use my tab" },
+			{
+				...base(runtime, scriptedModel([callTurn("tabs", {}), useFlights(), answerTurn("done")])),
+				approve,
+				onKept: (k) => void kept.push(k),
+			}
+		);
+		movePage(runtime, "https://bank.example.org/login");
+		const model = scriptedModel([callTurn("tabs", {}), useFlights(), answerTurn("ok")]);
+		await runBrowseLoop(
+			{ goal: "next step", resumeToken: kept[0]?.token },
+			{ ...base(runtime, model), approve }
+		);
+		expect(JSON.stringify(model.requests[0].messages)).toContain("starting a new tab");
+		expect(asks.map((a) => a.reason)).toEqual(["user-tab", "user-tab"]);
+	});
+});

@@ -1109,6 +1109,7 @@
 	"chat.approval.wait_minutes": "Auto-deny in {count} min",
 	"chat.approval.wait_seconds": "Auto-deny in {count} s",
 	"chat.approval.browse.allow": "Allow this action",
+	"chat.approval.browse.allow_site": "Allow on this site for this chat",
 	"chat.approval.browse.site": "Site",
 	"chat.approval.browse.why": "Why you are asked",
 	"chat.approval.browse.screenshot": "The element on the page",

@@ -29,6 +29,41 @@ describe("snapshot", () => {
 		assert.match(role ?? "", /options: "--" \| "Designer" \| "Engineer"/);
 	});
 
+	it("tells what Enter does in a field, what is a search box, an editor, and describes an unnamed control", async () => {
+		const snap = await r.goto("/meta");
+		snapshotSchema.parse(snap);
+		const first = r.element(snap, r.ref(snap, "textbox", "First"));
+		assert.equal(
+			first.formSubmit,
+			false,
+			"two text fields and no submit control: Enter does nothing"
+		);
+		assert.equal(first.search, undefined);
+		const lone = r.element(snap, r.ref(snap, "textbox", "Lone"));
+		assert.equal(lone.formSubmit, true, "a form's one text field submits on Enter");
+		const where = r.element(snap, r.ref(snap, "textbox", "Where to"));
+		assert.equal(where.search, true, "a field inside role=search");
+		const editor = r.element(snap, r.ref(snap, "textbox", "Message"));
+		assert.equal(editor.editable, true);
+		assert.equal(editor.form, undefined);
+		const free = r.element(snap, r.ref(snap, "textbox", "Free"));
+		assert.equal(free.editable, undefined);
+		assert.equal(free.search, undefined);
+		const icon = snap.elements.find((e) => e.role === "button" && e.name === "");
+		assert.ok(icon, "an unnamed button is listed");
+		assert.equal(icon.hint, "Add attendee");
+		assert.equal(icon.formLabel, "Attendances");
+		assert.equal(icon.submits, undefined, "a type=button is not a submit control");
+		const search = await r.goto("/search");
+		const box = r.element(search, r.ref(search, "searchbox", "Query"));
+		assert.equal(box.search, true, "a GET form with a search field");
+		const post = r.element(
+			await r.goto("/form"),
+			r.ref(await r.snapshot(), "textbox", "Full name")
+		);
+		assert.equal(post.search, undefined, "a POST form is not a search");
+	});
+
 	it("fences the page as untrusted content and reports url and title", async () => {
 		const snap = await r.goto("/form");
 		const lines = snap.text.split("\n");

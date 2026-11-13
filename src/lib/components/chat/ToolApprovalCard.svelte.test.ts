@@ -5,11 +5,18 @@ import type { ElicitationRequestPayload } from "$lib/types/McpElicitation";
 import { ALWAYS_CAPPED, type AlwaysCapped } from "$lib/utils/alwaysCappedContext";
 import { FIRST_TURN_SUBAGENT, type FirstTurnSubagent } from "$lib/utils/firstTurnSubagent";
 
+const sentAnswers = vi.hoisted(() => [] as Array<Record<string, unknown>>);
 vi.mock("$lib/utils/sendElicitationAnswer", () => ({
-	sendElicitationAnswer: async () => ({ ok: true }),
+	sendElicitationAnswer: async (args: Record<string, unknown>) => {
+		sentAnswers.push(args);
+		return { ok: true };
+	},
 }));
 
-afterEach(() => cleanup());
+afterEach(() => {
+	cleanup();
+	sentAnswers.length = 0;
+});
 
 const LONG_PROMPT = `Review the migration plan.\n${"Check every table. ".repeat(80)}END-OF-PROMPT`;
 
@@ -785,5 +792,39 @@ describe("ToolApprovalCard, a browsing sub-agent's ask (ADR 0116)", () => {
 		expect(labels.some((l) => l?.startsWith("Deny"))).toBe(true);
 		expect(labels.some((l) => l?.includes("conversation"))).toBe(false);
 		expect(baseElement.querySelector('[data-testid="browse-approval-screenshot"]')).toBeNull();
+	});
+
+	it("offers 'Allow on this site for this chat' only for an ask that allows it", async () => {
+		const { baseElement, getByRole } = render(ToolApprovalCard, {
+			conversationId: "c1",
+			request: browseRequest({ screenshot: undefined, reason: "unclassified", siteScope: true }),
+		});
+		const labels = [...baseElement.querySelectorAll("button")].map((b) => b.textContent?.trim());
+		expect(labels).toContain("Allow this action");
+		expect(labels).toContain("Allow on this site for this chat");
+		await getByRole("button", { name: "Allow on this site for this chat" }).click();
+		await vi.waitFor(() =>
+			expect(sentAnswers).toEqual([
+				expect.objectContaining({
+					elicitationId: "browse-1",
+					action: "accept",
+					content: { scope: "site" },
+				}),
+			])
+		);
+	});
+
+	it("does not offer the site scope for a hard commit or a verification", () => {
+		for (const over of [
+			{ screenshot: undefined },
+			{ screenshot: undefined, challenge: true, siteScope: true },
+		]) {
+			const { baseElement } = render(ToolApprovalCard, {
+				conversationId: "c1",
+				request: browseRequest(over),
+			});
+			expect(baseElement.textContent).not.toContain("Allow on this site for this chat");
+			cleanup();
+		}
 	});
 });

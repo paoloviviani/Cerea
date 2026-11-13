@@ -88,6 +88,58 @@ describe("the browse approver (the existing approval card, a durable row, a wait
 		expect(resolved).toMatchObject({ action: "accept", resolution: "user" });
 	});
 
+	it("offers 'Allow on this site for this chat' only when asked to, and reports the choice", async () => {
+		const h = harness();
+		const pending = h.approve({ ...ask, reason: "unclassified", siteScope: true });
+		const raised = await h.requested();
+		expect(raised.request.browse).toMatchObject({ siteScope: true });
+		expect(raised.request.fields?.[0]).toMatchObject({
+			name: "scope",
+			options: [
+				{ value: "once", label: "Allow this action" },
+				{ value: "site", label: "Allow on this site for this chat" },
+			],
+		});
+		await submitElicitationAnswer({
+			elicitationId: raised.request.elicitationId,
+			conversationId: h.conversationId,
+			action: "accept",
+			content: { scope: "site" },
+		});
+		await expect(pending).resolves.toEqual({
+			verdict: "approved",
+			id: raised.request.elicitationId,
+			scope: "site",
+		});
+	});
+
+	it("does not accept the site scope on a hard commit, whatever the client sends", async () => {
+		const h = harness();
+		const pending = h.approve(ask);
+		const raised = await h.requested();
+		expect(raised.request.browse).not.toHaveProperty("siteScope");
+		expect(raised.request.fields?.[0]).toMatchObject({
+			options: [{ value: "once", label: "Allow this action" }],
+		});
+		const refused = await submitElicitationAnswer({
+			elicitationId: raised.request.elicitationId,
+			conversationId: h.conversationId,
+			action: "accept",
+			content: { scope: "site" },
+		});
+		expect(refused.ok).toBe(false);
+		await submitElicitationAnswer({
+			elicitationId: raised.request.elicitationId,
+			conversationId: h.conversationId,
+			action: "accept",
+			content: { scope: "once" },
+		});
+		await expect(pending).resolves.toEqual({
+			verdict: "approved",
+			id: raised.request.elicitationId,
+		});
+	});
+
 	it("returns denied on decline", async () => {
 		const h = harness();
 		const pending = h.approve(ask);

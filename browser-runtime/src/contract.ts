@@ -73,6 +73,23 @@ export const snapshotElementSchema = z.object({
 	formMethod: z.enum(["get", "post"]).optional(),
 	/** True for a control that submits its form (`type=submit`, or a form's default button). */
 	submits: z.boolean().optional(),
+	/**
+	 * For a field in a form: whether pressing Enter in it would submit the form (the form has a
+	 * submit control, or this is its one text field). `false` means Enter does nothing there; absent
+	 * (an older runtime) is read as "it submits".
+	 */
+	formSubmit: z.boolean().optional(),
+	/** A rich-text editor (contenteditable, or a textbox that is not an input or textarea): many send on Enter. */
+	editable: z.literal(true).optional(),
+	/**
+	 * A search box, or its button: `role=search`, `type=search`, or a GET form with a single text
+	 * field, not a form that posts.
+	 */
+	search: z.literal(true).optional(),
+	/** For a control with no accessible name: its title, aria-description, icon text or symbol. Only ever shown in a sentence. */
+	hint: z.string().max(120).optional(),
+	/** The name of the form the element is in (its label, name or legend). Only ever shown in a sentence. */
+	formLabel: z.string().max(120).optional(),
 	/** A link's target, as written in the page. */
 	href: z.string().max(2048).optional(),
 	/**
