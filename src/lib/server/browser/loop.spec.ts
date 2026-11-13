@@ -688,7 +688,7 @@ describe("runBrowseLoop: budgets", () => {
 			}
 		);
 		expect(result.stopped_reason).toBe("max_steps");
-		expect(result.result).toContain("Stopped early: the step budget ran out");
+		expect(result.result).toContain("Stopped early: the task needed more steps");
 		expect(result.final_url).toBe("https://shop.example.com/");
 	});
 
@@ -714,7 +714,7 @@ describe("runBrowseLoop: failures", () => {
 		runtime.failNext.snapshot = new BrowserRuntimeError("the machine went away", "unavailable");
 		const result = await runBrowseLoop({ goal: "look" }, deps);
 		expect(result.stopped_reason).toBe("runtime_error");
-		expect(result.result).toContain("the browser could not be used");
+		expect(result.result).toContain("crashed, or the computer went offline");
 	});
 
 	it("stops when the browser disappears mid-task, keeping what it knew", async () => {

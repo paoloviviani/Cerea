@@ -9,7 +9,16 @@ import type { Approver, ApprovalAsk } from "./approvals";
 import { actionDigest, classifyAction, describeAction } from "./classifier";
 import { FAKE_BROWSER_KEY, FakeBrowserRuntime, type FakePage } from "./fakeRuntime";
 import { answerTurn, callTurn, scriptedModel, toolTexts, type ScriptedTurn } from "./fakeModel";
-import { goalNamesSite, runBrowseLoop, systemPrompt, type KeptPage, type LoopDeps } from "./loop";
+import {
+	goalNamesSite,
+	PLAIN_STOP_REASONS,
+	plainStopReason,
+	runBrowseLoop,
+	stopDetailOf,
+	systemPrompt,
+	type KeptPage,
+	type LoopDeps,
+} from "./loop";
 import { BrowserRuntimeError } from "./contract";
 import { decide } from "./policy";
 
@@ -1004,5 +1013,71 @@ describe("a lent tab that Cerea itself moves to another site", () => {
 		);
 		expect(JSON.stringify(model.requests[0].messages)).toContain("starting a new tab");
 		expect(asks.map((a) => a.reason)).toEqual(["user-tab", "user-tab"]);
+	});
+});
+
+describe("the user's tab is in another browser", () => {
+	const hint =
+		"Only tabs in the Cerea browser window on Office PC are visible; if the page is open in another browser, open it in the Cerea browser window.";
+
+	it("carries a hint when the goal names the user's tab and none matches", async () => {
+		const { deps } = setup([callTurn("tabs", {}), answerTurn("There is no such tab.")], undefined, {
+			machineName: "Office PC",
+		});
+		const out = await runBrowseLoop(
+			{ goal: "Use the booking.com tab I opened and read the price" },
+			deps
+		);
+		expect(out.hint).toBe(hint);
+	});
+
+	it("has no hint when a matching tab exists", async () => {
+		const { deps } = setup([callTurn("tabs", {}), answerTurn("Found it.")], undefined, {
+			machineName: "Office PC",
+		});
+		const out = await runBrowseLoop({ goal: "Use the flights.example.com tab I opened" }, deps);
+		expect(out.hint).toBeUndefined();
+	});
+
+	it("has no hint when the goal does not refer to the user's tab", async () => {
+		const { deps } = setup([callTurn("tabs", {}), answerTurn("Done.")], undefined, {
+			machineName: "Office PC",
+		});
+		const out = await runBrowseLoop({ goal: "Search booking.com for hotels in Oslo" }, deps);
+		expect(out.hint).toBeUndefined();
+	});
+});
+
+describe("plain stop reasons", () => {
+	it("gives every stop reason a plain sentence without codes", () => {
+		const reasons = [
+			"max_steps",
+			"max_tokens",
+			"max_time",
+			"aborted",
+			"runtime_error",
+			"model_error",
+			"denied",
+			"lease_lost",
+			"verification",
+		] as const;
+		expect(Object.keys(PLAIN_STOP_REASONS).sort()).toEqual([...reasons].sort());
+		for (const reason of reasons) {
+			const text = plainStopReason(reason);
+			expect(text.length).toBeGreaterThan(10);
+			expect(text).not.toMatch(/_|runtime_error|\d/);
+		}
+		for (const detail of ["too_large", "unreachable", "incompatible"] as const) {
+			expect(plainStopReason("runtime_error", detail)).not.toMatch(/_/);
+		}
+		expect(plainStopReason("runtime_error", "too_large")).toMatch(/too large/);
+	});
+
+	it("tells a crash, an offline computer and an oversized page apart", () => {
+		expect(stopDetailOf(new BrowserRuntimeError("result is too large", "tool"))).toBe("too_large");
+		expect(stopDetailOf(new BrowserRuntimeError("did not answer", "unavailable"))).toBe(
+			"unreachable"
+		);
+		expect(stopDetailOf(new BrowserRuntimeError("shape", "protocol"))).toBe("incompatible");
 	});
 });

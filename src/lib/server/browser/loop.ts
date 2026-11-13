@@ -73,6 +73,68 @@ export interface BrowseResult {
 	final_url: string;
 	steps: number;
 	stopped_reason?: StoppedReason;
+	/** What went wrong with the runtime, when that is known: only refines the plain reason. */
+	stop_detail?: StopDetail;
+	/** A plain sentence for the chat model to pass on to the user (for example: the tab is not visible). */
+	hint?: string;
+}
+
+/** Why the runtime stopped, as far as the error says. Internal: never shown as a code. */
+export type StopDetail = "too_large" | "unreachable" | "incompatible";
+
+/**
+ * The reason a task stopped, in words a user can read (the chat model is told to pass it on
+ * without internal codes). Total over `StoppedReason`: a new code fails to compile until it has a
+ * sentence here, and a test checks every code has one.
+ */
+export const PLAIN_STOP_REASONS: Record<StoppedReason, string> = {
+	max_steps: "the task needed more steps than the browser is allowed to take in one go",
+	max_tokens: "the task needed more reading than the browser is allowed in one go",
+	max_time: "the task took longer than the browser is allowed to take",
+	aborted: "the user stopped it",
+	runtime_error: "the browser stopped working, crashed, or the computer went offline",
+	model_error: "the model that drives the browser failed",
+	denied: "the page is on a site the browser is not allowed to use",
+	lease_lost: "another task took over the browser",
+	verification: "a check on the page (such as a captcha or a sign-in) was not completed",
+};
+
+const PLAIN_STOP_DETAILS: Record<StopDetail, string> = {
+	too_large: "the page was too large to read",
+	unreachable: "the browser stopped responding: it crashed, or the computer went offline",
+	incompatible: "the browser on that computer is out of date and needs updating",
+};
+
+export function plainStopReason(reason: StoppedReason, detail?: StopDetail): string {
+	return (detail && PLAIN_STOP_DETAILS[detail]) || PLAIN_STOP_REASONS[reason];
+}
+
+/** The plain-words detail of a runtime failure, from what the error says. */
+export function stopDetailOf(err: BrowserRuntimeError): StopDetail {
+	if (/too large|too big|too long|exceeds|size limit/i.test(err.message)) return "too_large";
+	return err.kind === "protocol" ? "incompatible" : "unreachable";
+}
+
+/** The goal points at a page the user already has open ("the booking.com tab I opened", "my tab"). */
+export function refersToUserTab(goal: string): boolean {
+	return (
+		/\b(my|the user'?s|their|current)\b[^.\n]{0,40}\b(tab|page|window)\b/i.test(goal) ||
+		/\b(tab|page|window)\b[^.\n]{0,30}\b(i|the user|they)\s+(have\s+|has\s+|had\s+|'ve\s+|already\s+)*(opened|open)\b/i.test(
+			goal
+		) ||
+		/\b(already|currently)\s+open\b/i.test(goal)
+	);
+}
+
+/** Site names the goal mentions ("booking.com"), lower case. */
+function sitesNamedIn(goal: string): string[] {
+	return [...goal.toLowerCase().matchAll(/\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}\b/g)].map(
+		(m) => m[0]
+	);
+}
+
+export function tabNotVisibleHint(machineName?: string): string {
+	return `Only tabs in the Cerea browser window on ${machineName || "this computer"} are visible; if the page is open in another browser, open it in the Cerea browser window.`;
 }
 
 // ----- what the card shows ----------------------------------------------------------------
@@ -396,31 +458,11 @@ const clip = (text: string, max = MAX_TOOL_TEXT) =>
 const short = (text: string, max: number) =>
 	text.length > max ? `${text.slice(0, max - 1)}…` : text;
 
-function stoppedText(reason: StoppedReason): string {
-	switch (reason) {
-		case "max_steps":
-			return "the step budget ran out";
-		case "max_tokens":
-			return "the token budget ran out";
-		case "max_time":
-			return "the time budget ran out";
-		case "aborted":
-			return "the user stopped it";
-		case "runtime_error":
-			return "the browser could not be used";
-		case "model_error":
-			return "the browsing model failed";
-		case "denied":
-			return "a site is off limits";
-		case "lease_lost":
-			return "another task took over the browser";
-		case "verification":
-			return "a verification in the browser was not completed";
-	}
-}
-
 class Stop extends Error {
-	constructor(readonly reason: StoppedReason) {
+	constructor(
+		readonly reason: StoppedReason,
+		readonly detail?: StopDetail
+	) {
 		super(reason);
 	}
 }
@@ -516,6 +558,7 @@ async function runInner(
 	const files: BrowseFile[] = [];
 	const elements = new Map<string, SnapshotElement>();
 	let stopped: StoppedReason | undefined;
+	let stopDetail: StopDetail | undefined;
 	/** Grant ids this task issued: a download counts only when an approved action made it. */
 	const issued = new Set<string>();
 
@@ -549,7 +592,7 @@ async function runInner(
 			if (err instanceof Stop) throw err;
 			if (deps.signal?.aborted) throw new Stop("aborted");
 			if (err instanceof BrowserRuntimeError && err.kind !== "tool")
-				throw new Stop("runtime_error");
+				throw new Stop("runtime_error", stopDetailOf(err));
 			throw err;
 		}
 	};
@@ -669,6 +712,12 @@ async function runInner(
 		`${note ? `Note: ${short(sanitizeText(note), 300)}\n` : ""}${wrapPage(shared.adopted.size > 0 ? plainAddress(url) : url, title, text)}`;
 	/** The tabs as the last `tabs()` listed them: what a `use_tab` is judged and approved against. */
 	const knownTabs = new Map<string, Tab>();
+	// For the hint when the user's tab is in another browser: did the task look, and did it find one?
+	const goalSites = sitesNamedIn(request.goal);
+	const tabMatchesGoal = (t: Tab): boolean =>
+		goalSites.length === 0 || goalSites.some((site) => (hostOf(t.url) ?? "").includes(site));
+	let tabsListed = false;
+	let userTabFound = false;
 	const relistTabs = async () => {
 		const rules = deps.rulesNow?.() ?? deps.rules;
 		const listed = await guarded(() => runtime.tabs({ deny: rules.deny }, deps.signal));
@@ -677,6 +726,8 @@ async function runInner(
 		// the deny list it was given.
 		const allowed = listed.tabs.filter((t) => !matchesAny(hostOf(t.url), rules.deny));
 		for (const tab of allowed) knownTabs.set(tab.id, tab);
+		tabsListed = true;
+		if (allowed.some((t) => !t.mine && tabMatchesGoal(t))) userTabFound = true;
 		return allowed;
 	};
 	/** A user's own tab is shown to the model without its query string and fragment (tokens, searches). */
@@ -1400,12 +1451,16 @@ async function runInner(
 			}
 		}
 	} catch (err) {
-		if (err instanceof Stop) stopped = err.reason;
-		else if (err instanceof ModelFailure) {
+		if (err instanceof Stop) {
+			stopped = err.reason;
+			stopDetail = err.detail;
+		} else if (err instanceof ModelFailure) {
 			stopped = "model_error";
 			observer?.activity?.(short(err.message, 80));
-		} else if (err instanceof BrowserRuntimeError) stopped = "runtime_error";
-		else throw err;
+		} else if (err instanceof BrowserRuntimeError) {
+			stopped = "runtime_error";
+			stopDetail = stopDetailOf(err);
+		} else throw err;
 	}
 
 	// A stopped run still owes a report: one request without tools, never an error.
@@ -1451,6 +1506,10 @@ async function runInner(
 		final_url: finalUrl,
 		steps: rounds,
 		...(stopped ? { stopped_reason: stopped } : {}),
+		...(stopDetail ? { stop_detail: stopDetail } : {}),
+		...(tabsListed && !userTabFound && refersToUserTab(request.goal)
+			? { hint: tabNotVisibleHint(deps.machineName) }
+			: {}),
 	};
 
 	/** The report and the mapping are bounded: 30 s, and the user's Stop. */
@@ -1461,12 +1520,12 @@ async function runInner(
 	}
 
 	async function partialReport(reason: StoppedReason): Promise<string> {
-		const fallback =
-			`Stopped early: ${stoppedText(reason)}. ` +
+		const fallback = (
+			`Stopped early: ${plainStopReason(reason, stopDetail)}. ` +
 			(finalUrl && reason !== "denied"
-				? `The browser is on ${sanitizeText(finalUrl)}${currentTitle ? ` (${JSON.stringify(sanitizeText(currentTitle))})` : ""}. `
-				: "") +
-			`${rounds} step(s) were taken.`;
+				? `The browser is on ${sanitizeText(finalUrl)}${currentTitle ? ` (${JSON.stringify(sanitizeText(currentTitle))})` : ""}.`
+				: "")
+		).trim();
 		// A denied site's page is not shown to the model again.
 		if (
 			reason === "aborted" ||

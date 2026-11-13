@@ -7,6 +7,9 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **Browse: a tab in another browser is explained.** When you ask Cerea to use a tab you opened and the Cerea browser window has no such tab, the answer now says that only tabs in the Cerea browser window on that computer are visible, and to open the page there.
+- **Web pages come with their main links.** Reading a web page now also lists its main links (text and address, at most 40, navigation and footer skipped), so an article's address can be taken from a front page without extra searches.
+- **Browse failures are said in plain words.** When a browsing task stops (page too large to read, browser crashed, computer offline, step limit reached), the chat explains it in plain words; the internal code and step count stay in the logs and the browse card's details.
 - **Browser use:** the browser runtime now keeps its Chrome window when the link to Cerea drops (kept for 15 minutes and re-attached when the link returns) and is no longer stopped for idling; and no tool result exceeds about 900 KB (large pages are cut with a note to scroll or use extract, screenshots are re-encoded smaller), so browse runs on heavy pages such as shop and booking results no longer end with a runtime error. **On computers**, re-run the install line to update galopin.
 - **Chat drafts: two more cases kept.** An edited message the server refuses puts its new text back in the box, and leaving a chat before the server has accepted a send keeps that text as the chat's draft.
 - **Code panel pills share one style.** The pending, revoked, count and tag pills in the code panel's navigation and Needs you inbox, the Advanced count, and the mounted-file chips use the shared pill style.

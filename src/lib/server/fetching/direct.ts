@@ -16,6 +16,7 @@
 import type { FetchedPage } from "./index";
 import { fetchBytes, pageFromBytes } from "./bytes";
 import { extractArticle } from "./readable";
+import { extractMainLinks } from "./links";
 import { discoverFeeds, mayBeFeed, parseFeed } from "./feed";
 
 export async function fetchDirect(url: string): Promise<FetchedPage> {
@@ -51,6 +52,9 @@ export async function fetchDirectDetailed(
 	}
 	const feeds = discoverFeeds(raw.content, raw.url);
 	if (feeds.length > 0) raw.feeds = feeds;
+	// From the whole page: the extracted article drops the headlines a front page is made of.
+	const links = extractMainLinks(raw.content, raw.url);
+	if (links.length > 0) raw.links = links;
 	const article = extractArticle(raw.content, raw.url);
 	const page = article
 		? {
