@@ -49,6 +49,7 @@ import {
 	BIN_TERM_OUTPUT,
 	BIN_TERM_INPUT,
 	BIN_TERM_ACK,
+	BIN_BROWSER_FRAME,
 } from "../src/lib/types/machineProtocol";
 
 /** One fake terminal's state: enough to exercise attach/reattach, resize
@@ -496,6 +497,27 @@ export class FakeMachine {
 				encodeBinaryFrame({ kind: BIN_TERM_OUTPUT, channel, offset, payload: Buffer.from(chunk) })
 			);
 		}
+	}
+
+	/** Sends one live-view screencast frame (0x04) as the browser runtime's galopin would. */
+	sendBrowserFrame(
+		channel: string,
+		seq: number,
+		width: number,
+		height: number,
+		jpeg: Buffer
+	): void {
+		const header = Buffer.alloc(4);
+		header.writeUInt16BE(width, 0);
+		header.writeUInt16BE(height, 2);
+		this.ws.send(
+			encodeBinaryFrame({
+				kind: BIN_BROWSER_FRAME,
+				channel,
+				offset: seq,
+				payload: Buffer.concat([header, jpeg]),
+			})
+		);
 	}
 
 	/** Simulates ring eviction: content before `newStart` is gone, so a

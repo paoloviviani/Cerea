@@ -41,6 +41,7 @@ import {
 	BIN_TERM_OUTPUT,
 	BIN_TERM_INPUT,
 	BIN_TERM_ACK,
+	BIN_BROWSER_FRAME,
 	type Backend,
 	type CallResFrame,
 	type AutoClasses,
@@ -115,6 +116,10 @@ interface ConnectionState {
 	 * detach. A channel with no entry (an evicted relay, a stray frame)
 	 * drops the frame silently — never a per-frame log (R6). */
 	terminalChannels: Map<string, (offset: number, payload: Buffer) => void>;
+	/** Live-view screencast frames of the machine's browser runtime (kind 0x04): the runtime is one
+	 * process per machine, so frames are routed by device, whatever their mcp channel. Never
+	 * stored or logged. */
+	browserFrameListeners: Set<(seq: number, payload: Buffer) => void>;
 	/** `notice` frames scoped to one terminal (§9.5): terminal.exit, .title,
 	 * .state. Lossy and unsequenced by design — a listener that might have
 	 * missed one re-queries `terminal.list`. */
@@ -916,6 +921,22 @@ export function registerTerminalChannel(
 	};
 }
 
+/**
+ * Subscribes to the live-view frames of the machine's browser runtime (§9.2, kind 0x04). Returns
+ * the unsubscribe; a no-op when the machine is offline.
+ */
+export function subscribeBrowserFrames(
+	deviceId: string,
+	listener: (seq: number, payload: Buffer) => void
+): () => void {
+	const state = registry.get(deviceId);
+	if (!state) return () => {};
+	state.browserFrameListeners.add(listener);
+	return () => {
+		state.browserFrameListeners.delete(listener);
+	};
+}
+
 /** Watchers of one terminal's lossy notices (§9.5): exit, title, state. */
 export function subscribeTerminalNotices(
 	deviceId: string,
@@ -1020,6 +1041,10 @@ export function acceptMachineConnection(
 		if (isBinary) {
 			if (!state || !Buffer.isBuffer(raw)) return;
 			const frame = decodeBinaryFrame(raw);
+			if (frame?.kind === BIN_BROWSER_FRAME) {
+				for (const listener of state.browserFrameListeners) listener(frame.offset, frame.payload);
+				return;
+			}
 			if (!frame || frame.kind !== BIN_TERM_OUTPUT) return; // only M→C kind is meaningful here
 			const onOutput = state.terminalChannels.get(frame.channel);
 			onOutput?.(frame.offset, frame.payload);
@@ -1346,6 +1371,7 @@ async function onHello(
 		listeners,
 		rootListeners,
 		terminalChannels: new Map(),
+		browserFrameListeners: new Set(),
 		terminalNoticeListeners: new Map(),
 		mode: machineMode(hello.machine),
 		mcpChannels: new Map(),

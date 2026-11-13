@@ -34,6 +34,10 @@ export const RUNTIME_TOOLS = [
 	"resume",
 	"open",
 	"end_task",
+	// Live view and takeover (phase 2a): called by the live-view routes, never by the sub-agent.
+	"control",
+	"screencast",
+	"input",
 ] as const;
 export type RuntimeToolName = (typeof RUNTIME_TOOLS)[number];
 
@@ -236,6 +240,11 @@ export const actResultSchema = z.object({
 	url: z.string().max(4096),
 	title: z.string().max(500).default(""),
 	/**
+	 * The user took control while the batch ran: the actions after the last result were not
+	 * started. The loop waits for the hand-back and then looks at the page again.
+	 */
+	paused: z.boolean().optional(),
+	/**
 	 * Files the page offered for download during the batch (fetch them with `download`). Each says
 	 * which action of the batch produced it and the id of the grant that action ran under, so Cerea
 	 * keeps only files an approved download action made.
@@ -423,6 +432,87 @@ export const downloadResultSchema = z.object({
 });
 export type DownloadResult = z.infer<typeof downloadResultSchema>;
 
+// ----- live view and takeover (ADR 0116 phase 2a) ----------------------------------------
+
+/** Who drives the page. While `user`, every agent tool answers "paused". */
+export const controlResultSchema = z.object({
+	controller: z.enum(["agent", "user"]),
+	/** Who took control: Cerea's live view, or the banner in the headed window. */
+	source: z.enum(["cerea", "banner"]).optional(),
+	since: z.number().optional(),
+});
+export type ControlResult = z.infer<typeof controlResultSchema>;
+export type ControlAction = "takeover" | "handback" | "state";
+
+export const screencastResultSchema = z.object({ casting: z.boolean() });
+export type ScreencastResult = z.infer<typeof screencastResultSchema>;
+
+/** One user input event, in the page's CSS pixels (the frame's `width` x `height`). */
+export const inputEventSchema = z.discriminatedUnion("type", [
+	z.object({
+		type: z.literal("mouse"),
+		action: z.enum(["move", "down", "up", "wheel"]),
+		x: z.number().finite().min(0).max(20_000),
+		y: z.number().finite().min(0).max(20_000),
+		button: z.enum(["left", "middle", "right"]).optional(),
+		clickCount: z.number().int().min(1).max(3).optional(),
+		deltaX: z.number().finite().min(-100_000).max(100_000).optional(),
+		deltaY: z.number().finite().min(-100_000).max(100_000).optional(),
+		modifiers: z.number().int().min(0).max(15).optional(),
+	}),
+	z.object({
+		type: z.literal("touch"),
+		action: z.enum(["start", "move", "end", "cancel"]),
+		points: z
+			.array(
+				z.object({
+					x: z.number().finite().min(0).max(20_000),
+					y: z.number().finite().min(0).max(20_000),
+					id: z.number().int().min(0).max(1000).optional(),
+				})
+			)
+			.max(10),
+		modifiers: z.number().int().min(0).max(15).optional(),
+	}),
+	z.object({
+		type: z.literal("key"),
+		action: z.enum(["down", "up"]),
+		key: z.enum([
+			"Enter",
+			"Backspace",
+			"Tab",
+			"Escape",
+			"Delete",
+			"Insert",
+			"ArrowLeft",
+			"ArrowUp",
+			"ArrowRight",
+			"ArrowDown",
+			"Home",
+			"End",
+			"PageUp",
+			"PageDown",
+			" ",
+			"Shift",
+			"Control",
+			"Alt",
+			"Meta",
+			"F5",
+		]),
+		modifiers: z.number().int().min(0).max(15).optional(),
+	}),
+	z.object({ type: z.literal("text"), text: z.string().min(1).max(4000) }),
+]);
+export type InputEvent = z.infer<typeof inputEventSchema>;
+/** The most events one `input` call carries. */
+export const MAX_INPUT_EVENTS = 64;
+
+export const inputResultSchema = z.object({
+	sent: z.number().int().nonnegative(),
+	dropped: z.number().int().nonnegative().default(0),
+});
+export type InputResult = z.infer<typeof inputResultSchema>;
+
 // ----- the runtime, as Cerea calls it -----------------------------------------------------
 
 /**
@@ -453,13 +543,15 @@ export interface BrowserRuntime {
 	 * hour): the machine closes a channel with no traffic after 10 minutes, and the pages with it.
 	 */
 	keepAlive?(): Promise<void>;
+	/** Who drives the page; `takeover` pauses the agent, `handback` resumes it (phase 2a). */
+	control?(action: ControlAction, signal?: AbortSignal): Promise<ControlResult>;
 }
 
 /** The runtime could not be reached, or answered something that is not the protocol. */
 export class BrowserRuntimeError extends Error {
 	constructor(
 		message: string,
-		readonly kind: "unavailable" | "protocol" | "tool" = "tool"
+		readonly kind: "unavailable" | "protocol" | "tool" | "paused" = "tool"
 	) {
 		super(message);
 		this.name = "BrowserRuntimeError";

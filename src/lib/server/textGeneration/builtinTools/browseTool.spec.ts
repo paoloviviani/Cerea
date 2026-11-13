@@ -20,9 +20,15 @@ import type { NestedAgentDeps } from "./nestedAgent";
 const saveBrowserDownloads = vi.hoisted(() => vi.fn());
 vi.mock("$lib/server/browser/downloads", () => ({ saveBrowserDownloads }));
 
+import { liveTaskFor } from "$lib/server/browser/liveView";
 import { BROWSE_TOOL_NAME, createBrowseTool, openAiComplete } from "./browseTool";
 import { getEnabledBuiltinTools } from "./index";
 import { SUBAGENT_BUILTIN_TOOLS } from "./delegateTool";
+
+function must<T>(value: T | null | undefined): T {
+	if (value === null || value === undefined) throw new Error("expected a value");
+	return value;
+}
 
 const pages = (): FakePage[] => [
 	{
@@ -76,11 +82,12 @@ function build(options: {
 	const asks: string[] = [];
 	const remembered: Array<[string, string]> = [];
 	const defaults: string[] = [];
+	const userId = new ObjectId();
 	const tool = createBrowseTool({
 		machines: options.machines ?? [laptop],
 		settings: options.settings ?? settings(),
 		ceiling: "ask",
-		userId: new ObjectId(),
+		userId,
 		unattended: options.unattended,
 		latestUserText: () => options.userText ?? "",
 		choiceStore:
@@ -120,7 +127,7 @@ function build(options: {
 			emit: (u: MessageUpdate) => void updates.push(u),
 		},
 	};
-	return { tool, runtime, model, models, asks, updates, ctx, remembered, defaults };
+	return { tool, runtime, model, models, asks, updates, ctx, remembered, defaults, userId };
 }
 
 const browseUpdates = (updates: MessageUpdate[]) =>
@@ -267,6 +274,46 @@ describe("browse: the chat model's tool", () => {
 			"did not allow"
 		);
 		expect(t.runtime.performed).toEqual([]);
+	});
+});
+
+describe("browse: live view and takeover", () => {
+	it("registers the running task for its owner only, and takeover pauses it until the hand-back", async () => {
+		let seen: ReturnType<typeof liveTaskFor>;
+		let stranger: ReturnType<typeof liveTaskFor> = undefined;
+		const holder: { userId?: ObjectId } = {};
+		const t = build({
+			script: [
+				async () => {
+					seen = liveTaskFor("call-uuid", must(holder.userId).toString());
+					stranger = liveTaskFor("call-uuid", new ObjectId().toString());
+					await seen?.takeover();
+					setTimeout(() => void seen?.handBack(), 40);
+					return callTurn("snapshot", {});
+				},
+				answerTurn("looked"),
+			] as never,
+		});
+		holder.userId = t.userId;
+		const out = await t.tool.execute({ goal: "look at the cart" }, t.ctx);
+		expect("resultText" in out).toBe(true);
+		expect(seen).toBeDefined();
+		expect(stranger).toBeUndefined();
+		const cards = browseUpdates(t.updates);
+		expect(cards.some((c) => c.live === true)).toBe(true);
+		// The card said the user had the browser, then said no more of it.
+		const states = cards.map((c) => c.control);
+		expect(states).toContain("user");
+		expect(states.at(-1)).toBeUndefined();
+		expect(cards.at(-1)).toMatchObject({ status: "done" });
+		// The task is over: nothing is reachable any more.
+		expect(liveTaskFor("call-uuid", t.userId.toString())).toBeUndefined();
+		// The runtime was asked to give control back at the start, and again at the user's hand-back.
+		const actions = t.runtime.calls
+			.filter((c) => c.tool === "control")
+			.map((c) => (c.args as { action: string }).action)
+			.filter((a) => a !== "state");
+		expect(actions).toEqual(["handback", "takeover", "handback"]);
 	});
 });
 

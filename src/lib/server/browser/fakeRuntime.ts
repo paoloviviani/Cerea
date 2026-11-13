@@ -15,6 +15,11 @@
 import {
 	type ActResult,
 	type ActionResult,
+	type ControlAction,
+	type ControlResult,
+	type InputEvent,
+	type InputResult,
+	type ScreencastResult,
 	type ApprovalGrant,
 	type BrowserAction,
 	type BrowserRuntime,
@@ -140,7 +145,61 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 		return this.current.url;
 	}
 
+	/** Who drives the page: while `user`, every agent tool answers paused (phase 2a). */
+	controller: "agent" | "user" = "agent";
+	controlSource: "cerea" | "banner" | undefined;
+	/** What the user did while in control, and the screencast calls, for tests. */
+	readonly userInput: InputEvent[] = [];
+	readonly screencastCalls: Array<Record<string, unknown>> = [];
+
+	/** The user takes control in the window (the banner), as the real runtime's banner does. */
+	bannerTakeover(): void {
+		this.controller = "user";
+		this.controlSource = "banner";
+	}
+	bannerHandback(): void {
+		this.controller = "agent";
+		this.controlSource = undefined;
+	}
+
+	async control(action: ControlAction): Promise<ControlResult> {
+		this.calls.push({ tool: "control", args: { action } });
+		if (action === "takeover" && this.controller !== "user") {
+			this.controller = "user";
+			this.controlSource = "cerea";
+		} else if (action === "handback") {
+			this.controller = "agent";
+			this.controlSource = undefined;
+			this.baseline = new Map();
+			this.baselineUrl = "";
+		}
+		return {
+			controller: this.controller,
+			...(this.controlSource ? { source: this.controlSource } : {}),
+		};
+	}
+
+	async screencast(
+		request:
+			{ action: "start"; width?: number } | { action: "stop" } | { action: "ack"; seq: number }
+	): Promise<ScreencastResult> {
+		this.screencastCalls.push({ ...request });
+		return { casting: request.action !== "stop" };
+	}
+
+	async input(events: InputEvent[]): Promise<InputResult> {
+		if (this.controller !== "user") {
+			throw new BrowserRuntimeError("Input is accepted only while the user is in control.", "tool");
+		}
+		this.userInput.push(...events);
+		return { sent: events.length, dropped: 0 };
+	}
+
 	private record(tool: RuntimeToolName, args: Record<string, unknown>): void {
+		if (this.controller === "user" && tool !== "end_task" && tool !== "open") {
+			this.calls.push({ tool, args });
+			throw new BrowserRuntimeError("The user has taken control of the browser.", "paused");
+		}
 		this.calls.push({ tool, args });
 		const failure = this.failNext[tool];
 		if (failure) {
@@ -484,6 +543,8 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 
 	async endTask(options?: { keep?: boolean }): Promise<EndTaskResult> {
 		this.record("end_task", options?.keep ? { keep: true } : {});
+		this.controller = "agent";
+		this.controlSource = undefined;
 		this.ended += 1;
 		const adoptedBefore = new Set(this.adopted);
 		this.adopted.clear();
@@ -546,8 +607,21 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 						);
 					case "end_task":
 						return json(await this.endTask(args.keep === true ? { keep: true } : undefined));
+					case "control":
+						return json(await this.control(args.action as ControlAction));
+					case "screencast":
+						return json(await this.screencast(args as { action: "start"; width?: number }));
+					case "input":
+						return json(await this.input(args.events as InputEvent[]));
 				}
 			} catch (err) {
+				if (err instanceof BrowserRuntimeError && err.kind === "paused") {
+					return {
+						text: err.message,
+						isError: true,
+						structured: { paused: true },
+					};
+				}
 				return { text: err instanceof Error ? err.message : String(err), isError: true };
 			}
 		};

@@ -444,6 +444,10 @@ export interface MessageBrowseUpdate {
 	activity?: string;
 	/** Set while the loop waits for the user: the sentence they are asked about. */
 	waitingOn?: string;
+	/** The task is running on a machine that can stream its browser: the card offers the live view. */
+	live?: boolean;
+	/** The user has the browser (takeover): the sub-agent is paused until they hand it back. */
+	control?: "user";
 	steps: BrowseStep[];
 	/** The page the browser ended on. */
 	finalUrl?: string;

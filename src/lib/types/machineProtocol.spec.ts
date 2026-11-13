@@ -1,11 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
+	BIN_BROWSER_FRAME,
+	decodeBinaryFrame,
+	decodeBrowserFramePayload,
+	encodeBinaryFrame,
 	delegateProfilesBody,
 	isPermissionMode,
 	parseDelegateProfiles,
 	parseMachineFrame,
 	parsePermissionRules,
 } from "./machineProtocol";
+
+function must<T>(value: T | null | undefined): T {
+	if (value === null || value === undefined) throw new Error("expected a value");
+	return value;
+}
 
 const CAPABILITIES = {
 	diff: true,
@@ -227,5 +236,27 @@ describe("delegate profiles", () => {
 			default: null,
 			profiles: {},
 		});
+	});
+});
+
+describe("browser live-view frames (0x04)", () => {
+	it("carries the viewport size, then the JPEG", () => {
+		const jpeg = Buffer.from([0xff, 0xd8, 0xff]);
+		const wire = encodeBinaryFrame({
+			kind: BIN_BROWSER_FRAME,
+			channel: "ch_0123456789ab",
+			offset: 7,
+			payload: Buffer.concat([Buffer.from([0x05, 0x00, 0x03, 0x20]), jpeg]),
+		});
+		const frame = must(decodeBinaryFrame(wire));
+		expect(frame).toMatchObject({ kind: 0x04, channel: "ch_0123456789ab", offset: 7 });
+		expect(decodeBrowserFramePayload(frame.payload)).toEqual({ width: 1280, height: 800, jpeg });
+	});
+
+	it("rejects a payload that is not one", () => {
+		expect(decodeBrowserFramePayload(Buffer.alloc(0))).toBeNull();
+		expect(decodeBrowserFramePayload(Buffer.from([0, 5, 0, 5]))).toBeNull();
+		expect(decodeBrowserFramePayload(Buffer.from([0, 0, 0, 5, 1]))).toBeNull();
+		expect(decodeBrowserFramePayload(Buffer.from([0, 5, 0, 0, 1]))).toBeNull();
 	});
 });

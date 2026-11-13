@@ -1323,6 +1323,21 @@ export interface NoticeFrame {
 export const BIN_TERM_OUTPUT = 0x01;
 export const BIN_TERM_INPUT = 0x02;
 export const BIN_TERM_ACK = 0x03;
+/** M→C: one screencast frame of the browser runtime's live view (ADR 0116 phase 2a). `offset` is
+ * the frame's sequence number; the payload is `decodeBrowserFramePayload`'s. */
+export const BIN_BROWSER_FRAME = 0x04;
+
+/** A live-view frame's payload: u16 BE viewport width and height (the page's CSS pixels, the space
+ * of the user's input), then the JPEG. `null` for anything that is not one. */
+export function decodeBrowserFramePayload(
+	payload: Buffer
+): { width: number; height: number; jpeg: Buffer } | null {
+	if (payload.length <= 4) return null;
+	const width = payload.readUInt16BE(0);
+	const height = payload.readUInt16BE(2);
+	if (width === 0 || height === 0) return null;
+	return { width, height, jpeg: payload.subarray(4) };
+}
 
 export const MAX_CHANNEL_ID_LEN = 32;
 export const MAX_OUTPUT_FRAME_PAYLOAD = 32 * 1024;

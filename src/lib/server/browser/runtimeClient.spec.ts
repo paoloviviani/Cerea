@@ -268,3 +268,44 @@ describe("McpBrowserRuntime failures", () => {
 		);
 	});
 });
+
+describe("McpBrowserRuntime takeover (phase 2a)", () => {
+	it("maps the runtime's paused answer to a paused error, for every agent tool", async () => {
+		const { fake, client } = runtime();
+		expect((await client.control("takeover")).controller).toBe("user");
+		for (const call of [
+			() => client.snapshot(),
+			() => client.diff(),
+			() => client.act([{ type: "scroll", direction: "down" }], undefined),
+			() => client.extract({ mode: "auto" }),
+			() => client.screenshot(),
+			() => client.download(),
+			() => client.tabs(),
+		]) {
+			await expect(call()).rejects.toMatchObject({ kind: "paused" });
+		}
+		// The user's side still works, and the agent gets the page back on hand-back.
+		expect(await client.input([{ type: "text", text: "hi" }])).toEqual({ sent: 1, dropped: 0 });
+		expect(fake.userInput).toEqual([{ type: "text", text: "hi" }]);
+		expect((await client.control("handback")).controller).toBe("agent");
+		expect((await client.snapshot()).url).toBe("https://shop.example.com/");
+	});
+
+	it("starts, acks and stops the screencast", async () => {
+		const { fake, client } = runtime();
+		await client.screencast({ action: "start", width: 480 });
+		await client.screencast({ action: "ack", seq: 3 });
+		expect((await client.screencast({ action: "stop" })).casting).toBe(false);
+		expect(fake.screencastCalls).toEqual([
+			{ action: "start", width: 480 },
+			{ action: "ack", seq: 3 },
+			{ action: "stop" },
+		]);
+	});
+
+	it("keeps a plain tool error a tool error", async () => {
+		const client = new McpBrowserRuntime(async () => ({ text: "boom", isError: true }));
+		await expect(client.snapshot()).rejects.toMatchObject({ kind: "tool" });
+		expect(BrowserRuntimeError).toBeDefined();
+	});
+});
