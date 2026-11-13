@@ -313,6 +313,32 @@ describe("browse: live view and takeover", () => {
 	});
 });
 
+describe("browse: a runtime that cannot hand control over", () => {
+	it("offers no live view, and a paused answer ends the task with a clear reason", async () => {
+		const runtime = new FakeBrowserRuntime(pages());
+		// An older runtime: the control call is refused.
+		runtime.control = async () => {
+			throw new Error("unknown tool: control");
+		};
+		const t = build({
+			runtime,
+			script: [
+				async () => {
+					runtime.bannerTakeover();
+					return callTurn("snapshot", {});
+				},
+				answerTurn("never"),
+			] as never,
+		});
+		const out = await t.tool.execute({ goal: "look" }, t.ctx);
+		expect("resultText" in out).toBe(true);
+		const last = browseUpdates(t.updates).at(-1);
+		expect(last?.stoppedReason).toBe("no_handover");
+		expect(browseUpdates(t.updates).every((u) => !u.needsUser?.stream)).toBe(true);
+		expect(liveTaskFor("call-uuid", t.userId.toString())).toBeUndefined();
+	});
+});
+
 describe("browse: arguments and machines", () => {
 	it("needs a goal", async () => {
 		const t = build({ script: [answerTurn("x")] });

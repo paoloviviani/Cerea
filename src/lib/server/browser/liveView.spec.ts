@@ -97,9 +97,9 @@ describe("the live view of a browse task", () => {
 		r.push(2, Buffer.from([0, 0, 0]));
 		expect(a.events.filter((e) => e.type === "frame")).toHaveLength(1);
 
-		leaveA();
+		leaveA?.();
 		expect(r.isSubscribed()).toBe(true);
-		leaveB();
+		leaveB?.();
 		await vi.waitFor(() => expect(r.runtime.screencastCalls.at(-1)).toEqual({ action: "stop" }));
 		expect(r.isSubscribed()).toBe(false);
 		r.stop();
@@ -281,5 +281,27 @@ describe("takeover and input", () => {
 		expect(task.supported).toBe(false);
 		expect(await task.takeover()).toMatchObject({ ok: false, status: 501 });
 		stop();
+	});
+
+	it("takes at most four viewers a task", () => {
+		const r = rig();
+		const task = must(liveTaskFor("task-1", "owner"));
+		const leaves = [1, 2, 3, 4].map(() => task.addViewer(r.viewer().v));
+		expect(leaves.every((l) => typeof l === "function")).toBe(true);
+		expect(task.hasRoom).toBe(false);
+		expect(task.addViewer(r.viewer().v)).toBeNull();
+		must(leaves[0])();
+		expect(task.hasRoom).toBe(true);
+		r.stop();
+	});
+
+	it("limits takeover and hand-back calls a second", async () => {
+		const r = rig();
+		const task = must(liveTaskFor("task-1", "owner"));
+		const results = [];
+		for (let i = 0; i < 8; i += 1) results.push(await task.takeover());
+		expect(results.some((x) => !x.ok && x.status === 429)).toBe(true);
+		expect(results[0]).toMatchObject({ ok: true });
+		r.stop();
 	});
 });

@@ -17,6 +17,8 @@ import { McpBrowserRuntime, mcpRuntimeCall, mcpRuntimeKeepAlive } from "./runtim
 import { mongoLeaseStore, type Lease, type LeaseStore } from "./lease";
 import { liveTaskFor, registerLiveTask, type LiveRuntime, type LiveSessionInfo } from "./liveView";
 import { TaskControl } from "./takeover";
+import { browserSettings, type BrowserSettings } from "./settings";
+import { hostOf, matchesAny } from "./siteRules";
 
 export const USER_BROWSER_IDLE_MS = 15 * 60_000;
 
@@ -26,13 +28,15 @@ export interface UserBrowserDeps {
 	/** Resolves a paired device of the user; default: the database. */
 	device?: (userId: ObjectId, deviceId: string) => Promise<{ name: string } | null>;
 	idleMs?: number;
+	/** The deployment's site rules; default: the settings. */
+	rules?: BrowserSettings["rules"];
 }
 
 export type OpenResult =
 	| { ok: true; id: string; streamUrl: string; info: LiveSessionInfo }
-	| { ok: false; status: 400 | 404 | 409 | 501 | 502; message: string };
+	| { ok: false; status: 400 | 403 | 404 | 409 | 501 | 502; message: string };
 
-const closers = new Map<string, () => Promise<void>>();
+const closers = new Map<string, (reason?: "ended" | "lease_lost") => Promise<void>>();
 
 async function dbDevice(userId: ObjectId, deviceId: string) {
 	let _id: ObjectId;
@@ -56,6 +60,17 @@ export async function openUserBrowser(
 	if (request.url !== undefined && !/^https?:\/\//i.test(request.url)) {
 		return { ok: false, status: 400, message: "The address must start with http:// or https://." };
 	}
+	const rules = deps.rules ?? browserSettings().rules;
+	if (request.url) {
+		const host = hostOf(request.url);
+		if (host && matchesAny(host, rules.deny)) {
+			return {
+				ok: false,
+				status: 403,
+				message: `${host} is on this deployment's list of sites the browser may not use.`,
+			};
+		}
+	}
 	const id = randomUUID();
 	const lease: Lease | null = await (deps.leases ?? mongoLeaseStore)
 		.acquire(request.deviceId, user.id, `user-browser:${id}`)
@@ -74,14 +89,17 @@ export async function openUserBrowser(
 	const registration: { stop?: () => void } = {};
 	let idle: NodeJS.Timeout | undefined;
 	let closed = false;
-	const close = async () => {
+	const close = async (reason: "ended" | "lease_lost" = "ended") => {
 		if (closed) return;
 		closed = true;
 		clearTimeout(idle);
 		closers.delete(id);
 		registration.stop?.();
-		await runtime.control?.("handback").catch(() => undefined);
-		await runtime.endTask().catch(() => undefined);
+		// Another task now holds the machine's browser: never hand back or end its pages.
+		if (reason !== "lease_lost") {
+			await runtime.control?.("handback").catch(() => undefined);
+			await runtime.endTask().catch(() => undefined);
+		}
 		await lease.release();
 	};
 	try {
@@ -91,7 +109,9 @@ export async function openUserBrowser(
 		// The user has the page from the start: the runtime takes their input, and (there being no
 		// agent) nothing waits on a hand-back.
 		await control.takeover();
-		if (request.url) await runtime.open({ url: request.url });
+		// A real (blank) page from the start, so frames and input have something to work on; the
+		// deny list goes along, as for any page opened here.
+		await runtime.open({ url: request.url ?? "about:blank", deny: rules.deny });
 	} catch (err) {
 		await close();
 		const old = (err as { status?: number }).status === 501;
@@ -113,7 +133,7 @@ export async function openUserBrowser(
 		runtime: live as LiveRuntime,
 		control,
 		leaseHeld: () => lease.check(),
-		onEnd: () => void close(),
+		onEnd: (reason) => void close(reason),
 	});
 	closers.set(id, close);
 	const armIdle = () => {

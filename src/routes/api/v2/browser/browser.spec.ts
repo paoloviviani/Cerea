@@ -38,6 +38,7 @@ vi.mock("$lib/server/browser/lease", () => ({
 
 import { collections, ready } from "$lib/server/database";
 import { POST as open } from "./open/+server";
+import { POST as openSession } from "./sessions/+server";
 import { PUT as setDefault } from "./default/+server";
 import { GET as computers } from "./computers/+server";
 
@@ -295,5 +296,48 @@ describe("GET /api/v2/browser/computers", () => {
 				Promise.resolve(computers({ locals: locals(owner), url: new URL("http://x/") } as never))
 			)
 		).toBe(404);
+	});
+});
+
+describe("POST /api/v2/browser/sessions", () => {
+	const session = async (user: ObjectId | null, body: unknown, json = true) =>
+		openSession({
+			locals: locals(user),
+			request: new Request("http://x", {
+				method: "POST",
+				headers: json ? { "content-type": "application/json" } : {},
+				body: JSON.stringify(body),
+			}),
+		} as never);
+
+	it("has the gates of Open browser: user, switch, schema, own and ready computer", async () => {
+		const id = await device(owner, "Laptop");
+		const theirs = await device(stranger, "Theirs");
+		expect(await status(session(null, { deviceId: id }))).toBe(401);
+		state.enabled = false;
+		expect(await status(session(owner, { deviceId: id }))).toBe(404);
+		state.enabled = true;
+		expect(await status(session(owner, { nope: 1 }))).toBe(400);
+		expect(await status(session(owner, { deviceId: id, url: "x".repeat(5000) }))).toBe(400);
+		expect(await status(session(owner, { deviceId: id }, false))).toBe(415);
+		state.ready = [{ id: theirs, name: "Theirs" }];
+		expect(await status(session(owner, { deviceId: theirs }))).toBe(404);
+		// Paired but its browser is not ready: offline, as for Open browser.
+		const offline = await session(owner, { deviceId: id }).catch((e) => e);
+		expect(offline.status).toBe(409);
+		expect(JSON.stringify(offline.body)).toContain("Laptop is offline");
+		expect(state.runtimeOpen).not.toHaveBeenCalled();
+	});
+
+	it("refuses an address that is not http(s) (400) and a site on the deny list (403)", async () => {
+		const id = await device(owner, "Laptop");
+		state.ready = [{ id, name: "Laptop" }];
+		state.rules = { allow: [], deny: ["bank.example"] };
+		expect(await status(session(owner, { deviceId: id, url: "file:///etc/passwd" }))).toBe(400);
+		expect(await status(session(owner, { deviceId: id, url: "javascript:alert(1)" }))).toBe(400);
+		expect(await status(session(owner, { deviceId: id, url: "https://www.bank.example/x" }))).toBe(
+			403
+		);
+		expect(state.runtimeOpen).not.toHaveBeenCalled();
 	});
 });

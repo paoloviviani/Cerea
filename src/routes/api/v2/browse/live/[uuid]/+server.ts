@@ -25,6 +25,7 @@ export const GET: RequestHandler = async ({ locals, params, url, request }) => {
 	const task = liveTaskFor(params.uuid ?? "", locals.user._id.toString());
 	if (!task) error(404, "No such running browser task");
 	if (!task.supported) error(501, "The browser on that computer is too old for the live view");
+	if (!task.hasRoom) error(429, "Too many viewers on this browser");
 
 	const width = Number(url.searchParams.get("width"));
 	const encoder = new TextEncoder();
@@ -33,8 +34,10 @@ export const GET: RequestHandler = async ({ locals, params, url, request }) => {
 	const stream = new ReadableStream<Uint8Array>(
 		{
 			start(controller) {
-				const write = (text: string): boolean => {
+				/** `droppable` (frames): never queued while the connection is backed up. */
+				const write = (text: string, droppable = false): boolean => {
 					try {
+						if (droppable && (controller.desiredSize ?? 0) <= 0) return false;
 						controller.enqueue(encoder.encode(text));
 						return (controller.desiredSize ?? 0) > 0;
 					} catch {
@@ -51,7 +54,8 @@ export const GET: RequestHandler = async ({ locals, params, url, request }) => {
 									w: event.width,
 									h: event.height,
 									data: event.jpeg.toString("base64"),
-								})}\n\n`
+								})}\n\n`,
+								true
 							);
 						}
 						if (event.type === "session") {
@@ -68,6 +72,11 @@ export const GET: RequestHandler = async ({ locals, params, url, request }) => {
 					},
 				};
 				const remove = task.addViewer(viewer);
+				if (!remove) {
+					controller.close();
+					return;
+				}
+				const leave = remove;
 				const ping = setInterval(() => write(": ping\n\n"), PING_MS);
 				const lifetime = setTimeout(() => close(), MAX_LIFETIME_MS);
 				let closed = false;
@@ -76,7 +85,7 @@ export const GET: RequestHandler = async ({ locals, params, url, request }) => {
 					closed = true;
 					clearInterval(ping);
 					clearTimeout(lifetime);
-					remove();
+					leave();
 					try {
 						controller.close();
 					} catch {

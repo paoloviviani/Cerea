@@ -102,4 +102,55 @@ describe("a browser the user opens on their computer", () => {
 		await new Promise((x) => setTimeout(x, 120));
 		expect(liveTaskFor(r.id, user.id.toString())).toBeUndefined();
 	});
+
+	it("opens a blank page when no address is given, so frames and input have a page", async () => {
+		const { deps: d, runtime } = deps();
+		const r = await openUserBrowser(user, { deviceId: "dev1" }, d);
+		if (!r.ok) throw new Error("open");
+		open.push(r.id);
+		expect(runtime.calls.find((c) => c.tool === "open")?.args).toMatchObject({
+			url: "about:blank",
+		});
+	});
+
+	it("refuses an address on the deny list, and sends the list to the runtime", async () => {
+		const { deps: d, runtime } = deps({ rules: { allow: [], deny: ["bank.example"] } });
+		expect(
+			await openUserBrowser(user, { deviceId: "dev1", url: "https://www.bank.example/" }, d)
+		).toMatchObject({ ok: false, status: 403 });
+		expect(runtime.calls.filter((c) => c.tool === "open")).toEqual([]);
+		const ok = await openUserBrowser(user, { deviceId: "dev1", url: "https://a.test/" }, d);
+		if (!ok.ok) throw new Error("open");
+		open.push(ok.id);
+		expect(runtime.calls.find((c) => c.tool === "open")?.args).toMatchObject({
+			deny: ["bank.example"],
+		});
+	});
+
+	it("on a lost lease does not hand back or end the pages of whoever holds the browser now", async () => {
+		const { deps: d, runtime } = deps();
+		const r = await openUserBrowser(user, { deviceId: "dev1" }, d);
+		if (!r.ok) throw new Error("open");
+		const before = runtime.calls.length;
+		await must(liveTaskFor(r.id, user.id.toString())).end("lease_lost");
+		await new Promise((x) => setTimeout(x, 20));
+		const after = runtime.calls.slice(before).map((c) => c.tool);
+		expect(after).not.toContain("end_task");
+		expect(runtime.calls.slice(before).filter((c) => c.tool === "control")).toEqual([]);
+		// The computer is free for the next one all the same.
+		const again = await openUserBrowser(user, { deviceId: "dev1" }, d);
+		expect(again.ok).toBe(true);
+		if (again.ok) open.push(again.id);
+	});
+
+	it("on an ordinary close hands back and ends the task", async () => {
+		const { deps: d, runtime } = deps();
+		const r = await openUserBrowser(user, { deviceId: "dev1" }, d);
+		if (!r.ok) throw new Error("open");
+		const before = runtime.calls.length;
+		await closeUserBrowser(user.id.toString(), r.id);
+		const after = runtime.calls.slice(before);
+		expect(after.some((c) => c.tool === "end_task")).toBe(true);
+		expect(after.some((c) => c.tool === "control")).toBe(true);
+	});
 });

@@ -452,7 +452,8 @@ export interface BrowseNeedsUser {
 	taskId: string;
 	/** The approval's elicitation id, when the need is an approval or a verification. */
 	approvalId?: string;
-	stream: BrowseStreamDescriptor;
+	/** Present only when a live view is available for this task (an older runtime has none). */
+	stream?: BrowseStreamDescriptor;
 }
 
 export interface MessageBrowseUpdate {

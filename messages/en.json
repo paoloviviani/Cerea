@@ -1720,6 +1720,8 @@
 	"chat.browse.left_open": "Left open: {title}",
 	"chat.browse.page_changed": "The page had changed since the last task.",
 	"chat.browse.stopped.lease_lost": "Another task took over the browser on your machine.",
+	"chat.browse.stopped.takeover_timeout": "The user kept the browser for too long, so the task stopped.",
+	"chat.browse.stopped.no_handover": "The browser was handed to you and this task cannot wait for it to come back.",
 	"chat.table.column": "Column {number}",
 	"chat.table.column_lower": "column {number}",
 	"chat.table.count": [

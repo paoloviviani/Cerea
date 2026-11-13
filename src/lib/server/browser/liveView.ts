@@ -88,8 +88,8 @@ export interface LiveTaskInit {
 	userOwned?: boolean;
 	/** Still the holder of the machine's browser? */
 	leaseHeld?: () => Promise<boolean>;
-	/** Called once when the stream ends (the task ended, or the lease was lost). */
-	onEnd?: () => void;
+	/** Called once when the stream ends (the task ended, or the lease was lost) and why. */
+	onEnd?: (reason: "ended" | "lease_lost") => void;
 	/** Test seams. */
 	subscribeFrames?: typeof subscribeBrowserFrames;
 	timing?: Partial<typeof TIMING>;
@@ -104,12 +104,16 @@ const TIMING = {
 	keepAliveMs: 8_000,
 	leaseEveryMs: 10_000,
 };
+/** The most viewers of one task at a time. */
+export const MAX_VIEWERS = 4;
 const MAX_WIDTH = 1600;
 const MIN_WIDTH = 160;
 
 /** Input limits: calls and events a second, per task. */
 const CALLS_PER_SECOND = 40;
 const EVENTS_PER_SECOND = 600;
+/** Takeover and hand-back calls a second, per task. */
+const CONTROL_CALLS_PER_SECOND = 5;
 
 export const inputBodySchema = z.object({
 	events: z.array(inputEventSchema).min(1).max(MAX_INPUT_EVENTS),
@@ -157,6 +161,7 @@ export class LiveTask {
 	private kind: LiveKind;
 	private url: string | null = null;
 	private bucket = { at: 0, calls: 0, events: 0 };
+	private controlBucket = { at: 0, calls: 0 };
 
 	constructor(init: LiveTaskInit) {
 		this.init = init;
@@ -221,8 +226,17 @@ export class LiveTask {
 
 	// ---- viewers ---------------------------------------------------------------------------
 
-	/** Adds a viewer; the first one starts the stream. The returned function removes it. */
-	addViewer(viewer: LiveViewer): () => void {
+	/** Room for another viewer (at most `MAX_VIEWERS` a task: each one costs memory and bandwidth). */
+	get hasRoom(): boolean {
+		return this.viewers.size < MAX_VIEWERS;
+	}
+
+	/**
+	 * Adds a viewer; the first one starts the stream. The returned function removes it; null when
+	 * the task already has `MAX_VIEWERS` (the route answers 429).
+	 */
+	addViewer(viewer: LiveViewer): (() => void) | null {
+		if (!this.ended && !this.hasRoom) return null;
 		if (this.ended) {
 			viewer.send({ type: "end", reason: "ended" });
 			return () => {};
@@ -306,7 +320,7 @@ export class LiveTask {
 		if (this.ended) return;
 		this.ended = true;
 		registry.delete(this.taskId);
-		this.init.onEnd?.();
+		this.init.onEnd?.(reason);
 		const viewers = [...this.viewers];
 		this.viewers.clear();
 		for (const viewer of viewers) viewer.send({ type: "end", reason });
@@ -361,7 +375,16 @@ export class LiveTask {
 
 	// ---- takeover and input ----------------------------------------------------------------
 
+	/** Takeover and hand-back calls are limited too (each one is a call to the machine). */
+	private controlLimited(): boolean {
+		const now = Date.now();
+		if (now - this.controlBucket.at >= 1_000) this.controlBucket = { at: now, calls: 0 };
+		this.controlBucket.calls += 1;
+		return this.controlBucket.calls > CONTROL_CALLS_PER_SECOND;
+	}
+
 	async takeover(): Promise<LiveOk<{ controller: TaskController }> | LiveRefusal> {
+		if (this.controlLimited()) return { ok: false, status: 429, message: "Too many requests." };
 		if (this.init.userOwned) return { ok: true, controller: this.controller };
 		if (this.unattended) {
 			return {
@@ -386,6 +409,7 @@ export class LiveTask {
 	}
 
 	async handBack(): Promise<LiveOk<{ controller: TaskController }> | LiveRefusal> {
+		if (this.controlLimited()) return { ok: false, status: 429, message: "Too many requests." };
 		if (this.init.userOwned) {
 			return { ok: false, status: 409, message: "This browser is yours: close it instead." };
 		}

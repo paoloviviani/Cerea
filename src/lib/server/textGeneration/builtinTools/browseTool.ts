@@ -401,7 +401,7 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 			} = {};
 			// Live view and takeover: the card offers them while the task runs, on a machine whose
 			// runtime can stream (an older one cannot), and for the user only (`liveView.ts`).
-			const takeover = new TaskControl(runtime);
+			const takeover = new TaskControl(runtime, { probe: (signal) => runtime.tabs({}, signal) });
 			const liveRuntime = runtime as BrowserRuntime & Partial<LiveRuntime>;
 			let liveAvailable = false;
 			let needsUser: BrowseNeedsUser | undefined;
@@ -438,15 +438,19 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 						reason: need.reason,
 						taskId: ctx.uuid,
 						...(need.approvalId ? { approvalId: need.approvalId } : {}),
-						stream: {
-							id: ctx.uuid,
-							machineId: machine.id,
-							machineName: machine.name,
-							kind: info?.kind ?? "browse_task",
-							url: info?.url ?? null,
-							origin: info?.origin ?? null,
-							streamUrl: `/api/v2/browse/live/${ctx.uuid}`,
-						},
+						...(liveAvailable
+							? {
+									stream: {
+										id: ctx.uuid,
+										machineId: machine.id,
+										machineName: machine.name,
+										kind: info?.kind ?? "browse_task",
+										url: info?.url ?? null,
+										origin: info?.origin ?? null,
+										streamUrl: `/api/v2/browse/live/${ctx.uuid}`,
+									},
+								}
+							: {}),
 					};
 					emit();
 				},
@@ -486,10 +490,11 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 
 			emit();
 			let result: BrowseResult;
+			let canHandOver = false;
 			try {
 				// A task starts with the agent in control, whatever an earlier task left behind. A
 				// runtime that cannot answer this is older than the live view: none is offered.
-				const canHandOver =
+				canHandOver =
 					takeover.supported &&
 					(await takeover.handBack().then(
 						() => true,
@@ -525,7 +530,8 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 						rules: params.settings.rules,
 						rulesNow: params.rulesNow ?? (() => browserSettings().rules),
 						leaseHeld: () => lease.check(),
-						control: takeover,
+						// Only a runtime that can hand control back: else a "paused" answer ends the task.
+						...(canHandOver ? { control: takeover } : {}),
 						ceiling: params.ceiling,
 						unattended: params.unattended,
 						budgets: params.settings.budgets,

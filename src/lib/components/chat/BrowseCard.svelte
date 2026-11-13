@@ -87,6 +87,8 @@
 			model_error: m["chat.browse.stopped.model_error"](),
 			denied: m["chat.browse.stopped.denied"](),
 			lease_lost: m["chat.browse.stopped.lease_lost"](),
+			takeover_timeout: m["chat.browse.stopped.takeover_timeout"](),
+			no_handover: m["chat.browse.stopped.no_handover"](),
 			verification: m["chat.browse.stopped.verification"](),
 		};
 		return notes[reason];

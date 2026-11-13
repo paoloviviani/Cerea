@@ -193,4 +193,46 @@ describe("the live view routes", () => {
 			)
 		).toBe(400);
 	});
+
+	it("do not queue frames for a viewer that stopped reading, and cap viewers at four", async () => {
+		run();
+		const aborts: AbortController[] = [];
+		const open = async () => {
+			const abort = new AbortController();
+			aborts.push(abort);
+			return (await call(() =>
+				GET({
+					locals: as(owner),
+					params: { uuid: "t1" },
+					url: new URL("http://x/?width=300"),
+					request: new Request("http://x/", { signal: abort.signal }),
+				} as never)
+			)) as Response;
+		};
+		const stalled = await open();
+		// 3000 frames of about 4 KiB to a viewer that never reads: far more than the backlog bound.
+		const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8]), Buffer.alloc(3_000, 7)]);
+		const payload = Buffer.concat([Buffer.from([0x05, 0x00, 0x03, 0x20]), jpeg]);
+		for (let seq = 1; seq <= 3000; seq += 1) must(push)(seq, payload);
+		const reader = must(stalled.body).getReader();
+		let bytes = 0;
+		for (;;) {
+			const chunk = await Promise.race([
+				reader.read(),
+				new Promise<{ done: true; value: undefined }>((r) =>
+					setTimeout(() => r({ done: true, value: undefined }), 100)
+				),
+			]);
+			if (chunk.done) break;
+			bytes += chunk.value.length;
+		}
+		// 3000 frames are about 12 MB: only about the 1 MB bound was ever held.
+		expect(bytes).toBeGreaterThan(0);
+		expect(bytes).toBeLessThan(1_300_000);
+
+		// The cap: the stalled one counts, three more fit, the fifth is a 429.
+		for (let i = 0; i < 3; i += 1) expect((await open()).status).toBe(200);
+		expect(status((await open()) as never)).toBe(429);
+		for (const abort of aborts) abort.abort();
+	});
 });

@@ -218,7 +218,7 @@ describe("takeover: the loop pauses while the user has the browser", () => {
 		});
 		r.runtime.bannerTakeover();
 		const result = await runBrowseLoop({ goal: "look" }, r.deps);
-		expect(result.stopped_reason).toBe("runtime_error");
+		expect(result.stopped_reason).toBe("no_handover");
 	});
 
 	it("tells a surface when the agent needs the user, with the approval's id", async () => {

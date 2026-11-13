@@ -49,7 +49,11 @@ export type StoppedReason =
 	| "model_error"
 	| "denied"
 	| "lease_lost"
-	| "verification";
+	| "verification"
+	/** The user kept the browser (takeover) longer than the most a task waits for. */
+	| "takeover_timeout"
+	/** The runtime said the user has the page, and this task cannot wait for a hand-back. */
+	| "no_handover";
 
 export interface BrowseFile {
 	name: string;
@@ -157,6 +161,8 @@ export interface LoopDeps {
 	budgets: BrowserBudgets;
 	/** Takeover: the user's control pauses the loop. Absent: a runtime that says paused ends the task. */
 	control?: PauseGate;
+	/** The most a task waits while the user has the browser; default `MAX_TAKEOVER_MS` (30 min). */
+	maxTakeoverMs?: number;
 	/** Whether this task still holds its machine (checked before each act); absent: always. */
 	leaseHeld?: () => Promise<boolean>;
 	/** The administrator's site lists as they are now (read again before re-deciding). */
@@ -402,6 +408,8 @@ export function fenceInline(text: string): string {
 	return `${PAGE_OPEN}${sanitizeText(text)}${PAGE_CLOSE}`;
 }
 
+/** The longest the user may keep the browser from a task. */
+export const MAX_TAKEOVER_MS = 30 * 60_000;
 const MAX_TOOL_TEXT = 8_000;
 const clip = (text: string, max = MAX_TOOL_TEXT) =>
 	text.length > max ? `${text.slice(0, max)}\n…(truncated)` : text;
@@ -428,6 +436,10 @@ function stoppedText(reason: StoppedReason): string {
 			return "another task took over the browser";
 		case "verification":
 			return "a verification in the browser was not completed";
+		case "takeover_timeout":
+			return "the user kept the browser for too long";
+		case "no_handover":
+			return "the user took control of the browser and this task cannot wait for it to be handed back";
 	}
 }
 
@@ -574,6 +586,9 @@ async function runInner(
 					if (waited) throw new HandedBack();
 					continue;
 				}
+				// Paused with nothing to wait on (no takeover here): a clear end, not a crash.
+				if (err instanceof BrowserRuntimeError && err.kind === "paused")
+					throw new Stop("no_handover");
 				if (err instanceof BrowserRuntimeError && err.kind !== "tool")
 					throw new Stop("runtime_error");
 				throw err;
@@ -590,13 +605,21 @@ async function runInner(
 		if (!gate || !gate.paused()) return false;
 		const since = now();
 		observer?.controlled?.("user");
+		// The user keeps the browser for at most this long (scheduled runs included): then the task
+		// ends rather than waiting for ever on a window nobody is at.
+		const limit = new AbortController();
+		const limitTimer = setTimeout(() => limit.abort(), deps.maxTakeoverMs ?? MAX_TAKEOVER_MS);
+		limitTimer.unref?.();
+		const waitSignal = deps.signal ? AbortSignal.any([deps.signal, limit.signal]) : limit.signal;
 		try {
-			await gate.waitForHandBack(deps.signal);
+			await gate.waitForHandBack(waitSignal);
 		} finally {
+			clearTimeout(limitTimer);
 			waitedMs += now() - since;
 			observer?.controlled?.(null);
 		}
 		if (deps.signal?.aborted) throw new Stop("aborted");
+		if (limit.signal.aborted && gate.paused()) throw new Stop("takeover_timeout");
 		await assertLease();
 		return true;
 	};
@@ -1065,6 +1088,8 @@ async function runInner(
 			assertSite();
 			const r = outcome.results[0];
 			if (outcome.paused) {
+				// The user's window took it: the gate learns now, not at the next call.
+				deps.control?.runtimePaused();
 				lines.push(
 					"(The user took control of the browser right after this action: the page below is as they leave it.)"
 				);

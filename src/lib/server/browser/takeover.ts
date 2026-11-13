@@ -10,7 +10,7 @@
  * polling the runtime's state while the loop waits.
  */
 
-import type { BrowserRuntime, ControlResult } from "./contract";
+import { BrowserRuntimeError, type BrowserRuntime, type ControlResult } from "./contract";
 import type { PauseGate } from "./loop";
 
 export type TaskController = "agent" | "user";
@@ -23,7 +23,16 @@ export class TaskControl implements PauseGate {
 
 	constructor(
 		private readonly runtime: Pick<BrowserRuntime, "control">,
-		private readonly options: { pollMs?: number } = {}
+		private readonly options: {
+			pollMs?: number;
+			/** Failed `state` polls in a row before the repeatable probe is used instead. */
+			probeAfter?: number;
+			/**
+			 * A repeatable, read-only runtime call (`tabs`): it answers "paused" while the user has the
+			 * page and works once the agent has it again. Used when `control("state")` cannot be asked.
+			 */
+			probe?: (signal?: AbortSignal) => Promise<unknown>;
+		} = {}
 	) {}
 
 	/** Whether the runtime can hand control over at all (an older one cannot). */
@@ -80,6 +89,8 @@ export class TaskControl implements PauseGate {
 	 */
 	async waitForHandBack(signal?: AbortSignal): Promise<void> {
 		const pollMs = this.options.pollMs ?? 2_000;
+		const probeAfter = this.options.probeAfter ?? 3;
+		let failed = 0;
 		while (this.user && !signal?.aborted) {
 			await new Promise<void>((resolve) => {
 				const done = () => {
@@ -95,10 +106,25 @@ export class TaskControl implements PauseGate {
 			if (!this.user || signal?.aborted) break;
 			try {
 				const state = await this.runtime.control?.("state", signal);
+				failed = 0;
 				if (state?.controller === "agent") this.set(false);
 			} catch {
-				// Unanswered now: asked again at the next round.
+				// Unanswered now: asked again at the next round. After a few in a row, the state call
+				// itself may be what is broken: ask a call the agent would make instead.
+				failed += 1;
+				if (failed >= probeAfter && this.options.probe) await this.probe(signal);
 			}
+		}
+	}
+
+	/** Is the page still the user's? A tool call that works means the agent has it again. */
+	private async probe(signal?: AbortSignal): Promise<void> {
+		try {
+			await this.options.probe?.(signal);
+			this.set(false);
+		} catch (err) {
+			// "paused": still the user's. Anything else: unknown, so keep waiting.
+			if (!(err instanceof BrowserRuntimeError && err.kind === "paused")) return;
 		}
 	}
 
