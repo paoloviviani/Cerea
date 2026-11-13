@@ -529,6 +529,8 @@ export class BrowserSession {
 	private readonly ours = new WeakSet<Page>();
 	private foreignTabs: string[] = [];
 	private popups: Page[] = [];
+	/** Popup adoptions and closes of dropped pages still in flight: `endTask` waits for them. */
+	private readonly pendingPages = new Set<Promise<unknown>>();
 	/** A download that starts within this long of an action's end still belongs to it. */
 	private currentUntil = 0;
 	private acting = false;
@@ -622,6 +624,9 @@ export class BrowserSession {
 		options: { keep?: boolean } = {}
 	): Promise<{ closed: number; kept?: NonNullable<EndTaskResult["kept"]> }> {
 		clearTimeout(this.idleTimer);
+		// A popup still being adopted is a task page that is not registered yet, and a dropped page may
+		// still be closing: wait for both so the task's pages are all known and none outlives it.
+		while (this.pendingPages.size > 0) await Promise.allSettled([...this.pendingPages]);
 		const pages = [...this.taskPages];
 		const keep = options.keep ? this.active : undefined;
 		let kept: EndTaskResult["kept"];
@@ -920,7 +925,7 @@ export class BrowserSession {
 		);
 		context.on("page", (page) => {
 			this.hook(page);
-			void this.adopt(page);
+			this.track(this.adopt(page));
 		});
 		for (const page of context.pages()) {
 			this.hook(page);
@@ -1520,7 +1525,12 @@ export class BrowserSession {
 		if (this.active === page) this.active = undefined;
 		this.baseline = undefined;
 		if (this.adopted.delete(page)) return;
-		void closeQuickly(page);
+		this.track(closeQuickly(page));
+	}
+
+	private track(work: Promise<unknown>): void {
+		const entry = work.catch(() => {}).finally(() => this.pendingPages.delete(entry));
+		this.pendingPages.add(entry);
 	}
 
 	private async runOne(

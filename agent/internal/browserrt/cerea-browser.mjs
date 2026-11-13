@@ -1,4 +1,4 @@
-// cerea-browser runtime 0.1.0; source-hash: 3a132e5978572600e8d532fbca86676b9ff78f5af98c54883459ac64e79fbd95
+// cerea-browser runtime 0.1.0; source-hash: c8cff66623f324946f3a5e523418a4f0cb96ef5e495b38bf8ba08dae4d54884d
 // inlined: @hono/node-server@2.1.8 @modelcontextprotocol/sdk@1.32.2 ajv@8.20.0 ajv-formats@3.0.1 content-type@1.0.5 fast-deep-equal@3.1.3 fast-uri@3.1.9 hono@4.13.18 json-schema-traverse@1.0.0 tldts@7.4.26 zod@3.25.76 zod-to-json-schema@3.25.2
 import { createRequire as __cr } from "node:module";
 const require = __cr(import.meta.url);
@@ -23573,6 +23573,8 @@ var BrowserSession = class {
   ours = /* @__PURE__ */ new WeakSet();
   foreignTabs = [];
   popups = [];
+  /** Popup adoptions and closes of dropped pages still in flight: `endTask` waits for them. */
+  pendingPages = /* @__PURE__ */ new Set();
   /** A download that starts within this long of an action's end still belongs to it. */
   currentUntil = 0;
   acting = false;
@@ -23656,6 +23658,7 @@ var BrowserSession = class {
   }
   async endTask(options = {}) {
     clearTimeout(this.idleTimer);
+    while (this.pendingPages.size > 0) await Promise.allSettled([...this.pendingPages]);
     const pages = [...this.taskPages];
     const keep = options.keep ? this.active : void 0;
     let kept;
@@ -23895,7 +23898,7 @@ var BrowserSession = class {
     );
     context.on("page", (page) => {
       this.hook(page);
-      void this.adopt(page);
+      this.track(this.adopt(page));
     });
     for (const page of context.pages()) {
       this.hook(page);
@@ -24437,7 +24440,12 @@ url: about:blank
     if (this.active === page) this.active = void 0;
     this.baseline = void 0;
     if (this.adopted.delete(page)) return;
-    void closeQuickly(page);
+    this.track(closeQuickly(page));
+  }
+  track(work) {
+    const entry = work.catch(() => {
+    }).finally(() => this.pendingPages.delete(entry));
+    this.pendingPages.add(entry);
   }
   async runOne(action, index, approvals) {
     try {
