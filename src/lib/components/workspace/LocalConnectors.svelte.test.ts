@@ -299,4 +299,112 @@ describe("LocalConnectors", () => {
 		expect(seen[0].url).toContain("/machines/m1");
 		expect(text(screen)).toContain("Managed in the Agents panel");
 	});
+
+	describe("browser actions on a computer's card", () => {
+		const openButton = (screen: ReturnType<typeof mount>) =>
+			screen.baseElement.querySelector<HTMLButtonElement>(
+				'[data-testid="local-machine-open-browser"]'
+			);
+		const defaultBox = (screen: ReturnType<typeof mount>) =>
+			screen.baseElement.querySelector<HTMLInputElement>(
+				'[data-testid="local-machine-browser-default"]'
+			);
+
+		it("shows Open browser and the default toggle beside 'Browser: ready', only when browser use is on", async () => {
+			stubApi(() => [machine({ id: "m1", browser: "ready" })]);
+			const off = mount();
+			await expect.element(off.getByText("Browser: ready")).toBeInTheDocument();
+			expect(openButton(off)).toBeNull();
+			expect(defaultBox(off)).toBeNull();
+			await off.unmount();
+
+			stubApi(() => [machine({ id: "m1", browser: "ready" })]);
+			const on = mount({ browserUseEnabled: true });
+			await expect.element(on.getByText("Browser: ready")).toBeInTheDocument();
+			expect(openButton(on)?.textContent).toContain("Open browser");
+			expect(text(on)).toContain("Use for browsing by default");
+		});
+
+		it("has no Open browser for a computer that is offline or whose browser is not ready", async () => {
+			stubApi(() => [
+				machine({ id: "m1", name: "a", browser: "problem" }),
+				machine({ id: "m2", name: "b", browser: "offline", online: false }),
+			]);
+			const screen = mount({ browserUseEnabled: true });
+			await expect.element(screen.getByText("Browser: not responding")).toBeInTheDocument();
+			expect(openButton(screen)).toBeNull();
+		});
+
+		it("opens a page tied to no chat, and says where", async () => {
+			const seen: Seen[] = [];
+			stubApi(
+				() => [machine({ id: "m1", name: "Laptop", browser: "ready" })],
+				seen,
+				(call) =>
+					call.url.endsWith("/api/v2/browser/open")
+						? Response.json({ opened: true, computer: "Laptop", tied: false })
+						: undefined
+			);
+			const screen = mount({ browserUseEnabled: true });
+			await expect.element(screen.getByText("Browser: ready")).toBeInTheDocument();
+			openButton(screen)?.click();
+			await vi.waitFor(() => expect(seen).toHaveLength(1));
+			expect(seen[0].method).toBe("POST");
+			expect(seen[0].url).toContain("/api/v2/browser/open");
+			// No conversation: nothing here ties the page to a chat.
+			expect(JSON.parse(seen[0].body ?? "{}")).toEqual({ deviceId: "m1" });
+		});
+
+		it("shows the server's reason when it cannot open (busy)", async () => {
+			stubApi(
+				() => [machine({ id: "m1", browser: "ready" })],
+				[],
+				(call) =>
+					call.url.endsWith("/api/v2/browser/open")
+						? Response.json(
+								{ error: "busy", message: "The browser on laptop is busy with a task." },
+								{ status: 409 }
+							)
+						: undefined
+			);
+			const screen = mount({ browserUseEnabled: true });
+			await expect.element(screen.getByText("Browser: ready")).toBeInTheDocument();
+			openButton(screen)?.click();
+			await expect
+				.element(screen.getByText("The browser on laptop is busy with a task."))
+				.toBeInTheDocument();
+		});
+
+		it("sets and clears the default computer", async () => {
+			const seen: Seen[] = [];
+			stubApi(() => [machine({ id: "m1", browser: "ready" })], seen);
+			const screen = mount({ browserUseEnabled: true });
+			await expect.element(screen.getByText("Browser: ready")).toBeInTheDocument();
+			expect(defaultBox(screen)?.checked).toBe(false);
+			defaultBox(screen)?.click();
+			await vi.waitFor(() => expect(seen).toHaveLength(1));
+			expect(seen[0]).toMatchObject({ method: "PUT" });
+			expect(JSON.parse(seen[0].body ?? "{}")).toEqual({ deviceId: "m1" });
+			await vi.waitFor(() => expect(defaultBox(screen)?.checked).toBe(true));
+			defaultBox(screen)?.click();
+			await vi.waitFor(() => expect(seen).toHaveLength(2));
+			expect(JSON.parse(seen[1].body ?? "{}")).toEqual({ deviceId: null });
+		});
+
+		it("shows which computer is the default", async () => {
+			stubApi(() => [
+				machine({ id: "m1", name: "a", browser: "ready", browserDefault: true }),
+				machine({ id: "m2", name: "b", browser: "ready" }),
+			]);
+			const screen = mount({ browserUseEnabled: true });
+			await expect.element(screen.getByText("a").first()).toBeInTheDocument();
+			const boxes = () => [
+				...screen.baseElement.querySelectorAll<HTMLInputElement>(
+					'[data-testid="local-machine-browser-default"]'
+				),
+			];
+			await vi.waitFor(() => expect(boxes()).toHaveLength(2));
+			expect(boxes().map((b) => b.checked)).toEqual([true, false]);
+		});
+	});
 });

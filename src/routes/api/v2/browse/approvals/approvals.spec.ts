@@ -114,4 +114,34 @@ describe("GET /api/v2/browse/approvals", () => {
 	it("needs a sign-in", async () => {
 		await expect(call(null)).rejects.toMatchObject({ status: 401 });
 	});
+
+	it("lists a Which computer? question by its own field, never by a server name", async () => {
+		const mine = await conversation(owner, "Report");
+		const question = async (over: Record<string, unknown>) => {
+			const elicitationId = crypto.randomUUID();
+			await collections.mcpElicitations.insertOne({
+				_id: new ObjectId(),
+				elicitationId,
+				conversationId: mine,
+				userId: owner,
+				status: "pending",
+				request: {
+					elicitationId,
+					server: "browse_computer",
+					mode: "form",
+					message: "Which?",
+					...over,
+				},
+				expiresAt: new Date(Date.now() + 60_000),
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			} as never);
+			return elicitationId;
+		};
+		// A user's own MCP server that happens to be called "browse_computer" is not listed.
+		await question({});
+		const real = await question({ browseComputer: true });
+		const body = await (await call(owner)).json();
+		expect(body.approvals.map((a: { elicitationId: string }) => a.elicitationId)).toEqual([real]);
+	});
 });

@@ -4,7 +4,7 @@ ADR 0116, phase 1. A Node/TypeScript MCP server (stdio and Streamable HTTP) over
 `playwright-core`. galopin embeds it (`npm run bundle`) and manages it (`galopin browser`).
 
 Tools (contract: `src/contract.ts`, a copy of Cerea's `src/lib/server/browser/contract.ts`):
-`snapshot`, `diff`, `act`, `extract`, `screenshot`, `download`, plus `end_task`.
+`snapshot`, `diff`, `act`, `extract`, `screenshot`, `download`, `open` (a page of its own, no task), plus `end_task`.
 
 ```
 npm ci

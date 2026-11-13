@@ -608,6 +608,7 @@ export async function authenticateMachineRequest(
 							revokedReason: "account_disabled",
 							updatedAt: new Date(),
 						},
+						$unset: { browserDefault: "", browserDefaultAt: "" },
 					}
 				)
 				.catch((err) =>

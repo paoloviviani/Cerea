@@ -603,4 +603,68 @@ describe("NeedsYouInbox, browse approvals (ADR 0116)", () => {
 		await new Promise((resolve) => setTimeout(resolve, 200));
 		expect(document.body.querySelector('[data-testid="needs-you-browse-item"]')).toBeNull();
 	});
+
+	it("lists a 'Which computer?' question for an unattended chat, as a plain question", async () => {
+		const question = {
+			elicitationId: "22222222-2222-4222-8222-222222222222",
+			conversationId: "c2",
+			conversationTitle: "Weekly report",
+			expiresAt: Date.now() + 600_000,
+			request: {
+				elicitationId: "22222222-2222-4222-8222-222222222222",
+				server: "browse_computer",
+				mode: "form",
+				message: "Which computer should Cerea use for browsing?",
+				fields: [
+					{
+						kind: "select",
+						name: "computer",
+						title: "Which computer?",
+						required: true,
+						multiple: false,
+						options: [
+							{ value: "d1", label: "Laptop" },
+							{ value: "d2", label: "Desk" },
+						],
+					},
+					{
+						kind: "boolean",
+						name: "remember",
+						title: "Remember as default",
+						required: false,
+						default: true,
+					},
+				],
+			},
+		};
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				if (url.includes("/api/v2/browse/approvals")) {
+					return new Response(JSON.stringify({ approvals: [question] }), {
+						headers: { "content-type": "application/json" },
+					});
+				}
+				if (url.includes("/elicitation")) {
+					posts.push({ url, body: JSON.parse(String(init?.body ?? "{}")) });
+					return new Response(JSON.stringify({ ok: true }), {
+						headers: { "content-type": "application/json" },
+					});
+				}
+				return new Response("{}", { status: 404 });
+			})
+		);
+		await browserPage.viewport(1200, 800);
+		sessionStorage.setItem(EXPANDED_KEY, "1");
+		codeDeviceList.devices = [];
+		codeDeviceList.loading = false;
+		const screen = renderWithApp(NeedsYouInbox);
+		await expect.element(screen.getByTestId("needs-you-browse-item")).toBeVisible();
+		expect(inbox()?.textContent).toContain("Weekly report");
+		expect(inbox()?.textContent).toContain("Laptop");
+		expect(inbox()?.textContent).toContain("Remember as default");
+		// Not an approval: no Allow button, no Deny.
+		expect(inbox()?.textContent).not.toContain("Allow this action");
+	});
 });

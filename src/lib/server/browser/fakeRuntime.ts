@@ -24,6 +24,8 @@ import {
 	type ExtractRequest,
 	type ExtractResult,
 	type ResumeResult,
+	type OpenRequest,
+	type OpenResult,
 	type TabsResult,
 	type RuntimeToolName,
 	type ScreenshotResult,
@@ -35,6 +37,15 @@ import {
 } from "./contract";
 import { actionDigest, classifyAction } from "./classifier";
 import { verifyGrant } from "./grants";
+
+function originOf(url: string): string {
+	try {
+		const u = new URL(url);
+		return u.protocol === "http:" || u.protocol === "https:" ? u.origin : "";
+	} catch {
+		return "";
+	}
+}
 import type { RuntimeCall } from "./runtimeClient";
 
 export interface FakeEffect {
@@ -101,8 +112,12 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 	private current: FakePage;
 	private readonly adopted = new Set<string>();
 	/** The page `end_task({keep})` left open, by token; `resume` finds it again. */
-	private keptPages = new Map<string, { id: string; title: string; url: string }>();
+	private keptPages = new Map<
+		string,
+		{ id: string; title: string; url: string; lent?: { origin: string } }
+	>();
 	private keptCount = 0;
+	private openedCount = 0;
 
 	constructor(
 		pages: FakePage[],
@@ -392,7 +407,7 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 	}
 
 	async tabs(options?: { deny?: string[] }): Promise<TabsResult> {
-		this.record("tabs", options?.deny?.length ? { deny: options.deny } : {});
+		this.record("tabs", options?.deny ? { deny: options.deny } : {});
 		return {
 			tabs: [...this.pages.values()]
 				.filter((p) => p.userTab || p.id === this.currentId)
@@ -410,6 +425,16 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 		const kept = this.keptPages.get(token);
 		const page = kept ? this.pages.get(kept.id) : undefined;
 		if (!kept || !page) throw new BrowserRuntimeError("That page is no longer open.", "tool");
+		this.keptPages.delete(token);
+		if (kept.lent) {
+			// A lent tab moves freely on its site (a multi-step form), but not off it.
+			if (originOf(page.url) !== kept.lent.origin || kept.lent.origin === "") {
+				return { refused: "page_changed", title: page.title, url: page.url };
+			}
+			this.goto(page.id, "resumed");
+			this.adopted.add(page.id);
+			return { id: page.id, title: page.title, url: page.url, changed: false, lent: true };
+		}
 		this.goto(page.id, "resumed");
 		const changed = page.url !== kept.url || page.title !== kept.title;
 		return {
@@ -421,13 +446,56 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 		};
 	}
 
+	async open(request?: OpenRequest): Promise<OpenResult> {
+		this.record("open", {
+			...(request?.url ? { url: request.url } : {}),
+			...(request?.deny ? { deny: request.deny } : {}),
+		});
+		const raw = request?.url?.trim() || "about:blank";
+		let url: string;
+		try {
+			const parsed = new URL(raw);
+			const ok =
+				parsed.protocol === "http:" || parsed.protocol === "https:" || raw === "about:blank";
+			if (!ok) throw new Error("scheme");
+			url = raw === "about:blank" ? raw : parsed.toString();
+		} catch {
+			throw new BrowserRuntimeError(
+				"Only http and https addresses can be opened (about:blank too).",
+				"tool"
+			);
+		}
+		this.openedCount += 1;
+		const id = `opened-${this.openedCount}`;
+		const known = [...this.pages.values()].find((p) => p.url === url);
+		const page = {
+			id,
+			url,
+			title: known?.title ?? (url === "about:blank" ? "" : new URL(url).hostname),
+			elements: known ? known.elements.map((e) => ({ ...e })) : [],
+			userTab: true,
+		};
+		this.pages.set(id, page);
+		this.keptCount += 1;
+		const token = `kept-token-${this.keptCount}`;
+		this.keptPages.set(token, { id, title: page.title, url: page.url });
+		return { token, id, title: page.title, url: page.url };
+	}
+
 	async endTask(options?: { keep?: boolean }): Promise<EndTaskResult> {
 		this.record("end_task", options?.keep ? { keep: true } : {});
 		this.ended += 1;
+		const adoptedBefore = new Set(this.adopted);
+		this.adopted.clear();
 		if (!options?.keep) return { closed: true };
 		this.keptCount += 1;
 		const token = `kept-token-${this.keptCount}`;
 		const page = { id: this.current.id, title: this.current.title, url: this.current.url };
+		if (adoptedBefore.has(page.id)) {
+			const origin = originOf(page.url);
+			this.keptPages.set(token, { ...page, lent: { origin } });
+			return { closed: false, kept: { token, ...page, lent: true, origin } };
+		}
 		this.keptPages.set(token, page);
 		return { closed: false, kept: { token, ...page } };
 	}
@@ -469,6 +537,13 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 						return json(await this.tabs(args.deny ? { deny: args.deny as string[] } : undefined));
 					case "resume":
 						return json(await this.resume(String(args.token ?? "")));
+					case "open":
+						return json(
+							await this.open({
+								...(typeof args.url === "string" ? { url: args.url } : {}),
+								...(Array.isArray(args.deny) ? { deny: args.deny as string[] } : {}),
+							})
+						);
 					case "end_task":
 						return json(await this.endTask(args.keep === true ? { keep: true } : undefined));
 				}

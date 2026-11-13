@@ -31,6 +31,8 @@
 		revokeLocalMachine,
 		startLocalSignIn,
 	} from "$lib/localConnectorsApi";
+	import { openBrowser, setBrowserDefault } from "$lib/browserApi";
+	import { useNotificationsStore } from "$lib/stores/notifications.svelte";
 	import type { LocalMachineView, LocalServerView } from "$lib/types/LocalConnectors";
 	import IconLaptop from "~icons/carbon/laptop";
 	import IconWarning from "~icons/carbon/warning-filled";
@@ -80,6 +82,38 @@
 	let busy = $state<string | null>(null);
 	let needsFreshSignIn = $state(false);
 	let signingIn = $state<string | null>(null);
+	const toasts = useNotificationsStore();
+	let openingBrowser = $state<string | null>(null);
+
+	/** "Open browser" on a computer's card: a page tied to no chat (a user tab for the agent). */
+	async function openBrowserOn(machine: LocalMachineView) {
+		openingBrowser = machine.id;
+		failure = null;
+		try {
+			await openBrowser({ deviceId: machine.id });
+			toasts?.pushMessage(m["workspace.local.browser.opened"]({ computer: machine.name }));
+		} catch (err) {
+			// i18n: server text (busy, offline)
+			failure = err instanceof Error ? err.message : m["workspace.local.browser.open_failed"]();
+		} finally {
+			openingBrowser = null;
+		}
+	}
+
+	/** One default per user: turning it on here turns it off on the others. */
+	async function toggleBrowserDefault(machine: LocalMachineView, on: boolean) {
+		failure = null;
+		try {
+			await setBrowserDefault(on ? machine.id : null);
+			machines = machines.map((x) => ({
+				...x,
+				browserDefault: on && x.id === machine.id ? true : undefined,
+			}));
+		} catch (err) {
+			failure = err instanceof Error ? err.message : m["workspace.local.browser.default_failed"]();
+			void refresh();
+		}
+	}
 
 	/** Chat-side sign-in for a local http server: carries the browser to the provider and back. */
 	async function signIn(server: LocalServerView) {
@@ -241,6 +275,12 @@ loginctl enable-linger "$USER"`;
 		target="_blank"
 		rel="noopener noreferrer">{text}</a
 	>{/snippet}
+{#snippet nodeLink(text: string)}<a
+		class="text-accent hover:underline"
+		href="https://nodejs.org/en/download"
+		target="_blank"
+		rel="noopener noreferrer">{text}</a
+	>{/snippet}
 {#snippet reauthLink(text: string)}<a class="underline" href={reauthHref}>{text}</a>{/snippet}
 {#snippet code(text: string, testid?: string)}
 	<div class="flex items-center gap-2 rounded-lg border border-line bg-surface p-3">
@@ -379,7 +419,9 @@ loginctl enable-linger "$USER"`;
 		</details>
 		{@render step(3, m["workspace.local.browser.step_setup"]())}
 		{@render code(`${browserSetup}\n${browserEnable}`, "local-browser-setup")}
-		<p class="mt-1 text-xs text-ink-muted">{m["workspace.local.browser.note_node"]()}</p>
+		<p class="mt-1 text-xs text-ink-muted">
+			<Rich parts={m["workspace.local.browser.note_node"].parts()} tags={{ link: nodeLink }} />
+		</p>
 		{@render step(4, m["workspace.local.browser.step_run"]())}
 		{@render code(commands.run, "local-browser-run")}
 		<p class="mt-2 text-xs text-ink-muted">{m["workspace.local.browser.note_have"]()}</p>
@@ -540,6 +582,44 @@ loginctl enable-linger "$USER"`;
 												? m["workspace.local.browser.line_offline"]()
 												: m["workspace.local.browser.line_problem"]()}
 									</p>
+									{#if machine.browser === "ready" && machine.online && page.data.browserUseEnabled}
+										<div class="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+											<button
+												type="button"
+												class={s.CARD_ACTION}
+												disabled={openingBrowser === machine.id}
+												data-testid="local-machine-open-browser"
+												onclick={() => void openBrowserOn(machine)}
+											>
+												{openingBrowser === machine.id
+													? m["workspace.local.browser.opening"]()
+													: m["workspace.local.browser.open"]()}
+											</button>
+											<label class="flex items-center gap-1.5 text-xs text-ink-muted">
+												<input
+													type="checkbox"
+													checked={machine.browserDefault === true}
+													data-testid="local-machine-browser-default"
+													onchange={(e) =>
+														void toggleBrowserDefault(machine, e.currentTarget.checked)}
+												/>
+												{m["workspace.local.browser.default_label"]()}
+											</label>
+										</div>
+									{/if}
+									{#if machine.browser !== "ready" && machine.browserDefault}
+										<!-- keep the choice visible (and removable) while the browser is not ready -->
+										<label class="mb-2 flex items-center gap-1.5 text-xs text-ink-muted">
+											<input
+												type="checkbox"
+												checked
+												data-testid="local-machine-browser-default"
+												onchange={(e) =>
+													void toggleBrowserDefault(machine, e.currentTarget.checked)}
+											/>
+											{m["workspace.local.browser.default_label"]()}
+										</label>
+									{/if}
 								{/if}
 								{#if machine.servers.length === 0 && machine.browser}
 									<!-- the browser is the machine's offer: never "no servers" beside it -->

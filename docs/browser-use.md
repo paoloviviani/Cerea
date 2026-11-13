@@ -87,8 +87,8 @@ it. Allow-listed sites get signed grants too.
 - A machine of yours that is online and runs the browser runtime. The runtime
   appears on a machine as a server named `cerea-browser`. It is **not** listed
   among your connectors and cannot be picked in the composer: only `browse` uses it.
-- `browse` is offered to the assistant only when such a machine is online. With
-  several, the assistant names the machine; otherwise the first one is used.
+- `browse` is offered to the assistant only when such a machine is online. Which one is used
+  is decided by rules ("Which computer"), not by the assistant.
   One task runs at a time on a machine; this is enforced in the database, so it
   holds across servers and restarts, and a task that dies frees the machine within
   a minute.
@@ -108,8 +108,30 @@ pages and **sees their titles and addresses, without the query string**, never
 their content. To work in one it must ask you first: "Let Cerea use your tab
 ..." is an approval like any commit, bound to that tab, its address and its title
 (a tab that changed while you decided is refused), and no allowed-sites list
-covers it. A tab on a site of the deny list is not listed at all. A tab you let
-it use is never remembered for a later task.
+covers it. A tab on a site of the deny list is not listed at all. Once a task works in one of your
+tabs it stays on that page and its site: going to another site is refused unless the goal names it
+(and it then asks as for any new site), and the same tab is never asked about twice. If the goal
+cannot be done on that page, the task stops and says why.
+
+**A tab you allow stays lent to that chat.** Later requests in the **same conversation** continue
+in it without asking again, as long as the tab is still open and still on the **same address host**
+(scheme, host and port as when you approved it; the page, path and query may change, for example to
+the next step of a form, but a different host, even of the same site, asks again). The lend lapses
+after an hour without a task using it, 8 hours after you approved it at the latest (chained tasks
+cannot extend it), when the tab is closed, or when the tab leaves that host (it is then released with
+nothing remembered). A tab with no web address (a blank page) is never lent. Scheduled runs never
+continue in a lent tab, and a tab on a site your rules now deny is not resumed. While a tab of yours
+is in use, the model sees its address without query or fragment. Cerea never closes it, whether a
+task ends or goes idle. In another conversation it is just one of your tabs, and using it asks you
+first.
+
+When the goal says "my tab" or "the page I'm on", the agent lists the tabs first and never opens a
+new tab for it. A start address (or a navigation) that is already open in one of your tabs, at the
+same origin and path, is not opened a second time: the agent asks to use that tab instead.
+
+The browser itself does not emulate a window size: in a window you can see, pages use its real
+size, so a tab of yours is never resized. Only a browser with no window uses a default size
+(1280 by 800).
 
 ### Verifications
 
@@ -125,8 +147,56 @@ When a task ends, its last page stays open in the browser, and the card says
 "Left open: <title>". The next `browse` in the **same conversation** continues
 on that page; in another conversation it is just one of your tabs (adopting it
 needs your approval). If the page changed in the meantime, or has been closed, the
-next task starts on a new tab instead and says so. A task that stopped on a site
-of the deny list closes its page.
+next task starts on a new tab instead and says so. A tab of yours that a task
+used is kept the same way, as a tab lent to the chat (see "Your own tabs"): it
+continues while it stays on the same address host, for an hour after the last use (8 hours at most). A task
+that stopped on a site of the deny list closes its page.
+
+A task opens no page of its own until it needs one: looking at the tab list, or
+using one of your tabs, never leaves a blank tab behind, and a blank page a task
+made but never used is closed when it ends. **Open browser** reuses a blank tab
+if one is open instead of adding another.
+
+### Opening the browser yourself
+
+You can open a page in the browser on one of your computers without asking for a task:
+
+- **In a chat:** **+ menu, Open browser…**. It takes an optional address (a bare `example.com` is
+  opened over https; only http and https are opened) and, when several computers are ready, asks
+  which one. The page opens there and is **tied to this chat**, exactly like the page a task leaves
+  open: the next browsing task in the chat continues on it, with no approval to use the tab. You
+  see "Opened on <computer>". The item is shown only when browser use is on and at least one of
+  your computers has its browser ready. On the home page, where no chat exists yet, the page opens
+  as one of your own tabs. Opening a page from a chat on another computer moves the chat there.
+- **In Workspace, Connectors:** each computer's card has **Open browser** beside "Browser:
+  ready". That page is tied to no chat: for the assistant it is one of your tabs, and using it
+  asks you first, as it does for any tab you opened.
+
+Opening is refused while a browsing task is using that computer's browser ("busy": try again when
+it finishes), for a site on the deny list, and for any address that is not http or https. The
+assistant can also open the browser for you when you only ask to open it.
+
+### Which computer
+
+Several of your computers can have a browser. Cerea decides which one by these rules, in order; the
+assistant never chooses:
+
+1. **The chat's computer.** Once a chat has used a computer (a task ran there, or you opened a page
+   from the chat), it always uses that one. It never jumps to another.
+2. **Your default.** On a computer's card in Connectors, **Use for browsing by default**. There is
+   one default per user; it is cleared when that computer is removed.
+3. **The only one.** With one computer ready, it is used and nothing is asked.
+4. **Otherwise you are asked.** A **Which computer?** card lists the ready computers, with
+   **Remember as default** ticked. It appears in the chat and in the **Needs you** bar, so a chat
+   running on its own waits for your answer there. A scheduled run with nobody to ask stops and
+   says so.
+
+If the computer the rules point at (the chat's or your default) is offline or its browser is not
+ready, the task stops with "<computer> is offline." and does not move to another one. The
+`machine` the assistant may name is only a hint: it counts only when it is the exact name of one of your
+ready computers, your latest message names that computer, and nothing above decides (never in a
+scheduled run). If the assistant wants to open a different site than the page the chat already has
+open, you are asked first.
 
 ## For users without agents
 
@@ -157,6 +227,13 @@ who **already has galopin for agents** skips the install and the enrol: `browser
 setup` and `browser enable` are enough, and the same `galopin run` serves the
 browser. The per-computer approval key is handed over on the same link
 (`browser.key`), which a connectors-only computer can use like any other.
+
+### Node.js for the browser
+
+The browser needs **Node.js 22.18 or newer** on that computer (not needed for connectors
+alone). Get it from [nodejs.org/en/download](https://nodejs.org/en/download) (pick the LTS),
+or on macOS with `brew install node`. Check it with `node --version`. The upcoming macOS
+"Cerea connector" app bundles Node, so app users do not need this.
 
 ## Settings (operators)
 
@@ -212,5 +289,5 @@ leaves for another site.
 ## For developers
 
 The runtime contract (MCP tools: `snapshot`, `diff`, `act`, `extract`,
-`screenshot`, `download`, `tabs`, `resume`, `end_task`) is in `src/lib/server/browser/contract.ts`, with a fake
+`screenshot`, `download`, `tabs`, `open`, `resume`, `end_task`) is in `src/lib/server/browser/contract.ts`, with a fake
 runtime for tests in `fakeRuntime.ts`. The design is ADR 0116.

@@ -268,7 +268,7 @@ describe("housekeeping", () => {
 			await mkdir(r.profile, { recursive: true });
 			const { chmod } = await import("node:fs/promises");
 			await chmod(r.profile, 0o755);
-			await r.snapshot();
+			await r.goto("/form");
 			assert.equal((await stat(r.profile)).mode & 0o777, 0o700);
 		} finally {
 			await r.close();
@@ -287,7 +287,7 @@ describe("housekeeping", () => {
 		}
 		const r = await rig();
 		try {
-			await r.snapshot();
+			await r.goto("/form");
 			await assert.rejects(stat(gone));
 			await stat(mine);
 		} finally {

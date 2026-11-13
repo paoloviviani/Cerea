@@ -250,4 +250,21 @@ describe("McpBrowserRuntime failures", () => {
 		const res = await call("act", { actions: [{ type: "hack" }] });
 		expect(res.isError).toBe(true);
 	});
+
+	it("opens a page, and sends an empty deny list to open and tabs so the runtime clears an old one", async () => {
+		const { client, fake } = runtime();
+		const opened = await client.open({ url: "https://shop.example.com/", deny: [] });
+		expect(opened).toMatchObject({ url: "https://shop.example.com/" });
+		expect(opened.token.length).toBeGreaterThan(0);
+		await client.tabs({ deny: [] });
+		await client.tabs();
+		expect(fake.calls.map((c) => [c.tool, c.args])).toEqual([
+			["open", { url: "https://shop.example.com/", deny: [] }],
+			["tabs", { deny: [] }],
+			["tabs", {}],
+		]);
+		await expect(client.open({ url: "file:///etc/passwd" })).rejects.toBeInstanceOf(
+			BrowserRuntimeError
+		);
+	});
 });

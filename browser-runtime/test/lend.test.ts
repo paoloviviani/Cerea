@@ -8,7 +8,7 @@ async function userTab(r: Rig, path: string) {
 	return page;
 }
 
-describe("a lent tab is never kept, closed or resumed after it moved", () => {
+describe("a lent tab stays lent to the conversation", () => {
 	let r: Rig;
 	before(async () => {
 		r = await rig();
@@ -23,30 +23,84 @@ describe("a lent tab is never kept, closed or resumed after it moved", () => {
 		assert.equal(res.results[0].ok, true, JSON.stringify(res));
 		return { user, tab };
 	};
+	type Kept = { token: string; lent?: boolean; origin?: string; url: string };
 
-	it("end_task keep does not keep an adopted tab: it is released and left open", async () => {
-		const { user } = await lend("/title?t=Lent");
-		const end = (await r.call("end_task", { keep: true })).structuredContent as {
-			closed: boolean;
-			kept?: unknown;
+	it("end_task keep gives the lent tab a token, flagged lent with its site; the tab stays open", async () => {
+		const { user } = await lend("/title?t=Lent&token=secret");
+		const end = (await r.call("end_task", { keep: true })).structuredContent as { kept?: Kept };
+		assert.ok(end.kept && end.kept.token.length >= 20);
+		assert.equal(end.kept.lent, true);
+		assert.equal(end.kept.origin, r.fx.base);
+		assert.ok(!end.kept.url.includes("?"), "a user's page is shown without its query");
+		assert.equal(user.isClosed(), false);
+		// The page the task opened itself is gone, the lent one is not.
+		assert.equal((await r.tabs()).tabs.filter((t) => t.url.endsWith("/form")).length, 0);
+		await user.close();
+		await r.session.endTask();
+	});
+
+	it("resumes on the same site after a path and query change, with no approval, and keeps it lent", async () => {
+		const { user } = await lend("/title?t=Step1");
+		const end = (await r.call("end_task", { keep: true })).structuredContent as { kept: Kept };
+		// The user moves on to the next step of the form: same origin, other path and query.
+		await user.goto(`${r.fx.base}/list?step=2`);
+		const back = (await r.call("resume", { token: end.kept.token })).structuredContent as {
+			refused?: string;
+			lent?: boolean;
+			changed: boolean;
+			url: string;
 		};
-		assert.equal(end.kept, undefined, "a user's tab gets no token");
+		assert.equal(back.refused, undefined);
+		assert.equal(back.lent, true);
+		assert.equal(back.changed, false);
+		assert.ok(back.url.endsWith("/list") || back.url.includes("/list"));
+		const mine = (await r.tabs()).tabs.find((t) => t.url.includes("/list"))!;
+		assert.equal(mine.mine, true);
+		assert.equal((await r.snapshot()).url.includes("/list"), true);
+		// The token was spent; the next end keeps the tab again, and nothing ever closes it.
+		assert.equal((await r.call("resume", { token: end.kept.token })).isError, true);
+		const again = (await r.call("end_task", { keep: true })).structuredContent as { kept: Kept };
+		assert.equal(again.kept.lent, true);
+		assert.equal(user.isClosed(), false);
+		await r.session.endTask();
 		assert.equal(user.isClosed(), false);
 		await user.close();
 	});
 
-	it("keeps a page the task opened, but not one adopted after it", async () => {
+	it("refuses to resume once the tab is on another origin: it is a user tab again", async () => {
+		const { user } = await lend("/title?t=Away");
+		const end = (await r.call("end_task", { keep: true })).structuredContent as { kept: Kept };
+		await user.goto(`${r.fx.other}/title?t=Bank`);
+		const back = (await r.call("resume", { token: end.kept.token })).structuredContent as {
+			refused?: string;
+			url: string;
+		};
+		assert.equal(back.refused, "page_changed");
+		assert.ok(!back.url.includes("?"));
+		const tab = (await r.tabs()).tabs.find((t) => t.title === "Bank")!;
+		assert.equal(tab.mine, false);
+		assert.equal(
+			(await r.act([{ type: "use_tab", tab: tab.id }])).results[0].refused,
+			"approval_required"
+		);
+		assert.equal(user.isClosed(), false);
+		await user.close();
+	});
+
+	it("a lent tab that was closed cannot be resumed", async () => {
+		const { user } = await lend("/title?t=Gone");
+		const end = (await r.call("end_task", { keep: true })).structuredContent as { kept: Kept };
+		await user.close();
+		assert.equal((await r.call("resume", { token: end.kept.token })).isError, true);
+	});
+
+	it("a tab that is not lent is not kept as lent: a page the task opened has no lent flag", async () => {
 		await r.session.endTask();
 		await r.goto("/form");
-		const user = await userTab(r, "/title?t=Second");
-		const tab = (await r.tabs()).tabs.find((t) => t.url.includes("/title"))!;
-		await r.act([{ type: "use_tab", tab: tab.id }], [r.useTabGrant(tab)]);
-		// The adopted tab is active; the task's own /form page is closed, the lent one is released.
-		const end = (await r.call("end_task", { keep: true })).structuredContent as { kept?: unknown };
-		assert.equal(end.kept, undefined);
-		assert.equal(user.isClosed(), false);
-		assert.equal((await r.tabs()).tabs.filter((t) => t.url.endsWith("/form")).length, 0);
-		await user.close();
+		const end = (await r.call("end_task", { keep: true })).structuredContent as { kept: Kept };
+		assert.equal(end.kept.lent, undefined);
+		assert.equal(end.kept.origin, undefined);
+		await r.session.endTask();
 	});
 
 	it("keeps the adopted flag through every release: a hung-page drop, the end, the idle close", async () => {
@@ -201,5 +255,126 @@ describe("keys while focus is in a verification widget", () => {
 		const page = await r.session.withPage(async (p) => p);
 		await page.evaluate(() => document.querySelector<HTMLElement>("iframe")!.focus());
 		assert.equal((await r.act([{ type: "press", key: "Space" }])).results[0].refused, "challenge");
+	});
+});
+
+describe("lent tab idle expiry", () => {
+	it("its token lapses after lentTtlMs since the last use, and the tab stays open", async () => {
+		const own = await rig({ lentTtlMs: 250 });
+		try {
+			await own.goto("/form");
+			const user = await userTab(own, "/title?t=Idle");
+			const tab = (await own.tabs()).tabs.find((t) => t.url.includes("/title"))!;
+			await own.act([{ type: "use_tab", tab: tab.id }], [own.useTabGrant(tab)]);
+			const { kept } = (await own.call("end_task", { keep: true })).structuredContent as {
+				kept: { token: string };
+			};
+			await new Promise((ok) => setTimeout(ok, 500));
+			assert.equal((await own.call("resume", { token: kept.token })).isError, true);
+			assert.equal(user.isClosed(), false);
+			// It is just a user's tab now.
+			assert.equal((await own.tabs()).tabs.find((t) => t.id === tab.id)?.mine, false);
+		} finally {
+			await own.close();
+		}
+	});
+});
+
+describe("the lent origin is pinned and checked", () => {
+	const lendAt = async (r: Rig, base: string, path: string) => {
+		await r.goto("/form");
+		const page = await r.session.withPage((_p, context) => context.newPage());
+		await page.goto(base + path);
+		const tab = (await r.tabs()).tabs.find((t) => t.url.includes("/title"))!;
+		const res = await r.act([{ type: "use_tab", tab: tab.id }], [r.useTabGrant(tab)]);
+		assert.equal(res.results[0].ok, true, JSON.stringify(res));
+		return { page, tab };
+	};
+	type Kept = { token: string; lent?: boolean; origin?: string };
+	let r: Rig;
+	before(async () => {
+		r = await rig();
+	});
+	after(() => r.close());
+
+	it("a same-site tab on another host is refused on resume (origin, not site)", async () => {
+		const { page } = await lendAt(r, r.fx.other, "/title?t=A");
+		const end = (await r.call("end_task", { keep: true })).structuredContent as { kept: Kept };
+		assert.equal(end.kept.origin, r.fx.other);
+		await page.goto(r.fx.other.replace("localhost", "sub.localhost") + "/title?t=B");
+		const back = (await r.call("resume", { token: end.kept.token })).structuredContent as {
+			refused?: string;
+		};
+		assert.equal(back.refused, "page_changed");
+		await page.close();
+	});
+
+	it("a tab that left the origin it was lent on gets no token at end_task, even if it came back later", async () => {
+		const { page } = await lendAt(r, r.fx.base, "/title?t=Pinned");
+		await page.goto(`${r.fx.other}/title?t=Elsewhere`);
+		const end = (await r.call("end_task", { keep: true })).structuredContent as { kept?: Kept };
+		assert.equal(end.kept, undefined);
+		assert.equal(page.isClosed(), false);
+		await page.close();
+	});
+
+	it("a tab with no origin (about:blank) is never lent", async () => {
+		await r.goto("/form");
+		const page = await r.session.withPage((_p, context) => context.newPage());
+		await r.session.endTask();
+		const tab = (await r.tabs()).tabs.find((t) => t.id && t.url === "about:blank" && !t.mine);
+		assert.ok(tab, "a blank user tab is listed");
+		const res = await r.act([{ type: "use_tab", tab: tab.id }], [r.useTabGrant(tab)]);
+		assert.equal(res.results[0].ok, true, JSON.stringify(res));
+		const end = (await r.call("end_task", { keep: true })).structuredContent as { kept?: Kept };
+		assert.equal(end.kept, undefined);
+		await page.close().catch(() => undefined);
+	});
+
+	it("resume of a lent tab on a site the deny list now covers is refused and says nothing", async () => {
+		const { page } = await lendAt(r, r.fx.base, "/title?t=Deny");
+		const end = (await r.call("end_task", { keep: true })).structuredContent as { kept: Kept };
+		await r.call("tabs", { deny: ["127.0.0.1"] });
+		const back = (await r.call("resume", { token: end.kept.token })).structuredContent as {
+			refused?: string;
+			title: string;
+			url: string;
+		};
+		assert.equal(back.refused, "page_changed");
+		assert.equal(back.title, "");
+		assert.equal(back.url, "");
+		await r.call("tabs", { deny: [] });
+		await page.close();
+	});
+
+	it("shows an adopted tab without query or fragment in tabs, and in the snapshot text", async () => {
+		const { page } = await lendAt(r, r.fx.base, "/title?t=Quiet&token=secret#frag");
+		const mine = (await r.tabs()).tabs.find((t) => t.mine && t.url.includes("/title"))!;
+		assert.ok(!mine.url.includes("secret"));
+		const snap = await r.snapshot();
+		assert.ok(!snap.text.includes("secret"), snap.text);
+		await r.session.endTask();
+		await page.close();
+	});
+});
+
+describe("the absolute lend cap", () => {
+	it("a tab used for longer than lentMaxMs since the approval gets no token", async () => {
+		const own = await rig({ lentMaxMs: 200 });
+		try {
+			await own.goto("/form");
+			const user = await own.session.withPage((_p, c) => c.newPage());
+			await user.goto(`${own.fx.base}/title?t=Cap`);
+			const tab = (await own.tabs()).tabs.find((t) => t.url.includes("/title"))!;
+			await own.act([{ type: "use_tab", tab: tab.id }], [own.useTabGrant(tab)]);
+			await new Promise((ok) => setTimeout(ok, 400));
+			const end = (await own.call("end_task", { keep: true })).structuredContent as {
+				kept?: unknown;
+			};
+			assert.equal(end.kept, undefined);
+			assert.equal(user.isClosed(), false);
+		} finally {
+			await own.close();
+		}
 	});
 });

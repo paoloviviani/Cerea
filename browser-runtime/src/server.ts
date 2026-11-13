@@ -124,6 +124,18 @@ export const TOOLS = [
 		},
 	},
 	{
+		name: "open",
+		description:
+			"Open a page of its own in the browser, at an http(s) address (default blank), with no task, and return {token, id, title, url}. The page is the user's own, like a tab they opened; the token resumes it (resume) with no approval. deny: sites that may not be opened.",
+		inputSchema: {
+			type: "object",
+			properties: {
+				url: { type: "string" },
+				deny: { type: "array", items: { type: "string" } },
+			},
+		},
+	},
+	{
 		name: "resume",
 		description:
 			"Make the page kept by an earlier task (end_task with keep) the active page again, with the token end_task gave. No approval is needed with the token. The result says if the page is not where it was left.",
@@ -198,6 +210,14 @@ export function createToolHandler(session: BrowserSession) {
 						? raw.filter((x): x is string => typeof x === "string").slice(0, 200)
 						: undefined;
 					return json(await serial(() => session.tabs({ deny })));
+				}
+				case "open": {
+					const args = asObject(rawArgs);
+					const url = typeof args.url === "string" ? args.url : undefined;
+					const deny = Array.isArray(args.deny)
+						? args.deny.filter((x): x is string => typeof x === "string").slice(0, 200)
+						: undefined;
+					return json(await serial(() => session.open({ url, deny })));
 				}
 				case "resume": {
 					const token = asObject(rawArgs).token;

@@ -77,5 +77,6 @@ async function machineView(device: CodeDevice): Promise<LocalMachineView> {
 		...(device.mcpServersAt ? { serversAt: device.mcpServersAt.toISOString() } : {}),
 		servers: views,
 		...(browser ? { browser } : {}),
+		...(browser && device.browserDefault ? { browserDefault: true } : {}),
 	};
 }

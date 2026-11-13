@@ -20,7 +20,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 		.find({
 			userId: locals.user._id,
 			status: "pending",
-			"request.browse": { $exists: true },
+			$or: [{ "request.browse": { $exists: true } }, { "request.browseComputer": true }],
 			expiresAt: { $gt: new Date() },
 		})
 		.sort({ createdAt: -1 })
@@ -38,6 +38,16 @@ export const GET: RequestHandler = async ({ locals }) => {
 		approvals: pending
 			.filter((row) => titles.has(row.conversationId.toString()))
 			.map((row) => {
+				// A "Which computer?" question carries no browse payload.
+				if (!row.request.browse) {
+					return {
+						elicitationId: row.elicitationId,
+						conversationId: row.conversationId.toString(),
+						conversationTitle: titles.get(row.conversationId.toString()) ?? "",
+						request: row.request,
+						expiresAt: row.expiresAt?.getTime(),
+					};
+				}
 				const { screenshot, ...browse } = row.request.browse ?? { sentence: "", site: "" };
 				return {
 					elicitationId: row.elicitationId,

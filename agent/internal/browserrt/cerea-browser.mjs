@@ -1,4 +1,4 @@
-// cerea-browser runtime 0.1.0; source-hash: 8eff2809b273eee3e8944059f064bf274332846799d85316da33a5ea75a28a04
+// cerea-browser runtime 0.1.0; source-hash: 86475f4d17d3f008a727794dadf440386489b480507c78dd062a24493ebe8798
 // inlined: @hono/node-server@2.1.8 @modelcontextprotocol/sdk@1.32.2 ajv@8.20.0 ajv-formats@3.0.1 content-type@1.0.5 fast-deep-equal@3.1.3 fast-uri@3.1.9 hono@4.13.18 json-schema-traverse@1.0.0 tldts@7.4.26 zod@3.25.76 zod-to-json-schema@3.25.2
 import { createRequire as __cr } from "node:module";
 const require = __cr(import.meta.url);
@@ -21639,7 +21639,14 @@ var endTaskResultSchema = external_exports.object({
     token: external_exports.string().min(1).max(256),
     id: external_exports.string().max(64),
     title: external_exports.string().max(500),
-    url: external_exports.string().max(4096)
+    url: external_exports.string().max(4096),
+    /**
+     * The page is a tab the user lent to this conversation (`use_tab`, approved): it is resumed
+     * without asking while it stays on `origin` (scheme, host and port, pinned when the user approved it),
+     * and its token lapses 1 hour after the last use, and 8 hours after the approval at the latest.
+     */
+    lent: external_exports.boolean().optional(),
+    origin: external_exports.string().max(300).optional()
   }).optional()
 });
 var resumeResultSchema = external_exports.union([
@@ -21647,8 +21654,10 @@ var resumeResultSchema = external_exports.union([
     id: external_exports.string().max(64),
     title: external_exports.string().max(500),
     url: external_exports.string().max(4096),
-    /** The page is not what it was when it was kept. */
+    /** The page is not what it was when it was kept. Never true for a lent tab. */
     changed: external_exports.boolean(),
+    /** The resumed page is a tab the user lent: the task stays on its site. */
+    lent: external_exports.boolean().optional(),
     was: external_exports.object({ title: external_exports.string().max(500), url: external_exports.string().max(4096) }).optional()
   }),
   external_exports.object({
@@ -21657,6 +21666,16 @@ var resumeResultSchema = external_exports.union([
     url: external_exports.string().max(4096)
   })
 ]);
+var openRequestSchema = external_exports.object({
+  url: external_exports.string().max(4096).optional(),
+  deny: external_exports.array(external_exports.string().max(300)).max(200).optional()
+});
+var openResultSchema = external_exports.object({
+  token: external_exports.string().min(1).max(256),
+  id: external_exports.string().max(64),
+  title: external_exports.string().max(500),
+  url: external_exports.string().max(4096)
+});
 var downloadResultSchema = external_exports.object({
   files: external_exports.array(
     external_exports.object({
@@ -21922,6 +21941,17 @@ var TOOLS = [
     }
   },
   {
+    name: "open",
+    description: "Open a page of its own in the browser, at an http(s) address (default blank), with no task, and return {token, id, title, url}. The page is the user's own, like a tab they opened; the token resumes it (resume) with no approval. deny: sites that may not be opened.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: { type: "string" },
+        deny: { type: "array", items: { type: "string" } }
+      }
+    }
+  },
+  {
     name: "resume",
     description: "Make the page kept by an earlier task (end_task with keep) the active page again, with the token end_task gave. No approval is needed with the token. The result says if the page is not where it was left.",
     inputSchema: {
@@ -21980,6 +22010,12 @@ function createToolHandler(session2) {
           const raw = asObject(rawArgs).deny;
           const deny = Array.isArray(raw) ? raw.filter((x) => typeof x === "string").slice(0, 200) : void 0;
           return json2(await serial(() => session2.tabs({ deny })));
+        }
+        case "open": {
+          const args = asObject(rawArgs);
+          const url = typeof args.url === "string" ? args.url : void 0;
+          const deny = Array.isArray(args.deny) ? args.deny.filter((x) => typeof x === "string").slice(0, 200) : void 0;
+          return json2(await serial(() => session2.open({ url, deny })));
         }
         case "resume": {
           const token = asObject(rawArgs).token;
@@ -23063,6 +23099,7 @@ function render(fitted, header) {
 var DEFAULT_MAX_SNAPSHOT_CHARS = 9e3;
 var ACTION_TIMEOUT_MS = 5e3;
 var NAVIGATION_TIMEOUT_MS = 2e4;
+var PROBE_MS = 8e3;
 var META_TIMEOUT_MS = 1500;
 var MAX_DOWNLOADS = 20;
 var MAX_UNATTRIBUTED = 5;
@@ -23070,6 +23107,8 @@ var DOWNLOAD_STALL_MS = 2e4;
 var ACTION_BUDGET_MS = 3e4;
 var DEFAULT_IDLE_MS = 10 * 6e4;
 var KEPT_TTL_MS = 24 * 60 * 6e4;
+var LENT_TTL_MS = 60 * 6e4;
+var LENT_MAX_MS = 8 * 60 * 6e4;
 var MIME_BY_EXTENSION = {
   csv: "text/csv",
   pdf: "application/pdf",
@@ -23136,6 +23175,14 @@ function stripUserUrl(url) {
     u.username = "";
     u.password = "";
     return u.href;
+  } catch {
+    return "";
+  }
+}
+function originOfUrl(url) {
+  try {
+    const u = new URL(url);
+    return u.protocol === "http:" || u.protocol === "https:" ? u.origin : "";
   } catch {
     return "";
   }
@@ -23210,6 +23257,23 @@ function findNode(nodes, ref) {
   }
   return void 0;
 }
+function launchOptions(options) {
+  const { headless } = options;
+  return {
+    headless,
+    acceptDownloads: true,
+    viewport: headless ? options.viewport ?? { width: 1280, height: 800 } : null,
+    ...options.executablePath ? { executablePath: options.executablePath } : {},
+    ...options.channel ? { channel: options.channel } : {},
+    chromiumSandbox: !options.noSandbox,
+    args: [
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--disable-background-networking",
+      "--disable-component-update"
+    ]
+  };
+}
 var BrowserSession = class {
   options;
   context;
@@ -23244,6 +23308,12 @@ var BrowserSession = class {
   tabDeny = [];
   /** Pages kept open at the end of a task, by the token that resumes them. */
   kept = /* @__PURE__ */ new Map();
+  /** Pages this runtime made lazily for a task: one still blank at the end was never used. */
+  fresh = /* @__PURE__ */ new WeakSet();
+  /** The origin an adopted tab was lent on (fixed at approval) and when it was approved. */
+  lentInfo = /* @__PURE__ */ new WeakMap();
+  /** Pages this runtime made itself (the launch page, its own new pages). */
+  ours = /* @__PURE__ */ new WeakSet();
   foreignTabs = [];
   popups = [];
   /** A download that starts within this long of an action's end still belongs to it. */
@@ -23289,11 +23359,20 @@ var BrowserSession = class {
       this.active = open.at(-1);
       if (!this.active) {
         this.active = await context.newPage();
+        this.fresh.add(this.active);
+        this.ours.add(this.active);
         this.taskPages.add(this.active);
         this.baseline = void 0;
         this.taskLastSite = void 0;
       }
     }
+    return this.active;
+  }
+  /** The task's page if it has one: a call that only looks never makes a page. */
+  livePage() {
+    if (this.active && !this.active.isClosed()) return this.active;
+    const open = [...this.taskPages].filter((p) => !p.isClosed());
+    this.active = open.at(-1);
     return this.active;
   }
   touch() {
@@ -23312,18 +23391,31 @@ var BrowserSession = class {
     const pages = [...this.taskPages];
     const keep = options.keep ? this.active : void 0;
     let kept;
-    if (keep && !keep.isClosed() && this.taskPages.has(keep) && !this.adopted.has(keep)) {
+    const unused = (p) => this.fresh.has(p) && p.url() === "about:blank";
+    const info = keep ? this.lentInfo.get(keep) : void 0;
+    const capEnd = info ? info.since + (this.options.lentMaxMs ?? LENT_MAX_MS) : 0;
+    const lendable = !!keep && !!info && info.origin !== "" && originOfUrl(keep.url()) === info.origin && Date.now() < capEnd;
+    const adoptedKeep = !!keep && this.adopted.has(keep);
+    if (keep && !keep.isClosed() && this.taskPages.has(keep) && !unused(keep) && (!adoptedKeep || lendable)) {
       this.purgeKept();
       const token = randomBytes(18).toString("base64url");
       const title = clean(await safeTitle(keep), 300);
       const url = keep.url();
+      const lent = adoptedKeep && info ? info : void 0;
       this.kept.set(token, {
         page: keep,
         url,
         title,
-        expires: Date.now() + (this.options.keptTtlMs ?? KEPT_TTL_MS)
+        expires: lent ? Math.min(Date.now() + (this.options.lentTtlMs ?? LENT_TTL_MS), capEnd) : Date.now() + (this.options.keptTtlMs ?? KEPT_TTL_MS),
+        ...lent ? { lent } : {}
       });
-      kept = { token, id: this.tabId(keep), title, url: clean(url, 2e3) };
+      kept = {
+        token,
+        id: this.tabId(keep),
+        title,
+        url: clean(lent ? stripUserUrl(url) : url, 2e3),
+        ...lent ? { lent: true, origin: lent.origin } : {}
+      };
     }
     this.taskPages.clear();
     this.active = void 0;
@@ -23357,11 +23449,19 @@ var BrowserSession = class {
     this.kept.delete(token);
     const page = entry.page;
     const url = page.url();
+    if (entry.lent && this.denied(url)) {
+      return { refused: "page_changed", title: "", url: "" };
+    }
     const title = clean(await safeTitle(page), 300);
-    if (urlWithoutFragment(url) !== urlWithoutFragment(entry.url)) {
+    const moved0 = entry.lent ? entry.lent.origin === "" || originOfUrl(url) !== entry.lent.origin : urlWithoutFragment(url) !== urlWithoutFragment(entry.url);
+    if (moved0) {
       return { refused: "page_changed", title, url: clean(stripUserUrl(url), 2e3) };
     }
     this.taskPages.add(page);
+    if (entry.lent) {
+      this.adopted.add(page);
+      this.lentInfo.set(page, entry.lent);
+    }
     this.active = page;
     this.baseline = void 0;
     this.touch();
@@ -23374,10 +23474,80 @@ var BrowserSession = class {
     return {
       id: this.tabId(page),
       title,
-      url: clean(url, 2e3),
-      changed: moved,
-      ...moved ? { was: { title: entry.title, url: clean(entry.url, 2e3) } } : {}
+      url: clean(entry.lent ? stripUserUrl(url) : url, 2e3),
+      // A lent tab's title changes as the user fills a form: only its site matters.
+      changed: entry.lent ? false : moved,
+      ...entry.lent ? { lent: true } : {},
+      ...moved && !entry.lent ? { was: { title: entry.title, url: clean(entry.url, 2e3) } } : {}
     };
+  }
+  /**
+   * Opens a page of its own, at an http(s) address or blank, with no task. The page is the
+   * user's (never a task page), and the token it is returned with resumes it, as `end_task`'s does.
+   * A site in `deny`, before or after redirects, closes the page and is refused.
+   */
+  async open(request = {}) {
+    const context = await this.ensureContext();
+    this.touch();
+    if (request.deny) this.tabDeny = parseSiteList(request.deny.join("\n"));
+    const raw = request.url?.trim() ?? "";
+    let target;
+    if (raw) {
+      let parsed;
+      try {
+        parsed = new URL(raw);
+      } catch {
+        throw new ToolError("That is not an address that can be opened.");
+      }
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:" && parsed.href !== "about:blank") {
+        throw new ToolError("Only http and https addresses can be opened (about:blank too).");
+      }
+      if (parsed.protocol !== "about:") {
+        if (this.denied(parsed.href)) throw new ToolError("That site is not allowed.");
+        target = parsed.href;
+      }
+    }
+    let spare;
+    for (const p of context.pages()) {
+      if (p.isClosed() || p.url() !== "about:blank" || this.taskPages.has(p) || [...this.kept.values()].some((e) => e.page === p))
+        continue;
+      if (this.ours.has(p) || await p.opener().catch(() => p) === null) {
+        spare = p;
+        break;
+      }
+    }
+    const page = spare ?? await context.newPage();
+    this.ours.add(page);
+    const discard = (p) => spare ? p.goto("about:blank").then(
+      () => void 0,
+      () => void 0
+    ) : closeQuickly(p);
+    if (target) {
+      try {
+        await page.goto(target, { waitUntil: "domcontentloaded", timeout: NAVIGATION_TIMEOUT_MS });
+        await this.settle(page);
+      } catch (err) {
+        if (!/Download is starting/i.test(String(err))) {
+          await discard(page);
+          throw new ToolError(`Could not load ${clean(target, 120)}: ${firstLine(err, 160)}`);
+        }
+      }
+      if (this.denied(page.url())) {
+        await discard(page);
+        throw new ToolError("That site is not allowed.");
+      }
+    }
+    this.purgeKept();
+    const token = randomBytes(18).toString("base64url");
+    const title = clean(await safeTitle(page), 300);
+    const url = page.url();
+    this.kept.set(token, {
+      page,
+      url,
+      title,
+      expires: Date.now() + (this.options.keptTtlMs ?? KEPT_TTL_MS)
+    });
+    return { token, id: this.tabId(page), title, url: clean(stripUserUrl(url), 2e3) };
   }
   tabId(page) {
     let id = this.tabIds.get(page);
@@ -23404,7 +23574,7 @@ var BrowserSession = class {
         id: this.tabId(page),
         title: clean(await safeTitle(page), 300),
         // The task's own pages show in full; a user's tab never shows its query or fragment.
-        url: clean(mine ? page.url() : stripUserUrl(page.url()), 2e3),
+        url: clean(mine && !this.adopted.has(page) ? page.url() : stripUserUrl(page.url()), 2e3),
         mine
       });
     }
@@ -23427,20 +23597,7 @@ var BrowserSession = class {
     this.downloadDir ??= await mkdtemp(join(tmpdir(), `cerea-browser-${process.pid}-`));
     let context;
     try {
-      context = await chromium.launchPersistentContext(profileDir2, {
-        headless,
-        acceptDownloads: true,
-        viewport: headless ? this.options.viewport ?? { width: 1280, height: 800 } : null,
-        ...this.options.executablePath ? { executablePath: this.options.executablePath } : {},
-        ...this.options.channel ? { channel: this.options.channel } : {},
-        chromiumSandbox: !this.options.noSandbox,
-        args: [
-          "--no-first-run",
-          "--no-default-browser-check",
-          "--disable-background-networking",
-          "--disable-component-update"
-        ]
-      });
+      context = await chromium.launchPersistentContext(profileDir2, launchOptions(this.options));
     } catch (err) {
       const message = firstLine(err, 600);
       if (/ProcessSingleton|profile.*in use|SingletonLock|user data directory is already in use/i.test(
@@ -23472,7 +23629,10 @@ var BrowserSession = class {
       this.hook(page);
       void this.adopt(page);
     });
-    for (const page of context.pages()) this.hook(page);
+    for (const page of context.pages()) {
+      this.hook(page);
+      this.ours.add(page);
+    }
     context.on("response", (response) => {
       const headers = response.headers();
       const type = headers["content-type"];
@@ -23726,7 +23886,7 @@ var BrowserSession = class {
     }
     const tabs = [...this.taskPages].filter((p) => !p.isClosed()).length || 1;
     const header = [
-      `url: ${url}`,
+      `url: ${this.adopted.has(page) ? stripUserUrl(url) : url}`,
       `title: ${JSON.stringify(title)}`,
       ...tabs > 1 ? [`tabs: ${tabs}`] : []
     ];
@@ -23758,8 +23918,22 @@ var BrowserSession = class {
       return void 0;
     }
   }
+  /** What a task with no page yet sees: nothing is opened just to look at it. */
+  noPage() {
+    return {
+      url: "about:blank",
+      title: "",
+      text: `<page-content untrusted="true">
+url: about:blank
+(no page is open yet: navigate to an address, or use a tab of the user's)
+</page-content>`,
+      elements: []
+    };
+  }
   async snapshot() {
-    const page = await this.ensure();
+    this.touch();
+    const page = this.livePage();
+    if (!page) return this.noPage();
     const built = await this.build(page);
     this.baseline = {
       page,
@@ -23771,7 +23945,21 @@ var BrowserSession = class {
     return built.snapshot;
   }
   async diff() {
-    const page = await this.ensure();
+    this.touch();
+    const page = this.livePage();
+    if (!page) {
+      const snapshot = this.noPage();
+      return {
+        url: snapshot.url,
+        title: snapshot.title,
+        navigated: true,
+        added: [],
+        changed: [],
+        removed: [],
+        text: snapshot.text,
+        snapshot
+      };
+    }
     const before = this.baseline;
     if (!before || before.page !== page || before.seq !== (this.navSeq.get(page) ?? 0) || before.url !== page.url()) {
       const snapshot = await this.snapshot();
@@ -23834,7 +24022,7 @@ var BrowserSession = class {
       removed,
       text: [
         `<page-content untrusted="true">`,
-        `url: ${url} (same page)`,
+        `url: ${this.adopted.has(page) ? stripUserUrl(url) : url} (same page)`,
         `title: ${JSON.stringify(title)}`,
         ...lines.length > 0 ? lines : ["(no change)"],
         `</page-content>`
@@ -23857,7 +24045,8 @@ var BrowserSession = class {
     };
   }
   async act(actions, approvals) {
-    const page0 = await this.ensure();
+    await this.ensureContext();
+    this.touch();
     const results = [];
     const downloadsBefore = this.downloads.length;
     this.notes = [];
@@ -23871,11 +24060,11 @@ var BrowserSession = class {
       for (let index = 0; index < actions.length; index += 1) {
         const action = actions[index];
         if (index > 0) await this.pause(0);
-        const page2 = this.active && !this.active.isClosed() ? this.active : await this.ensure();
-        const budget = await this.withBudget(this.runOne(page2, action, index, approvals));
+        const budget = await this.withBudget(this.runOne(action, index, approvals));
         let result = budget.result;
         if (budget.timedOut) {
-          this.taintPage(page2);
+          const stuck = this.livePage();
+          if (stuck) this.taintPage(stuck);
           result = { ...result, error: `${result.error}; the page was closed` };
         }
         if (result.ok && this.chooserOpened) {
@@ -23895,13 +24084,16 @@ var BrowserSession = class {
       this.lastActEnd = Date.now();
     }
     const live = this.active;
-    if (live && !live.isClosed() && results.some((x) => !x.ok && !x.refused)) {
+    const stuckSuspect = results.some(
+      (x) => !x.ok && !x.refused && !/^No element with ref /.test(x.error ?? "")
+    );
+    if (live && !live.isClosed() && stuckSuspect) {
       const answered = await Promise.race([
         live.evaluate(() => 1).then(
           () => true,
           () => true
         ),
-        sleep(2e3).then(() => false)
+        sleep(this.options.probeMs ?? PROBE_MS).then(() => false)
       ]);
       if (!answered) {
         this.taintPage(live);
@@ -23917,7 +24109,7 @@ var BrowserSession = class {
       const done = results.findLast((x) => x.ok);
       if (done) done.outcome = clean(`${done.outcome ?? "done"}; opened a new tab, now on it`, 300);
     }
-    const page = this.active && !this.active.isClosed() ? this.active : page0;
+    const page = this.livePage();
     const last = results.at(-1);
     for (const host of this.foreignTabs) {
       this.notes.push(
@@ -23941,8 +24133,8 @@ var BrowserSession = class {
     );
     return {
       results,
-      url: page.url(),
-      title: clean(await safeTitle(page), 300),
+      url: page ? page.url() : "about:blank",
+      title: page ? clean(await safeTitle(page), 300) : "",
       ...downloads.length > 0 ? { downloads } : {}
     };
   }
@@ -23979,9 +24171,10 @@ var BrowserSession = class {
     if (this.adopted.delete(page)) return;
     void closeQuickly(page);
   }
-  async runOne(page, action, index, approvals) {
+  async runOne(action, index, approvals) {
     try {
       if (action.type === "use_tab") return await this.useTab(action.tab, index, approvals);
+      const page = await this.ensure();
       if (action.type === "press" && !action.ref) {
         const inside = await Promise.race([
           page.evaluate(focusInChallenge).catch(() => false),
@@ -24114,6 +24307,7 @@ var BrowserSession = class {
     for (const [token, entry] of this.kept) if (entry.page === page) this.kept.delete(token);
     this.taskPages.add(page);
     this.adopted.add(page);
+    this.lentInfo.set(page, { origin: originOfUrl(url), since: Date.now() });
     this.active = page;
     this.baseline = void 0;
     try {
@@ -24311,8 +24505,15 @@ var BrowserSession = class {
     }
   }
   // ---- extract, screenshot, download -----------------------------------------------------
+  /** For the calls that read a page: no page yet is an answer, not a reason to open one. */
+  requirePage() {
+    this.touch();
+    const page = this.livePage();
+    if (!page) throw new ToolError("No page is open yet: navigate to an address first.");
+    return page;
+  }
   async extract(request) {
-    const page = await this.ensure();
+    const page = this.requirePage();
     const mode = request.mode ?? "auto";
     const options = { mode, maxRows: 500, maxItems: 200, maxText: 2e4 };
     const args = { ...options, whole: !request.ref };
@@ -24334,7 +24535,7 @@ var BrowserSession = class {
     return shapeExtract(raw, options, request.ref !== void 0 || mode === "text");
   }
   async screenshot(request) {
-    const page = await this.ensure();
+    const page = this.requirePage();
     const type = request.format === "jpeg" ? "jpeg" : "png";
     try {
       const buffer = request.ref ? await page.getByRef(request.ref).screenshot({ type, timeout: 5e3, ...type === "jpeg" ? { quality: 70 } : {} }) : await page.screenshot({

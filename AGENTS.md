@@ -1632,6 +1632,23 @@ exactly `true`; user docs in `docs/browser-use.md`. What is not obvious:
 - **Downloads** are written as conversation attachments first (`writeAttachment`: where the privacy
   pipelines read a document and mark a withheld one), then stored as deliverables so the document
   tools and the sandbox see them. A withheld file is never stored as a deliverable.
+- **Which computer (`machineChoice.ts`) and Open browser (`open.ts`, C109).** Rules, never the
+  model: the conversation's computer (`Conversation.browserDeviceId`, else the device holding its
+  kept page), then the user's default (`CodeDevice.browserDefault`, one per user, cleared when the
+  device is revoked), then the only ready computer, else a "Which computer?" question
+  (`computerAsk.ts`: an `mcpElicitations` row, `server: browse_computer`, rendered by the generic
+  `ElicitationForm` and listed in the Needs-you inbox by `/api/v2/browse/approvals`). A remembered
+  computer that is not ready is "<name> is offline", never a fallback. `machine` is only a hint,
+  used when it is the exact name of a ready computer, the user's latest message names it as a whole
+  word, and nothing above decides (never unattended). `open` is a
+  runtime tool (contract + `browser-runtime/`, synced both ways): it opens a page of its own and
+  returns a resume token; `openBrowserPage` ties it to a conversation through `kept.ts` (so the
+  next browse resumes it with no `use_tab`), takes the machine's lease ("busy" while a task runs)
+  and checks the deny list. Endpoints: `/api/v2/browser/{open,computers,default}`.
+- **A task that adopted a tab stays on it** (`loop.ts`): a cross-site move is denied unless the goal
+  names the site, `use_tab` on an adopted tab is answered without asking, and a tab with no title
+  is named by its host. The runtime drops a page after a failed action only when it stays silent
+  for 8 s, never for a stale ref (that made later steps start "from about:blank").
 - `browse` is in `EXTERNAL_BUILTIN_TOOLS` and not in `SUBAGENT_BUILTIN_TOOLS`. Its card is a
   `MessageBrowseUpdate`, replaced by `uuid` like a sub-agent's.
 
