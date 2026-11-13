@@ -229,8 +229,8 @@ describe("socket proxy: create bodies", () => {
 		});
 		it("bounds the reservation and the shares, and refuses extra keys", async () => {
 			const c = withParent(slice);
-			const mutations: [string, (h: Record<string, any>) => void][] = [
-				["reservation above memory", (h) => (h.MemoryReservation = h.Memory + 1)],
+			const mutations: [string, (h: Record<string, unknown>) => void][] = [
+				["reservation above memory", (h) => (h.MemoryReservation = (h.Memory as number) + 1)],
 				["zero reservation", (h) => (h.MemoryReservation = 0)],
 				["fractional reservation", (h) => (h.MemoryReservation = 1.5)],
 				["string reservation", (h) => (h.MemoryReservation = "512m")],
