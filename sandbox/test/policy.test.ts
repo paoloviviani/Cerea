@@ -180,6 +180,75 @@ describe("socket proxy: create bodies", () => {
 		}
 	});
 
+	describe("the shared cgroup parent", () => {
+		const slice = "cerea-sandbox.slice";
+		const withParent = (parent?: string): PolicyConfig => ({ ...cfg, cgroupParent: parent });
+		const body = (parent?: string) => {
+			const b = execContainerSpec(
+				testConfig({ SANDBOX_CGROUP_PARENT: parent ?? "" }),
+				{ id: "a".repeat(24), owner: "u", kind: "exec" },
+				testConfig().defaults
+			) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+			return b;
+		};
+		const verdict = (b: unknown, c: PolicyConfig) =>
+			authorize("POST", "/containers/create?name=cerea-sbx-abc", b, c, deps);
+
+		it("allows exactly the configured slice, with a reservation and shares", async () => {
+			assert.equal((await verdict(body(slice), withParent(slice))).allow, true);
+			assert.equal(body(slice).HostConfig.CgroupParent, slice);
+			assert.ok(body(slice).HostConfig.MemoryReservation > 0);
+		});
+		it("refuses any other slice, and one when none is configured", async () => {
+			for (const asked of [
+				"other.slice",
+				"cerea-sandbox.slice/x",
+				"/cerea-sandbox.slice",
+				"system.slice ",
+				"",
+				"-.slice/../..",
+				"cerea-sandbox",
+			]) {
+				const b = good();
+				b.HostConfig.CgroupParent = asked;
+				assert.equal((await verdict(b, withParent(slice))).allow, false, asked);
+				assert.equal((await verdict(b, withParent(undefined))).allow, false, asked);
+			}
+			for (const asked of [null, 1, ["cerea-sandbox.slice"], {}]) {
+				const b = good();
+				b.HostConfig.CgroupParent = asked;
+				assert.equal((await verdict(b, withParent(slice))).allow, false, String(asked));
+			}
+			assert.equal((await verdict(body(slice), withParent(undefined))).allow, false);
+		});
+		it("requires the slice when one is configured", async () => {
+			assert.equal((await verdict(good(), withParent(slice))).allow, false);
+		});
+		it("refuses a proxy configured with a bad slice name", async () => {
+			assert.equal((await verdict(body(slice), withParent("bad/../name.slice"))).allow, false);
+		});
+		it("bounds the reservation and the shares, and refuses extra keys", async () => {
+			const c = withParent(slice);
+			const mutations: [string, (h: Record<string, any>) => void][] = [
+				["reservation above memory", (h) => (h.MemoryReservation = h.Memory + 1)],
+				["zero reservation", (h) => (h.MemoryReservation = 0)],
+				["fractional reservation", (h) => (h.MemoryReservation = 1.5)],
+				["string reservation", (h) => (h.MemoryReservation = "512m")],
+				["one share", (h) => (h.CpuShares = 1)],
+				["huge shares", (h) => (h.CpuShares = 1e9)],
+				["cpuset", (h) => (h.CpusetCpus = "0")],
+				["cpu quota", (h) => (h.CpuQuota = 100000)],
+				["oom kill off", (h) => (h.OomKillDisable = true)],
+				["cgroupns host", (h) => (h.CgroupnsMode = "host")],
+			];
+			for (const [what, mutate] of mutations) {
+				const b = body(slice);
+				mutate(b.HostConfig);
+				assert.equal((await verdict(b, c)).allow, false, what);
+			}
+		});
+	});
+
 	it("refuses a privileged or root exec", () => {
 		assert.ok(validateExecCreate({ Cmd: ["id"], Privileged: true }));
 		assert.ok(validateExecCreate({ Cmd: ["id"], User: "root" }));

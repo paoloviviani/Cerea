@@ -2,11 +2,11 @@ import { createHash, randomBytes } from "node:crypto";
 import type { Audit } from "./audit.ts";
 import type { DockerApi, ExecResult } from "./docker.ts";
 import { DockerError } from "./docker.ts";
-import type { LeaseLimits, ManagerConfig } from "./config.ts";
+import type { LeaseLimits, ManagerConfig, Reservation } from "./config.ts";
 import { HttpError } from "../shared/http.ts";
 import { LABEL_INSTANCE, LABEL_LEASE, LABEL_MANAGED, isManaged } from "../shared/labels.ts";
 import { WORKSPACE, workspaceDir, workspacePath } from "./paths.ts";
-import { containerName, execContainerSpec } from "./spec.ts";
+import { containerName, execContainerSpec, leaseReservation } from "./spec.ts";
 
 export type LeaseKind = "exec" | "machine";
 export type LeaseState = "creating" | "ready" | "released";
@@ -19,6 +19,8 @@ export interface Lease {
 	state: LeaseState;
 	containerId: string | null;
 	limits: LeaseLimits;
+	/** Counted against the shared totals while the lease lives. */
+	reservation: Reservation;
 	createdAt: number;
 	lastActiveAt: number;
 	activeExecs: number;
@@ -123,6 +125,24 @@ export class LeaseManager {
 		return limits;
 	}
 
+	/**
+	 * Which total a new lease's reservation would pass, or null. Every lease not yet released counts
+	 * (one still being created holds its share), so two concurrent creates cannot both fit.
+	 */
+	private budgetExceeded(next: Reservation): "memory" | "cpus" | null {
+		const { memoryMb, cpus } = this.config.totals;
+		if (memoryMb === null && cpus === null) return null;
+		let mem = next.memoryMb;
+		let cpu = next.cpus;
+		for (const l of this.leases.values()) {
+			mem += l.reservation.memoryMb;
+			cpu += l.reservation.cpus;
+		}
+		if (memoryMb !== null && mem > memoryMb + 1e-9) return "memory";
+		if (cpus !== null && cpu > cpus + 1e-9) return "cpus";
+		return null;
+	}
+
 	async create(req: CreateRequest, actor = "service"): Promise<Lease> {
 		if (req.kind === "machine") {
 			this.audit.write({
@@ -182,6 +202,24 @@ export class LeaseManager {
 			);
 		}
 
+		const reservation = leaseReservation(this.config, limits);
+		const over = this.budgetExceeded(reservation);
+		if (over) {
+			this.audit.write({
+				action: "lease.create",
+				outcome: "denied",
+				kind: "exec",
+				owner: req.owner,
+				actor,
+				detail: { reason: `budget_${over}` },
+			});
+			throw new HttpError(
+				429,
+				"quota_exceeded",
+				`the shared ${over === "memory" ? "memory" : "CPU"} budget for sandboxes is used up`
+			);
+		}
+
 		const id = randomBytes(12).toString("hex");
 		const t = this.now();
 		const lease: Lease = {
@@ -192,6 +230,7 @@ export class LeaseManager {
 			state: "creating",
 			containerId: null,
 			limits,
+			reservation,
 			createdAt: t,
 			lastActiveAt: t,
 			activeExecs: 0,
@@ -202,7 +241,7 @@ export class LeaseManager {
 			await this.docker.ensureImage(this.config.execImage);
 			lease.containerId = await this.docker.createContainer(
 				containerName(id),
-				execContainerSpec(this.config, lease, limits)
+				execContainerSpec(this.config, lease, limits, reservation)
 			);
 			await this.docker.start(lease.containerId);
 			lease.state = "ready";
@@ -233,6 +272,8 @@ export class LeaseManager {
 				conversation: req.conversation,
 				memory_mb: limits.memoryMb,
 				cpus: limits.cpus,
+				reserved_memory_mb: reservation.memoryMb,
+				reserved_cpus: reservation.cpus,
 				pids: limits.pids,
 				runtime: this.config.runtime,
 			},
@@ -415,8 +456,15 @@ export class LeaseManager {
 		// the guard's inspect is in flight, and the cap is not a cap.
 		lease.activeExecs++;
 		let result: ExecResult;
+		let gone = false;
 		try {
-			const containerId = await this.guard(lease);
+			let containerId: string;
+			try {
+				containerId = await this.guard(lease);
+			} catch (err) {
+				gone = err instanceof HttpError && err.status === 410;
+				throw err;
+			}
 			try {
 				result = await this.docker.exec(containerId, { ...opts, user: this.config.user });
 			} catch (err) {
@@ -430,6 +478,7 @@ export class LeaseManager {
 					detail: { ...meta, error: String(err).slice(0, 200) },
 				});
 				if (err instanceof DockerError && err.status === 409) {
+					gone = true;
 					throw new HttpError(410, "sandbox_gone", "the sandbox is no longer running");
 				}
 				throw new HttpError(502, "docker_error", "the container runtime failed the call");
@@ -437,6 +486,10 @@ export class LeaseManager {
 		} finally {
 			lease.activeExecs--;
 			lease.lastActiveAt = this.now();
+			// A sandbox that is no longer running (the kernel killed it when the shared memory cap
+			// was hit, say) is released at once: its reservation is freed and the next call, which
+			// finds no lease, gets a fresh one instead of the same dead one.
+			if (gone) await this.destroy(lease, "sandbox_gone", actor);
 		}
 		lease.usage.execCalls++;
 		lease.usage.execSeconds += result.durationMs / 1000;

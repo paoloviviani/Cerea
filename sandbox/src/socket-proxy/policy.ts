@@ -12,7 +12,15 @@ export interface PolicyConfig {
 	runtimes: string[];
 	/** The images a sandbox may use (and the only ones that may be pulled). */
 	images: string[];
+	/**
+	 * The one systemd slice a sandbox may be placed under (`SANDBOX_CGROUP_PARENT`), or unset.
+	 * When set, every sandbox must name exactly it; when unset, none may name any.
+	 */
+	cgroupParent?: string;
 }
+
+/** A systemd slice name, nothing that could be a path, a nested cgroup or an option. */
+export const CGROUP_PARENT_RE = /^[a-zA-Z0-9_.-]+\.slice$/;
 
 export interface PolicyDeps {
 	/** A container by id or name: its full id and labels, or null when it does not exist. */
@@ -100,6 +108,9 @@ const CREATE_HOST = new Set([
 	"IpcMode",
 	"Memory",
 	"MemorySwap",
+	"MemoryReservation",
+	"CpuShares",
+	"CgroupParent",
 	"NanoCpus",
 	"PidsLimit",
 	"Tmpfs",
@@ -145,6 +156,20 @@ export function validateCreate(body: unknown, cfg: PolicyConfig): string | null 
 		if (typeof h[k] !== "number" || (h[k] as number) <= 0) return `${k} must be a positive limit`;
 	}
 	if (h.MemorySwap !== h.Memory) return "swap must equal memory (none)";
+	if (h.MemoryReservation !== undefined) {
+		const r = h.MemoryReservation;
+		if (!Number.isInteger(r) || (r as number) <= 0 || (r as number) > (h.Memory as number)) {
+			return "MemoryReservation must be a positive whole number of bytes, at most Memory";
+		}
+	}
+	if (h.CpuShares !== undefined) {
+		const c = h.CpuShares;
+		if (!Number.isInteger(c) || (c as number) < 2 || (c as number) > 262144) {
+			return "CpuShares must be a whole number from 2 to 262144";
+		}
+	}
+	const parent = cgroupParentProblem(h.CgroupParent, cfg.cgroupParent);
+	if (parent) return parent;
 	const tmpfs = h.Tmpfs;
 	if (typeof tmpfs !== "object" || tmpfs === null) return "a tmpfs workspace is required";
 	for (const [k, opts] of Object.entries(tmpfs)) {
@@ -168,6 +193,24 @@ export function validateCreate(body: unknown, cfg: PolicyConfig): string | null 
 			if (!ok) return `only a nofile ulimit up to ${NOFILE_CAP} is allowed`;
 		}
 	}
+	return null;
+}
+
+/**
+ * The cgroup parent is the shared hard cap: a sandbox that names another (or none, when the
+ * operator configured one) would escape it, or land in a cgroup the operator never chose.
+ */
+function cgroupParentProblem(asked: unknown, allowed: string | undefined): string | null {
+	if (allowed !== undefined && !CGROUP_PARENT_RE.test(allowed)) {
+		return "the proxy's own cgroup parent is not a valid slice name";
+	}
+	if (asked === undefined) {
+		return allowed === undefined ? null : `CgroupParent must be ${allowed}`;
+	}
+	if (typeof asked !== "string" || !CGROUP_PARENT_RE.test(asked)) {
+		return "CgroupParent must be a systemd slice name";
+	}
+	if (allowed === undefined || asked !== allowed) return "that CgroupParent is not allowed";
 	return null;
 }
 

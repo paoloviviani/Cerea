@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import { createApi, tokenMatches } from "../src/manager/api.ts";
 import { MemoryAudit } from "../src/manager/audit.ts";
 import { ConfigError, loadConfig } from "../src/manager/config.ts";
+import { execContainerSpec } from "../src/manager/spec.ts";
 import { LeaseManager, type UsageRecord } from "../src/manager/leases.ts";
 import { BadPath, workspaceDir, workspacePath } from "../src/manager/paths.ts";
 import { HttpError } from "../src/shared/http.ts";
@@ -71,6 +72,64 @@ describe("config", () => {
 	});
 	it("refuses a default above its maximum", () => {
 		assert.throws(() => testConfig({ SANDBOX_EXEC_MEMORY_MB: "4096" }), ConfigError);
+	});
+});
+
+describe("config: the shared budget", () => {
+	const small = {
+		SANDBOX_TOTAL_MEMORY_MB: "1536",
+		SANDBOX_TOTAL_CPUS: "1.5",
+		SANDBOX_EXEC_MEMORY_MB: "1024",
+		SANDBOX_EXEC_CPUS: "1",
+		SANDBOX_EXEC_MEMORY_RESERVATION_MB: "512",
+		SANDBOX_EXEC_CPU_RESERVATION: "0.5",
+	};
+	it("has no total, no cgroup parent and reserves the limit by default", () => {
+		const c = testConfig();
+		assert.deepEqual(c.totals, { memoryMb: null, cpus: null });
+		assert.equal(c.cgroupParent, null);
+		assert.deepEqual(c.reservation, { memoryMb: 1024, cpus: 1 });
+	});
+	it("reads the small-box preset and clamps unset maxima to the totals", () => {
+		const c = testConfig(small);
+		assert.deepEqual(c.totals, { memoryMb: 1536, cpus: 1.5 });
+		assert.deepEqual(c.reservation, { memoryMb: 512, cpus: 0.5 });
+		assert.equal(c.maxima.memoryMb, 1536);
+		assert.equal(c.maxima.cpus, 1.5);
+	});
+	it("refuses a reservation above the limit", () => {
+		assert.throws(() => testConfig({ SANDBOX_EXEC_MEMORY_RESERVATION_MB: "2000" }), ConfigError);
+		assert.throws(() => testConfig({ SANDBOX_EXEC_CPU_RESERVATION: "1.5" }), ConfigError);
+	});
+	it("refuses a limit above the total", () => {
+		assert.throws(() => testConfig({ ...small, SANDBOX_EXEC_MEMORY_MB: "2000" }), /total/);
+		assert.throws(() => testConfig({ ...small, SANDBOX_EXEC_MAX_MEMORY_MB: "4096" }), /total/);
+		assert.throws(
+			() => testConfig({ ...small, SANDBOX_EXEC_MAX_CPUS: "2", SANDBOX_EXEC_CPUS: "1" }),
+			/total/
+		);
+		assert.throws(() => testConfig({ SANDBOX_TOTAL_CPUS: "0.5" }), /total/);
+	});
+	it("refuses a bad total", () => {
+		assert.throws(() => testConfig({ SANDBOX_TOTAL_MEMORY_MB: "abc" }), /must be a number/);
+		assert.throws(() => testConfig({ SANDBOX_TOTAL_CPUS: "0" }), /must be a number/);
+	});
+	it("takes only a systemd slice name as the cgroup parent", () => {
+		assert.equal(
+			testConfig({ SANDBOX_CGROUP_PARENT: "cerea-sandbox.slice" }).cgroupParent,
+			"cerea-sandbox.slice"
+		);
+		for (const bad of [
+			"cerea",
+			"/cerea.slice",
+			"a/b.slice",
+			"..",
+			"x.slice/..",
+			"a b.slice",
+			"-.scope",
+		]) {
+			assert.throws(() => testConfig({ SANDBOX_CGROUP_PARENT: bad }), ConfigError, bad);
+		}
 	});
 });
 
@@ -321,6 +380,30 @@ describe("API", () => {
 	});
 });
 
+describe("the shared cap in the create body", () => {
+	const spec = (extra: Record<string, string> = {}) => {
+		const s = setup(extra);
+		return execContainerSpec(s.config, { id: "a", owner: "u", kind: "exec" }, s.config.defaults)
+			.HostConfig as Record<string, unknown>;
+	};
+	it("sets the reservation, the CPU shares and the slice", () => {
+		const h = spec({
+			SANDBOX_EXEC_MEMORY_RESERVATION_MB: "512",
+			SANDBOX_EXEC_CPU_RESERVATION: "0.5",
+			SANDBOX_CGROUP_PARENT: "cerea-sandbox.slice",
+		});
+		assert.equal(h.MemoryReservation, 512 * 1024 * 1024);
+		assert.equal(h.CpuShares, 512);
+		assert.equal(h.CgroupParent, "cerea-sandbox.slice");
+	});
+	it("leaves CgroupParent out when none is configured", () => {
+		const h = spec();
+		assert.equal("CgroupParent" in h, false);
+		assert.equal(h.MemoryReservation, h.Memory);
+		assert.equal(h.CpuShares, 1024);
+	});
+});
+
 describe("hardening of what the manager asks Docker for", () => {
 	it("creates a labelled, locked-down container with no network", async () => {
 		const s = setup();
@@ -393,6 +476,79 @@ describe("quotas and accounting", () => {
 			s.leases.create({ kind: "exec", owner: "c" }),
 			(e: HttpError) => e.status === 429
 		);
+	});
+
+	it("refuses a lease when the reservations would pass a total, and frees them on release", async () => {
+		const s = setup({
+			SANDBOX_TOTAL_MEMORY_MB: "1536",
+			SANDBOX_TOTAL_CPUS: "1.5",
+			SANDBOX_EXEC_MEMORY_RESERVATION_MB: "512",
+			SANDBOX_EXEC_CPU_RESERVATION: "0.5",
+			SANDBOX_MAX_LEASES_PER_OWNER: "9",
+		});
+		const a = await s.leases.create({ kind: "exec", owner: "a" });
+		await s.leases.create({ kind: "exec", owner: "b" });
+		await s.leases.create({ kind: "exec", owner: "c" });
+		await assert.rejects(
+			s.leases.create({ kind: "exec", owner: "d" }),
+			(e: HttpError) => e.status === 429 && e.code === "quota_exceeded"
+		);
+		assert.equal(s.docker.created.length, 3);
+		assert.ok(s.audit.records.some((r) => JSON.stringify(r).includes("budget_")));
+		await s.leases.release(a.id);
+		await s.leases.create({ kind: "exec", owner: "d" });
+	});
+
+	it("checks memory and CPU separately", async () => {
+		const mem = setup({
+			SANDBOX_TOTAL_MEMORY_MB: "1024",
+			SANDBOX_EXEC_MEMORY_RESERVATION_MB: "600",
+		});
+		await mem.leases.create({ kind: "exec", owner: "a" });
+		await assert.rejects(
+			mem.leases.create({ kind: "exec", owner: "b" }),
+			(e: HttpError) => e.status === 429 && /memory/.test(e.message)
+		);
+		const cpu = setup({ SANDBOX_TOTAL_CPUS: "1.5" });
+		await cpu.leases.create({ kind: "exec", owner: "a" });
+		await assert.rejects(
+			cpu.leases.create({ kind: "exec", owner: "b" }),
+			(e: HttpError) => e.status === 429 && /CPU/.test(e.message)
+		);
+	});
+
+	it("counts a request's own smaller limit as its reservation, and has no cap when unset", async () => {
+		const s = setup({
+			SANDBOX_TOTAL_MEMORY_MB: "1024",
+			SANDBOX_EXEC_MEMORY_RESERVATION_MB: "512",
+		});
+		for (const o of ["a", "b"]) {
+			await s.leases.create({ kind: "exec", owner: o, limits: { memoryMb: 256 } });
+		}
+		assert.equal(s.docker.created.length, 2);
+		const free = setup({ SANDBOX_MAX_LEASES: "20", SANDBOX_MAX_LEASES_PER_OWNER: "20" });
+		for (let i = 0; i < 12; i++) await free.leases.create({ kind: "exec", owner: "a" });
+	});
+
+	it("does not let two concurrent creates both fit the last share", async () => {
+		const s = setup({ SANDBOX_TOTAL_MEMORY_MB: "1024", SANDBOX_MAX_LEASES_PER_OWNER: "9" });
+		const results = await Promise.allSettled([
+			s.leases.create({ kind: "exec", owner: "a" }),
+			s.leases.create({ kind: "exec", owner: "b" }),
+		]);
+		assert.deepEqual(results.map((r) => r.status).sort(), ["fulfilled", "rejected"]);
+	});
+
+	it("releases a sandbox the kernel killed, so the next call starts fresh", async () => {
+		const s = setup({ SANDBOX_TOTAL_MEMORY_MB: "1024" });
+		const lease = await s.leases.create({ kind: "exec", owner: "u" });
+		s.docker.containers.clear(); // the container is gone
+		await assert.rejects(
+			s.leases.exec(lease.id, { command: "x" }),
+			(e: HttpError) => e.status === 410
+		);
+		assert.throws(() => s.leases.get(lease.id), HttpError);
+		await s.leases.create({ kind: "exec", owner: "u" }); // its share is free again
 	});
 
 	it("records exec time and CPU per lease and hands it to the billing seam", async () => {
