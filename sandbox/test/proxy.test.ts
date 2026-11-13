@@ -216,4 +216,69 @@ describe("socket proxy: request smuggling", () => {
 			assert.match(r, /connection: close/i);
 		}
 	});
+
+	describe("duplicate keys and the forwarded bytes", () => {
+		const post = (path: string, payload: string) =>
+			`POST ${path} HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: ${payload.length}\r\nConnection: close\r\n\r\n${payload}`;
+		const valid =
+			'"HostConfig":{"Runtime":"runc","Memory":1048576,"MemorySwap":1048576,"PidsLimit":10,"NanoCpus":1000000000}';
+		const reached = (received: string[], what: string) => received.some((r) => r.includes(what));
+
+		it("refuses a repeated HostConfig (Go would merge the two), forwarding nothing", async () => {
+			const { port, fake } = await setup("101");
+			const dup = `{"Image":"img",${valid.replace(/^/, "")},"HostConfig":{"Privileged":true,"Binds":["/:/host"]}}`;
+			const out = await rawExchange(port, post("/containers/create?name=cerea-sbx-x", dup));
+			assert.match(out, /^HTTP\/1\.1 400/);
+			assert.match(out, /repeats a key/);
+			assert.equal(reached(fake.received, "POST /containers/create"), false);
+		});
+
+		it("refuses a repeated key at depth, and an escaped spelling of a repeated key", async () => {
+			const { port, fake } = await setup("101");
+			const nested = '{"Cmd":["id"],"Env":[],"Cmd":["sh"]}';
+			assert.match(
+				await rawExchange(port, post("/containers/mine/exec", nested)),
+				/^HTTP\/1\.1 400/
+			);
+			const escaped = '{"Cmd":["id"],"C\\u006dd":["sh"]}';
+			assert.match(
+				await rawExchange(port, post("/containers/mine/exec", escaped)),
+				/^HTTP\/1\.1 400/
+			);
+			const deep = '{"Cmd":["id"],"User":"65534","x":{"a":{"b":1,"b":2}}}';
+			assert.match(await rawExchange(port, post("/containers/mine/exec", deep)), /^HTTP\/1\.1 400/);
+			assert.equal(reached(fake.received, "POST /containers/mine/exec"), false);
+		});
+
+		it("refuses a repeated key on the upgrade path too", async () => {
+			const { port, fake } = await setup("101");
+			const out = await rawExchange(
+				port,
+				startRequest(EXEC, '{"Detach":true,"Detach":false,"Tty":false}')
+			);
+			assert.match(out, /^HTTP\/1\.1 400/);
+			assert.equal(reached(fake.received, "POST /exec/"), false);
+		});
+
+		it("forwards the canonical JSON of what it checked, with its own Content-Length", async () => {
+			const { port, fake } = await setup("101");
+			await rawExchange(
+				port,
+				post("/containers/mine/exec", '{ "Cmd" : [ "id" ] ,\n "Tty" : false }')
+			);
+			const sent =
+				fake.received.find((r) => r.startsWith(`POST /containers/${FULL("a")}/exec`)) ?? "";
+			const canonical = '{"Cmd":["id"],"Tty":false}';
+			assert.ok(sent.endsWith(`\r\n\r\n${canonical}`), JSON.stringify(sent));
+			assert.match(sent, new RegExp(`content-length: ${canonical.length}\\r\\n`, "i"));
+			// and on the upgrade path
+			await rawExchange(port, startRequest(EXEC, '{ "Detach" : false,  "Tty" : false }'), (s) =>
+				setTimeout(() => s.end(), 50)
+			);
+			const start = fake.received.find((r) => r.includes(`POST /exec/${EXEC}/start`)) ?? "";
+			const c2 = '{"Detach":false,"Tty":false}';
+			assert.ok(start.includes(`Content-Length: ${c2.length}\r\n`));
+			assert.ok(start.includes(`\r\n\r\n${c2}`));
+		});
+	});
 });
