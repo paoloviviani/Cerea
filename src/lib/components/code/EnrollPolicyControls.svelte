@@ -20,6 +20,7 @@
 	session (Plan, Ask, Auto, Allow) and in Workspace, Agents.
 -->
 <script lang="ts">
+	import * as s from "$lib/components/overlay/styles";
 	import { m } from "$lib/paraglide/messages";
 	import Rich from "$lib/i18n/Rich.svelte";
 	import IconWarning from "~icons/carbon/warning-filled";
@@ -147,10 +148,7 @@
 		<summary class="cursor-pointer text-xs font-medium text-ink">
 			{m["code.enroll.advanced"]()}
 			{#if advancedCount > 0}
-				<span
-					class="ml-1 rounded-full bg-blue-50 px-1.5 py-0.5 font-normal text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
-					data-testid="enroll-advanced-count"
-				>
+				<span class="ml-1 {s.PILL} {s.PILL_TONES.busy}" data-testid="enroll-advanced-count">
 					{m["code.enroll.advanced_changed"]({ count: advancedCount })}
 				</span>
 			{/if}

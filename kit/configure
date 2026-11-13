@@ -837,7 +837,7 @@ def site_for(tls: str, host: str) -> tuple:
 # MONGO_IMAGE=mongo:4.4.30 (or move with tools/mongo-upgrade), and configure
 # says so. A fresh install on a host that cannot run 8 gets the 4.4 pin written.
 
-MONGO_DEFAULT = "mongo:8.0.34"
+MONGO_DEFAULT = "mongo:8.0.37"
 MONGO_FALLBACK = "mongo:4.4.30"
 #: Kernels MongoDB 8 cannot run on, inclusive.
 MONGO8_BAD_KERNELS = ((6, 19, 0), (7, 0, 13))
