@@ -437,7 +437,10 @@ function isLeaseGone(err: SandboxError): boolean {
 /** The run.py client's reply when the daemon died before answering. */
 function isNoReply(stdout: string): boolean {
 	try {
-		const raw = JSON.parse(stdout.trim().split("\n").pop() ?? "") as { ok?: unknown; error?: unknown };
+		const raw = JSON.parse(stdout.trim().split("\n").pop() ?? "") as {
+			ok?: unknown;
+			error?: unknown;
+		};
 		return raw?.ok === false && raw.error === "no reply";
 	} catch {
 		return false;

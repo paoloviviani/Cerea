@@ -299,8 +299,14 @@ that the kernel enforces.
 - **Checked at start-up** (the manager refuses to start otherwise): a reservation must not exceed its limit, and
   one sandbox's limit (and maximum) must not exceed the total. An unset maximum is lowered to the total for you.
 - **When the cap is hit.** The kernel kills a process that passes the sandbox's memory limit, or the slice's.
-  The call fails with "the sandbox ran out of memory", the sandbox is released (its reservation is free again),
-  and the next call gets a fresh one with no earlier variables. The model is told.
+  After a failed call the manager asks Docker whether the sandbox was OOM-killed or is no longer running. If so
+  it answers `410` (`oom_killed` or `sandbox_gone`) and releases the lease at once, so its reservation is free;
+  the chat says "the sandbox ran out of memory" and the next call gets a fresh sandbox with no earlier
+  variables. When Docker cannot confirm it (the exec daemon died but the sandbox still runs), the model reads
+  "the sandbox was killed (most likely it ran out of memory)" and the chat gives that sandbox back. If Docker
+  cannot remove a released sandbox, its reservation stays counted until the manager's reaper removes it.
+- **After a restart.** The manager removes the sandboxes of a previous run first and refuses new leases
+  (`503 starting`, so the chat runs the call in the browser) until that has succeeded.
 
 **The hard cap: a systemd slice (once, on the Docker host).** Create the slice, then name it. Cerea never
 creates it, and the sandbox proxy lets sandboxes join only this one slice:
@@ -315,13 +321,24 @@ sudo systemctl daemon-reload
 systemctl show -p MemoryMax,CPUQuotaPerSecUSec cerea-sandbox.slice   # check
 ```
 
-Then set `SANDBOX_CGROUP_PARENT=cerea-sandbox.slice` in `.env` and `docker compose up -d`. The name must
-look like `name.slice` (letters, digits, `_`, `.`, `-`); the manager and the proxy refuse anything else, and
-the proxy refuses a sandbox that names a different parent or none. `./configure --check` warns (it does not
-fail) when the slice is set but systemd does not know it, or sets no cap. **Docker must use the systemd
-cgroup driver** (`docker info --format '{{.CgroupDriver}}'` says `systemd`, the default on current
-distributions). With `cgroupfs`, the value names a cgroup directory instead of a slice: `./configure --check`
-warns, and you create the cgroup by hand or switch Docker to the systemd driver.
+Then set `SANDBOX_CGROUP_PARENT=cerea-sandbox.slice` in `.env` and `docker compose up -d`.
+
+- **The name.** `name.slice` with letters, digits, `_`, `.` and `-`. A `-` in a systemd slice name means
+  nesting: `cerea-sandbox.slice` lives inside `cerea.slice` (which systemd creates empty, with no cap, if you
+  have not defined it), so cap `cerea-sandbox.slice` itself, as above. The manager, the proxy and
+  `./configure` refuse `-.slice` (the root), systemd's own `system`, `user` and `machine` slices and anything
+  under them (`user-1000.slice`), and a name with a leading, trailing or doubled `-`. The proxy also refuses a
+  sandbox that names a different parent, or none.
+- **Cgroup v2 is required** for the limits to work (`MemoryMax` is a v2 setting): `docker info --format
+'{{.CgroupVersion}}'` must say `2`, the default on current distributions.
+- **Docker must use the systemd cgroup driver** (`docker info --format '{{.CgroupDriver}}'` says `systemd`).
+  With `cgroupfs`, the value names a cgroup directory instead of a slice: you create that cgroup by hand with
+  the limits, or switch Docker to the systemd driver.
+- **Checks are warnings.** `./configure --check` warns (it does not fail) when the slice is set but systemd
+  does not know it, sets no cap, or Docker is on cgroup v1 or `cgroupfs`. It is a check on the host that runs
+  `./configure`, not a runtime guard: the manager starts either way, and a slice that does not exist is created
+  by systemd empty and caps nothing. The standalone sandbox host kit (`kit/sandbox/compose.yaml`) has no
+  `./configure`, so nothing checks it there: run the `systemctl show` line above yourself.
 
 **A small-box preset** (1.5 CPU and 1.5 GB for all sandboxes, each may burst to 1 CPU and 1 GB):
 
