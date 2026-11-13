@@ -99,9 +99,18 @@ export const mongoKeptStore: KeptStore = {
 			entry && scopeAlive(entry, now.getTime())
 				? { since: entry.since, at: now, keys: [...new Set([...entry.keys, key])].slice(-50) }
 				: { since: now, at: now, keys: [key] };
+		// Allowances of other conversations that have run out are dropped as this one is written.
+		const expired = Object.entries(device?.browserScopes ?? {})
+			.filter(([id, e]) => id !== conversationId && !scopeAlive(e, now.getTime()))
+			.map(([id]) => id);
 		await collections.codeDevices.updateOne(
 			{ _id, userId },
-			{ $set: { [`browserScopes.${conversationId}`]: next } }
+			{
+				$set: { [`browserScopes.${conversationId}`]: next },
+				...(expired.length > 0
+					? { $unset: Object.fromEntries(expired.map((id) => [`browserScopes.${id}`, ""])) }
+					: {}),
+			}
 		);
 	},
 	async clearOthers(userId, conversationId, exceptDeviceId) {
@@ -175,6 +184,23 @@ export const mongoKeptStore: KeptStore = {
 		}
 	},
 };
+
+/** A deleted conversation's allowances go with it, on every machine. */
+export async function deleteConversationBrowserScopes(
+	conversationId: ObjectId | ObjectId[]
+): Promise<void> {
+	const ids = (Array.isArray(conversationId) ? conversationId : [conversationId]).map((id) =>
+		id.toString()
+	);
+	if (ids.length === 0) return;
+	const unset: Record<string, ""> = Object.fromEntries(
+		ids.map((id) => [`browserScopes.${id}`, ""])
+	);
+	await collections.codeDevices.updateMany(
+		{ $or: ids.map((id) => ({ [`browserScopes.${id}`]: { $exists: true } })) },
+		{ $unset: unset }
+	);
+}
 
 /** In memory, for tests. */
 export function memoryKeptStore(

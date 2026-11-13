@@ -150,6 +150,20 @@ describe("sweepOrphanAttachments", () => {
 		expect(await filesOf("keepShr")).toBe(1);
 	});
 
+	it("site allowances for browsing go with the conversation, not another's", async () => {
+		const gone = new ObjectId();
+		const kept = new ObjectId();
+		const entry = { since: new Date(), at: new Date(), keys: ["https://a.test|press:f5"] };
+		const _id = new ObjectId();
+		await collections.codeDevices.insertOne({
+			_id,
+			browserScopes: { [gone.toString()]: entry, [kept.toString()]: entry },
+		} as never);
+		await deleteConversationStorage(gone);
+		const row = await collections.codeDevices.findOne({ _id });
+		expect(Object.keys(row?.browserScopes ?? {})).toEqual([kept.toString()]);
+	});
+
 	it("code keys: gone with the device, kept while it is paired", async () => {
 		const liveDevice = new ObjectId();
 		await collections.codeDevices.insertOne({ _id: liveDevice } as never);

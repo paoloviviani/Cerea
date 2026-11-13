@@ -1535,6 +1535,7 @@ describe("allow on this site for this chat (ADR 0116 section 4)", () => {
 			{ ref: "e1", role: "button", name: "+" },
 			{ ref: "e2", role: "button", name: "Pay €120" },
 			{ ref: "e3", role: "textbox", name: "Notes" },
+			{ ref: "e4", role: "button", name: "Оплатить" },
 		],
 	};
 	const partnerIcons: FakePage = {
@@ -1581,7 +1582,9 @@ describe("allow on this site for this chat (ADR 0116 section 4)", () => {
 		);
 		expect(asks).toHaveLength(1);
 		expect(asks[0].siteScope).toBe(true);
-		expect([...m.keys]).toEqual(["https://shop.example.com|click:unclassified"]);
+		expect([...m.keys]).toEqual([
+			expect.stringMatching(/^https:\/\/shop\.example\.com\|click:unclassified:[0-9a-f]{16}$/),
+		]);
 		// Both clicks ran: the second under a grant of its own that the runtime checked.
 		expect(runtime.performed.map((a) => a.type)).toEqual(["click", "click"]);
 	});
@@ -1645,10 +1648,22 @@ describe("allow on this site for this chat (ADR 0116 section 4)", () => {
 		]);
 	});
 
+	it("never offers it for a button named in another script", async () => {
+		const asks: ApprovalAsk[] = [];
+		await run(
+			[click("e4"), click("e4"), answerTurn("done")],
+			{ scopes: memoryScopes().scopes },
+			allowSite(asks)
+		);
+		expect(asks).toHaveLength(2);
+		expect(asks.every((a) => a.siteScope !== true)).toBe(true);
+	});
+
 	it("asks again on another site", async () => {
 		const asks: ApprovalAsk[] = [];
 		const m = memoryScopes();
-		m.keys.add("https://shop.example.com|click:unclassified");
+		await run([click("e1"), answerTurn("done")], { scopes: m.scopes }, allowSite([]));
+		expect(m.keys.size).toBe(1);
 		const runtime = withPages([icons, partnerIcons], "partner-icons");
 		const { deps } = setup({
 			script: [click("e1"), answerTurn("done")],
@@ -1657,6 +1672,7 @@ describe("allow on this site for this chat (ADR 0116 section 4)", () => {
 		});
 		await runBrowseLoop({ goal: "click" }, { ...deps, runtime });
 		expect(asks).toHaveLength(1);
+		expect(asks[0].siteScope).toBe(true);
 	});
 
 	it("is never used in an unattended run", async () => {

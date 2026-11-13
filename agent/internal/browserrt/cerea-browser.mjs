@@ -1,4 +1,4 @@
-// cerea-browser runtime 0.1.0; source-hash: 91e8896f3f5d2fd19ff03590cde1795737a14a2dcd84e840e385485c375d87b0
+// cerea-browser runtime 0.1.0; source-hash: 30318b3d7e20eb9890c90f52bed53e28a1c3b3ea8ea0d426d37c48855237eeab
 // inlined: @hono/node-server@2.1.8 @modelcontextprotocol/sdk@1.32.2 ajv@8.20.0 ajv-formats@3.0.1 content-type@1.0.5 fast-deep-equal@3.1.3 fast-uri@3.1.9 hono@4.13.18 json-schema-traverse@1.0.0 tldts@7.4.26 zod@3.25.76 zod-to-json-schema@3.25.2
 import { createRequire as __cr } from "node:module";
 const require = __cr(import.meta.url);
@@ -22357,7 +22357,10 @@ function normalizeKey(raw) {
     return { key: "enter", modified, kind: "enter" };
   }
   const shortcut = modifiers.some((m) => SHORTCUT_MODIFIER.test(m.trim()));
-  if (shortcut && isEditShortcut(modifiers, lower)) return { key: lower, modified, kind: "safe" };
+  if (shortcut && isEditShortcut(modifiers, lower)) {
+    const mutates = ["x", "z", "y"].includes(lower);
+    return { key: lower, modified, kind: "safe", ...mutates ? { mutates: true } : {} };
+  }
   if (last === " " || lower === "space" || lower === "spacebar") {
     return shortcut ? unknown2() : { key: "space", modified, kind: "space" };
   }
@@ -22392,6 +22395,7 @@ function submitClass(el, currentUrl) {
   return { class: "commit", reason: "submit" };
 }
 function searchClass(el, currentUrl) {
+  if (nameMeansCommit(el.name)) return { class: "commit", reason: "verb" };
   const current = hostOf(currentUrl);
   const target = el.formActionHost ? hostOf(el.formActionHost) : void 0;
   if (target && current && !sameSite(target, current)) {
@@ -22419,22 +22423,26 @@ function classifyAction(action, ctx) {
     case "fill":
       return action.submit ? submitClass(ctx.element, ctx.currentUrl) : { class: "input" };
     case "press": {
-      const { kind, modified } = normalizeKey(action.key);
+      const { kind, modified, mutates } = normalizeKey(action.key);
       if (kind === "unknown") return { class: "commit", reason: "unknown-element" };
-      if (kind === "safe") return { class: "input" };
+      const typing = (role) => role === "textbox" || role === "searchbox" || role === "combobox";
+      if (kind === "safe") {
+        if (mutates && !(action.ref && ctx.element && typing(ctx.element.role))) {
+          return { class: "commit", reason: "unknown-element" };
+        }
+        return { class: "input" };
+      }
       if (!action.ref) return { class: "commit", reason: "unknown-element" };
       const el = ctx.element;
       if (!el) return { class: "commit", reason: "unknown-element" };
       if (kind === "enter" && modified) return { class: "commit", reason: "submit" };
-      const typing = el.role === "textbox" || el.role === "searchbox" || el.role === "combobox";
-      if (!typing) return classifyAction({ type: "click", ref: el.ref }, ctx);
+      if (!typing(el.role)) return classifyAction({ type: "click", ref: el.ref }, ctx);
       if (kind === "enter") {
+        if (el.editable) return { class: "commit", reason: "submit" };
         if (el.search) return searchClass(el, ctx.currentUrl);
-        if ((el.form || el.submits) && el.formSubmit !== false) {
-          return submitClass(el, ctx.currentUrl);
-        }
-        if (el.editable && !el.form) return { class: "commit", reason: "submit" };
-        return { class: "input" };
+        if (el.form && el.formSubmit === false) return { class: "input" };
+        if (el.form || el.submits) return submitClass(el, ctx.currentUrl);
+        return { class: "commit", reason: "submit" };
       }
       return { class: "input" };
     }
@@ -22468,6 +22476,11 @@ function classifyAction(action, ctx) {
         if (submitted.class === "commit") return submitted;
       }
       if (nameMeansCommit(el.name)) return { class: "commit", reason: "verb" };
+      const hint = el.name.trim() ? "" : el.hint ?? "";
+      if (hint && nameMeansCommit(hint)) return { class: "commit", reason: "verb" };
+      if (el.role === "button" && hint.trim() && !hasLatinLetters(hint)) {
+        return { class: "commit", reason: "unclassified" };
+      }
       if (el.role === "button" && el.name.trim() && !hasLatinLetters(el.name)) {
         return { class: "commit", reason: "unclassified" };
       }
@@ -23180,7 +23193,11 @@ function pageMeta(el) {
     formId = form.id || form.getAttribute("name") || `form${index + 1}`;
   }
   const submitter = tag === "button" && (control.type === "submit" || !control.getAttribute("type")) || tag === "input" && (type === "submit" || type === "image");
-  const rawMethod = (el.getAttribute("formmethod") || form?.getAttribute("method") || "get").toLowerCase();
+  const defaultButton = form && !submitter ? Array.from(form.elements).find((c) => {
+    const t = c.tagName.toLowerCase();
+    return t === "button" && c.type === "submit" || t === "input" && (c.type === "submit" || c.type === "image");
+  }) : void 0;
+  const rawMethod = (el.getAttribute("formmethod") || defaultButton?.getAttribute("formmethod") || form?.getAttribute("method") || "get").toLowerCase();
   const anchor = el.closest("a");
   let formSubmit;
   let singleSearchField = false;
@@ -23238,7 +23255,7 @@ function pageMeta(el) {
     ...form ? (() => {
       try {
         const action = new URL(
-          el.getAttribute("formaction") || form.getAttribute("action") || location.href,
+          el.getAttribute("formaction") || defaultButton?.getAttribute("formaction") || form.getAttribute("action") || location.href,
           location.href
         );
         return action.protocol === "http:" || action.protocol === "https:" ? { formActionHost: action.hostname.toLowerCase() } : {};
@@ -24354,10 +24371,15 @@ url: about:blank
       if (action.type !== "navigate" && page.url() !== before && !page.isClosed()) {
         outcome = clean(`${outcome}; the page navigated to ${clean(page.url(), 150)}`, 300);
       }
-      if (klass === "commit" && classified.reason === "new-domain" && !page.isClosed() && this.adopted.has(page)) {
+      if (klass === "commit" && classified.reason === "new-domain" && classified.targetHost && !page.isClosed() && this.adopted.has(page)) {
         const info = this.lentInfo.get(page);
         const now = originOfUrl(page.url());
-        if (info && now !== "" && now !== info.origin) {
+        let landed = "";
+        try {
+          landed = new URL(page.url()).hostname.toLowerCase();
+        } catch {
+        }
+        if (info && now !== "" && now !== info.origin && landed === classified.targetHost) {
           this.lentInfo.set(page, { origin: now, since: info.since });
         }
       }

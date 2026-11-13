@@ -171,8 +171,20 @@ function pageMeta(el: Element): DomMeta {
 	const submitter =
 		(tag === "button" && (control.type === "submit" || !control.getAttribute("type"))) ||
 		(tag === "input" && (type === "submit" || type === "image"));
+	// A field is submitted by its form's default button, which may carry its own method and action.
+	const defaultButton =
+		form && !submitter
+			? (Array.from(form.elements) as HTMLInputElement[]).find((c) => {
+					const t = c.tagName.toLowerCase();
+					return (
+						(t === "button" && c.type === "submit") ||
+						(t === "input" && (c.type === "submit" || c.type === "image"))
+					);
+				})
+			: undefined;
 	const rawMethod = (
 		el.getAttribute("formmethod") ||
+		defaultButton?.getAttribute("formmethod") ||
 		form?.getAttribute("method") ||
 		"get"
 	).toLowerCase();
@@ -275,7 +287,10 @@ function pageMeta(el: Element): DomMeta {
 			? (() => {
 					try {
 						const action = new URL(
-							el.getAttribute("formaction") || form.getAttribute("action") || location.href,
+							el.getAttribute("formaction") ||
+								defaultButton?.getAttribute("formaction") ||
+								form.getAttribute("action") ||
+								location.href,
 							location.href
 						);
 						return action.protocol === "http:" || action.protocol === "https:"
@@ -1626,15 +1641,23 @@ export class BrowserSession {
 			// A tab the user lent stays lent when Cerea itself takes it to another site with an approval
 			// (the leaving had its own question): the lent origin follows it. A tab the user moves by
 			// themselves is never followed: `endTask` and `resume` then see an origin that differs.
+			// Only the approved host counts: a redirect to anywhere else is not carried over.
 			if (
 				klass === "commit" &&
 				classified.reason === "new-domain" &&
+				classified.targetHost &&
 				!page.isClosed() &&
 				this.adopted.has(page)
 			) {
 				const info = this.lentInfo.get(page);
 				const now = originOfUrl(page.url());
-				if (info && now !== "" && now !== info.origin) {
+				let landed = "";
+				try {
+					landed = new URL(page.url()).hostname.toLowerCase();
+				} catch {
+					// Not an address: nothing to follow.
+				}
+				if (info && now !== "" && now !== info.origin && landed === classified.targetHost) {
 					this.lentInfo.set(page, { origin: now, since: info.since });
 				}
 			}

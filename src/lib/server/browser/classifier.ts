@@ -210,7 +210,13 @@ export type KeyKind = "enter" | "space" | "safe" | "unknown";
  * whitespace character, a key with a shortcut modifier, an unknown name) is `unknown`, which the
  * classifier treats as a commit.
  */
-export function normalizeKey(raw: string): { key: string; modified: boolean; kind: KeyKind } {
+export function normalizeKey(raw: string): {
+	key: string;
+	modified: boolean;
+	kind: KeyKind;
+	/** Cut, undo or redo: changes the field's text, so it needs a text field to act on. */
+	mutates?: true;
+} {
 	let modifiers: string[];
 	let last: string;
 	if (raw.endsWith("++") || raw === "+") {
@@ -222,7 +228,7 @@ export function normalizeKey(raw: string): { key: string; modified: boolean; kin
 		modifiers = parts.slice(0, -1);
 	}
 	const modified = modifiers.length > 0;
-	const unknown = (): { key: string; modified: boolean; kind: KeyKind } => ({
+	const unknown = (): { key: string; modified: boolean; kind: KeyKind; mutates?: true } => ({
 		key: last.toLowerCase(),
 		modified,
 		kind: "unknown",
@@ -238,7 +244,10 @@ export function normalizeKey(raw: string): { key: string; modified: boolean; kin
 		return { key: "enter", modified, kind: "enter" };
 	}
 	const shortcut = modifiers.some((m) => SHORTCUT_MODIFIER.test(m.trim()));
-	if (shortcut && isEditShortcut(modifiers, lower)) return { key: lower, modified, kind: "safe" };
+	if (shortcut && isEditShortcut(modifiers, lower)) {
+		const mutates = ["x", "z", "y"].includes(lower);
+		return { key: lower, modified, kind: "safe", ...(mutates ? { mutates: true as const } : {}) };
+	}
 	if (last === " " || lower === "space" || lower === "spacebar") {
 		return shortcut ? unknown() : { key: "space", modified, kind: "space" };
 	}
@@ -306,6 +315,7 @@ function submitClass(el: SnapshotElement | undefined, currentUrl: string): Class
 
 /** Submitting a search: a read, unless the form sends it to another site. */
 function searchClass(el: SnapshotElement, currentUrl: string): Classification {
+	if (nameMeansCommit(el.name)) return { class: "commit", reason: "verb" };
 	const current = hostOf(currentUrl);
 	const target = el.formActionHost ? hostOf(el.formActionHost) : undefined;
 	if (target && current && !sameSite(target, current)) {
@@ -337,31 +347,37 @@ export function classifyAction(action: BrowserAction, ctx: ClassifyContext): Cla
 		case "fill":
 			return action.submit ? submitClass(ctx.element, ctx.currentUrl) : { class: "input" };
 		case "press": {
-			const { kind, modified } = normalizeKey(action.key);
+			const { kind, modified, mutates } = normalizeKey(action.key);
 			if (kind === "unknown") return { class: "commit", reason: "unknown-element" };
-			if (kind === "safe") return { class: "input" };
+			const typing = (role: string) =>
+				role === "textbox" || role === "searchbox" || role === "combobox";
+			if (kind === "safe") {
+				// Cut, undo and redo change a field's text: they need a text field named, or fail closed.
+				if (mutates && !(action.ref && ctx.element && typing(ctx.element.role))) {
+					return { class: "commit", reason: "unknown-element" };
+				}
+				return { class: "input" };
+			}
 			// Enter or Space with no target element acts on whatever has focus: unknown.
 			if (!action.ref) return { class: "commit", reason: "unknown-element" };
 			const el = ctx.element;
 			if (!el) return { class: "commit", reason: "unknown-element" };
 			// A modified Enter (Control+Enter, Meta+Enter, Shift+Enter) sends or submits in most apps.
 			if (kind === "enter" && modified) return { class: "commit", reason: "submit" };
-			const typing = el.role === "textbox" || el.role === "searchbox" || el.role === "combobox";
 			// Enter or Space on anything that is not a place to type is a click on it: the verb,
 			// href, download and cross-site rules apply whatever its role.
-			if (!typing) return classifyAction({ type: "click", ref: el.ref }, ctx);
+			if (!typing(el.role)) return classifyAction({ type: "click", ref: el.ref }, ctx);
 			if (kind === "enter") {
-				// A search box submitted by Enter reads, unless it sends the search to another site.
+				// A rich-text editor sends on Enter (Slack, WhatsApp Web, Discord), form or not.
+				if (el.editable) return { class: "commit", reason: "submit" };
+				// A search box submitted by Enter reads, unless it leaves the site or the name is a verb.
 				if (el.search) return searchClass(el, ctx.currentUrl);
-				// Enter submits a field's form only when the form has a submit control (or this is its
-				// one text field); an older runtime that does not say is read as "it does".
-				if ((el.form || el.submits) && el.formSubmit !== false) {
-					return submitClass(el, ctx.currentUrl);
-				}
-				// A rich-text editor with no form sends on Enter (Slack, WhatsApp Web, Discord); a lone
-				// field with no form or submit control only takes the key.
-				if (el.editable && !el.form) return { class: "commit", reason: "submit" };
-				return { class: "input" };
+				// Enter in a field of a form with no submit control only takes the key. Anything else
+				// submits or sends (a form's submit control, or a page script that listens for Enter):
+				// the same as typing with `submit`.
+				if (el.form && el.formSubmit === false) return { class: "input" };
+				if (el.form || el.submits) return submitClass(el, ctx.currentUrl);
+				return { class: "commit", reason: "submit" };
 			}
 			return { class: "input" };
 		}
@@ -407,6 +423,12 @@ export function classifyAction(action: BrowserAction, ctx: ClassifyContext): Cla
 			// The name of every click target counts, whatever its role: a div with an onclick is
 			// still "Delete".
 			if (nameMeansCommit(el.name)) return { class: "commit", reason: "verb" };
+			// A control with no name is told apart by its hint (title, description, icon text).
+			const hint = el.name.trim() ? "" : (el.hint ?? "");
+			if (hint && nameMeansCommit(hint)) return { class: "commit", reason: "verb" };
+			if (el.role === "button" && hint.trim() && !hasLatinLetters(hint)) {
+				return { class: "commit", reason: "unclassified" };
+			}
 			// A button named in a script we cannot read (or only a symbol) cannot be classified. One with
 			// no name at all is judged like any other: it commits only when it submits a form (above).
 			if (el.role === "button" && el.name.trim() && !hasLatinLetters(el.name)) {

@@ -220,6 +220,21 @@ describe("act", () => {
 			"approval_required"
 		);
 		assert.equal((await r.act([{ type: "press", key: "Enter", ref: where }])).results[0].ok, true);
+		// A GET form whose default button posts is not a search.
+		const phrase = r.ref(snap, "textbox", "Phrase");
+		assert.equal(
+			(await r.act([{ type: "press", key: "Enter", ref: phrase }])).results[0].refused,
+			"approval_required"
+		);
+		// Cut, undo and redo need a text field named.
+		assert.equal(
+			(await r.act([{ type: "press", key: "Control+x" }])).results[0].refused,
+			"approval_required"
+		);
+		assert.equal(
+			(await r.act([{ type: "press", key: "Control+x", ref: first }])).results[0].ok,
+			true
+		);
 		assert.equal(r.fx.hits.posts.length, posts);
 	});
 

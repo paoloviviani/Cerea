@@ -54,6 +54,13 @@ describe("snapshot", () => {
 		assert.equal(icon.hint, "Add attendee");
 		assert.equal(icon.formLabel, "Attendances");
 		assert.equal(icon.submits, undefined, "a type=button is not a submit control");
+		const phrase = r.element(snap, r.ref(snap, "textbox", "Phrase"));
+		assert.equal(
+			phrase.formMethod,
+			"post",
+			"the form's default button posts, whatever the form says"
+		);
+		assert.equal(phrase.search, undefined, "so it is not a search");
 		const search = await r.goto("/search");
 		const box = r.element(search, r.ref(search, "searchbox", "Query"));
 		assert.equal(box.search, true, "a GET form with a search field");

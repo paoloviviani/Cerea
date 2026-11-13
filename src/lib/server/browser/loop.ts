@@ -449,9 +449,10 @@ function plainAddress(raw: string): string {
 function scopeAllowanceKey(
 	action: BrowserAction,
 	classification: Classification,
-	url: string
+	url: string,
+	element: SnapshotElement | undefined
 ): string | undefined {
-	const kind = scopeKey(action, classification);
+	const kind = scopeKey(action, classification, element);
 	const origin = scopeOrigin(url);
 	return kind && origin ? `${origin}|${kind}` : undefined;
 }
@@ -885,7 +886,7 @@ async function runInner(
 			const scopes = deps.unattended ? undefined : deps.scopes;
 			const allowance =
 				decision.verdict === "ask" && scopes
-					? scopeAllowanceKey(action, classification, finalUrl)
+					? scopeAllowanceKey(action, classification, finalUrl, ctx.element)
 					: undefined;
 			const allowed = allowance !== undefined && (await scopes?.has(allowance).catch(() => false));
 
@@ -1012,15 +1013,19 @@ async function runInner(
 					if (tabHost) adoptedSites.add(siteOf(tabHost));
 				}
 				// Cerea itself took the user's lent tab to another site, with its own approval: the tab
-				// stays lent, on the new site (the runtime follows it, so no new "use your tab" later).
+				// stays lent, on that site (the runtime follows it, so no new "use your tab" later). Only
+				// the host that was approved counts: a redirect elsewhere is not carried over.
 				if (
-					action.type === "navigate" &&
+					(action.type === "navigate" || action.type === "click") &&
 					shared.adopted.size > 0 &&
 					approvedBy &&
-					classification.reason === "new-domain"
+					classification.reason === "new-domain" &&
+					classification.targetHost
 				) {
 					const movedTo = hostOf(finalUrl);
-					if (movedTo) adoptedSites.add(siteOf(movedTo));
+					if (movedTo && movedTo === classification.targetHost.toLowerCase()) {
+						adoptedSites.add(siteOf(movedTo));
+					}
 				}
 				fail("ok", short(sanitizeText(r.outcome ?? "done"), 80));
 				note(

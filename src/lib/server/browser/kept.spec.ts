@@ -37,25 +37,44 @@ describe("the site allowance's lifetime", () => {
 
 describe("which asks may be allowed for a site", () => {
 	const commit = (reason: string) => ({ class: "commit" as const, reason: reason as never });
-	it("offers an unreadable button and an unknown key, not a paste", () => {
-		expect(scopeKey({ type: "click", ref: "e1" }, commit("unclassified"))).toBe(
-			"click:unclassified"
-		);
-		expect(scopeKey({ type: "press", key: "F5" }, commit("unknown-element"))).toBe("press:f5");
-		expect(
-			scopeKey({ type: "press", key: "Control+v" }, commit("unknown-element"))
-		).toBeUndefined();
-		expect(
-			scopeKey({ type: "press", key: "Shift+Insert" }, commit("unknown-element"))
-		).toBeUndefined();
+	const button = (name: string, hint?: string) => ({
+		ref: "e1",
+		role: "button",
+		name,
+		...(hint ? { hint } : {}),
+	});
+	const click = { type: "click" as const, ref: "e1" };
+	it("offers a bare-symbol button, keyed on that control", () => {
+		const plus = scopeKey(click, commit("unclassified"), button("+"));
+		expect(plus).toMatch(/^click:unclassified:[0-9a-f]{16}$/);
+		expect(scopeKey(click, commit("unclassified"), button("", "+"))).toBe(plus);
+		expect(scopeKey(click, commit("unclassified"), button("⋯"))).not.toBe(plus);
+	});
+	it("never offers a button named in another script, or with no element", () => {
+		expect(scopeKey(click, commit("unclassified"), button("Оплатить"))).toBeUndefined();
+		expect(scopeKey(click, commit("unclassified"), button("購入する"))).toBeUndefined();
+		expect(scopeKey(click, commit("unclassified"), button("+ Оплатить"))).toBeUndefined();
+		expect(scopeKey(click, commit("unclassified"))).toBeUndefined();
+	});
+	it("keys a key press on its canonical chord, and offers no paste, Enter or non-chord", () => {
+		const key = (k: string) => scopeKey({ type: "press", key: k }, commit("unknown-element"));
+		expect(key("F5")).toBe("press:f5");
+		expect(key("Alt+F4")).toBe("press:alt+f4");
+		expect(key("Control+Alt+F4")).toBe(key("Alt+Control+F4"));
+		expect(key("Ctrl+Alt+F4")).toBe(key("Control+Alt+F4"));
+		expect(key("Control+v")).toBeUndefined();
+		expect(key("Shift+Insert")).toBeUndefined();
+		expect(key("Foo+F5")).toBeUndefined();
+		expect(key("Control+Enter")).toBeUndefined();
+		expect(key("Alt+Space")).toBeUndefined();
 	});
 	it("never offers a hard commit, Enter, or a read", () => {
 		for (const reason of ["submit", "verb", "download", "new-domain", "user-tab", "bad-url"]) {
-			expect(scopeKey({ type: "click", ref: "e1" }, commit(reason)), reason).toBeUndefined();
+			expect(scopeKey(click, commit(reason), button("+")), reason).toBeUndefined();
 		}
 		expect(scopeKey({ type: "press", key: "Enter" }, commit("unknown-element"))).toBeUndefined();
 		expect(scopeKey({ type: "press", key: " " }, commit("unknown-element"))).toBeUndefined();
-		expect(scopeKey({ type: "click", ref: "e1" }, { class: "read" })).toBeUndefined();
+		expect(scopeKey(click, { class: "read" }, button("+"))).toBeUndefined();
 	});
 	it("takes the origin of a web page only", () => {
 		expect(scopeOrigin("https://a.test:8443/x?y=1")).toBe("https://a.test:8443");

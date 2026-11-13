@@ -105,7 +105,8 @@ export async function startFixtures(): Promise<Fixtures> {
 <form method="post" action="/form"><label>Lone <input name="c" type="text"></label></form>
 <div role="search"><label>Where to <input name="where" type="text"></label></div>
 <div role="textbox" contenteditable="true" aria-label="Message"></div>
-<label>Free <input name="free" type="text"></label>`
+<label>Free <input name="free" type="text"></label>
+<form method="get" action="/search"><label>Phrase <input name="q" type="text"></label><button type="submit" formmethod="post" formaction="/form">Go</button></form>`
 				)
 			);
 		}

@@ -163,8 +163,8 @@ const rows: Row[] = [
 	{
 		label: "Enter in a search box that is not in a form",
 		action: { type: "press", key: "Enter", ref: "e1" },
-		element: el({ role: "searchbox", name: "Search" }),
-		expect: "input",
+		element: el({ role: "searchbox", name: "Search", search: true }),
+		expect: "read",
 	},
 	{
 		label: "submitting a search form (GET)",
@@ -427,10 +427,32 @@ const rows: Row[] = [
 		reason: "submit",
 	},
 	{
-		label: "Enter in a lone field with no form is typing",
+		label: "Enter in a lone field with no form still submits (a page script may listen for it)",
 		action: { type: "press", key: "Enter", ref: "e1" },
 		element: el({ role: "textbox", name: "Notes" }),
-		expect: "input",
+		expect: "commit",
+		reason: "submit",
+	},
+	{
+		label: "Enter in an editor in a form is still a send",
+		action: { type: "press", key: "Enter", ref: "e1" },
+		element: el({ role: "textbox", name: "Body", form: "f1", formSubmit: false, editable: true }),
+		expect: "commit",
+		reason: "submit",
+	},
+	{
+		label: "an editor that is also a search box is judged as an editor",
+		action: { type: "press", key: "Enter", ref: "e1" },
+		element: el({ role: "textbox", name: "Search", editable: true, search: true }),
+		expect: "commit",
+		reason: "submit",
+	},
+	{
+		label: "Enter in a search box named like a verb asks",
+		action: { type: "press", key: "Enter", ref: "e1" },
+		element: el({ role: "searchbox", name: "Send to", search: true }),
+		expect: "commit",
+		reason: "verb",
 	},
 	{
 		label: "Enter in a field of a form that has a submit control",
@@ -517,7 +539,8 @@ const rows: Row[] = [
 	},
 	{
 		label: "Meta+Shift+Z is redo",
-		action: { type: "press", key: "Meta+Shift+Z" },
+		action: { type: "press", key: "Meta+Shift+Z", ref: "e1" },
+		element: el({ role: "textbox", name: "Notes" }),
 		expect: "input",
 	},
 	{
@@ -564,10 +587,11 @@ const rows: Row[] = [
 	},
 	// L3: a combobox with no form sends like a text box
 	{
-		label: "Enter in a combobox with no form is choosing",
+		label: "Enter in a combobox with no form",
 		action: { type: "press", key: "Enter", ref: "e1" },
 		element: el({ role: "combobox", name: "To" }),
-		expect: "input",
+		expect: "commit",
+		reason: "submit",
 	},
 	{
 		label: "Enter in a search combobox in a same-site GET form",
@@ -757,10 +781,48 @@ const rows: Row[] = [
 		expect: "read",
 	},
 	{
-		label: "an unlabelled icon button with a hint reads",
+		label: "an unlabelled icon button whose hint is a word reads",
 		action: { type: "click", ref: "e1" },
-		element: el({ name: "  ", hint: "+" }),
+		element: el({ name: "  ", hint: "Add" }),
 		expect: "read",
+	},
+	{
+		label: "an unlabelled icon button whose hint is a bare symbol cannot be read: asks",
+		action: { type: "click", ref: "e1" },
+		element: el({ name: "", hint: "🗑" }),
+		expect: "commit",
+		reason: "unclassified",
+	},
+	{
+		label: "an unlabelled icon button whose hint is a commit verb asks",
+		action: { type: "click", ref: "e1" },
+		element: el({ name: "", hint: "Delete" }),
+		expect: "commit",
+		reason: "verb",
+	},
+	{
+		label: "Control+x with a text field named is field editing",
+		action: { type: "press", key: "Control+x", ref: "e1" },
+		element: el({ role: "textbox", name: "Notes" }),
+		expect: "input",
+	},
+	{
+		label: "Control+x with no field named fails closed",
+		action: { type: "press", key: "Control+x" },
+		expect: "commit",
+		reason: "unknown-element",
+	},
+	{
+		label: "Control+z on a button fails closed",
+		action: { type: "press", key: "Control+z", ref: "e1" },
+		element: el({ role: "button", name: "Next" }),
+		expect: "commit",
+		reason: "unknown-element",
+	},
+	{
+		label: "Control+c needs no field",
+		action: { type: "press", key: "Control+c" },
+		expect: "input",
 	},
 	{
 		label: "an unlabelled submit button of a POST form is a commit",

@@ -9,26 +9,68 @@
  * offered for those. Pasting is left out too, as it puts the user's clipboard into the page.
  */
 
-import type { BrowserAction } from "./contract";
-import { normalizeKey, type Classification } from "./classifier";
+import { createHash } from "node:crypto";
+import type { BrowserAction, SnapshotElement } from "./contract";
+import { normalizeKey, normalizeName, type Classification } from "./classifier";
+import { sanitizeText } from "./sanitize";
+
+const MODIFIER_NAMES: Record<string, string> = {
+	control: "control",
+	ctrl: "control",
+	alt: "alt",
+	option: "alt",
+	shift: "shift",
+	meta: "meta",
+	cmd: "meta",
+	command: "meta",
+	mod: "mod",
+	controlormeta: "mod",
+};
+
+/** A key as one canonical chord (sorted, lower-case modifiers and the key), or undefined when it is not one. */
+function chordOf(raw: string): string | undefined {
+	const plus = raw.endsWith("++") || raw === "+";
+	const parts = plus ? [...(raw === "+" ? [] : raw.slice(0, -2).split("+")), "+"] : raw.split("+");
+	const last = parts.at(-1) ?? "";
+	const names: string[] = [];
+	for (const m of parts.slice(0, -1)) {
+		const name = MODIFIER_NAMES[m.trim().toLowerCase()];
+		if (!name) return undefined;
+		names.push(name);
+	}
+	const key = last.toLowerCase();
+	if (!key.trim() || ["enter", "return", "numpadenter", "space", "spacebar"].includes(key)) {
+		return undefined;
+	}
+	return [...new Set(names)].sort().concat(key).join("+");
+}
 
 /** The allowance key for an ask, or undefined when only "Allow this action" is offered. */
 export function scopeKey(
 	action: BrowserAction,
-	classification: Classification
+	classification: Classification,
+	element?: SnapshotElement
 ): string | undefined {
 	if (classification.class !== "commit") return undefined;
 	if (action.type === "click" && classification.reason === "unclassified") {
-		return "click:unclassified";
+		// Only a control that is a bare symbol ("+", "⋯"): a button named in another script
+		// ("Оплатить", "購入する") could be anything, and is asked about each time. The key names
+		// the control, so one allowance is for that one symbol.
+		if (!element) return undefined;
+		const text = sanitizeText(element.name.trim() ? element.name : (element.hint ?? "")).trim();
+		if (!text || /\p{L}/u.test(text)) return undefined;
+		return `click:unclassified:${createHash("sha256").update(normalizeName(text)).digest("hex").slice(0, 16)}`;
 	}
 	if (action.type === "press" && classification.reason === "unknown-element") {
-		const { key, kind } = normalizeKey(action.key);
+		const { kind } = normalizeKey(action.key);
 		// Enter or Space with nothing named acts on whatever has focus: it may submit. Only a key
 		// the browser does not know qualifies.
 		if (kind !== "unknown") return undefined;
+		const chord = chordOf(action.key);
+		if (!chord) return undefined;
 		// Paste would put the user's clipboard into the page.
-		if (/(^|\+)(v|insert)$/i.test(action.key)) return undefined;
-		return `press:${key}`;
+		if (/(^|\+)(v|insert)$/.test(chord)) return undefined;
+		return `press:${chord}`;
 	}
 	return undefined;
 }
