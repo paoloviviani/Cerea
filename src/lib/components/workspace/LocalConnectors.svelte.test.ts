@@ -149,13 +149,16 @@ describe("LocalConnectors", () => {
 		expect(screen.baseElement.querySelector('[data-testid="local-howto"]')).toBeNull();
 	});
 
-	it("shows the whole how-to, with this deployment's address, while no machine is paired", async () => {
+	it("folds the how-to behind Set up a computer, then shows it with this deployment's address", async () => {
 		stubApi(() => []);
 		const screen = mount();
 
 		await expect
 			.element(screen.getByRole("heading", { name: "Connect a computer" }))
 			.toBeInTheDocument();
+		expect(screen.baseElement.querySelector('[data-testid="local-howto-steps"]')).toBeNull();
+		await screen.getByRole("button", { name: "Set up a computer" }).click();
+		await expect.element(screen.getByRole("button", { name: "Hide" }).first()).toBeInTheDocument();
 		const byId = (id: string) =>
 			screen.baseElement.querySelector(`[data-testid="${id}"]`)?.textContent ?? "";
 		expect(byId("local-install-command")).toBe(

@@ -135,6 +135,7 @@
 	const hasMachine = $derived(paired.some((m) => m.mode === "connectors"));
 	let showAdd = $state(false);
 	let showBrowserSetup = $state(false);
+	let showHowto = $state(false);
 
 	let epoch = 0;
 	async function refresh() {
@@ -305,7 +306,7 @@ loginctl enable-linger "$USER"`;
 	</p>
 {/snippet}
 
-{#snippet instructions()}
+{#snippet instructions(collapsible: boolean)}
 	<div class="rounded-2xl border border-line bg-surface p-4 sm:p-6" data-testid="local-howto">
 		<div class="flex items-start gap-3">
 			<div class="{s.STRIP_TILE} shrink-0">
@@ -321,83 +322,110 @@ loginctl enable-linger "$USER"`;
 			</div>
 		</div>
 
-		{@render step(1, m["workspace.local.howto.step1"]())}
-		{@render code(commands.install, "local-install-command")}
-		<p class="mt-1 text-xs text-ink-muted">
-			<Rich parts={m["workspace.local.howto.install_note"].parts()} tags={{ code: inlineCode }} />
-		</p>
-
-		{@render step(2, m["workspace.local.howto.step2"]())}
-		{@render code(commands.enroll, "local-enroll-command")}
-		<details class="mt-2 text-xs text-ink-muted" data-testid="local-older">
-			<summary class="cursor-pointer">{m["code.pair.older_galopin"]()}</summary>
-			<p class="mt-2">{m["code.pair.older_galopin_note"]()}</p>
-			<div class="mt-2">{@render code(commands.enrollExplicit, "local-explicit")}</div>
-		</details>
-		<p class="mt-1 text-xs text-ink-muted">
-			{m["workspace.local.howto.enroll_note"]()}
-		</p>
-
-		{@render step(3, m["workspace.local.howto.step3"]())}
-		<p class="mt-1 text-xs text-ink-muted">
-			<Rich parts={m["workspace.local.howto.signin_note"].parts()} tags={{ code: inlineCode }} />
-		</p>
-
-		{@render step(4, m["workspace.local.howto.step4"]())}
-		{@render code(commands.run, "local-run-command")}
-		<details class="mt-2 text-xs text-ink-muted">
-			<summary class="cursor-pointer">{m["workspace.local.howto.service"]()}</summary>
-			<div class="mt-2 space-y-2">
-				<p>
+		{#if collapsible}
+			<button
+				type="button"
+				class="{s.SECONDARY} mt-3"
+				aria-expanded={showHowto}
+				data-testid="local-howto-toggle"
+				onclick={() => (showHowto = !showHowto)}
+			>
+				{showHowto ? m["workspace.local.hide"]() : m["workspace.local.howto.setup_show"]()}
+			</button>
+		{/if}
+		{#if !collapsible || showHowto}
+			<div data-testid="local-howto-steps">
+				{@render step(1, m["workspace.local.howto.step1"]())}
+				{@render code(commands.install, "local-install-command")}
+				<p class="mt-1 text-xs text-ink-muted">
 					<Rich
-						parts={m["workspace.local.howto.service_save"].parts()}
+						parts={m["workspace.local.howto.install_note"].parts()}
 						tags={{ code: inlineCode }}
 					/>
 				</p>
-				{@render code(SERVICE_UNIT)}
-				{@render code(SERVICE_COMMANDS)}
-				<p>
+
+				{@render step(2, m["workspace.local.howto.step2"]())}
+				{@render code(commands.enroll, "local-enroll-command")}
+				<details class="mt-2 text-xs text-ink-muted" data-testid="local-older">
+					<summary class="cursor-pointer">{m["code.pair.older_galopin"]()}</summary>
+					<p class="mt-2">{m["code.pair.older_galopin_note"]()}</p>
+					<div class="mt-2">{@render code(commands.enrollExplicit, "local-explicit")}</div>
+				</details>
+				<p class="mt-1 text-xs text-ink-muted">
+					{m["workspace.local.howto.enroll_note"]()}
+				</p>
+
+				{@render step(3, m["workspace.local.howto.step3"]())}
+				<p class="mt-1 text-xs text-ink-muted">
 					<Rich
-						parts={m["workspace.local.howto.service_note"].parts({ var: "${VAR}" })}
+						parts={m["workspace.local.howto.signin_note"].parts()}
 						tags={{ code: inlineCode }}
+					/>
+				</p>
+
+				{@render step(4, m["workspace.local.howto.step4"]())}
+				{@render code(commands.run, "local-run-command")}
+				<details class="mt-2 text-xs text-ink-muted">
+					<summary class="cursor-pointer">{m["workspace.local.howto.service"]()}</summary>
+					<div class="mt-2 space-y-2">
+						<p>
+							<Rich
+								parts={m["workspace.local.howto.service_save"].parts()}
+								tags={{ code: inlineCode }}
+							/>
+						</p>
+						{@render code(SERVICE_UNIT)}
+						{@render code(SERVICE_COMMANDS)}
+						<p>
+							<Rich
+								parts={m["workspace.local.howto.service_note"].parts({ var: "${VAR}" })}
+								tags={{ code: inlineCode }}
+							/>
+						</p>
+					</div>
+				</details>
+
+				{@render step(5, m["workspace.local.howto.step5"]())}
+				<p class="mb-2 text-xs text-ink-muted">
+					<Rich
+						parts={m["workspace.local.howto.config_note"].parts()}
+						tags={{ code: inlineCode }}
+					/>
+				</p>
+				{@render code(MCP_JSON, "local-mcp-json")}
+				<ul class="mt-2 list-disc space-y-1 pl-5 text-xs text-ink-muted">
+					<li>
+						<Rich
+							parts={m["workspace.local.howto.bullet_command"].parts({ var: "${VAR}" })}
+							tags={{ code: inlineCode, strong }}
+						/>
+					</li>
+					<li>
+						<Rich
+							parts={m["workspace.local.howto.bullet_allowed"].parts()}
+							tags={{ code: inlineCode }}
+						/>
+					</li>
+					<li>
+						<Rich
+							parts={m["workspace.local.howto.bullet_description"].parts()}
+							tags={{ code: inlineCode }}
+						/>
+					</li>
+					<li>
+						{m["workspace.local.howto.bullet_edits"]()}
+					</li>
+				</ul>
+
+				{@render step(6, m["workspace.local.howto.step6"]())}
+				<p class="text-xs text-ink-muted">
+					<Rich
+						parts={m["workspace.local.howto.approve_note"].parts()}
+						tags={{ em, link: docsLink }}
 					/>
 				</p>
 			</div>
-		</details>
-
-		{@render step(5, m["workspace.local.howto.step5"]())}
-		<p class="mb-2 text-xs text-ink-muted">
-			<Rich parts={m["workspace.local.howto.config_note"].parts()} tags={{ code: inlineCode }} />
-		</p>
-		{@render code(MCP_JSON, "local-mcp-json")}
-		<ul class="mt-2 list-disc space-y-1 pl-5 text-xs text-ink-muted">
-			<li>
-				<Rich
-					parts={m["workspace.local.howto.bullet_command"].parts({ var: "${VAR}" })}
-					tags={{ code: inlineCode, strong }}
-				/>
-			</li>
-			<li>
-				<Rich
-					parts={m["workspace.local.howto.bullet_allowed"].parts()}
-					tags={{ code: inlineCode }}
-				/>
-			</li>
-			<li>
-				<Rich
-					parts={m["workspace.local.howto.bullet_description"].parts()}
-					tags={{ code: inlineCode }}
-				/>
-			</li>
-			<li>
-				{m["workspace.local.howto.bullet_edits"]()}
-			</li>
-		</ul>
-
-		{@render step(6, m["workspace.local.howto.step6"]())}
-		<p class="text-xs text-ink-muted">
-			<Rich parts={m["workspace.local.howto.approve_note"].parts()} tags={{ em, link: docsLink }} />
-		</p>
+		{/if}
 	</div>
 {/snippet}
 
@@ -509,7 +537,7 @@ loginctl enable-linger "$USER"`;
 		<p class="text-sm text-ink-muted">{m["workspace.local.loading"]()}</p>
 	{:else}
 		{#if !hasMachine}
-			{@render instructions()}
+			{@render instructions(true)}
 		{/if}
 		{#if showBrowserCard}
 			{@render browserCard()}
@@ -714,7 +742,7 @@ loginctl enable-linger "$USER"`;
 				</button>
 				{#if showAdd}
 					<div class="mt-3">
-						{@render instructions()}
+						{@render instructions(false)}
 					</div>
 				{/if}
 			</section>
