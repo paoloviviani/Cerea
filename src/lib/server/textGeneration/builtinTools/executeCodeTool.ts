@@ -5,6 +5,8 @@ import { NO_OUTCOME_RECORDED, OUTPUT_ROOT } from "$lib/utils/execution/protocol"
 import { codeRunTimeoutMs } from "$lib/server/codeRunLimit";
 import { retentionPhrase } from "$lib/server/execution/deliverables";
 import { executionBackend } from "$lib/server/codeExecution/backend";
+import { sandboxLimits } from "$lib/server/codeExecution/sandboxHealth";
+import type { SandboxLimits } from "$lib/server/sandbox/client";
 import {
 	CODE_EXECUTION_DEADLINE_MS,
 	codeExecutionDeadlineMs,
@@ -96,6 +98,31 @@ export function isExecuteCodeEnabled(): boolean {
 	return executionBackend().toolOffered();
 }
 
+/**
+ * What the chat does with images, as the client renders them: a raster image a run saves under the
+ * output folder (PNG, JPEG, GIF, WebP) is shown inline under its card, and a matplotlib figure is
+ * saved there as figure-<n>.png when it is drawn. SVG is not shown inline (docs/artifacts.md).
+ */
+const FIGURE_SENTENCE =
+	"A matplotlib figure is shown to the person inline in the chat when it is drawn (plt.show(), " +
+	`or at the end of the run), saved as ${OUTPUT_ROOT}/figure-1.png, figure-2.png and so on; ` +
+	`a PNG, JPEG, GIF or WebP image you save to ${OUTPUT_ROOT}/ is shown inline too, ` +
+	"as well as being offered for download. So you can tell the person the figure is on screen. " +
+	"SVG files are download only.";
+
+/** One line of facts about this sandbox's share of the host, when the manager has said. */
+function limitsLine(limits: SandboxLimits | null): string {
+	if (!limits) return "";
+	const parts: string[] = [];
+	if (typeof limits.cpus === "number") parts.push(`${limits.cpus} CPU`);
+	if (typeof limits.memoryMb === "number") parts.push(`${limits.memoryMb} MB of memory`);
+	if (parts.length === 0) return "";
+	return (
+		`This sandbox has ${parts.join(" and ")}; os.cpu_count() and /proc show the host's ` +
+		"resources, not this share, so quote these numbers when asked about limits.\n\n"
+	);
+}
+
 const browserDescription = () =>
 	"Run a Python snippet in the person's own browser sandbox and read the " +
 	"result, so you can iterate: run, read the output, fix, run again. " +
@@ -113,7 +140,9 @@ const browserDescription = () =>
 	"that off in the settings; if it fails as not-found, say the setting controls it rather " +
 	"than telling them to install it themselves.\n\n" +
 	"You see the truncated stdout, stderr and the last expression's result " +
-	"yourself, plus the names of files the run saved to the output folder.\n\n" +
+	"yourself, plus the names of files the run saved to the output folder. " +
+	FIGURE_SENTENCE +
+	"\n\n" +
 	`Where files go: only files written under ${OUTPUT_ROOT}/ (for example ` +
 	`${OUTPUT_ROOT}/report.xlsx) are offered to the person as download cards ` +
 	`(kept ${retentionPhrase()}). Anything else you write, in the working directory ` +
@@ -147,7 +176,7 @@ const browserDescription = () =>
  * packages installed and no network, keeps variables between calls within a conversation, and
  * reads and writes the same two folders; the browser's has micropip and loses state on a restart.
  */
-const serverDescription = () =>
+const serverDescription = (limits: SandboxLimits | null = null) =>
 	"Run a Python snippet in a sandbox on the server and read the result, so you can iterate: run, " +
 	"read the output, fix, run again. " +
 	"Invoke this tool through the function-calling mechanism, as a real tool call — never by " +
@@ -156,12 +185,14 @@ const serverDescription = () =>
 	"matplotlib, seaborn, sympy, Pillow, lxml, python-docx, openpyxl, XlsxWriter, python-pptx, " +
 	"pypdf and reportlab already installed, and NO network access: nothing can be installed or " +
 	"downloaded, so use only those and the standard library.\n\n" +
+	limitsLine(limits) +
 	"Variables, imports and files you create stay between calls in this conversation, for as " +
 	"long as the sandbox lives (it is released after about twenty idle minutes; if it was, the " +
 	"result tells you, and you must run the earlier steps again).\n\n" +
 	"You see the truncated stdout, stderr and the last expression's result yourself, plus the " +
-	"names of files the run saved to the output folder. A matplotlib figure you draw is saved as " +
-	"a PNG in the output folder for you.\n\n" +
+	"names of files the run saved to the output folder. " +
+	FIGURE_SENTENCE +
+	"\n\n" +
 	`Where files go: only files written under ${OUTPUT_ROOT}/ (for example ` +
 	`${OUTPUT_ROOT}/report.xlsx) are offered to the person as download cards ` +
 	`(kept ${retentionPhrase()}). Anything else you write is scratch: it stays in the sandbox ` +
@@ -181,8 +212,8 @@ const serverDescription = () =>
 	"Each call spends one of this turn's few execute_code calls; prefer one decisive snippet over " +
 	"many fragments.";
 
-function executeCodeDescription(kind: string): string {
-	return kind === "server" ? serverDescription() : browserDescription();
+export function executeCodeDescription(kind: string, limits: SandboxLimits | null = null): string {
+	return kind === "server" ? serverDescription(limits) : browserDescription();
 }
 
 export function createExecuteCodeBuiltin(options: { unattended?: boolean } = {}): BuiltinTool[] {
@@ -202,7 +233,7 @@ export function createExecuteCodeBuiltin(options: { unattended?: boolean } = {})
 				type: "function",
 				function: {
 					name: EXECUTE_CODE_TOOL_NAME,
-					description: executeCodeDescription(backendKind),
+					description: executeCodeDescription(backendKind, sandboxLimits()),
 					parameters: {
 						type: "object",
 						properties: {

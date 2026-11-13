@@ -5,6 +5,10 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Server sandboxes: the model states its real limits and knows figures show in the chat.** The manager has a new token-protected `GET /v1/limits` (CPUs, memory, time limit and lease caps of a sandbox), which the chat reads, so `execute_code` on a server sandbox says "This sandbox has 0.5 CPU and 512 MB of memory" instead of guessing from `os.cpu_count()`, in local and remote mode alike; an older manager just omits the line. The `execute_code` description (server and browser) now says that matplotlib figures and PNG, JPEG, GIF or WebP images saved to `/mnt/output` are shown inline in the chat, so the model no longer offers only a download.
+
 ## v0.52.1 — 2026-11-13
 
 Pins: Cerea `0.52.1` (chat, `cerea-documents`, `galopin`, and the new `cerea-sandbox` and `cerea-sandbox-python` images), Pystino `0.33.2`.

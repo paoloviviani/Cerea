@@ -1,6 +1,6 @@
 import { logger } from "$lib/server/logger";
 import { sandboxSettings } from "$lib/server/sandbox/boot";
-import { SandboxClient } from "$lib/server/sandbox/client";
+import { SandboxClient, type SandboxLimits } from "$lib/server/sandbox/client";
 
 /**
  * Whether the sandbox manager is configured and answering, as `executionBackend()` needs it: a
@@ -13,6 +13,7 @@ const TTL_MS = 30_000;
 const FRESH_MS = 5_000;
 
 let state = { ok: false, at: 0 };
+let limits: SandboxLimits | null = null;
 let probing: Promise<boolean> | null = null;
 let announced: boolean | null = null;
 
@@ -23,11 +24,15 @@ export function probeSandboxHealth(): Promise<boolean> {
 		state = { ok: false, at: Date.now() };
 		return Promise.resolve(false);
 	}
-	probing ??= new SandboxClient({ url: settings.config.url, token: settings.config.token })
+	const client = new SandboxClient({ url: settings.config.url, token: settings.config.token });
+	probing ??= client
 		.health()
 		.then((h) => h.status === "ok")
 		.catch(() => false)
-		.then((ok) => {
+		.then(async (ok) => {
+			// The manager's per-sandbox numbers, for the tool description. An older manager has no
+			// such route: that is "unknown", never a failure.
+			limits = ok ? await client.limits().catch(() => null) : null;
 			state = { ok, at: Date.now() };
 			if (announced !== ok) {
 				announced = ok;
@@ -59,9 +64,15 @@ export function sandboxUsable(): boolean {
 	return state.ok;
 }
 
+/** The manager's per-sandbox limits from the last probe, or null when unknown (or an old manager). */
+export function sandboxLimits(): SandboxLimits | null {
+	return sandboxSettings().config ? limits : null;
+}
+
 /** For tests. */
 export function resetSandboxHealth(ok = false, at = Date.now()): void {
 	state = { ok, at };
+	limits = null;
 	probing = null;
 	announced = null;
 }
