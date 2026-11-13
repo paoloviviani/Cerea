@@ -3,11 +3,23 @@ import net from "node:net";
 import type { Duplex } from "node:stream";
 import { authorize, type PolicyConfig, type PolicyDeps } from "./policy.ts";
 import { HttpError, logLine, readBody } from "../shared/http.ts";
+import {
+	DuplicateKeyError,
+	NonFiniteNumberError,
+	canonicalBody,
+	parseStrictJson,
+} from "../shared/strictjson.ts";
 
 export interface Upstream {
 	socketPath?: string;
 	host?: string;
 	port?: number;
+}
+
+function badBodyReason(err: unknown): string {
+	if (err instanceof DuplicateKeyError) return "the body repeats a key";
+	if (err instanceof NonFiniteNumberError) return "the body has a number that is not finite";
+	return "the body is not JSON";
 }
 
 const BODY_LIMIT = 65_536;
@@ -87,9 +99,9 @@ export function createProxy(up: Upstream, cfg: PolicyConfig, deps: PolicyDeps = 
 			let body: unknown = undefined;
 			if (raw.length) {
 				try {
-					body = JSON.parse(raw.toString("utf8"));
-				} catch {
-					return refuse(res, 400, "the body is not JSON", req);
+					body = parseStrictJson(raw.toString("utf8"));
+				} catch (err) {
+					return refuse(res, 400, badBodyReason(err), req);
 				}
 			}
 			const v = await authorize(req.method ?? "GET", req.url ?? "/", body, cfg, deps);
@@ -97,10 +109,12 @@ export function createProxy(up: Upstream, cfg: PolicyConfig, deps: PolicyDeps = 
 			if (isExecStart(v.path)) return refuse(res, 400, "an exec start must be an upgrade", req);
 			// One upstream connection per request, closed after it: a reply can never be followed by
 			// bytes Docker parses as another request.
+			// What is forwarded is what was checked, re-serialised: never the client's bytes.
+			const forward = body === undefined ? Buffer.alloc(0) : canonicalBody(body);
 			const headers: http.OutgoingHttpHeaders = { host: "docker", connection: "close" };
-			if (raw.length) {
+			if (forward.length) {
 				headers["content-type"] = "application/json";
-				headers["content-length"] = raw.length;
+				headers["content-length"] = forward.length;
 			}
 			const out = http.request(
 				{ ...up, method: req.method, path: v.path, headers, agent: false },
@@ -110,7 +124,7 @@ export function createProxy(up: Upstream, cfg: PolicyConfig, deps: PolicyDeps = 
 				}
 			);
 			out.on("error", () => refuse(res, 502, "Docker did not answer", req));
-			out.end(raw);
+			out.end(forward);
 		} catch (err) {
 			if (err instanceof HttpError) return refuse(res, err.status, err.message, req);
 			refuse(res, 500, "proxy error", req);
@@ -155,14 +169,15 @@ export function createProxy(up: Upstream, cfg: PolicyConfig, deps: PolicyDeps = 
 			if (raw.length !== length) return fail(400, "bytes after the request body");
 			let parsed: unknown;
 			try {
-				parsed = length ? JSON.parse(raw.toString("utf8")) : undefined;
-			} catch {
-				return fail(400, "the body is not JSON");
+				parsed = length ? parseStrictJson(raw.toString("utf8")) : undefined;
+			} catch (err) {
+				return fail(400, badBodyReason(err));
 			}
 			const v = await authorize(req.method ?? "GET", req.url ?? "/", parsed, cfg, deps);
 			if (!v.allow) return fail(v.status, v.reason);
 			if (!isExecStart(v.path)) return fail(403, "only an exec start may upgrade");
 
+			const forward = parsed === undefined ? Buffer.alloc(0) : canonicalBody(parsed);
 			socket.pause(); // nothing of the client's is forwarded until Docker has said 101
 			const upstream = up.socketPath
 				? net.connect({ path: up.socketPath, allowHalfOpen: true })
@@ -176,9 +191,9 @@ export function createProxy(up: Upstream, cfg: PolicyConfig, deps: PolicyDeps = 
 			socket.on("close", () => upstream.destroy());
 			upstream.on("connect", () => {
 				upstream.write(
-					`POST ${v.path} HTTP/1.1\r\nHost: docker\r\nContent-Type: application/json\r\nContent-Length: ${raw.length}\r\nConnection: Upgrade\r\nUpgrade: tcp\r\n\r\n`
+					`POST ${v.path} HTTP/1.1\r\nHost: docker\r\nContent-Type: application/json\r\nContent-Length: ${forward.length}\r\nConnection: Upgrade\r\nUpgrade: tcp\r\n\r\n`
 				);
-				upstream.write(raw);
+				upstream.write(forward);
 			});
 			let seen: Buffer = Buffer.alloc(0);
 			const onHead = (chunk: Buffer) => {

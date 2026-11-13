@@ -8,6 +8,7 @@ import {
 	type PolicyDeps,
 } from "../src/socket-proxy/policy.ts";
 import { Demuxer, frame } from "../src/shared/dockerStream.ts";
+import { isSliceName } from "../src/shared/slice.ts";
 import { testConfig } from "./fakes.ts";
 
 const cfg: PolicyConfig = {
@@ -178,6 +179,159 @@ describe("socket proxy: create bodies", () => {
 			mutate(b);
 			assert.equal((await create(b)).allow, false, what);
 		}
+	});
+
+	describe("the shared cgroup parent", () => {
+		const slice = "cerea-sandbox.slice";
+		const withParent = (parent?: string): PolicyConfig => ({ ...cfg, cgroupParent: parent });
+		const body = (parent?: string) => {
+			const b = execContainerSpec(
+				testConfig({ SANDBOX_CGROUP_PARENT: parent ?? "" }),
+				{ id: "a".repeat(24), owner: "u", kind: "exec" },
+				testConfig().defaults
+			) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+			return b;
+		};
+		const verdict = (b: unknown, c: PolicyConfig) =>
+			authorize("POST", "/containers/create?name=cerea-sbx-abc", b, c, deps);
+
+		it("allows exactly the configured slice, with a reservation and shares", async () => {
+			assert.equal((await verdict(body(slice), withParent(slice))).allow, true);
+			assert.equal(body(slice).HostConfig.CgroupParent, slice);
+			assert.ok(body(slice).HostConfig.MemoryReservation > 0);
+		});
+		it("refuses any other slice, and one when none is configured", async () => {
+			for (const asked of [
+				"other.slice",
+				"cerea-sandbox.slice/x",
+				"/cerea-sandbox.slice",
+				"system.slice ",
+				"",
+				"-.slice/../..",
+				"cerea-sandbox",
+			]) {
+				const b = good();
+				b.HostConfig.CgroupParent = asked;
+				assert.equal((await verdict(b, withParent(slice))).allow, false, asked);
+				assert.equal((await verdict(b, withParent(undefined))).allow, false, asked);
+			}
+			for (const asked of [null, 1, ["cerea-sandbox.slice"], {}]) {
+				const b = good();
+				b.HostConfig.CgroupParent = asked;
+				assert.equal((await verdict(b, withParent(slice))).allow, false, String(asked));
+			}
+			assert.equal((await verdict(body(slice), withParent(undefined))).allow, false);
+		});
+		it("requires the slice when one is configured", async () => {
+			assert.equal((await verdict(good(), withParent(slice))).allow, false);
+		});
+		it("refuses a proxy configured with a bad slice name", async () => {
+			assert.equal((await verdict(body(slice), withParent("bad/../name.slice"))).allow, false);
+		});
+		it("refuses systemd's own slices, the root slice and odd dashes, even when configured", async () => {
+			for (const bad of [
+				"-.slice",
+				"system.slice",
+				"user.slice",
+				"machine.slice",
+				"user-1000.slice",
+				"system-foo.slice",
+				"-foo.slice",
+				"foo-.slice",
+				"foo--bar.slice",
+				".slice",
+			]) {
+				assert.equal(isSliceName(bad), false, bad);
+				const b = body(slice);
+				b.HostConfig.CgroupParent = bad;
+				assert.equal((await verdict(b, withParent(bad))).allow, false, bad);
+			}
+			for (const ok of ["cerea-sandbox.slice", "cerea.sandbox_1.slice", "sandbox.slice"]) {
+				assert.equal(isSliceName(ok), true, ok);
+			}
+		});
+		it("caps CpuShares at 1024 per CPU of the maximum", async () => {
+			const at = (shares: number, maxCpus?: number) => {
+				const b = body(slice);
+				b.HostConfig.CpuShares = shares;
+				return verdict(b, { ...withParent(slice), maxCpus });
+			};
+			assert.equal((await at(2048)).allow, true); // the default maximum is 2 CPUs
+			assert.equal((await at(2049)).allow, false);
+			assert.equal((await at(4096, 4)).allow, true);
+			assert.equal((await at(4097, 4)).allow, false);
+		});
+		it("requires whole, safe numbers within the maxima for the limits and StopTimeout", async () => {
+			const MiB = 1024 * 1024;
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const bad: [string, (b: Record<string, any>) => void][] = [
+				[
+					"Memory Infinity",
+					(b) => ((b.HostConfig.Memory = Infinity), (b.HostConfig.MemorySwap = Infinity)),
+				],
+				["Memory NaN", (b) => ((b.HostConfig.Memory = NaN), (b.HostConfig.MemorySwap = NaN))],
+				[
+					"Memory above 2^53",
+					(b) => ((b.HostConfig.Memory = 2 ** 53 + 2), (b.HostConfig.MemorySwap = 2 ** 53 + 2)),
+				],
+				[
+					"Memory above the maximum",
+					(b) => ((b.HostConfig.Memory = 2049 * MiB), (b.HostConfig.MemorySwap = 2049 * MiB)),
+				],
+				[
+					"Memory fractional",
+					(b) => ((b.HostConfig.Memory = 1000.5), (b.HostConfig.MemorySwap = 1000.5)),
+				],
+				["NanoCpus Infinity", (b) => (b.HostConfig.NanoCpus = Infinity)],
+				["NanoCpus above the maximum", (b) => (b.HostConfig.NanoCpus = 2.5e9)],
+				["NanoCpus above 2^53", (b) => (b.HostConfig.NanoCpus = 2 ** 60)],
+				["PidsLimit Infinity", (b) => (b.HostConfig.PidsLimit = Infinity)],
+				["PidsLimit above the maximum", (b) => (b.HostConfig.PidsLimit = 1025)],
+				["PidsLimit above 2^53", (b) => (b.HostConfig.PidsLimit = 2 ** 54)],
+				["StopTimeout Infinity", (b) => (b.StopTimeout = Infinity)],
+				["StopTimeout huge", (b) => (b.StopTimeout = 2 ** 54)],
+				["StopTimeout negative", (b) => (b.StopTimeout = -1)],
+			];
+			for (const [what, mutate] of bad) {
+				const b = body(slice);
+				mutate(b);
+				assert.equal((await verdict(b, withParent(slice))).allow, false, what);
+			}
+			const ok = body(slice);
+			ok.HostConfig.Memory = 2048 * MiB;
+			ok.HostConfig.MemorySwap = 2048 * MiB;
+			ok.HostConfig.MemoryReservation = 512 * MiB;
+			ok.HostConfig.NanoCpus = 2e9;
+			ok.HostConfig.PidsLimit = 1024;
+			assert.equal((await verdict(ok, withParent(slice))).allow, true, "the maxima themselves");
+			const raised = body(slice);
+			raised.HostConfig.PidsLimit = 4096;
+			assert.equal(
+				(await verdict(raised, { ...withParent(slice), maxPids: 4096 })).allow,
+				true,
+				"a raised maximum"
+			);
+		});
+		it("bounds the reservation and the shares, and refuses extra keys", async () => {
+			const c = withParent(slice);
+			const mutations: [string, (h: Record<string, unknown>) => void][] = [
+				["reservation above memory", (h) => (h.MemoryReservation = (h.Memory as number) + 1)],
+				["zero reservation", (h) => (h.MemoryReservation = 0)],
+				["fractional reservation", (h) => (h.MemoryReservation = 1.5)],
+				["string reservation", (h) => (h.MemoryReservation = "512m")],
+				["one share", (h) => (h.CpuShares = 1)],
+				["huge shares", (h) => (h.CpuShares = 1e9)],
+				["cpuset", (h) => (h.CpusetCpus = "0")],
+				["cpu quota", (h) => (h.CpuQuota = 100000)],
+				["oom kill off", (h) => (h.OomKillDisable = true)],
+				["cgroupns host", (h) => (h.CgroupnsMode = "host")],
+			];
+			for (const [what, mutate] of mutations) {
+				const b = body(slice);
+				mutate(b.HostConfig);
+				assert.equal((await verdict(b, c)).allow, false, what);
+			}
+		});
 	});
 
 	it("refuses a privileged or root exec", () => {

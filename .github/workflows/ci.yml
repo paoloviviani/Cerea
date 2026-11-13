@@ -346,8 +346,13 @@ jobs:
           sudo systemctl restart docker
           docker info --format '{{json .Runtimes}}' | grep -q runsc
           docker run --rm --runtime=runsc hello-world
+      - name: A systemd slice for the shared sandbox cap (CPUQuota, MemoryMax)
+        run: |
+          printf '[Slice]\nCPUQuota=150%%\nMemoryMax=1536M\n' | sudo tee /etc/systemd/system/cerea-sandbox-ci.slice
+          sudo systemctl daemon-reload
+          systemctl show -p FragmentPath,MemoryMax,CPUQuotaPerSecUSec cerea-sandbox-ci.slice
       - name: Integration tests with the real runsc runtime
-        run: SANDBOX_RUNTIME=runsc npm run test:integration
+        run: SANDBOX_RUNTIME=runsc SANDBOX_TEST_CGROUP_PARENT=cerea-sandbox-ci.slice npm run test:integration
       - name: The image builds
         working-directory: .
         run: docker build -t cerea-sandbox:ci sandbox/

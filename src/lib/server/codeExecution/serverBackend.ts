@@ -68,7 +68,7 @@ export class ServerSandboxUnavailable extends Error {
 export function fallbackNotice(code?: string): string {
 	const why =
 		code === "quota_exceeded"
-			? "the server sandboxes are busy (the limit on concurrent sandboxes was reached)"
+			? "the server sandboxes are busy (the limit on concurrent sandboxes, or their shared CPU and memory budget, was reached)"
 			: code === "wrong_image"
 				? "the server sandbox image has no exec daemon"
 				: "the server sandbox is unavailable";

@@ -159,7 +159,7 @@ export class SandboxSessions {
 					this.touch(request.conversationId, cached);
 					return cached;
 				} catch (err) {
-					if (!(err instanceof SandboxError) || err.status !== 404) throw this.unavailable(err);
+					if (!(err instanceof SandboxError) || !isLeaseGone(err)) throw this.unavailable(err);
 					this.sessions.delete(request.conversationId); // reaped or lost: make a new one
 				}
 			}
@@ -313,8 +313,15 @@ export class SandboxSessions {
 					session.owner
 				);
 			} catch (err) {
-				if (err instanceof SandboxError && err.status === 404 && attempt === 0) {
-					// The lease vanished between the check and the call: one fresh start.
+				if (err instanceof SandboxError && err.code === "oom_killed") {
+					// The manager saw the kernel's out-of-memory kill and has released the sandbox
+					// (its reservation is free); the next call starts a fresh one.
+					this.sessions.delete(request.conversationId);
+					return { reply: failedRun(OOM_WHY), outputs: [], skipped: [] };
+				}
+				if (err instanceof SandboxError && isLeaseGone(err) && attempt === 0) {
+					// The lease vanished between the check and the call (404), or the manager found
+					// its sandbox no longer running and released it (410): one fresh start.
 					attempt += 1;
 					this.sessions.delete(request.conversationId);
 					session = await this.ensure(request);
@@ -385,6 +392,7 @@ export class SandboxSessions {
  * browser's outcome; anything else is a failed call, not a failed run.
  */
 export function parseReply(exec: SandboxExecResult): DaemonReply {
+	if (!exec.timed_out && isNoReply(exec.stdout)) return failedRun(KILLED_WHY);
 	const line = exec.stdout.trim().split("\n").pop() ?? "";
 	try {
 		const raw = JSON.parse(line) as Record<string, unknown>;
@@ -406,9 +414,40 @@ export function parseReply(exec: SandboxExecResult): DaemonReply {
 	} catch {
 		/* not JSON: the call itself failed */
 	}
+	// The kernel killed something and the manager could not confirm it: 137 is SIGKILL with no
+	// time limit hit, and "no reply" is the daemon having died under the client. Both are, in
+	// practice, the out-of-memory kill (the sandbox's own cap or the shared budget's).
+	const killed = !exec.timed_out && (exec.exit_code === 137 || isNoReply(exec.stdout));
 	const why = exec.timed_out
 		? "the sandbox's own time limit was hit"
-		: (exec.stderr || exec.stdout || `exit code ${exec.exit_code}`).slice(0, 500);
+		: killed
+			? KILLED_WHY
+			: (exec.stderr || exec.stdout || `exit code ${exec.exit_code}`).slice(0, 500);
+	return failedRun(why);
+}
+
+const OOM_WHY = "the sandbox ran out of memory";
+const KILLED_WHY = "the sandbox was killed (most likely it ran out of memory)";
+
+/** The manager found the lease gone (404) or its sandbox no longer running (410). */
+function isLeaseGone(err: SandboxError): boolean {
+	return err.status === 404 || err.status === 410;
+}
+
+/** The run.py client's reply when the daemon died before answering. */
+function isNoReply(stdout: string): boolean {
+	try {
+		const raw = JSON.parse(stdout.trim().split("\n").pop() ?? "") as {
+			ok?: unknown;
+			error?: unknown;
+		};
+		return raw?.ok === false && raw.error === "no reply";
+	} catch {
+		return false;
+	}
+}
+
+function failedRun(why: string): DaemonReply {
 	return {
 		unparsed: true,
 		ok: false,

@@ -2,6 +2,8 @@
  * The manager's settings, all from the environment. Every number has a default sized for a small
  * box (see docs/sandboxes.md, "Sizing") and a maximum a request may not pass.
  */
+import { isSliceName } from "../shared/slice.ts";
+
 export const DEFAULT_EXEC_IMAGE =
 	"python:3.13-slim@sha256:e48f59cdba69a3cbd9ed2cf0f348d90d45a8d350d98134cf1070bc106ee9ed90";
 
@@ -18,6 +20,12 @@ export interface LeaseLimits {
 	idleSeconds: number;
 }
 
+/** What a lease is promised: counted against the totals, and passed to Docker as soft limits. */
+export interface Reservation {
+	memoryMb: number;
+	cpus: number;
+}
+
 export interface ManagerConfig {
 	token: string;
 	host: string;
@@ -31,6 +39,12 @@ export interface ManagerConfig {
 	user: string;
 	defaults: LeaseLimits;
 	maxima: LeaseLimits & { lifetimeSeconds: number; execTimeoutSeconds: number };
+	/** Per-lease reservation, at most the lease's limit (a lease with a lower limit reserves that). */
+	reservation: Reservation;
+	/** Totals over the reservations of all leases; null is no limit. */
+	totals: { memoryMb: number | null; cpus: number | null };
+	/** The systemd slice every sandbox is placed under (a shared hard cap), or null. */
+	cgroupParent: string | null;
 	maxLeases: number;
 	maxLeasesPerOwner: number;
 	warmPoolSize: number;
@@ -52,6 +66,13 @@ function num(env: Env, key: string, fallback: number, min = 1): number {
 	const n = Number(raw);
 	if (!Number.isFinite(n) || n < min) throw new Error(`${key} must be a number >= ${min}`);
 	return n;
+}
+
+/** An optional number: unset or empty is null. */
+function optNum(env: Env, key: string, min: number): number | null {
+	const raw = env[key];
+	if (raw === undefined || raw.trim() === "") return null;
+	return num(env, key, min, min);
 }
 
 function flag(env: Env, key: string): boolean {
@@ -83,9 +104,30 @@ export function loadConfig(env: Env = process.env): ManagerConfig {
 		maxOutputBytes: num(env, "SANDBOX_EXEC_MAX_OUTPUT_BYTES", 262_144),
 		idleSeconds: num(env, "SANDBOX_IDLE_SECONDS", 1200),
 	};
+	const totals = {
+		memoryMb: optNum(env, "SANDBOX_TOTAL_MEMORY_MB", 1),
+		cpus: optNum(env, "SANDBOX_TOTAL_CPUS", 0.1),
+	};
+	for (const [what, limit, total, limitVar, totalVar] of [
+		[
+			"memory",
+			defaults.memoryMb,
+			totals.memoryMb,
+			"SANDBOX_EXEC_MEMORY_MB",
+			"SANDBOX_TOTAL_MEMORY_MB",
+		],
+		["CPU", defaults.cpus, totals.cpus, "SANDBOX_EXEC_CPUS", "SANDBOX_TOTAL_CPUS"],
+	] as const) {
+		if (total !== null && limit > total) {
+			throw new ConfigError(
+				`one sandbox's ${what} limit (${limitVar}=${limit}) is above the shared total (${totalVar}=${total}): lower the limit or raise the total`
+			);
+		}
+	}
+	// An unset maximum never exceeds the total: a small box need not lower both.
 	const maxima = {
-		memoryMb: num(env, "SANDBOX_EXEC_MAX_MEMORY_MB", 2048),
-		cpus: num(env, "SANDBOX_EXEC_MAX_CPUS", 2, 0.1),
+		memoryMb: num(env, "SANDBOX_EXEC_MAX_MEMORY_MB", Math.min(2048, totals.memoryMb ?? 2048)),
+		cpus: num(env, "SANDBOX_EXEC_MAX_CPUS", Math.min(2, totals.cpus ?? 2), 0.1),
 		pids: num(env, "SANDBOX_EXEC_MAX_PIDS", 1024),
 		workspaceMb: num(env, "SANDBOX_EXEC_MAX_WORKSPACE_MB", 1024),
 		timeoutSeconds: num(env, "SANDBOX_EXEC_MAX_TIMEOUT_SECONDS", 300),
@@ -100,6 +142,42 @@ export function loadConfig(env: Env = process.env): ManagerConfig {
 				`the default for ${k} is above its maximum: lower it or raise the maximum`
 			);
 		}
+	}
+	const reservation: Reservation = {
+		memoryMb: num(env, "SANDBOX_EXEC_MEMORY_RESERVATION_MB", defaults.memoryMb),
+		cpus: num(env, "SANDBOX_EXEC_CPU_RESERVATION", defaults.cpus, 0.1),
+	};
+	if (reservation.memoryMb > defaults.memoryMb) {
+		throw new ConfigError(
+			`SANDBOX_EXEC_MEMORY_RESERVATION_MB (${reservation.memoryMb}) is above the memory limit SANDBOX_EXEC_MEMORY_MB (${defaults.memoryMb})`
+		);
+	}
+	if (reservation.cpus > defaults.cpus) {
+		throw new ConfigError(
+			`SANDBOX_EXEC_CPU_RESERVATION (${reservation.cpus}) is above the CPU limit SANDBOX_EXEC_CPUS (${defaults.cpus})`
+		);
+	}
+	for (const [what, limit, total, limitVar, totalVar] of [
+		[
+			"memory",
+			maxima.memoryMb,
+			totals.memoryMb,
+			"SANDBOX_EXEC_MAX_MEMORY_MB",
+			"SANDBOX_TOTAL_MEMORY_MB",
+		],
+		["CPU", maxima.cpus, totals.cpus, "SANDBOX_EXEC_MAX_CPUS", "SANDBOX_TOTAL_CPUS"],
+	] as const) {
+		if (total !== null && limit > total) {
+			throw new ConfigError(
+				`one sandbox's ${what} limit (${limitVar}=${limit}) is above the shared total (${totalVar}=${total}): lower the limit or raise the total`
+			);
+		}
+	}
+	const cgroupParent = (env.SANDBOX_CGROUP_PARENT ?? "").trim() || null;
+	if (cgroupParent !== null && !isSliceName(cgroupParent)) {
+		throw new ConfigError(
+			"SANDBOX_CGROUP_PARENT must be the name of a systemd slice, such as cerea-sandbox.slice (letters, digits, _ . - and a .slice ending)"
+		);
 	}
 	const dockerUrl = env.SANDBOX_DOCKER_URL || "http://sandbox-socket-proxy:2375";
 	return {
@@ -117,6 +195,9 @@ export function loadConfig(env: Env = process.env): ManagerConfig {
 		user: env.SANDBOX_USER || "65534:65534",
 		defaults,
 		maxima,
+		reservation,
+		totals,
+		cgroupParent,
 		maxLeases: num(env, "SANDBOX_MAX_LEASES", 8),
 		maxLeasesPerOwner: num(env, "SANDBOX_MAX_LEASES_PER_OWNER", 3),
 		warmPoolSize: num(env, "SANDBOX_WARM_POOL_SIZE", 0, 0),

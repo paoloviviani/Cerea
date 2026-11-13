@@ -36,6 +36,7 @@ export function createApi(config: ManagerConfig, leases: LeaseManager, version =
 				version,
 				runtime: config.runtime,
 				machines: config.machinesEnabled,
+				sweep: leases.sweepState,
 			});
 		}
 		if (!authorised(req)) return sendError(res, 401, "unauthorized", "a service token is required");

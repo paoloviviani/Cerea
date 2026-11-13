@@ -22,6 +22,7 @@ export class FakeDocker implements DockerApi {
 	removed: string[] = [];
 	nextExec: Partial<ExecResult> = {};
 	failCreate = false;
+	failRemove = false;
 	/** When set, an exec / an inspect waits for it. */
 	holdExec: Promise<void> | null = null;
 	holdInspect: Promise<void> | null = null;
@@ -46,6 +47,7 @@ export class FakeDocker implements DockerApi {
 		return this.containers.get(id) ?? null;
 	}
 	async remove(id: string) {
+		if (this.failRemove) throw new Error("removal of the container is already in progress");
 		this.removed.push(id);
 		this.containers.delete(id);
 	}
