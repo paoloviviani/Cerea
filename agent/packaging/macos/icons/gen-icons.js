@@ -3,6 +3,7 @@
 // reads at menu-bar size, cropped tight to the ridge; macOS tints a template for light and dark)
 // and the 1024 px app icon agent/packaging/macos/app-icon-1024.png. Run from a dir holding
 // avatar.png, with Playwright available: NODE_PATH=<repo>/node_modules node gen-icons.js
+/* eslint-disable @typescript-eslint/no-var-requires -- a standalone CommonJS script, not part of the app */
 const { chromium } = require("playwright");
 const fs = require("fs");
 (async () => {
