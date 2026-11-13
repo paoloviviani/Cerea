@@ -15,8 +15,8 @@
 
 name: ${COMPOSE_PROJECT_NAME:-cerea-sandbox}
 
-x-sandbox-image: &sandbox-image ${SANDBOX_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea-sandbox:${CEREA_VERSION:-0.52.1}}
-x-sandbox-exec-image: &sandbox-exec-image ${SANDBOX_EXEC_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea-sandbox-python:${CEREA_VERSION:-0.52.1}}
+x-sandbox-image: &sandbox-image ${SANDBOX_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea-sandbox:${CEREA_VERSION:-0.52.2}}
+x-sandbox-exec-image: &sandbox-exec-image ${SANDBOX_EXEC_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea-sandbox-python:${CEREA_VERSION:-0.52.2}}
 
 services:
   sandbox-socket-proxy:

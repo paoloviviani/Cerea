@@ -5,7 +5,11 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.52.2 — 2026-11-13
+
+Pins: Cerea `0.52.2` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.2`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. Fixes a security issue in the sandbox Docker proxy shipped in v0.52.1 (update if you run sandboxes). New optional shared sandbox budget; see `docs/sandboxes.md`. **On computers**, re-run the install line from the **Pair a computer** dialog; on a Mac, install the Cerea connector from this release's page.
 
 - **A shared CPU and memory budget for server sandboxes.** `SANDBOX_TOTAL_MEMORY_MB` and `SANDBOX_TOTAL_CPUS` (empty is no limit) cap what all sandboxes may reserve together, so each can burst to its limit (say 1 CPU / 1 GB) while the sum stays within, say, 1.5 CPU / 1.5 GB. Each sandbox reserves `SANDBOX_EXEC_MEMORY_RESERVATION_MB` and `SANDBOX_EXEC_CPU_RESERVATION` (default: its limit); a new sandbox that would pass a total is refused and the chat falls back to the browser. The manager refuses to start when a reservation is above its limit or a limit above a total.
 - **Optional hard cap: `SANDBOX_CGROUP_PARENT`.** Name a systemd slice you create once (`CPUQuota`, `MemoryMax`) and every sandbox runs under it; the socket proxy allows only that one slice. `./configure --check` warns when the slice is not defined on the host or Docker uses the cgroupfs driver. A sandbox killed for memory is released at once (the manager checks Docker's OOM flag after a failed call) and the model is told "the sandbox ran out of memory"; slice names that are systemd's own or nest oddly are refused. See "A shared budget" in the sandboxes documentation. Nothing changes unless you set these.
