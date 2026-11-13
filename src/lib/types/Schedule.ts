@@ -198,4 +198,5 @@ export interface ScheduleGrant {
 export interface ScheduleCount {
 	_id: ObjectId; // the user
 	count: number;
+	movedAt?: Date; // last claim or release; the self-heal waits for it to be old
 }
