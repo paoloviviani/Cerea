@@ -23,9 +23,11 @@ async function undoCalls(extra: Partial<MessageMemoryUpdate>) {
 	const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
 	vi.stubGlobal("fetch", fetchMock);
 	renderWithApp(MemoryCard, { update: update(extra) });
-	await userEvent.click(
-		[...document.querySelectorAll("button")].find((b) => b.textContent?.includes("Undo"))!
+	const undo = [...document.querySelectorAll("button")].find((b) =>
+		b.textContent?.includes("Undo")
 	);
+	if (!undo) throw new Error("no undo button");
+	await userEvent.click(undo);
 	await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
 	return String((fetchMock.mock.calls[0] as unknown[])[0]);
 }

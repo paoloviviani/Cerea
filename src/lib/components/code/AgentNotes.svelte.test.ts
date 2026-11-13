@@ -48,6 +48,10 @@ afterEach(() => {
 });
 
 const text = () => document.body.textContent ?? "";
+function must<T>(value: T | null | undefined): T {
+	if (value == null) throw new Error("expected element");
+	return value;
+}
 const within = (id: string) => document.querySelector(`[data-testid="${id}"]`) as HTMLElement;
 
 describe("AgentNotes", () => {
@@ -74,24 +78,26 @@ describe("AgentNotes", () => {
 			ws.querySelector("input[type=text]") as HTMLInputElement,
 			"Run lint first."
 		);
-		await userEvent.click([...ws.querySelectorAll("button")].find((b) => b.textContent === "Add")!);
+		await userEvent.click(
+			must([...ws.querySelectorAll("button")].find((b) => b.textContent === "Add"))
+		);
 		await vi.waitFor(() =>
 			expect(within("agent-notes-workspace").textContent).toContain("Run lint first.")
 		);
 		expect(within("agent-notes-session").textContent).not.toContain("Run lint first.");
 
 		const session = within("agent-notes-session");
-		await userEvent.click(session.querySelector('button[aria-label="Edit note"]')!);
-		await userEvent.fill(session.querySelector("textarea")!, "Tests need Postgres.");
+		await userEvent.click(must(session.querySelector('button[aria-label="Edit note"]')));
+		await userEvent.fill(must(session.querySelector("textarea")), "Tests need Postgres.");
 		await userEvent.click(
-			[...session.querySelectorAll("button")].find((b) => b.textContent === "Save")!
+			must([...session.querySelectorAll("button")].find((b) => b.textContent === "Save"))
 		);
 		await vi.waitFor(() =>
 			expect(within("agent-notes-session").textContent).toContain("Tests need Postgres.")
 		);
 
 		await userEvent.click(
-			within("agent-notes-session").querySelector('button[aria-label="Delete note"]')!
+			must(within("agent-notes-session").querySelector('button[aria-label="Delete note"]'))
 		);
 		await vi.waitFor(() =>
 			expect(within("agent-notes-session").textContent).toContain("No notes yet.")
