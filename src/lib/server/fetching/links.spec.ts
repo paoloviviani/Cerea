@@ -69,6 +69,44 @@ describe("extractMainLinks", () => {
 	});
 });
 
+describe("extractMainLinks: what a reader cannot see or trust", () => {
+	it("skips hidden and inert elements", () => {
+		const links = extractMainLinks(
+			page(`<main>
+				<a href="/a" hidden>Hidden attr</a>
+				<div style="display:none"><a href="/b">Display none</a></div>
+				<div style="VISIBILITY: hidden"><a href="/c">Visibility hidden</a></div>
+				<div inert><a href="/d">Inert block</a></div>
+				<a href="/e">Visible story</a>
+			</main>`),
+			BASE
+		);
+		expect(links.map((l) => l.text)).toEqual(["Visible story"]);
+	});
+
+	it("strips bidi and zero-width characters and drops text that is an address", () => {
+		const links = extractMainLinks(
+			page(`<main>
+				<a href="/a">Pay\u202e txt\u200bbill</a>
+				<a href="/b">https://bank.example/login</a>
+				<a href="/c">Ordinary story</a>
+			</main>`),
+			BASE
+		);
+		expect(links.map((l) => l.text)).toEqual(["Pay txtbill", "Ordinary story"]);
+	});
+
+	it("skips very long addresses and honours <base href>", () => {
+		const links = extractMainLinks(
+			`<html><head><base href="https://cdn.example.test/dir/"></head><body><main>
+				<a href="/${"x".repeat(400)}">Tracking link</a>
+				<a href="item">Relative item</a></main></body></html>`,
+			BASE
+		);
+		expect(links).toEqual([{ text: "Relative item", url: "https://cdn.example.test/dir/item" }]);
+	});
+});
+
 describe("formatLinks", () => {
 	it("labels the block and lists text: address", () => {
 		const out = formatLinks([{ text: "One", url: "https://a.test/1" }]);
@@ -89,6 +127,13 @@ describe("formatLinks", () => {
 		expect(lines.length).toBeLessThanOrEqual(MAX_LINKS);
 		expect(Buffer.byteLength(out)).toBeLessThanOrEqual(MAX_LINKS_BYTES);
 		expect(out.split("\n")[0]).toContain(`(${lines.length} of 200)`);
+
+		// An over-long entry is skipped, not the end of the list.
+		const mixed = [
+			{ text: "x".repeat(100), url: `https://a.test/${"p".repeat(4050)}` },
+			{ text: "Short", url: "https://a.test/short" },
+		];
+		expect(formatLinks(mixed)).toContain("- Short: https://a.test/short");
 
 		const long = Array.from({ length: 30 }, (_, i) => ({
 			text: "x".repeat(100),

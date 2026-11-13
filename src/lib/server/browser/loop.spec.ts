@@ -11,6 +11,7 @@ import { answerTurn, callTurn, scriptedModel, toolTexts, type ScriptedTurn } fro
 import {
 	PAGE_CLOSE,
 	PAGE_OPEN,
+	plainStopReason,
 	runBrowseLoop,
 	systemPrompt,
 	type BrowseFile,
@@ -559,6 +560,14 @@ describe("runBrowseLoop: approvals", () => {
 		expect(ap.asks).toEqual([]);
 		expect(runtime.performed).toEqual([]);
 		expect(result.stopped_reason).toBe("denied");
+		expect(result.stop_detail).toBe("blocked");
+	});
+
+	it("names what stopped a denied task in plain, distinct sentences", () => {
+		expect(plainStopReason("denied", "declined")).toBe("the user declined the approval");
+		expect(plainStopReason("denied", "no_answer")).toMatch(/not answered in time/);
+		expect(plainStopReason("denied", "blocked")).toBe("this site is not allowed");
+		expect(plainStopReason("denied", "page_changed")).toMatch(/page changed/);
 	});
 });
 

@@ -301,7 +301,7 @@ export function webFetchNeedsApproval(
 const WEB_FETCH_BASE_DESCRIPTION =
 	"Read a web page or a document (PDF, Word, Excel, PowerPoint, epub). Long content arrives in " +
 	"chunks: when the result ends with a note that more remains, call again with the same url and " +
-	"the offset it names to continue. A web page's main links (text and address) follow its text, so an article's URL can be taken from there. The URL must have been provided by the user or returned by web_search.";
+	"the offset it names to continue. A web page's main links (text and address) follow its text, so a link can be picked from there; reading a listed link is a new page the user may be asked to approve. The URL must have been provided by the user, returned by web_search, or approved.";
 
 const WEB_FETCH_BASE_PREPROMPT =
 	"WEB FETCH: Read one specific page only after the user supplied its URL or web_search returned it. " +

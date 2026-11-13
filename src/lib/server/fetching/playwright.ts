@@ -355,7 +355,7 @@ async function renderPage(url: string): Promise<FetchedPage> {
 			url: pageHandle.url(),
 			title: title.trim() || null,
 			...(feeds.length > 0 ? { feeds } : {}),
-			...(links.length > 0 ? { links } : {}),
+			links,
 			// Truncated after extraction, not before: truncating the raw page
 			// first can cut the content off before the article even begins, and
 			// extraction is what makes the truncation land somewhere useful.

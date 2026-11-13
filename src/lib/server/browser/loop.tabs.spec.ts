@@ -1042,6 +1042,45 @@ describe("the user's tab is in another browser", () => {
 		expect(out.hint).toMatch(/only tabs in that window are visible/);
 	});
 
+	it("matches a site exactly or by subdomain, not by substring", async () => {
+		const mk = () => {
+			const t = setup([callTurn("tabs", {}), answerTurn("No such tab.")], undefined, {
+				machineName: "Office PC",
+			});
+			t.runtime.tabs = async () => ({
+				tabs: [
+					{ id: "x1", title: "Other", url: "https://notbooking.com/", mine: false },
+					{ id: "x2", title: "Hidden", url: "", mine: false },
+				],
+			});
+			return t;
+		};
+		const out = await runBrowseLoop({ goal: "Use the booking.com tab I opened" }, mk().deps);
+		expect(out.hint).toMatch(/isn't open, or the page isn't in it/);
+	});
+
+	it("has no hint when a subdomain tab matches", async () => {
+		const t = setup([callTurn("tabs", {}), answerTurn("Found.")], undefined, {});
+		t.runtime.tabs = async () => ({
+			tabs: [{ id: "x1", title: "Hotels", url: "https://www.booking.com/h", mine: false }],
+		});
+		const out = await runBrowseLoop({ goal: "Use the booking.com tab I opened" }, t.deps);
+		expect(out.hint).toBeUndefined();
+	});
+
+	it("counts the task's own page as no user tab unless it adopted it", async () => {
+		const t = setup([callTurn("tabs", {}), answerTurn("Found.")], undefined, {});
+		t.runtime.tabs = async () => ({
+			tabs: [{ id: "f", title: "Flights", url: "https://flights.example.com/", mine: true }],
+		});
+		const out = await runBrowseLoop(
+			{ goal: "Use the flights.example.com tab I opened" },
+			{ ...t.deps }
+		);
+		// Not adopted in this run: it does not count, so the hint is given.
+		expect(out.hint).toBeDefined();
+	});
+
 	it("has no hint when a matching tab exists", async () => {
 		const { deps } = setup([callTurn("tabs", {}), answerTurn("Found it.")], undefined, {
 			machineName: "Office PC",

@@ -54,7 +54,7 @@ export async function fetchDirectDetailed(
 	if (feeds.length > 0) raw.feeds = feeds;
 	// From the whole page: the extracted article drops the headlines a front page is made of.
 	const links = extractMainLinks(raw.content, raw.url);
-	if (links.length > 0) raw.links = links;
+	raw.links = links;
 	const article = extractArticle(raw.content, raw.url);
 	const page = article
 		? {

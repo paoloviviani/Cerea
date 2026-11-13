@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import {
@@ -72,14 +72,35 @@ describe("the profile's theme colour and name", () => {
 		await rm(dir, { recursive: true, force: true });
 	});
 
+	it("leaves a theme or a name the user chose alone", async () => {
+		const dir = await tmp();
+		await mkdir(join(dir, "Default"), { recursive: true });
+		await writeFile(
+			join(dir, "Default", "Preferences"),
+			JSON.stringify({ browser: { theme: { user_color2: 123 } }, profile: { name: "Work" } })
+		);
+		assert.deepEqual(await applyCereaProfile(dir), { written: true });
+		const prefs = await readJson(join(dir, "Default", "Preferences"));
+		assert.equal(prefs.browser.theme.user_color2, 123);
+		assert.equal(prefs.profile.name, "Work");
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	it("counts a lock from another computer as running", async () => {
+		const dir = await tmp();
+		await symlink("some-other-host-123", join(dir, "SingletonLock"));
+		assert.equal(await profileIsRunning(dir), true);
+		await rm(dir, { recursive: true, force: true });
+	});
+
 	it("writes nothing while Chrome runs on the profile, and does once its lock is stale", async () => {
 		const dir = await tmp();
-		await symlink(`host-${process.pid}`, join(dir, "SingletonLock"));
+		await symlink(`${hostname()}-${process.pid}`, join(dir, "SingletonLock"));
 		assert.equal(await profileIsRunning(dir), true);
 		assert.deepEqual(await applyCereaProfile(dir), { written: false, reason: "running" });
 		await assert.rejects(readFile(join(dir, "Default", "Preferences"), "utf8"));
 		await rm(join(dir, "SingletonLock"));
-		await symlink("host-2147483000", join(dir, "SingletonLock"));
+		await symlink(`${hostname()}-2147483000`, join(dir, "SingletonLock"));
 		assert.equal(await profileIsRunning(dir), false);
 		assert.deepEqual(await applyCereaProfile(dir), { written: true });
 		await rm(dir, { recursive: true, force: true });
@@ -116,6 +137,45 @@ describe("the start page", () => {
 			await r.session.endTask({ keep: true });
 			const snap = await r.snapshot();
 			assert.ok(!snap.text.includes("Cerea browser on"));
+		});
+
+		it("answers the start address to a page's own navigation only, not to fetch or an iframe", async () => {
+			await r.goto("/form");
+			const outcome = await r.session.withPage(async (page) => {
+				const viaFetch = await page.evaluate(async (u) => {
+					try {
+						await fetch(u);
+						return "answered";
+					} catch (e) {
+						return `failed: ${(e as Error).name}`;
+					}
+				}, START_URL);
+				const viaFrame = await page.evaluate(async (u) => {
+					const f = document.createElement("iframe");
+					f.src = u;
+					document.body.append(f);
+					await new Promise((res) => setTimeout(res, 500));
+					try {
+						return f.contentDocument?.body?.innerText ?? "";
+					} catch {
+						return "blocked";
+					}
+				}, START_URL);
+				return { viaFetch, viaFrame };
+			});
+			assert.match(outcome.viaFetch, /^failed/);
+			assert.ok(!outcome.viaFrame.includes("Cerea browser on"), outcome.viaFrame);
+		});
+
+		it("shows the name Cerea gave for the computer", async () => {
+			await r.call("tabs", { computer: "Office PC" });
+			await r.session.withPage(async (_p, context) => {
+				const start = context.pages().find((p) => p.url() === START_URL);
+				assert.ok(start);
+				await start.waitForFunction(() =>
+					document.querySelector("h1")?.textContent?.includes("Office PC")
+				);
+			});
 		});
 
 		it("leaves a normal task to navigate away from it", async () => {

@@ -6,7 +6,8 @@
  * browser). No extension is used: branded Chrome no longer loads them.
  */
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile, readlink, rename, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, readlink, rename, unlink } from "node:fs/promises";
+import { hostname } from "node:os";
 import { dirname, join } from "node:path";
 
 /** Cerea's accent (violet-700, #7008e7) as the signed ARGB integer Chrome stores. */
@@ -36,8 +37,11 @@ export async function profileIsRunning(dir: string): Promise<boolean> {
 	} catch {
 		return false;
 	}
-	const pid = Number(target.slice(target.lastIndexOf("-") + 1));
+	const cut = target.lastIndexOf("-");
+	const pid = Number(target.slice(cut + 1));
 	if (!Number.isInteger(pid) || pid <= 0) return true; // a lock we cannot read counts as running
+	// A lock made on another computer (a profile on a shared disk) cannot be checked here.
+	if (cut > 0 && target.slice(0, cut) !== hostname()) return true;
 	try {
 		process.kill(pid, 0);
 		return true;
@@ -70,8 +74,28 @@ async function readJson(path: string): Promise<Json | null> {
 async function writeAtomic(path: string, data: Json): Promise<void> {
 	await mkdir(dirname(path), { recursive: true, mode: 0o700 });
 	const tmp = `${path}.cerea-${randomBytes(4).toString("hex")}.tmp`;
-	await writeFile(tmp, JSON.stringify(data), { mode: 0o600 });
-	await rename(tmp, path);
+	try {
+		const file = await open(tmp, "w", 0o600);
+		try {
+			await file.writeFile(JSON.stringify(data));
+			await file.sync();
+		} finally {
+			await file.close();
+		}
+		await rename(tmp, path);
+	} catch (err) {
+		await unlink(tmp).catch(() => {});
+		throw err;
+	}
+}
+
+/** A profile name nobody chose: unset, Chrome's own default, or what this wrote before. */
+function isOurs(name: unknown): boolean {
+	return (
+		name === undefined ||
+		name === CEREA_PROFILE_NAME ||
+		(typeof name === "string" && /^(Person \d+|Your Chrome|Default)$/.test(name))
+	);
 }
 
 function child(parent: Json, key: string): Json {
@@ -98,15 +122,21 @@ export async function applyCereaProfile(
 		const state = await readJson(statePath);
 		if (!prefs || !state) return { written: false, reason: "unreadable" };
 
+		// Only what is unset or still ours: a theme or name the user chose is theirs.
 		const theme = child(child(prefs, "browser"), "theme");
-		Object.assign(theme, THEME_PREFS);
+		if (theme.user_color2 === undefined || theme.user_color2 === CEREA_ACCENT_ARGB) {
+			Object.assign(theme, THEME_PREFS);
+		}
 		const profile = child(prefs, "profile");
-		profile.name = name;
-		profile.using_default_name = false;
-
+		if (isOurs(profile.name)) {
+			profile.name = name;
+			profile.using_default_name = false;
+		}
 		const info = child(child(child(state, "profile"), "info_cache"), "Default");
-		info.name = name;
-		info.is_using_default_name = false;
+		if (isOurs(info.name)) {
+			info.name = name;
+			info.is_using_default_name = false;
+		}
 
 		await writeAtomic(prefsPath, prefs);
 		await writeAtomic(statePath, state);

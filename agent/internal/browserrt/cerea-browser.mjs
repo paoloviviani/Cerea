@@ -1,4 +1,4 @@
-// cerea-browser runtime 0.1.0; source-hash: 44c67e092f7bcad24008fbea3e307c2771ae89a85c4eba772f6add5cb1382458
+// cerea-browser runtime 0.1.0; source-hash: 573d16557f41572647ec371be8a227ef2cbf9940fcd8a783d1f57cc13fb4ebfd
 // inlined: @hono/node-server@2.1.8 @modelcontextprotocol/sdk@1.32.2 ajv@8.20.0 ajv-formats@3.0.1 content-type@1.0.5 fast-deep-equal@3.1.3 fast-uri@3.1.9 hono@4.13.18 json-schema-traverse@1.0.0 tldts@7.4.26 zod@3.25.76 zod-to-json-schema@3.25.2
 import { createRequire as __cr } from "node:module";
 const require = __cr(import.meta.url);
@@ -7366,44 +7366,44 @@ var require_content_type = __commonJS({
 var require_cjs = __commonJS({
   "node_modules/tldts/dist/cjs/index.js"(exports) {
     "use strict";
-    function shareSameDomainSuffix(hostname3, vhost) {
-      if (hostname3.endsWith(vhost)) {
-        return hostname3.length === vhost.length || hostname3[hostname3.length - vhost.length - 1] === ".";
+    function shareSameDomainSuffix(hostname4, vhost) {
+      if (hostname4.endsWith(vhost)) {
+        return hostname4.length === vhost.length || hostname4[hostname4.length - vhost.length - 1] === ".";
       }
       return false;
     }
-    function extractDomainWithSuffix(hostname3, publicSuffix) {
-      const publicSuffixIndex = hostname3.length - publicSuffix.length - 2;
-      const lastDotBeforeSuffixIndex = hostname3.lastIndexOf(".", publicSuffixIndex);
+    function extractDomainWithSuffix(hostname4, publicSuffix) {
+      const publicSuffixIndex = hostname4.length - publicSuffix.length - 2;
+      const lastDotBeforeSuffixIndex = hostname4.lastIndexOf(".", publicSuffixIndex);
       if (lastDotBeforeSuffixIndex === -1) {
-        return hostname3;
+        return hostname4;
       }
-      return hostname3.slice(lastDotBeforeSuffixIndex + 1);
+      return hostname4.slice(lastDotBeforeSuffixIndex + 1);
     }
-    function getDomain$1(suffix, hostname3, options) {
+    function getDomain$1(suffix, hostname4, options) {
       if (options.validHosts !== null) {
         const validHosts = options.validHosts;
         for (const vhost of validHosts) {
           if (
             /*@__INLINE__*/
-            shareSameDomainSuffix(hostname3, vhost)
+            shareSameDomainSuffix(hostname4, vhost)
           ) {
             return vhost;
           }
         }
       }
       let numberOfLeadingDots = 0;
-      if (hostname3.startsWith(".")) {
-        while (numberOfLeadingDots < hostname3.length && hostname3[numberOfLeadingDots] === ".") {
+      if (hostname4.startsWith(".")) {
+        while (numberOfLeadingDots < hostname4.length && hostname4[numberOfLeadingDots] === ".") {
           numberOfLeadingDots += 1;
         }
       }
-      if (suffix.length === hostname3.length - numberOfLeadingDots) {
+      if (suffix.length === hostname4.length - numberOfLeadingDots) {
         return null;
       }
       return (
         /*@__INLINE__*/
-        extractDomainWithSuffix(hostname3, suffix)
+        extractDomainWithSuffix(hostname4, suffix)
       );
     }
     function getDomainWithoutSuffix$1(domain, suffix) {
@@ -7677,37 +7677,37 @@ var require_cjs = __commonJS({
       while (end > start + 1 && url.charCodeAt(end - 1) === 46) {
         end -= 1;
       }
-      const hostname3 = start !== 0 || end !== url.length ? url.slice(start, end) : url;
+      const hostname4 = start !== 0 || end !== url.length ? url.slice(start, end) : url;
       if (hasUpper) {
-        return hostname3.toLowerCase();
+        return hostname4.toLowerCase();
       }
-      return hostname3;
+      return hostname4;
     }
-    function isProbablyIpv4(hostname3) {
-      if (hostname3.length < 7) {
+    function isProbablyIpv4(hostname4) {
+      if (hostname4.length < 7) {
         return false;
       }
-      if (hostname3.length > 15) {
+      if (hostname4.length > 15) {
         return false;
       }
       let numberOfDots = 0;
-      for (let i = 0; i < hostname3.length; i += 1) {
-        const code = hostname3.charCodeAt(i);
+      for (let i = 0; i < hostname4.length; i += 1) {
+        const code = hostname4.charCodeAt(i);
         if (code === 46) {
           numberOfDots += 1;
         } else if (code < 48 || code > 57) {
           return false;
         }
       }
-      return numberOfDots === 3 && hostname3.charCodeAt(0) !== 46 && hostname3.charCodeAt(hostname3.length - 1) !== 46;
+      return numberOfDots === 3 && hostname4.charCodeAt(0) !== 46 && hostname4.charCodeAt(hostname4.length - 1) !== 46;
     }
-    function isProbablyIpv6(hostname3) {
-      if (hostname3.length < 3) {
-        return hostname3 === "::";
+    function isProbablyIpv6(hostname4) {
+      if (hostname4.length < 3) {
+        return hostname4 === "::";
       }
-      let start = hostname3.startsWith("[") ? 1 : 0;
-      let end = hostname3.length;
-      if (hostname3[end - 1] === "]") {
+      let start = hostname4.startsWith("[") ? 1 : 0;
+      let end = hostname4.length;
+      if (hostname4[end - 1] === "]") {
         end -= 1;
       }
       if (end - start > 39) {
@@ -7715,7 +7715,7 @@ var require_cjs = __commonJS({
       }
       let hasColon = false;
       for (; start < end; start += 1) {
-        const code = hostname3.charCodeAt(start);
+        const code = hostname4.charCodeAt(start);
         if (code === 58) {
           hasColon = true;
         } else if (!(code >= 48 && code <= 57 || // 0-9
@@ -7726,8 +7726,8 @@ var require_cjs = __commonJS({
       }
       return hasColon;
     }
-    function isIp(hostname3) {
-      return isProbablyIpv6(hostname3) || isProbablyIpv4(hostname3);
+    function isIp(hostname4) {
+      return isProbablyIpv6(hostname4) || isProbablyIpv4(hostname4);
     }
     var SPECIAL_USE_DOMAINS = [
       "test",
@@ -7763,9 +7763,9 @@ var require_cjs = __commonJS({
       "eap.arpa"
       // RFC 9965
     ];
-    function isSpecialUse(hostname3) {
+    function isSpecialUse(hostname4) {
       for (const name of SPECIAL_USE_DOMAINS) {
-        if (hostname3.endsWith(name) && (hostname3.length === name.length || hostname3.charCodeAt(hostname3.length - name.length - 1) === 46)) {
+        if (hostname4.endsWith(name) && (hostname4.length === name.length || hostname4.charCodeAt(hostname4.length - name.length - 1) === 46)) {
           return true;
         }
       }
@@ -7774,25 +7774,25 @@ var require_cjs = __commonJS({
     function isValidAscii(code) {
       return code >= 97 && code <= 122 || code >= 48 && code <= 57 || code > 127;
     }
-    function isValidHostname(hostname3) {
-      if (hostname3.length > 255) {
+    function isValidHostname(hostname4) {
+      if (hostname4.length > 255) {
         return false;
       }
-      if (hostname3.length === 0) {
+      if (hostname4.length === 0) {
         return false;
       }
       if (
         /*@__INLINE__*/
-        !isValidAscii(hostname3.charCodeAt(0)) && hostname3.charCodeAt(0) !== 46 && // '.' (dot)
-        hostname3.charCodeAt(0) !== 95
+        !isValidAscii(hostname4.charCodeAt(0)) && hostname4.charCodeAt(0) !== 46 && // '.' (dot)
+        hostname4.charCodeAt(0) !== 95
       ) {
         return false;
       }
       let lastDotIndex = -1;
       let lastCharCode = -1;
-      const len = hostname3.length;
+      const len = hostname4.length;
       for (let i = 0; i < len; i += 1) {
-        const code = hostname3.charCodeAt(i);
+        const code = hostname4.charCodeAt(i);
         if (code === 46) {
           if (
             // Check that previous label is < 63 bytes long (64 = 63 + '.')
@@ -7853,11 +7853,11 @@ var require_cjs = __commonJS({
         setDefaultsImpl(options)
       );
     }
-    function getSubdomain$1(hostname3, domain) {
-      if (domain.length === hostname3.length) {
+    function getSubdomain$1(hostname4, domain) {
+      if (domain.length === hostname4.length) {
         return "";
       }
-      return hostname3.slice(0, -domain.length - 1);
+      return hostname4.slice(0, -domain.length - 1);
     }
     function getEmptyResult() {
       return {
@@ -7935,13 +7935,13 @@ var require_cjs = __commonJS({
       result.domainWithoutSuffix = getDomainWithoutSuffix$1(result.domain, result.publicSuffix);
       return result;
     }
-    function fastPathLookup(hostname3, options, out) {
-      if (!options.allowPrivateDomains && hostname3.length > 3) {
-        const last = hostname3.length - 1;
-        const c3 = hostname3.charCodeAt(last);
-        const c2 = hostname3.charCodeAt(last - 1);
-        const c1 = hostname3.charCodeAt(last - 2);
-        const c0 = hostname3.charCodeAt(last - 3);
+    function fastPathLookup(hostname4, options, out) {
+      if (!options.allowPrivateDomains && hostname4.length > 3) {
+        const last = hostname4.length - 1;
+        const c3 = hostname4.charCodeAt(last);
+        const c2 = hostname4.charCodeAt(last - 1);
+        const c1 = hostname4.charCodeAt(last - 2);
+        const c0 = hostname4.charCodeAt(last - 3);
         if (c3 === 109 && c2 === 111 && c1 === 99 && c0 === 46) {
           out.isIcann = true;
           out.isPrivate = false;
@@ -8006,19 +8006,19 @@ var require_cjs = __commonJS({
     var matchNode = -1;
     var matchStart = 0;
     var matchEnd = 0;
-    function labelEquals(edge, hostname3, start, length) {
+    function labelEquals(edge, hostname4, start, length) {
       if (edgeLength[edge] !== length) {
         return false;
       }
       const offset = edgeOffset[edge];
       for (let i = 0; i < length; i += 1) {
-        if (labelText.charCodeAt(offset + i) !== hostname3.charCodeAt(start + i)) {
+        if (labelText.charCodeAt(offset + i) !== hostname4.charCodeAt(start + i)) {
           return false;
         }
       }
       return true;
     }
-    function findEdge(node, hash, hostname3, start, length) {
+    function findEdge(node, hash, hostname4, start, length) {
       let lo = edgeStart[node];
       let hi = edgeStart[node + 1];
       while (lo < hi) {
@@ -8030,11 +8030,11 @@ var require_cjs = __commonJS({
           hi = mid;
         } else {
           for (let e = mid; e >= lo && edgeHash[e] === hash; e -= 1) {
-            if (labelEquals(e, hostname3, start, length))
+            if (labelEquals(e, hostname4, start, length))
               return e;
           }
           for (let e = mid + 1; e < hi && edgeHash[e] === hash; e += 1) {
-            if (labelEquals(e, hostname3, start, length))
+            if (labelEquals(e, hostname4, start, length))
               return e;
           }
           return -1;
@@ -8042,16 +8042,16 @@ var require_cjs = __commonJS({
       }
       return -1;
     }
-    function walk(hostname3, root, allowedMask) {
+    function walk(hostname4, root, allowedMask) {
       let node = root;
-      let end = hostname3.length;
+      let end = hostname4.length;
       let hash = 5381;
       matchNode = -1;
-      for (let i = hostname3.length - 1; i >= 0; i -= 1) {
-        const code = hostname3.charCodeAt(i);
+      for (let i = hostname4.length - 1; i >= 0; i -= 1) {
+        const code = hostname4.charCodeAt(i);
         if (code === 46) {
           const start = i + 1;
-          let edge2 = findEdge(node, hash >>> 0, hostname3, start, end - start);
+          let edge2 = findEdge(node, hash >>> 0, hostname4, start, end - start);
           if (edge2 === -1) {
             edge2 = wildcardEdge[node];
           }
@@ -8070,7 +8070,7 @@ var require_cjs = __commonJS({
           hash = hash * 33 ^ code;
         }
       }
-      let edge = findEdge(node, hash >>> 0, hostname3, 0, end);
+      let edge = findEdge(node, hash >>> 0, hostname4, 0, end);
       if (edge === -1) {
         edge = wildcardEdge[node];
       }
@@ -8084,27 +8084,27 @@ var require_cjs = __commonJS({
       }
       return matchNode !== -1;
     }
-    function suffixLookup(hostname3, options, out) {
-      if (fastPathLookup(hostname3, options, out)) {
+    function suffixLookup(hostname4, options, out) {
+      if (fastPathLookup(hostname4, options, out)) {
         return;
       }
       const allowedMask = (options.allowPrivateDomains ? 2 : 0) | (options.allowIcannDomains ? 1 : 0);
-      if (walk(hostname3, exceptionsRoot, allowedMask)) {
+      if (walk(hostname4, exceptionsRoot, allowedMask)) {
         out.isIcann = (nodeFlags[matchNode] & 1) !== 0;
         out.isPrivate = (nodeFlags[matchNode] & 2) !== 0;
-        out.publicSuffix = hostname3.slice(matchEnd + 1);
+        out.publicSuffix = hostname4.slice(matchEnd + 1);
         return;
       }
-      if (walk(hostname3, rulesRoot, allowedMask)) {
+      if (walk(hostname4, rulesRoot, allowedMask)) {
         out.isIcann = (nodeFlags[matchNode] & 1) !== 0;
         out.isPrivate = (nodeFlags[matchNode] & 2) !== 0;
-        out.publicSuffix = hostname3.slice(matchStart);
+        out.publicSuffix = hostname4.slice(matchStart);
         return;
       }
       out.isIcann = false;
       out.isPrivate = false;
-      const lastDot = hostname3.lastIndexOf(".");
-      out.publicSuffix = lastDot === -1 ? hostname3 : hostname3.slice(lastDot + 1);
+      const lastDot = hostname4.lastIndexOf(".");
+      out.publicSuffix = lastDot === -1 ? hostname4 : hostname4.slice(lastDot + 1);
     }
     var RESULT = getEmptyResult();
     function parse4(url, options) {
@@ -22081,7 +22081,10 @@ var TOOLS = [
     description: "The pages open in the browser: {id, title, url, mine}. mine is true for a page this task owns; others are the user's (shown without query or fragment). To use one of the user's tabs, act with {type: use_tab, tab: id}, which needs approval. deny: sites whose tabs are hidden.",
     inputSchema: {
       type: "object",
-      properties: { deny: { type: "array", items: { type: "string" } } }
+      properties: {
+        deny: { type: "array", items: { type: "string" } },
+        computer: { type: "string" }
+      }
     }
   },
   {
@@ -22181,7 +22184,15 @@ function createToolHandler(session2) {
         case "tabs": {
           const raw = asObject(rawArgs).deny;
           const deny = Array.isArray(raw) ? raw.filter((x) => typeof x === "string").slice(0, 200) : void 0;
-          return json2(await serial(() => session2.tabs({ deny })));
+          const computer = asObject(rawArgs).computer;
+          return json2(
+            await serial(
+              () => session2.tabs({
+                deny,
+                ...typeof computer === "string" && computer ? { computer } : {}
+              })
+            )
+          );
         }
         case "open": {
           const args = asObject(rawArgs);
@@ -22293,11 +22304,12 @@ function serveHttp(session2, options) {
 // src/session.ts
 import { createWriteStream } from "node:fs";
 import { chmod, mkdtemp, readdir, readFile as readFile2, rm } from "node:fs/promises";
-import { hostname as hostname2, tmpdir } from "node:os";
+import { hostname as hostname3, tmpdir } from "node:os";
 
 // src/profile.ts
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile, readlink, rename, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, readlink, rename, unlink } from "node:fs/promises";
+import { hostname as hostname2 } from "node:os";
 import { dirname, join } from "node:path";
 var CEREA_ACCENT_ARGB = 4285532391 | 0;
 var CEREA_PROFILE_NAME = "Cerea";
@@ -22314,8 +22326,10 @@ async function profileIsRunning(dir) {
   } catch {
     return false;
   }
-  const pid = Number(target.slice(target.lastIndexOf("-") + 1));
+  const cut = target.lastIndexOf("-");
+  const pid = Number(target.slice(cut + 1));
   if (!Number.isInteger(pid) || pid <= 0) return true;
+  if (cut > 0 && target.slice(0, cut) !== hostname2()) return true;
   try {
     process.kill(pid, 0);
     return true;
@@ -22342,8 +22356,23 @@ async function readJson(path) {
 async function writeAtomic(path, data) {
   await mkdir(dirname(path), { recursive: true, mode: 448 });
   const tmp = `${path}.cerea-${randomBytes(4).toString("hex")}.tmp`;
-  await writeFile(tmp, JSON.stringify(data), { mode: 384 });
-  await rename(tmp, path);
+  try {
+    const file = await open(tmp, "w", 384);
+    try {
+      await file.writeFile(JSON.stringify(data));
+      await file.sync();
+    } finally {
+      await file.close();
+    }
+    await rename(tmp, path);
+  } catch (err) {
+    await unlink(tmp).catch(() => {
+    });
+    throw err;
+  }
+}
+function isOurs(name) {
+  return name === void 0 || name === CEREA_PROFILE_NAME || typeof name === "string" && /^(Person \d+|Your Chrome|Default)$/.test(name);
 }
 function child(parent, key) {
   const existing = parent[key];
@@ -22361,13 +22390,19 @@ async function applyCereaProfile(dir, name = CEREA_PROFILE_NAME) {
     const state = await readJson(statePath);
     if (!prefs || !state) return { written: false, reason: "unreadable" };
     const theme = child(child(prefs, "browser"), "theme");
-    Object.assign(theme, THEME_PREFS);
+    if (theme.user_color2 === void 0 || theme.user_color2 === CEREA_ACCENT_ARGB) {
+      Object.assign(theme, THEME_PREFS);
+    }
     const profile = child(prefs, "profile");
-    profile.name = name;
-    profile.using_default_name = false;
+    if (isOurs(profile.name)) {
+      profile.name = name;
+      profile.using_default_name = false;
+    }
     const info = child(child(child(state, "profile"), "info_cache"), "Default");
-    info.name = name;
-    info.is_using_default_name = false;
+    if (isOurs(info.name)) {
+      info.name = name;
+      info.is_using_default_name = false;
+    }
     await writeAtomic(prefsPath, prefs);
     await writeAtomic(statePath, state);
     return { written: true };
@@ -23659,6 +23694,8 @@ var BrowserSession = class {
   starting;
   /** The browser was started (not found running) since the last task ended: `tabs` says so. */
   launchedForTask = false;
+  /** Cerea's name for this computer, as it last said it (start page and hint name the same one). */
+  computerName;
   navSeq = /* @__PURE__ */ new WeakMap();
   /**
    * The host of the last real (http/https) site this task's pages were on, mirroring Cerea's
@@ -23733,8 +23770,8 @@ var BrowserSession = class {
     this.touch();
     const context = await this.ensureContext();
     if (!this.active || this.active.isClosed()) {
-      const open = [...this.taskPages].filter((p) => !p.isClosed());
-      this.active = open.at(-1);
+      const open2 = [...this.taskPages].filter((p) => !p.isClosed());
+      this.active = open2.at(-1);
       if (!this.active) {
         this.active = await context.newPage();
         this.fresh.add(this.active);
@@ -23749,8 +23786,8 @@ var BrowserSession = class {
   /** The task's page if it has one: a call that only looks never makes a page. */
   livePage() {
     if (this.active && !this.active.isClosed()) return this.active;
-    const open = [...this.taskPages].filter((p) => !p.isClosed());
-    this.active = open.at(-1);
+    const open2 = [...this.taskPages].filter((p) => !p.isClosed());
+    this.active = open2.at(-1);
     return this.active;
   }
   touch() {
@@ -23938,6 +23975,7 @@ var BrowserSession = class {
       title,
       expires: Date.now() + (this.options.keptTtlMs ?? KEPT_TTL_MS)
     });
+    this.launchedForTask = false;
     return { token, id: this.tabId(page), title, url: clean(stripUserUrl(url), 2e3) };
   }
   tabId(page) {
@@ -23952,6 +23990,7 @@ var BrowserSession = class {
   async tabs(options = {}) {
     await this.ensureContext();
     this.touch();
+    if (options.computer) this.setComputerName(options.computer);
     if (options.deny) this.tabDeny = parseSiteList(options.deny.join("\n"));
     const pages = this.context.pages().filter((p) => !p.isClosed());
     const tabs = [];
@@ -23971,6 +24010,15 @@ var BrowserSession = class {
       });
     }
     return { tabs, ...this.launchedForTask ? { started: true } : {} };
+  }
+  setComputerName(name) {
+    const clean2 = name.slice(0, 80);
+    if (clean2 === (this.computerName ?? this.options.computerName)) return;
+    this.computerName = clean2;
+    for (const page of this.context?.pages() ?? []) {
+      if (!page.isClosed() && isStartUrl(page.url())) void page.reload().catch(() => {
+      });
+    }
   }
   denied(url) {
     const host = hostOf(url);
@@ -24019,10 +24067,24 @@ var BrowserSession = class {
       (url) => !/^(https?|about|blob|data|ws|wss):$/.test(url.protocol),
       (route) => route.abort("blockedbyclient")
     );
-    const startHtml = startPageHtml(this.options.computerName ?? hostname2());
     await context.route(
       (url) => url.href === START_URL,
-      (route) => route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: startHtml })
+      (route) => {
+        const request = route.request();
+        let topLevel = false;
+        try {
+          topLevel = request.isNavigationRequest() && request.frame().parentFrame() === null;
+        } catch {
+        }
+        if (!topLevel) return void route.abort("namenotresolved").catch(() => {
+        });
+        void route.fulfill({
+          status: 200,
+          contentType: "text/html; charset=utf-8",
+          body: startPageHtml(this.computerName ?? this.options.computerName ?? hostname3())
+        }).catch(() => {
+        });
+      }
     );
     context.on("page", (page) => {
       this.hook(page);

@@ -486,6 +486,8 @@ export class BrowserSession {
 	private starting?: Promise<void>;
 	/** The browser was started (not found running) since the last task ended: `tabs` says so. */
 	private launchedForTask = false;
+	/** Cerea's name for this computer, as it last said it (start page and hint name the same one). */
+	private computerName?: string;
 	private readonly navSeq = new WeakMap<Page, number>();
 	/**
 	 * The host of the last real (http/https) site this task's pages were on, mirroring Cerea's
@@ -841,6 +843,8 @@ export class BrowserSession {
 			title,
 			expires: Date.now() + (this.options.keptTtlMs ?? KEPT_TTL_MS),
 		});
+		// Opening the browser for the user is no task: a later task is not told it just started.
+		this.launchedForTask = false;
 		return { token, id: this.tabId(page), title, url: clean(stripUserUrl(url), 2000) };
 	}
 
@@ -854,10 +858,13 @@ export class BrowserSession {
 	}
 
 	/** The open pages of the persistent context, task pages and the user's own. */
-	async tabs(options: { deny?: string[] } = {}): Promise<{ tabs: Tab[]; started?: boolean }> {
+	async tabs(
+		options: { deny?: string[]; computer?: string } = {}
+	): Promise<{ tabs: Tab[]; started?: boolean }> {
 		await this.ensureContext();
 		this.touch();
 		// The sites Cerea keeps the agent out of (its deny list): remembered, so use_tab refuses them too.
+		if (options.computer) this.setComputerName(options.computer);
 		if (options.deny) this.tabDeny = parseSiteList(options.deny.join("\n"));
 		const pages = this.context!.pages().filter((p) => !p.isClosed());
 		const tabs: Tab[] = [];
@@ -878,6 +885,16 @@ export class BrowserSession {
 			});
 		}
 		return { tabs, ...(this.launchedForTask ? { started: true } : {}) };
+	}
+
+	private setComputerName(name: string): void {
+		const clean = name.slice(0, 80);
+		if (clean === (this.computerName ?? this.options.computerName)) return;
+		this.computerName = clean;
+		// A start page already showing the old name is shown again.
+		for (const page of this.context?.pages() ?? []) {
+			if (!page.isClosed() && isStartUrl(page.url())) void page.reload().catch(() => {});
+		}
 	}
 
 	private denied(url: string): boolean {
@@ -936,12 +953,28 @@ export class BrowserSession {
 			(url) => !/^(https?|about|blob|data|ws|wss):$/.test(url.protocol),
 			(route) => route.abort("blockedbyclient")
 		);
-		// The start page: answered here, with no network (registered last, so it runs first).
-		const startHtml = startPageHtml(this.options.computerName ?? hostname());
+		// The start page: answered here, with no network (registered last, so it runs first), and only
+		// as a page's own top-level navigation: a page's fetch or iframe gets what a real `.invalid`
+		// name gives, so a site cannot tell this is the Cerea browser by asking for it.
 		await context.route(
 			(url) => url.href === START_URL,
-			(route) =>
-				route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: startHtml })
+			(route) => {
+				const request = route.request();
+				let topLevel = false;
+				try {
+					topLevel = request.isNavigationRequest() && request.frame().parentFrame() === null;
+				} catch {
+					// a request with no frame (a worker's) is not a navigation
+				}
+				if (!topLevel) return void route.abort("namenotresolved").catch(() => {});
+				void route
+					.fulfill({
+						status: 200,
+						contentType: "text/html; charset=utf-8",
+						body: startPageHtml(this.computerName ?? this.options.computerName ?? hostname()),
+					})
+					.catch(() => {});
+			}
 		);
 		context.on("page", (page) => {
 			this.hook(page);

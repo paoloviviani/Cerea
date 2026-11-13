@@ -80,7 +80,14 @@ export interface BrowseResult {
 }
 
 /** Why the runtime stopped, as far as the error says. Internal: never shown as a code. */
-export type StopDetail = "too_large" | "unreachable" | "incompatible";
+export type StopDetail =
+	| "too_large"
+	| "unreachable"
+	| "incompatible"
+	| "blocked"
+	| "declined"
+	| "no_answer"
+	| "page_changed";
 
 /**
  * The reason a task stopped, in words a user can read (the chat model is told to pass it on
@@ -103,6 +110,10 @@ const PLAIN_STOP_DETAILS: Record<StopDetail, string> = {
 	too_large: "the page was too large to read",
 	unreachable: "the browser stopped responding: it crashed, or the computer went offline",
 	incompatible: "the browser on that computer is out of date and needs updating",
+	blocked: "this site is not allowed",
+	declined: "the user declined the approval",
+	no_answer: "the approval was not answered in time",
+	page_changed: "the page changed while the approval was pending, so nothing was done",
 };
 
 export function plainStopReason(reason: StoppedReason, detail?: StopDetail): string {
@@ -590,7 +601,8 @@ async function runInner(
 	/** A task that reaches a denied site stops, however it got there. */
 	const assertSite = () => {
 		const host = hostOf(finalUrl);
-		if (host && matchesAny(host, (deps.rulesNow?.() ?? deps.rules).deny)) throw new Stop("denied");
+		if (host && matchesAny(host, (deps.rulesNow?.() ?? deps.rules).deny))
+			throw new Stop("denied", "blocked");
 	};
 
 	const guarded = async <T>(work: () => Promise<T>): Promise<T> => {
@@ -723,13 +735,22 @@ async function runInner(
 	// For the hint when the user's tab is in another browser: did the task look, and did it find one?
 	const goalSites = sitesNamedIn(request.goal);
 	const tabMatchesGoal = (t: Tab): boolean =>
-		goalSites.length === 0 || goalSites.some((site) => (hostOf(t.url) ?? "").includes(site));
+		goalSites.length === 0 ||
+		goalSites.some((site) => {
+			const host = hostOf(t.url) ?? "";
+			return host === site || host.endsWith(`.${site}`);
+		});
 	let tabsListed = false;
 	let userTabFound = false;
 	let browserStarted = false;
 	const relistTabs = async () => {
 		const rules = deps.rulesNow?.() ?? deps.rules;
-		const listed = await guarded(() => runtime.tabs({ deny: rules.deny }, deps.signal));
+		const listed = await guarded(() =>
+			runtime.tabs(
+				{ deny: rules.deny, ...(deps.machineName ? { computer: deps.machineName } : {}) },
+				deps.signal
+			)
+		);
 		knownTabs.clear();
 		// A tab on a site the browser may not use is not listed, whatever the runtime did with
 		// the deny list it was given.
@@ -737,7 +758,14 @@ async function runInner(
 		for (const tab of allowed) knownTabs.set(tab.id, tab);
 		tabsListed = true;
 		if (listed.started) browserStarted = true;
-		if (allowed.some((t) => !t.mine && tabMatchesGoal(t))) userTabFound = true;
+		// A user's tab, or one lent to this chat that the task resumed; an entry the runtime hid
+		// (no address) is not a tab the task can use.
+		if (
+			allowed.some(
+				(t) => t.url !== "" && (!t.mine || shared.adopted.has(t.id)) && tabMatchesGoal(t)
+			)
+		)
+			userTabFound = true;
 		return allowed;
 	};
 	/** A user's own tab is shown to the model without its query string and fragment (tokens, searches). */
@@ -782,6 +810,7 @@ async function runInner(
 	const adoptedSites = new Set<string>();
 	let pendingPage: string | undefined;
 	let denied = false;
+	let deniedDetail: StopDetail = "blocked";
 	let allowFirstNavigation = false;
 	/** The host of the last real site the task was on: a blank page is judged against it. */
 	let lastSite: string | undefined;
@@ -991,6 +1020,7 @@ async function runInner(
 					);
 					skippedLine();
 					denied = true;
+					deniedDetail = answer.verdict === "expired" ? "no_answer" : "declined";
 					halted = true;
 					break;
 				}
@@ -1020,6 +1050,7 @@ async function runInner(
 					);
 					skippedLine();
 					denied = true;
+					deniedDetail = stale || decision.verdict !== "deny" ? "page_changed" : "blocked";
 					halted = true;
 					break;
 				}
@@ -1036,6 +1067,7 @@ async function runInner(
 				);
 				skippedLine();
 				denied = true;
+				deniedDetail = "blocked";
 				halted = true;
 				break;
 			} else if (decision.viaSiteRule && classification.class === "commit") {
@@ -1354,7 +1386,7 @@ async function runInner(
 			allowFirstNavigation = true;
 			await doAct("start", [{ type: "navigate", url: request.startUrl }]);
 			allowFirstNavigation = false;
-			if (denied) throw new Stop("denied");
+			if (denied) throw new Stop("denied", deniedDetail);
 		}
 
 		for (;;) {
@@ -1457,7 +1489,7 @@ async function runInner(
 						`Error: ${fenceInline(short(err instanceof Error ? err.message : String(err), 300))}`
 					);
 				}
-				if (denied && deps.unattended) throw new Stop("denied");
+				if (denied && deps.unattended) throw new Stop("denied", deniedDetail);
 			}
 		}
 	} catch (err) {
