@@ -15,8 +15,8 @@ export interface PolicyConfig {
 }
 
 export interface PolicyDeps {
-	/** Labels of a container by id or name, or null when it does not exist. */
-	containerLabels(id: string): Promise<Record<string, string> | null>;
+	/** A container by id or name: its full id and labels, or null when it does not exist. */
+	containerInfo(id: string): Promise<{ id: string; labels: Record<string, string> } | null>;
 	/** The container an exec instance belongs to, or null. */
 	execContainer(execId: string): Promise<string | null>;
 }
@@ -25,6 +25,13 @@ export type Verdict =
 	{ allow: true; path: string } | { allow: false; status: number; reason: string };
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
+const FULL_ID = /^[a-f0-9]{64}$/;
+/** The only tmpfs options the manager writes: a size, a numeric owner and a mode. */
+const TMPFS_OPTIONS =
+	/^rw,nosuid,nodev,(?:no)?exec,size=\d{1,5}m,uid=\d{1,10},gid=\d{1,10},mode=[0-7]{3,4}$/;
+/** The most open files a sandbox may be given. */
+const NOFILE_CAP = 65536;
+const NUMERIC_USER = /^(\d+)(?::(\d+))?$/;
 const deny = (reason: string, status = 403): Verdict => ({ allow: false, status, reason });
 
 const QUERY_KEYS: Record<string, string[]> = {
@@ -111,13 +118,7 @@ export function validateCreate(body: unknown, cfg: PolicyConfig): string | null 
 	const labels = b.Labels as Record<string, string> | undefined;
 	if (!isManaged(labels, cfg.instance)) return "the container must carry the manager's labels";
 	const user = typeof b.User === "string" ? b.User : "";
-	if (
-		!/^\d+(:\d+)?$/.test(user) ||
-		Number(user.split(":")[0]) === 0 ||
-		(user.includes(":") && Number(user.split(":")[1]) === 0)
-	) {
-		return "the user must be a numeric non-root uid:gid";
-	}
+	if (!nonRootUser(user)) return "the user must be a numeric uid:gid, neither of them 0";
 	const h = b.HostConfig as Record<string, unknown> | undefined;
 	if (typeof h !== "object" || h === null) return "HostConfig is required";
 	for (const k of Object.keys(h))
@@ -146,7 +147,48 @@ export function validateCreate(body: unknown, cfg: PolicyConfig): string | null 
 	if (h.MemorySwap !== h.Memory) return "swap must equal memory (none)";
 	const tmpfs = h.Tmpfs;
 	if (typeof tmpfs !== "object" || tmpfs === null) return "a tmpfs workspace is required";
-	for (const k of Object.keys(tmpfs)) if (!TMPFS_PATHS.has(k)) return `tmpfs ${k} is not allowed`;
+	for (const [k, opts] of Object.entries(tmpfs)) {
+		if (!TMPFS_PATHS.has(k)) return `tmpfs ${k} is not allowed`;
+		if (typeof opts !== "string" || !TMPFS_OPTIONS.test(opts)) {
+			return `the tmpfs options for ${k} are not the manager's`;
+		}
+	}
+	if (h.Ulimits !== undefined) {
+		if (!Array.isArray(h.Ulimits)) return "Ulimits must be a list";
+		for (const u of h.Ulimits as Record<string, unknown>[]) {
+			const ok =
+				u?.Name === "nofile" &&
+				Number.isInteger(u.Soft) &&
+				Number.isInteger(u.Hard) &&
+				(u.Soft as number) > 0 &&
+				(u.Soft as number) <= NOFILE_CAP &&
+				(u.Hard as number) > 0 &&
+				(u.Hard as number) <= NOFILE_CAP &&
+				Object.keys(u).every((k) => k === "Name" || k === "Soft" || k === "Hard");
+			if (!ok) return `only a nofile ulimit up to ${NOFILE_CAP} is allowed`;
+		}
+	}
+	return null;
+}
+
+/** `uid` or `uid:gid`, numeric, with neither 0. */
+function nonRootUser(user: string): boolean {
+	const m = NUMERIC_USER.exec(user);
+	return m !== null && Number(m[1]) !== 0 && (m[2] === undefined || Number(m[2]) !== 0);
+}
+
+/**
+ * An exec start must be a hijack: attached, no TTY. A detached start gets an ordinary reply on a
+ * connection that stays open, which is how a second, unchecked request could ride behind it.
+ */
+export function validateExecStart(body: unknown): string | null {
+	if (typeof body !== "object" || body === null || Array.isArray(body)) {
+		return "an exec start needs a JSON body";
+	}
+	const b = body as Record<string, unknown>;
+	for (const k of Object.keys(b)) if (k !== "Detach" && k !== "Tty") return `${k} is not allowed`;
+	if (b.Detach !== undefined && b.Detach !== false) return "an exec start may not be detached";
+	if (b.Tty !== false) return "an exec start must set Tty to false";
 	return null;
 }
 
@@ -167,15 +209,8 @@ export function validateExecCreate(body: unknown): string | null {
 	for (const k of Object.keys(b)) if (!allowed.has(k)) return `${k} is not allowed in an exec`;
 	if (!Array.isArray(b.Cmd) || b.Cmd.some((a) => typeof a !== "string"))
 		return "Cmd must be a list of strings";
-	if (
-		b.User !== undefined &&
-		!(
-			typeof b.User === "string" &&
-			/^\d+(:\d+)?$/.test(b.User) &&
-			Number(b.User.split(":")[0]) !== 0
-		)
-	) {
-		return "an exec may not run as root";
+	if (b.User !== undefined && !(typeof b.User === "string" && nonRootUser(b.User))) {
+		return "an exec may not run as uid 0 or gid 0";
 	}
 	return null;
 }
@@ -208,14 +243,16 @@ export async function authorize(
 	deps: PolicyDeps
 ): Promise<Verdict> {
 	const url = new URL(rawUrl, "http://docker");
-	const r = route(method, url.pathname);
+	// The API version prefix is dropped: Docker is always asked for its own current version.
+	const pathname = url.pathname.replace(/^\/v\d+\.\d+(?=\/)/, "");
+	const r = route(method, pathname);
 	if (!r) return deny("endpoint not allowed");
 	const keys = QUERY_KEYS[r.name] ?? [];
 	for (const k of url.searchParams.keys())
 		if (!keys.includes(k)) return deny(`query parameter ${k} not allowed`);
-	let target = url.pathname + url.search;
+	let target = pathname + url.search;
 
-	if (r.name === "list") target = `${url.pathname}?${rewriteList(url.searchParams, cfg)}`;
+	if (r.name === "list") target = `${pathname}?${rewriteList(url.searchParams, cfg)}`;
 	if (r.name === "create") {
 		const name = url.searchParams.get("name") ?? "";
 		if (!name.startsWith(NAME_PREFIX) || !ID.test(name))
@@ -234,9 +271,14 @@ export async function authorize(
 	const container = (r as { container?: string }).container;
 	if (container !== undefined) {
 		if (!ID.test(container)) return deny("bad container id");
-		const labels = await deps.containerLabels(container);
-		if (!labels) return { allow: false, status: 404, reason: "no such container" };
-		if (!isManaged(labels, cfg.instance)) return deny("not a sandbox manager container");
+		const info = await deps.containerInfo(container);
+		if (!info) return { allow: false, status: 404, reason: "no such container" };
+		if (!isManaged(info.labels, cfg.instance) || !FULL_ID.test(info.id)) {
+			return deny("not a sandbox manager container");
+		}
+		// What was checked is what is asked for: the full id Docker reported, never the name or a
+		// short prefix the caller sent (a name can be reassigned between the check and the call).
+		target = target.replace(`/containers/${container}`, `/containers/${info.id}`);
 		if (r.name === "exec") {
 			const problem = validateExecCreate(body);
 			if (problem) return deny(problem);
@@ -244,15 +286,16 @@ export async function authorize(
 	}
 	const exec = (r as { exec?: string }).exec;
 	if (exec !== undefined) {
-		if (!ID.test(exec)) return deny("bad exec id");
+		if (!FULL_ID.test(exec)) return deny("bad exec id");
 		const owner = await deps.execContainer(exec);
 		if (!owner) return { allow: false, status: 404, reason: "no such exec" };
-		const labels = await deps.containerLabels(owner);
-		if (!labels || !isManaged(labels, cfg.instance)) return deny("not a sandbox manager container");
+		const info = await deps.containerInfo(owner);
+		if (!info || !isManaged(info.labels, cfg.instance)) {
+			return deny("not a sandbox manager container");
+		}
 		if (r.name === "execStart") {
-			const b = (body ?? {}) as Record<string, unknown>;
-			for (const k of Object.keys(b))
-				if (k !== "Detach" && k !== "Tty") return deny(`${k} is not allowed`);
+			const problem = validateExecStart(body);
+			if (problem) return deny(problem);
 		}
 	}
 	return { allow: true, path: target };

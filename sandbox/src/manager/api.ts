@@ -15,6 +15,8 @@ export function tokenMatches(given: string, expected: string): boolean {
 const JSON_LIMIT = 1_048_576;
 
 export function createApi(config: ManagerConfig, leases: LeaseManager, version = "0.1.0") {
+	let inflight = 0;
+	let transfers = 0;
 	const authorised = (req: http.IncomingMessage): boolean => {
 		const header = req.headers.authorization ?? "";
 		const m = /^Bearer (.+)$/.exec(header);
@@ -38,14 +40,31 @@ export function createApi(config: ManagerConfig, leases: LeaseManager, version =
 		}
 		if (!authorised(req)) return sendError(res, 401, "unauthorized", "a service token is required");
 
-		const owner =
-			typeof req.headers["x-sandbox-owner"] === "string"
-				? req.headers["x-sandbox-owner"]
-				: undefined;
+		// Every lease route names its owner: a lease is only ever seen by the owner it was made for,
+		// so a leaked or guessed lease id is not enough.
+		const header = req.headers["x-sandbox-owner"];
+		const owner = typeof header === "string" && header !== "" ? header : undefined;
+		if (owner === undefined) {
+			return sendError(res, 400, "owner_required", "X-Sandbox-Owner is required");
+		}
+
+		// Bound the work in flight before any body is read: a call can hold megabytes.
+		if (inflight >= config.maxInflight) {
+			return sendError(res, 503, "busy", "the manager has too many requests in flight");
+		}
+		inflight++;
+		res.on("close", () => inflight--);
 
 		if (path === "/v1/leases" && method === "POST") {
 			const body = parseJson(await readBody(req, JSON_LIMIT));
 			if (!isRecord(body)) throw new HttpError(400, "bad_json", "the body must be an object");
+			if (body.owner !== owner) {
+				throw new HttpError(
+					400,
+					"owner_mismatch",
+					"X-Sandbox-Owner must equal the owner in the body"
+				);
+			}
 			const lease = await leases.create({
 				kind: body.kind as "exec" | "machine",
 				owner: body.owner as string,
@@ -85,6 +104,13 @@ export function createApi(config: ManagerConfig, leases: LeaseManager, version =
 				file = decodeURIComponent(rawFile ?? "");
 			} catch {
 				throw new HttpError(400, "bad_path", "the path is not valid percent-encoding");
+			}
+			if (method === "PUT" || method === "GET") {
+				if (transfers >= config.maxFileTransfers) {
+					return sendError(res, 503, "busy", "too many file transfers in flight");
+				}
+				transfers++;
+				res.on("close", () => transfers--);
 			}
 			if (method === "PUT") {
 				const data = await readBody(req, config.maxFileBytes);

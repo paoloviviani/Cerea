@@ -16,15 +16,19 @@ const cfg: PolicyConfig = {
 	images: [testConfig().execImage],
 };
 const managed = { "cerea.sandbox": "1", "cerea.sandbox.instance": "unit" };
+const FULL = (c: string) => c.repeat(64);
+const EXEC_MINE = FULL("e");
+const EXEC_PLAIN = FULL("f");
 const deps: PolicyDeps = {
-	async containerLabels(id) {
-		if (id === "mine") return managed;
-		if (id === "other") return { ...managed, "cerea.sandbox.instance": "elsewhere" };
-		if (id === "plain") return {};
+	async containerInfo(id) {
+		if (id === "mine" || id === FULL("a")) return { id: FULL("a"), labels: managed };
+		if (id === "other")
+			return { id: FULL("b"), labels: { ...managed, "cerea.sandbox.instance": "elsewhere" } };
+		if (id === "plain") return { id: FULL("c"), labels: {} };
 		return null;
 	},
 	async execContainer(id) {
-		return id === "e-mine" ? "mine" : id === "e-plain" ? "plain" : null;
+		return id === EXEC_MINE ? "mine" : id === EXEC_PLAIN ? "plain" : null;
 	},
 };
 const ask = (method: string, url: string, body?: unknown) =>
@@ -44,11 +48,15 @@ describe("socket proxy: endpoints", () => {
 			["POST", "/containers/mine/exec"],
 			["DELETE", "/containers/mine?force=true&v=true"],
 			["GET", "/v1.47/containers/mine/stats?stream=false&one-shot=true"],
-			["GET", "/exec/e-mine/json"],
-			["POST", "/exec/e-mine/start"],
+			["GET", `/exec/${EXEC_MINE}/json`],
+			["POST", `/exec/${EXEC_MINE}/start`],
 			["GET", "/_ping"],
 		] as const) {
-			const body = u.endsWith("/exec") ? { Cmd: ["ls"] } : undefined;
+			const body = u.endsWith("/exec")
+				? { Cmd: ["ls"] }
+				: u.includes("/exec/") && u.endsWith("/start")
+					? { Detach: false, Tty: false }
+					: undefined;
 			assert.equal((await ask(m, u, body)).allow, true, `${m} ${u}`);
 		}
 	});
@@ -70,7 +78,7 @@ describe("socket proxy: endpoints", () => {
 			["POST", "/swarm/init"],
 			["GET", "/events"],
 			["PUT", "/containers/mine/archive"],
-			["POST", "/exec/e-mine/resize"],
+			["POST", `/exec/${EXEC_MINE}/resize`],
 		] as const) {
 			const v = await ask(m, u);
 			assert.equal(v.allow, false, `${m} ${u}`);
@@ -85,8 +93,11 @@ describe("socket proxy: endpoints", () => {
 			assert.equal((await ask("POST", `/containers/${id}/exec`, { Cmd: ["id"] })).allow, false);
 		}
 		assert.equal((await ask("GET", "/containers/missing/json")).allow, false);
-		assert.equal((await ask("POST", "/exec/e-plain/start", { Detach: false })).allow, false);
-		assert.equal((await ask("GET", "/exec/e-unknown/json")).allow, false);
+		assert.equal(
+			(await ask("POST", `/exec/${EXEC_PLAIN}/start`, { Detach: false, Tty: false })).allow,
+			false
+		);
+		assert.equal((await ask("GET", `/exec/${FULL("9")}/json`)).allow, false);
 	});
 
 	it("rejects extra query parameters", async () => {
@@ -174,6 +185,80 @@ describe("socket proxy: create bodies", () => {
 		assert.ok(validateExecCreate({ Cmd: ["id"], User: "root" }));
 		assert.ok(validateExecCreate({ Cmd: ["id"], User: "0" }));
 		assert.equal(validateExecCreate({ Cmd: ["id"], User: "65534:65534", Env: ["A=b"] }), null);
+	});
+});
+
+describe("socket proxy: hijack, ids and version", () => {
+	const start = (body: unknown) => ask("POST", `/exec/${EXEC_MINE}/start`, body);
+
+	it("allows an exec start only attached and without a TTY", async () => {
+		assert.equal((await start({ Detach: false, Tty: false })).allow, true);
+		assert.equal((await start({ Tty: false })).allow, true);
+		for (const bad of [
+			{ Detach: true, Tty: false },
+			{ Detach: true },
+			{ Detach: "false", Tty: false },
+			{ Detach: false },
+			{ Tty: true },
+			{ Tty: false, ConsoleSize: [1, 1] },
+			undefined,
+			[],
+		]) {
+			assert.equal((await start(bad)).allow, false, JSON.stringify(bad));
+		}
+	});
+
+	it("asks Docker for the full id it checked, never the name or a prefix", async () => {
+		const v = await ask("GET", "/containers/mine/json");
+		assert.deepEqual(v, { allow: true, path: `/containers/${FULL("a")}/json` });
+		const d = await ask("DELETE", "/containers/mine?force=true");
+		assert.equal((d as { path: string }).path, `/containers/${FULL("a")}?force=true`);
+	});
+
+	it("takes a full exec id only", async () => {
+		assert.equal((await ask("GET", "/exec/abc123/json")).allow, false);
+		assert.equal((await ask("GET", `/exec/${EXEC_MINE}/json`)).allow, true);
+	});
+
+	it("drops the API version prefix", async () => {
+		const v = await ask("GET", "/v1.12/containers/json");
+		assert.ok(v.allow);
+		assert.match((v as { path: string }).path, /^\/containers\/json\?/);
+	});
+
+	it("refuses tmpfs options and ulimits the manager does not write", async () => {
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const mutations: [string, (b: Record<string, any>) => void][] = [
+			[
+				"suid",
+				(b) =>
+					(b.HostConfig.Tmpfs["/tmp"] = "rw,suid,dev,exec,size=64m,uid=65534,gid=65534,mode=1777"),
+			],
+			["extra option", (b) => (b.HostConfig.Tmpfs["/workspace"] += ",bind")],
+			[
+				"huge size",
+				(b) =>
+					(b.HostConfig.Tmpfs["/tmp"] =
+						"rw,nosuid,nodev,noexec,size=99999999m,uid=1,gid=1,mode=0700"),
+			],
+			["not a string", (b) => (b.HostConfig.Tmpfs["/tmp"] = 5)],
+			["nproc ulimit", (b) => (b.HostConfig.Ulimits = [{ Name: "nproc", Soft: 1, Hard: 1 }])],
+			[
+				"nofile too high",
+				(b) => (b.HostConfig.Ulimits = [{ Name: "nofile", Soft: 1, Hard: 10_000_000 }]),
+			],
+			["gid 0", (b) => (b.User = "65534:0")],
+		];
+		for (const [what, mutate] of mutations) {
+			const b = good();
+			mutate(b);
+			assert.equal(
+				(await ask("POST", "/containers/create?name=cerea-sbx-abc", b)).allow,
+				false,
+				what
+			);
+		}
+		assert.equal(validateExecCreate({ Cmd: ["id"], User: "65534:0" }) !== null, true);
 	});
 });
 

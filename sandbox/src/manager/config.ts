@@ -36,6 +36,10 @@ export interface ManagerConfig {
 	warmPoolSize: number;
 	maxFileBytes: number;
 	maxConcurrentExecsPerLease: number;
+	/** Requests in flight at once, all routes; more get 503 before their body is read. */
+	maxInflight: number;
+	/** File transfers in flight at once (each buffers up to maxFileBytes several times over). */
+	maxFileTransfers: number;
 	reapIntervalSeconds: number;
 	auditLog: string;
 }
@@ -76,7 +80,7 @@ export function loadConfig(env: Env = process.env): ManagerConfig {
 		pids: num(env, "SANDBOX_EXEC_PIDS", 256),
 		workspaceMb: num(env, "SANDBOX_EXEC_WORKSPACE_MB", 256),
 		timeoutSeconds: num(env, "SANDBOX_EXEC_TIMEOUT_SECONDS", 30),
-		maxOutputBytes: num(env, "SANDBOX_EXEC_MAX_OUTPUT_BYTES", 1_048_576),
+		maxOutputBytes: num(env, "SANDBOX_EXEC_MAX_OUTPUT_BYTES", 262_144),
 		idleSeconds: num(env, "SANDBOX_IDLE_SECONDS", 1200),
 	};
 	const maxima = {
@@ -86,7 +90,7 @@ export function loadConfig(env: Env = process.env): ManagerConfig {
 		workspaceMb: num(env, "SANDBOX_EXEC_MAX_WORKSPACE_MB", 1024),
 		timeoutSeconds: num(env, "SANDBOX_EXEC_MAX_TIMEOUT_SECONDS", 300),
 		execTimeoutSeconds: num(env, "SANDBOX_EXEC_MAX_TIMEOUT_SECONDS", 300),
-		maxOutputBytes: num(env, "SANDBOX_EXEC_MAX_OUTPUT_BYTES_CAP", 8_388_608),
+		maxOutputBytes: num(env, "SANDBOX_EXEC_MAX_OUTPUT_BYTES_CAP", 1_048_576),
 		idleSeconds: num(env, "SANDBOX_MAX_IDLE_SECONDS", 3600),
 		lifetimeSeconds: num(env, "SANDBOX_MAX_LIFETIME_SECONDS", 14_400),
 	};
@@ -116,8 +120,10 @@ export function loadConfig(env: Env = process.env): ManagerConfig {
 		maxLeases: num(env, "SANDBOX_MAX_LEASES", 4),
 		maxLeasesPerOwner: num(env, "SANDBOX_MAX_LEASES_PER_OWNER", 2),
 		warmPoolSize: num(env, "SANDBOX_WARM_POOL_SIZE", 0, 0),
-		maxFileBytes: num(env, "SANDBOX_MAX_FILE_BYTES", 16_777_216),
+		maxFileBytes: num(env, "SANDBOX_MAX_FILE_BYTES", 8_388_608),
 		maxConcurrentExecsPerLease: num(env, "SANDBOX_MAX_CONCURRENT_EXECS", 4),
+		maxInflight: num(env, "SANDBOX_MAX_INFLIGHT", 16),
+		maxFileTransfers: num(env, "SANDBOX_MAX_FILE_TRANSFERS", 4),
 		reapIntervalSeconds: num(env, "SANDBOX_REAP_INTERVAL_SECONDS", 15),
 		auditLog: env.SANDBOX_AUDIT_LOG ?? "/var/lib/sandbox/audit.jsonl",
 	};

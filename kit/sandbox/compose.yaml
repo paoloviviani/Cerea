@@ -82,6 +82,8 @@ services:
       SANDBOX_EXEC_MAX_OUTPUT_BYTES: ${SANDBOX_EXEC_MAX_OUTPUT_BYTES:-}
       SANDBOX_EXEC_MAX_OUTPUT_BYTES_CAP: ${SANDBOX_EXEC_MAX_OUTPUT_BYTES_CAP:-}
       SANDBOX_MAX_FILE_BYTES: ${SANDBOX_MAX_FILE_BYTES:-}
+      SANDBOX_MAX_INFLIGHT: ${SANDBOX_MAX_INFLIGHT:-}
+      SANDBOX_MAX_FILE_TRANSFERS: ${SANDBOX_MAX_FILE_TRANSFERS:-}
     volumes:
       - sandbox-audit:/var/lib/sandbox
     # `docker` is internal (the socket proxy's own); `default` carries the published port.
@@ -93,7 +95,7 @@ services:
     tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
-    mem_limit: ${SANDBOX_MANAGER_MEM_LIMIT:-256m}
+    mem_limit: ${SANDBOX_MANAGER_MEM_LIMIT:-512m}
     cpus: ${SANDBOX_MANAGER_CPUS:-0.5}
     pids_limit: ${SANDBOX_MANAGER_PIDS:-128}
     healthcheck:

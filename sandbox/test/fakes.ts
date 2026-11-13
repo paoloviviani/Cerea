@@ -22,6 +22,9 @@ export class FakeDocker implements DockerApi {
 	removed: string[] = [];
 	nextExec: Partial<ExecResult> = {};
 	failCreate = false;
+	/** When set, an exec / an inspect waits for it. */
+	holdExec: Promise<void> | null = null;
+	holdInspect: Promise<void> | null = null;
 	private n = 0;
 
 	async ensureImage() {}
@@ -39,6 +42,7 @@ export class FakeDocker implements DockerApi {
 	}
 	async start() {}
 	async inspect(id: string) {
+		if (this.holdInspect) await this.holdInspect;
 		return this.containers.get(id) ?? null;
 	}
 	async remove(id: string) {
@@ -57,6 +61,7 @@ export class FakeDocker implements DockerApi {
 		return 1.5;
 	}
 	async exec(_id: string, o: ExecOptions): Promise<ExecResult> {
+		if (this.holdExec) await this.holdExec;
 		this.execs.push(o);
 		return {
 			exitCode: 0,

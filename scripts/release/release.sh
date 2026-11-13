@@ -74,10 +74,11 @@ echo "images $s"
 # 4. Pullable with no registry login.
 anon=$(mktemp -d) && echo '{}' >"$anon/config.json"
 owner=${REPO%%/*}
-# Both images of the release: the chat and the document service (ADR 0103).
+# The images of the release: the chat, the document service (ADR 0103) and the sandbox
+# manager (ADR 0115).
 # A package's first push is private on GitHub: its visibility is the owner's to
 # set once, and this step is what notices when it has not been.
-for image in cerea cerea-documents; do
+for image in cerea cerea-documents cerea-sandbox; do
 	DOCKER_CONFIG=$anon docker manifest inspect "ghcr.io/${owner,,}/$image:$V" >/dev/null ||
 		stop "$image:$V not pullable anonymously"
 done

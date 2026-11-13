@@ -6,7 +6,9 @@ export class BadPath extends Error {}
  * A caller's path, as a path under /workspace. Refuses rather than resolves: a `..` segment, a NUL
  * or control character, a backslash, an over-long name. Leading slashes are dropped, so
  * `/etc/passwd` names `/workspace/etc/passwd`. The in-container scripts also resolve symlinks and
- * refuse a target outside /workspace.
+ * refuse a target outside /workspace, but that is a courtesy, not a boundary: code running in the
+ * sandbox owns the file system and can swap a link between the check and the use. The boundary
+ * is the container itself (gVisor, a workspace of its own, no host mounts).
  */
 export function workspacePath(raw: string): string {
 	let decoded = raw;

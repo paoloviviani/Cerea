@@ -74,9 +74,9 @@ describe("SandboxClient", () => {
 				? new Response(new Uint8Array([1, 2, 3]))
 				: new Response(null, { status: 204 })
 		);
-		await client.putFile("l1", "dir/a b#.txt", new Uint8Array([9]));
+		await client.putFile("l1", "dir/a b#.txt", new Uint8Array([9]), "u1");
 		expect(calls[0].url).toBe("http://m:8080/v1/leases/l1/files/dir/a%20b%23.txt");
-		expect([...(await client.getFile("l1", "x/../y"))]).toEqual([1, 2, 3]);
+		expect([...(await client.getFile("l1", "x/../y", "u1"))]).toEqual([1, 2, 3]);
 		expect(calls[1].url).toBe("http://m:8080/v1/leases/l1/files/x/%2E%2E/y");
 	});
 
@@ -100,6 +100,6 @@ describe("SandboxClient", () => {
 		});
 		await expect(down.health()).rejects.toMatchObject({ code: "unreachable" });
 		const { client } = fakeFetch(() => json({ nonsense: true }));
-		await expect(client.status("l1")).rejects.toBeInstanceOf(SandboxError);
+		await expect(client.status("l1", "u1")).rejects.toBeInstanceOf(SandboxError);
 	});
 });

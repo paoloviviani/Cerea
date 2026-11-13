@@ -22,11 +22,23 @@ async function serve(s: ReturnType<typeof setup>) {
 	const server = createApi(s.config, s.leases);
 	await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
 	const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-	const call = (method: string, path: string, body?: unknown, auth: string | null = TOKEN) =>
+	const call = (
+		method: string,
+		path: string,
+		body?: unknown,
+		auth: string | null = TOKEN,
+		owner: string | null = null
+	) =>
 		fetch(base + path, {
 			method,
 			headers: {
 				...(auth ? { Authorization: `Bearer ${auth}` } : {}),
+				// Every lease route names its owner; a create's must be the body's own.
+				...(owner !== null
+					? { "X-Sandbox-Owner": owner }
+					: typeof (body as { owner?: unknown } | undefined)?.owner === "string"
+						? { "X-Sandbox-Owner": (body as { owner: string }).owner }
+						: { "X-Sandbox-Owner": "u1" }),
 				...(body && !Buffer.isBuffer(body) ? { "Content-Type": "application/json" } : {}),
 			},
 			body:
@@ -36,7 +48,7 @@ async function serve(s: ReturnType<typeof setup>) {
 						? new Uint8Array(body)
 						: JSON.stringify(body),
 		});
-	return { call, close: () => server.close() };
+	return { call, base, close: () => server.close() };
 }
 
 describe("config", () => {
@@ -168,6 +180,84 @@ describe("API", () => {
 
 			assert.equal((await api.call("DELETE", `/v1/leases/${lease.id}`)).status, 204);
 			assert.equal((await api.call("GET", `/v1/leases/${lease.id}`)).status, 404);
+		} finally {
+			api.close();
+		}
+	});
+
+	it("requires the owner on every lease route, and equal to the body's on create", async () => {
+		const api = await serve(setup());
+		try {
+			const raw = (method: string, path: string, body?: unknown, owner?: string) =>
+				fetch(api.base + path, {
+					method,
+					headers: {
+						Authorization: `Bearer ${TOKEN}`,
+						"Content-Type": "application/json",
+						...(owner ? { "X-Sandbox-Owner": owner } : {}),
+					},
+					body: body === undefined ? undefined : JSON.stringify(body),
+				});
+			const made = { kind: "exec", owner: "alice" };
+			assert.equal((await raw("POST", "/v1/leases", made)).status, 400);
+			assert.equal((await raw("POST", "/v1/leases", made, "bob")).status, 400);
+			const ok = await raw("POST", "/v1/leases", made, "alice");
+			assert.equal(ok.status, 201);
+			const id = ((await ok.json()) as { id: string }).id;
+			for (const [m, path, body] of [
+				["GET", `/v1/leases/${id}`],
+				["DELETE", `/v1/leases/${id}`],
+				["POST", `/v1/leases/${id}/exec`, { command: "x" }],
+				["PUT", `/v1/leases/${id}/files/a`, {}],
+				["GET", `/v1/leases/${id}/files/a`],
+			] as const) {
+				const r = await raw(m, path, body);
+				assert.equal(r.status, 400, `${m} ${path} without an owner`);
+				assert.equal(
+					((await r.json()) as { error: { code: string } }).error.code,
+					"owner_required"
+				);
+			}
+			assert.equal((await raw("GET", `/v1/leases/${id}`, undefined, "bob")).status, 404);
+			assert.equal((await raw("GET", `/v1/leases/${id}`, undefined, "alice")).status, 200);
+		} finally {
+			api.close();
+		}
+	});
+
+	it("refuses a non-number max_output_bytes", async () => {
+		const api = await serve(setup());
+		try {
+			const lease = (await (
+				await api.call("POST", "/v1/leases", { kind: "exec", owner: "u1" })
+			).json()) as { id: string };
+			const r = await api.call("POST", `/v1/leases/${lease.id}/exec`, {
+				command: "x",
+				max_output_bytes: "5",
+			});
+			assert.equal(r.status, 400);
+		} finally {
+			api.close();
+		}
+	});
+
+	it("answers 503 when the in-flight cap is reached, before reading a body", async () => {
+		const s = setup({ SANDBOX_MAX_INFLIGHT: "1" });
+		const api = await serve(s);
+		try {
+			const lease = (await (
+				await api.call("POST", "/v1/leases", { kind: "exec", owner: "u1" })
+			).json()) as { id: string };
+			let release!: () => void;
+			s.docker.holdExec = new Promise<void>((r) => (release = r));
+			const slow = api.call("POST", `/v1/leases/${lease.id}/exec`, { command: "sleep" });
+			await new Promise((r) => setTimeout(r, 100));
+			const second = await api.call("GET", `/v1/leases/${lease.id}`);
+			assert.equal(second.status, 503);
+			assert.equal((await fetch(`${api.base}/v1/health`)).status, 200, "health is not counted");
+			release();
+			assert.equal((await slow).status, 200);
+			assert.equal((await api.call("GET", `/v1/leases/${lease.id}`)).status, 200);
 		} finally {
 			api.close();
 		}
@@ -329,6 +419,27 @@ describe("quotas and accounting", () => {
 		await s.leases.exec(lease.id, { command: "x" });
 		assert.throws(() => s.leases.get(lease.id), HttpError);
 		assert.equal(s.docker.removed.length, 1);
+	});
+});
+
+describe("concurrency", () => {
+	it("counts a call against the lease's cap before the first await", async () => {
+		const s = setup({ SANDBOX_MAX_CONCURRENT_EXECS: "2" });
+		const lease = await s.leases.create({ kind: "exec", owner: "u" });
+		let open!: () => void;
+		s.docker.holdInspect = new Promise<void>((r) => (open = r));
+		const calls = Array.from({ length: 6 }, () =>
+			s.leases.exec(lease.id, { command: "x" }).then(
+				() => "ok",
+				(e: HttpError) => e.status
+			)
+		);
+		// The guard's inspect is still in flight for the first two; the other four are refused now.
+		await new Promise((r) => setTimeout(r, 50));
+		open();
+		const results = await Promise.all(calls);
+		assert.equal(results.filter((r) => r === "ok").length, 2);
+		assert.equal(results.filter((r) => r === 429).length, 4);
 	});
 });
 

@@ -132,6 +132,14 @@ The socket proxy never publishes a port.
   manager's output and appended to `/var/lib/sandbox/audit.jsonl` (the `sandbox-audit` volume).
   It holds sizes, counts and a short hash of a command, never the command, a file name or any content.
 - **No secret is ever put inside a sandbox.**
+- **The chat reads the three `SANDBOX*` settings from its environment only**, never from the
+  administration config store, so a saved setting cannot repoint it at another manager.
+
+### The audit log grows
+
+`/var/lib/sandbox/audit.jsonl` is append-only and the manager never rotates or trims it: a busy
+deployment adds a line per call. Rotate it from the host, for example with `logrotate` on the
+volume's path (`docker volume inspect <project>_sandbox-audit`) using `copytruncate`, or ship the manager's output (which carries the same lines, prefixed `audit `) to your log system. Keep what your policy requires before you delete anything.
 
 ## Sizing
 
@@ -147,8 +155,8 @@ Everything below is a variable in `.env` (see `.env.example`); an empty one mean
 | Processes                                                        | `SANDBOX_EXEC_PIDS`             | 256     | 1024    |
 | Workspace (a RAM-backed tmpfs: it counts against memory)         | `SANDBOX_EXEC_WORKSPACE_MB`     | 256 MB  | 1024 MB |
 | Wall time of one call                                            | `SANDBOX_EXEC_TIMEOUT_SECONDS`  | 30 s    | 300 s   |
-| Output of one call (more is cut, the call is marked `truncated`) | `SANDBOX_EXEC_MAX_OUTPUT_BYTES` | 1 MiB   | 8 MiB   |
-| A file put or got                                                | `SANDBOX_MAX_FILE_BYTES`        | 16 MiB  |         |
+| Output of one call (more is cut, the call is marked `truncated`) | `SANDBOX_EXEC_MAX_OUTPUT_BYTES` | 256 KiB | 1 MiB   |
+| A file put or got                                                | `SANDBOX_MAX_FILE_BYTES`        | 8 MiB   |         |
 | Idle before release                                              | `SANDBOX_IDLE_SECONDS`          | 20 min  | 60 min  |
 | Lifetime, however busy                                           | `SANDBOX_MAX_LIFETIME_SECONDS`  | 4 h     |         |
 
@@ -156,27 +164,42 @@ Everything below is a variable in `.env` (see `.env.example`); an empty one mean
 
 **Totals**:
 
-| Limit                                     | Variable                       | Default                                                        |
-| ----------------------------------------- | ------------------------------ | -------------------------------------------------------------- |
-| Concurrent sandboxes overall              | `SANDBOX_MAX_LEASES`           | 4                                                              |
-| Concurrent sandboxes per user             | `SANDBOX_MAX_LEASES_PER_OWNER` | 2                                                              |
-| Warm pool (pristine sandboxes kept ready) | `SANDBOX_WARM_POOL_SIZE`       | 0 (reserved; the pool arrives with the `execute_code` backend) |
+| Limit                                                                             | Variable                       | Default                                                        |
+| --------------------------------------------------------------------------------- | ------------------------------ | -------------------------------------------------------------- |
+| Concurrent sandboxes overall                                                      | `SANDBOX_MAX_LEASES`           | 4                                                              |
+| Concurrent sandboxes per user                                                     | `SANDBOX_MAX_LEASES_PER_OWNER` | 2                                                              |
+| Requests the manager handles at once (more get `503 busy`, before a body is read) | `SANDBOX_MAX_INFLIGHT`         | 16                                                             |
+| File transfers in flight (a subset of the above)                                  | `SANDBOX_MAX_FILE_TRANSFERS`   | 4                                                              |
+| Warm pool (pristine sandboxes kept ready)                                         | `SANDBOX_WARM_POOL_SIZE`       | 0 (reserved; the pool arrives with the `execute_code` backend) |
 
 A request over a total gets `429 quota_exceeded`.
 
-**The services**: the manager is capped at 256 MB, 0.5 CPU and 128 processes
+**The services**: the manager is capped at 512 MB, 0.5 CPU and 128 processes
 (`SANDBOX_MANAGER_MEM_LIMIT`, `_CPUS`, `_PIDS`); the socket proxy at 128 MB, 0.25 CPU and 64
 processes (`SANDBOX_PROXY_*`).
+
+**Why the manager gets 512 MB.** It buffers what it moves: a call's output is held as bytes, as a
+string, and again as JSON (a binary-looking byte can become six characters of JSON), and a file
+transfer holds its file several times over. The worst case is about
+
+```
+64 MB + (SANDBOX_MAX_INFLIGHT - SANDBOX_MAX_FILE_TRANSFERS) x 15 x SANDBOX_EXEC_MAX_OUTPUT_BYTES_CAP
+      + SANDBOX_MAX_FILE_TRANSFERS x 4 x SANDBOX_MAX_FILE_BYTES
+```
+
+With the defaults that is 64 + 12 x 15 MiB x 1 + 4 x 4 x 8 MiB = about 370 MB. Raise any of the
+three caps and raise `SANDBOX_MANAGER_MEM_LIMIT` with it; lower them and you may lower it. A request
+past `SANDBOX_MAX_INFLIGHT` is refused before its body is read, so the worst case is a ceiling, not a hope.
 
 **What N concurrent sandboxes cost.** The limits are caps, not reservations: a sandbox that runs
 a small script uses far less than its cap. Plan for the worst case, with the defaults:
 
-| Concurrent sandboxes  | Memory cap (plus about 0.4 GB for the two services) | CPU cap |
-| --------------------- | --------------------------------------------------- | ------- |
-| 1                     | 0.5 GB                                              | 1       |
-| 2                     | 1 GB                                                | 2       |
-| 4 (the default total) | 2 GB                                                | 4       |
-| 8                     | 4 GB                                                | 8       |
+| Concurrent sandboxes  | Memory cap (plus about 0.65 GB for the two services) | CPU cap |
+| --------------------- | ---------------------------------------------------- | ------- |
+| 1                     | 0.5 GB                                               | 1       |
+| 2                     | 1 GB                                                 | 2       |
+| 4 (the default total) | 2 GB                                                 | 4       |
+| 8                     | 4 GB                                                 | 8       |
 
 gVisor adds some memory and start-up time per sandbox beyond the cap's own use; measure on your
 host. The default total of 4 suits a host with 4 to 8 GB and 4 cores shared with the rest of the
@@ -187,7 +210,7 @@ sandboxes at once.
 
 ## The API (for the curious)
 
-All calls but health send `Authorization: Bearer <token>` and may send `X-Sandbox-Owner`. The
+All calls but health send `Authorization: Bearer <token>` and **must** send `X-Sandbox-Owner`, the owner the lease was made for (on a create it must equal the `owner` in the body); a lease is only ever visible to its owner, so a leaked or guessed lease id is not enough. The
 chat's typed client is `src/lib/server/sandbox/client.ts`.
 
 | Call                                      |                                                                                                                                                                                                         |

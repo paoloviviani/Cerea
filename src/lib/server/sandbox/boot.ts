@@ -1,14 +1,18 @@
-import { config } from "$lib/server/config";
+import { env } from "$env/dynamic/private";
 import { logger } from "$lib/server/logger";
 import { SandboxClient } from "./client";
 import { parseSandboxSettings, type SandboxSettings } from "./config";
 
-/** The deployment's sandbox settings, read from the chat's configuration. */
+/**
+ * The deployment's sandbox settings. Read from the process environment only, never through the
+ * config manager: an administrator's saved settings must not be able to repoint the chat at another
+ * manager or hand it another service token.
+ */
 export function sandboxSettings(): SandboxSettings {
 	return parseSandboxSettings({
-		SANDBOX: config.SANDBOX,
-		SANDBOX_MANAGER_URL: config.SANDBOX_MANAGER_URL,
-		SANDBOX_MANAGER_TOKEN: config.SANDBOX_MANAGER_TOKEN,
+		SANDBOX: env.SANDBOX,
+		SANDBOX_MANAGER_URL: env.SANDBOX_MANAGER_URL,
+		SANDBOX_MANAGER_TOKEN: env.SANDBOX_MANAGER_TOKEN,
 	});
 }
 

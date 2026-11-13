@@ -193,21 +193,26 @@ export class SandboxClient {
 		conversation?: string;
 		limits?: LeaseLimits;
 	}): Promise<SandboxLease> {
+		// The manager requires the owner header on every lease route, and on a create it must be the body's.
 		return this.parsed(
-			await this.send("POST", "/v1/leases", { json: request, timeoutMs: 600_000 }),
+			await this.send("POST", "/v1/leases", {
+				json: request,
+				owner: request.owner,
+				timeoutMs: 600_000,
+			}),
 			leaseSchema
 		);
 	}
 
-	async status(id: string, owner?: string): Promise<SandboxLease> {
+	async status(id: string, owner: string): Promise<SandboxLease> {
 		return this.parsed(await this.send("GET", `/v1/leases/${id}`, { owner }), leaseSchema);
 	}
 
-	async release(id: string, owner?: string): Promise<void> {
+	async release(id: string, owner: string): Promise<void> {
 		await this.send("DELETE", `/v1/leases/${id}`, { owner });
 	}
 
-	async exec(id: string, request: ExecRequest, owner?: string): Promise<SandboxExecResult> {
+	async exec(id: string, request: ExecRequest, owner: string): Promise<SandboxExecResult> {
 		const timeout = (request.timeoutSeconds ?? 30) * 1000 + this.slackMs;
 		const res = await this.send("POST", `/v1/leases/${id}/exec`, {
 			owner,
@@ -225,7 +230,7 @@ export class SandboxClient {
 		return this.parsed(res, execSchema);
 	}
 
-	async putFile(id: string, path: string, data: Uint8Array, owner?: string): Promise<void> {
+	async putFile(id: string, path: string, data: Uint8Array, owner: string): Promise<void> {
 		await this.send("PUT", `/v1/leases/${id}/files/${encodePath(path)}`, {
 			owner,
 			body: data,
@@ -233,7 +238,7 @@ export class SandboxClient {
 		});
 	}
 
-	async getFile(id: string, path: string, owner?: string): Promise<Uint8Array> {
+	async getFile(id: string, path: string, owner: string): Promise<Uint8Array> {
 		const res = await this.send("GET", `/v1/leases/${id}/files/${encodePath(path)}`, {
 			owner,
 			timeoutMs: 60_000,

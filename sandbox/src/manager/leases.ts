@@ -353,7 +353,7 @@ export class LeaseManager {
 			);
 		}
 		const maxOut = req.maxOutputBytes ?? lease.limits.maxOutputBytes;
-		if (!(maxOut > 0) || maxOut > this.config.maxima.maxOutputBytes) {
+		if (typeof maxOut !== "number" || !(maxOut > 0) || maxOut > this.config.maxima.maxOutputBytes) {
 			throw new HttpError(
 				400,
 				"bad_limit",
@@ -411,25 +411,29 @@ export class LeaseManager {
 		if (lease.activeExecs >= this.config.maxConcurrentExecsPerLease) {
 			throw new HttpError(429, "busy", "too many calls at once on this lease");
 		}
-		const containerId = await this.guard(lease);
+		// Counted before the first await: otherwise a burst of calls all pass the check above while
+		// the guard's inspect is in flight, and the cap is not a cap.
 		lease.activeExecs++;
 		let result: ExecResult;
 		try {
-			result = await this.docker.exec(containerId, { ...opts, user: this.config.user });
-		} catch (err) {
-			this.audit.write({
-				action: "lease.exec",
-				outcome: "failure",
-				lease: lease.id,
-				kind: lease.kind,
-				owner: lease.owner,
-				actor,
-				detail: { ...meta, error: String(err).slice(0, 200) },
-			});
-			if (err instanceof DockerError && err.status === 409) {
-				throw new HttpError(410, "sandbox_gone", "the sandbox is no longer running");
+			const containerId = await this.guard(lease);
+			try {
+				result = await this.docker.exec(containerId, { ...opts, user: this.config.user });
+			} catch (err) {
+				this.audit.write({
+					action: "lease.exec",
+					outcome: "failure",
+					lease: lease.id,
+					kind: lease.kind,
+					owner: lease.owner,
+					actor,
+					detail: { ...meta, error: String(err).slice(0, 200) },
+				});
+				if (err instanceof DockerError && err.status === 409) {
+					throw new HttpError(410, "sandbox_gone", "the sandbox is no longer running");
+				}
+				throw new HttpError(502, "docker_error", "the container runtime failed the call");
 			}
-			throw new HttpError(502, "docker_error", "the container runtime failed the call");
 		} finally {
 			lease.activeExecs--;
 			lease.lastActiveAt = this.now();

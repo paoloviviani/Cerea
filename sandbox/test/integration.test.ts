@@ -25,6 +25,8 @@ describe("sandbox manager against Docker", { skip: !enabled }, () => {
 	let base = "";
 	const audit = new MemoryAudit();
 
+	// Every lease route names its owner. A create names the body's; the rest, the lease's own.
+	const owners = new Map<string, string>();
 	const call = async (
 		method: string,
 		path: string,
@@ -32,10 +34,16 @@ describe("sandbox manager against Docker", { skip: !enabled }, () => {
 		headers: Record<string, string> = {}
 	) => {
 		const isBuf = Buffer.isBuffer(body);
+		const leaseId = /\/v1\/leases\/([0-9a-f]{24})/.exec(path)?.[1];
+		const owner =
+			(body as { owner?: string } | undefined)?.owner ??
+			(leaseId ? owners.get(leaseId) : undefined) ??
+			"user-a";
 		return fetch(base + path, {
 			method,
 			headers: {
 				Authorization: `Bearer ${TOKEN}`,
+				"X-Sandbox-Owner": owner,
 				...(body && !isBuf ? { "Content-Type": "application/json" } : {}),
 				...headers,
 			},
@@ -125,6 +133,16 @@ describe("sandbox manager against Docker", { skip: !enabled }, () => {
 			assert.deepEqual(h.CapDrop, ["ALL"]);
 			assert.ok(h.SecurityOpt.includes("no-new-privileges"));
 			assert.equal(h.Privileged, false);
+			assert.equal(h.MemorySwap, h.Memory, "no swap");
+			assert.equal(h.IpcMode, "private");
+			assert.ok(!h.SecurityOpt.some((o: string) => /unconfined/.test(o)));
+			assert.match(h.Tmpfs["/tmp"], /noexec/);
+			assert.match(h.Tmpfs["/tmp"], /size=64m/);
+			assert.match(h.Tmpfs["/workspace"], /size=256m/);
+			assert.deepEqual(
+				h.Ulimits.map((u: { Name: string }) => u.Name),
+				["nofile"]
+			);
 			assert.ok(h.Memory > 0 && h.PidsLimit > 0 && h.NanoCpus > 0);
 			assert.equal(h.Binds ?? null, null);
 			assert.deepEqual(inspect.Mounts, []);
@@ -156,6 +174,8 @@ describe("sandbox manager against Docker", { skip: !enabled }, () => {
 				).id;
 			const a = await mk("user-a");
 			const b = await mk("user-b");
+			owners.set(a, "user-a");
+			owners.set(b, "user-b");
 			assert.equal(
 				(await call("PUT", `/v1/leases/${a}/files/secret.txt`, Buffer.from("A-ONLY"))).status,
 				204
@@ -214,13 +234,25 @@ describe("sandbox manager against Docker", { skip: !enabled }, () => {
 			(await raw("POST", "/containers/create?name=cerea-sbx-x", { Image: "alpine" })).status,
 			403
 		);
-		// an unlabelled container that exists on this box
-		const id = execFileSync("docker", ["ps", "-q", "--filter", "name=cerea-proxy-1"], {
-			encoding: "utf8",
-		}).trim();
-		if (id) {
+		// A container of our own making, not ours to the manager: a throwaway with no labels. Never a
+		// real container on this box.
+		const id = execFileSync(
+			"docker",
+			["run", "-d", "--network", "none", DEFAULT_EXEC_IMAGE, "sleep", "60"],
+			{ encoding: "utf8" }
+		).trim();
+		try {
 			assert.equal((await raw("GET", `/containers/${id}/json`)).status, 403);
+			assert.equal((await raw("POST", `/containers/${id}/start`)).status, 403);
 			assert.equal((await raw("DELETE", `/containers/${id}?force=true`)).status, 403);
+			assert.equal(
+				execFileSync("docker", ["ps", "-q", "--filter", `id=${id}`], { encoding: "utf8" }).trim()
+					.length > 0,
+				true,
+				"the refused DELETE left it running"
+			);
+		} finally {
+			execFileSync("docker", ["rm", "-f", id]);
 		}
 	});
 });
