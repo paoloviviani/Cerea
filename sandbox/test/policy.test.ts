@@ -34,7 +34,7 @@ const good = () =>
 		testConfig(),
 		{ id: "a".repeat(24), owner: "u", kind: "exec" },
 		testConfig().defaults
-	) as Record<string, any>;
+	) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 describe("socket proxy: endpoints", () => {
 	it("allows the manager's own calls on a labelled container", async () => {
@@ -133,6 +133,7 @@ describe("socket proxy: create bodies", () => {
 	});
 
 	it("refuses each way of asking for less", async () => {
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const mutations: [string, (b: Record<string, any>) => void][] = [
 			["host mount", (b) => (b.HostConfig.Binds = ["/:/host"])],
 			["privileged", (b) => (b.HostConfig.Privileged = true)],

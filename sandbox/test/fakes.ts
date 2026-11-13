@@ -32,6 +32,11 @@ export class FakeDocker implements DockerApi {
 		this.containers.set(id, { Id: id, Config: { Labels: spec.Labels as Record<string, string> } });
 		return id;
 	}
+	/** Replaces a container's labels, as if it had lost them. */
+	relabel(id: string, labels: Record<string, string>) {
+		const c = this.containers.get(id);
+		if (c) c.Config = { Labels: labels };
+	}
 	async start() {}
 	async inspect(id: string) {
 		return this.containers.get(id) ?? null;

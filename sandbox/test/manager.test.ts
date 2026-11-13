@@ -259,7 +259,7 @@ describe("labels", () => {
 	it("refuses to act on a container that lost or never had the label", async () => {
 		const s = setup();
 		const lease = await s.leases.create({ kind: "exec", owner: "u" });
-		s.docker.containers.get(lease.containerId as string)!.Config = { Labels: {} };
+		s.docker.relabel(lease.containerId as string, {});
 		await assert.rejects(
 			s.leases.exec(lease.id, { command: "x" }),
 			(e: HttpError) => e.status === 403
@@ -272,13 +272,11 @@ describe("labels", () => {
 	it("refuses another instance's label", async () => {
 		const s = setup();
 		const lease = await s.leases.create({ kind: "exec", owner: "u" });
-		s.docker.containers.get(lease.containerId as string)!.Config = {
-			Labels: {
-				"cerea.sandbox": "1",
-				"cerea.sandbox.instance": "other",
-				"cerea.sandbox.lease": lease.id,
-			},
-		};
+		s.docker.relabel(lease.containerId as string, {
+			"cerea.sandbox": "1",
+			"cerea.sandbox.instance": "other",
+			"cerea.sandbox.lease": lease.id,
+		});
 		await assert.rejects(
 			s.leases.exec(lease.id, { command: "x" }),
 			(e: HttpError) => e.status === 403

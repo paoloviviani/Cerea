@@ -10,8 +10,12 @@ export class BadPath extends Error {}
  */
 export function workspacePath(raw: string): string {
 	let decoded = raw;
-	if (/[\u0000-\u001f\u007f\\]/.test(decoded))
-		throw new BadPath("the path has a control character or backslash");
+	for (let i = 0; i < decoded.length; i++) {
+		const c = decoded.charCodeAt(i);
+		if (c < 0x20 || c === 0x7f || c === 0x5c) {
+			throw new BadPath("the path has a control character or backslash");
+		}
+	}
 	if (decoded.length > 1024) throw new BadPath("the path is too long");
 	const parts: string[] = [];
 	for (const seg of decoded.split("/")) {
