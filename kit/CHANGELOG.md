@@ -5,6 +5,10 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **MongoDB 8.0.37.** The kit's default `mongo:8` image moves from 8.0.34 to 8.0.37, which fixes two security issues (a use-after-free on replica sets, and an authorization check in a replication admin command). Standalone kit stacks were not exposed; this is hygiene.
+
 ## v0.51.2 — 2026-11-13
 
 Pins: Cerea `0.51.2` (chat, `cerea-documents` and `galopin` images), Pystino `0.33.2`.
