@@ -201,7 +201,11 @@ DOCLING_MEM_LIMIT = "4g"
 OCR_MEM_LIMIT = "2g"
 DOCLING_TIMEOUT = "840"
 DOCLING_GATEWAY_TIMEOUT = "900"
-PROFILES = ("gateway", "chat", "authelia", "redaction", "documents", "fetch", "office", "rustfs")
+PROFILES = ("gateway", "chat", "authelia", "redaction", "documents", "fetch", "office", "rustfs", "sandbox")
+#: SANDBOX (ADR 0115): off, a manager in this compose (the `sandbox` profile), or one on another host.
+SANDBOX_MODES = ("off", "local", "remote")
+#: Where the chat reaches the in-compose manager, on the internal `sandbox-api` network.
+SANDBOX_ENDPOINT = "http://sandbox-manager:8080"
 
 #: configuration.yml's template quotes these with Authelia's own `msquote`,
 #: which does not escape an embedded quote (an unescaped `'` still ends a
@@ -967,6 +971,13 @@ class Answers:
     # Office previews and the convert_document tool (the office profile:
     # Gotenberg). Off unless asked for; None leaves it as it is.
     office: bool | None = None
+    # Server sandboxes (ADR 0115): off, local (the sandbox profile) or remote
+    # (a manager on another host: its URL and token). None leaves it as it is.
+    sandbox: str | None = None
+    sandbox_url: str | None = None
+    sandbox_token: str | None = None
+    #: The numeric group that owns the Docker socket (local only); read by cmd_configure.
+    sandbox_docker_gid: str | None = None
     # The bundled S3-compatible object store for the chat's files (the rustfs
     # profile: RustFS). Off unless asked for; None leaves it as it is.
     rustfs: bool | None = None
@@ -1201,6 +1212,52 @@ def build(answers: Answers, existing: dict, template: str, discovery: dict | Non
                 "the document reader runs in the documents and redaction profiles, and neither is on: "
                 f"--extractor {answers.extractor} is recorded and takes effect when one is"
             )
+    # --- server sandboxes -------------------------------------------------------------
+    # One switch, SANDBOX, and everything else follows it: `local` adds the sandbox profile and
+    # points the chat at it with a minted token; `remote` takes a manager's URL and token and
+    # runs none; `off` removes all of it. check_values reports any mix of the three.
+    previous = values.get("SANDBOX") or "off"
+    if answers.sandbox is not None:
+        if answers.sandbox not in SANDBOX_MODES:
+            raise ConfigError(f"--sandbox is one of {', '.join(SANDBOX_MODES)}, got {answers.sandbox!r}")
+        values["SANDBOX"] = answers.sandbox
+    sandbox = values.get("SANDBOX") or "off"
+    if answers.sandbox is not None or "sandbox" in profiles:
+        if sandbox == "local":
+            if "sandbox" not in profiles:
+                profiles.append("sandbox")
+            values["SANDBOX_MANAGER_URL"] = SANDBOX_ENDPOINT
+            if answers.sandbox_docker_gid and not values.get("SANDBOX_DOCKER_GID"):
+                values["SANDBOX_DOCKER_GID"] = answers.sandbox_docker_gid
+            if not values.get("SANDBOX_MANAGER_TOKEN"):
+                values["SANDBOX_MANAGER_TOKEN"] = mint(32)
+        elif answers.sandbox is not None:
+            profiles = [p for p in profiles if p != "sandbox"]
+            if sandbox == "remote":
+                url = (answers.sandbox_url or values.get("SANDBOX_MANAGER_URL") or "").strip()
+                if values.get("SANDBOX_MANAGER_URL") == SANDBOX_ENDPOINT and not answers.sandbox_url:
+                    url = ""
+                token = (answers.sandbox_token or values.get("SANDBOX_MANAGER_TOKEN") or "").strip()
+                if previous == "local" and not answers.sandbox_token:
+                    token = ""  # the minted one belongs to the in-compose manager, not a remote one
+                if not url.startswith(("http://", "https://")):
+                    raise ConfigError("--sandbox remote needs --sandbox-url (the manager's http(s):// address)")
+                if len(token) < 16:
+                    raise ConfigError(
+                        "--sandbox remote needs the manager's token (--sandbox-token-env VAR, at least 16 characters)"
+                    )
+                values["SANDBOX_MANAGER_URL"] = url
+                values["SANDBOX_MANAGER_TOKEN"] = token
+                if url.startswith("http://"):
+                    notes.append(
+                        "SANDBOX_MANAGER_URL is plain http: the token crosses the network in clear; "
+                        "use https, or a private network or VPN"
+                    )
+            else:
+                values["SANDBOX_MANAGER_URL"] = ""
+                values["SANDBOX_MANAGER_TOKEN"] = ""
+    profiles = [p for p in PROFILES if p in profiles] + [p for p in profiles if p not in PROFILES]
+    values["COMPOSE_PROFILES"] = ",".join(dict.fromkeys(profiles))
     # The chat's renderer address follows the fetch profile. An address that
     # is not ours (a renderer elsewhere) is left alone.
     if "fetch" in profiles:
@@ -1601,6 +1658,34 @@ def _run(cmd: list, timeout: int = 30, cwd: Path | None = None) -> subprocess.Co
         return None
 
 
+def docker_runtimes() -> set | None:
+    """The runtimes the Docker daemon has registered (`docker info`), or None when it cannot be asked."""
+    proc = _run(["docker", "info", "--format", "{{json .Runtimes}}"], timeout=30)
+    if not proc or proc.returncode != 0:
+        return None
+    try:
+        return set(json.loads(proc.stdout.strip() or "{}"))
+    except ValueError:
+        return None
+
+
+def sandbox_runtime_problem(values: dict) -> str | None:
+    """Why a local sandbox cannot run on this host, or None. Only reads `docker info`; never changes the daemon."""
+    runtimes = docker_runtimes()
+    runtime = values.get("SANDBOX_RUNTIME") or "runsc"
+    if runtimes is None:
+        return "cannot ask Docker for its runtimes (`docker info` failed), so the gVisor runtime cannot be checked"
+    if runtime == "runc" and values.get("SANDBOX_ALLOW_RUNC") == "true":
+        return None  # development and tests only; the manager logs it loudly
+    if "runsc" not in runtimes:
+        return (
+            "the gVisor runtime (runsc) is not registered with Docker. Install it and register it "
+            "(`runsc install`, then restart Docker; see docs/sandboxes.md), or use a manager on another "
+            "host with --sandbox remote. This script never changes the Docker daemon"
+        )
+    return None
+
+
 def compose_version() -> tuple | None:
     proc = _run(["docker", "compose", "version", "--short"], timeout=20)
     if not proc or proc.returncode != 0:
@@ -1867,6 +1952,35 @@ def check_values(values: dict, report: Report) -> None:
             f"CHAT_GOTENBERG_URL points at {GOTENBERG_ENDPOINT} but the office profile is off: "
             "every preview and conversion will fail. Unset it, or add office to COMPOSE_PROFILES"
         )
+    # Server sandboxes: SANDBOX, the profile and the URL and token must agree. A mix is an error,
+    # never a half-on feature.
+    mode = values.get("SANDBOX") or "off"
+    url = values.get("SANDBOX_MANAGER_URL", "")
+    token = values.get("SANDBOX_MANAGER_TOKEN", "")
+    if mode not in SANDBOX_MODES:
+        report.errors.append(f"SANDBOX='{mode}' is not one of {', '.join(SANDBOX_MODES)}")
+    elif mode == "local":
+        if "sandbox" not in profiles:
+            report.errors.append("SANDBOX=local but the sandbox profile is off: run ./configure --sandbox local")
+        if url != SANDBOX_ENDPOINT or len(token) < 16:
+            report.errors.append(
+                f"SANDBOX=local needs SANDBOX_MANAGER_URL='{SANDBOX_ENDPOINT}' and a SANDBOX_MANAGER_TOKEN "
+                "(16+ characters): run ./configure --sandbox local"
+            )
+    elif mode == "remote":
+        if "sandbox" in profiles:
+            report.errors.append("SANDBOX=remote but the sandbox profile is on: the manager would run here too")
+        if not url.startswith(("http://", "https://")) or url == SANDBOX_ENDPOINT or len(token) < 16:
+            report.errors.append(
+                "SANDBOX=remote needs SANDBOX_MANAGER_URL (the other host's manager) and its "
+                "SANDBOX_MANAGER_TOKEN: run ./configure --sandbox remote --sandbox-url URL --sandbox-token-env VAR"
+            )
+    else:
+        if "sandbox" in profiles or url or token:
+            report.errors.append(
+                "SANDBOX=off but the sandbox profile or SANDBOX_MANAGER_URL / SANDBOX_MANAGER_TOKEN are set: "
+                "run ./configure --sandbox off (or --sandbox local / remote)"
+            )
     store = values.get("CHAT_BLOB_STORE", "")
     if store not in ("", "gridfs", "s3"):
         report.errors.append(f"CHAT_BLOB_STORE='{store}' is not 'gridfs' or 's3'")
@@ -2014,6 +2128,10 @@ def check_scopes(values: dict, report: Report) -> None:
 
 def check_host(values: dict, report: Report, *, root: Path, network: bool) -> None:
     """What needs Docker, DNS or the network."""
+    if values.get("SANDBOX") == "local":
+        problem = sandbox_runtime_problem(values)
+        if problem:
+            report.errors.append(f"SANDBOX=local: {problem}")
     version = compose_version()
     if version is None:
         report.errors.append("`docker compose` is not available here (Docker Engine with Compose v2)")
@@ -2373,6 +2491,21 @@ def cmd_configure(args, root: Path) -> int:
     if args.admin_password_file:
         answers.admin_password = Path(args.admin_password_file).read_text(encoding="utf-8").strip()
         given.add("admin_password")
+    if args.sandbox_token_env:
+        answers.sandbox_token = os.environ.get(args.sandbox_token_env, "")
+        given.add("sandbox_token")
+    if answers.sandbox == "local" and "sandbox" in given:
+        problem = sandbox_runtime_problem(existing)
+        if problem:
+            # Never half-on: without the runtime the feature stays off, and the rest of the run goes on.
+            print(f"configure: {problem}\nconfigure: leaving server sandboxes off (SANDBOX=off)", file=sys.stderr)
+            answers.sandbox = "off"
+        else:
+            try:
+                sock = Path(existing.get("SANDBOX_DOCKER_SOCKET_HOST") or "/var/run/docker.sock")
+                answers.sandbox_docker_gid = str(sock.stat().st_gid)
+            except OSError:
+                pass
     if args.import_smtp:
         imported = import_smtp_env(root)
         for key, attr in (
@@ -2482,6 +2615,9 @@ def cmd_configure(args, root: Path) -> int:
     print(f"  browser   {'on (fetch profile)' if fetch_on else 'off'}")
     office_on = "office" in values["COMPOSE_PROFILES"].split(",")
     print(f"  office    {'on (Gotenberg previews and convert_document)' if office_on else 'off'}")
+    sandbox = values.get("SANDBOX") or "off"
+    shown = {"off": "off", "local": "local (sandbox profile)", "remote": f"remote ({values.get('SANDBOX_MANAGER_URL', '')})"}
+    print(f"  sandbox   {shown.get(sandbox, sandbox)}")
     rustfs_on = "rustfs" in values["COMPOSE_PROFILES"].split(",")
     store = "s3" if values.get("CHAT_BLOB_STORE") == "s3" else "MongoDB (GridFS)"
     print(f"  files     {store}{'  (bundled RustFS)' if rustfs_on else ''}")
@@ -2684,6 +2820,14 @@ def parser() -> argparse.ArgumentParser:
     o.add_argument("--browser", action=argparse.BooleanOptionalAction, default=None,
                    help="browser use: the assistant does tasks in a browser on a user's own computer "
                         "(CHAT_BROWSER_ENABLED; off by default); --no-browser turns it off")
+    o.add_argument("--sandbox", choices=SANDBOX_MODES,
+                   help="server sandboxes for code execution (ADR 0115; off by default): local runs the "
+                        "manager in this compose (the sandbox profile; needs the gVisor runsc runtime "
+                        "registered with Docker), remote uses a manager on another host (--sandbox-url, "
+                        "--sandbox-token-env), off removes both")
+    o.add_argument("--sandbox-url", dest="sandbox_url", help="--sandbox remote: the manager's http(s):// address")
+    o.add_argument("--sandbox-token-env", metavar="VAR",
+                   help="--sandbox remote: read the manager's token from this environment variable")
     o.add_argument("--office-preview", dest="office", action=argparse.BooleanOptionalAction, default=None,
                    help="Office documents as PDF previews, and the convert_document tool, through Gotenberg "
                         "(the office profile; off by default); --no-office-preview removes it")

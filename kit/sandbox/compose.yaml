@@ -1,0 +1,111 @@
+# Cerea server sandboxes on their own host (ADR 0115): the sandbox manager and its Docker
+# socket proxy, without the rest of the kit. Use it when the sandboxes should not share a machine
+# with the chat (more CPU, a different trust zone), then point the chat at it:
+#
+#   on the chat host:   ./configure --sandbox remote --sandbox-url https://sandbox.example.org \
+#                         --sandbox-token-env SANDBOX_MANAGER_TOKEN
+#   on this host:       cp .env.example .env && $EDITOR .env      # set the token (openssl rand -hex 32)
+#                       docker compose up -d
+#
+# Needs Docker with the gVisor runtime (runsc) registered; see docs/sandboxes.md. The manager is
+# never open: every call but /v1/health needs the token, and it listens on SANDBOX_BIND
+# (127.0.0.1 by default). Put TLS in front of it (a reverse proxy, docs/sandboxes.md has a Caddy
+# example) or bind it to a private address; the token is a bearer secret and must not cross an
+# untrusted network in clear. The Docker socket proxy publishes nothing.
+
+name: ${COMPOSE_PROJECT_NAME:-cerea-sandbox}
+
+x-sandbox-image: &sandbox-image ${SANDBOX_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea-sandbox:${CEREA_VERSION:-0.51.2}}
+x-sandbox-exec-image: &sandbox-exec-image ${SANDBOX_EXEC_IMAGE:-python:3.13-slim@sha256:e48f59cdba69a3cbd9ed2cf0f348d90d45a8d350d98134cf1070bc106ee9ed90}
+
+services:
+  sandbox-socket-proxy:
+    image: *sandbox-image
+    pull_policy: ${SANDBOX_PULL_POLICY:-missing}
+    command: ["node", "src/socket-proxy/main.ts"]
+    restart: unless-stopped
+    environment:
+      SANDBOX_INSTANCE: ${COMPOSE_PROJECT_NAME:-cerea-sandbox}
+      SANDBOX_RUNTIME: ${SANDBOX_RUNTIME:-runsc}
+      SANDBOX_ALLOW_RUNC: ${SANDBOX_ALLOW_RUNC:-}
+      SANDBOX_ALLOWED_IMAGES: *sandbox-exec-image
+      SANDBOX_DOCKER_SOCKET: /var/run/docker.sock
+    volumes:
+      - ${SANDBOX_DOCKER_SOCKET_HOST:-/var/run/docker.sock}:/var/run/docker.sock
+    group_add: ["${SANDBOX_DOCKER_GID:-999}"]
+    networks: [docker]
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: ${SANDBOX_PROXY_MEM_LIMIT:-128m}
+    cpus: ${SANDBOX_PROXY_CPUS:-0.25}
+    pids_limit: ${SANDBOX_PROXY_PIDS:-64}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:2375/_ping').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  sandbox-manager:
+    image: *sandbox-image
+    pull_policy: ${SANDBOX_PULL_POLICY:-missing}
+    command: ["node", "src/manager/main.ts"]
+    restart: unless-stopped
+    ports:
+      - "${SANDBOX_BIND:-127.0.0.1}:${SANDBOX_PORT:-8080}:8080"
+    environment:
+      SANDBOX_MANAGER_TOKEN: ${SANDBOX_MANAGER_TOKEN:-}
+      SANDBOX_INSTANCE: ${COMPOSE_PROJECT_NAME:-cerea-sandbox}
+      SANDBOX_DOCKER_URL: http://sandbox-socket-proxy:2375
+      SANDBOX_RUNTIME: ${SANDBOX_RUNTIME:-runsc}
+      SANDBOX_ALLOW_RUNC: ${SANDBOX_ALLOW_RUNC:-}
+      SANDBOX_MACHINES_ENABLED: ${SANDBOX_MACHINES_ENABLED:-}
+      SANDBOX_EXEC_IMAGE: *sandbox-exec-image
+      SANDBOX_MAX_LEASES: ${SANDBOX_MAX_LEASES:-}
+      SANDBOX_MAX_LEASES_PER_OWNER: ${SANDBOX_MAX_LEASES_PER_OWNER:-}
+      SANDBOX_WARM_POOL_SIZE: ${SANDBOX_WARM_POOL_SIZE:-}
+      SANDBOX_IDLE_SECONDS: ${SANDBOX_IDLE_SECONDS:-}
+      SANDBOX_MAX_IDLE_SECONDS: ${SANDBOX_MAX_IDLE_SECONDS:-}
+      SANDBOX_MAX_LIFETIME_SECONDS: ${SANDBOX_MAX_LIFETIME_SECONDS:-}
+      SANDBOX_EXEC_MEMORY_MB: ${SANDBOX_EXEC_MEMORY_MB:-}
+      SANDBOX_EXEC_MAX_MEMORY_MB: ${SANDBOX_EXEC_MAX_MEMORY_MB:-}
+      SANDBOX_EXEC_CPUS: ${SANDBOX_EXEC_CPUS:-}
+      SANDBOX_EXEC_MAX_CPUS: ${SANDBOX_EXEC_MAX_CPUS:-}
+      SANDBOX_EXEC_PIDS: ${SANDBOX_EXEC_PIDS:-}
+      SANDBOX_EXEC_MAX_PIDS: ${SANDBOX_EXEC_MAX_PIDS:-}
+      SANDBOX_EXEC_WORKSPACE_MB: ${SANDBOX_EXEC_WORKSPACE_MB:-}
+      SANDBOX_EXEC_MAX_WORKSPACE_MB: ${SANDBOX_EXEC_MAX_WORKSPACE_MB:-}
+      SANDBOX_EXEC_TIMEOUT_SECONDS: ${SANDBOX_EXEC_TIMEOUT_SECONDS:-}
+      SANDBOX_EXEC_MAX_TIMEOUT_SECONDS: ${SANDBOX_EXEC_MAX_TIMEOUT_SECONDS:-}
+      SANDBOX_EXEC_MAX_OUTPUT_BYTES: ${SANDBOX_EXEC_MAX_OUTPUT_BYTES:-}
+      SANDBOX_EXEC_MAX_OUTPUT_BYTES_CAP: ${SANDBOX_EXEC_MAX_OUTPUT_BYTES_CAP:-}
+      SANDBOX_MAX_FILE_BYTES: ${SANDBOX_MAX_FILE_BYTES:-}
+    volumes:
+      - sandbox-audit:/var/lib/sandbox
+    # `docker` is internal (the socket proxy's own); `default` carries the published port.
+    networks: [docker, default]
+    depends_on:
+      sandbox-socket-proxy:
+        condition: service_healthy
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: ${SANDBOX_MANAGER_MEM_LIMIT:-256m}
+    cpus: ${SANDBOX_MANAGER_CPUS:-0.5}
+    pids_limit: ${SANDBOX_MANAGER_PIDS:-128}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/v1/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  sandbox-audit:
+
+networks:
+  docker:
+    internal: true

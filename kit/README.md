@@ -177,6 +177,7 @@ again. Keep the old directory until the new stack works.
 | `extractor` | `documents`, `redaction` | the local document reader (Word, Excel, PowerPoint and old `.doc` files, scanned-PDF pages as images; with a [locally built variant](#a-better-document-reader-extractor-options), scans and layouts read as text); `homelab` runs it through `documents`, without redaction |
 | `playwright` | `fetch` | a headless browser for the chat's web fetch. On in the `enterprise` preset; on any other preset, add it later with `./configure --fetch && docker compose up -d`, and remove it with `./configure --no-fetch`. Boxed in: its own `fetch` network shared only with the chat, Chromium's sandbox on, read-only filesystem, no capabilities, limits ([browser](https://paoloviviani.github.io/Cerea/browser/)) |
 | `gotenberg` | `office` | Office files as PDF previews in the chat, and the `convert_document` tool for models (Gotenberg: LibreOffice and Chromium). Off in every preset; add it with `./configure --office-preview && docker compose up -d`, remove it with `--no-office-preview` |
+| `sandbox-manager`, `sandbox-socket-proxy` | `sandbox` | server sandboxes for code execution (ADR 0115): a manager of gVisor sandboxes and the Docker socket proxy it reaches Docker through. Off in every preset; `./configure --sandbox local` adds them (needs the `runsc` runtime registered with Docker), `--sandbox remote` uses a manager on another host (`kit/sandbox/compose.yaml`), `--sandbox off` removes both. See `docs/sandboxes.md` ("Server sandboxes") |
 | `rustfs` | `rustfs` | RustFS, an S3-compatible object store that holds the chat's files (attachments, generated files, uploads, previews) instead of MongoDB. Off in every preset; add it with `./configure --object-store && docker compose up -d`. A fresh install uses it at once; an existing one keeps its files in MongoDB until they are copied ([Storage](https://paoloviviani.github.io/Cerea/storage/)). Your own S3 works without the profile |
 
 Every service names an image and nothing builds on `up`. `COMPOSE_PROFILES`
@@ -322,6 +323,29 @@ chat must stay responsive while a document is read. `EXTRACTOR_MAX_PAGES`
 document at a time**: a second one waits up to a minute and is then read by the
 default reader (the response's `fallback_reason` says `docling busy`), so a
 large scan delays other Docling uploads, not the stack.
+
+### Server sandboxes (`sandbox` profile)
+
+Off by default. One switch, `SANDBOX` in `.env`, set with `./configure`:
+
+```sh
+./configure --sandbox local     # a manager and a socket proxy in this compose (needs gVisor's runsc)
+./configure --sandbox remote --sandbox-url https://sandbox.example.org --sandbox-token-env SANDBOX_MANAGER_TOKEN
+./configure --sandbox off       # remove the profile, the URL and the token
+docker compose up -d
+```
+
+`local` adds the `sandbox` profile, sets `SANDBOX_MANAGER_URL` to the in-compose address and
+mints `SANDBOX_MANAGER_TOKEN`. It first checks `docker info` for the `runsc` runtime and, if it is
+not registered, leaves `SANDBOX=off` and says why; `./configure` never touches the Docker
+daemon's configuration. `remote` keeps the profile off and stores a manager's URL and token: the
+manager runs on another host from `kit/sandbox/compose.yaml` (its own `.env.example`; TLS in front of
+it or a private address). The chat reads `SANDBOX`, `SANDBOX_MANAGER_URL` and `SANDBOX_MANAGER_TOKEN`
+and reaches the manager only through them. A mix (the profile on while `SANDBOX=off`, a missing
+token, and so on) is an error from `./configure --check` and a warning in the chat's log, and the
+chat treats it as off. Limits for the services and for each sandbox, and what N sandboxes cost,
+are in `.env.example` and in `docs/sandboxes.md`. This release installs the control plane only:
+`execute_code` does not use it yet.
 
 ## MongoDB: 8 by default, 4.4 where the host cannot run it
 

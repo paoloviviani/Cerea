@@ -88,7 +88,7 @@ die() { printf 'build.sh: %s\n' "$*" >&2; exit 1; }
 
 if [ "$reset" = 1 ]; then
   "$ROOT/configure" --unset PYSTINO_REGISTRY PYSTINO_VERSION CEREA_REGISTRY CEREA_VERSION REDACTION_IMAGE EXTRACTOR_IMAGE \
-    GATEWAY_PULL_POLICY REDACTION_PULL_POLICY EXTRACTOR_PULL_POLICY CEREA_PULL_POLICY DOCUMENTS_PULL_POLICY
+    GATEWAY_PULL_POLICY REDACTION_PULL_POLICY EXTRACTOR_PULL_POLICY CEREA_PULL_POLICY DOCUMENTS_PULL_POLICY SANDBOX_PULL_POLICY
   say "overrides removed: compose.yaml's pinned images apply again"
   exit 0
 fi
@@ -112,7 +112,7 @@ if [ -f "$ROOT/.env" ]; then
 fi
 wants() { [ "$all" = 1 ] || [ -z "$profiles" ] || [[ ",$profiles," == *",$1,"* ]]; }
 # compose.yaml says which profile needs which local image.
-build_gateway=1 build_redaction=0 build_cerea=0 build_documents=0
+build_gateway=1 build_redaction=0 build_cerea=0 build_documents=0 build_sandbox=0
 while read -r prof anchor; do
   wants "$prof" || continue
   case $anchor in
@@ -121,12 +121,13 @@ while read -r prof anchor; do
     extractor-image) build_redaction=1 ;;
     cerea-image) build_cerea=1 ;;
     documents-image) build_documents=1 ;;
+    sandbox-image) build_sandbox=1 ;;
   esac
 done < <(profile_images "$ROOT/compose.yaml")
 [ "$ner" = 1 ] && build_redaction=1
 # Each of these names the images it wants and nothing else (with --ner, the NER one too).
 if [ "$redaction_only" = 1 ] || [ "$docling" = 1 ] || [ "$ocr" = 1 ]; then
-  build_gateway=0 build_cerea=0 build_documents=0
+  build_gateway=0 build_cerea=0 build_documents=0 build_sandbox=0
   [ "$ner" = 1 ] || [ "$redaction_only" = 1 ] || build_redaction=0
 fi
 only=0
@@ -268,11 +269,15 @@ if [ "$build_cerea" = 1 ]; then
     ensure "local/cerea:$c_tag" "$c_sha" \
       --build-arg APP_BASE=/chat --build-arg PUBLIC_COMMIT_SHA="${c_sha:0:8}" "$SRC/cerea"
   fi
-  env_items+=(CEREA_REGISTRY=local "CEREA_VERSION=$c_tag" CEREA_PULL_POLICY=never DOCUMENTS_PULL_POLICY=never)
+  env_items+=(CEREA_REGISTRY=local "CEREA_VERSION=$c_tag" CEREA_PULL_POLICY=never DOCUMENTS_PULL_POLICY=never SANDBOX_PULL_POLICY=never)
   # The document service lives in the Cerea repository and is versioned with
   # the chat: compose names it cerea-documents:$CEREA_VERSION in the same registry.
   if [ "$build_documents" = 1 ]; then
     ensure "local/cerea-documents:$c_tag" "$c_sha" "$SRC/cerea/documents"
+  fi
+  # The sandbox manager and its socket proxy (ADR 0115): one image, versioned the same way.
+  if [ "$build_sandbox" = 1 ]; then
+    ensure "local/cerea-sandbox:$c_tag" "$c_sha" "$SRC/cerea/sandbox"
   fi
 fi
 
