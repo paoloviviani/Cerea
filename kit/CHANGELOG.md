@@ -5,7 +5,13 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.51.1 — 2026-11-13
+
+Pins: Cerea `0.51.1` (chat, `cerea-documents` and `galopin` images), Pystino `0.33.2`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. **On computers**, re-run the install line from the **Pair a computer** dialog (no re-enroll); on a Mac, install the Cerea connector from this release's page.
+
+- **The release page links the Cerea connector for Mac** (both zips and the install line), added by the build after it uploads them.
 
 - **galopin: the link to Cerea now recovers by itself after a Mac sleeps or the network changes.** The link had no client-side liveness check, so a half-open connection stayed "Connected" until the user restarted galopin. It now pings Cerea every 20 s, redials at once when a ping gets no answer within 10 s, and checks right away when the computer wakes (a wall-clock jump over 30 s). The menu-bar app stops showing "Connected" for a dead link.
 
