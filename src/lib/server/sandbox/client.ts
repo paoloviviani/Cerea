@@ -68,6 +68,15 @@ const healthSchema = z.object({
 });
 export type SandboxHealth = z.infer<typeof healthSchema>;
 
+const managerLimitsSchema = z.object({
+	cpus: z.number().nullish(),
+	memoryMb: z.number().nullish(),
+	timeoutSeconds: z.number().nullish(),
+	maxLeases: z.number().nullish(),
+	maxLeasesPerOwner: z.number().nullish(),
+});
+export type SandboxLimits = z.infer<typeof managerLimitsSchema>;
+
 export interface ExecRequest {
 	/** Exactly one of `cmd` (an argument list) or `command` (a shell string). */
 	cmd?: string[];
@@ -184,6 +193,14 @@ export class SandboxClient {
 		return this.parsed(
 			await this.send("GET", "/v1/health", { authorised: false, timeoutMs: 5_000 }),
 			healthSchema
+		);
+	}
+
+	/** The manager's per-sandbox defaults. Needs the token; an older manager has no such route (404). */
+	async limits(): Promise<SandboxLimits> {
+		return this.parsed(
+			await this.send("GET", "/v1/limits", { timeoutMs: 5_000 }),
+			managerLimitsSchema
 		);
 	}
 

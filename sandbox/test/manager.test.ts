@@ -107,6 +107,38 @@ describe("token", () => {
 });
 
 describe("API", () => {
+	it("answers /v1/limits with the per-sandbox numbers, behind the token, and nothing else", async () => {
+		const s = setup({ SANDBOX_EXEC_CPUS: "0.5", SANDBOX_EXEC_MEMORY_MB: "512" });
+		const api = await serve(s);
+		try {
+			assert.equal((await api.call("GET", "/v1/limits", undefined, null)).status, 401);
+			assert.equal(
+				(await api.call("GET", "/v1/limits", undefined, "wrong-token-0123456789")).status,
+				401
+			);
+			const res = await api.call("GET", "/v1/limits", undefined, TOKEN);
+			assert.equal(res.status, 200);
+			const body = await res.json();
+			assert.deepEqual(Object.keys(body).sort(), [
+				"cpus",
+				"maxLeases",
+				"maxLeasesPerOwner",
+				"memoryMb",
+				"timeoutSeconds",
+			]);
+			for (const v of Object.values(body)) assert.equal(typeof v, "number");
+			assert.equal(body.cpus, s.config.defaults.cpus);
+			assert.equal(body.memoryMb, s.config.defaults.memoryMb);
+			assert.equal(body.cpus, 0.5);
+			assert.equal(body.memoryMb, 512);
+			const text = JSON.stringify(body);
+			assert.ok(!text.includes(TOKEN));
+			assert.ok(!text.includes("/"));
+		} finally {
+			api.close();
+		}
+	});
+
 	it("answers health without a token and everything else only with one", async () => {
 		const api = await serve(setup());
 		try {
