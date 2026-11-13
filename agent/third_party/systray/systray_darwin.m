@@ -399,10 +399,10 @@ void setIcon(const char* iconBytes, int length, bool template) {
   NSData* buffer = [NSData dataWithBytes: iconBytes length:length];
   @autoreleasepool {
     NSImage *image = [[NSImage alloc] initWithData:buffer];
-    // Cerea patch: keep the image's aspect ratio (18 pt tall) instead of forcing
-    // a 16x16 square, which squashed a wide menu-bar icon.
+    // Cerea patch: keep the image's aspect ratio (9 pt tall, 24 pt wide for the
+    // Cerea mark) instead of forcing a 16x16 square, which squashed a wide icon.
     NSSize px = image.size;
-    CGFloat h = 18.0;
+    CGFloat h = 9.0;
     CGFloat w = (px.height > 0) ? h * px.width / px.height : h;
     [image setSize:NSMakeSize(w, h)];
     image.template = template;
