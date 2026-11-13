@@ -113,7 +113,7 @@ export function loadConfig(env: Env = process.env): ManagerConfig {
 		user: env.SANDBOX_USER || "65534:65534",
 		defaults,
 		maxima,
-		maxLeases: num(env, "SANDBOX_MAX_LEASES", 8),
+		maxLeases: num(env, "SANDBOX_MAX_LEASES", 4),
 		maxLeasesPerOwner: num(env, "SANDBOX_MAX_LEASES_PER_OWNER", 2),
 		warmPoolSize: num(env, "SANDBOX_WARM_POOL_SIZE", 0, 0),
 		maxFileBytes: num(env, "SANDBOX_MAX_FILE_BYTES", 16_777_216),

@@ -37,16 +37,24 @@ async function main() {
 	const docker = new DockerClient(config.docker);
 	const leases = new LeaseManager({ config, docker, audit: new FileAudit(config.auditLog) });
 
-	// A previous run's containers are not ours to keep: their leases are gone.
-	try {
-		const n = await leases.sweepOrphans();
-		logLine({ level: "info", msg: "orphan sweep", removed: n });
-	} catch (err) {
-		logLine({
-			level: "error",
-			msg: "orphan sweep failed (is the socket proxy up?)",
-			error: String(err),
-		});
+	// A previous run's containers are not ours to keep: their leases are gone. The socket proxy may
+	// still be starting, so ask a few times before giving up.
+	for (let attempt = 1; attempt <= 10; attempt++) {
+		try {
+			const n = await leases.sweepOrphans();
+			logLine({ level: "info", msg: "orphan sweep", removed: n });
+			break;
+		} catch (err) {
+			if (attempt === 10) {
+				logLine({
+					level: "error",
+					msg: "orphan sweep failed (is the socket proxy up?)",
+					error: String(err),
+				});
+			} else {
+				await new Promise((r) => setTimeout(r, 2000));
+			}
+		}
 	}
 
 	const reaper = setInterval(
