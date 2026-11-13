@@ -32,8 +32,8 @@ x-redaction-image: &redaction-image ${REDACTION_IMAGE:-${PYSTINO_REGISTRY:-ghcr.
 # (-ocr: scans read with RapidOCR; -docling: layout and tables too), which the
 # redaction service has no use for and so does not share.
 x-extractor-image: &extractor-image ${EXTRACTOR_IMAGE:-${REDACTION_IMAGE:-${PYSTINO_REGISTRY:-ghcr.io/paoloviviani}/pystino-redaction:${PYSTINO_VERSION:-0.33.2}-pattern}}
-x-cerea-image: &cerea-image ${CEREA_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea:${CEREA_VERSION:-0.51.1}}
-x-documents-image: &documents-image ${DOCUMENTS_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea-documents:${CEREA_VERSION:-0.51.1}}
+x-cerea-image: &cerea-image ${CEREA_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea:${CEREA_VERSION:-0.51.2}}
+x-documents-image: &documents-image ${DOCUMENTS_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea-documents:${CEREA_VERSION:-0.51.2}}
 
 # `docker compose pull` fails on an image that exists only on this host. dev/build.sh
 # writes <NAME>_PULL_POLICY=never next to each local/ image it points .env at, so
