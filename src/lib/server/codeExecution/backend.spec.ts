@@ -7,6 +7,7 @@ vi.mock("./sandboxHealth", () => ({
 	sandboxUsable: () => state.usable,
 	probeSandboxHealth: async () => state.usable,
 	sandboxHealthyNow: async () => state.usable,
+	sandboxLimits: () => null,
 }));
 vi.mock("$lib/server/logger", () => ({
 	logger: { warn, info: vi.fn(), error: vi.fn(), debug: vi.fn() },

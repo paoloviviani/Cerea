@@ -29,6 +29,25 @@ const lease = {
 };
 
 describe("SandboxClient", () => {
+	it("reads the manager's limits with the token, and tolerates missing or null fields", async () => {
+		const full = fakeFetch(() =>
+			json({ cpus: 0.5, memoryMb: 512, timeoutSeconds: 60, maxLeases: 8, maxLeasesPerOwner: 2 })
+		);
+		expect(await full.client.limits()).toMatchObject({ cpus: 0.5, memoryMb: 512 });
+		expect(full.calls[0].url).toBe("http://m:8080/v1/limits");
+		expect((full.calls[0].init.headers as Record<string, string>).Authorization).toBe(
+			"Bearer secret-token"
+		);
+		// An older or thinner manager: fields absent or null still parse.
+		const thin = fakeFetch(() => json({ cpus: null }));
+		expect(await thin.client.limits()).toEqual({ cpus: null });
+		const empty = fakeFetch(() => json({}));
+		expect(await empty.client.limits()).toEqual({});
+		// A manager without the route answers 404: an error the caller treats as "unknown".
+		const old = fakeFetch(() => json({ error: { code: "not_found", message: "no" } }, 404));
+		await expect(old.client.limits()).rejects.toMatchObject({ status: 404 });
+	});
+
 	it("sends the token, but not for health", async () => {
 		const { client, calls } = fakeFetch((c) =>
 			c.url.endsWith("/v1/health")

@@ -33,6 +33,7 @@ import {
 	buildCodeExecutionResolvedUpdate,
 	codeResumeResultText,
 	createExecuteCodeBuiltin,
+	executeCodeDescription,
 	isExecuteCodeEnabled,
 	isParkedCodeCall,
 } from "./executeCodeTool";
@@ -94,6 +95,30 @@ describe("the execute_code tool", () => {
 		const description = createExecuteCodeBuiltin()[0]?.definition.function.description ?? "";
 		expect(description).toContain("function-calling mechanism, as a real");
 		expect(description).toContain("never by writing the call into your reply as text markup");
+	});
+
+	it("states the sandbox's CPU and memory in the server description only when known", () => {
+		const known = executeCodeDescription("server", { cpus: 0.5, memoryMb: 512 });
+		expect(known).toContain("This sandbox has 0.5 CPU and 512 MB of memory");
+		expect(known).toContain("os.cpu_count()");
+		expect(executeCodeDescription("server", null)).not.toContain("This sandbox has");
+		expect(executeCodeDescription("server", {})).not.toContain("This sandbox has");
+		expect(executeCodeDescription("server", { cpus: null, memoryMb: 256 })).toContain(
+			"This sandbox has 256 MB of memory;"
+		);
+		expect(executeCodeDescription("browser", { cpus: 0.5, memoryMb: 512 })).not.toContain(
+			"This sandbox has"
+		);
+	});
+
+	it("says plainly that figures and raster images are shown in the chat, in both backends", () => {
+		for (const kind of ["server", "browser"]) {
+			const d = executeCodeDescription(kind);
+			expect(d).toContain("shown to the person inline in the chat");
+			expect(d).toContain("plt.show()");
+			expect(d).toContain("PNG, JPEG, GIF or WebP image you save to /mnt/output/ is shown inline");
+			expect(d).toContain("SVG files are download only");
+		}
 	});
 
 	it("tells the model where deliverables go and what a time-limit stop does", () => {

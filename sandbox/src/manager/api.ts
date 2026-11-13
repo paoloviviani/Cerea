@@ -40,6 +40,19 @@ export function createApi(config: ManagerConfig, leases: LeaseManager, version =
 		}
 		if (!authorised(req)) return sendError(res, 401, "unauthorized", "a service token is required");
 
+		// The per-sandbox numbers a model needs to describe its own sandbox truthfully. Behind the
+		// token (health stays public and says nothing about capacity), no owner needed, and only
+		// plain numbers: never a path, image, token or runtime detail.
+		if (method === "GET" && path === "/v1/limits") {
+			return sendJson(res, 200, {
+				cpus: config.defaults.cpus,
+				memoryMb: config.defaults.memoryMb,
+				timeoutSeconds: config.defaults.timeoutSeconds,
+				maxLeases: config.maxLeases,
+				maxLeasesPerOwner: config.maxLeasesPerOwner,
+			});
+		}
+
 		// Every lease route names its owner: a lease is only ever seen by the owner it was made for,
 		// so a leaked or guessed lease id is not enough.
 		const header = req.headers["x-sandbox-owner"];
