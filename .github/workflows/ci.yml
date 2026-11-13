@@ -99,10 +99,28 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
+      # pgvector, the kit's Postgres: the knowledge specs (ingestBackground,
+      # deleteDerived, mrl, reindexVectors, readerChoice) skip without
+      # TEST_DATABASE_URL, so until this service they never ran in CI. Each
+      # creates and drops its own database through this superuser.
+      postgres:
+        image: pgvector/pgvector:pg18
+        env:
+          POSTGRES_USER: gw
+          POSTGRES_PASSWORD: pw
+          POSTGRES_DB: gw
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U gw -d gw"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     env:
       # mongodb-memory-server needs AVX, which hosted runners do not reliably
       # have; the suite uses the service container instead (see AGENTS.md).
       TEST_MONGODB_URL: mongodb://127.0.0.1:27017/
+      # Turns on the Postgres-backed knowledge specs.
+      TEST_DATABASE_URL: postgresql://gw:pw@127.0.0.1:5432/gw
       # Turns on the S3 halves of src/lib/server/blobs/*.spec.ts.
       TEST_S3_ENDPOINT: http://127.0.0.1:9000
       TEST_S3_ACCESS_KEY: ci-access-key

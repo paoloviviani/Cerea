@@ -92,6 +92,13 @@ Two things about running the suites in a container:
   TEST_MONGODB_URL=mongodb://127.0.0.1:27017/ npx vitest run --project=server --project=ssr --no-file-parallelism
   ```
 
+  The knowledge specs that need Postgres (`ingestBackground`, `deleteDerived`,
+  `mrl`, `reindexVectors`, `readerChoice`) skip unless `TEST_DATABASE_URL` points
+  at a pgvector server whose user may create databases. CI's `check` job
+  supplies one (a `pgvector/pgvector:pg18` service), so they run on every PR;
+  locally, `docker run -e POSTGRES_USER=gw -e POSTGRES_PASSWORD=pw -e POSTGRES_DB=gw -p 55442:5432 pgvector/pgvector:pg18`
+  and `TEST_DATABASE_URL=postgresql://gw:pw@127.0.0.1:55442/gw`.
+
 ### End-to-end tests (Playwright)
 
 `npx playwright test --grep @smoke` is the subset CI runs on every PR; the
