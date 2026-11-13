@@ -583,12 +583,22 @@ describe("quotas and accounting", () => {
 		await s.leases.create({ kind: "exec", owner: "u" }); // its share is free again
 	});
 
+	function setState(
+		docker: FakeDocker,
+		id: string | null,
+		state: { Running: boolean; OOMKilled: boolean }
+	) {
+		const c = id ? docker.containers.get(id) : undefined;
+		if (!c) throw new Error("no such container");
+		c.State = state;
+	}
+
 	describe("a failed call and the sandbox's fate", () => {
 		const noReply = Buffer.from('{"ok": false, "error": "no reply"}\n');
 		it("says oom_killed and releases at once when Docker saw the OOM kill", async () => {
 			const s = setup({ SANDBOX_TOTAL_MEMORY_MB: "1024" });
 			const lease = await s.leases.create({ kind: "exec", owner: "u" });
-			s.docker.containers.get(lease.containerId!)!.State = { Running: true, OOMKilled: true };
+			setState(s.docker, lease.containerId, { Running: true, OOMKilled: true });
 			s.docker.nextExec = { exitCode: 137 };
 			await assert.rejects(
 				s.leases.exec(lease.id, { command: "x" }),
@@ -603,7 +613,7 @@ describe("quotas and accounting", () => {
 			for (const next of [{ exitCode: 1 }, { exitCode: 0, stdout: noReply }]) {
 				const s = setup();
 				const lease = await s.leases.create({ kind: "exec", owner: "u" });
-				s.docker.containers.get(lease.containerId!)!.State = { Running: false, OOMKilled: false };
+				setState(s.docker, lease.containerId, { Running: false, OOMKilled: false });
 				s.docker.nextExec = next;
 				await assert.rejects(
 					s.leases.exec(lease.id, { command: "x" }),
@@ -616,7 +626,7 @@ describe("quotas and accounting", () => {
 		it("keeps a running sandbox, whatever its call's exit code or an unconfirmed no-reply", async () => {
 			const s = setup();
 			const lease = await s.leases.create({ kind: "exec", owner: "u" });
-			s.docker.containers.get(lease.containerId!)!.State = { Running: true, OOMKilled: false };
+			setState(s.docker, lease.containerId, { Running: true, OOMKilled: false });
 			s.docker.nextExec = { exitCode: 2 };
 			assert.equal((await s.leases.exec(lease.id, { command: "x" })).exitCode, 2);
 			s.docker.nextExec = { exitCode: 0, stdout: noReply };

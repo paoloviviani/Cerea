@@ -10,7 +10,7 @@ export function parseStrictJson(text: string): unknown {
 	const value = JSON.parse(text); // the syntax check, and the value
 	let i = 0;
 	const ws = () => {
-		while (i < text.length && " \t\r\n".includes(text[i]!)) i++;
+		while (i < text.length && " \t\r\n".includes(text[i] ?? "x")) i++;
 	};
 	const str = (): string => {
 		const start = i;
@@ -50,7 +50,7 @@ export function parseStrictJson(text: string): unknown {
 		} else if (c === '"') {
 			str();
 		} else {
-			while (i < text.length && !",]} \t\r\n".includes(text[i]!)) i++;
+			while (i < text.length && !",]} \t\r\n".includes(text[i] ?? ",")) i++;
 		}
 	};
 	walk();

@@ -12,5 +12,5 @@ export function isSliceName(name: string): boolean {
 	const stem = name.slice(0, -".slice".length);
 	if (stem.startsWith("-") || stem.endsWith("-") || stem.includes("--") || stem.startsWith("."))
 		return false;
-	return !RESERVED.has(stem.split("-")[0]!);
+	return !RESERVED.has(stem.split("-")[0] ?? "");
 }
