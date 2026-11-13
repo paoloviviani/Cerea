@@ -349,7 +349,11 @@ export const tabSchema = z.object({
 	url: z.string().max(4096),
 	mine: z.boolean(),
 });
-export const tabsResultSchema = z.object({ tabs: z.array(tabSchema).max(100) });
+export const tabsResultSchema = z.object({
+	tabs: z.array(tabSchema).max(100),
+	/** True when the browser was (re)started for this task: it was not running before, so it holds no page of the user's. */
+	started: z.boolean().optional(),
+});
 export type Tab = z.infer<typeof tabSchema>;
 export type TabsResult = z.infer<typeof tabsResultSchema>;
 

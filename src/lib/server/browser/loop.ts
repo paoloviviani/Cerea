@@ -133,8 +133,16 @@ function sitesNamedIn(goal: string): string[] {
 	);
 }
 
-export function tabNotVisibleHint(machineName?: string): string {
-	return `Only tabs in the Cerea browser window on ${machineName || "this computer"} are visible; if the page is open in another browser, open it in the Cerea browser window.`;
+/**
+ * What the chat model passes on when the user's page was not among the tabs. `started` is the
+ * runtime saying it had to start the browser for this task (it was not open, which is the likelier
+ * story when the user believes the page is open), so that variant says so.
+ */
+export function tabNotVisibleHint(machineName?: string, started = false): string {
+	const computer = machineName || "this computer";
+	return started
+		? `The Cerea browser window on ${computer} was not open and has just been started, so the page is not in it: only tabs in that window are visible. Open the page in that window and ask again.`
+		: `The Cerea browser window on ${computer} isn't open, or the page isn't in it: only tabs in that window are visible.`;
 }
 
 // ----- what the card shows ----------------------------------------------------------------
@@ -718,6 +726,7 @@ async function runInner(
 		goalSites.length === 0 || goalSites.some((site) => (hostOf(t.url) ?? "").includes(site));
 	let tabsListed = false;
 	let userTabFound = false;
+	let browserStarted = false;
 	const relistTabs = async () => {
 		const rules = deps.rulesNow?.() ?? deps.rules;
 		const listed = await guarded(() => runtime.tabs({ deny: rules.deny }, deps.signal));
@@ -727,6 +736,7 @@ async function runInner(
 		const allowed = listed.tabs.filter((t) => !matchesAny(hostOf(t.url), rules.deny));
 		for (const tab of allowed) knownTabs.set(tab.id, tab);
 		tabsListed = true;
+		if (listed.started) browserStarted = true;
 		if (allowed.some((t) => !t.mine && tabMatchesGoal(t))) userTabFound = true;
 		return allowed;
 	};
@@ -1508,7 +1518,7 @@ async function runInner(
 		...(stopped ? { stopped_reason: stopped } : {}),
 		...(stopDetail ? { stop_detail: stopDetail } : {}),
 		...(tabsListed && !userTabFound && refersToUserTab(request.goal)
-			? { hint: tabNotVisibleHint(deps.machineName) }
+			? { hint: tabNotVisibleHint(deps.machineName, browserStarted) }
 			: {}),
 	};
 

@@ -1018,7 +1018,7 @@ describe("a lent tab that Cerea itself moves to another site", () => {
 
 describe("the user's tab is in another browser", () => {
 	const hint =
-		"Only tabs in the Cerea browser window on Office PC are visible; if the page is open in another browser, open it in the Cerea browser window.";
+		"The Cerea browser window on Office PC isn't open, or the page isn't in it: only tabs in that window are visible.";
 
 	it("carries a hint when the goal names the user's tab and none matches", async () => {
 		const { deps } = setup([callTurn("tabs", {}), answerTurn("There is no such tab.")], undefined, {
@@ -1029,6 +1029,17 @@ describe("the user's tab is in another browser", () => {
 			deps
 		);
 		expect(out.hint).toBe(hint);
+	});
+
+	it("says the browser was just started when the runtime says so", async () => {
+		const { deps, runtime } = setup([callTurn("tabs", {}), answerTurn("No such tab.")], undefined, {
+			machineName: "Office PC",
+		});
+		const original = runtime.tabs.bind(runtime);
+		runtime.tabs = async (options) => ({ ...(await original(options)), started: true });
+		const out = await runBrowseLoop({ goal: "Use the booking.com tab I opened" }, deps);
+		expect(out.hint).toMatch(/was not open and has just been started/);
+		expect(out.hint).toMatch(/only tabs in that window are visible/);
 	});
 
 	it("has no hint when a matching tab exists", async () => {

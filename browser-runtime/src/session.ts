@@ -9,7 +9,8 @@
 import { DOWNLOAD_BASE64_LIMIT, SCREENSHOT_LIMIT } from "./budget.ts";
 import { createWriteStream } from "node:fs";
 import { chmod, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
+import { applyCereaProfile, isBlankUrl, isStartUrl, START_URL, startPageHtml } from "./profile.ts";
 import { dirname, join } from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -90,6 +91,10 @@ export interface SessionOptions {
 	lentMaxMs?: number;
 	/** How long a page may stay silent after a failed action before it is dropped (default 8 s). */
 	probeMs?: number;
+	/** The computer's name on the start page (default: its host name). */
+	computerName?: string;
+	/** Make the profile recognisable (theme colour, name, start page). Default true. */
+	branding?: boolean;
 }
 
 export const DEFAULT_MAX_SNAPSHOT_CHARS = 9_000;
@@ -479,6 +484,8 @@ export class BrowserSession {
 	private idleTimer?: NodeJS.Timeout;
 	private chooserOpened = false;
 	private starting?: Promise<void>;
+	/** The browser was started (not found running) since the last task ended: `tabs` says so. */
+	private launchedForTask = false;
 	private readonly navSeq = new WeakMap<Page, number>();
 	/**
 	 * The host of the last real (http/https) site this task's pages were on, mirroring Cerea's
@@ -624,6 +631,7 @@ export class BrowserSession {
 		options: { keep?: boolean } = {}
 	): Promise<{ closed: number; kept?: NonNullable<EndTaskResult["kept"]> }> {
 		clearTimeout(this.idleTimer);
+		this.launchedForTask = false;
 		// A popup still being adopted is a task page that is not registered yet, and a dropped page may
 		// still be closing: wait for both so the task's pages are all known and none outlives it.
 		while (this.pendingPages.size > 0) await Promise.allSettled([...this.pendingPages]);
@@ -631,7 +639,7 @@ export class BrowserSession {
 		const keep = options.keep ? this.active : undefined;
 		let kept: EndTaskResult["kept"];
 		// A page the task made and never used (still blank) is not worth keeping: it is closed below.
-		const unused = (p: Page) => this.fresh.has(p) && p.url() === "about:blank";
+		const unused = (p: Page) => this.fresh.has(p) && isBlankUrl(p.url());
 		// A tab the user lent stays theirs and stays lent to this conversation, but only on the origin
 		// it was lent on (fixed when they approved it, never read back from where it is now), and
 		// for at most the lend cap. Otherwise it is released with no token.
@@ -788,7 +796,7 @@ export class BrowserSession {
 		for (const p of context.pages()) {
 			if (
 				p.isClosed() ||
-				p.url() !== "about:blank" ||
+				!isBlankUrl(p.url()) ||
 				this.taskPages.has(p) ||
 				[...this.kept.values()].some((e) => e.page === p)
 			)
@@ -846,7 +854,7 @@ export class BrowserSession {
 	}
 
 	/** The open pages of the persistent context, task pages and the user's own. */
-	async tabs(options: { deny?: string[] } = {}): Promise<{ tabs: Tab[] }> {
+	async tabs(options: { deny?: string[] } = {}): Promise<{ tabs: Tab[]; started?: boolean }> {
 		await this.ensureContext();
 		this.touch();
 		// The sites Cerea keeps the agent out of (its deny list): remembered, so use_tab refuses them too.
@@ -855,6 +863,8 @@ export class BrowserSession {
 		const tabs: Tab[] = [];
 		for (const page of pages.slice(0, 50)) {
 			const mine = this.taskPages.has(page);
+			// The start page is no one's page: the agent ignores it like a blank one.
+			if (!mine && isStartUrl(page.url())) continue;
 			if (!mine && this.denied(page.url())) {
 				tabs.push({ id: this.tabId(page), title: "a page on a denied site", url: "", mine: false });
 				continue;
@@ -867,7 +877,7 @@ export class BrowserSession {
 				mine,
 			});
 		}
-		return { tabs };
+		return { tabs, ...(this.launchedForTask ? { started: true } : {}) };
 	}
 
 	private denied(url: string): boolean {
@@ -889,6 +899,8 @@ export class BrowserSession {
 		}
 		await removeStaleDirs();
 		await chmod(profileDir, 0o700).catch(() => {});
+		// Before Chrome starts, never while it runs (see profile.ts).
+		if (this.options.branding !== false) await applyCereaProfile(profileDir);
 		this.downloadDir ??= await mkdtemp(join(tmpdir(), `cerea-browser-${process.pid}-`));
 		let context: BrowserContext;
 		try {
@@ -916,12 +928,20 @@ export class BrowserSession {
 			}
 			throw new ToolError(`The browser could not start: ${message}`);
 		}
+		this.launchedForTask = true;
 		context.setDefaultTimeout(ACTION_TIMEOUT_MS);
 		context.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT_MS);
 		// A page cannot take the browser to a local file or an internal page; only http(s) and blank.
 		await context.route(
 			(url) => !/^(https?|about|blob|data|ws|wss):$/.test(url.protocol),
 			(route) => route.abort("blockedbyclient")
+		);
+		// The start page: answered here, with no network (registered last, so it runs first).
+		const startHtml = startPageHtml(this.options.computerName ?? hostname());
+		await context.route(
+			(url) => url.href === START_URL,
+			(route) =>
+				route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: startHtml })
 		);
 		context.on("page", (page) => {
 			this.hook(page);
@@ -930,6 +950,13 @@ export class BrowserSession {
 		for (const page of context.pages()) {
 			this.hook(page);
 			this.ours.add(page);
+			// The first tab of a fresh window shows the Cerea start page instead of a blank one.
+			if (
+				this.options.branding !== false &&
+				/^(about:blank|chrome:\/\/newtab\/?)$/.test(page.url())
+			) {
+				void page.goto(START_URL, { waitUntil: "commit", timeout: 5000 }).catch(() => {});
+			}
 		}
 		context.on("response", (response) => {
 			const headers = response.headers();
@@ -1252,7 +1279,7 @@ export class BrowserSession {
 	async snapshot(): Promise<Snapshot> {
 		this.touch();
 		const page = this.livePage();
-		if (!page) return this.noPage();
+		if (!page || isStartUrl(page.url())) return this.noPage();
 		const built = await this.build(page);
 		this.baseline = {
 			page,

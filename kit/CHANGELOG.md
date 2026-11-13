@@ -7,7 +7,8 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
-- **Browse: a tab in another browser is explained.** When you ask Cerea to use a tab you opened and the Cerea browser window has no such tab, the answer now says that only tabs in the Cerea browser window on that computer are visible, and to open the page there.
+- **Browse: a missing tab is explained.** When you ask Cerea to use a tab you opened and the Cerea browser window has no such tab, the answer now says that the window is not open (or was just started), or that the page is not in it, and that only tabs in that window are visible.
+- **The Cerea browser is recognisable.** Its window now has a violet theme, the profile name "Cerea", and a small local start page ("Cerea browser on your computer") on its first tab; the agent ignores the start page. **On computers**, re-run the install line to update galopin; the colour and name apply the next time the browser starts.
 - **Web pages come with their main links.** Reading a web page now also lists its main links (text and address, at most 40, navigation and footer skipped), so an article's address can be taken from a front page without extra searches.
 - **Browse failures are said in plain words.** When a browsing task stops (page too large to read, browser crashed, computer offline, step limit reached), the chat explains it in plain words; the internal code and step count stay in the logs and the browse card's details.
 - **Browser use:** the browser runtime now keeps its Chrome window when the link to Cerea drops (kept for 15 minutes and re-attached when the link returns) and is no longer stopped for idling; and no tool result exceeds about 900 KB (large pages are cut with a note to scroll or use extract, screenshots are re-encoded smaller), so browse runs on heavy pages such as shop and booking results no longer end with a runtime error. **On computers**, re-run the install line to update galopin.
