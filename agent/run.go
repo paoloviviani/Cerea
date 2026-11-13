@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"galopin/internal/procreap"
 	"net/http"
 	"os"
 	"os/signal"
@@ -133,7 +134,7 @@ func runRun(args []string) error {
 		}
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
 	defer stop()
 	return runAgent(ctx, &opts)
 }
@@ -182,6 +183,9 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	}
 
 	stateDir := resolveStateDir(opts.stateDir, credsPath)
+	if n := procreap.Init(stateDir); len(n) > 0 {
+		logf("stopped %d child process group(s) left by a previous galopin", len(n))
+	}
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
 		return fmt.Errorf("creating state dir: %w", err)
 	}
@@ -394,6 +398,7 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	sh.onExpired = func(message string) {
 		_ = lnk.PublishCredentialState("expired", message)
 	}
+	startAppStatus(ctx, stateDir, "agent", cereaOrigin, lnk)
 	mc.terminals.StartReaper(ctx, time.Minute)
 
 	// The forwarder gets its own context: the link can end on its own (a
@@ -886,6 +891,7 @@ func runConnectorsOnly(ctx context.Context, opts *runOptions, credsPath, stateDi
 	sh.onExpired = func(message string) {
 		_ = lnk.PublishCredentialState("expired", message)
 	}
+	startAppStatus(ctx, stateDir, "connectors", cereaOrigin, lnk)
 	logf("connectors machine started (no coding agent)")
 
 	linkErr := make(chan error, 1)

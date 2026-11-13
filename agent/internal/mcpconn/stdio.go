@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"galopin/internal/procreap"
 	"io"
 	"os"
 	"os/exec"
@@ -65,6 +66,7 @@ func startStdio(e *Entry, s *sink) (*stdioConn, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
+	procreap.Track(cmd)
 	go func() {
 		err := cmd.Wait()
 		out.flush()

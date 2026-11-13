@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"galopin/internal/attach"
+	"galopin/internal/procreap"
 	"io"
 	"os"
 	"os/exec"
@@ -301,6 +302,7 @@ func (b *Backend) runOnce(ctx context.Context) error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("acp: starting %s: %w", strings.Join(b.cfg.Command, " "), err)
 	}
+	procreap.Track(cmd)
 	exited := make(chan struct{})
 	b.mu.Lock()
 	b.cmd = cmd

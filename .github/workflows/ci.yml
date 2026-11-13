@@ -162,7 +162,7 @@ jobs:
           go-version-file: agent/go.mod
           cache-dependency-path: agent/go.sum
       - name: gofmt
-        run: test -z "$(gofmt -l .)"
+        run: test -z "$(gofmt -l . | grep -v "^third_party/")"
       - run: go vet ./...
       - run: go test ./...
 
