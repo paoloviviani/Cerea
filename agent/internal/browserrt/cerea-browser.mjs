@@ -1,4 +1,4 @@
-// cerea-browser runtime 0.1.0; source-hash: bf1a5f9591ee1ea2c92ab4e2800e2a25bdbd30b93339c33114ddebb1e48e62ba
+// cerea-browser runtime 0.1.0; source-hash: 3a132e5978572600e8d532fbca86676b9ff78f5af98c54883459ac64e79fbd95
 // inlined: @hono/node-server@2.1.8 @modelcontextprotocol/sdk@1.32.2 ajv@8.20.0 ajv-formats@3.0.1 content-type@1.0.5 fast-deep-equal@3.1.3 fast-uri@3.1.9 hono@4.13.18 json-schema-traverse@1.0.0 tldts@7.4.26 zod@3.25.76 zod-to-json-schema@3.25.2
 import { createRequire as __cr } from "node:module";
 const require = __cr(import.meta.url);
@@ -21450,90 +21450,133 @@ var StreamableHTTPServerTransport = class {
   }
 };
 
+// src/sanitize.ts
+var INVISIBLE = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f­؜᠎​-‏‪-‮⁠-⁤⁦-⁯﻿￹-￻\u{e0000}-\u{e007f}\u{e0100}-\u{e01ef}]/gu;
+var CONTENT_TAG = "page-content";
+var FENCE = new RegExp(`<\\s*(/?)\\s*(${CONTENT_TAG}|untrusted_page_content)`, "gi");
+function clean(input, max = 300) {
+  if (input === void 0 || input === null) return "";
+  let text = String(input).replace(INVISIBLE, "").replace(FENCE, `\u2039$1$2`).replace(/\s+/g, " ").trim();
+  if (text.length > max) {
+    let end = max - 1;
+    const code = text.charCodeAt(end - 1);
+    if (code >= 55296 && code <= 56319) end -= 1;
+    text = `${text.slice(0, end)}\u2026`;
+  }
+  return text;
+}
+function cleanMultiline(input, max = 2e4) {
+  if (input === void 0 || input === null) return "";
+  let text = String(input).replace(INVISIBLE, (c) => c === "\n" || c === "	" ? c : "").replace(FENCE, `\u2039$1$2`).replace(/[ \t\f\v ]+/g, " ").replace(/ ?\n ?/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  if (text.length > max) text = `${text.slice(0, max - 1)}\u2026`;
+  return text;
+}
+function quote(text) {
+  return JSON.stringify(text);
+}
+function safeFileName(name) {
+  const base = clean(name, 255).split(/[\\/]/).pop()?.replace(/^\.+/, "") ?? "";
+  return base || "download";
+}
+
 // src/budget.ts
 var RESULT_LIMIT = 9e5;
-var PAYLOAD_LIMIT = 4e5;
+var WIRE_BUDGET = 7e5;
 var SCREENSHOT_LIMIT = 7e5;
+var DOWNLOAD_BASE64_LIMIT = 3e5;
 var bytesOf = (value) => Buffer.byteLength(JSON.stringify(value));
 var SNAPSHOT_NOTE = "[truncated: this page is larger than one result can carry. Scroll to the part you need, use extract for tables and lists, or narrow down with a smaller region.]";
+var CLOSE = `</${CONTENT_TAG}>`;
 function cutText(text, max) {
   if (Buffer.byteLength(text) <= max) return text;
-  let cut = text.slice(0, Math.max(0, max));
-  while (Buffer.byteLength(cut) > max) cut = cut.slice(0, Math.floor(cut.length * 0.9));
+  const closed = text.endsWith(CLOSE);
+  const body = closed ? text.slice(0, -CLOSE.length).trimEnd() : text;
+  const room = Math.max(0, max - (closed ? CLOSE.length + 1 : 0));
+  let cut = body.slice(0, room);
+  while (Buffer.byteLength(cut) > room) cut = cut.slice(0, Math.floor(cut.length * 0.9));
   const nl = cut.lastIndexOf("\n");
-  return nl > max * 0.5 ? cut.slice(0, nl) : cut;
+  if (nl > room * 0.5) cut = cut.slice(0, nl);
+  return closed ? `${cut}
+${CLOSE}` : cut;
 }
-function boundSnapshot(s, budget = PAYLOAD_LIMIT) {
-  if (bytesOf(s) <= budget) return s;
+var withNote = (text) => `${SNAPSHOT_NOTE}
+${text}`;
+function boundSnapshot(s, measure, budget = WIRE_BUDGET) {
+  if (measure(s) <= budget) return s;
   const elements = [...s.elements];
-  let text = s.text;
+  let base = s.text;
   let out = s;
-  for (let guard = 0; guard < 40; guard++) {
-    out = { ...s, text, elements, truncated: true, note: SNAPSHOT_NOTE };
-    if (bytesOf(out) <= budget) return out;
-    if (Buffer.byteLength(text) >= bytesOf(elements)) {
-      text = cutText(text, Math.floor(Buffer.byteLength(text) * 0.7));
+  for (let guard = 0; guard < 60; guard++) {
+    out = { ...s, text: withNote(base), elements, truncated: true, note: SNAPSHOT_NOTE };
+    if (measure(out) <= budget) return out;
+    if (Buffer.byteLength(base) >= bytesOf(elements)) {
+      base = cutText(base, Math.floor(Buffer.byteLength(base) * 0.7));
     } else {
       elements.length = Math.floor(elements.length * 0.7);
     }
   }
-  return out;
+  return { ...s, text: withNote(""), elements: [], truncated: true, note: SNAPSHOT_NOTE };
 }
-function boundDiff(d, budget = PAYLOAD_LIMIT) {
-  if (bytesOf(d) <= budget) return d;
+function boundDiff(d, measure, budget = WIRE_BUDGET) {
+  if (measure(d) <= budget) return d;
   let out = { ...d };
-  if (out.snapshot) out = { ...out, snapshot: boundSnapshot(out.snapshot, Math.floor(budget / 2)) };
+  if (out.snapshot) {
+    const snapshot = boundSnapshot(out.snapshot, measure, Math.floor(budget * 0.4));
+    out = { ...out, snapshot, text: snapshot.text };
+  }
   const added = [...out.added];
   const changed = [...out.changed];
   const removed = [...out.removed];
-  let text = out.text;
-  for (let guard = 0; guard < 40; guard++) {
+  let base = out.text;
+  for (let guard = 0; guard < 60; guard++) {
     const next = {
       ...out,
       added,
       changed,
       removed,
-      text: `${text}
-${SNAPSHOT_NOTE}`,
+      text: out.snapshot && out.snapshot.text === out.text ? out.text : withNote(base),
       truncated: true
     };
-    if (bytesOf(next) <= budget) return next;
+    if (measure(next) <= budget) return next;
     added.length = Math.floor(added.length * 0.7);
     changed.length = Math.floor(changed.length * 0.7);
     removed.length = Math.floor(removed.length * 0.7);
-    text = cutText(text, Math.floor(Buffer.byteLength(text) * 0.7));
+    if (out.snapshot) {
+      const snapshot = boundSnapshot(
+        out.snapshot,
+        measure,
+        Math.floor(budget * (0.4 * 0.7 ** guard))
+      );
+      out = { ...out, snapshot, text: snapshot.text };
+      base = out.text;
+    } else {
+      base = cutText(base, Math.floor(Buffer.byteLength(base) * 0.7));
+    }
   }
-  return {
-    ...out,
-    added: [],
-    changed: [],
-    removed: [],
-    text: SNAPSHOT_NOTE,
-    truncated: true
-  };
+  return { ...out, added: [], changed: [], removed: [], text: withNote(""), truncated: true };
 }
-function boundExtract(e, budget = PAYLOAD_LIMIT) {
-  if (bytesOf(e) <= budget) return e;
+function boundExtract(e, measure, budget = WIRE_BUDGET) {
+  if (measure(e) <= budget) return e;
   const tables = e.tables.map((t) => ({ ...t, rows: [...t.rows] }));
   const lists = e.lists.map((l) => ({ ...l, items: [...l.items] }));
   let text = e.text;
   const note = "Cut to fit one result: rows and items past the cut are counted in truncated. Narrow down with a ref, or scroll and extract again.";
   const build = () => ({
+    note,
     ...e,
-    tables: tables.map((t, i) => ({
-      ...t,
-      ...e.tables[i].rows.length + (e.tables[i].truncated ?? 0) > t.rows.length ? { truncated: e.tables[i].rows.length + (e.tables[i].truncated ?? 0) - t.rows.length } : {}
-    })),
-    lists: lists.map((l, i) => ({
-      ...l,
-      ...e.lists[i].items.length + (e.lists[i].truncated ?? 0) > l.items.length ? { truncated: e.lists[i].items.length + (e.lists[i].truncated ?? 0) - l.items.length } : {}
-    })),
-    ...text !== void 0 ? { text } : {},
-    note
+    tables: tables.map((t, i) => {
+      const total = e.tables[i].rows.length + (e.tables[i].truncated ?? 0);
+      return { ...t, ...total > t.rows.length ? { truncated: total - t.rows.length } : {} };
+    }),
+    lists: lists.map((l, i) => {
+      const total = e.lists[i].items.length + (e.lists[i].truncated ?? 0);
+      return { ...l, ...total > l.items.length ? { truncated: total - l.items.length } : {} };
+    }),
+    ...text !== void 0 ? { text } : {}
   });
   for (let guard = 0; guard < 200; guard++) {
     const out = build();
-    if (bytesOf(out) <= budget) return out;
+    if (measure(out) <= budget) return out;
     let biggest;
     const consider = (size, cut) => {
       if (!biggest || size > biggest.size) biggest = { size, cut };
@@ -21941,35 +21984,6 @@ function parseScreenshot(raw) {
   return parsed.data;
 }
 
-// src/sanitize.ts
-var INVISIBLE = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f­؜᠎​-‏‪-‮⁠-⁤⁦-⁯﻿￹-￻\u{e0000}-\u{e007f}\u{e0100}-\u{e01ef}]/gu;
-var CONTENT_TAG = "page-content";
-var FENCE = new RegExp(`<\\s*(/?)\\s*(${CONTENT_TAG}|untrusted_page_content)`, "gi");
-function clean(input, max = 300) {
-  if (input === void 0 || input === null) return "";
-  let text = String(input).replace(INVISIBLE, "").replace(FENCE, `\u2039$1$2`).replace(/\s+/g, " ").trim();
-  if (text.length > max) {
-    let end = max - 1;
-    const code = text.charCodeAt(end - 1);
-    if (code >= 55296 && code <= 56319) end -= 1;
-    text = `${text.slice(0, end)}\u2026`;
-  }
-  return text;
-}
-function cleanMultiline(input, max = 2e4) {
-  if (input === void 0 || input === null) return "";
-  let text = String(input).replace(INVISIBLE, (c) => c === "\n" || c === "	" ? c : "").replace(FENCE, `\u2039$1$2`).replace(/[ \t\f\v ]+/g, " ").replace(/ ?\n ?/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
-  if (text.length > max) text = `${text.slice(0, max - 1)}\u2026`;
-  return text;
-}
-function quote(text) {
-  return JSON.stringify(text);
-}
-function safeFileName(name) {
-  const base = clean(name, 255).split(/[\\/]/).pop()?.replace(/^\.+/, "") ?? "";
-  return base || "download";
-}
-
 // src/server.ts
 var SERVER_NAME = "cerea-browser";
 var SERVER_VERSION = "0.1.0";
@@ -22095,14 +22109,16 @@ var failure = (message) => ({
   content: [{ type: "text", text: message }],
   isError: true
 });
+var wire = (value) => bytesOf(json2(value));
 function createToolHandler(session2) {
   const serial = (work) => session2.serial(work);
   return async (name, rawArgs) => {
     const result = await run(name, rawArgs);
     const size = bytesOf(result);
     if (size > RESULT_LIMIT) {
+      const advice = name === "download" ? "call download again (files stay until taken), or fetch fewer files" : "scroll, use extract with a ref, or ask for less";
       return failure(
-        `result too large: ${clean(name, 60)}, ${size} bytes (limit ${RESULT_LIMIT}); narrow the request: scroll, use extract with a ref, or ask for less.`
+        `result too large: ${clean(name, 60)}, ${size} bytes (limit ${RESULT_LIMIT}); narrow the request: ${advice}.`
       );
     }
     return result;
@@ -22111,9 +22127,25 @@ function createToolHandler(session2) {
     try {
       switch (name) {
         case "snapshot":
-          return json2(boundSnapshot(await serial(() => session2.snapshot())));
-        case "diff":
-          return json2(boundDiff(await serial(() => session2.diff())));
+          return json2(boundSnapshot(await serial(() => session2.snapshot()), wire));
+        case "diff": {
+          let d = await serial(() => session2.diff());
+          if (!d.navigated && wire(d) > WIRE_BUDGET) {
+            const snap = await serial(() => session2.snapshot());
+            d = {
+              url: snap.url,
+              title: snap.title,
+              ...snap.challenge ? { challenge: snap.challenge } : {},
+              navigated: true,
+              added: [],
+              changed: [],
+              removed: [],
+              text: snap.text,
+              snapshot: snap
+            };
+          }
+          return json2(boundDiff(d, wire));
+        }
         case "act": {
           const args = asObject(rawArgs);
           const actions = parseActions(args.actions);
@@ -22122,7 +22154,7 @@ function createToolHandler(session2) {
         }
         case "extract": {
           const request = parseExtract(rawArgs);
-          return json2(boundExtract(await serial(() => session2.extract(request))));
+          return json2(boundExtract(await serial(() => session2.extract(request)), wire));
         }
         case "screenshot": {
           const request = parseScreenshot(rawArgs);
@@ -22179,6 +22211,10 @@ function createServer2(session2) {
     { name: SERVER_NAME, version: SERVER_VERSION },
     { capabilities: { tools: {} } }
   );
+  let clients = 0;
+  server.oninitialized = () => {
+    if (++clients > 1) void session2.serial(() => session2.newClient()).catch(() => void 0);
+  };
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: TOOLS.map((t) => ({ ...t }))
   }));
@@ -23607,6 +23643,17 @@ var BrowserSession = class {
    * task can `resume` it with that token, and without it the page is just a user tab. A tab the
    * user lent to the task is let go, never closed.
    */
+  /**
+   * A new client took over this process (a reattached channel): the old task's state is let go
+   * the way end_task({keep: true}) does, and what only that task could use is cleared. Pages
+   * stay open.
+   */
+  async newClient() {
+    await this.endTask({ keep: true });
+    this.acting = false;
+    this.downloads = [];
+    this.pendingDownloads.clear();
+  }
   async endTask(options = {}) {
     clearTimeout(this.idleTimer);
     const pages = [...this.taskPages];
@@ -24807,14 +24854,17 @@ url: about:blank
   async download(request = {}) {
     await Promise.race([Promise.allSettled([...this.pendingDownloads]), sleep(15e3)]);
     const give = this.downloads.filter((d) => request.all || d.actionIndex !== void 0);
-    this.downloads = this.downloads.filter((d) => !give.includes(d));
     const files = [];
-    for (const file of give.slice(0, MAX_DOWNLOADS)) {
+    const taken = /* @__PURE__ */ new Set();
+    let base64Total = 0;
+    for (const file of give) {
       const origin = {
         ...file.actionIndex !== void 0 ? { actionIndex: file.actionIndex } : {},
         ...file.grantId ? { grantId: file.grantId } : {}
       };
+      if (files.length >= MAX_DOWNLOADS) break;
       if (file.skipped || !file.path) {
+        taken.add(file);
         files.push({
           name: file.name,
           mime: file.mime,
@@ -24825,6 +24875,7 @@ url: about:blank
         continue;
       }
       if (file.size > MAX_DOWNLOAD_BYTES) {
+        taken.add(file);
         files.push({
           name: file.name,
           mime: file.mime,
@@ -24832,18 +24883,45 @@ url: about:blank
           skipped: `larger than ${MAX_DOWNLOAD_BYTES / 1024 / 1024} MB`,
           ...origin
         });
-      } else {
-        const bytes = await readFile(file.path);
+        await rm(file.path, { force: true });
+        continue;
+      }
+      const encoded = Math.ceil(file.size / 3) * 4;
+      if (encoded > DOWNLOAD_BASE64_LIMIT) {
+        taken.add(file);
         files.push({
           name: file.name,
           mime: file.mime,
-          size: bytes.byteLength,
-          base64: bytes.toString("base64"),
+          size: file.size,
+          skipped: `too large to return over the link (${file.size} bytes; the limit is about ${Math.floor(DOWNLOAD_BASE64_LIMIT / 4 * 3)})`,
           ...origin
         });
+        await rm(file.path, { force: true });
+        continue;
       }
+      if (base64Total + encoded > DOWNLOAD_BASE64_LIMIT) {
+        files.push({
+          name: file.name,
+          mime: file.mime,
+          size: file.size,
+          skipped: "too large for one result; call download again",
+          ...origin
+        });
+        continue;
+      }
+      const bytes = await readFile(file.path);
+      base64Total += Math.ceil(bytes.byteLength / 3) * 4;
+      taken.add(file);
+      files.push({
+        name: file.name,
+        mime: file.mime,
+        size: bytes.byteLength,
+        base64: bytes.toString("base64"),
+        ...origin
+      });
       await rm(file.path, { force: true });
     }
+    this.downloads = this.downloads.filter((d) => !taken.has(d));
     return { files };
   }
 };

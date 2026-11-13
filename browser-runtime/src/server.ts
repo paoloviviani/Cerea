@@ -13,7 +13,15 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { RESULT_LIMIT, bytesOf, boundDiff, boundExtract, boundSnapshot } from "./budget.ts";
+import {
+	RESULT_LIMIT,
+	WIRE_BUDGET,
+	bytesOf,
+	boundDiff,
+	boundExtract,
+	boundSnapshot,
+	type Measure,
+} from "./budget.ts";
 import { asObject, parseActions, parseApprovals, parseExtract, parseScreenshot } from "./args.ts";
 import { ToolError } from "./errors.ts";
 import { clean } from "./sanitize.ts";
@@ -165,6 +173,9 @@ const failure = (message: string): ToolResult => ({
 	isError: true,
 });
 
+/** The size of a value as the server sends it: the whole result, with both copies of the JSON. */
+const wire: Measure = (value) => bytesOf(json(value));
+
 /** The handler of `tools/call`, usable without any transport (the tests call it directly). */
 export function createToolHandler(session: BrowserSession) {
 	// One queue per session (not per handler): every connection shares the one browser.
@@ -176,8 +187,12 @@ export function createToolHandler(session: BrowserSession) {
 		// error, so an oversize result becomes an error the model can read and act on.
 		const size = bytesOf(result);
 		if (size > RESULT_LIMIT) {
+			const advice =
+				name === "download"
+					? "call download again (files stay until taken), or fetch fewer files"
+					: "scroll, use extract with a ref, or ask for less";
 			return failure(
-				`result too large: ${clean(name, 60)}, ${size} bytes (limit ${RESULT_LIMIT}); narrow the request: scroll, use extract with a ref, or ask for less.`
+				`result too large: ${clean(name, 60)}, ${size} bytes (limit ${RESULT_LIMIT}); narrow the request: ${advice}.`
 			);
 		}
 		return result;
@@ -187,9 +202,27 @@ export function createToolHandler(session: BrowserSession) {
 		try {
 			switch (name) {
 				case "snapshot":
-					return json(boundSnapshot(await serial(() => session.snapshot())));
-				case "diff":
-					return json(boundDiff(await serial(() => session.diff())));
+					return json(boundSnapshot(await serial(() => session.snapshot()), wire));
+				case "diff": {
+					let d = await serial(() => session.diff());
+					if (!d.navigated && wire(d) > WIRE_BUDGET) {
+						// A partial diff cannot be cut without losing changes: send the page whole
+						// (bounded), as after a navigation, and let the refs start over.
+						const snap = await serial(() => session.snapshot());
+						d = {
+							url: snap.url,
+							title: snap.title,
+							...(snap.challenge ? { challenge: snap.challenge } : {}),
+							navigated: true,
+							added: [],
+							changed: [],
+							removed: [],
+							text: snap.text,
+							snapshot: snap,
+						};
+					}
+					return json(boundDiff(d, wire));
+				}
 				case "act": {
 					const args = asObject(rawArgs);
 					const actions = parseActions(args.actions);
@@ -198,7 +231,7 @@ export function createToolHandler(session: BrowserSession) {
 				}
 				case "extract": {
 					const request = parseExtract(rawArgs);
-					return json(boundExtract(await serial(() => session.extract(request))));
+					return json(boundExtract(await serial(() => session.extract(request)), wire));
 				}
 				case "screenshot": {
 					const request = parseScreenshot(rawArgs);
@@ -260,6 +293,14 @@ export function createServer(session: BrowserSession): Server {
 		{ name: SERVER_NAME, version: SERVER_VERSION },
 		{ capabilities: { tools: {} } }
 	);
+	// A second client on this process (the link dropped and came back, Cerea started a new
+	// channel) must not inherit the first one's task: its lent tabs, refs, baseline and
+	// downloads. The pages stay open (the user may be at them). The request queue is FIFO, so
+	// this runs before the new client's first call.
+	let clients = 0;
+	server.oninitialized = () => {
+		if (++clients > 1) void session.serial(() => session.newClient()).catch(() => undefined);
+	};
 	server.setRequestHandler(ListToolsRequestSchema, async () => ({
 		tools: TOOLS.map((t) => ({ ...t })),
 	}));

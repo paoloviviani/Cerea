@@ -11,6 +11,9 @@ vi.mock("./client", () => ({
 			closed: false,
 			kind,
 			getProtocolEra: () => built.era,
+			async listTools() {
+				return { tools: [] };
+			},
 			async connect() {},
 			async close() {
 				this.closed = true;
@@ -28,6 +31,8 @@ vi.mock("@modelcontextprotocol/client", () => ({
 		constructor(public url: unknown) {}
 	},
 }));
+vi.mock("./localTransport", () => ({ createLocalTransport: async () => ({}) }));
+vi.mock("./local", () => ({ localServerFingerprint: () => "fp" }));
 vi.mock("$lib/server/urlSafety", () => ({ mcpFetch: () => Promise.resolve(new Response()) }));
 
 const { getClient, retainClient, releaseClient, evictFromPool, getAttributableClient } =
@@ -136,5 +141,30 @@ describe("clients of different kinds", () => {
 		const { client } = await getAttributableClient(SERVER, "conv-1", undefined, "health");
 
 		expect((client as unknown as { kind: string }).kind).toBe("health");
+	});
+});
+
+describe("the idle sweep", () => {
+	const id = "a".repeat(24);
+	const machine = (server: string) => ({
+		name: server,
+		url: `machine://${id}/${server}?user=${id}`,
+	});
+
+	it("closes an idle pooled client but never the browser runtime's", async () => {
+		vi.useFakeTimers();
+		try {
+			built.clients.length = 0;
+			// A fresh module: its sweeper must be started under the fake timers.
+			vi.resetModules();
+			const fresh = await import("./clientPool");
+			const browser = await fresh.getClient(machine("cerea-browser"));
+			const other = await fresh.getClient(machine("notes"));
+			await vi.advanceTimersByTimeAsync(12 * 60_000);
+			expect((other as unknown as { closed: boolean }).closed).toBe(true);
+			expect((browser as unknown as { closed: boolean }).closed).toBe(false);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });

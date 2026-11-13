@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 )
@@ -33,6 +34,8 @@ type channel struct {
 	idle       *time.Timer
 	listIDs    map[string]bool
 	callIDs    map[string]string // request id -> tool
+	reqIDs     map[string]bool   // every request id of the client still unanswered
+	gen        int64             // generation of a kept process's channel; ids are remapped when > 0
 
 	// local, when set, takes what would go to Cerea: the channel belongs to
 	// galopin's own in-process client (local.go), not to a Cerea chat.
@@ -43,7 +46,7 @@ type channel struct {
 
 func newChannel(h *Hub, e *Entry) *channel {
 	return &channel{id: newChannelID(), hub: h, entry: e, queue: make(chan []byte, 256), stop: make(chan struct{}),
-		listIDs: map[string]bool{}, callIDs: map[string]string{}}
+		listIDs: map[string]bool{}, callIDs: map[string]string{}, reqIDs: map[string]bool{}}
 }
 
 func (c *channel) logf(format string, args ...any) { c.hub.cfg.Logf(format, args...) }
@@ -70,6 +73,11 @@ func (c *channel) start(ctx context.Context) *OpenError {
 		c.tr = c.adopt.sc
 		c.adopt.sc.rebind(c.sink())
 		c.adopt = nil
+		select {
+		case <-c.tr.Done():
+			return &OpenError{"unavailable", "cannot start " + e.Name + ": the kept process ended"}
+		default:
+		}
 	case e.Transport == TransportStdio:
 		sc, err := startStdio(e, c.sink())
 		if err != nil {
@@ -110,8 +118,9 @@ func (c *channel) start(ctx context.Context) *OpenError {
 	c.mu.Lock()
 	c.registered = true
 	early := c.early
-	if !c.hub.keeps(e.Name) { // a kept server is never stopped for being idle
-		c.idle = time.AfterFunc(c.hub.cfg.IdleTimeout, func() { c.shutdown("idle", nil, true) })
+	c.idle = time.AfterFunc(c.idleFor(), func() { c.shutdown("idle", nil, true) })
+	if sc, ok := c.tr.(*stdioConn); ok && c.hub.keeps(e.Name) {
+		c.gen = sc.gen.Add(1)
 	}
 	c.mu.Unlock()
 	if sc, ok := c.tr.(*stdioConn); ok {
@@ -143,10 +152,18 @@ func (c *channel) writer() {
 	}
 }
 
+// idleFor: a kept server's channel idles for an hour and then parks its process.
+func (c *channel) idleFor() time.Duration {
+	if c.hub.keeps(c.entry.Name) {
+		return c.hub.cfg.KeepAliveIdle
+	}
+	return c.hub.cfg.IdleTimeout
+}
+
 func (c *channel) touch() {
 	c.mu.Lock()
 	if c.idle != nil && !c.closed {
-		c.idle.Reset(c.hub.cfg.IdleTimeout)
+		c.idle.Reset(c.idleFor())
 	}
 	c.mu.Unlock()
 }
@@ -187,36 +204,39 @@ func (c *channel) end(why, reason string, detail *string, emit bool) {
 	c.callIDs = map[string]string{}
 	c.mu.Unlock()
 	close(c.stop)
-	c.hub.mu.Lock()
-	delete(c.hub.channels, c.id)
-	c.hub.mu.Unlock()
-	for _, tool := range pending {
-		c.hub.cfg.Audit(c.entry.Name, tool, "error")
-	}
-	if sc, ok := c.tr.(*stdioConn); ok && why == linkDownWhy && c.hub.keeps(c.entry.Name) {
+	parked := false
+	if sc, ok := c.tr.(*stdioConn); ok && c.hub.keeps(c.entry.Name) && parkable(why) {
 		select {
 		case <-sc.Done():
 		default:
-			// The link went away, not the user: keep the process (and its Chrome).
+			// The link went away (or the channel went quiet), not the user: keep the
+			// process and its Chrome. park also removes the channel from the hub.
 			c.hub.park(c, sc, why)
-			if c.localClosed != nil {
-				c.localClosed()
-			}
-			return
+			parked = true
 		}
 	}
-	c.hub.stopping.Add(1)
-	go func() { <-c.tr.Done(); c.hub.stopping.Done() }()
-	c.tr.Close()
-	if sc, ok := c.tr.(*stdioConn); ok {
-		// Only the reason and, for a process that died, its exit status: never
-		// its arguments, environment or output.
-		stopped := why
-		if reason == "crashed" || reason == "exited" {
-			<-sc.Done()
-			stopped += ": " + sc.ExitStatus()
+	if !parked {
+		c.hub.mu.Lock()
+		delete(c.hub.channels, c.id)
+		c.hub.mu.Unlock()
+	}
+	for _, tool := range pending {
+		c.hub.cfg.Audit(c.entry.Name, tool, "error")
+	}
+	if !parked {
+		c.hub.stopping.Add(1)
+		go func() { <-c.tr.Done(); c.hub.stopping.Done() }()
+		c.tr.Close()
+		if sc, ok := c.tr.(*stdioConn); ok {
+			// Only the reason and, for a process that died, its exit status: never
+			// its arguments, environment or output.
+			stopped := why
+			if reason == "crashed" || reason == "exited" {
+				<-sc.Done()
+				stopped += ": " + sc.ExitStatus()
+			}
+			c.logf("connectors: %s: stopped (channel %s, %s)", c.entry.Name, c.id, stopped)
 		}
-		c.logf("connectors: %s: stopped (channel %s, %s)", c.entry.Name, c.id, stopped)
 	}
 	if c.localClosed != nil {
 		c.localClosed()
@@ -250,7 +270,7 @@ func (c *channel) toServer(raw []byte) {
 	case c.queue <- raw:
 	default:
 		for _, id := range requestIDs(raw) {
-			c.toCerea(rpcError(id, codeServerError, "the connector is busy: too many messages waiting"))
+			c.toCerea(rpcError(c.clientID(id), codeServerError, "the connector is busy: too many messages waiting"))
 		}
 	}
 }
@@ -277,11 +297,17 @@ func (c *channel) fromClient(raw []byte) {
 	}
 	isBatch := raw[0] == '['
 	var keep []json.RawMessage
+	remapped := false
 	for _, m := range parts {
 		var h msgHeader
 		if json.Unmarshal(m, &h) != nil {
 			c.logf("connectors: %s: dropping a message that is not JSON-RPC", c.entry.Name)
 			continue
+		}
+		if h.Method != "" && h.hasID() {
+			c.mu.Lock()
+			c.reqIDs[string(h.ID)] = true
+			c.mu.Unlock()
 		}
 		switch h.Method {
 		case "tools/call":
@@ -307,13 +333,19 @@ func (c *channel) fromClient(raw []byte) {
 				c.mu.Unlock()
 			}
 		}
+		if c.gen > 0 && h.Method != "" && h.hasID() {
+			// A kept process outlives its channels: ids are made unique per generation
+			// so a late answer to an earlier client's request cannot pass as this one's.
+			m = setID(m, wrapID(c.gen, h.ID))
+			remapped = true
+		}
 		keep = append(keep, m)
 	}
 	if len(keep) == 0 {
 		return
 	}
 	out := raw
-	if len(keep) != len(parts) {
+	if len(keep) != len(parts) || remapped {
 		if isBatch {
 			out, _ = json.Marshal(keep)
 		} else {
@@ -339,7 +371,7 @@ func (c *channel) oversizeFromClient(parts []json.RawMessage) {
 		}
 		c.logf("connectors: %s: dropping a %d-byte message from Cerea (limit %d)", c.entry.Name, len(m), MaxMessageBytes)
 		if h.Method != "" && h.hasID() {
-			c.toCerea(rpcError(h.ID, codeResponseLarge, tooLargeText(len(m))))
+			c.toCerea(rpcError(c.clientID(h.ID), codeResponseLarge, tooLargeText(len(m))))
 		}
 	}
 }
@@ -362,6 +394,12 @@ func (c *channel) fromServer(raw []byte) {
 		c.logf("connectors: %s: dropping a message that is not JSON", c.entry.Name)
 		return
 	}
+	if c.gen > 0 {
+		var ok bool
+		if raw, parts, ok = c.unwrapResponses(raw, parts); !ok {
+			return
+		}
+	}
 	changed := false
 	for i, m := range parts {
 		var h struct {
@@ -378,6 +416,7 @@ func (c *channel) fromServer(raw []byte) {
 		delete(c.listIDs, key)
 		tool, isCall := c.callIDs[key]
 		delete(c.callIDs, key)
+		delete(c.reqIDs, key)
 		c.mu.Unlock()
 		if isCall {
 			c.hub.cfg.Audit(c.entry.Name, tool, callOutcome(h.Result, h.Error))
@@ -470,4 +509,86 @@ func contains(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// wrapID is the id a kept process sees: "g<generation>:" and the client's id as
+// JSON text.
+func wrapID(gen int64, id json.RawMessage) json.RawMessage {
+	b, _ := json.Marshal(fmt.Sprintf("g%d:%s", gen, string(id)))
+	return b
+}
+
+// setID returns msg with its id replaced.
+func setID(msg, id json.RawMessage) json.RawMessage {
+	var top map[string]json.RawMessage
+	if json.Unmarshal(msg, &top) != nil {
+		return msg
+	}
+	top["id"] = id
+	out, err := json.Marshal(top)
+	if err != nil {
+		return msg
+	}
+	return out
+}
+
+// unwrapID undoes wrapID for this channel's generation.
+func (c *channel) unwrapID(id json.RawMessage) (json.RawMessage, bool) {
+	var s string
+	if json.Unmarshal(id, &s) != nil {
+		return nil, false
+	}
+	prefix := fmt.Sprintf("g%d:", c.gen)
+	if !strings.HasPrefix(s, prefix) {
+		return nil, false
+	}
+	return json.RawMessage(s[len(prefix):]), true
+}
+
+// clientID is the id as the client sent it, for an answer made here.
+func (c *channel) clientID(id json.RawMessage) json.RawMessage {
+	if c.gen > 0 {
+		if orig, ok := c.unwrapID(id); ok {
+			return orig
+		}
+	}
+	return id
+}
+
+// unwrapResponses gives the responses of a kept process back their client ids and
+// drops those of an earlier generation, or to a request nobody here is waiting
+// for. ok is false when nothing is left to deliver.
+func (c *channel) unwrapResponses(raw []byte, parts []json.RawMessage) ([]byte, []json.RawMessage, bool) {
+	out := make([]json.RawMessage, 0, len(parts))
+	rewritten := false
+	for _, m := range parts {
+		var h msgHeader
+		if json.Unmarshal(m, &h) != nil || h.Method != "" || !h.hasID() {
+			out = append(out, m)
+			continue
+		}
+		orig, ok := c.unwrapID(h.ID)
+		if ok {
+			c.mu.Lock()
+			ok = c.reqIDs[string(orig)]
+			c.mu.Unlock()
+		}
+		rewritten = true
+		if !ok {
+			c.logf("connectors: %s: dropping a response to an earlier client's request", c.entry.Name)
+			continue
+		}
+		out = append(out, setID(m, orig))
+	}
+	if !rewritten {
+		return raw, parts, true
+	}
+	if len(out) == 0 {
+		return nil, nil, false
+	}
+	if raw[0] == '[' {
+		b, _ := json.Marshal(out)
+		return b, out, true
+	}
+	return out[0], out, true
 }

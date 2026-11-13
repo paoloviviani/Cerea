@@ -24,6 +24,7 @@ type stdioConn struct {
 	sinkMu  sync.Mutex
 	sink    *sink // who hears the process; rebound when a kept process meets a new channel
 	closing atomic.Bool
+	gen     atomic.Int64 // how many channels have used this process (ids are remapped per generation)
 	done    chan struct{}
 
 	mu      sync.Mutex

@@ -43,6 +43,9 @@ type Config struct {
 	// mcp.json entry still stops it.
 	KeepAlive      map[string]bool
 	KeepAliveGrace time.Duration // default 15 min
+	// KeepAliveIdle is how long a kept server's channel may be silent before the
+	// channel is retired and the process parked (not stopped); default 1 hour.
+	KeepAliveIdle time.Duration
 
 	IdleTimeout time.Duration // default 10 min
 	PollEvery   time.Duration // default 3 s
@@ -114,6 +117,9 @@ func New(cfg Config) *Hub {
 	}
 	if cfg.KeepAliveGrace == 0 {
 		cfg.KeepAliveGrace = 15 * time.Minute
+	}
+	if cfg.KeepAliveIdle == 0 {
+		cfg.KeepAliveIdle = time.Hour
 	}
 	if cfg.PollEvery == 0 {
 		cfg.PollEvery = 3 * time.Second
@@ -342,7 +348,21 @@ func (h *Hub) open(ctx context.Context, name string, setup func(*channel)) (*cha
 			open++
 		}
 	}
+	var retire []*channel
+	if e != nil && h.keeps(name) && open >= h.limit(name) {
+		// A kept server has one process and the old channel's client is gone or
+		// stale: retire the old channel (the process is parked) and adopt it.
+		for _, ch := range h.channels {
+			if ch.entry.Name == name {
+				retire = append(retire, ch)
+			}
+		}
+	}
 	h.mu.Unlock()
+	for _, ch := range retire {
+		ch.end("replaced", "closed", nil, true)
+		open--
+	}
 	switch {
 	case e == nil:
 		return nil, &OpenError{"not_found", "no connector named " + name}
@@ -362,11 +382,12 @@ func (h *Hub) open(ctx context.Context, name string, setup func(*channel)) (*cha
 	}
 	if h.cfg.BeforeStart != nil && e.Transport == TransportStdio {
 		if oerr := h.cfg.BeforeStart(ctx, e); oerr != nil {
+			h.dropParkedNamed(name, "the key could not be refreshed")
 			return nil, oerr
 		}
 	}
 	ch := newChannel(h, e)
-	if p := h.takeParked(name); p != nil {
+	if p := h.takeParked(name, e); p != nil {
 		ch.adopt = p
 	}
 	if setup != nil {
@@ -466,7 +487,8 @@ const (
 	linkDownWhy = "link down"
 )
 
-// parkedConn is a kept-alive server process waiting for the next channel.
+// parkedConn is a kept-alive server process waiting for the next channel. timer
+// is read and written under Hub.mu.
 type parkedConn struct {
 	entry *Entry
 	sc    *stdioConn
@@ -476,8 +498,24 @@ type parkedConn struct {
 // keeps reports whether the named server outlives its channel.
 func (h *Hub) keeps(name string) bool { return h.cfg.KeepAlive[name] }
 
+// parkable: the reasons a kept server's channel ends without its process.
+func parkable(why string) bool {
+	return why == linkDownWhy || why == "idle" || why == "replaced"
+}
+
+func (h *Hub) stopTimer(p *parkedConn) {
+	h.mu.Lock()
+	t := p.timer
+	h.mu.Unlock()
+	if t != nil {
+		t.Stop()
+	}
+}
+
 // park keeps ch's process running with no channel: its output is dropped until
-// a new channel adopts it, and it is stopped when the grace period ends.
+// a new channel adopts it, and it is stopped when the grace period ends. The
+// process enters h.parked in the same critical section that removes the channel,
+// so an open never finds neither.
 func (h *Hub) park(ch *channel, sc *stdioConn, why string) {
 	p := &parkedConn{entry: ch.entry, sc: sc}
 	name := ch.entry.Name
@@ -491,9 +529,7 @@ func (h *Hub) park(ch *channel, sc *stdioConn, why string) {
 				delete(h.parked, name)
 			}
 			h.mu.Unlock()
-			if p.timer != nil {
-				p.timer.Stop()
-			}
+			h.stopTimer(p)
 			h.cfg.Logf("connectors: %s: kept process ended (%s)", name, reason)
 		},
 		authRequired: func() {},
@@ -502,16 +538,19 @@ func (h *Hub) park(ch *channel, sc *stdioConn, why string) {
 	h.mu.Lock()
 	old := h.parked[name]
 	h.parked[name] = p
+	delete(h.channels, ch.id)
 	p.timer = time.AfterFunc(h.cfg.KeepAliveGrace, func() { h.dropParked(p, "no link for "+h.cfg.KeepAliveGrace.String()) })
 	h.mu.Unlock()
 	if old != nil {
-		h.dropParked(old, "replaced")
+		h.stopTimer(old)
+		h.closeParked(old, "replaced")
 	}
 	h.cfg.Logf("connectors: %s: kept running (channel %s, %s), stopping in %s unless reattached", name, ch.id, why, h.cfg.KeepAliveGrace)
 }
 
-// takeParked removes and returns the kept process of name, if it still runs.
-func (h *Hub) takeParked(name string) *parkedConn {
+// takeParked removes and returns the kept process of name, if it still runs and
+// is still the process e describes; otherwise that process is stopped.
+func (h *Hub) takeParked(name string, e *Entry) *parkedConn {
 	h.mu.Lock()
 	p := h.parked[name]
 	delete(h.parked, name)
@@ -519,27 +558,49 @@ func (h *Hub) takeParked(name string) *parkedConn {
 	if p == nil {
 		return nil
 	}
-	p.timer.Stop()
+	h.stopTimer(p)
 	select {
 	case <-p.sc.Done():
 		return nil
 	default:
 	}
+	if !p.entry.Same(e) || e.State() != StateReady {
+		h.closeParked(p, "mcp.json changed")
+		return nil
+	}
 	return p
 }
 
-// dropParked stops a kept process.
+// dropParked stops a kept process that is still parked; one already taken,
+// replaced or stopped by someone else is left alone.
 func (h *Hub) dropParked(p *parkedConn, why string) {
 	h.mu.Lock()
-	if h.parked[p.entry.Name] == p {
-		delete(h.parked, p.entry.Name)
+	if h.parked[p.entry.Name] != p {
+		h.mu.Unlock()
+		return
 	}
+	delete(h.parked, p.entry.Name)
 	h.mu.Unlock()
-	p.timer.Stop()
+	h.stopTimer(p)
+	h.closeParked(p, why)
+}
+
+// closeParked stops a process that is no longer in h.parked.
+func (h *Hub) closeParked(p *parkedConn, why string) {
 	h.stopping.Add(1)
 	go func() { <-p.sc.Done(); h.stopping.Done() }()
 	p.sc.Close()
 	h.cfg.Logf("connectors: %s: kept process stopped (%s)", p.entry.Name, why)
+}
+
+// dropParkedNamed stops the kept process of name, if any.
+func (h *Hub) dropParkedNamed(name, why string) {
+	h.mu.Lock()
+	p := h.parked[name]
+	h.mu.Unlock()
+	if p != nil {
+		h.dropParked(p, why)
+	}
 }
 
 func (h *Hub) closeAll(why string) {

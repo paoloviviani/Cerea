@@ -4,6 +4,7 @@ import { createMcpClient, type McpClientKind } from "./client";
 import type { McpServerConfig } from "./httpClient";
 import { mcpFetch } from "$lib/server/urlSafety";
 import { isLocalServerUrl, parseLocalServerUrl } from "./localUrl";
+import { BROWSER_RUNTIME_SERVER } from "$lib/server/browser/contract";
 import {
 	forgetLocalEra,
 	knownLocalEra,
@@ -17,6 +18,12 @@ type PoolEntry = {
 	activeCalls: number;
 	/** Evicted from the pool; closed once its last in-flight call finishes. */
 	retired?: boolean;
+	/**
+	 * Never closed for idling: the browser runtime's client. Its process and Chrome window
+	 * outlive the conversation (galopin parks it when the channel goes quiet), and a closed
+	 * client would end the channel and the process with it.
+	 */
+	keep?: boolean;
 };
 
 const pool = new Map<string, PoolEntry>();
@@ -54,7 +61,7 @@ function ensureSweeper() {
 	sweeper = setInterval(() => {
 		const now = Date.now();
 		for (const [key, entry] of pool) {
-			if (entry.activeCalls === 0 && now - entry.lastUsedAt > IDLE_TTL_MS) {
+			if (!entry.keep && entry.activeCalls === 0 && now - entry.lastUsedAt > IDLE_TTL_MS) {
 				pool.delete(key);
 				entries.delete(entry.client);
 				void disposeClient(entry.client);
@@ -161,7 +168,12 @@ export async function getClient(
 
 	if (isLocalServerUrl(server.url)) {
 		const client = await connectLocal(server.url, kind);
-		const entry: PoolEntry = { client, lastUsedAt: Date.now(), activeCalls: 0 };
+		const entry: PoolEntry = {
+			client,
+			lastUsedAt: Date.now(),
+			activeCalls: 0,
+			keep: parseLocalServerUrl(server.url)?.server === BROWSER_RUNTIME_SERVER,
+		};
 		pool.set(key, entry);
 		entries.set(client, entry);
 		ensureSweeper();

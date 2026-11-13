@@ -185,6 +185,25 @@ export async function startFixtures(): Promise<Fixtures> {
 				)
 			);
 		}
+		if (p === "/quotes") {
+			// Every character of the text is escaped again in the JSON text copy of a result.
+			const nasty = '"\\"'.repeat(60);
+			const rows = Array.from(
+				{ length: 400 },
+				(_, i) => `<tr><td>${i}</td><td>${esc(nasty)}</td><td>${esc(nasty)}${i}</td></tr>`
+			).join("");
+			const links = Array.from(
+				{ length: 400 },
+				(_, i) => `<p><a href="/q/${i}">${esc(nasty)} ${i}</a></p>`
+			).join("");
+			return send(
+				200,
+				page(
+					"Quotes",
+					`<h1>Quotes</h1><table><caption>Q</caption><tr><th>N</th><th>A</th><th>B</th></tr>${rows}</table>${links}`
+				)
+			);
+		}
 		if (p === "/noise") {
 			// Incompressible pixels: a PNG of this viewport is several MB.
 			return send(

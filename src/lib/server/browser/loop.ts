@@ -645,11 +645,11 @@ async function runInner(
 		if (diff.challenge) {
 			await pauseForChallenge(diff.challenge.kind);
 			const snap = await takeSnapshot();
-			return showPage(snap.url, snap.title, snap.text);
+			return showPage(snap.url, snap.title, snap.text, snap.note);
 		}
 		if (diff.navigated && diff.snapshot) {
 			remember(diff.snapshot.elements, true);
-			return showPage(diff.url, diff.title, diff.snapshot.text);
+			return showPage(diff.url, diff.title, diff.snapshot.text, diff.snapshot.note);
 		}
 		remember([...diff.added, ...diff.changed]);
 		for (const ref of diff.removed) elements.delete(ref);
@@ -659,12 +659,14 @@ async function runInner(
 	/** The whole page again, with fresh refs: after a failure that may be a stale ref. */
 	const freshPage = async (): Promise<string> => {
 		const snap = await takeSnapshot();
-		return showPage(snap.url, snap.title, snap.text);
+		return showPage(snap.url, snap.title, snap.text, snap.note);
 	};
 
 	/** A page as the model reads it; while a tab of the user's is in use, with no query or fragment. */
-	const showPage = (url: string, title: string, text: string): string =>
-		wrapPage(shared.adopted.size > 0 ? plainAddress(url) : url, title, text);
+	const showPage = (url: string, title: string, text: string, note?: string | null): string =>
+		// The runtime's note about a cut result goes first and outside the fence: a clip of the
+		// end of the text cannot take it, and the page cannot forge it.
+		`${note ? `Note: ${short(sanitizeText(note), 300)}\n` : ""}${wrapPage(shared.adopted.size > 0 ? plainAddress(url) : url, title, text)}`;
 	/** The tabs as the last `tabs()` listed them: what a `use_tab` is judged and approved against. */
 	const knownTabs = new Map<string, Tab>();
 	const relistTabs = async () => {
@@ -1095,7 +1097,7 @@ async function runInner(
 			pushToolMessage(
 				callId,
 				"",
-				showPage(finalUrl, currentTitle, clip(JSON.stringify(result), 6_000))
+				showPage(finalUrl, currentTitle, clip(JSON.stringify(result), 6_000), result.note)
 			);
 		} catch (err) {
 			if (err instanceof Stop) throw err;
@@ -1244,6 +1246,11 @@ async function runInner(
 				if (err instanceof Error && /page_changed/.test(err.message)) resumedNote = changedNote;
 			}
 		}
+		if (!request.resumeToken) {
+			// The runtime may have served another task and kept its state (a link that dropped and
+			// came back keeps the process): start from a clean task. Pages stay open.
+			await runtime.endTask({ keep: true }, AbortSignal.timeout(10_000)).catch(() => undefined);
+		}
 		const first = await takeSnapshot();
 		let intro = `Goal: ${request.goal}${resumedNote}`;
 		if (request.outputSchema) {
@@ -1252,7 +1259,7 @@ async function runInner(
 		if (request.startUrl) intro += `\n\nStart at ${request.startUrl}.`;
 		messages.push({
 			role: "user",
-			content: `${intro}\n\nThe browser's current page:\n${showPage(first.url, first.title, first.text)}`,
+			content: `${intro}\n\nThe browser's current page:\n${showPage(first.url, first.title, first.text, first.note)}`,
 		});
 
 		// A tab lent earlier that is already on the start address is not reloaded: a form being
@@ -1356,7 +1363,7 @@ async function runInner(
 								state: "ok",
 								note: "read",
 							});
-							pushToolMessage(call.id, "", showPage(snap.url, snap.title, snap.text));
+							pushToolMessage(call.id, "", showPage(snap.url, snap.title, snap.text, snap.note));
 							break;
 						}
 						case "diff":

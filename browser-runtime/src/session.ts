@@ -6,7 +6,7 @@
  * a takeover pauses the protocol operations by holding the same queue.
  */
 
-import { SCREENSHOT_LIMIT } from "./budget.ts";
+import { DOWNLOAD_BASE64_LIMIT, SCREENSHOT_LIMIT } from "./budget.ts";
 import { createWriteStream } from "node:fs";
 import { chmod, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -606,6 +606,18 @@ export class BrowserSession {
 	 * task can `resume` it with that token, and without it the page is just a user tab. A tab the
 	 * user lent to the task is let go, never closed.
 	 */
+	/**
+	 * A new client took over this process (a reattached channel): the old task's state is let go
+	 * the way end_task({keep: true}) does, and what only that task could use is cleared. Pages
+	 * stay open.
+	 */
+	async newClient(): Promise<void> {
+		await this.endTask({ keep: true });
+		this.acting = false;
+		this.downloads = [];
+		this.pendingDownloads.clear();
+	}
+
 	async endTask(
 		options: { keep?: boolean } = {}
 	): Promise<{ closed: number; kept?: NonNullable<EndTaskResult["kept"]> }> {
@@ -2014,14 +2026,17 @@ export class BrowserSession {
 	async download(request: { all?: boolean } = {}): Promise<DownloadResult> {
 		await Promise.race([Promise.allSettled([...this.pendingDownloads]), sleep(15_000)]);
 		const give = this.downloads.filter((d) => request.all || d.actionIndex !== undefined);
-		this.downloads = this.downloads.filter((d) => !give.includes(d));
 		const files: DownloadResult["files"] = [];
-		for (const file of give.slice(0, MAX_DOWNLOADS)) {
+		const taken = new Set<(typeof give)[number]>();
+		let base64Total = 0;
+		for (const file of give) {
 			const origin = {
 				...(file.actionIndex !== undefined ? { actionIndex: file.actionIndex } : {}),
 				...(file.grantId ? { grantId: file.grantId } : {}),
 			};
+			if (files.length >= MAX_DOWNLOADS) break;
 			if (file.skipped || !file.path) {
+				taken.add(file);
 				files.push({
 					name: file.name,
 					mime: file.mime,
@@ -2033,6 +2048,7 @@ export class BrowserSession {
 			}
 			// The size was checked when the file was saved, before anything is read or encoded.
 			if (file.size > MAX_DOWNLOAD_BYTES) {
+				taken.add(file);
 				files.push({
 					name: file.name,
 					mime: file.mime,
@@ -2040,18 +2056,47 @@ export class BrowserSession {
 					skipped: `larger than ${MAX_DOWNLOAD_BYTES / 1024 / 1024} MB`,
 					...origin,
 				});
-			} else {
-				const bytes = await readFile(file.path);
+				await rm(file.path, { force: true });
+				continue;
+			}
+			const encoded = Math.ceil(file.size / 3) * 4;
+			if (encoded > DOWNLOAD_BASE64_LIMIT) {
+				// It can never fit one result: say so once, and let it go.
+				taken.add(file);
 				files.push({
 					name: file.name,
 					mime: file.mime,
-					size: bytes.byteLength,
-					base64: bytes.toString("base64"),
+					size: file.size,
+					skipped: `too large to return over the link (${file.size} bytes; the limit is about ${Math.floor((DOWNLOAD_BASE64_LIMIT / 4) * 3)})`,
 					...origin,
 				});
+				await rm(file.path, { force: true });
+				continue;
 			}
+			if (base64Total + encoded > DOWNLOAD_BASE64_LIMIT) {
+				// Fits alone, not with the others: it stays for the next call.
+				files.push({
+					name: file.name,
+					mime: file.mime,
+					size: file.size,
+					skipped: "too large for one result; call download again",
+					...origin,
+				});
+				continue;
+			}
+			const bytes = await readFile(file.path);
+			base64Total += Math.ceil(bytes.byteLength / 3) * 4;
+			taken.add(file);
+			files.push({
+				name: file.name,
+				mime: file.mime,
+				size: bytes.byteLength,
+				base64: bytes.toString("base64"),
+				...origin,
+			});
 			await rm(file.path, { force: true });
 		}
+		this.downloads = this.downloads.filter((d) => !taken.has(d));
 		return { files };
 	}
 }
