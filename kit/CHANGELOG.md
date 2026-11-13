@@ -7,6 +7,7 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **Browser searches stay in the browser.** When the user asks to search in the browser or on a named site, the assistant uses the browser, not web search; and when browsing fails or the browser is unavailable, it stops and asks instead of falling back to web search.
 - **Pairing a computer with another Cerea signs in there.** Re-enrolling (or **Pair with Cerea…** in the Cerea connector app) with a different Cerea address reused the old deployment's identity provider, gateway, client id and billing group, so the sign-in kept going to the previous Cerea's login. Those now come from the new Cerea; local settings (shim port, opencode config) still carry over.
 
 ## v0.51.1 — 2026-11-13
