@@ -604,7 +604,7 @@ interface ScreencastFrame {
 // ---- the banner ---------------------------------------------------------------------------
 
 /**
- * The bar in a headed window: "Cerea is using this window · Take over", and, once the user has
+&
  * control, "You are in control · Hand back".
  *
  * Why a page cannot reach it:

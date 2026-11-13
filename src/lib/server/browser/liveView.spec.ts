@@ -29,6 +29,7 @@ function rig(over: { unattended?: boolean; leaseHeld?: () => Promise<boolean> } 
 		taskId: "task-1",
 		userId: "owner",
 		deviceId: "dev-1",
+		machineName: "Laptop",
 		runtime: runtime as unknown as LiveRuntime,
 		control,
 		subscribeFrames: (_device, listener) => {
@@ -156,6 +157,40 @@ describe("the live view of a browse task", () => {
 	});
 });
 
+describe("what a stream is of", () => {
+	it("says where it runs and what it is, first and again when the page changes", () => {
+		const r = rig();
+		const task = must(liveTaskFor("task-1", "owner"));
+		const v = r.viewer();
+		task.addViewer(v.v);
+		expect(v.events[0]).toEqual({
+			type: "session",
+			info: {
+				id: "task-1",
+				machineId: "dev-1",
+				machineName: "Laptop",
+				kind: "browse_task",
+				url: null,
+				origin: null,
+				controller: "agent",
+				unattended: false,
+			},
+		});
+		task.setPage("https://shop.example.com/cart?token=secret#x", false);
+		expect(v.events.at(-1)).toMatchObject({
+			type: "session",
+			info: {
+				url: "https://shop.example.com/cart",
+				origin: "https://shop.example.com",
+				kind: "browse_task",
+			},
+		});
+		task.setPage("https://shop.example.com/cart", true);
+		expect(v.events.at(-1)).toMatchObject({ type: "session", info: { kind: "lent_tab" } });
+		r.stop();
+	});
+});
+
 describe("takeover and input", () => {
 	it("pauses on takeover, tells the viewers, and takes input only then", async () => {
 		const r = rig();
@@ -235,6 +270,7 @@ describe("takeover and input", () => {
 		const control = new TaskControl(old);
 		const stop = registerLiveTask({
 			taskId: "old",
+			machineName: "Old",
 			userId: "owner",
 			deviceId: "d",
 			runtime: old,

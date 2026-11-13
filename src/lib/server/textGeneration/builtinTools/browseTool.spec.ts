@@ -299,12 +299,8 @@ describe("browse: live view and takeover", () => {
 		expect("resultText" in out).toBe(true);
 		expect(seen).toBeDefined();
 		expect(stranger).toBeUndefined();
+		expect(seen?.info()).toMatchObject({ machineName: "Laptop", kind: "browse_task" });
 		const cards = browseUpdates(t.updates);
-		expect(cards.some((c) => c.live === true)).toBe(true);
-		// The card said the user had the browser, then said no more of it.
-		const states = cards.map((c) => c.control);
-		expect(states).toContain("user");
-		expect(states.at(-1)).toBeUndefined();
 		expect(cards.at(-1)).toMatchObject({ status: "done" });
 		// The task is over: nothing is reachable any more.
 		expect(liveTaskFor("call-uuid", t.userId.toString())).toBeUndefined();

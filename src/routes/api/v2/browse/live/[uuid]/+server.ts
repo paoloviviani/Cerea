@@ -4,6 +4,8 @@
  * the generation and sidebar feeds do) rather than a socket of its own.
  *
  *   event: frame    data: {seq, w, h, data}   one JPEG (base64), w x h is the page's viewport
+ *   event: session  data: {id, machineId, machineName, kind, url, origin, controller, unattended}
+ *                   what this is of and where it runs; sent first and again when the page changes
  *   event: control  data: {controller}        "agent" | "user": who has the page
  *   event: end      data: {reason}            the task ended or lost its machine; do not reconnect
  *
@@ -51,6 +53,9 @@ export const GET: RequestHandler = async ({ locals, params, url, request }) => {
 									data: event.jpeg.toString("base64"),
 								})}\n\n`
 							);
+						}
+						if (event.type === "session") {
+							return write(`event: session\ndata: ${JSON.stringify(event.info)}\n\n`);
 						}
 						if (event.type === "control") {
 							return write(

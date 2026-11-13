@@ -26,7 +26,7 @@ import {
 	type ChoiceStore,
 } from "$lib/server/browser/machineChoice";
 import { TaskControl } from "$lib/server/browser/takeover";
-import { registerLiveTask, type LiveRuntime } from "$lib/server/browser/liveView";
+import { liveTaskFor, registerLiveTask, type LiveRuntime } from "$lib/server/browser/liveView";
 import { createComputerAsker, type ComputerAsker } from "$lib/server/browser/computerAsk";
 import { hostOf, siteOf } from "$lib/server/browser/siteRules";
 import { openBrowserPage, parseOpenUrl, type OpenDeps } from "$lib/server/browser/open";
@@ -392,7 +392,6 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 			let status: MessageBrowseUpdate["status"] = "running";
 			let activity: string | undefined = "starting";
 			let waitingOn: string | undefined;
-			let controlledBy: "user" | undefined;
 			const ending: {
 				finalUrl?: string;
 				stoppedReason?: string;
@@ -413,8 +412,6 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 					status: waitingOn ? "waiting" : status,
 					...(status === "running" && !waitingOn && activity ? { activity } : {}),
 					...(waitingOn ? { waitingOn } : {}),
-					...(liveAvailable ? { live: true } : {}),
-					...(controlledBy ? { control: controlledBy } : {}),
 					steps: [...steps.values()].slice(-MAX_STEPS_SHOWN),
 					...(ending.finalUrl ? { finalUrl: ending.finalUrl } : {}),
 					...(ending.stoppedReason ? { stoppedReason: ending.stoppedReason } : {}),
@@ -424,6 +421,9 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 				sink?.emit(update);
 			};
 			const observer: LoopObserver = {
+				page(url, lent) {
+					liveTaskFor(ctx.uuid, String(params.userId))?.setPage(url, lent);
+				},
 				step(step) {
 					steps.set(step.id, step);
 					activity = step.action;
@@ -443,17 +443,8 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 				keptOpen(info) {
 					ending.leftOpen = info.title;
 				},
-				controlled(by) {
-					controlledBy = by ?? undefined;
-					emit();
-				},
 			};
 			let stopLive = () => {};
-			// The card follows who has the browser at once, not at the loop's next call.
-			const stopFollowing = takeover.onChange((controller) => {
-				controlledBy = controller === "user" ? "user" : undefined;
-				emit();
-			});
 			const keptStore = params.keptStore ?? mongoKeptStore;
 			const keptEntry = conversationKey
 				? await keptStore.get(machine.id, params.userId, conversationKey).catch(() => undefined)
@@ -491,6 +482,7 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 						taskId: ctx.uuid,
 						userId: String(params.userId),
 						deviceId: machine.id,
+						machineName: machine.name,
 						runtime: liveRuntime as LiveRuntime,
 						control: takeover,
 						unattended: params.unattended,
@@ -539,7 +531,6 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 				return { error: `Browsing failed: ${err instanceof Error ? err.message : String(err)}` };
 			} finally {
 				stopLive();
-				stopFollowing();
 				await lease.release();
 			}
 

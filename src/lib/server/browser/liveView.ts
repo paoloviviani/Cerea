@@ -29,7 +29,27 @@ import type { TaskControl, TaskController } from "./takeover";
 import { subscribeBrowserFrames } from "$lib/server/code/machines";
 import { decodeBrowserFramePayload } from "$lib/types/machineProtocol";
 
+/**
+ * What a live stream is of, and where it runs: every session payload carries it, so any surface
+ * can say "Chat task on Laptop, shop.example.com" without asking again. `kind` is generic: a
+ * chat's browse task, a tab the user lent to a chat, or (when wired) an agent machine's browser.
+ */
+export type LiveKind = "browse_task" | "lent_tab" | "agent_machine";
+export interface LiveSessionInfo {
+	id: string;
+	machineId: string;
+	machineName: string;
+	kind: LiveKind;
+	/** The page's address without query or fragment (they can carry tokens); null before a page. */
+	url: string | null;
+	origin: string | null;
+	controller: TaskController;
+	/** A scheduled run: watchable, not takeable. */
+	unattended: boolean;
+}
+
 export type LiveEvent =
+	| { type: "session"; info: LiveSessionInfo }
 	| { type: "frame"; seq: number; width: number; height: number; jpeg: Buffer }
 	| { type: "control"; controller: TaskController }
 	| { type: "end"; reason: "ended" | "lease_lost" };
@@ -55,6 +75,9 @@ export interface LiveTaskInit {
 	taskId: string;
 	userId: string;
 	deviceId: string;
+	/** The machine's display name. */
+	machineName: string;
+	kind?: LiveKind;
 	runtime: LiveRuntime;
 	control: TaskControl;
 	/** A scheduled run: nobody to take over. */
@@ -125,6 +148,8 @@ export class LiveTask {
 	private backedUp = false;
 	private castWidth = 0;
 	private ended = false;
+	private kind: LiveKind;
+	private url: string | null = null;
 	private bucket = { at: 0, calls: 0, events: 0 };
 
 	constructor(init: LiveTaskInit) {
@@ -133,7 +158,45 @@ export class LiveTask {
 		this.userId = init.userId;
 		this.deviceId = init.deviceId;
 		this.unattended = init.unattended === true;
+		this.kind = init.kind ?? "browse_task";
 		this.timing = { ...TIMING, ...init.timing };
+	}
+
+	/** Where the stream runs and what it is of, for any surface. */
+	info(): LiveSessionInfo {
+		let origin: string | null = null;
+		try {
+			origin = this.url ? new URL(this.url).origin : null;
+		} catch {
+			origin = null;
+		}
+		return {
+			id: this.taskId,
+			machineId: this.deviceId,
+			machineName: this.init.machineName,
+			kind: this.kind,
+			url: this.url,
+			origin,
+			controller: this.controller,
+			unattended: this.unattended,
+		};
+	}
+
+	/** The page the browser is on changed (or it became a lent tab): viewers are told. */
+	setPage(url: string, lent: boolean): void {
+		let plain: string;
+		try {
+			const u = new URL(url);
+			plain = `${u.origin}${u.pathname}`;
+		} catch {
+			return;
+		}
+		const kind: LiveKind =
+			this.kind === "agent_machine" ? this.kind : lent ? "lent_tab" : "browse_task";
+		if (plain === this.url && kind === this.kind) return;
+		this.url = plain;
+		this.kind = kind;
+		this.broadcast({ type: "session", info: this.info() });
 	}
 
 	get controller(): TaskController {
@@ -158,6 +221,7 @@ export class LiveTask {
 			return () => {};
 		}
 		this.viewers.add(viewer);
+		viewer.send({ type: "session", info: this.info() });
 		viewer.send({ type: "control", controller: this.controller });
 		if (this.viewers.size === 1) this.startStream();
 		else void this.sizeStream();

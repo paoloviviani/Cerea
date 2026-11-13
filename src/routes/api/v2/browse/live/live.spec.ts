@@ -28,6 +28,7 @@ function run(unattended = false) {
 		taskId: "t1",
 		userId: owner.toString(),
 		deviceId: "d1",
+		machineName: "Laptop",
 		runtime: runtime as unknown as LiveRuntime,
 		control: new TaskControl(runtime),
 		unattended,

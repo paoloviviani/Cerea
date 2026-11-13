@@ -98,6 +98,8 @@ export interface PauseGate {
 }
 
 export interface LoopObserver {
+	/** The page the browser is on, and whether it is a tab the user lent (for the live view). */
+	page?(url: string, lent: boolean): void;
 	/** The user took control of the browser (`"user"`), or handed it back (null). */
 	controlled?(by: "user" | null): void;
 	step?(step: LoopStep): void;
@@ -646,12 +648,14 @@ async function runInner(
 	const takeSnapshot = async () => {
 		let snap = await guarded(() => runtime.snapshot(deps.signal));
 		finalUrl = snap.url;
+		observer?.page?.(finalUrl, shared.adopted.size > 0);
 		assertSite();
 		// Until the page shows none: a second check may follow the first.
 		while (snap.challenge) {
 			await pauseForChallenge(snap.challenge.kind);
 			snap = await guarded(() => runtime.snapshot(deps.signal));
 			finalUrl = snap.url;
+			observer?.page?.(finalUrl, shared.adopted.size > 0);
 			assertSite();
 		}
 		remember(snap.elements, true);
@@ -678,6 +682,7 @@ async function runInner(
 	const refresh = async (): Promise<string> => {
 		const diff = await guarded(() => runtime.diff(deps.signal));
 		finalUrl = diff.url;
+		observer?.page?.(finalUrl, shared.adopted.size > 0);
 		currentTitle = diff.title;
 		assertSite();
 		if (diff.challenge) {
@@ -1046,6 +1051,7 @@ async function runInner(
 				break;
 			}
 			finalUrl = outcome.url;
+			observer?.page?.(finalUrl, shared.adopted.size > 0);
 			currentTitle = outcome.title;
 			assertSite();
 			const r = outcome.results[0];
