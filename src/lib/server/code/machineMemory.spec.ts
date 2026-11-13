@@ -47,7 +47,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
 	await collections.codeDevices.deleteMany({ _id: { $in: [deviceA, deviceB, strangerDevice] } });
-	await collections.agentMemories.deleteMany({});
+	await collections.agentMemories.deleteMany({ userId: { $in: [owner, stranger] } });
 	await collections.memories.deleteMany({ userId: { $in: [owner, stranger] } });
 });
 
@@ -199,7 +199,7 @@ describe("agents have no global, project or chat memory", () => {
 		expect((await listConversationMemories(conversationId)).map((m) => m.text)).toEqual([
 			"Chat note.",
 		]);
-		expect(await collections.agentMemories.countDocuments({})).toBe(0);
+		expect(await collections.agentMemories.countDocuments({ userId: owner })).toBe(0);
 	});
 
 	it("never returns chat memory to an agent and never leaks agent notes into the chat", async () => {

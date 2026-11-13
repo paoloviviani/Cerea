@@ -76,7 +76,9 @@ describe("/api/v2/conversations/[id]/memory", () => {
 			locals: me.locals,
 		});
 		expect(gone.status).toBe(204);
-		expect(await collections.conversationMemories.countDocuments({})).toBe(0);
+		expect(
+			await collections.conversationMemories.countDocuments({ conversationId: conv._id })
+		).toBe(0);
 	});
 
 	it("follows the conversation's own access: someone else's chat is closed to them", async () => {
@@ -99,7 +101,9 @@ describe("/api/v2/conversations/[id]/memory", () => {
 			locals: other.locals,
 		});
 		expect(del.status).toBe(403);
-		expect(await collections.conversationMemories.countDocuments({})).toBe(1);
+		expect(
+			await collections.conversationMemories.countDocuments({ conversationId: conv._id })
+		).toBe(1);
 	});
 
 	it("matches a note id with its own chat only", async () => {
@@ -113,7 +117,9 @@ describe("/api/v2/conversations/[id]/memory", () => {
 			locals: me.locals,
 		});
 		expect(res.status).toBe(404);
-		expect(await collections.conversationMemories.countDocuments({})).toBe(1);
+		expect(
+			await collections.conversationMemories.countDocuments({ conversationId: conv._id })
+		).toBe(1);
 	});
 
 	it("deleting the chat deletes its notes, and only its notes", async () => {

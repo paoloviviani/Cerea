@@ -42,7 +42,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
 	await collections.codeDevices.deleteMany({});
-	await collections.agentMemories.deleteMany({});
+	await collections.agentMemories.deleteMany({ userId: { $in: [owner.user._id, other.user._id] } });
 	await cleanupTestData();
 });
 
@@ -127,7 +127,7 @@ describe("/api/v2/code/memory", () => {
 			locals: other.locals,
 		});
 		expect(del.status).toBe(404);
-		expect(await collections.agentMemories.countDocuments({})).toBe(1);
+		expect(await collections.agentMemories.countDocuments({ userId: owner.user._id })).toBe(1);
 	});
 
 	it("only knows the two agent scopes", async () => {
@@ -137,6 +137,6 @@ describe("/api/v2/code/memory", () => {
 				400
 			);
 		}
-		expect(await collections.agentMemories.countDocuments({})).toBe(0);
+		expect(await collections.agentMemories.countDocuments({ userId: owner.user._id })).toBe(0);
 	});
 });
