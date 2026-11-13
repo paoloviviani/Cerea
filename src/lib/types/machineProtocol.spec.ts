@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	BIN_BROWSER_FRAME,
+	BrowserFrameAssembler,
 	decodeBinaryFrame,
 	decodeBrowserFramePayload,
 	encodeBinaryFrame,
@@ -258,5 +259,34 @@ describe("browser live-view frames (0x04)", () => {
 		expect(decodeBrowserFramePayload(Buffer.from([0, 5, 0, 5]))).toBeNull();
 		expect(decodeBrowserFramePayload(Buffer.from([0, 0, 0, 5, 1]))).toBeNull();
 		expect(decodeBrowserFramePayload(Buffer.from([0, 5, 0, 0, 1]))).toBeNull();
+	});
+});
+
+describe("browser frame parts (0x05)", () => {
+	const part = (index: number, count: number, data: number[]) =>
+		Buffer.from([index >> 8, index & 255, count >> 8, count & 255, ...data]);
+
+	it("puts the chunks of a frame back together, in any order", () => {
+		const a = new BrowserFrameAssembler();
+		expect(a.push("ch", 5, part(1, 3, [3, 4]))).toBeNull();
+		expect(a.push("ch", 5, part(2, 3, [5]))).toBeNull();
+		expect(a.push("ch", 5, part(0, 3, [1, 2]))).toEqual(Buffer.from([1, 2, 3, 4, 5]));
+	});
+
+	it("drops an unfinished frame when a newer one starts, and ignores a late chunk of an old one", () => {
+		const a = new BrowserFrameAssembler();
+		expect(a.push("ch", 5, part(0, 2, [1]))).toBeNull();
+		expect(a.push("ch", 6, part(0, 2, [7]))).toBeNull();
+		expect(a.push("ch", 5, part(1, 2, [2]))).toBeNull();
+		expect(a.push("ch", 6, part(1, 2, [8]))).toEqual(Buffer.from([7, 8]));
+	});
+
+	it("refuses nonsense and an oversized frame", () => {
+		const a = new BrowserFrameAssembler();
+		expect(a.push("ch", 1, part(3, 3, [1]))).toBeNull();
+		expect(a.push("ch", 1, part(0, 0, [1]))).toBeNull();
+		expect(a.push("ch", 1, Buffer.from([0, 0, 0, 1]))).toBeNull();
+		expect(a.push("ch", 2, part(0, 2, [1, 2, 3, 4]), 5)).toBeNull();
+		expect(a.push("ch", 2, part(1, 2, [1, 2, 3, 4]), 5)).toBeNull();
 	});
 });

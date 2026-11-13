@@ -1326,6 +1326,52 @@ export const BIN_TERM_ACK = 0x03;
 /** M→C: one screencast frame of the browser runtime's live view (ADR 0116 phase 2a). `offset` is
  * the frame's sequence number; the payload is `decodeBrowserFramePayload`'s. */
 export const BIN_BROWSER_FRAME = 0x04;
+/** M→C: one chunk of a screencast frame too large for one stream-lane write (§9.2: at most 32 KiB
+ * each). `offset` is the frame's sequence number; the payload is `u16 BE index, u16 BE count`,
+ * then that slice of the 0x04 payload. `BrowserFrameAssembler` puts them back together. */
+export const BIN_BROWSER_FRAME_PART = 0x05;
+
+/** Reassembles 0x05 chunks into the 0x04 payload they were cut from. One frame at a time: a chunk
+ * of a newer frame drops the unfinished older one (the stream is lossy by design). */
+export class BrowserFrameAssembler {
+	private seq = -1;
+	private parts: Buffer[] = [];
+	private got = 0;
+	private bytes = 0;
+
+	/** The whole payload when `chunk` completed a frame, else null. */
+	push(channel: string, seq: number, chunk: Buffer, maxBytes = 1 << 20): Buffer | null {
+		if (chunk.length <= 4) return null;
+		const index = chunk.readUInt16BE(0);
+		const count = chunk.readUInt16BE(2);
+		if (count < 1 || count > 256 || index >= count) return null;
+		if (channel !== this.channel || seq !== this.seq || count !== this.parts.length) {
+			if (seq < this.seq && channel === this.channel) return null; // a late chunk of an older frame
+			this.channel = channel;
+			this.seq = seq;
+			this.parts = new Array<Buffer>(count);
+			this.got = 0;
+			this.bytes = 0;
+		}
+		if (this.parts[index]) return null;
+		const data = chunk.subarray(4);
+		this.bytes += data.length;
+		if (this.bytes > maxBytes) {
+			this.seq = -1;
+			this.parts = [];
+			return null;
+		}
+		this.parts[index] = data;
+		this.got += 1;
+		if (this.got < count) return null;
+		const whole = Buffer.concat(this.parts);
+		this.seq = -1;
+		this.parts = [];
+		return whole;
+	}
+
+	private channel = "";
+}
 
 /** A live-view frame's payload: u16 BE viewport width and height (the page's CSS pixels, the space
  * of the user's input), then the JPEG. `null` for anything that is not one. */

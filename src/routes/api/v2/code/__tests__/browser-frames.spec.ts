@@ -69,10 +69,12 @@ afterEach(async () => {
 	void collections;
 });
 
+const browserServer = { mcp: { servers: [{ name: "cerea-browser" }] } };
+
 async function pairedMachine(): Promise<FakeMachine> {
 	const user = must((globalThis as { __user?: Awaited<ReturnType<typeof createTestUser>> }).__user);
 	principal = { ...principal, machineId: randomUUID() };
-	const machine = new FakeMachine(`ws://127.0.0.1:${port}${MACHINE_PATH}`, {}, {});
+	const machine = new FakeMachine(`ws://127.0.0.1:${port}${MACHINE_PATH}`, {}, browserServer);
 	machines.push(machine);
 	const { deviceId } = await machine.hello();
 	const res = await testRequest(devicesPATCH, {
@@ -98,9 +100,11 @@ describe("browser live-view frames from a machine", () => {
 			got.push({ seq, width: frame.width, height: frame.height, jpeg: frame.jpeg.toString("hex") });
 		});
 		const stopOther = subscribeBrowserFrames(must(other.deviceId), (seq) => elsewhere.push(seq));
+		const { MachineLink } = await import("$lib/server/code/machines");
+		const { channelId } = await new MachineLink(must(machine.deviceId)).mcpOpen("cerea-browser");
 
-		machine.sendBrowserFrame("ch_aaaaaaaaaaaa", 1, 1280, 800, Buffer.from([0xff, 0xd8, 1]));
-		machine.sendBrowserFrame("ch_aaaaaaaaaaaa", 2, 390, 844, Buffer.from([0xff, 0xd8, 2]));
+		machine.sendBrowserFrame(channelId, 1, 1280, 800, Buffer.from([0xff, 0xd8, 1]));
+		machine.sendBrowserFrame(channelId, 2, 390, 844, Buffer.from([0xff, 0xd8, 2]));
 		await vi_waitFor(() => got.length === 2);
 		expect(got).toEqual([
 			{ seq: 1, width: 1280, height: 800, jpeg: "ffd801" },
@@ -110,10 +114,53 @@ describe("browser live-view frames from a machine", () => {
 
 		// Unsubscribed: nothing more is delivered, and nothing breaks.
 		stop();
-		machine.sendBrowserFrame("ch_aaaaaaaaaaaa", 3, 1280, 800, Buffer.from([0xff, 0xd8, 3]));
+		machine.sendBrowserFrame(channelId, 3, 1280, 800, Buffer.from([0xff, 0xd8, 3]));
 		await new Promise((r) => setTimeout(r, 100));
 		expect(got).toHaveLength(2);
 		stopOther();
+	});
+});
+
+describe("browser frames: channel check, chunks, reconnects", () => {
+	it("deliver only frames of the cerea-browser channel, whole or in chunks, across a reconnect", async () => {
+		const machine = await pairedMachine();
+		const id = must(machine.deviceId);
+		const got: number[] = [];
+		const sizes: number[] = [];
+		// Subscribed before anything: the listener belongs to the device, not to the connection.
+		const stop = subscribeBrowserFrames(id, (seq, payload) => {
+			got.push(seq);
+			sizes.push(payload.length);
+		});
+		const { MachineLink } = await import("$lib/server/code/machines");
+		const { channelId } = await new MachineLink(id).mcpOpen("cerea-browser");
+		machine.sendBrowserFrame("ch_stranger", 1, 100, 100, Buffer.from([0xff, 0xd8, 1]));
+		machine.sendBrowserFrame(channelId, 2, 100, 100, Buffer.from([0xff, 0xd8, 2]));
+		const big = Buffer.alloc(200_000, 7);
+		machine.sendBrowserFrameChunks(channelId, 3, 800, 600, big);
+		machine.sendBrowserFrameChunks("ch_stranger", 4, 800, 600, big);
+		await vi_waitFor(() => got.length >= 2);
+		await new Promise((r) => setTimeout(r, 100));
+		expect(got).toEqual([2, 3]);
+		expect(sizes[1]).toBe(big.length + 4);
+		stop();
+	});
+
+	it("keep a viewer's subscription when the machine reconnects", async () => {
+		const machine = await pairedMachine();
+		const id = must(machine.deviceId);
+		const got: number[] = [];
+		const stop = subscribeBrowserFrames(id, (seq) => got.push(seq));
+		machine.close();
+		const again = new FakeMachine(`ws://127.0.0.1:${port}${MACHINE_PATH}`, {}, browserServer);
+		machines.push(again);
+		await again.hello();
+		await again.waitForPaired();
+		const { MachineLink } = await import("$lib/server/code/machines");
+		const { channelId } = await new MachineLink(id).mcpOpen("cerea-browser");
+		again.sendBrowserFrame(channelId, 9, 100, 100, Buffer.from([0xff, 0xd8, 9]));
+		await vi_waitFor(() => got.length === 1);
+		stop();
 	});
 });
 

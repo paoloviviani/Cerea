@@ -11,6 +11,7 @@
  * first, and nothing here ever attempts a connection outward.
  */
 
+import { BROWSER_RUNTIME_SERVER } from "$lib/server/browser/contract";
 import type { IncomingMessage } from "node:http";
 import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
@@ -42,6 +43,8 @@ import {
 	BIN_TERM_INPUT,
 	BIN_TERM_ACK,
 	BIN_BROWSER_FRAME,
+	BIN_BROWSER_FRAME_PART,
+	BrowserFrameAssembler,
 	type Backend,
 	type CallResFrame,
 	type AutoClasses,
@@ -116,10 +119,6 @@ interface ConnectionState {
 	 * detach. A channel with no entry (an evicted relay, a stray frame)
 	 * drops the frame silently — never a per-frame log (R6). */
 	terminalChannels: Map<string, (offset: number, payload: Buffer) => void>;
-	/** Live-view screencast frames of the machine's browser runtime (kind 0x04): the runtime is one
-	 * process per machine, so frames are routed by device, whatever their mcp channel. Never
-	 * stored or logged. */
-	browserFrameListeners: Set<(seq: number, payload: Buffer) => void>;
 	/** `notice` frames scoped to one terminal (§9.5): terminal.exit, .title,
 	 * .state. Lossy and unsequenced by design — a listener that might have
 	 * missed one re-queries `terminal.list`. */
@@ -144,6 +143,7 @@ export type McpChannelEvent =
 function closeMcpChannels(state: ConnectionState, detail: string): void {
 	const listeners = [...state.mcpChannels.values()];
 	state.mcpChannels.clear();
+	browserChannels.delete(state.deviceId);
 	for (const listener of listeners) {
 		try {
 			listener({ kind: "closed", reason: "closed", detail });
@@ -772,6 +772,11 @@ export class MachineLink {
 		const parsed = mcpOpenResultSchema.safeParse(await this.call("mcp.open", { server }));
 		if (!parsed.success)
 			throw new OpError("backend", "The machine answered mcp.open without a channel.");
+		if (server === BROWSER_RUNTIME_SERVER) {
+			let set = browserChannels.get(this.deviceId);
+			if (!set) browserChannels.set(this.deviceId, (set = new Set()));
+			set.add(parsed.data.channelId);
+		}
 		return parsed.data;
 	}
 	mcpClose(channelId: string): Promise<Record<string, never>> {
@@ -929,12 +934,36 @@ export function subscribeBrowserFrames(
 	deviceId: string,
 	listener: (seq: number, payload: Buffer) => void
 ): () => void {
-	const state = registry.get(deviceId);
-	if (!state) return () => {};
-	state.browserFrameListeners.add(listener);
+	// Keyed by device, not by connection: a link that reconnects (a new connection state) keeps
+	// its viewers, who would otherwise silently stop getting frames.
+	let set = browserFrameListeners.get(deviceId);
+	if (!set) browserFrameListeners.set(deviceId, (set = new Set()));
+	set.add(listener);
 	return () => {
-		state.browserFrameListeners.delete(listener);
+		const current = browserFrameListeners.get(deviceId);
+		current?.delete(listener);
+		if (current?.size === 0) browserFrameListeners.delete(deviceId);
 	};
+}
+
+/** Live-view screencast frames' listeners (kind 0x04/0x05), by device: the runtime is one process
+ * per machine. Never stored or logged. */
+const browserFrameListeners = new Map<string, Set<(seq: number, payload: Buffer) => void>>();
+/** The mcp channels opened to the machine's `cerea-browser` server, by device: only frames on one
+ * of these are the runtime's. */
+const browserChannels = new Map<string, Set<string>>();
+const frameAssemblers = new Map<string, BrowserFrameAssembler>();
+
+function deliverBrowserFrame(
+	state: ConnectionState,
+	channel: string,
+	seq: number,
+	payload: Buffer
+): void {
+	if (!browserChannels.get(state.deviceId)?.has(channel)) return;
+	const set = browserFrameListeners.get(state.deviceId);
+	if (!set) return;
+	for (const listener of [...set]) listener(seq, payload);
 }
 
 /** Watchers of one terminal's lossy notices (§9.5): exit, title, state. */
@@ -1042,7 +1071,15 @@ export function acceptMachineConnection(
 			if (!state || !Buffer.isBuffer(raw)) return;
 			const frame = decodeBinaryFrame(raw);
 			if (frame?.kind === BIN_BROWSER_FRAME) {
-				for (const listener of state.browserFrameListeners) listener(frame.offset, frame.payload);
+				deliverBrowserFrame(state, frame.channel, frame.offset, frame.payload);
+				return;
+			}
+			if (frame?.kind === BIN_BROWSER_FRAME_PART) {
+				let assembler = frameAssemblers.get(state.deviceId);
+				if (!assembler)
+					frameAssemblers.set(state.deviceId, (assembler = new BrowserFrameAssembler()));
+				const whole = assembler.push(frame.channel, frame.offset, frame.payload);
+				if (whole) deliverBrowserFrame(state, frame.channel, frame.offset, whole);
 				return;
 			}
 			if (!frame || frame.kind !== BIN_TERM_OUTPUT) return; // only M→C kind is meaningful here
@@ -1154,6 +1191,7 @@ export function acceptMachineConnection(
 				if (!listener) return;
 				if (frame.closed) {
 					state.mcpChannels.delete(frame.channelId);
+					browserChannels.get(state.deviceId)?.delete(frame.channelId);
 					listener({
 						kind: "closed",
 						reason: (frame.closed.reason as McpClosedReason) ?? "closed",
@@ -1371,7 +1409,6 @@ async function onHello(
 		listeners,
 		rootListeners,
 		terminalChannels: new Map(),
-		browserFrameListeners: new Set(),
 		terminalNoticeListeners: new Map(),
 		mode: machineMode(hello.machine),
 		mcpChannels: new Map(),
