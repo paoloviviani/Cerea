@@ -341,6 +341,8 @@ export interface CodeDevice {
 	browserDefault?: boolean;
 	/** When `browserDefault` was set: if several are ever set, the latest wins. */
 	browserDefaultAt?: Date;
+	/** Agent-schedule creates in flight on this machine (`server/code/deviceScheduleSlots.ts`). */
+	scheduleClaims?: { count: number; movedAt: Date };
 	userId: ObjectId;
 	/** The machine's own generated id (`X-Pystino-Machine-Id`); stable across
 	 * reconnects, but a fresh one for every re-enroll. Unique per user. */

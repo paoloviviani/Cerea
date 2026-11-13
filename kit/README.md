@@ -355,7 +355,7 @@ decides when it writes `.env`, says why, and writes the result as `MONGO_IMAGE`:
 
 | The host | `MONGO_IMAGE` |
 | --- | --- |
-| x86-64 with AVX, Linux kernel outside 6.19 to 7.0.13 | `mongo:8.0.34` |
+| x86-64 with AVX, Linux kernel outside 6.19 to 7.0.13 | `mongo:8.0.37` |
 | no AVX (some small VPS hosts and low-power CPUs) | `mongo:4.4.30` |
 | Linux 6.19 to 7.0.13 | `mongo:4.4.30` |
 | AVX or kernel version cannot be read | `mongo:4.4.30` |
@@ -367,11 +367,11 @@ version counts, so `7.0.0-38-generic` is 7.0.0. On **Docker Desktop (macOS,
 Windows)** the Docker VM's CPU and kernel are what matter, and `./configure`
 cannot read them from the host, so it picks 4.4 and says so. Look from inside
 the VM, `docker run --rm alpine sh -c 'grep -c -w avx /proc/cpuinfo; uname -r'`,
-and if the CPU has AVX and the kernel is fine, `./configure --set MONGO_IMAGE=mongo:8.0.34`.
+and if the CPU has AVX and the kernel is fine, `./configure --set MONGO_IMAGE=mongo:8.0.37`.
 
 Your own `MONGO_IMAGE` is kept: `./configure` never overwrites it, and
 `./configure --check` reports one the host cannot run as an error. A `.env`
-with no `MONGO_IMAGE` runs `mongo:8.0.34` (compose's default, kit 0.24 and later),
+with no `MONGO_IMAGE` runs `mongo:8.0.37` (compose's default, kit 0.24 and later),
 and `./configure --check` judges it as 8 (an error on a host without AVX, with the
 fix). Re-running `./configure` on such a `.env` writes nothing but prints a note.
 

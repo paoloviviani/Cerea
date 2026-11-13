@@ -9,6 +9,12 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 - **Server sandboxes, step 1 (off by default).** The control plane of ADR 0115: a sandbox manager (leases of gVisor sandboxes with no network, bounded commands and files, per-user and total limits, an idle reaper, an audit log) and the restricted Docker socket proxy it reaches Docker through (only its own calls, only on labelled containers). One switch: `SANDBOX=off|local|remote`, set by `./configure --sandbox off|local|remote`. `local` runs them in this compose (the `sandbox` profile; `./configure` checks that `runsc` is registered with Docker and otherwise leaves the feature off), `remote` points at a manager on another host (`kit/sandbox/compose.yaml` runs one standalone). A mix of `SANDBOX`, the profile and the URL is reported by `./configure --check` and as a warning in the chat's log. Every service and sandbox has documented, configurable limits (`SANDBOX_*`, sized for a small host). A new image, `cerea-sandbox`, is versioned with the chat. Nothing runs code through it yet: `execute_code` is wired in the next step. See "Server sandboxes" in the documentation.
 
+- **Chat drafts: two more cases kept.** An edited message the server refuses puts its new text back in the box, and leaving a chat before the server has accepted a send keeps that text as the chat's draft.
+- **Code panel pills share one style.** The pending, revoked, count and tag pills in the code panel's navigation and Needs you inbox, the Advanced count, and the mounted-file chips use the shared pill style.
+- **Approval details stay open.** An approval card's "Show details" no longer closes by itself when the first reply finishes.
+- **Agent schedule cap, race fixed.** Two agent-made schedules created at the same moment on one computer can no longer both take the last slot; the cap is claimed atomically before the schedule is created, and a claim lost to a crash heals itself after a minute.
+- **MongoDB 8.0.37.** The kit's default `mongo:8` image moves from 8.0.34 to 8.0.37, which fixes two security issues (a use-after-free on replica sets, and an authorization check in a replication admin command). Standalone kit stacks were not exposed; this is hygiene.
+
 ## v0.51.2 — 2026-11-13
 
 Pins: Cerea `0.51.2` (chat, `cerea-documents` and `galopin` images), Pystino `0.33.2`.

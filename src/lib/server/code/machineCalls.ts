@@ -31,7 +31,10 @@ import { MachineLink } from "$lib/server/code/machines";
 import { CONNECTOR_CALL_OPS, handleConnectorCall } from "$lib/server/code/machineConnectors";
 import "$lib/server/code/scheduleAgentExecutor";
 import { parseTarget, type AgentTarget } from "$lib/server/code/scheduleAgentExecutor";
-import { releaseScheduleSlot } from "$lib/server/schedules/slots";
+import {
+	claimDeviceScheduleSlot,
+	releaseDeviceScheduleClaim,
+} from "$lib/server/code/deviceScheduleSlots";
 import { recurrenceSchema } from "$lib/server/schedules/recurrence";
 import {
 	createSchedule,
@@ -366,43 +369,40 @@ async function opCreate(ctx: CallContext) {
 	};
 	if (!target.workspaceId) throw new CallError("invalid", "Say which workspace (workspaceId).");
 	checkWithinCaller(ctx.frame, target);
-	if ((await activeAgentSchedules(ctx)) >= MAX_ACTIVE_AGENT_SCHEDULES) throw activeCapError();
+	// Claim the slot before the row exists, so two creates racing for the last one cannot both pass.
+	const deviceObjectId = new ObjectId(ctx.deviceId);
+	if (
+		!(await claimDeviceScheduleSlot(deviceObjectId, MAX_ACTIVE_AGENT_SCHEDULES, () =>
+			activeAgentSchedules(ctx)
+		))
+	) {
+		throw activeCapError();
+	}
 
-	const createdBy = {
-		kind: "agent" as const,
-		deviceId: ctx.deviceId,
-		workspaceId: ctx.frame.caller.workspaceId || target.workspaceId,
-		sessionId: ctx.frame.sessionId,
-		title: await sessionTitle(ctx),
-	};
-	const schedule = await createSchedule(
-		ctx.userId,
-		{
-			name: args.name,
-			kind: "agent",
-			prompt: args.prompt,
-			recurrence: args.recurrence,
-			timezone: args.timezone ?? (await ownerTimezone(ctx.userId)),
-			...(args.maxOccurrences !== undefined ? { maxOccurrences: args.maxOccurrences } : {}),
-			target,
-		},
-		{ createdBy }
-	);
-	// Two creates racing past the cap: the later withdraws (the store's own rule).
-	if ((await activeAgentSchedules(ctx)) > MAX_ACTIVE_AGENT_SCHEDULES) {
-		const earlier = await collections.schedules.countDocuments({
-			userId: ctx.userId,
-			enabled: true,
-			"createdBy.kind": "agent",
-			"createdBy.deviceId": ctx.deviceId,
-			_id: { $lte: schedule._id },
-		});
-		if (earlier > MAX_ACTIVE_AGENT_SCHEDULES) {
-			// Release only for a row this call really removed, never twice.
-			const { deletedCount } = await collections.schedules.deleteOne({ _id: schedule._id });
-			if (deletedCount === 1) await releaseScheduleSlot(ctx.userId);
-			throw activeCapError();
-		}
+	let schedule: Schedule;
+	try {
+		const createdBy = {
+			kind: "agent" as const,
+			deviceId: ctx.deviceId,
+			workspaceId: ctx.frame.caller.workspaceId || target.workspaceId,
+			sessionId: ctx.frame.sessionId,
+			title: await sessionTitle(ctx),
+		};
+		schedule = await createSchedule(
+			ctx.userId,
+			{
+				name: args.name,
+				kind: "agent",
+				prompt: args.prompt,
+				recurrence: args.recurrence,
+				timezone: args.timezone ?? (await ownerTimezone(ctx.userId)),
+				...(args.maxOccurrences !== undefined ? { maxOccurrences: args.maxOccurrences } : {}),
+				target,
+			},
+			{ createdBy }
+		);
+	} finally {
+		await releaseDeviceScheduleClaim(deviceObjectId);
 	}
 	await audit(ctx, "schedule.create", "ok", {
 		id: schedule._id.toString(),

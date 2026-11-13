@@ -17,6 +17,12 @@ import { PATCH as devicesPATCH } from "../../../routes/api/v2/code/devices/+serv
 import { FakeMachine } from "../../../../tests/fake-machine";
 import { createSchedule, getSchedule } from "$lib/server/schedules/store";
 import type { CallResFrame, Session } from "$lib/types/machineProtocol";
+import {
+	DEVICE_HEAL_AFTER_MS,
+	claimDeviceScheduleSlot,
+	healDeviceScheduleClaims,
+	releaseDeviceScheduleClaim,
+} from "./deviceScheduleSlots";
 import { MAX_ACTIVE_AGENT_SCHEDULES, MAX_CALLS_PER_HOUR } from "./machineCalls";
 
 const flags = vi.hoisted(() => ({ schedules: true }));
@@ -422,6 +428,46 @@ describe("schedule.create", () => {
 		// However the refusals went, the cap counter still matches the rows.
 		const rows = await collections.schedules.countDocuments({ userId: person.user._id });
 		expect((await collections.scheduleCounts.findOne({ _id: person.user._id }))?.count).toBe(rows);
+	});
+
+	it("never lets two creates racing for the last slot both through", async () => {
+		for (let i = 0; i < MAX_ACTIVE_AGENT_SCHEDULES - 1; i++) await createViaCall();
+		const dev = new ObjectId(deviceId);
+		const rows = () =>
+			collections.schedules.countDocuments({ userId: person.user._id, "createdBy.kind": "agent" });
+		// Deterministic interleaving: both claim before either row exists.
+		const first = await claimDeviceScheduleSlot(dev, MAX_ACTIVE_AGENT_SCHEDULES, rows);
+		const second = await claimDeviceScheduleSlot(dev, MAX_ACTIVE_AGENT_SCHEDULES, rows);
+		expect([first, second]).toEqual([true, false]);
+		// The refused one gave its claim back; the first still holds its own.
+		expect((await collections.codeDevices.findOne({ _id: dev }))?.scheduleClaims?.count).toBe(1);
+		await releaseDeviceScheduleClaim(dev);
+		expect((await collections.codeDevices.findOne({ _id: dev }))?.scheduleClaims?.count).toBe(0);
+		// And end to end: five parallel calls for one slot make exactly one schedule.
+		const results = await Promise.all(
+			Array.from({ length: 5 }, () => machine.call("schedule.create", createArgs()))
+		);
+		expect(results.filter((r) => r.ok)).toHaveLength(1);
+		expect(await rows()).toBe(MAX_ACTIVE_AGENT_SCHEDULES);
+	});
+
+	it("heals a leaked claim only once it has been still", async () => {
+		const dev = new ObjectId(deviceId);
+		const rows = async () => 0;
+		await collections.codeDevices.updateOne(
+			{ _id: dev },
+			{ $set: { scheduleClaims: { count: 3, movedAt: new Date() } } }
+		);
+		// Recent claims may be in flight: not lowered, so the cap stays shut.
+		expect(await healDeviceScheduleClaims(dev)).toBe(false);
+		expect(await claimDeviceScheduleSlot(dev, 3, rows)).toBe(false);
+		expect((await collections.codeDevices.findOne({ _id: dev }))?.scheduleClaims?.count).toBe(3);
+		await collections.codeDevices.updateOne(
+			{ _id: dev },
+			{ $set: { "scheduleClaims.movedAt": new Date(Date.now() - DEVICE_HEAL_AFTER_MS - 1000) } }
+		);
+		expect(await claimDeviceScheduleSlot(dev, 3, rows)).toBe(true);
+		expect((await collections.codeDevices.findOne({ _id: dev }))?.scheduleClaims?.count).toBe(1);
 	});
 
 	it(`allows at most ${MAX_CALLS_PER_HOUR} changes per machine per hour, but always lets it stop`, async () => {

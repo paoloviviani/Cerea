@@ -1,4 +1,5 @@
 <script lang="ts">
+	import * as s from "$lib/components/overlay/styles";
 	import { m } from "$lib/paraglide/messages";
 	import CarbonClose from "~icons/carbon/close";
 	import { getMountsStore } from "$lib/utils/execution/mounts.svelte";
@@ -19,9 +20,7 @@
 			{m["chat.mounted.heading"]()}
 		</span>
 		{#each mounts.files as file (file.path)}
-			<span
-				class="flex items-center gap-1 rounded-full bg-gray-100 py-0.5 pr-1 pl-2 font-mono text-gray-600 dark:bg-gray-800 dark:text-gray-300"
-			>
+			<span class="{s.PILL} {s.PILL_TONES.neutral} font-mono">
 				{file.path}
 				<button
 					type="button"
@@ -35,7 +34,7 @@
 		{/each}
 		{#each mounts.skipped as note (note.name)}
 			<span
-				class="rounded-full bg-amber-50 px-2 py-0.5 font-mono text-amber-700 dark:bg-amber-900/20 dark:text-amber-400"
+				class="{s.PILL} {s.PILL_TONES.warn} font-mono"
 				title={m["chat.mounted.unavailable_title"]({ name: note.name, reason: note.reason })}
 			>
 				{m["chat.mounted.unavailable"]({ name: note.name, reason: note.reason })}

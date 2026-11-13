@@ -104,3 +104,26 @@ export function clearAllComposerDrafts(): void {
 		// itself must never fail because of this.
 	}
 }
+
+/**
+ * Whether a send the server did not take puts its text back in the composer. Fresh sends do, and
+ * so do edits (a retry that carries new text: the edit lives nowhere else). A plain retry has no
+ * text of its own, and a resume or an aborted send never refills the box.
+ */
+export function restoresSendText(send: {
+	prompt?: string;
+	isRetry?: boolean;
+	resumeElicitationId?: string;
+}): boolean {
+	if (!send.prompt || send.resumeElicitationId) return false;
+	return true;
+}
+
+/**
+ * Leaving the page before the server accepted a send aborts it, and the text has already left the
+ * box. Keep it as the draft so it can be sent again, unless something newer was typed since.
+ */
+export function keepUnsentSendAsDraft(key: string, sent: string): void {
+	if (!sent.trim() || readComposerDraft(key)) return;
+	writeComposerDraft(key, sent);
+}

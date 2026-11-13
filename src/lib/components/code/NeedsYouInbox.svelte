@@ -47,6 +47,7 @@
 	inbox.
 -->
 <script lang="ts">
+	import * as s from "$lib/components/overlay/styles";
 	import { m } from "$lib/paraglide/messages";
 	import { onMount, untrack } from "svelte";
 	import { replyOutcome } from "$lib/utils/permissionReply";
@@ -558,9 +559,7 @@
 								{/if}
 								<span class="shrink-0 text-ink-faint">·</span>
 								<span class="shrink-0 text-ink-muted">{item.deviceName}</span>
-								<span
-									class="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
-								>
+								<span class="{s.PILL} {s.PILL_TONES.warn}">
 									{item.kind === "permission" ? item.request.tool : m["code.inbox.question"]()}
 								</span>
 								<a
@@ -618,9 +617,7 @@
 								<span class="min-w-0 truncate font-medium text-ink" title={item.conversationTitle}>
 									{item.conversationTitle || m["code.inbox.browse_untitled"]()}
 								</span>
-								<span
-									class="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
-								>
+								<span class="{s.PILL} {s.PILL_TONES.warn}">
 									{m["code.inbox.browse_tag"]()}
 								</span>
 								<a

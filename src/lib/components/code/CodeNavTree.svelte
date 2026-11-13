@@ -20,6 +20,7 @@
 	lands where the action put them.
 -->
 <script lang="ts">
+	import * as s from "$lib/components/overlay/styles";
 	import { m } from "$lib/paraglide/messages";
 	import { onMount, untrack } from "svelte";
 	import { page } from "$app/state";
@@ -670,9 +671,7 @@
 						     here until Confirm, and nothing is forwarded to
 						     it before that click. These two stay on the row:
 						     they are the whole point of a pending machine. -->
-						<span
-							class="shrink-0 rounded-full bg-amber-100 px-1.5 text-[.65rem] text-amber-800 dark:bg-amber-900/50 dark:text-amber-200"
-						>
+						<span class="{s.PILL} {s.PILL_TONES.warn}">
 							{m["code.nav.pending"]()}
 						</span>
 						<button
@@ -698,9 +697,7 @@
 						     reconnects under this machineId): no "Add workspace",
 						     nothing to pair — the re-enroll banner below, and
 						     removal from the list, which is its menu's only item. -->
-						<span
-							class="shrink-0 rounded-full bg-red-100 px-1.5 text-[.65rem] text-red-800 dark:bg-red-900/60 dark:text-red-300"
-						>
+						<span class="{s.PILL} {s.PILL_TONES.bad}">
 							{m["code.nav.revoked"]()}
 						</span>
 						<RowMenu
@@ -718,10 +715,7 @@
 						</RowMenu>
 					{:else}
 						{#if expired}
-							<span
-								class="shrink-0 rounded-full bg-red-100 px-1.5 text-[.65rem] text-red-800 dark:bg-red-900/60 dark:text-red-300"
-								title={m["code.nav.credential_title"]()}
-							>
+							<span class="{s.PILL} {s.PILL_TONES.bad}" title={m["code.nav.credential_title"]()}>
 								{m["code.nav.credential_expired"]()}
 							</span>
 						{/if}
@@ -731,10 +725,7 @@
 							     before it was ever expanded this session has none
 							     yet, rather than fetching its subtree just to fill
 							     a badge nobody asked to see (1b's lazy loading). -->
-							<span
-								class="shrink-0 rounded-full bg-gray-100 px-1.5 text-[.65rem] text-gray-500 dark:bg-gray-700 dark:text-gray-300"
-								data-testid="device-collapsed-count"
-							>
+							<span class="{s.PILL} {s.PILL_TONES.neutral}" data-testid="device-collapsed-count">
 								{m["code.nav.workspace_count"]({ count: deviceCounts[device.id] })}
 							</span>
 						{/if}
@@ -894,7 +885,7 @@
 											{/if}
 											{#if !wsExpanded}
 												<span
-													class="shrink-0 rounded-full bg-gray-100 px-1.5 text-[10px] text-gray-500 dark:bg-gray-700 dark:text-gray-300"
+													class="{s.PILL} {s.PILL_TONES.neutral}"
 													data-testid="workspace-collapsed-count"
 												>
 													{m["code.nav.session_count"]({ count: wsSessionCount })}
