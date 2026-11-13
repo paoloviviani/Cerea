@@ -20,6 +20,7 @@
 	import CarbonWarning from "~icons/carbon/warning";
 	import LucideGlobe from "~icons/lucide/globe";
 	import MarkdownRenderer from "./MarkdownRenderer.svelte";
+	import BrowseLiveView from "./BrowseLiveView.svelte";
 
 	interface Props {
 		update: MessageBrowseUpdate;
@@ -64,14 +65,22 @@
 		return loading ? "working" : "stopped";
 	});
 
+	/** The user has the browser (takeover): the sub-agent is paused until they hand it back. */
+	const controlled = $derived(
+		update.control === "user" && (phase === "working" || phase === "waiting")
+	);
+	const live = $derived(update.live === true && (phase === "working" || phase === "waiting"));
+
 	const label = $derived(
-		{
-			working: m["chat.browse.phase.working"](),
-			waiting: m["chat.browse.phase.waiting"](),
-			done: m["chat.browse.phase.done"](),
-			failed: m["chat.browse.phase.failed"](),
-			stopped: m["chat.browse.phase.stopped"](),
-		}[phase]
+		controlled
+			? m["chat.browse.phase.controlled"]()
+			: {
+					working: m["chat.browse.phase.working"](),
+					waiting: m["chat.browse.phase.waiting"](),
+					done: m["chat.browse.phase.done"](),
+					failed: m["chat.browse.phase.failed"](),
+					stopped: m["chat.browse.phase.stopped"](),
+				}[phase]
 	);
 
 	const open = $derived(userOpen ?? (phase === "working" || phase === "waiting"));
@@ -176,6 +185,9 @@
 
 	{#if open}
 		<div class="flex flex-col gap-2 border-t border-gray-200 px-2.5 py-2 dark:border-gray-700">
+			{#if live}
+				<BrowseLiveView uuid={update.uuid} {controlled} />
+			{/if}
 			{#if stepCount > 0}
 				<div class="flex flex-col gap-1">
 					<span class="text-xs text-gray-500 dark:text-gray-400" data-testid="browse-step-count">

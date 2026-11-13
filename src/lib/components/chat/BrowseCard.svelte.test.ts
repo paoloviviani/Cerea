@@ -1,6 +1,6 @@
 import BrowseCard from "./BrowseCard.svelte";
 import { render, cleanup } from "vitest-browser-svelte";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	MessageToolUpdateType,
 	MessageUpdateType,
@@ -199,5 +199,48 @@ describe("the browse card", () => {
 		container.style.width = "320px";
 		await new Promise((r) => setTimeout(r, 30));
 		expect(container.scrollWidth).toBeLessThanOrEqual(container.clientWidth + 1);
+	});
+});
+
+describe("the browse card's live view and takeover", () => {
+	class Quiet {
+		static opened = 0;
+		readyState = 1;
+		onerror = null;
+		constructor() {
+			Quiet.opened += 1;
+		}
+		addEventListener() {}
+		close() {
+			this.readyState = 2;
+		}
+	}
+	const run = (over: Partial<MessageBrowseUpdate>) => {
+		Quiet.opened = 0;
+		vi.stubGlobal("EventSource", Quiet);
+		const view = render(BrowseCard, { update: state(over), loading: true });
+		return view.baseElement;
+	};
+	afterEach(() => vi.unstubAllGlobals());
+
+	it("shows the live view while the task runs on a computer that can stream", () => {
+		const el = run({ live: true });
+		expect(q(el, "browse-live")).not.toBeNull();
+		expect(Quiet.opened).toBe(1);
+	});
+
+	it("has none for a task on a computer that cannot, or one that is done", () => {
+		expect(q(run({}), "browse-live")).toBeNull();
+		expect(Quiet.opened).toBe(0);
+		cleanup();
+		const done = run({ live: true, status: "done" });
+		expect(q(done, "browse-live")).toBeNull();
+		expect(Quiet.opened).toBe(0);
+	});
+
+	it("says the user is in control, and that the agent is paused", () => {
+		const el = run({ live: true, control: "user" });
+		expect(q(el, "browse-status")?.textContent).toContain("You are in control");
+		expect(q(el, "browse-live")?.getAttribute("data-controller")).toBe("user");
 	});
 });
