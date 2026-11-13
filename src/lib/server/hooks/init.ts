@@ -26,6 +26,7 @@ import { DeliverableReaper } from "$lib/server/execution/deliverables";
 import { adminTokenManager } from "$lib/server/adminToken";
 import { MetricsServer } from "$lib/server/metrics";
 import { logExecutionBackendAtBoot } from "$lib/server/codeExecution/backend";
+import { logSandboxAtBoot } from "$lib/server/sandbox/boot";
 
 export async function initServer(): Promise<void> {
 	// Wait for config to be fully loaded
@@ -41,6 +42,7 @@ export async function initServer(): Promise<void> {
 	const mode = assertModelModeValid(config);
 	logger.info({ mode }, "[models] Model mode");
 	logExecutionBackendAtBoot();
+	logSandboxAtBoot();
 
 	logger.info("Starting server...");
 	initExitHandler();

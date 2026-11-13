@@ -258,6 +258,7 @@ jobs:
       client: ${{ steps.diff.outputs.client }}
       documents: ${{ steps.diff.outputs.documents }}
       browser: ${{ steps.diff.outputs.browser }}
+      sandbox: ${{ steps.diff.outputs.sandbox }}
       e2e: ${{ steps.diff.outputs.e2e }}
     steps:
       - uses: actions/checkout@v4
@@ -271,6 +272,7 @@ jobs:
             echo "client=true" >> "$GITHUB_OUTPUT"
             echo "documents=true" >> "$GITHUB_OUTPUT"
             echo "browser=true" >> "$GITHUB_OUTPUT"
+            echo "sandbox=true" >> "$GITHUB_OUTPUT"
             echo "e2e=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -295,12 +297,56 @@ jobs:
           else
             echo "documents=false" >> "$GITHUB_OUTPUT"
           fi
+          # the sandbox manager and socket proxy (ADR 0115): their sources, or this workflow
+          if grep -qE '^(sandbox/|\.github/workflows/ci\.yml$)' <<<"$changed"; then
+            echo "sandbox=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "sandbox=false" >> "$GITHUB_OUTPUT"
+          fi
           # the browser runtime (ADR 0116): its sources, the bundle galopin embeds, or this workflow
           if grep -qE '^(browser-runtime/|agent/internal/browserrt/|\.github/workflows/ci\.yml$)' <<<"$changed"; then
             echo "browser=true" >> "$GITHUB_OUTPUT"
           else
             echo "browser=false" >> "$GITHUB_OUTPUT"
           fi
+
+  # The sandbox manager and its Docker socket proxy (ADR 0115), sandbox/: format, strict types, the
+  # unit tests, then the integration tests against a real Docker daemon with the real gVisor
+  # runtime (runsc, installed here: a hosted runner may restart Docker). The image builds too.
+  sandbox:
+    needs: changes
+    if: github.event_name != 'schedule' && needs.changes.outputs.sandbox == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: sandbox
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "${{ env.NODE_VERSION }}"
+          cache: npm
+          cache-dependency-path: sandbox/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - name: Install gVisor (runsc) and register it with Docker
+        working-directory: .
+        run: |
+          curl -fsSL https://gvisor.dev/archive.key | sudo gpg --dearmor -o /usr/share/keyrings/gvisor-archive-keyring.gpg
+          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/gvisor-archive-keyring.gpg] https://storage.googleapis.com/gvisor/releases release main" | sudo tee /etc/apt/sources.list.d/gvisor.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq runsc
+          sudo runsc install
+          sudo systemctl restart docker
+          docker info --format '{{json .Runtimes}}' | grep -q runsc
+          docker run --rm --runtime=runsc hello-world
+      - name: Integration tests with the real runsc runtime
+        run: SANDBOX_RUNTIME=runsc npm run test:integration
+      - name: The image builds
+        working-directory: .
+        run: docker build -t cerea-sandbox:ci sandbox/
 
   # The browser runtime (ADR 0116), browser-runtime/: format, strict types, its tests against local
   # fixture pages in a real Chromium, and a check that the bundle galopin embeds is the one the

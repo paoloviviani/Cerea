@@ -121,15 +121,15 @@ class BuildScriptPullPolicyTest(unittest.TestCase):
     def test_reset_unsets_the_policies(self):
         s = self.script()
         reset = s[s.index('if [ "$reset" = 1 ]'):s.index("overrides removed")]
-        for name in ("GATEWAY", "REDACTION", "EXTRACTOR", "CEREA", "DOCUMENTS"):
+        for name in ("GATEWAY", "REDACTION", "EXTRACTOR", "CEREA", "DOCUMENTS", "SANDBOX"):
             self.assertIn(f"{name}_PULL_POLICY", reset)
 
     def test_compose_guards_every_local_capable_image(self):
         compose = (KIT / "compose.yaml").read_text()
-        for name in ("GATEWAY", "REDACTION", "EXTRACTOR", "CEREA", "DOCUMENTS"):
+        for name in ("GATEWAY", "REDACTION", "EXTRACTOR", "CEREA", "DOCUMENTS", "SANDBOX"):
             self.assertIn(f"${{{name}_PULL_POLICY:-", compose)
-        # gateway, migrate, bootstrap, chat, documents, redaction, extractor
-        self.assertEqual(compose.count("pull_policy: "), 7)
+        # gateway, migrate, bootstrap, chat, documents, redaction, extractor, sandbox manager and proxy
+        self.assertEqual(compose.count("pull_policy: "), 9)
         self.assertNotIn("pull_policy: never", compose)
 
     @unittest.skipUnless(shutil.which("docker"), "needs docker")
