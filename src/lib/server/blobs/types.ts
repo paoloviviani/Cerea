@@ -130,6 +130,13 @@ export interface BlobStore {
 	sweepOrphanObjects?(options?: { olderThanMs?: number; now?: number }): Promise<number>;
 
 	ensureIndexes(): Promise<void>;
+	/**
+	 * A read-only reachability check, short deadline, for the admin Services
+	 * page. Never writes or creates anything. Absent where the backend is the
+	 * database itself (GridFS).
+	 */
+	reachable?(): Promise<void>;
+
 	/** Boot check: throws with a clear message when the store cannot be used. */
 	selfCheck(): Promise<void>;
 }
