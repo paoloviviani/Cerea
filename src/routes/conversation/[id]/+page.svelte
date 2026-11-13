@@ -11,6 +11,7 @@
 		requestDeviceLocation,
 	} from "$lib/utils/deviceLocation";
 	import { beforeNavigate, replaceState } from "$app/navigation";
+	import { chatDraftKey, keepUnsentSendAsDraft, restoresSendText } from "$lib/utils/composerDraft";
 	import { UrlDependency } from "$lib/types/UrlDependency";
 	import { safeInvalidate } from "$lib/utils/safeInvalidate";
 	import { base } from "$app/paths";
@@ -80,6 +81,8 @@
 	// True while writeMessage runs; lets the generation-state effect skip the
 	// snapshot-staleness check for the generation streaming in this very tab.
 	let writeMessageInFlight = false;
+	// The text of a send the server has not accepted yet, kept as a draft if the page is left.
+	let unconfirmedSend: string | null = null;
 	let messageUpdatesAbortController = new AbortController();
 	// Active reattach to a run this tab did not start. Aborted on navigation, stop, and
 	// conversation change.
@@ -221,6 +224,9 @@
 		// open: from then on the message is in the thread, whatever happens to
 		// the stream.
 		let accepted = false;
+		unconfirmedSend = restoresSendText({ prompt, isRetry, resumeElicitationId })
+			? (prompt ?? null)
+			: null;
 		try {
 			stopRequestedFor = null;
 			$isAborted = false;
@@ -380,11 +386,13 @@
 					// network failure before the stream opened): put a fresh
 					// send's text back, like every never-accepted path. Aborts
 					// stay out, and retries and resumes already live in the thread.
-					if (!isRetry && !resumeElicitationId && prompt) sendFailedText = prompt;
+					if (restoresSendText({ prompt, isRetry, resumeElicitationId }))
+						sendFailedText = prompt ?? null;
 				}
 			});
 			if (messageUpdatesIterator === undefined) return;
 			accepted = true;
+			unconfirmedSend = null;
 
 			// Clear only attachments this send actually consumed: a direct fix
 			// request (artifact "ask to fix") empties `files` around its call and
@@ -452,10 +460,12 @@
 			// accepted whose reply stream broke afterwards (a dropped
 			// connection): the turn runs on and the message is sent, so
 			// restoring it would leave a sent message in the box.
-			if (!accepted && !isRetry && !resumeElicitationId && prompt) sendFailedText = prompt;
+			if (!accepted && restoresSendText({ prompt, isRetry, resumeElicitationId }))
+				sendFailedText = prompt ?? null;
 			console.error(err);
 		} finally {
 			writeMessageInFlight = false;
+			unconfirmedSend = null;
 			activeGenerationId = undefined;
 			$loading = false;
 			pending = false;
@@ -793,6 +803,10 @@
 
 	beforeNavigate(() => {
 		if (!page.params.id) return;
+
+		// Leaving before the server accepted the send aborts it: keep its text as the draft.
+		if (unconfirmedSend) keepUnsentSendAsDraft(chatDraftKey(page.params.id), unconfirmedSend);
+		unconfirmedSend = null;
 
 		// Stop consuming here; the generation keeps running server-side and this or
 		// another tab reattaches to it on the next visit.

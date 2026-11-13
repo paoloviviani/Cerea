@@ -7,6 +7,8 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **Chat drafts: two more cases kept.** An edited message the server refuses puts its new text back in the box, and leaving a chat before the server has accepted a send keeps that text as the chat's draft.
+- **Code panel pills share one style.** The pending, revoked, count and tag pills in the code panel's navigation and Needs you inbox, the Advanced count, and the mounted-file chips use the shared pill style.
 - **Approval details stay open.** An approval card's "Show details" no longer closes by itself when the first reply finishes.
 - **Agent schedule cap, race fixed.** Two agent-made schedules created at the same moment on one computer can no longer both take the last slot; the cap is claimed atomically before the schedule is created, and a claim lost to a crash heals itself after a minute.
 - **MongoDB 8.0.37.** The kit's default `mongo:8` image moves from 8.0.34 to 8.0.37, which fixes two security issues (a use-after-free on replica sets, and an authorization check in a replication admin command). Standalone kit stacks were not exposed; this is hygiene.
