@@ -3262,6 +3262,7 @@
 	"workspace.local.browser.title": "Use the browser on your computer",
 	"workspace.local.browser.intro": "The assistant can do tasks in a real browser on one of your computers. You do not need a coding agent for this: a computer that only serves local connectors is enough.",
 	"workspace.local.browser.setup_show": "Set up a browser",
+	"workspace.local.howto.setup_show": "Set up a computer",
 	"workspace.local.browser.step_install": "Install galopin on that computer",
 	"workspace.local.browser.step_enroll": "Enroll it as a connectors computer, then approve it below",
 	"workspace.local.browser.step_setup": "Set up and enable the browser",
