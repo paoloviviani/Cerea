@@ -16,6 +16,7 @@ vi.mock("$lib/server/push/watch", async (original) => ({
 	afterScheduleRun: push.afterScheduleRun,
 }));
 
+import { HEAL_AFTER_MS } from "./slots";
 import { _clearExecutors, getExecutor, registerExecutor } from "./executors";
 import {
 	CATCH_UP_CAP_MS,
@@ -461,10 +462,27 @@ describe("the per-user cap", () => {
 		limits.cap = 2;
 		await createSchedule(user, base);
 		// A crash between claim and insert left the counter one too high.
-		await collections.scheduleCounts.updateOne({ _id: user }, { $set: { count: 2 } });
+		await collections.scheduleCounts.updateOne(
+			{ _id: user },
+			{ $set: { count: 2, movedAt: new Date(Date.now() - HEAL_AFTER_MS - 1000) } }
+		);
 		await createSchedule(user, base);
 		expect((await collections.scheduleCounts.findOne({ _id: user }))?.count).toBe(2);
 		await expect(createSchedule(user, base)).rejects.toMatchObject({ status: 409 });
+	});
+
+	it("does not heal while a claim is fresh, so in-flight inserts keep their slots", async () => {
+		limits.cap = 3;
+		await createSchedule(user, base);
+		// Two claims taken, their rows not inserted yet: the counter is ahead of the rows.
+		await collections.scheduleCounts.updateOne(
+			{ _id: user },
+			{ $set: { count: 3, movedAt: new Date() } }
+		);
+		const { healScheduleCount } = await import("./slots");
+		expect(await healScheduleCount(user)).toBe(false);
+		await expect(createSchedule(user, base)).rejects.toMatchObject({ status: 409 });
+		expect((await collections.scheduleCounts.findOne({ _id: user }))?.count).toBe(3);
 	});
 
 	it("never corrects the counter upward, and a second delete releases nothing", async () => {
