@@ -17,6 +17,11 @@ const (
 	// connection to the runtime: offset is the frame's sequence number and the
 	// payload is BrowserFramePayload.
 	BinBrowserFrame byte = 0x04 // M→C
+	// BinBrowserFramePart is one chunk of a screencast frame too large for
+	// one stream-lane write (at most MaxStreamChunk). offset is the frame's
+	// sequence number; the payload is u16 BE chunk index, u16 BE chunk count,
+	// then that slice of the BinBrowserFrame payload. M→C only.
+	BinBrowserFramePart byte = 0x05 // M→C
 )
 
 // Wire limits (PROTOCOL.md §9.2).
@@ -29,6 +34,31 @@ const (
 // MaxBrowserFramePayload bounds one screencast frame's payload, so a frame
 // (header plus payload) stays within the 1 MiB frame cap.
 const MaxBrowserFramePayload = 1<<20 - 128
+
+// BrowserFrameParts cuts a BrowserFramePayload into chunk payloads
+// (BinBrowserFramePart) of at most MaxOutputFramePayload bytes each, so every
+// stream-lane write stays within the 32 KiB rule. A payload that fits is sent
+// whole as a BinBrowserFrame instead, and this returns nil.
+func BrowserFrameParts(payload []byte) [][]byte {
+	if len(payload) <= MaxOutputFramePayload {
+		return nil
+	}
+	const data = MaxOutputFramePayload - 4
+	count := (len(payload) + data - 1) / data
+	parts := make([][]byte, 0, count)
+	for i := 0; i < count; i++ {
+		end := (i + 1) * data
+		if end > len(payload) {
+			end = len(payload)
+		}
+		part := make([]byte, 4+end-i*data)
+		binary.BigEndian.PutUint16(part[0:], uint16(i))
+		binary.BigEndian.PutUint16(part[2:], uint16(count))
+		copy(part[4:], payload[i*data:end])
+		parts = append(parts, part)
+	}
+	return parts
+}
 
 // BrowserFramePayload lays out a BinBrowserFrame payload: u16 big-endian page
 // viewport width, u16 height (CSS pixels, the coordinate space of the user's

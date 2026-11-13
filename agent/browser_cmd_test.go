@@ -777,3 +777,80 @@ func TestFindChromePerOperatingSystem(t *testing.T) {
 		t.Error("windows")
 	}
 }
+
+func TestBrowserEnableNoLiveLeavesTheLiveViewOutAndKeepsTheChoice(t *testing.T) {
+	r := newBrowserRig(t)
+	if err := r.run(t, "setup"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.run(t, "enable", "--no-live"); err != nil {
+		t.Fatal(err)
+	}
+	tools := func() []string {
+		var out []string
+		_ = json.Unmarshal(serverField(t, r.mcp, browserConnectorName, "allowedTools"), &out)
+		return out
+	}
+	got := tools()
+	for _, tool := range []string{"control", "screencast", "input"} {
+		if contains(got, tool) {
+			t.Errorf("--no-live left %s in the ceiling: %v", tool, got)
+		}
+	}
+	if !contains(got, "act") || !contains(got, "open") {
+		t.Errorf("--no-live dropped more than the live view: %v", got)
+	}
+	// Starting galopin refreshes the ceiling but keeps the choice.
+	refreshBrowserCeiling(r.mcp, r.state, t.Logf)
+	if contains(tools(), "input") {
+		t.Errorf("the start-up refresh turned the live view back on: %v", tools())
+	}
+	// Enabling again without the flag turns it on, and the refresh then keeps it.
+	if err := r.run(t, "enable"); err != nil {
+		t.Fatal(err)
+	}
+	if !contains(tools(), "input") {
+		t.Errorf("enable did not restore the live view: %v", tools())
+	}
+}
+
+func TestStartRefreshesAnOldManagedCeilingAndTouchesNothingElse(t *testing.T) {
+	r := newBrowserRig(t)
+	old := `{"extra":1,"mcpServers":{
+	"notes":{"command":"x","allowedTools":["a"]},
+	"cerea-browser":{"command":"/n","args":["b"],"description":"Browser for Cerea's browse tool (managed by 'galopin browser'; do not edit)","allowedTools":["snapshot","act"]}}}`
+	if err := os.WriteFile(r.mcp, []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	refreshBrowserCeiling(r.mcp, r.state, t.Logf)
+	var tools []string
+	_ = json.Unmarshal(serverField(t, r.mcp, browserConnectorName, "allowedTools"), &tools)
+	if !contains(tools, "screencast") || !contains(tools, "input") || !contains(tools, "control") || len(tools) != len(browserTools) {
+		t.Fatalf("ceiling not refreshed: %v", tools)
+	}
+	if got := string(serverField(t, r.mcp, "notes", "allowedTools")); got != `["a"]` {
+		t.Errorf("another entry was touched: %s", got)
+	}
+	b, _ := os.ReadFile(r.mcp)
+	if !strings.Contains(string(b), `"extra":1`) {
+		t.Errorf("the rest of the file changed:\n%s", b)
+	}
+	// An entry the user wrote themselves under that name is not the managed one: left alone.
+	mine := `{"mcpServers":{"cerea-browser":{"command":"/mine","allowedTools":["snapshot"]}}}`
+	if err := os.WriteFile(r.mcp, []byte(mine), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	refreshBrowserCeiling(r.mcp, r.state, t.Logf)
+	if b, _ := os.ReadFile(r.mcp); string(b) != mine {
+		t.Errorf("an unmanaged entry was rewritten:\n%s", b)
+	}
+}
+
+func serverField(t *testing.T, path, server, field string) json.RawMessage {
+	t.Helper()
+	var entry map[string]json.RawMessage
+	if err := json.Unmarshal(readServers(t, path)[server], &entry); err != nil {
+		t.Fatal(err)
+	}
+	return entry[field]
+}

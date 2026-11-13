@@ -66,6 +66,7 @@ func resolveMcpConfig(flagValue string, getenv func(string) string, stateDir str
 // and wires it to the link and the audit log. The hub reads mc.lnk when it
 // sends, so it may be built before the link exists.
 func (mc *machine) startConnectors(stateDir, mcpPath string) *mcpconn.Hub {
+	refreshBrowserCeiling(mcpPath, stateDir, logf)
 	hub := mcpconn.New(mcpconn.Config{
 		Path:     mcpPath,
 		StateDir: stateDir,

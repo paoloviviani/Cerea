@@ -287,6 +287,27 @@ leaves for another site.
   module in place (see "For developers") but no user interface yet; replaying
   known tasks is not part of this release.
 
+### The live view and what it grants
+
+When the live view is on (the default), a user who takes control of the browser
+from Cerea sends their mouse, touch and keyboard to the page on that computer
+with **no approval step**: it is the user's own action in their own browser, so
+it is not classified or asked about, and it is not logged call by call (the
+computer's audit log records the stream starting and stopping, and one row per
+takeover with the number of input calls and how long it lasted). In other words,
+while a user is in control, Cerea has grant-free control of the page. Takeover is
+refused for scheduled runs, only the owner of a running task or of their own
+browser session can watch or take over, and at most 4 viewers watch one task.
+A task waits at most 30 minutes for a user to hand the browser back, then ends.
+
+A computer owner who does not want that runs `galopin browser enable --no-live`:
+it leaves `control`, `input` and `screencast` out of the connector's tool
+ceiling, so Cerea cannot stream or drive the page at all there. The choice is
+kept: galopin refreshes the managed `cerea-browser` entry's tool list when it
+starts (so a computer enabled before the live view existed gets it without
+running `enable` again), and honours `--no-live` when it does. Running `enable`
+without the flag turns the live view back on.
+
 ## For developers
 
 The runtime contract (MCP tools: `snapshot`, `diff`, `act`, `extract`,
@@ -300,8 +321,9 @@ runtime for tests in `fakeRuntime.ts`. The design is ADR 0116.
 The runtime casts the active page with CDP `Page.startScreencast` (JPEG, on
 repaint, acked) and sends each frame as an MCP notification
 `notifications/cerea/frame` over its stdio channel. galopin turns it into a
-binary link frame (kind `0x04`, PROTOCOL.md §9.2) on the stream lane, so no
-base64 crosses the link. Cerea routes the frames by device to the task's
+binary link frame (kind `0x04`, or `0x05` chunks of at most 32 KiB for a large
+frame, PROTOCOL.md §9.2) on the stream lane, so no base64 crosses the link and
+a stalled link drops frames instead of stalling the runtime. Cerea routes the frames by device to the task's
 viewers (`liveView.ts`) and sends them to the browser as Server-Sent Events from
 `GET /api/v2/browse/live/<task>`; input and takeover are `POST`s to `.../input`
 and `.../control`. The routes answer only the owner of a running task (anything
