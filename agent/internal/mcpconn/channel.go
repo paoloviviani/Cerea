@@ -3,12 +3,15 @@ package mcpconn
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
 	"sync"
 	"time"
+
+	"galopin/internal/link"
 )
 
 type closeInfo struct {
@@ -33,6 +36,17 @@ type channel struct {
 	listIDs    map[string]bool
 	callIDs    map[string]string // request id -> tool
 
+	// Live-view bookkeeping for the audit log (liveCall): whether a screencast
+	// is running, and the input calls of the current takeover.
+	casting    bool
+	inputCalls int
+	inputSince time.Time
+
+	// frames is the one-slot, latest-wins mailbox of the screencast sender
+	// goroutine (frameSender); frameOnce starts it with the first frame.
+	frames    chan outFrame
+	frameOnce sync.Once
+
 	// local, when set, takes what would go to Cerea: the channel belongs to
 	// galopin's own in-process client (local.go), not to a Cerea chat.
 	local func(raw []byte)
@@ -42,6 +56,7 @@ type channel struct {
 
 func newChannel(h *Hub, e *Entry) *channel {
 	return &channel{id: newChannelID(), hub: h, entry: e, queue: make(chan []byte, 256), stop: make(chan struct{}),
+		frames:  make(chan outFrame, 1),
 		listIDs: map[string]bool{}, callIDs: map[string]string{}}
 }
 
@@ -176,6 +191,16 @@ func (c *channel) end(why, reason string, detail *string, emit bool) {
 	pending := c.callIDs
 	c.callIDs = map[string]string{}
 	c.mu.Unlock()
+	c.flushInputAudit()
+	if c.hub.cfg.FrameFrom[c.entry.Name] {
+		c.mu.Lock()
+		was := c.casting
+		c.casting = false
+		c.mu.Unlock()
+		if was {
+			c.hub.cfg.Audit(c.entry.Name, "screencast.stop", "ok")
+		}
+	}
 	close(c.stop)
 	c.hub.mu.Lock()
 	delete(c.hub.channels, c.id)
@@ -237,7 +262,8 @@ type msgHeader struct {
 	ID     json.RawMessage `json:"id"`
 	Method string          `json:"method"`
 	Params struct {
-		Name string `json:"name"`
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
 	} `json:"params"`
 }
 
@@ -271,12 +297,15 @@ func (c *channel) fromClient(raw []byte) {
 				}
 				continue
 			}
-			if h.hasID() {
-				c.mu.Lock()
-				c.callIDs[string(h.ID)] = tool
-				c.mu.Unlock()
-			} else {
-				c.hub.cfg.Audit(c.entry.Name, tool, "ok")
+			// A live-view call is audited in aggregate (auditPerCall), not per call.
+			if c.auditPerCall(tool, h.Params.Arguments) {
+				if h.hasID() {
+					c.mu.Lock()
+					c.callIDs[string(h.ID)] = tool
+					c.mu.Unlock()
+				} else {
+					c.hub.cfg.Audit(c.entry.Name, tool, "ok")
+				}
 			}
 		case "tools/list":
 			if h.hasID() {
@@ -303,6 +332,71 @@ func (c *channel) fromClient(raw []byte) {
 		return
 	}
 	c.toServer(append([]byte(nil), out...))
+}
+
+// auditPerCall reports whether a tools/call gets its own audit row. For the
+// browser runtime's live-view tools it does not: a screencast acks ten times a
+// second and the user's input is a stream of calls, so one row each would
+// rotate every real entry out of the log. Instead the screencast is recorded
+// once per start and stop, and the input once per takeover (the number of
+// calls and how long it lasted), when control goes back or the channel ends.
+// The "state" poll of control is not recorded at all.
+func (c *channel) auditPerCall(tool string, args json.RawMessage) bool {
+	if !c.hub.cfg.FrameFrom[c.entry.Name] {
+		return true
+	}
+	var a struct {
+		Action string `json:"action"`
+	}
+	_ = json.Unmarshal(args, &a)
+	switch tool {
+	case "screencast":
+		c.mu.Lock()
+		was := c.casting
+		switch a.Action {
+		case "start":
+			c.casting = true
+		case "stop":
+			c.casting = false
+		}
+		now := c.casting
+		c.mu.Unlock()
+		if a.Action == "start" && !was {
+			c.hub.cfg.Audit(c.entry.Name, "screencast.start", "ok")
+		} else if a.Action == "stop" && was && !now {
+			c.hub.cfg.Audit(c.entry.Name, "screencast.stop", "ok")
+		}
+		return false
+	case "input":
+		c.mu.Lock()
+		if c.inputCalls == 0 {
+			c.inputSince = time.Now()
+		}
+		c.inputCalls++
+		c.mu.Unlock()
+		return false
+	case "control":
+		switch a.Action {
+		case "state":
+			return false
+		case "handback":
+			c.flushInputAudit()
+		}
+	}
+	return true
+}
+
+// flushInputAudit writes the takeover's one input row, if there was input.
+func (c *channel) flushInputAudit() {
+	c.mu.Lock()
+	n, since := c.inputCalls, c.inputSince
+	c.inputCalls = 0
+	c.mu.Unlock()
+	if n == 0 {
+		return
+	}
+	secs := int(time.Since(since).Round(time.Second) / time.Second)
+	c.hub.cfg.Audit(c.entry.Name, "input", fmt.Sprintf("ok (%d calls, %ds)", n, secs))
 }
 
 // oversizeFromClient: a message too large for the link is not forwarded; a
@@ -333,6 +427,9 @@ func (c *channel) fromServer(raw []byte) {
 	c.touch()
 	raw = bytes.TrimSpace(raw)
 	if len(raw) == 0 {
+		return
+	}
+	if c.hub.cfg.FrameFrom[c.entry.Name] && c.frame(raw) {
 		return
 	}
 	parts := splitBatch(raw)
@@ -394,6 +491,80 @@ func (c *channel) fromServer(raw []byte) {
 			c.toCerea(rpcError(h.ID, codeResponseLarge, tooLargeText(len(m))))
 		} else { // a request from the server: it gets the answer
 			c.toServer(rpcError(h.ID, codeResponseLarge, tooLargeText(len(m))))
+		}
+	}
+}
+
+// frameMethod is the MCP notification the browser runtime sends a screencast
+// frame in (ADR 0116 phase 2a). MCP is JSON, so the JPEG is base64 there; on
+// the link it travels as a binary frame instead, without the third.
+const frameMethod = "notifications/cerea/frame"
+
+// outFrame is one screencast frame waiting for the sender goroutine.
+type outFrame struct {
+	seq     uint64
+	payload []byte
+}
+
+// frame hands a screencast frame notification to the channel's sender and
+// reports whether raw was one. The runtime's stdout reader must never wait on
+// the link (a stalled link would stall every tool answer behind the frames), so
+// this only parses and files the frame in a one-slot mailbox: a frame still
+// waiting there when a newer one arrives is replaced (latest wins), and one the
+// link cannot take is dropped by the sender; the next follows. A frame is
+// never logged or kept.
+func (c *channel) frame(raw []byte) bool {
+	if len(raw) == 0 || raw[0] != '{' || !bytes.Contains(raw, []byte(frameMethod)) {
+		return false
+	}
+	var n struct {
+		Method string `json:"method"`
+		Params struct {
+			Seq  uint64 `json:"seq"`
+			W    int    `json:"w"`
+			H    int    `json:"h"`
+			Mime string `json:"mime"`
+			Data string `json:"data"`
+		} `json:"params"`
+	}
+	if json.Unmarshal(raw, &n) != nil || n.Method != frameMethod {
+		return false
+	}
+	if c.isClosed() || c.local != nil || c.hub.cfg.Frame == nil {
+		return true
+	}
+	jpeg, err := base64.StdEncoding.DecodeString(n.Params.Data)
+	if err != nil || len(jpeg) == 0 || n.Params.Mime != "image/jpeg" || n.Params.W <= 0 || n.Params.H <= 0 ||
+		n.Params.W > 65535 || n.Params.H > 65535 || len(jpeg) > link.MaxBrowserFramePayload-4 {
+		return true
+	}
+	c.frameOnce.Do(func() { go c.frameSender() })
+	out := outFrame{n.Params.Seq, link.BrowserFramePayload(uint16(n.Params.W), uint16(n.Params.H), jpeg)}
+	for {
+		select {
+		case c.frames <- out:
+			return true
+		default:
+		}
+		select {
+		case <-c.frames: // an older frame nobody sent yet: the newer one replaces it
+		default:
+		}
+	}
+}
+
+// frameSender writes the mailbox's frames to the link, one at a time, until the
+// channel ends. A write that fails loses its frame, silently.
+func (c *channel) frameSender() {
+	for {
+		select {
+		case <-c.stop:
+			return
+		case f := <-c.frames:
+			if c.isClosed() {
+				return
+			}
+			_ = c.hub.cfg.Frame(c.id, f.seq, f.payload)
 		}
 	}
 }

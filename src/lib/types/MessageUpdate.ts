@@ -433,6 +433,29 @@ export interface BrowseStep {
  * The result itself is the call's ordinary Tool result; this carries what the card shows around
  * it. A pending approval is its own elicitation card, right after this one. Plain JSON only.
  */
+export type BrowseNeedsReason = "approval" | "challenge" | "sign_in" | "handover";
+
+/** Where a live stream runs and what it is of: enough for any surface to label and open it. */
+export interface BrowseStreamDescriptor {
+	id: string;
+	machineId: string;
+	machineName: string;
+	kind: "browse_task" | "lent_tab" | "agent_machine";
+	url: string | null;
+	origin: string | null;
+	/** The stream's URL path (`GET` for frames; `/input` and `/control` under it). */
+	streamUrl: string;
+}
+
+export interface BrowseNeedsUser {
+	reason: BrowseNeedsReason;
+	taskId: string;
+	/** The approval's elicitation id, when the need is an approval or a verification. */
+	approvalId?: string;
+	/** Present only when a live view is available for this task (an older runtime has none). */
+	stream?: BrowseStreamDescriptor;
+}
+
 export interface MessageBrowseUpdate {
 	type: MessageUpdateType.Browse;
 	/** uuid of the `browse` tool call. */
@@ -444,6 +467,11 @@ export interface MessageBrowseUpdate {
 	activity?: string;
 	/** Set while the loop waits for the user: the sentence they are asked about. */
 	waitingOn?: string;
+	/**
+	 * The agent needs the user now: a surface may open the live view of `stream`. Cleared (absent)
+	 * once the wait is over. No streaming happens before this unless the user opens it.
+	 */
+	needsUser?: BrowseNeedsUser;
 	steps: BrowseStep[];
 	/** The page the browser ended on. */
 	finalUrl?: string;

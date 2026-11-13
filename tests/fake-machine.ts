@@ -49,6 +49,8 @@ import {
 	BIN_TERM_OUTPUT,
 	BIN_TERM_INPUT,
 	BIN_TERM_ACK,
+	BIN_BROWSER_FRAME,
+	BIN_BROWSER_FRAME_PART,
 } from "../src/lib/types/machineProtocol";
 
 /** One fake terminal's state: enough to exercise attach/reattach, resize
@@ -494,6 +496,56 @@ export class FakeMachine {
 			t.backlog.set(channel, backlog.subarray(chunk.length));
 			this.ws.send(
 				encodeBinaryFrame({ kind: BIN_TERM_OUTPUT, channel, offset, payload: Buffer.from(chunk) })
+			);
+		}
+	}
+
+	/** Sends one live-view screencast frame (0x04) as the browser runtime's galopin would. */
+	sendBrowserFrame(
+		channel: string,
+		seq: number,
+		width: number,
+		height: number,
+		jpeg: Buffer
+	): void {
+		const header = Buffer.alloc(4);
+		header.writeUInt16BE(width, 0);
+		header.writeUInt16BE(height, 2);
+		this.ws.send(
+			encodeBinaryFrame({
+				kind: BIN_BROWSER_FRAME,
+				channel,
+				offset: seq,
+				payload: Buffer.concat([header, jpeg]),
+			})
+		);
+	}
+
+	/** The same frame as galopin sends a large one: 0x05 chunks of at most `chunk` bytes of the payload. */
+	sendBrowserFrameChunks(
+		channel: string,
+		seq: number,
+		width: number,
+		height: number,
+		jpeg: Buffer,
+		chunk = 32 * 1024 - 4
+	): void {
+		const header = Buffer.alloc(4);
+		header.writeUInt16BE(width, 0);
+		header.writeUInt16BE(height, 2);
+		const whole = Buffer.concat([header, jpeg]);
+		const count = Math.ceil(whole.length / chunk);
+		for (let i = 0; i < count; i += 1) {
+			const part = Buffer.alloc(4);
+			part.writeUInt16BE(i, 0);
+			part.writeUInt16BE(count, 2);
+			this.ws.send(
+				encodeBinaryFrame({
+					kind: BIN_BROWSER_FRAME_PART,
+					channel,
+					offset: seq,
+					payload: Buffer.concat([part, whole.subarray(i * chunk, (i + 1) * chunk)]),
+				})
 			);
 		}
 	}

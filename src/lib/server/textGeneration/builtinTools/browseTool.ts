@@ -6,6 +6,7 @@ import {
 	MessageUpdateType,
 	type BrowseStep,
 	type MessageBrowseUpdate,
+	type BrowseNeedsUser,
 } from "$lib/types/MessageUpdate";
 import type { BrowseMachine } from "$lib/server/browser/availability";
 import type { BrowserRuntime } from "$lib/server/browser/contract";
@@ -25,6 +26,8 @@ import {
 	setDefaultDevice,
 	type ChoiceStore,
 } from "$lib/server/browser/machineChoice";
+import { TaskControl } from "$lib/server/browser/takeover";
+import { liveTaskFor, registerLiveTask, type LiveRuntime } from "$lib/server/browser/liveView";
 import { createComputerAsker, type ComputerAsker } from "$lib/server/browser/computerAsk";
 import { hostOf, siteOf } from "$lib/server/browser/siteRules";
 import { openBrowserPage, parseOpenUrl, type OpenDeps } from "$lib/server/browser/open";
@@ -396,6 +399,12 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 				leftOpen?: string;
 				pageChanged?: boolean;
 			} = {};
+			// Live view and takeover: the card offers them while the task runs, on a machine whose
+			// runtime can stream (an older one cannot), and for the user only (`liveView.ts`).
+			const takeover = new TaskControl(runtime, { probe: (signal) => runtime.tabs({}, signal) });
+			const liveRuntime = runtime as BrowserRuntime & Partial<LiveRuntime>;
+			let liveAvailable = false;
+			let needsUser: BrowseNeedsUser | undefined;
 			const emit = () => {
 				const update: MessageBrowseUpdate = {
 					type: MessageUpdateType.Browse,
@@ -405,6 +414,7 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 					status: waitingOn ? "waiting" : status,
 					...(status === "running" && !waitingOn && activity ? { activity } : {}),
 					...(waitingOn ? { waitingOn } : {}),
+					...(needsUser ? { needsUser } : {}),
 					steps: [...steps.values()].slice(-MAX_STEPS_SHOWN),
 					...(ending.finalUrl ? { finalUrl: ending.finalUrl } : {}),
 					...(ending.stoppedReason ? { stoppedReason: ending.stoppedReason } : {}),
@@ -414,12 +424,38 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 				sink?.emit(update);
 			};
 			const observer: LoopObserver = {
+				page(url, lent) {
+					liveTaskFor(ctx.uuid, String(params.userId))?.setPage(url, lent);
+				},
 				step(step) {
 					steps.set(step.id, step);
 					activity = step.action;
 					emit();
 				},
+				needsUser(need) {
+					const info = liveTaskFor(ctx.uuid, String(params.userId))?.info();
+					needsUser = {
+						reason: need.reason,
+						taskId: ctx.uuid,
+						...(need.approvalId ? { approvalId: need.approvalId } : {}),
+						...(liveAvailable
+							? {
+									stream: {
+										id: ctx.uuid,
+										machineId: machine.id,
+										machineName: machine.name,
+										kind: info?.kind ?? "browse_task",
+										url: info?.url ?? null,
+										origin: info?.origin ?? null,
+										streamUrl: `/api/v2/browse/live/${ctx.uuid}`,
+									},
+								}
+							: {}),
+					};
+					emit();
+				},
 				waiting(sentence) {
+					if (sentence === null) needsUser = undefined;
 					waitingOn = sentence ?? undefined;
 					emit();
 				},
@@ -434,6 +470,7 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 					ending.leftOpen = info.title;
 				},
 			};
+			let stopLive = () => {};
 			const keptStore = params.keptStore ?? mongoKeptStore;
 			const keptEntry = conversationKey
 				? await keptStore.get(machine.id, params.userId, conversationKey).catch(() => undefined)
@@ -453,7 +490,33 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 
 			emit();
 			let result: BrowseResult;
+			let canHandOver = false;
 			try {
+				// A task starts with the agent in control, whatever an earlier task left behind. A
+				// runtime that cannot answer this is older than the live view: none is offered.
+				canHandOver =
+					takeover.supported &&
+					(await takeover.handBack().then(
+						() => true,
+						() => false
+					));
+				liveAvailable =
+					canHandOver &&
+					params.userId !== undefined &&
+					typeof liveRuntime.screencast === "function";
+				if (liveAvailable) {
+					stopLive = registerLiveTask({
+						taskId: ctx.uuid,
+						userId: String(params.userId),
+						deviceId: machine.id,
+						machineName: machine.name,
+						runtime: liveRuntime as LiveRuntime,
+						control: takeover,
+						unattended: params.unattended,
+						leaseHeld: () => lease.check(),
+					});
+					emit();
+				}
 				const grantKey = await (params.grantKeyFor
 					? params.grantKeyFor(machine)
 					: deviceBrowserKey(machine.id, params.userId as ObjectId));
@@ -467,6 +530,8 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 						rules: params.settings.rules,
 						rulesNow: params.rulesNow ?? (() => browserSettings().rules),
 						leaseHeld: () => lease.check(),
+						// Only a runtime that can hand control back: else a "paused" answer ends the task.
+						...(canHandOver ? { control: takeover } : {}),
 						ceiling: params.ceiling,
 						unattended: params.unattended,
 						budgets: params.settings.budgets,
@@ -493,6 +558,7 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 				}
 				return { error: `Browsing failed: ${err instanceof Error ? err.message : String(err)}` };
 			} finally {
+				stopLive();
 				await lease.release();
 			}
 

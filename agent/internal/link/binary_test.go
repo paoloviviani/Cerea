@@ -2,6 +2,7 @@ package link
 
 import (
 	"bytes"
+	"encoding/binary"
 	"testing"
 )
 
@@ -96,4 +97,32 @@ func FuzzBinaryHeader(f *testing.F) {
 			t.Fatalf("re-decoded frame mismatch: got %+v, want %+v", redecoded, frame)
 		}
 	})
+}
+
+func TestBrowserFramePartsCutALargeFrameIntoStreamLaneChunks(t *testing.T) {
+	if BrowserFrameParts(make([]byte, MaxOutputFramePayload)) != nil {
+		t.Fatal("a frame that fits is sent whole")
+	}
+	payload := make([]byte, 700_000)
+	for i := range payload {
+		payload[i] = byte(i * 7)
+	}
+	parts := BrowserFrameParts(payload)
+	var back []byte
+	for i, p := range parts {
+		if len(p) > MaxOutputFramePayload {
+			t.Fatalf("chunk %d is %d bytes, over the 32 KiB stream-lane cap", i, len(p))
+		}
+		wire, err := EncodeBinaryFrame(BinaryFrame{Kind: BinBrowserFramePart, Channel: "ch_0123456789ab", Offset: 1, Payload: p})
+		if err != nil || len(wire) > MaxOutputFramePayload+2+MaxChannelIDLen+8 {
+			t.Fatalf("chunk %d: frame of %d bytes (%v)", i, len(wire), err)
+		}
+		if int(binary.BigEndian.Uint16(p[0:])) != i || int(binary.BigEndian.Uint16(p[2:])) != len(parts) {
+			t.Fatalf("chunk %d header = % x (of %d)", i, p[:4], len(parts))
+		}
+		back = append(back, p[4:]...)
+	}
+	if !bytes.Equal(back, payload) {
+		t.Fatal("the chunks do not add up to the frame")
+	}
 }

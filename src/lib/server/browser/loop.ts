@@ -22,6 +22,7 @@ import { UNTRUSTED_SYSTEM_LINE } from "$lib/server/textGeneration/untrusted";
 import {
 	BrowserRuntimeError,
 	browserActionSchema,
+	type ActResult,
 	type ApprovalGrant,
 	type BrowserAction,
 	type BrowserRuntime,
@@ -48,7 +49,11 @@ export type StoppedReason =
 	| "model_error"
 	| "denied"
 	| "lease_lost"
-	| "verification";
+	| "verification"
+	/** The user kept the browser (takeover) longer than the most a task waits for. */
+	| "takeover_timeout"
+	/** The runtime said the user has the page, and this task cannot wait for a hand-back. */
+	| "no_handover";
 
 export interface BrowseFile {
 	name: string;
@@ -82,7 +87,32 @@ export interface LoopStep {
 	note?: string;
 }
 
+/**
+ * Who has the page (ADR 0116 phase 2a). While the user does (takeover in the live view, or the
+ * banner in the headed window) the loop reads nothing and acts on nothing, and its wall time does
+ * not tick. `takeover.ts` implements it.
+ */
+export interface PauseGate {
+	/** The user is in control now. */
+	paused(): boolean;
+	/** The runtime answered "paused": the user took control in the window; mirror it. */
+	runtimePaused(): void;
+	/** Resolves once the agent has the page again (or the signal aborts). */
+	waitForHandBack(signal?: AbortSignal): Promise<void>;
+}
+
+export type NeedsUserReason = "approval" | "challenge" | "sign_in" | "handover";
+
 export interface LoopObserver {
+	/**
+	 * The agent needs the user (an approval, a verification, a sign-in or a handover): a surface may
+	 * open the live view now. `approvalId` is the ask's elicitation id when there is one.
+	 */
+	needsUser?(need: { reason: NeedsUserReason; approvalId?: string }): void;
+	/** The page the browser is on, and whether it is a tab the user lent (for the live view). */
+	page?(url: string, lent: boolean): void;
+	/** The user took control of the browser (`"user"`), or handed it back (null). */
+	controlled?(by: "user" | null): void;
 	step?(step: LoopStep): void;
 	/** The loop is waiting for the user to answer this sentence; null when it stopped waiting. */
 	waiting?(sentence: string | null): void;
@@ -129,6 +159,10 @@ export interface LoopDeps {
 	/** Nobody can answer an approval (a scheduled run). */
 	unattended?: boolean;
 	budgets: BrowserBudgets;
+	/** Takeover: the user's control pauses the loop. Absent: a runtime that says paused ends the task. */
+	control?: PauseGate;
+	/** The most a task waits while the user has the browser; default `MAX_TAKEOVER_MS` (30 min). */
+	maxTakeoverMs?: number;
 	/** Whether this task still holds its machine (checked before each act); absent: always. */
 	leaseHeld?: () => Promise<boolean>;
 	/** The administrator's site lists as they are now (read again before re-deciding). */
@@ -374,6 +408,8 @@ export function fenceInline(text: string): string {
 	return `${PAGE_OPEN}${sanitizeText(text)}${PAGE_CLOSE}`;
 }
 
+/** The longest the user may keep the browser from a task. */
+export const MAX_TAKEOVER_MS = 30 * 60_000;
 const MAX_TOOL_TEXT = 8_000;
 const clip = (text: string, max = MAX_TOOL_TEXT) =>
 	text.length > max ? `${text.slice(0, max)}\n…(truncated)` : text;
@@ -400,12 +436,26 @@ function stoppedText(reason: StoppedReason): string {
 			return "another task took over the browser";
 		case "verification":
 			return "a verification in the browser was not completed";
+		case "takeover_timeout":
+			return "the user kept the browser for too long";
+		case "no_handover":
+			return "the user took control of the browser and this task cannot wait for it to be handed back";
 	}
 }
 
 class Stop extends Error {
 	constructor(readonly reason: StoppedReason) {
 		super(reason);
+	}
+}
+
+/**
+ * The user had the page while a call that must not be repeated (an action) was about to run: it
+ * was not run. A Stop only so the code in between lets it through; it is always caught.
+ */
+class HandedBack extends Stop {
+	constructor() {
+		super("aborted");
 	}
 }
 
@@ -514,16 +564,64 @@ async function runInner(
 		if (host && matchesAny(host, (deps.rulesNow?.() ?? deps.rules).deny)) throw new Stop("denied");
 	};
 
-	const guarded = async <T>(work: () => Promise<T>): Promise<T> => {
-		try {
-			return await work();
-		} catch (err) {
-			if (err instanceof Stop) throw err;
-			if (deps.signal?.aborted) throw new Stop("aborted");
-			if (err instanceof BrowserRuntimeError && err.kind !== "tool")
-				throw new Stop("runtime_error");
-			throw err;
+	const guarded = async <T>(
+		work: () => Promise<T>,
+		options: { repeatable?: boolean } = { repeatable: true }
+	): Promise<T> => {
+		for (;;) {
+			// The user has the page: nothing is asked of the runtime until they hand it back.
+			if (await waitIfPaused()) {
+				if (!options.repeatable) throw new HandedBack();
+			}
+			try {
+				return await work();
+			} catch (err) {
+				if (err instanceof Stop) throw err;
+				if (deps.signal?.aborted) throw new Stop("aborted");
+				if (err instanceof BrowserRuntimeError && err.kind === "paused" && deps.control) {
+					deps.control.runtimePaused();
+					const waited = await waitIfPaused();
+					// A read is simply asked again, of the page as the user left it.
+					if (waited && options.repeatable) continue;
+					if (waited) throw new HandedBack();
+					continue;
+				}
+				// Paused with nothing to wait on (no takeover here): a clear end, not a crash.
+				if (err instanceof BrowserRuntimeError && err.kind === "paused")
+					throw new Stop("no_handover");
+				if (err instanceof BrowserRuntimeError && err.kind !== "tool")
+					throw new Stop("runtime_error");
+				throw err;
+			}
 		}
+	};
+
+	/**
+	 * Waits while the user is in control of the page; the wait is not task time. True when it
+	 * waited: what the loop knows of the page is then out of date.
+	 */
+	const waitIfPaused = async (): Promise<boolean> => {
+		const gate = deps.control;
+		if (!gate || !gate.paused()) return false;
+		const since = now();
+		observer?.controlled?.("user");
+		// The user keeps the browser for at most this long (scheduled runs included): then the task
+		// ends rather than waiting for ever on a window nobody is at.
+		const limit = new AbortController();
+		const limitTimer = setTimeout(() => limit.abort(), deps.maxTakeoverMs ?? MAX_TAKEOVER_MS);
+		limitTimer.unref?.();
+		const waitSignal = deps.signal ? AbortSignal.any([deps.signal, limit.signal]) : limit.signal;
+		try {
+			await gate.waitForHandBack(waitSignal);
+		} finally {
+			clearTimeout(limitTimer);
+			waitedMs += now() - since;
+			observer?.controlled?.(null);
+		}
+		if (deps.signal?.aborted) throw new Stop("aborted");
+		if (limit.signal.aborted && gate.paused()) throw new Stop("takeover_timeout");
+		await assertLease();
+		return true;
 	};
 
 	/** Still the holder of the machine's browser? Checked before anything that reads or acts. */
@@ -566,6 +664,7 @@ async function runInner(
 				site: hostOf(finalUrl) ?? finalUrl,
 				url: urlWithoutFragment(finalUrl),
 				challenge: { kind },
+				onAsked: (approvalId) => observer?.needsUser?.({ reason: "challenge", approvalId }),
 			},
 			deps.signal
 		);
@@ -580,12 +679,14 @@ async function runInner(
 	const takeSnapshot = async () => {
 		let snap = await guarded(() => runtime.snapshot(deps.signal));
 		finalUrl = snap.url;
+		observer?.page?.(finalUrl, shared.adopted.size > 0);
 		assertSite();
 		// Until the page shows none: a second check may follow the first.
 		while (snap.challenge) {
 			await pauseForChallenge(snap.challenge.kind);
 			snap = await guarded(() => runtime.snapshot(deps.signal));
 			finalUrl = snap.url;
+			observer?.page?.(finalUrl, shared.adopted.size > 0);
 			assertSite();
 		}
 		remember(snap.elements, true);
@@ -612,6 +713,7 @@ async function runInner(
 	const refresh = async (): Promise<string> => {
 		const diff = await guarded(() => runtime.diff(deps.signal));
 		finalUrl = diff.url;
+		observer?.page?.(finalUrl, shared.adopted.size > 0);
 		currentTitle = diff.title;
 		assertSite();
 		if (diff.challenge) {
@@ -864,6 +966,7 @@ async function runInner(
 				const answer = await deps.approve(
 					{
 						sentence,
+						onAsked: (approvalId) => observer?.needsUser?.({ reason: "approval", approvalId }),
 						site: classification.targetHost ?? hostOf(finalUrl) ?? finalUrl,
 						url: urlWithoutFragment(
 							action.type === "use_tab" ? (ctx.tab?.url ?? finalUrl) : finalUrl
@@ -958,11 +1061,39 @@ async function runInner(
 
 			// Still the holder of this machine's browser? Otherwise another task may be driving it.
 			if (deps.leaseHeld && !(await deps.leaseHeld())) throw new Stop("lease_lost");
-			const outcome = await guarded(() => runtime.act([action], grants, deps.signal));
+			let outcome: ActResult;
+			try {
+				outcome = await guarded(() => runtime.act([action], grants, deps.signal), {
+					repeatable: false,
+				});
+			} catch (err) {
+				if (!(err instanceof HandedBack)) throw err;
+				// The user had the browser and handed it back: this action was not run, and it is
+				// not run now on a page that is no longer the one it was meant for.
+				fail("error", "you took control");
+				note(
+					lines.length + 1,
+					sentence,
+					"was NOT run: the user took control of the browser and handed it back. Nothing was done."
+				);
+				skippedLine();
+				pendingPage = await freshPage();
+				lines.push("The page is shown below as the user left it; look again and choose.");
+				halted = true;
+				break;
+			}
 			finalUrl = outcome.url;
+			observer?.page?.(finalUrl, shared.adopted.size > 0);
 			currentTitle = outcome.title;
 			assertSite();
 			const r = outcome.results[0];
+			if (outcome.paused) {
+				// The user's window took it: the gate learns now, not at the next call.
+				deps.control?.runtimePaused();
+				lines.push(
+					"(The user took control of the browser right after this action: the page below is as they leave it.)"
+				);
+			}
 			if (r?.ok) {
 				if (action.type === "use_tab") {
 					shared.adopted.add(action.tab);
@@ -1233,6 +1364,13 @@ async function runInner(
 
 		for (;;) {
 			checkBudgets();
+			// The user took control while the model was thinking, or between steps.
+			if (await waitIfPaused()) {
+				messages.push({
+					role: "user",
+					content: `The user used the browser themselves and has handed it back. The page now:\n${await freshPage()}`,
+				});
+			}
 			if (rounds >= budgets.maxSteps) throw new Stop("max_steps");
 			observer?.activity?.("Thinking");
 
@@ -1275,8 +1413,19 @@ async function runInner(
 				})),
 			});
 
+			let userInBetween = false;
 			for (const call of turn.toolCalls) {
 				checkBudgets();
+				// What the model asked for was meant for the page as it was before the user acted.
+				if (!userInBetween && (await waitIfPaused())) userInBetween = true;
+				if (userInBetween) {
+					pushToolMessage(
+						call.id,
+						"Not run: the user took control of the browser and handed it back. Look at the page again before you choose.",
+						userInBetween && call === turn.toolCalls.at(-1) ? await freshPage() : undefined
+					);
+					continue;
+				}
 				let args: Record<string, unknown> = {};
 				try {
 					const parsedArgs: unknown = call.arguments ? JSON.parse(call.arguments) : {};

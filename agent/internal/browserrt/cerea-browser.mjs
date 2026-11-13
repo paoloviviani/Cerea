@@ -1,4 +1,4 @@
-// cerea-browser runtime 0.1.0; source-hash: 86475f4d17d3f008a727794dadf440386489b480507c78dd062a24493ebe8798
+// cerea-browser runtime 0.1.0; source-hash: e09c549e3905085ad206200f89615d0a71d0dc17fc93176cff2a2d73fb29542c
 // inlined: @hono/node-server@2.1.8 @modelcontextprotocol/sdk@1.32.2 ajv@8.20.0 ajv-formats@3.0.1 content-type@1.0.5 fast-deep-equal@3.1.3 fast-uri@3.1.9 hono@4.13.18 json-schema-traverse@1.0.0 tldts@7.4.26 zod@3.25.76 zod-to-json-schema@3.25.2
 import { createRequire as __cr } from "node:module";
 const require = __cr(import.meta.url);
@@ -21578,6 +21578,11 @@ var actResultSchema = external_exports.object({
   url: external_exports.string().max(4096),
   title: external_exports.string().max(500).default(""),
   /**
+   * The user took control while the batch ran: the actions after the last result were not
+   * started. The loop waits for the hand-back and then looks at the page again.
+   */
+  paused: external_exports.boolean().optional(),
+  /**
    * Files the page offered for download during the batch (fetch them with `download`). Each says
    * which action of the batch produced it and the id of the grant that action ran under, so Cerea
    * keeps only files an approved download action made.
@@ -21691,6 +21696,70 @@ var downloadResultSchema = external_exports.object({
       skipped: external_exports.string().max(300).optional()
     })
   ).max(20)
+});
+var controlResultSchema = external_exports.object({
+  controller: external_exports.enum(["agent", "user"]),
+  /** Who took control: Cerea's live view, or the banner in the headed window. */
+  source: external_exports.enum(["cerea", "banner"]).optional(),
+  since: external_exports.number().optional()
+});
+var screencastResultSchema = external_exports.object({ casting: external_exports.boolean() });
+var inputEventSchema = external_exports.discriminatedUnion("type", [
+  external_exports.object({
+    type: external_exports.literal("mouse"),
+    action: external_exports.enum(["move", "down", "up", "wheel"]),
+    x: external_exports.number().finite().min(0).max(2e4),
+    y: external_exports.number().finite().min(0).max(2e4),
+    button: external_exports.enum(["left", "middle", "right"]).optional(),
+    clickCount: external_exports.number().int().min(1).max(3).optional(),
+    deltaX: external_exports.number().finite().min(-1e5).max(1e5).optional(),
+    deltaY: external_exports.number().finite().min(-1e5).max(1e5).optional(),
+    modifiers: external_exports.number().int().min(0).max(15).optional()
+  }),
+  external_exports.object({
+    type: external_exports.literal("touch"),
+    action: external_exports.enum(["start", "move", "end", "cancel"]),
+    points: external_exports.array(
+      external_exports.object({
+        x: external_exports.number().finite().min(0).max(2e4),
+        y: external_exports.number().finite().min(0).max(2e4),
+        id: external_exports.number().int().min(0).max(1e3).optional()
+      })
+    ).max(10),
+    modifiers: external_exports.number().int().min(0).max(15).optional()
+  }),
+  external_exports.object({
+    type: external_exports.literal("key"),
+    action: external_exports.enum(["down", "up"]),
+    key: external_exports.enum([
+      "Enter",
+      "Backspace",
+      "Tab",
+      "Escape",
+      "Delete",
+      "Insert",
+      "ArrowLeft",
+      "ArrowUp",
+      "ArrowRight",
+      "ArrowDown",
+      "Home",
+      "End",
+      "PageUp",
+      "PageDown",
+      " ",
+      "Shift",
+      "Control",
+      "Alt",
+      "Meta",
+      "F5"
+    ]),
+    modifiers: external_exports.number().int().min(0).max(15).optional()
+  }),
+  external_exports.object({ type: external_exports.literal("text"), text: external_exports.string().min(1).max(4e3) })
+]);
+var inputResultSchema = external_exports.object({
+  sent: external_exports.number().int().nonnegative(),
+  dropped: external_exports.number().int().nonnegative().default(0)
 });
 
 // src/errors.ts
@@ -21814,6 +21883,618 @@ function parseScreenshot(raw) {
     throw new ToolError('screenshot takes an optional "ref" and "format" (png or jpeg).');
   return parsed.data;
 }
+
+// src/live.ts
+import { randomBytes } from "node:crypto";
+var FRAME_METHOD = "notifications/cerea/frame";
+var MAX_INPUT_EVENTS = 64;
+var MAX_TEXT = 4e3;
+var MAX_COORD = 2e4;
+var MIN_WIDTH = 160;
+var MAX_WIDTH = 1600;
+var EVENTS_PER_SECOND = 600;
+var SPECIAL_KEYS = {
+  Enter: { code: "Enter", vk: 13 },
+  Backspace: { code: "Backspace", vk: 8 },
+  Tab: { code: "Tab", vk: 9 },
+  Escape: { code: "Escape", vk: 27 },
+  Delete: { code: "Delete", vk: 46 },
+  Insert: { code: "Insert", vk: 45 },
+  ArrowLeft: { code: "ArrowLeft", vk: 37 },
+  ArrowUp: { code: "ArrowUp", vk: 38 },
+  ArrowRight: { code: "ArrowRight", vk: 39 },
+  ArrowDown: { code: "ArrowDown", vk: 40 },
+  Home: { code: "Home", vk: 36 },
+  End: { code: "End", vk: 35 },
+  PageUp: { code: "PageUp", vk: 33 },
+  PageDown: { code: "PageDown", vk: 34 },
+  " ": { code: "Space", vk: 32 },
+  Shift: { code: "ShiftLeft", vk: 16 },
+  Control: { code: "ControlLeft", vk: 17 },
+  Alt: { code: "AltLeft", vk: 18 },
+  Meta: { code: "MetaLeft", vk: 91 },
+  F5: { code: "F5", vk: 116 }
+};
+var finite = (n, max = MAX_COORD) => typeof n === "number" && Number.isFinite(n) && Math.abs(n) <= max;
+function parseInputEvents(raw) {
+  if (!Array.isArray(raw) || raw.length === 0) throw new ToolError("input needs a list of events.");
+  if (raw.length > MAX_INPUT_EVENTS) {
+    throw new ToolError(`input takes at most ${MAX_INPUT_EVENTS} events at a time.`);
+  }
+  const out = [];
+  for (const item of raw) {
+    if (typeof item !== "object" || item === null)
+      throw new ToolError("An input event is not an object.");
+    const e = item;
+    const modifiers = e.modifiers === void 0 ? void 0 : Number.isInteger(e.modifiers) ? e.modifiers & 15 : NaN;
+    if (Number.isNaN(modifiers)) throw new ToolError("modifiers must be an integer.");
+    switch (e.type) {
+      case "mouse": {
+        if (!["move", "down", "up", "wheel"].includes(String(e.action))) {
+          throw new ToolError("A mouse event's action is move, down, up or wheel.");
+        }
+        if (!finite(e.x) || !finite(e.y)) throw new ToolError("A mouse event needs x and y.");
+        const button = e.button === void 0 ? "left" : e.button;
+        if (button !== "left" && button !== "middle" && button !== "right") {
+          throw new ToolError("A mouse button is left, middle or right.");
+        }
+        out.push({
+          type: "mouse",
+          action: e.action,
+          x: e.x,
+          y: e.y,
+          button,
+          clickCount: Number.isInteger(e.clickCount) ? Math.min(3, Math.max(1, e.clickCount)) : 1,
+          deltaX: finite(e.deltaX, 1e5) ? e.deltaX : 0,
+          deltaY: finite(e.deltaY, 1e5) ? e.deltaY : 0,
+          modifiers
+        });
+        break;
+      }
+      case "touch": {
+        if (!["start", "move", "end", "cancel"].includes(String(e.action))) {
+          throw new ToolError("A touch event's action is start, move, end or cancel.");
+        }
+        const points = Array.isArray(e.points) ? e.points : [];
+        if (points.length > 10 || points.length === 0 && e.action !== "end" && e.action !== "cancel") {
+          throw new ToolError("A touch event has 1 to 10 points.");
+        }
+        out.push({
+          type: "touch",
+          action: e.action,
+          points: points.map((p, i) => {
+            const q = p ?? {};
+            if (!finite(q.x) || !finite(q.y)) throw new ToolError("A touch point needs x and y.");
+            return { x: q.x, y: q.y, id: Number.isInteger(q.id) ? q.id : i };
+          }),
+          modifiers
+        });
+        break;
+      }
+      case "key": {
+        if (e.action !== "down" && e.action !== "up")
+          throw new ToolError("A key event's action is down or up.");
+        if (typeof e.key !== "string" || !(e.key in SPECIAL_KEYS)) {
+          throw new ToolError(
+            "Only special keys are sent as key events: type text with a text event."
+          );
+        }
+        out.push({ type: "key", action: e.action, key: e.key, modifiers });
+        break;
+      }
+      case "text": {
+        if (typeof e.text !== "string" || e.text.length === 0 || e.text.length > MAX_TEXT) {
+          throw new ToolError(`A text event has 1 to ${MAX_TEXT} characters.`);
+        }
+        out.push({ type: "text", text: e.text });
+        break;
+      }
+      default:
+        throw new ToolError("An input event's type is mouse, touch, key or text.");
+    }
+  }
+  return out;
+}
+var PausedError = class extends ToolError {
+  constructor() {
+    super(
+      "paused: the user has taken control of the browser. Wait; Cerea resumes you with a fresh page."
+    );
+    this.name = "PausedError";
+  }
+};
+var BUTTON_BITS = { left: 1, right: 2, middle: 4 };
+var LiveView = class {
+  host;
+  options;
+  state = { controller: "agent" };
+  cdps = /* @__PURE__ */ new WeakMap();
+  banner;
+  bannerAt = 0;
+  // screencast
+  sink;
+  cast;
+  want;
+  seq = 0;
+  acked = 0;
+  lastSent = 0;
+  latest;
+  ackTimer;
+  viewerTimer;
+  followTimer;
+  bucket = { at: Date.now(), n: 0 };
+  heldButtons = 0;
+  touchOn;
+  constructor(host, options) {
+    this.host = host;
+    this.options = options;
+    if (options.banner) this.banner = new Banner(this);
+  }
+  // ---- control ---------------------------------------------------------------------------
+  get paused() {
+    return this.state.controller === "user";
+  }
+  control() {
+    return { ...this.state };
+  }
+  /** The viewer asked who has the page: proof it is there, so the task is not idle. */
+  poll() {
+    this.host.touch();
+    return this.control();
+  }
+  /** The user takes the page. Idempotent. */
+  takeover(source) {
+    if (this.state.controller !== "user") {
+      this.state = { controller: "user", source, since: Date.now() };
+      void this.banner?.refresh(this.host);
+    }
+    this.host.touch();
+    return this.control();
+  }
+  /** The agent gets the page back. Idempotent. */
+  handback() {
+    if (this.state.controller !== "agent") {
+      this.state = { controller: "agent" };
+      void this.releaseInput();
+      void this.banner?.refresh(this.host);
+    }
+    this.host.touch();
+    return this.control();
+  }
+  /** The task ended: control returns, the cast stops, the banner goes. */
+  async taskEnded() {
+    this.state = { controller: "agent" };
+    await this.stopScreencast();
+    await this.banner?.refresh(this.host);
+  }
+  /** Puts the bar back or takes it away as the task's pages changed; cheap to call often. */
+  refreshBanner() {
+    if (!this.banner || Date.now() - this.bannerAt < 250) return;
+    this.bannerAt = Date.now();
+    void this.banner.refresh(this.host);
+  }
+  /** Pages the banner is on at the moment: for tests. */
+  bannerHostSelector() {
+    return this.banner?.hostSelector;
+  }
+  async installBanner(page) {
+    await this.banner?.install(page, this.host);
+  }
+  // ---- screencast ------------------------------------------------------------------------
+  setSink(sink) {
+    this.sink = sink;
+    if (!sink) void this.stopScreencast();
+  }
+  get casting() {
+    return this.cast !== void 0;
+  }
+  /**
+   * Starts the cast, or (called again) keeps it alive and adjusts it: `width` is what the viewer
+   * can show, so a small card gets small frames and a full screen view bigger ones.
+   */
+  async startScreencast(request) {
+    if (!this.sink) {
+      throw new ToolError(
+        "This runtime cannot stream frames: it was not started over stdio by galopin."
+      );
+    }
+    const width = Math.round(
+      Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, finite(request.width, 1e4) ? request.width : 640))
+    );
+    const quality = Math.round(
+      Math.min(90, Math.max(30, finite(request.quality, 100) ? request.quality : 60))
+    );
+    this.want = { width, quality };
+    this.acked = this.lastSent;
+    this.host.touch();
+    this.heartbeat();
+    const page = this.host.activePage();
+    if (!page) return;
+    await this.castOn(page);
+    this.followTimer ??= setInterval(() => void this.follow(), 1e3);
+    this.followTimer.unref();
+  }
+  /** The viewer shows frames up to `seq`: credit for more, and proof it is still there. */
+  ackFrame(seq) {
+    if (Number.isFinite(seq) && seq > this.acked) this.acked = Math.min(seq, this.seq);
+    this.host.touch();
+    this.heartbeat();
+    clearTimeout(this.ackTimer);
+    this.ackTimer = void 0;
+    this.flush();
+  }
+  async stopScreencast() {
+    clearInterval(this.followTimer);
+    clearTimeout(this.viewerTimer);
+    clearTimeout(this.ackTimer);
+    this.followTimer = this.viewerTimer = this.ackTimer = void 0;
+    this.acked = this.lastSent;
+    this.want = void 0;
+    this.latest = void 0;
+    const cast = this.cast;
+    this.cast = void 0;
+    if (cast) {
+      cast.cdp.off("Page.screencastFrame", cast.onFrame);
+      await cast.cdp.send("Page.stopScreencast").catch(() => {
+      });
+    }
+  }
+  heartbeat() {
+    clearTimeout(this.viewerTimer);
+    this.viewerTimer = setTimeout(
+      () => void this.stopScreencast(),
+      this.options.viewerTimeoutMs ?? 25e3
+    );
+    this.viewerTimer.unref();
+  }
+  async follow() {
+    if (!this.want) return;
+    const page = this.host.activePage();
+    if (page && (!this.cast || this.cast.page !== page || this.cast.page.isClosed())) {
+      await this.castOn(page).catch(() => {
+      });
+    }
+  }
+  async castOn(page) {
+    const want = this.want;
+    if (!want) return;
+    const current = this.cast;
+    if (current && current.page === page && current.width === want.width && current.quality === want.quality) {
+      return;
+    }
+    if (current) {
+      current.cdp.off("Page.screencastFrame", current.onFrame);
+      await current.cdp.send("Page.stopScreencast").catch(() => {
+      });
+      this.cast = void 0;
+    }
+    const cdp = await this.cdpFor(page);
+    const onFrame = (ev) => this.onFrame(ev, cdp);
+    cdp.on("Page.screencastFrame", onFrame);
+    this.cast = { page, cdp, width: want.width, quality: want.quality, onFrame };
+    await cdp.send("Page.startScreencast", {
+      format: "jpeg",
+      quality: want.quality,
+      maxWidth: want.width,
+      maxHeight: Math.round(want.width * 1.5),
+      everyNthFrame: 1
+    });
+  }
+  onFrame(ev, cdp) {
+    const meta = ev.metadata;
+    const frame = {
+      seq: ++this.seq,
+      width: Math.round(meta?.deviceWidth || 0),
+      height: Math.round(meta?.deviceHeight || 0),
+      mime: "image/jpeg",
+      data: ev.data
+    };
+    this.latest = frame;
+    this.flush();
+    const wait = this.options.minFrameMs ?? 80;
+    setTimeout(
+      () => void cdp.send("Page.screencastFrameAck", { sessionId: ev.sessionId }).catch(() => {
+      }),
+      wait
+    ).unref();
+  }
+  /** Sends the newest frame if the viewer has credit; an older waiting frame is simply dropped. */
+  flush() {
+    const frame = this.latest;
+    if (!frame || !this.sink) return;
+    if (this.lastSent - this.acked >= (this.options.maxInFlight ?? 3)) {
+      this.ackTimer ??= setTimeout(() => {
+        this.ackTimer = void 0;
+        this.acked = this.lastSent;
+        this.flush();
+      }, this.options.creditAfterMs ?? 2e3);
+      this.ackTimer.unref();
+      return;
+    }
+    this.latest = void 0;
+    this.lastSent = frame.seq;
+    try {
+      this.sink(frame);
+    } catch {
+    }
+  }
+  // ---- input -----------------------------------------------------------------------------
+  /** Dispatches the user's events. Refused unless the user is in control. */
+  async input(events) {
+    if (!this.paused) {
+      throw new ToolError("Input is accepted only while the user is in control (takeover first).");
+    }
+    const page = this.host.activePage();
+    if (!page || page.isClosed()) throw new ToolError("There is no page to send input to.");
+    this.host.touch();
+    const cdp = await this.cdpFor(page);
+    let sent = 0;
+    let dropped = 0;
+    for (const e of events) {
+      if (!this.takeToken()) {
+        dropped += 1;
+        continue;
+      }
+      await this.dispatch(cdp, e);
+      sent += 1;
+    }
+    return { sent, dropped };
+  }
+  takeToken() {
+    const now = Date.now();
+    if (now - this.bucket.at >= 1e3) this.bucket = { at: now, n: 0 };
+    this.bucket.n += 1;
+    return this.bucket.n <= EVENTS_PER_SECOND;
+  }
+  async dispatch(cdp, e) {
+    switch (e.type) {
+      case "mouse": {
+        const bit = BUTTON_BITS[e.button ?? "left"];
+        if (e.action === "down") this.heldButtons |= bit;
+        if (e.action === "up") this.heldButtons &= ~bit;
+        const type = {
+          move: "mouseMoved",
+          down: "mousePressed",
+          up: "mouseReleased",
+          wheel: "mouseWheel"
+        }[e.action];
+        await cdp.send("Input.dispatchMouseEvent", {
+          type,
+          x: e.x,
+          y: e.y,
+          button: e.action === "move" || e.action === "wheel" ? "none" : e.button,
+          buttons: this.heldButtons,
+          clickCount: e.action === "down" || e.action === "up" ? e.clickCount : 0,
+          ...e.action === "wheel" ? { deltaX: e.deltaX, deltaY: e.deltaY } : {},
+          modifiers: e.modifiers ?? 0
+        });
+        return;
+      }
+      case "touch": {
+        if (!this.touchOn) {
+          this.touchOn = cdp;
+          await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 }).catch(() => {
+          });
+        }
+        const type = {
+          start: "touchStart",
+          move: "touchMove",
+          end: "touchEnd",
+          cancel: "touchCancel"
+        }[e.action];
+        await cdp.send("Input.dispatchTouchEvent", {
+          type,
+          touchPoints: e.points.map((p) => ({ x: p.x, y: p.y, id: p.id ?? 0 })),
+          modifiers: e.modifiers ?? 0
+        });
+        return;
+      }
+      case "key": {
+        const info = SPECIAL_KEYS[e.key];
+        const text = e.key === "Enter" ? "\r" : void 0;
+        await cdp.send("Input.dispatchKeyEvent", {
+          type: e.action === "down" ? text ? "keyDown" : "rawKeyDown" : "keyUp",
+          key: e.key,
+          code: info.code,
+          windowsVirtualKeyCode: info.vk,
+          nativeVirtualKeyCode: info.vk,
+          modifiers: e.modifiers ?? 0,
+          ...e.action === "down" && text ? { text, unmodifiedText: text } : {}
+        });
+        return;
+      }
+      case "text":
+        await cdp.send("Input.insertText", { text: e.text });
+        return;
+    }
+  }
+  /** A button held when control returns would stay down in the page. */
+  async releaseInput() {
+    const touch = this.touchOn;
+    this.touchOn = void 0;
+    await touch?.send("Emulation.setTouchEmulationEnabled", { enabled: false }).catch(() => {
+    });
+    if (this.heldButtons === 0) return;
+    const page = this.host.activePage();
+    this.heldButtons = 0;
+    if (!page || page.isClosed()) return;
+    const cdp = await this.cdpFor(page).catch(() => void 0);
+    await cdp?.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: 0, y: 0, button: "left" }).catch(() => {
+    });
+  }
+  cdpFor(page) {
+    let cdp = this.cdps.get(page);
+    if (!cdp) {
+      const context = this.host.context();
+      if (!context) return Promise.reject(new ToolError("The browser is not running."));
+      cdp = context.newCDPSession(page);
+      this.cdps.set(page, cdp);
+      cdp.catch(() => this.cdps.delete(page));
+    }
+    return cdp;
+  }
+  /** What a screenshot must hide: the banner. */
+  screenshotStyle() {
+    return this.banner?.hideCss;
+  }
+};
+var Banner = class {
+  world = `cerea-${randomBytes(6).toString("hex")}`;
+  binding = `__cerea_${randomBytes(6).toString("hex")}`;
+  attr = `data-cb-${randomBytes(6).toString("hex")}`;
+  pages = /* @__PURE__ */ new Map();
+  hostSelector = `[${this.attr}]`;
+  /** The host's display is `var(--hide, block)` inline, so only this (not a page rule) can hide it. */
+  hideVar = `--cb-${randomBytes(6).toString("hex")}`;
+  hideCss = `${this.hostSelector}{${this.hideVar}:none!important}`;
+  live;
+  constructor(live) {
+    this.live = live;
+  }
+  async install(page, host) {
+    if (this.pages.has(page)) return;
+    const entry = {
+      cdp: void 0,
+      contexts: /* @__PURE__ */ new Set(),
+      main: void 0
+    };
+    this.pages.set(page, entry);
+    page.once("close", () => this.pages.delete(page));
+    try {
+      const context = host.context();
+      if (!context) return;
+      const cdp = await context.newCDPSession(page);
+      entry.cdp = cdp;
+      cdp.on("Runtime.executionContextCreated", (ev) => {
+        if (ev.context.name !== this.world || ev.context.auxData?.isDefault !== false) return;
+        void this.isMainFrame(entry, ev.context.auxData?.frameId).then((main) => {
+          if (!main) return;
+          entry.contexts.add(ev.context.id);
+          void this.apply(page, entry, ev.context.id, host);
+        });
+      });
+      cdp.on("Runtime.executionContextDestroyed", (ev) => {
+        entry.contexts.delete(ev.executionContextId);
+      });
+      cdp.on("Runtime.executionContextsCleared", () => entry.contexts.clear());
+      cdp.on("Runtime.bindingCalled", (ev) => {
+        if (ev.name !== this.binding) return;
+        this.onClick(ev.payload);
+      });
+      await cdp.send("Runtime.enable");
+      await cdp.send("Runtime.addBinding", {
+        name: this.binding,
+        executionContextName: this.world
+      });
+      await cdp.send("Page.addScriptToEvaluateOnNewDocument", {
+        source: this.script(),
+        worldName: this.world,
+        runImmediately: true
+      });
+    } catch {
+    }
+  }
+  /** Is `frameId` the page's main frame? Asks the browser when it is not the one last seen. */
+  async isMainFrame(entry, frameId) {
+    if (!frameId) return false;
+    if (frameId === entry.main) return true;
+    try {
+      const tree = await entry.cdp.send("Page.getFrameTree");
+      entry.main = tree.frameTree.frame.id;
+    } catch {
+      return false;
+    }
+    return frameId === entry.main;
+  }
+  onClick(payload) {
+    let action;
+    try {
+      action = JSON.parse(payload).a;
+    } catch {
+      return;
+    }
+    if (action === "takeover") this.live.takeover("banner");
+    else if (action === "handback") this.live.handback();
+  }
+  /** Shows the right bar (or none) on every page. */
+  async refresh(host) {
+    const task = new Set(host.taskPages());
+    await Promise.all(
+      [...this.pages].map(async ([page, entry]) => {
+        for (const id of entry.contexts) await this.apply(page, entry, id, host, task);
+      })
+    );
+  }
+  async apply(page, entry, contextId, host, task = new Set(host.taskPages())) {
+    const mode = !task.has(page) ? "off" : this.live.paused ? "user" : "agent";
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const done = await entry.cdp.send("Runtime.evaluate", {
+        contextId,
+        expression: `typeof globalThis.__ceraBanner === "function" && (globalThis.__ceraBanner(${JSON.stringify(mode)}), true)`,
+        returnByValue: true
+      }).then((r) => r.result?.value === true).catch(() => true);
+      if (done) return;
+      await new Promise((r) => setTimeout(r, 40));
+    }
+  }
+  /** The script of the isolated world. `__ceraBanner(mode)` is called by the runtime only. */
+  script() {
+    return `(() => {
+	if (globalThis.__ceraBanner) return;
+	if (window.top !== window) return;
+	const text = {
+		agent: ["Cerea is using this window", "Take over", "takeover"],
+		user: ["You are in control", "Hand back", "handback"],
+	};
+	// Pinned inline with !important: a page stylesheet cannot hide, fade, move or clip the bar (it
+	// is centred with margins, not a transform, so "no transform" is the one right value).
+	const HOST_STYLE = "position:fixed!important;display:var(${this.hideVar},block)!important;inset:auto 0 12px 0!important;width:max-content!important;height:auto!important;max-width:100vw!important;margin:0 auto!important;border:0!important;padding:0!important;background:transparent!important;overflow:visible!important;z-index:2147483647!important;opacity:1!important;visibility:visible!important;transform:none!important;translate:none!important;scale:none!important;rotate:none!important;filter:none!important;clip-path:none!important;mask:none!important;pointer-events:auto!important;";
+	// A script of the page can still rewrite the host's own style: so the click is acted on only when
+	// the bar really is what the user saw (visible, opaque, unmoved, on screen).
+	const intact = () => {
+		if (!host || !host.isConnected) return false;
+		try {
+			if (!host.checkVisibility({ opacityProperty: true, visibilityProperty: true, checkOpacity: true, checkVisibilityCSS: true })) return false;
+		} catch { return false; }
+		const cs = getComputedStyle(host);
+		if (cs.opacity !== "1" || cs.visibility !== "visible" || cs.display === "none") return false;
+		for (const p of ["transform", "translate", "scale", "rotate", "filter", "clipPath", "mask"]) {
+			const v = cs[p];
+			if (v && v !== "none") return false;
+		}
+		const r = host.getBoundingClientRect();
+		return r.width > 0 && r.height > 0 && r.left >= 0 && r.top >= 0 && r.right <= window.innerWidth + 1 && r.bottom <= window.innerHeight + 1;
+	};
+	let host = null;
+	const build = (mode) => {
+		if (!host || !host.isConnected) {
+			host = document.createElement("div");
+			host.setAttribute(${JSON.stringify(this.attr)}, "");
+			host.setAttribute("popover", "manual");
+			host.style.cssText = HOST_STYLE;
+			const root = host.attachShadow({ mode: "closed" });
+			root.innerHTML = '<style>.b{font:13px/1.2 system-ui,sans-serif;display:flex;align-items:center;gap:10px;background:#1f2937;color:#fff;border-radius:999px;padding:6px 6px 6px 14px;box-shadow:0 2px 10px rgba(0,0,0,.35)}button{font:inherit;cursor:pointer;border:0;border-radius:999px;padding:5px 12px;background:#fff;color:#111827}</style><div class="b"><span></span><button type="button"></button></div>';
+			const span = root.querySelector("span");
+			const button = root.querySelector("button");
+			host.__set = (m) => { span.textContent = text[m][0]; button.textContent = text[m][1]; button.dataset.a = text[m][2]; };
+			button.addEventListener("click", (ev) => {
+				if (!ev.isTrusted || !intact()) return;
+				const call = globalThis[${JSON.stringify(this.binding)}];
+				if (typeof call === "function") call(JSON.stringify({ a: button.dataset.a }));
+			}, true);
+			(document.body || document.documentElement).appendChild(host);
+			try { host.showPopover(); } catch {}
+		}
+		host.__set(mode);
+	};
+	globalThis.__ceraBanner = (mode) => {
+		if (mode === "off") { if (host) host.remove(); host = null; return; }
+		if (!document.documentElement) return;
+		build(mode);
+	};
+})();`;
+  }
+};
 
 // src/sanitize.ts
 var INVISIBLE = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f­؜᠎​-‏‪-‮⁠-⁤⁦-⁯﻿￹-￻\u{e0000}-\u{e007f}\u{e0100}-\u{e01ef}]/gu;
@@ -21959,6 +22640,36 @@ var TOOLS = [
       properties: { token: { type: "string" } },
       required: ["token"]
     }
+  },
+  {
+    name: "control",
+    description: "For Cerea's live view, not the agent. Who drives the page: takeover (the user does: every agent tool answers paused and the page takes the user's input), handback (the agent does again), or state.",
+    inputSchema: {
+      type: "object",
+      properties: { action: { type: "string", enum: ["takeover", "handback", "state"] } }
+    }
+  },
+  {
+    name: "screencast",
+    description: "For Cerea's live view, not the agent. start (again to keep it alive or resize: width is what the viewer can show), stop, or ack (seq: the viewer has shown frames up to it). Frames come as notifications/cerea/frame.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["start", "stop", "ack"] },
+        width: { type: "integer" },
+        seq: { type: "integer" }
+      },
+      required: ["action"]
+    }
+  },
+  {
+    name: "input",
+    description: "For Cerea's live view, not the agent. The user's mouse, touch, special keys and text, while the user is in control. Events are in the page's CSS pixels.",
+    inputSchema: {
+      type: "object",
+      properties: { events: { type: "array", items: { type: "object" } } },
+      required: ["events"]
+    }
   }
 ];
 var json2 = (value) => ({
@@ -22006,6 +22717,30 @@ function createToolHandler(session2) {
             })
           );
         }
+        // The live-view tools bypass the serial queue: they must work while a batch runs.
+        case "control": {
+          const action = asObject(rawArgs).action;
+          if (action === "takeover") return json2(session2.live.takeover("cerea"));
+          if (action === "handback") return json2(session2.live.handback());
+          return json2(session2.live.poll());
+        }
+        case "screencast": {
+          const args = asObject(rawArgs);
+          if (args.action === "start") {
+            await session2.live.startScreencast({
+              width: typeof args.width === "number" ? args.width : void 0
+            });
+          } else if (args.action === "stop") {
+            await session2.live.stopScreencast();
+          } else if (args.action === "ack") {
+            session2.live.ackFrame(typeof args.seq === "number" ? args.seq : 0);
+          } else {
+            throw new ToolError("screencast needs an action: start, stop or ack.");
+          }
+          return json2({ casting: session2.live.casting });
+        }
+        case "input":
+          return json2(await session2.live.input(parseInputEvents(asObject(rawArgs).events)));
         case "tabs": {
           const raw = asObject(rawArgs).deny;
           const deny = Array.isArray(raw) ? raw.filter((x) => typeof x === "string").slice(0, 200) : void 0;
@@ -22030,6 +22765,9 @@ function createToolHandler(session2) {
           );
       }
     } catch (err) {
+      if (err instanceof PausedError) {
+        return { ...failure(err.message), structuredContent: { paused: true } };
+      }
       if (err instanceof ToolError) return failure(err.message);
       return failure(
         `The browser runtime failed: ${clean(err instanceof Error ? err.message : err, 300)}`
@@ -22055,6 +22793,19 @@ function createServer2(session2) {
 async function serveStdio(session2) {
   const server = createServer2(session2);
   await server.connect(new StdioServerTransport());
+  session2.live.setSink((frame) => {
+    void server.notification({
+      method: FRAME_METHOD,
+      params: {
+        seq: frame.seq,
+        w: frame.width,
+        h: frame.height,
+        mime: frame.mime,
+        data: frame.data
+      }
+    }).catch(() => {
+    });
+  });
   const stop = () => {
     void session2.close().finally(() => process.exit(0));
   };
@@ -22502,7 +23253,7 @@ function actionDigest(action, ctx) {
 }
 
 // src/session.ts
-import { randomBytes } from "node:crypto";
+import { randomBytes as randomBytes2 } from "node:crypto";
 
 // src/grants.ts
 import { createHmac, timingSafeEqual as timingSafeEqual2 } from "node:crypto";
@@ -23320,8 +24071,19 @@ var BrowserSession = class {
   currentUntil = 0;
   acting = false;
   used;
+  /** Screencast, takeover and the banner (phase 2a). */
+  live;
   constructor(options) {
     this.options = options;
+    this.live = new LiveView(
+      {
+        activePage: () => this.livePage(),
+        context: () => this.context,
+        taskPages: () => [...this.taskPages].filter((p) => !p.isClosed()),
+        touch: () => this.touch()
+      },
+      { banner: options.banner ?? !options.headless, ...options.live }
+    );
     this.used = new UsedGrants(
       join(options.stateDir ?? dirname2(options.profileDir), "used-grants.json")
     );
@@ -23364,6 +24126,7 @@ var BrowserSession = class {
         this.taskPages.add(this.active);
         this.baseline = void 0;
         this.taskLastSite = void 0;
+        this.live.refreshBanner();
       }
     }
     return this.active;
@@ -23375,9 +24138,18 @@ var BrowserSession = class {
     this.active = open.at(-1);
     return this.active;
   }
+  /** The agent's own tools stop while the user is in control. */
+  assertAgent() {
+    if (this.live.paused) throw new PausedError();
+  }
   touch() {
+    this.live.refreshBanner();
     clearTimeout(this.idleTimer);
-    this.idleTimer = setTimeout(() => void this.endTask(), this.options.idleMs ?? DEFAULT_IDLE_MS);
+    if (this.live.paused) return;
+    this.idleTimer = setTimeout(() => {
+      if (this.live.paused) return;
+      void this.endTask();
+    }, this.options.idleMs ?? DEFAULT_IDLE_MS);
     this.idleTimer.unref();
   }
   /**
@@ -23398,7 +24170,7 @@ var BrowserSession = class {
     const adoptedKeep = !!keep && this.adopted.has(keep);
     if (keep && !keep.isClosed() && this.taskPages.has(keep) && !unused(keep) && (!adoptedKeep || lendable)) {
       this.purgeKept();
-      const token = randomBytes(18).toString("base64url");
+      const token = randomBytes2(18).toString("base64url");
       const title = clean(await safeTitle(keep), 300);
       const url = keep.url();
       const lent = adoptedKeep && info ? info : void 0;
@@ -23421,6 +24193,7 @@ var BrowserSession = class {
     this.active = void 0;
     this.baseline = void 0;
     this.notes = [];
+    await this.live.taskEnded();
     const own = pages.filter((p) => !this.adopted.has(p) && p !== (kept ? keep : void 0));
     this.adopted.clear();
     await Promise.all(own.map((p) => closeQuickly(p)));
@@ -23538,7 +24311,7 @@ var BrowserSession = class {
       }
     }
     this.purgeKept();
-    const token = randomBytes(18).toString("base64url");
+    const token = randomBytes2(18).toString("base64url");
     const title = clean(await safeTitle(page), 300);
     const url = page.url();
     this.kept.set(token, {
@@ -23559,6 +24332,7 @@ var BrowserSession = class {
   }
   /** The open pages of the persistent context, task pages and the user's own. */
   async tabs(options = {}) {
+    this.assertAgent();
     await this.ensureContext();
     this.touch();
     if (options.deny) this.tabDeny = parseSiteList(options.deny.join("\n"));
@@ -23656,6 +24430,7 @@ var BrowserSession = class {
   }
   hook(page) {
     this.navSeq.set(page, 0);
+    void this.live.installBanner(page);
     page.on("framenavigated", (frame) => {
       if (frame !== page.mainFrame()) return;
       this.navSeq.set(page, (this.navSeq.get(page) ?? 0) + 1);
@@ -23816,6 +24591,7 @@ var BrowserSession = class {
   }
   async close() {
     clearTimeout(this.idleTimer);
+    await this.live.stopScreencast();
     this.taskPages.clear();
     const context = this.context;
     this.context = void 0;
@@ -23931,6 +24707,7 @@ url: about:blank
     };
   }
   async snapshot() {
+    this.assertAgent();
     this.touch();
     const page = this.livePage();
     if (!page) return this.noPage();
@@ -23945,6 +24722,7 @@ url: about:blank
     return built.snapshot;
   }
   async diff() {
+    this.assertAgent();
     this.touch();
     const page = this.livePage();
     if (!page) {
@@ -24045,9 +24823,11 @@ url: about:blank
     };
   }
   async act(actions, approvals) {
+    this.assertAgent();
     await this.ensureContext();
     this.touch();
     const results = [];
+    let wasPaused = false;
     const downloadsBefore = this.downloads.length;
     this.notes = [];
     this.foreignTabs = [];
@@ -24059,6 +24839,10 @@ url: about:blank
       if (this.lastActEnd > 0) await this.pause(Date.now() - this.lastActEnd);
       for (let index = 0; index < actions.length; index += 1) {
         const action = actions[index];
+        if (index > 0 && this.live.paused) {
+          wasPaused = true;
+          break;
+        }
         if (index > 0) await this.pause(0);
         const budget = await this.withBudget(this.runOne(action, index, approvals));
         let result = budget.result;
@@ -24135,7 +24919,8 @@ url: about:blank
       results,
       url: page ? page.url() : "about:blank",
       title: page ? clean(await safeTitle(page), 300) : "",
-      ...downloads.length > 0 ? { downloads } : {}
+      ...downloads.length > 0 ? { downloads } : {},
+      ...wasPaused || this.live.paused ? { paused: true } : {}
     };
   }
   /** A small random pause (when pacing is on), less what has already passed. */
@@ -24507,6 +25292,7 @@ url: about:blank
   // ---- extract, screenshot, download -----------------------------------------------------
   /** For the calls that read a page: no page yet is an answer, not a reason to open one. */
   requirePage() {
+    this.assertAgent();
     this.touch();
     const page = this.livePage();
     if (!page) throw new ToolError("No page is open yet: navigate to an address first.");
@@ -24537,9 +25323,16 @@ url: about:blank
   async screenshot(request) {
     const page = this.requirePage();
     const type = request.format === "jpeg" ? "jpeg" : "png";
+    const style = this.live.screenshotStyle();
     try {
-      const buffer = request.ref ? await page.getByRef(request.ref).screenshot({ type, timeout: 5e3, ...type === "jpeg" ? { quality: 70 } : {} }) : await page.screenshot({
+      const buffer = request.ref ? await page.getByRef(request.ref).screenshot({
         type,
+        timeout: 5e3,
+        ...style ? { style } : {},
+        ...type === "jpeg" ? { quality: 70 } : {}
+      }) : await page.screenshot({
+        type,
+        ...style ? { style } : {},
         ...type === "jpeg" ? { quality: 70 } : {},
         timeout: 8e3
       });
@@ -24559,6 +25352,7 @@ url: about:blank
    * its own stays here unless `all` is set. Cerea decides what to do with the rest.
    */
   async download(request = {}) {
+    this.assertAgent();
     await Promise.race([Promise.allSettled([...this.pendingDownloads]), sleep(15e3)]);
     const give = this.downloads.filter((d) => request.all || d.actionIndex !== void 0);
     this.downloads = this.downloads.filter((d) => !give.includes(d));

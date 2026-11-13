@@ -18,12 +18,15 @@ async function exercise(client: Client, fx: Fixtures) {
 	const tools = await client.listTools();
 	assert.deepEqual(tools.tools.map((t) => t.name).sort(), [
 		"act",
+		"control",
 		"diff",
 		"download",
 		"end_task",
 		"extract",
+		"input",
 		"open",
 		"resume",
+		"screencast",
 		"screenshot",
 		"snapshot",
 		"tabs",
@@ -116,11 +119,42 @@ describe("MCP over stdio", () => {
 		);
 		try {
 			await exercise(client, fx);
+			await frames(client, fx);
 		} finally {
 			await client.close();
 		}
 	});
 });
+
+/** Over stdio the runtime pushes screencast frames as notifications/cerea/frame. */
+async function frames(client: Client, fx: Fixtures) {
+	const got: Array<Record<string, unknown>> = [];
+	client.fallbackNotificationHandler = async (n) => {
+		if (n.method === "notifications/cerea/frame") got.push(n.params as Record<string, unknown>);
+	};
+	await client.callTool({
+		name: "act",
+		arguments: { actions: [{ type: "navigate", url: `${fx.base}/pad` }] },
+	});
+	const started = (await client.callTool({
+		name: "screencast",
+		arguments: { action: "start", width: 480 },
+	})) as unknown as { structuredContent: { casting: boolean } };
+	assert.equal(started.structuredContent.casting, true);
+	for (let i = 0; i < 100 && got.length === 0; i += 1) await new Promise((r) => setTimeout(r, 50));
+	assert.ok(got.length > 0, "no frame notification arrived");
+	const frame = got[0]!;
+	assert.equal(frame.mime, "image/jpeg");
+	assert.equal(typeof frame.seq, "number");
+	assert.ok((frame.w as number) > 0 && (frame.h as number) > 0);
+	assert.equal(
+		Buffer.from(frame.data as string, "base64")
+			.subarray(0, 2)
+			.toString("hex"),
+		"ffd8"
+	);
+	await client.callTool({ name: "screencast", arguments: { action: "stop" } });
+}
 
 describe("MCP over Streamable HTTP", () => {
 	let fx: Fixtures;

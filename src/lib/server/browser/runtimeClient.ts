@@ -21,6 +21,14 @@ import {
 	screenshotResultSchema,
 	snapshotSchema,
 	type ActResult,
+	type ControlAction,
+	type ControlResult,
+	controlResultSchema,
+	type InputEvent,
+	type InputResult,
+	inputResultSchema,
+	type ScreencastResult,
+	screencastResultSchema,
 	type ApprovalGrant,
 	type BrowserAction,
 	type BrowserRuntime,
@@ -87,12 +95,21 @@ export function mcpRuntimeCall(target: { userId: string; deviceId: string }): Ru
 		});
 }
 
+/** The runtime answers every agent tool with a "paused" error while the user is in control. */
+function throwIfPaused(response: Awaited<ReturnType<RuntimeCall>>): void {
+	const structured = response.structured as { paused?: unknown } | undefined | null;
+	if (structured && structured.paused === true) {
+		throw new BrowserRuntimeError("The user has taken control of the browser.", "paused");
+	}
+}
+
 function parseBody<T>(
 	tool: RuntimeToolName,
 	response: Awaited<ReturnType<RuntimeCall>>,
 	schema: ZodType<T, ZodTypeDef, unknown>
 ): T {
 	if (response.isError) {
+		throwIfPaused(response);
 		throw new BrowserRuntimeError(
 			`The browser runtime reported an error in ${tool}: ${response.text.slice(0, 500) || "no detail"}`,
 			"tool"
@@ -151,6 +168,23 @@ export class McpBrowserRuntime implements BrowserRuntime {
 			endTaskResultSchema,
 			signal
 		);
+	}
+
+	control(action: ControlAction, signal?: AbortSignal): Promise<ControlResult> {
+		return this.invoke("control", { action }, controlResultSchema, signal);
+	}
+
+	/** Start (or keep alive, or resize) the screencast; `width` is what the viewer can show. */
+	screencast(
+		request:
+			{ action: "start"; width?: number } | { action: "stop" } | { action: "ack"; seq: number },
+		signal?: AbortSignal
+	): Promise<ScreencastResult> {
+		return this.invoke("screencast", { ...request }, screencastResultSchema, signal);
+	}
+
+	input(events: InputEvent[], signal?: AbortSignal): Promise<InputResult> {
+		return this.invoke("input", { events }, inputResultSchema, signal);
 	}
 
 	tabs(options?: { deny?: string[] }, signal?: AbortSignal): Promise<TabsResult> {
@@ -226,6 +260,7 @@ export class McpBrowserRuntime implements BrowserRuntime {
 			);
 		}
 		if (response.isError) {
+			throwIfPaused(response);
 			throw new BrowserRuntimeError(
 				`The browser runtime reported an error in screenshot: ${response.text.slice(0, 300)}`,
 				"tool"

@@ -15,6 +15,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { asObject, parseActions, parseApprovals, parseExtract, parseScreenshot } from "./args.ts";
 import { ToolError } from "./errors.ts";
+import { FRAME_METHOD, PausedError, parseInputEvents } from "./live.ts";
 import { clean } from "./sanitize.ts";
 import type { BrowserSession } from "./session.ts";
 
@@ -145,6 +146,39 @@ export const TOOLS = [
 			required: ["token"],
 		},
 	},
+	{
+		name: "control",
+		description:
+			"For Cerea's live view, not the agent. Who drives the page: takeover (the user does: every agent tool answers paused and the page takes the user's input), handback (the agent does again), or state.",
+		inputSchema: {
+			type: "object",
+			properties: { action: { type: "string", enum: ["takeover", "handback", "state"] } },
+		},
+	},
+	{
+		name: "screencast",
+		description:
+			"For Cerea's live view, not the agent. start (again to keep it alive or resize: width is what the viewer can show), stop, or ack (seq: the viewer has shown frames up to it). Frames come as notifications/cerea/frame.",
+		inputSchema: {
+			type: "object",
+			properties: {
+				action: { type: "string", enum: ["start", "stop", "ack"] },
+				width: { type: "integer" },
+				seq: { type: "integer" },
+			},
+			required: ["action"],
+		},
+	},
+	{
+		name: "input",
+		description:
+			"For Cerea's live view, not the agent. The user's mouse, touch, special keys and text, while the user is in control. Events are in the page's CSS pixels.",
+		inputSchema: {
+			type: "object",
+			properties: { events: { type: "array", items: { type: "object" } } },
+			required: ["events"],
+		},
+	},
 ] as const;
 
 type ToolResult = {
@@ -204,6 +238,30 @@ export function createToolHandler(session: BrowserSession) {
 						})
 					);
 				}
+				// The live-view tools bypass the serial queue: they must work while a batch runs.
+				case "control": {
+					const action = asObject(rawArgs).action;
+					if (action === "takeover") return json(session.live.takeover("cerea"));
+					if (action === "handback") return json(session.live.handback());
+					return json(session.live.poll());
+				}
+				case "screencast": {
+					const args = asObject(rawArgs);
+					if (args.action === "start") {
+						await session.live.startScreencast({
+							width: typeof args.width === "number" ? args.width : undefined,
+						});
+					} else if (args.action === "stop") {
+						await session.live.stopScreencast();
+					} else if (args.action === "ack") {
+						session.live.ackFrame(typeof args.seq === "number" ? args.seq : 0);
+					} else {
+						throw new ToolError("screencast needs an action: start, stop or ack.");
+					}
+					return json({ casting: session.live.casting });
+				}
+				case "input":
+					return json(await session.live.input(parseInputEvents(asObject(rawArgs).events)));
 				case "tabs": {
 					const raw = asObject(rawArgs).deny;
 					const deny = Array.isArray(raw)
@@ -232,6 +290,9 @@ export function createToolHandler(session: BrowserSession) {
 					);
 			}
 		} catch (err) {
+			if (err instanceof PausedError) {
+				return { ...failure(err.message), structuredContent: { paused: true } };
+			}
 			if (err instanceof ToolError) return failure(err.message);
 			return failure(
 				`The browser runtime failed: ${clean(err instanceof Error ? err.message : err, 300)}`
@@ -259,6 +320,22 @@ export function createServer(session: BrowserSession): Server {
 export async function serveStdio(session: BrowserSession): Promise<void> {
 	const server = createServer(session);
 	await server.connect(new StdioServerTransport());
+	// Frames of the live view go out as notifications on this one connection; galopin turns them
+	// into binary link frames. (Streamable HTTP is stateless and cannot push: no frames there.)
+	session.live.setSink((frame) => {
+		void server
+			.notification({
+				method: FRAME_METHOD,
+				params: {
+					seq: frame.seq,
+					w: frame.width,
+					h: frame.height,
+					mime: frame.mime,
+					data: frame.data,
+				},
+			} as never)
+			.catch(() => {});
+	});
 	const stop = () => {
 		void session.close().finally(() => process.exit(0));
 	};

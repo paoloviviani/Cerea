@@ -265,6 +265,7 @@ galopin sends these only on a channel Cerea opened with `terminal.attach`, so a 
 
 ```
 byte 0        kind   0x01 term.output (M→C) · 0x02 term.input (C→M) · 0x03 term.ack (C→M)
+                     0x04 browser.frame · 0x05 browser.frame.part (M→C, below)
 byte 1        L      channel id length, 1..32
 bytes 2..L+1  channel id, ASCII [A-Za-z0-9_-] (chosen by Cerea in terminal.attach, one per viewer)
 next 8 bytes  u64 big-endian offset
@@ -275,6 +276,8 @@ rest          payload: raw bytes. term.output ≤ 32 KiB; term.input ≤ 16 KiB;
 ```
 
 Unknown kinds are ignored. Offsets are per terminal, start at 0 when it is spawned, and never reset for its life. Terminals die with the galopin process.
+
+**`0x04 browser.frame`** (M→C) is one screencast frame of the browser runtime's live view (ADR 0116). It is sent only while Cerea has asked the runtime to stream (a `screencast` tool call over the runtime's mcp channel, §10), on that channel's id (`ch_…`, 15 bytes), with the frame's sequence number as the offset. The payload is `u16 BE viewport width, u16 BE viewport height` (the page's CSS pixels: the space of the user's input), then the JPEG, at most 1 MiB less the header. The runtime emits the frame as the MCP notification `notifications/cerea/frame` (`{seq, w, h, mime: "image/jpeg", data: base64}`) and galopin, for the browser connector only, converts it; any other server's notification is passed on as an ordinary mcp frame. The stream lane carries it, so it never delays a control frame by more than one write, and it obeys the lane's 32 KiB rule: a frame whose payload is over 32 KiB is cut into **`0x05 browser.frame.part`** frames (same channel, same `offset` = the frame's seq), each a payload of `u16 BE index, u16 BE count` and then at most 32 KiB − 4 bytes of the `0x04` payload; Cerea reassembles them (one frame at a time: a part of a newer seq drops the unfinished older frame) and a frame that arrives incomplete is lost, like any dropped frame. Smaller frames travel whole as `0x04`. galopin does not wait on the link while the runtime is writing: a frame goes into a one-slot, latest-wins mailbox on its own sender, so a busy or stalled link costs frames (the newest wins), never the runtime's answers. Pacing is the viewer's: the runtime sends at most three frames beyond the last `ack` it was called with. Nothing about a frame is stored or logged. A peer that does not know the kinds ignores them (a Cerea older than this never asks for one).
 
 **Flow control:**
 
@@ -501,6 +504,8 @@ without its fragment, the element's accessible name), recomputes
 `sig = HMAC-SHA256(key, id|digest|exp)` (lowercase hex), compares it in constant time, and
 checks `exp` (epoch ms) against its clock. A runtime also refuses every non-http(s) address
 except `about:blank`.
+
+**Audit of the live-view tools.** `screencast`, `input` and `control` calls to the browser connector are not audited one by one (an ack is ten calls a second, input a stream): one row `screencast.start` and one `screencast.stop` per stream, one row `input` per takeover with the number of calls and its duration (written when control goes back or the channel ends), and no row for `control state` polls. `control takeover`/`handback` and every other tool keep their usual row.
 
 **The key (machine call family `browser`).** The key is 32 random bytes per device, made by
 Cerea the first time it is asked, kept sealed on the device row, and never shown anywhere

@@ -920,6 +920,43 @@ func (l *Link) SendTerminalOutput(channel string, offset uint64, payload []byte)
 	return sched.writeStream(ctx, websocket.MessageBinary, frame)
 }
 
+// SendBrowserFrame sends one live-view screencast frame on the stream lane, so
+// it never delays a control frame by more than the write already in flight.
+// payload is BrowserFramePayload; seq is the frame's sequence number. A frame
+// over MaxOutputFramePayload goes as BinBrowserFramePart chunks, each one write
+// of at most 32 KiB (PROTOCOL.md §9.2); the caller must not interleave two
+// frames (the runtime's one sender goroutine does not). Nothing is stored or
+// logged here.
+func (l *Link) SendBrowserFrame(channel string, seq uint64, payload []byte) error {
+	if len(payload) > MaxBrowserFramePayload {
+		return errors.New("link: browser frame too large")
+	}
+	l.mu.Lock()
+	sched := l.sched
+	ctx := l.connCtx
+	l.mu.Unlock()
+	if sched == nil || ctx == nil {
+		return errors.New("link: not connected")
+	}
+	if parts := BrowserFrameParts(payload); parts != nil {
+		for _, part := range parts {
+			frame, err := EncodeBinaryFrame(BinaryFrame{Kind: BinBrowserFramePart, Channel: channel, Offset: seq, Payload: part})
+			if err != nil {
+				return err
+			}
+			if err := sched.writeStream(ctx, websocket.MessageBinary, frame); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	frame, err := EncodeBinaryFrame(BinaryFrame{Kind: BinBrowserFrame, Channel: channel, Offset: seq, Payload: payload})
+	if err != nil {
+		return err
+	}
+	return sched.writeStream(ctx, websocket.MessageBinary, frame)
+}
+
 // PublishNotice sends a machine-level, lossy notice frame (PROTOCOL.md
 // §9.5): no epoch or seq, never replayed.
 func (l *Link) PublishNotice(scope map[string]string, event any) error {

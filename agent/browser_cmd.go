@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -34,7 +35,7 @@ const browserUsage = `galopin browser — the browser Cerea's browse tool uses o
 
 Usage:
   galopin browser setup   [--bundled] [--prune] [--state-dir PATH] [--creds PATH]
-  galopin browser enable  [--headed | --headless] [--no-sandbox] [--state-dir PATH] [--creds PATH] [--mcp-config PATH]
+  galopin browser enable  [--headed | --headless] [--no-sandbox] [--no-live] [--state-dir PATH] [--creds PATH] [--mcp-config PATH]
   galopin browser disable [--remove-profile] [--state-dir PATH] [--creds PATH] [--mcp-config PATH]
   galopin browser status  [--state-dir PATH] [--creds PATH] [--mcp-config PATH]
 
@@ -50,6 +51,11 @@ Usage:
            logins). The window is shown when this machine has a display, unless you say
            --headless. Cerea gives this machine a key for approvals the first time its
            browser is used; run 'galopin run' (or keep it running) for that.
+           --no-live leaves the live view out: Cerea cannot show this browser's page
+           or take the user's mouse and keyboard into it (the choice is kept, and a
+           later 'enable' without it turns the live view back on). By default the live
+           view is on: while a user is in control, Cerea passes their input to the
+           page with no approval step.
   disable  Remove the connector from mcp.json. The profile is kept unless
            --remove-profile is given.
   status   Say whether the runtime is installed, offered to Cerea and answering.
@@ -99,14 +105,14 @@ func realBrowserEnv() *browserEnv {
 }
 
 // browserPaths are galopin's own browser files.
-type browserPaths struct{ dir, runtime, bundle, profile, browsers, key, info string }
+type browserPaths struct{ dir, runtime, bundle, profile, browsers, key, info, noLive string }
 
 func pathsFor(stateDir string) browserPaths {
 	dir := filepath.Join(stateDir, "browser")
 	return browserPaths{
 		dir: dir, runtime: filepath.Join(dir, "runtime"), bundle: filepath.Join(dir, "runtime", "cerea-browser.mjs"),
 		profile: filepath.Join(dir, "profile"), browsers: filepath.Join(dir, "ms-playwright"),
-		key: filepath.Join(dir, "key"), info: filepath.Join(dir, "browser.json"),
+		key: filepath.Join(dir, "key"), info: filepath.Join(dir, "browser.json"), noLive: filepath.Join(dir, "no-live"),
 	}
 }
 
@@ -143,7 +149,7 @@ func runBrowser(args []string) error {
 
 type browserFlags struct {
 	connectorsOptions
-	headed, headless, noSandbox, removeProfile, bundled, prune bool
+	headed, headless, noSandbox, noLive, removeProfile, bundled, prune bool
 }
 
 func runBrowserWith(ctx context.Context, env *browserEnv, args []string) error {
@@ -156,6 +162,7 @@ func runBrowserWith(ctx context.Context, env *browserEnv, args []string) error {
 	fs.BoolVar(&f.headed, "headed", false, "")
 	fs.BoolVar(&f.headless, "headless", false, "")
 	fs.BoolVar(&f.noSandbox, "no-sandbox", false, "")
+	fs.BoolVar(&f.noLive, "no-live", false, "")
 	fs.BoolVar(&f.removeProfile, "remove-profile", false, "")
 	fs.BoolVar(&f.bundled, "bundled", false, "")
 	fs.BoolVar(&f.prune, "prune", false, "")
@@ -416,8 +423,91 @@ func runtimeArgs(p browserPaths, headed, noSandbox bool, channel string) []strin
 	return args
 }
 
-// browserTools is the connector's ceiling: the protocol's six tools, the end-of-task call, and the tab, resume and open calls.
-var browserTools = []string{"snapshot", "diff", "act", "extract", "screenshot", "download", "end_task", "tabs", "resume", "open"}
+// browserTools is the connector's ceiling: the protocol's six tools, the end-of-task call, the tab,
+// resume and open calls, and the live view's three (control, screencast, input), which only Cerea's
+// live-view routes call. An mcp.json written by an older `galopin browser enable` lacks the last
+// four: running it again updates the ceiling.
+var browserTools = []string{"snapshot", "diff", "act", "extract", "screenshot", "download", "end_task", "tabs", "resume", "open", "control", "screencast", "input"}
+
+// liveTools are the live view's three tools; --no-live leaves them out of the ceiling.
+var liveTools = []string{"control", "input", "screencast"}
+
+// browserToolsFor is the ceiling `enable` writes: every tool, or without the live view's three.
+func browserToolsFor(noLive bool) []string {
+	if !noLive {
+		return browserTools
+	}
+	var out []string
+	for _, t := range browserTools {
+		if !slices.Contains(liveTools, t) {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// managedMarker is in the description of the entry `enable` writes (and only that one).
+const managedMarker = "managed by 'galopin browser'"
+
+// refreshBrowserCeiling brings the managed cerea-browser entry's allowedTools up to the current
+// list when galopin starts, so a machine enabled before the live view existed gets it without
+// running 'enable' again. It honours the --no-live choice (a file beside the profile), touches
+// only an entry that carries the managed marker, and changes nothing else in mcp.json.
+func refreshBrowserCeiling(mcpPath, stateDir string, logf func(string, ...any)) {
+	target := mcpPath
+	if resolved, err := filepath.EvalSymlinks(mcpPath); err == nil {
+		target = resolved
+	}
+	body, err := os.ReadFile(target)
+	if err != nil {
+		return
+	}
+	var doc struct {
+		Servers map[string]json.RawMessage `json:"mcpServers"`
+	}
+	if json.Unmarshal(body, &doc) != nil {
+		return
+	}
+	raw, ok := doc.Servers[browserConnectorName]
+	if !ok {
+		return
+	}
+	var entry map[string]json.RawMessage
+	if json.Unmarshal(raw, &entry) != nil {
+		return
+	}
+	var desc string
+	_ = json.Unmarshal(entry["description"], &desc)
+	if !strings.Contains(desc, managedMarker) {
+		return
+	}
+	_, statErr := os.Stat(pathsFor(stateDir).noLive)
+	want := browserToolsFor(statErr == nil)
+	var have []string
+	_ = json.Unmarshal(entry["allowedTools"], &have)
+	if entry["allowedTools"] != nil && sameSet(have, want) {
+		return
+	}
+	entry["allowedTools"], _ = json.Marshal(want)
+	updated, _ := json.Marshal(entry)
+	if _, err := editMcpServers(mcpPath, browserConnectorName, updated); err != nil {
+		logf("connectors: could not update the %s tools in %s: %v", browserConnectorName, mcpPath, err)
+		return
+	}
+	logf("connectors: updated the %s tools in %s", browserConnectorName, mcpPath)
+}
+
+func sameSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for _, x := range a {
+		if !slices.Contains(b, x) {
+			return false
+		}
+	}
+	return true
+}
 
 type browserEntry struct {
 	Command      string            `json:"command"`
@@ -454,11 +544,19 @@ func browserEnable(env *browserEnv, f browserFlags) error {
 		Command:      info.Node,
 		Args:         runtimeArgs(p, headed, noSandbox, channelOf(info)),
 		Env:          map[string]string{"PLAYWRIGHT_BROWSERS_PATH": p.browsers},
-		Description:  "Browser for Cerea's browse tool (managed by 'galopin browser'; do not edit)",
-		AllowedTools: browserTools,
+		Description:  "Browser for Cerea's browse tool (" + managedMarker + "; do not edit)",
+		AllowedTools: browserToolsFor(f.noLive),
 	}
 	raw, _ := json.Marshal(entry)
 	if _, err = editMcpServers(env.mcpPath, browserConnectorName, raw); err != nil {
+		return err
+	}
+	// The choice is kept, so the ceiling refreshed at start (refreshBrowserCeiling) keeps it.
+	if f.noLive {
+		if err := os.WriteFile(p.noLive, []byte("live view left out by 'galopin browser enable --no-live'\n"), 0o600); err != nil {
+			return err
+		}
+	} else if err := os.Remove(p.noLive); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	mode := "headless"
@@ -467,6 +565,11 @@ func browserEnable(env *browserEnv, f browserFlags) error {
 	}
 	env.say("Enabled the local connector %q in %s (%s).", browserConnectorName, env.mcpPath, mode)
 	env.say("Profile (your logins stay here): %s", p.profile)
+	if f.noLive {
+		env.say("The live view is off: Cerea cannot show this browser or take user input into it.")
+	} else {
+		env.say("The live view is on: while a user is in control, Cerea passes their mouse and keyboard to the page with no approval step. Use --no-live to leave it out.")
+	}
 	if noSandbox {
 		env.say("Chromium runs without its sandbox on this machine.")
 	}

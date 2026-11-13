@@ -66,6 +66,7 @@ func resolveMcpConfig(flagValue string, getenv func(string) string, stateDir str
 // and wires it to the link and the audit log. The hub reads mc.lnk when it
 // sends, so it may be built before the link exists.
 func (mc *machine) startConnectors(stateDir, mcpPath string) *mcpconn.Hub {
+	refreshBrowserCeiling(mcpPath, stateDir, logf)
 	hub := mcpconn.New(mcpconn.Config{
 		Path:     mcpPath,
 		StateDir: stateDir,
@@ -86,6 +87,14 @@ func (mc *machine) startConnectors(stateDir, mcpPath string) *mcpconn.Hub {
 				return errNoLink
 			}
 			return mc.lnk.PublishMcp(channelID, message)
+		},
+		// The runtime's live-view frames go out as binary link frames, not as base64 in JSON.
+		FrameFrom: map[string]bool{browserConnectorName: true},
+		Frame: func(channelID string, seq uint64, payload []byte) error {
+			if mc.lnk == nil {
+				return errNoLink
+			}
+			return mc.lnk.SendBrowserFrame(channelID, seq, payload)
 		},
 		Closed: func(channelID, reason string, detail *string) {
 			if mc.lnk != nil {

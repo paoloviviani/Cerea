@@ -1844,6 +1844,8 @@
 	"chat.browse.left_open": "[Ĺéƒť óþéń: {title}]",
 	"chat.browse.page_changed": "[Ťȟé þáǧé ȟáď ćȟáńǧéď śíńćé ťȟé ľáśť ťáśķ.]",
 	"chat.browse.stopped.lease_lost": "[Áńóťȟéŕ ťáśķ ťóóķ óǚéŕ ťȟé ƀŕóŵśéŕ óń ýóúŕ ḿáćȟíńé.]",
+	"chat.browse.stopped.takeover_timeout": "[Ťȟé úśéŕ ķéþť ťȟé ƀŕóŵśéŕ ƒóŕ ťóó ľóńǧ, śó ťȟé ťáśķ śťóþþéď.]",
+	"chat.browse.stopped.no_handover": "[Ťȟé ƀŕóŵśéŕ ŵáś ȟáńďéď ťó ýóú áńď ťȟíś ťáśķ ćáńńóť ŵáíť ƒóŕ íť ťó ćóḿé ƀáćķ.]",
 	"chat.table.column": "[Ćóľúḿń {number}]",
 	"chat.table.column_lower": "[ćóľúḿń {number}]",
 	"chat.table.count": [
