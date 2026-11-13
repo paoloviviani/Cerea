@@ -180,6 +180,8 @@ type ExtraConfigKeys =
 	| "CHAT_GOTENBERG_URL"
 	/** Where the chat reaches the redaction service's `/healthz`, for the admin Services page only; empty tries the kit's own address. */
 	| "CHAT_REDACTION_URL"
+	/** The Pystino release the kit pins (`kit/compose.yaml`), shown by the admin Services page when the gateway does not say. */
+	| "PYSTINO_VERSION"
 	/** Where the chat reaches the document service (ADR 0103); with the secret, turns `doc_*` on. */
 	| "CHAT_DOCUMENTS_URL"
 	/** The shared secret the document service expects in `X-Cerea-Documents-Secret`. */

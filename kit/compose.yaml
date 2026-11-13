@@ -483,6 +483,9 @@ services:
       # step). Used by the admin Services page to show redaction's health and
       # whether it uses pattern matching or NER; empty tries the same address.
       CHAT_REDACTION_URL: ${CHAT_REDACTION_URL:-}
+      # The Pystino release this stack pins, for the admin Services page's update
+      # check (the gateway does not say its own version). tools/pin keeps it in step.
+      PYSTINO_VERSION: ${PYSTINO_VERSION:-0.33.2}
       # Where the chat keeps files (attachments, deliverables, uploads,
       # previews): MongoDB's GridFS (the default) or an S3-compatible bucket,
       # the bundled `rustfs` profile's or your own (docs/storage.md). Empty is

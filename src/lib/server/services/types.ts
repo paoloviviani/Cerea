@@ -7,7 +7,8 @@
  * short value a note may carry (a model name, a count, a version), bounded.
  */
 
-export type Health = "ok" | "degraded" | "down" | "off";
+/** `unknown`: configured, but nothing here can check it. */
+export type Health = "ok" | "degraded" | "down" | "off" | "unknown";
 
 export const SERVICE_IDS = [
 	"gateway",
@@ -73,6 +74,7 @@ export const NOTE_CODES = [
 	"mcp_some_failed",
 	"mcp_all_failed",
 	"mcp_none",
+	"mcp_unchecked",
 	"blobs_gridfs",
 	"blobs_s3",
 	"blobs_down",

@@ -68,13 +68,27 @@ async function latestRelease(repo: string, running: string | null): Promise<Prod
 		return { running, state: "unknown" };
 	}
 	const tag = typeof body.tag_name === "string" ? body.tag_name : "";
-	const latest = parseVersion(tag) ? tag.replace(/^v/, "") : null;
-	if (!latest) return { running, state: "unknown" };
-	const expected = `https://github.com/${repo}/releases/`;
-	const url =
-		typeof body.html_url === "string" && body.html_url.startsWith(expected)
-			? body.html_url
-			: `https://github.com/${repo}/releases/tag/v${latest}`;
+	const parsed = parseVersion(tag);
+	if (!parsed) return { running, state: "unknown" };
+	const latest = parsed.join(".");
+	// Only ever a link into this project's own release pages on github.com;
+	// anything else the API said is replaced by the page built from the version.
+	const fallback = `https://github.com/${repo}/releases/tag/v${latest}`;
+	let url = fallback;
+	if (typeof body.html_url === "string") {
+		try {
+			const link = new URL(body.html_url);
+			if (
+				link.protocol === "https:" &&
+				link.host === "github.com" &&
+				link.pathname.startsWith(`/${repo}/releases/`)
+			) {
+				url = link.href;
+			}
+		} catch {
+			/* not a URL: use the fallback */
+		}
+	}
 	if (!running) return { running, state: "unknown", latest: shortParam(latest), url };
 	return {
 		running,

@@ -18,6 +18,7 @@ const report = {
 		{ id: "embedding", health: "degraded", note: "embedding_missing", param: "emb-1" },
 		{ id: "blobs", health: "down", note: "blobs_down" },
 		{ id: "sandbox", health: "off", note: "not_configured" },
+		{ id: "mail", health: "unknown", note: "mail_elsewhere" },
 	],
 };
 
@@ -71,6 +72,7 @@ describe("Services page", () => {
 		await expect.element(page.getByTestId("service-blobs")).toHaveTextContent("Not working");
 		await expect.element(page.getByTestId("service-sandbox")).toHaveTextContent("Not configured");
 		await expect.element(page.getByTestId("service-sandbox")).toHaveAttribute("data-health", "off");
+		await expect.element(page.getByTestId("service-mail")).toHaveTextContent("Not checked");
 	});
 
 	it("fits a phone: no sideways scroll", async () => {

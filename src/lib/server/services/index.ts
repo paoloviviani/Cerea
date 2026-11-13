@@ -36,6 +36,10 @@ export const CACHE_MS = 30_000;
 /** The longest one probe may take before its row says so. */
 export const PROBE_DEADLINE_MS = 8_000;
 
+// The remembered report is shared by every administrator, and it is the first
+// one's view: the model-catalogue rows (reader, embedding, search, image,
+// transcription) depend on what that caller's token may list. There is no
+// admin-scoped catalogue endpoint to build it from instead.
 let cache: { at: number; report: ServicesReport } | null = null;
 let running: Promise<ServicesReport> | null = null;
 

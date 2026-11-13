@@ -106,6 +106,24 @@ describe("check for updates", () => {
 		expect([report.cerea.state, report.pystino.state]).toEqual(["unknown", "unknown"]);
 	});
 
+	it("rejects lookalike hosts, other repos and non-https links", async () => {
+		for (const bad of [
+			"https://github.com.evil.example/paoloviviani/Cerea/releases/tag/v9.0.0",
+			"https://evil.example/https://github.com/paoloviviani/Cerea/releases/",
+			"https://github.com/someone/else/releases/tag/v9.0.0",
+			"http://github.com/paoloviviani/Cerea/releases/tag/v9.0.0",
+			"not a url",
+		]) {
+			byRepo({
+				"paoloviviani/Cerea/": () => release("v9.0.0", bad),
+				"paoloviviani/Pystino/": () => release("v0.33.2"),
+			});
+			expect((await checkForUpdates("t")).cerea.url).toBe(
+				"https://github.com/paoloviviani/Cerea/releases/tag/v9.0.0"
+			);
+		}
+	});
+
 	it("never links outside the project's own release pages", async () => {
 		byRepo({
 			"paoloviviani/Cerea/": () => release("v9.0.0", "https://evil.example/x"),

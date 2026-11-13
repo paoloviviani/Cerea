@@ -456,6 +456,21 @@ class TestFreshInstall(unittest.TestCase):
         self.assertNotIn("redaction", homelab["COMPOSE_PROFILES"].split(","))
         self.assertNotIn("CHAT_REDACTION_URL", homelab)
 
+    def test_redaction_url_is_dropped_when_the_profile_goes_off(self):
+        team = dict(build(preset="team").values)
+        self.assertEqual(team.get("CHAT_REDACTION_URL"), cfg.REDACTION_ENDPOINT)
+        profiles = [p for p in team["COMPOSE_PROFILES"].split(",") if p and p != "redaction"]
+        off = build(existing=team | {"COMPOSE_PROFILES": ",".join(profiles)}).values
+        self.assertNotIn("redaction", off["COMPOSE_PROFILES"].split(","))
+        self.assertNotIn("CHAT_REDACTION_URL", off)
+
+    def test_a_foreign_redaction_url_is_kept_when_the_profile_is_off(self):
+        foreign = "http://redaction.example.org:8080"
+        team = dict(build(preset="team").values)
+        profiles = [p for p in team["COMPOSE_PROFILES"].split(",") if p and p != "redaction"]
+        existing = team | {"COMPOSE_PROFILES": ",".join(profiles), "CHAT_REDACTION_URL": foreign}
+        self.assertEqual(build(existing=existing).values["CHAT_REDACTION_URL"], foreign)
+
     def test_a_foreign_converter_is_kept_by_both_flags(self):
         foreign = "http://convert.example.org:3000"
         existing = dict(build().values) | {"CHAT_GOTENBERG_URL": foreign}

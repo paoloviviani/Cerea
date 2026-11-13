@@ -113,7 +113,7 @@ export async function probeGateway(token: string | undefined): Promise<GatewayHe
 	const version =
 		shortParam(field(answer?.body, "version")) ??
 		shortParam(answer?.headers.get("x-pystino-version")) ??
-		shortParam(optional.PYSTINO_VERSION) ??
+		shortParam(config.PYSTINO_VERSION) ??
 		null;
 	const status = field(answer?.body, "status");
 	if (answer && (answer.status === 200 || answer.status === 503) && typeof status === "string") {
@@ -169,7 +169,7 @@ async function knowledgeRow() {
 }
 
 export async function probeExtractor(ctx: ProbeContext): Promise<ProbeResult> {
-	if (config.CHAT_OCR_BASE_URL?.trim()) return { health: "ok", note: "extractor_direct" };
+	if (config.CHAT_OCR_BASE_URL?.trim()) return { health: "unknown", note: "extractor_direct" };
 	const cards = await ctx.catalogue();
 	if (!cards) return { health: "degraded", note: "catalogue_down" };
 	const row = await knowledgeRow();
@@ -345,21 +345,26 @@ export async function probeTranscription(ctx: ProbeContext): Promise<ProbeResult
 export async function probeMcp(): Promise<ProbeResult> {
 	const base = getMcpServers().length;
 	const rows = await collections.mcpConnectors
-		.find({ scope: "deployment" }, { projection: { lastError: 1 } })
+		.find({ scope: "deployment" }, { projection: { lastError: 1, checkedAt: 1 } })
 		.toArray();
 	const total = base + rows.length;
 	if (total === 0) return { health: "off", note: "mcp_none" };
 	const failed = rows.filter((r) => typeof r.lastError === "string" && r.lastError).length;
-	if (failed === 0) return { health: "ok", note: "mcp_ok", param: String(total) };
 	if (failed === total) return { health: "down", note: "mcp_all_failed", param: String(failed) };
-	return { health: "degraded", note: "mcp_some_failed", param: `${failed}/${total}` };
+	if (failed > 0)
+		return { health: "degraded", note: "mcp_some_failed", param: `${failed}/${total}` };
+	// Never checked: nothing is known about it, so it is not counted as working.
+	const unchecked = rows.filter((r) => !r.checkedAt).length;
+	if (unchecked > 0) return { health: "unknown", note: "mcp_unchecked", param: String(unchecked) };
+	return { health: "ok", note: "mcp_ok", param: String(total) };
 }
 
 export async function probeBlobs(): Promise<ProbeResult> {
 	const store = collections.blobStore;
 	try {
-		if (store.kind === "s3") {
-			await store.selfCheck();
+		if (store.kind === "s3" && store.reachable) {
+			// Read-only: a HEAD on the bucket, never the boot check that writes a probe object.
+			await store.reachable();
 			return { health: "ok", note: "blobs_s3" };
 		}
 		await store.findOne("files", {});
@@ -415,7 +420,7 @@ export async function probeSchedules(now = Date.now()): Promise<ProbeResult> {
 /** Mail is the gateway's. Where the chat can see an SMTP host it only checks that the port answers. */
 export async function probeMail(): Promise<ProbeResult> {
 	const host = optional.SMTP_HOST?.trim();
-	if (!host) return { health: "off", note: "mail_elsewhere" };
+	if (!host) return { health: "unknown", note: "mail_elsewhere" };
 	const port = Number.parseInt(optional.SMTP_PORT ?? "", 10) || 587;
 	const reachable = await new Promise<boolean>((resolve) => {
 		const socket = net.connect({ host, port, timeout: SHORT_MS });

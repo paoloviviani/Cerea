@@ -3,10 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const h = vi.hoisted(() => ({
 	cfg: {} as Record<string, string | undefined>,
 	knowledge: null as Record<string, unknown> | null,
-	connectors: [] as Array<{ lastError?: string }>,
+	connectors: [] as Array<{ lastError?: string; checkedAt?: Date }>,
 	devices: [] as Array<{ _id: { toString(): string } }>,
 	online: new Set<string>(),
-	blob: { kind: "gridfs", selfCheck: vi.fn(), findOne: vi.fn() },
+	blob: { kind: "gridfs", selfCheck: vi.fn(), reachable: vi.fn(), findOne: vi.fn() },
 	state: {
 		knowledgeOn: true,
 		image: null as string | null,
@@ -145,6 +145,7 @@ beforeEach(() => {
 	h.online.clear();
 	h.blob.kind = "gridfs";
 	h.blob.selfCheck.mockReset();
+	h.blob.reachable.mockReset();
 	h.blob.findOne.mockReset();
 	fetchMock = vi.fn();
 	vi.stubGlobal("fetch", fetchMock);
@@ -177,6 +178,12 @@ describe("gateway", () => {
 		const down = await probes.probeGateway("t");
 		expect(down).toMatchObject({ health: "down", note: "gateway_down", version: null });
 		expect(JSON.stringify(down)).not.toContain("10.0.0.7");
+	});
+
+	it("falls back to the kit's pinned PYSTINO_VERSION when the gateway does not say", async () => {
+		h.cfg.PYSTINO_VERSION = "0.33.2";
+		fetchMock.mockResolvedValueOnce(json({ status: "ok" }));
+		expect(await probes.probeGateway("t")).toMatchObject({ version: "0.33.2" });
 	});
 
 	it("takes the version from a header, and asks /me when readyz is not served", async () => {
@@ -219,7 +226,7 @@ describe("catalogue-backed services", () => {
 		});
 		h.cfg.CHAT_OCR_BASE_URL = "https://ocr.example";
 		expect(await probes.probeExtractor(ctx(null))).toEqual({
-			health: "ok",
+			health: "unknown",
 			note: "extractor_direct",
 		});
 	});
@@ -367,9 +374,15 @@ describe("connectors", () => {
 	it("mcp: none, all fine, some failed, all failed (from the stored check)", async () => {
 		expect(await probes.probeMcp()).toMatchObject({ health: "off", note: "mcp_none" });
 		h.state.mcpBase = 1;
-		h.connectors = [{}, {}];
+		h.connectors = [{ checkedAt: new Date() }, { checkedAt: new Date() }];
 		expect(await probes.probeMcp()).toEqual({ health: "ok", note: "mcp_ok", param: "3" });
-		h.connectors = [{ lastError: "x" }, {}];
+		h.connectors = [{ checkedAt: new Date() }, {}];
+		expect(await probes.probeMcp()).toEqual({
+			health: "unknown",
+			note: "mcp_unchecked",
+			param: "1",
+		});
+		h.connectors = [{ lastError: "x" }, { checkedAt: new Date() }];
 		expect(await probes.probeMcp()).toEqual({
 			health: "degraded",
 			note: "mcp_some_failed",
@@ -420,11 +433,13 @@ describe("storage and agents", () => {
 		h.blob.findOne.mockResolvedValue(null);
 		expect(await probes.probeBlobs()).toMatchObject({ health: "ok", note: "blobs_gridfs" });
 		h.blob.kind = "s3";
-		h.blob.selfCheck.mockResolvedValueOnce(undefined);
+		h.blob.reachable.mockResolvedValueOnce(undefined);
 		expect(await probes.probeBlobs()).toMatchObject({ health: "ok", note: "blobs_s3" });
-		h.blob.selfCheck.mockRejectedValueOnce(new Error("Cannot reach http://rustfs:9000 bucket x"));
+		h.blob.reachable.mockRejectedValueOnce(new Error("Cannot reach http://rustfs:9000 bucket x"));
 		const down = await probes.probeBlobs();
 		expect(down).toEqual({ health: "down", note: "blobs_down" });
+		// Read-only: the boot check, which writes a probe object, is never used.
+		expect(h.blob.selfCheck).not.toHaveBeenCalled();
 	});
 
 	it("galopin: missing is not configured, partial is amber, complete is ok with the pin", async () => {
@@ -466,7 +481,7 @@ describe("storage and agents", () => {
 
 describe("mail and sandbox", () => {
 	it("mail without an SMTP host in the chat's view says it is set up elsewhere", async () => {
-		expect(await probes.probeMail()).toEqual({ health: "off", note: "mail_elsewhere" });
+		expect(await probes.probeMail()).toEqual({ health: "unknown", note: "mail_elsewhere" });
 	});
 
 	it("mail with a host: a refused port is down", async () => {

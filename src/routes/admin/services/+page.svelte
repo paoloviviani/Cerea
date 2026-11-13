@@ -84,6 +84,7 @@
 		mcp_some_failed: (v) => m["admin.services.note.mcp_some_failed"]({ value: v }),
 		mcp_all_failed: (v) => m["admin.services.note.mcp_all_failed"]({ value: v }),
 		mcp_none: (v) => m["admin.services.note.mcp_none"]({ value: v }),
+		mcp_unchecked: (v) => m["admin.services.note.mcp_unchecked"]({ value: v }),
 		blobs_gridfs: (v) => m["admin.services.note.blobs_gridfs"]({ value: v }),
 		blobs_s3: (v) => m["admin.services.note.blobs_s3"]({ value: v }),
 		blobs_down: (v) => m["admin.services.note.blobs_down"]({ value: v }),
@@ -113,6 +114,7 @@
 		degraded: () => m["admin.services.health.degraded"](),
 		down: () => m["admin.services.health.down"](),
 		off: () => m["admin.services.health.off"](),
+		unknown: () => m["admin.services.health.unknown"](),
 	};
 
 	// Colour and a word, never colour alone.
@@ -121,6 +123,7 @@
 		degraded: "bg-amber-500",
 		down: "bg-red-500",
 		off: "bg-gray-400",
+		unknown: "bg-gray-400 ring-2 ring-gray-300 dark:ring-gray-600",
 	};
 
 	async function load(refresh: boolean) {
