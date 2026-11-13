@@ -97,6 +97,15 @@ describe("LocalConnectors", () => {
 			.toBeInTheDocument();
 		const byId = (id: string) =>
 			on.baseElement.querySelector(`[data-testid="${id}"]`)?.textContent ?? "";
+		// Status stays visible; the setup steps are folded away until asked for.
+		expect(byId("local-browser-states")).toContain("Browser ready");
+		expect(on.baseElement.querySelector('[data-testid="local-browser-setup-steps"]')).toBeNull();
+		expect(on.baseElement.querySelector('[data-testid="local-browser-install"]')).toBeNull();
+		expect(text(on)).not.toContain("Node.js 22.18");
+		await on.getByRole("button", { name: "Set up a browser" }).click();
+		expect(
+			on.baseElement.querySelector('[data-testid="local-browser-toggle"]')?.textContent
+		).toContain("Hide");
 		expect(byId("local-browser-install")).toContain("http://localhost:3000/galopin/install.sh");
 		expect(byId("local-browser-enroll")).toContain("--connectors-only");
 		// Short by default: this Cerea tells the binary its issuer; the long form is one click away.

@@ -134,6 +134,7 @@
 	/** The how-to is the page until a connectors machine is paired. */
 	const hasMachine = $derived(paired.some((m) => m.mode === "connectors"));
 	let showAdd = $state(false);
+	let showBrowserSetup = $state(false);
 
 	let epoch = 0;
 	async function refresh() {
@@ -408,31 +409,44 @@ loginctl enable-linger "$USER"`;
 		<h3 class="{s.CARD_TITLE} !whitespace-normal">{m["workspace.local.browser.title"]()}</h3>
 		<p class="{s.SUBTITLE} mt-1 break-words">{m["workspace.local.browser.intro"]()}</p>
 
-		{@render step(1, m["workspace.local.browser.step_install"]())}
-		{@render code(commands.install, "local-browser-install")}
-		{@render step(2, m["workspace.local.browser.step_enroll"]())}
-		{@render code(commands.enroll, "local-browser-enroll")}
-		<details class="mt-2 text-xs text-ink-muted" data-testid="local-browser-older">
-			<summary class="cursor-pointer">{m["code.pair.older_galopin"]()}</summary>
-			<p class="mt-2">{m["code.pair.older_galopin_note"]()}</p>
-			<div class="mt-2">{@render code(commands.enrollExplicit, "local-browser-explicit")}</div>
-		</details>
-		{@render step(3, m["workspace.local.browser.step_setup"]())}
-		{@render code(`${browserSetup}\n${browserEnable}`, "local-browser-setup")}
-		<p class="mt-1 text-xs text-ink-muted">
-			<Rich parts={m["workspace.local.browser.note_node"].parts()} tags={{ link: nodeLink }} />
-		</p>
-		{@render step(4, m["workspace.local.browser.step_run"]())}
-		{@render code(commands.run, "local-browser-run")}
-		<p class="mt-2 text-xs text-ink-muted">{m["workspace.local.browser.note_have"]()}</p>
-		<p class="mt-1 text-xs">
-			<a
-				class="text-accent underline"
-				href={BROWSER_DOCS_URL}
-				target="_blank"
-				rel="noopener noreferrer">{m["workspace.local.browser.more"]()}</a
-			>
-		</p>
+		<button
+			type="button"
+			class="{s.SECONDARY} mt-3"
+			aria-expanded={showBrowserSetup}
+			data-testid="local-browser-toggle"
+			onclick={() => (showBrowserSetup = !showBrowserSetup)}
+		>
+			{showBrowserSetup ? m["workspace.local.hide"]() : m["workspace.local.browser.setup_show"]()}
+		</button>
+		{#if showBrowserSetup}
+			<div data-testid="local-browser-setup-steps">
+				{@render step(1, m["workspace.local.browser.step_install"]())}
+				{@render code(commands.install, "local-browser-install")}
+				{@render step(2, m["workspace.local.browser.step_enroll"]())}
+				{@render code(commands.enroll, "local-browser-enroll")}
+				<details class="mt-2 text-xs text-ink-muted" data-testid="local-browser-older">
+					<summary class="cursor-pointer">{m["code.pair.older_galopin"]()}</summary>
+					<p class="mt-2">{m["code.pair.older_galopin_note"]()}</p>
+					<div class="mt-2">{@render code(commands.enrollExplicit, "local-browser-explicit")}</div>
+				</details>
+				{@render step(3, m["workspace.local.browser.step_setup"]())}
+				{@render code(`${browserSetup}\n${browserEnable}`, "local-browser-setup")}
+				<p class="mt-1 text-xs text-ink-muted">
+					<Rich parts={m["workspace.local.browser.note_node"].parts()} tags={{ link: nodeLink }} />
+				</p>
+				{@render step(4, m["workspace.local.browser.step_run"]())}
+				{@render code(commands.run, "local-browser-run")}
+				<p class="mt-2 text-xs text-ink-muted">{m["workspace.local.browser.note_have"]()}</p>
+				<p class="mt-1 text-xs">
+					<a
+						class="text-accent underline"
+						href={BROWSER_DOCS_URL}
+						target="_blank"
+						rel="noopener noreferrer">{m["workspace.local.browser.more"]()}</a
+					>
+				</p>
+			</div>
+		{/if}
 		{#if paired.some((machine) => machine.browser !== undefined || machine.mode === "connectors")}
 			<ul class="mt-3 space-y-1 text-xs text-ink-muted" data-testid="local-browser-states">
 				{#each paired as machine (machine.id)}
