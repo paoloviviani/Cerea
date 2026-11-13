@@ -52,6 +52,7 @@ AUTHELIA_INTERNAL = "http://authelia:9091/authelia"
 PLAYWRIGHT_ENDPOINT = "ws://playwright:3000/"
 #: Where the chat reaches Gotenberg, on the office profile's internal network.
 GOTENBERG_ENDPOINT = "http://gotenberg:3000"
+REDACTION_ENDPOINT = "http://redaction:8080"
 #: Where the chat reaches the bundled object store (the rustfs profile), on its
 #: internal network, and the bucket it keeps files in.
 RUSTFS_ENDPOINT = "http://rustfs:9000"
@@ -1213,6 +1214,12 @@ def build(answers: Answers, existing: dict, template: str, discovery: dict | Non
             f"fetch off, but PLAYWRIGHT_WS_ENDPOINT points at a renderer elsewhere "
             f"({values['PLAYWRIGHT_WS_ENDPOINT']}): left as it is"
         )
+    # The chat's redaction address (the admin Services page's probe) follows the
+    # redaction profile; one that is not ours is kept.
+    if "redaction" in profiles:
+        values["CHAT_REDACTION_URL"] = values.get("CHAT_REDACTION_URL") or REDACTION_ENDPOINT
+    elif values.get("CHAT_REDACTION_URL") in ("", REDACTION_ENDPOINT):
+        values.pop("CHAT_REDACTION_URL", None)
     # The chat's converter address follows the office profile, like the
     # renderer's above: one that is not ours (a Gotenberg elsewhere) is kept.
     if "office" in profiles:

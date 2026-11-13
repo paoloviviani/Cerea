@@ -448,6 +448,14 @@ class TestFreshInstall(unittest.TestCase):
         off = build(existing=on, office=False).values
         self.assertEqual(self._office_state(off), (False, None))
 
+    def test_redaction_url_follows_the_redaction_profile(self):
+        team = build(preset="team").values  # the team preset runs redaction
+        self.assertIn("redaction", team["COMPOSE_PROFILES"].split(","))
+        self.assertEqual(team.get("CHAT_REDACTION_URL"), cfg.REDACTION_ENDPOINT)
+        homelab = build(preset="homelab").values
+        self.assertNotIn("redaction", homelab["COMPOSE_PROFILES"].split(","))
+        self.assertNotIn("CHAT_REDACTION_URL", homelab)
+
     def test_a_foreign_converter_is_kept_by_both_flags(self):
         foreign = "http://convert.example.org:3000"
         existing = dict(build().values) | {"CHAT_GOTENBERG_URL": foreign}
