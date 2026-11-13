@@ -44,7 +44,7 @@ class FetchNetwork(unittest.TestCase):
         self.assertEqual(sorted(members), ["chat", "playwright"])
 
     def test_the_chat_keeps_its_other_networks(self):
-        self.assertEqual(sorted(networks_of("chat")), sorted(["default", "office", "docs", "objects", "fetch"]))
+        self.assertEqual(sorted(networks_of("chat")), sorted(["default", "office", "docs", "objects", "fetch", "sandbox-api"]))
 
     def test_the_network_reaches_the_internet(self):
         # Fetching public pages needs a route out, so it is not internal.
