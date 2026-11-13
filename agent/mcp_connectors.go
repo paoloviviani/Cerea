@@ -76,6 +76,9 @@ func (mc *machine) startConnectors(stateDir, mcpPath string) *mcpconn.Hub {
 		// The browser runtime owns one profile, so it is one process: Chromium refuses a second
 		// on the same profile. Cerea keeps one channel per server open anyway.
 		ServerLimits: map[string]int{browserConnectorName: 1},
+		// ...and it outlives its channel: no idle stop, and a link that drops leaves it
+		// (and the user's Chrome window) running for the grace period.
+		KeepAlive: map[string]bool{browserConnectorName: true},
 		// ...and it is for Cerea's browse tool only, never an agent session's connector.
 		LocalExclude: map[string]bool{browserConnectorName: true},
 		// Zero is the 10 minutes of PROTOCOL.md §10.6; tests shorten it.

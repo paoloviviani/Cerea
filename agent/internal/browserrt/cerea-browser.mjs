@@ -1,4 +1,4 @@
-// cerea-browser runtime 0.1.0; source-hash: 9e0af0862fa166dbeec5703f5a863f17aa045b6078d181fe8f36b7717248c705
+// cerea-browser runtime 0.1.0; source-hash: 15f750fd3090b1ac6fec9a129fff859671d8c465e077d8ef404a686d336f1c9b
 // inlined: @hono/node-server@2.1.8 @modelcontextprotocol/sdk@1.32.2 ajv@8.20.0 ajv-formats@3.0.1 content-type@1.0.5 fast-deep-equal@3.1.3 fast-uri@3.1.9 hono@4.13.18 json-schema-traverse@1.0.0 tldts@7.4.26 zod@3.25.76 zod-to-json-schema@3.25.2
 import { createRequire as __cr } from "node:module";
 const require = __cr(import.meta.url);
@@ -21450,6 +21450,155 @@ var StreamableHTTPServerTransport = class {
   }
 };
 
+// src/sanitize.ts
+var INVISIBLE = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f­؜᠎​-‏‪-‮⁠-⁤⁦-⁯﻿￹-￻\u{e0000}-\u{e007f}\u{e0100}-\u{e01ef}]/gu;
+var CONTENT_TAG = "page-content";
+var FENCE = new RegExp(`<\\s*(/?)\\s*(${CONTENT_TAG}|untrusted_page_content)`, "gi");
+function clean(input, max = 300) {
+  if (input === void 0 || input === null) return "";
+  let text = String(input).replace(INVISIBLE, "").replace(FENCE, `\u2039$1$2`).replace(/\s+/g, " ").trim();
+  if (text.length > max) {
+    let end = max - 1;
+    const code = text.charCodeAt(end - 1);
+    if (code >= 55296 && code <= 56319) end -= 1;
+    text = `${text.slice(0, end)}\u2026`;
+  }
+  return text;
+}
+function cleanMultiline(input, max = 2e4) {
+  if (input === void 0 || input === null) return "";
+  let text = String(input).replace(INVISIBLE, (c) => c === "\n" || c === "	" ? c : "").replace(FENCE, `\u2039$1$2`).replace(/[ \t\f\v ]+/g, " ").replace(/ ?\n ?/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  if (text.length > max) text = `${text.slice(0, max - 1)}\u2026`;
+  return text;
+}
+function quote(text) {
+  return JSON.stringify(text);
+}
+function safeFileName(name) {
+  const base = clean(name, 255).split(/[\\/]/).pop()?.replace(/^\.+/, "") ?? "";
+  return base || "download";
+}
+
+// src/budget.ts
+var RESULT_LIMIT = 9e5;
+var WIRE_BUDGET = 7e5;
+var DOWNLOAD_WIRE_BUDGET = 88e4;
+var SCREENSHOT_LIMIT = 7e5;
+var bytesOf = (value) => Buffer.byteLength(JSON.stringify(value));
+var wire = (value) => bytesOf({ content: [{ type: "text", text: JSON.stringify(value) }], structuredContent: value });
+var SNAPSHOT_NOTE = "[truncated: this page is larger than one result can carry. Scroll to the part you need, use extract for tables and lists, or narrow down with a smaller region.]";
+var CLOSE = `</${CONTENT_TAG}>`;
+function cutText(text, max) {
+  if (Buffer.byteLength(text) <= max) return text;
+  const closed = text.endsWith(CLOSE);
+  const body = closed ? text.slice(0, -CLOSE.length).trimEnd() : text;
+  const room = Math.max(0, max - (closed ? CLOSE.length + 1 : 0));
+  let cut = body.slice(0, room);
+  while (Buffer.byteLength(cut) > room) cut = cut.slice(0, Math.floor(cut.length * 0.9));
+  const nl = cut.lastIndexOf("\n");
+  if (nl > room * 0.5) cut = cut.slice(0, nl);
+  return closed ? `${cut}
+${CLOSE}` : cut;
+}
+var withNote = (text) => `${SNAPSHOT_NOTE}
+${text}`;
+function boundSnapshot(s, measure, budget = WIRE_BUDGET) {
+  if (measure(s) <= budget) return s;
+  const elements = [...s.elements];
+  let base = s.text;
+  let out = s;
+  for (let guard = 0; guard < 60; guard++) {
+    out = { ...s, text: withNote(base), elements, truncated: true, note: SNAPSHOT_NOTE };
+    if (measure(out) <= budget) return out;
+    if (Buffer.byteLength(base) >= bytesOf(elements)) {
+      base = cutText(base, Math.floor(Buffer.byteLength(base) * 0.7));
+    } else {
+      elements.length = Math.floor(elements.length * 0.7);
+    }
+  }
+  return { ...s, text: withNote(""), elements: [], truncated: true, note: SNAPSHOT_NOTE };
+}
+function boundDiff(d, measure, budget = WIRE_BUDGET) {
+  if (measure(d) <= budget) return d;
+  let out = { ...d };
+  if (out.snapshot) {
+    const snapshot = boundSnapshot(out.snapshot, measure, Math.floor(budget * 0.4));
+    out = { ...out, snapshot, text: snapshot.text };
+  }
+  const added = [...out.added];
+  const changed = [...out.changed];
+  const removed = [...out.removed];
+  let base = out.text;
+  for (let guard = 0; guard < 60; guard++) {
+    const next = {
+      ...out,
+      added,
+      changed,
+      removed,
+      text: out.snapshot && out.snapshot.text === out.text ? out.text : withNote(base),
+      truncated: true
+    };
+    if (measure(next) <= budget) return next;
+    added.length = Math.floor(added.length * 0.7);
+    changed.length = Math.floor(changed.length * 0.7);
+    removed.length = Math.floor(removed.length * 0.7);
+    if (out.snapshot) {
+      const snapshot = boundSnapshot(
+        out.snapshot,
+        measure,
+        Math.floor(budget * (0.4 * 0.7 ** guard))
+      );
+      out = { ...out, snapshot, text: snapshot.text };
+      base = out.text;
+    } else {
+      base = cutText(base, Math.floor(Buffer.byteLength(base) * 0.7));
+    }
+  }
+  return { ...out, added: [], changed: [], removed: [], text: withNote(""), truncated: true };
+}
+function boundExtract(e, measure, budget = WIRE_BUDGET) {
+  if (measure(e) <= budget) return e;
+  const tables = e.tables.map((t) => ({ ...t, rows: [...t.rows] }));
+  const lists = e.lists.map((l) => ({ ...l, items: [...l.items] }));
+  let text = e.text;
+  const note = "Cut to fit one result: rows and items past the cut are counted in truncated. Narrow down with a ref, or scroll and extract again.";
+  const build = () => ({
+    note,
+    ...e,
+    tables: tables.map((t, i) => {
+      const total = e.tables[i].rows.length + (e.tables[i].truncated ?? 0);
+      return { ...t, ...total > t.rows.length ? { truncated: total - t.rows.length } : {} };
+    }),
+    lists: lists.map((l, i) => {
+      const total = e.lists[i].items.length + (e.lists[i].truncated ?? 0);
+      return { ...l, ...total > l.items.length ? { truncated: total - l.items.length } : {} };
+    }),
+    ...text !== void 0 ? { text } : {}
+  });
+  for (let guard = 0; guard < 200; guard++) {
+    const out = build();
+    if (measure(out) <= budget) return out;
+    let cut = false;
+    const shrink = (n) => n > 1 ? Math.max(1, Math.floor(n * 0.75)) : n;
+    for (const t of tables) {
+      const n = shrink(t.rows.length);
+      cut ||= n < t.rows.length;
+      t.rows.length = n;
+    }
+    for (const l of lists) {
+      const n = shrink(l.items.length);
+      cut ||= n < l.items.length;
+      l.items.length = n;
+    }
+    if (text !== void 0 && Buffer.byteLength(text) > 50) {
+      text = cutText(text, Math.floor(Buffer.byteLength(text) * 0.75));
+      cut = true;
+    }
+    if (!cut) break;
+  }
+  return { ...build(), tables: [], lists: [], text: void 0 };
+}
+
 // src/contract.ts
 var snapshotElementSchema = external_exports.object({
   /** Stable across snapshots of the same page: the handle an action names. */
@@ -21516,7 +21665,10 @@ var snapshotSchema = external_exports.object({
   elements: external_exports.array(snapshotElementSchema).max(2e3),
   /** Rows the runtime folded away ("... and 37 more rows like this; use extract"). */
   collapsed: external_exports.number().int().nonnegative().optional(),
-  challenge: challengeSchema.optional()
+  challenge: challengeSchema.optional(),
+  /** The tree was cut to fit one result; `note` says what to do. */
+  truncated: external_exports.boolean().optional(),
+  note: external_exports.string().max(1e3).optional()
 });
 var diffSchema = external_exports.object({
   url: external_exports.string().max(4096),
@@ -21529,7 +21681,8 @@ var diffSchema = external_exports.object({
   /** The diff as text for the model. */
   text: external_exports.string().default(""),
   snapshot: snapshotSchema.optional(),
-  challenge: challengeSchema.optional()
+  challenge: challengeSchema.optional(),
+  truncated: external_exports.boolean().optional()
 });
 var browserActionSchema = external_exports.discriminatedUnion("type", [
   external_exports.object({ type: external_exports.literal("click"), ref: external_exports.string().min(1).max(64) }),
@@ -21634,7 +21787,9 @@ var extractResultSchema = external_exports.object({
     })
   ).max(50).default([]),
   /** The region's visible text (with `ref`, or `mode: "text"`). */
-  text: external_exports.string().max(1e5).optional()
+  text: external_exports.string().max(1e5).optional(),
+  /** Present when the result was cut to fit one message. */
+  note: external_exports.string().max(1e3).optional()
 });
 var screenshotResultSchema = external_exports.object({
   mime: external_exports.string().max(64),
@@ -21832,35 +21987,6 @@ function parseScreenshot(raw) {
   return parsed.data;
 }
 
-// src/sanitize.ts
-var INVISIBLE = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f­؜᠎​-‏‪-‮⁠-⁤⁦-⁯﻿￹-￻\u{e0000}-\u{e007f}\u{e0100}-\u{e01ef}]/gu;
-var CONTENT_TAG = "page-content";
-var FENCE = new RegExp(`<\\s*(/?)\\s*(${CONTENT_TAG}|untrusted_page_content)`, "gi");
-function clean(input, max = 300) {
-  if (input === void 0 || input === null) return "";
-  let text = String(input).replace(INVISIBLE, "").replace(FENCE, `\u2039$1$2`).replace(/\s+/g, " ").trim();
-  if (text.length > max) {
-    let end = max - 1;
-    const code = text.charCodeAt(end - 1);
-    if (code >= 55296 && code <= 56319) end -= 1;
-    text = `${text.slice(0, end)}\u2026`;
-  }
-  return text;
-}
-function cleanMultiline(input, max = 2e4) {
-  if (input === void 0 || input === null) return "";
-  let text = String(input).replace(INVISIBLE, (c) => c === "\n" || c === "	" ? c : "").replace(FENCE, `\u2039$1$2`).replace(/[ \t\f\v ]+/g, " ").replace(/ ?\n ?/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
-  if (text.length > max) text = `${text.slice(0, max - 1)}\u2026`;
-  return text;
-}
-function quote(text) {
-  return JSON.stringify(text);
-}
-function safeFileName(name) {
-  const base = clean(name, 255).split(/[\\/]/).pop()?.replace(/^\.+/, "") ?? "";
-  return base || "download";
-}
-
 // src/server.ts
 var SERVER_NAME = "cerea-browser";
 var SERVER_VERSION = "0.1.0";
@@ -21989,12 +22115,39 @@ var failure = (message) => ({
 function createToolHandler(session2) {
   const serial = (work) => session2.serial(work);
   return async (name, rawArgs) => {
+    const result = await run(name, rawArgs);
+    const size = bytesOf(result);
+    if (size > RESULT_LIMIT) {
+      const advice = name === "download" ? "call download again (files stay until taken), or fetch fewer files" : "scroll, use extract with a ref, or ask for less";
+      return failure(
+        `result too large: ${clean(name, 60)}, ${size} bytes (limit ${RESULT_LIMIT}); narrow the request: ${advice}.`
+      );
+    }
+    return result;
+  };
+  async function run(name, rawArgs) {
     try {
       switch (name) {
         case "snapshot":
-          return json2(await serial(() => session2.snapshot()));
-        case "diff":
-          return json2(await serial(() => session2.diff()));
+          return json2(boundSnapshot(await serial(() => session2.snapshot()), wire));
+        case "diff": {
+          let d = await serial(() => session2.diff());
+          if (!d.navigated && wire(d) > WIRE_BUDGET) {
+            const snap = await serial(() => session2.snapshot());
+            d = {
+              url: snap.url,
+              title: snap.title,
+              ...snap.challenge ? { challenge: snap.challenge } : {},
+              navigated: true,
+              added: [],
+              changed: [],
+              removed: [],
+              text: snap.text,
+              snapshot: snap
+            };
+          }
+          return json2(boundDiff(d, wire));
+        }
         case "act": {
           const args = asObject(rawArgs);
           const actions = parseActions(args.actions);
@@ -22003,7 +22156,7 @@ function createToolHandler(session2) {
         }
         case "extract": {
           const request = parseExtract(rawArgs);
-          return json2(await serial(() => session2.extract(request)));
+          return json2(boundExtract(await serial(() => session2.extract(request)), wire));
         }
         case "screenshot": {
           const request = parseScreenshot(rawArgs);
@@ -22052,7 +22205,7 @@ function createToolHandler(session2) {
         `The browser runtime failed: ${clean(err instanceof Error ? err.message : err, 300)}`
       );
     }
-  };
+  }
 }
 function createServer2(session2) {
   const handler = createToolHandler(session2);
@@ -22060,6 +22213,10 @@ function createServer2(session2) {
     { name: SERVER_NAME, version: SERVER_VERSION },
     { capabilities: { tools: {} } }
   );
+  let clients = 0;
+  server.oninitialized = () => {
+    if (++clients > 1) void session2.serial(() => session2.newClient()).catch(() => void 0);
+  };
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: TOOLS.map((t) => ({ ...t }))
   }));
@@ -23490,6 +23647,17 @@ var BrowserSession = class {
    * task can `resume` it with that token, and without it the page is just a user tab. A tab the
    * user lent to the task is let go, never closed.
    */
+  /**
+   * A new client took over this process (a reattached channel): the old task's state is let go
+   * the way end_task({keep: true}) does, and what only that task could use is cleared. Pages
+   * stay open.
+   */
+  async newClient() {
+    await this.endTask({ keep: true });
+    this.acting = false;
+    this.downloads = [];
+    this.pendingDownloads.clear();
+  }
   async endTask(options = {}) {
     clearTimeout(this.idleTimer);
     while (this.pendingPages.size > 0) await Promise.allSettled([...this.pendingPages]);
@@ -24658,15 +24826,28 @@ url: about:blank
   }
   async screenshot(request) {
     const page = this.requirePage();
-    const type = request.format === "jpeg" ? "jpeg" : "png";
+    const wanted = request.format === "jpeg" ? "jpeg" : "png";
     try {
-      const buffer = request.ref ? await page.getByRef(request.ref).screenshot({ type, timeout: 5e3, ...type === "jpeg" ? { quality: 70 } : {} }) : await page.screenshot({
-        type,
-        ...type === "jpeg" ? { quality: 70 } : {},
-        timeout: 8e3
-      });
+      const shoot = (type2, quality) => request.ref ? page.getByRef(request.ref).screenshot({
+        type: type2,
+        timeout: 5e3,
+        ...quality ? { quality } : {}
+      }) : page.screenshot({ type: type2, timeout: 8e3, ...quality ? { quality } : {} });
+      let type = wanted;
+      let buffer = await shoot(type, type === "jpeg" ? 70 : void 0);
+      for (const quality of [60, 45, 30, 20, 10]) {
+        if (buffer.length * (4 / 3) <= SCREENSHOT_LIMIT) break;
+        type = "jpeg";
+        buffer = await shoot("jpeg", quality);
+      }
+      if (buffer.length * (4 / 3) > SCREENSHOT_LIMIT) {
+        throw new ToolError(
+          "The screenshot is too large to return even at the lowest quality: take one of an element (ref) instead."
+        );
+      }
       return { mime: `image/${type}`, base64: buffer.toString("base64") };
     } catch (err) {
+      if (err instanceof ToolError) throw err;
       if (request.ref && /Timeout/.test(String(err))) {
         throw new ToolError(
           `No element with ref ${request.ref} on this page. Refs reset when the page navigates: take a new snapshot.`
@@ -24683,14 +24864,17 @@ url: about:blank
   async download(request = {}) {
     await Promise.race([Promise.allSettled([...this.pendingDownloads]), sleep(15e3)]);
     const give = this.downloads.filter((d) => request.all || d.actionIndex !== void 0);
-    this.downloads = this.downloads.filter((d) => !give.includes(d));
     const files = [];
-    for (const file of give.slice(0, MAX_DOWNLOADS)) {
+    const taken = /* @__PURE__ */ new Set();
+    let base64Total = 0;
+    for (const file of give) {
       const origin = {
         ...file.actionIndex !== void 0 ? { actionIndex: file.actionIndex } : {},
         ...file.grantId ? { grantId: file.grantId } : {}
       };
+      if (files.length >= MAX_DOWNLOADS) break;
       if (file.skipped || !file.path) {
+        taken.add(file);
         files.push({
           name: file.name,
           mime: file.mime,
@@ -24701,6 +24885,7 @@ url: about:blank
         continue;
       }
       if (file.size > MAX_DOWNLOAD_BYTES) {
+        taken.add(file);
         files.push({
           name: file.name,
           mime: file.mime,
@@ -24708,18 +24893,44 @@ url: about:blank
           skipped: `larger than ${MAX_DOWNLOAD_BYTES / 1024 / 1024} MB`,
           ...origin
         });
-      } else {
-        const bytes = await readFile(file.path);
+        await rm(file.path, { force: true });
+        continue;
+      }
+      if (Math.ceil(file.size / 3) * 4 * 2 > DOWNLOAD_WIRE_BUDGET) {
+        taken.add(file);
         files.push({
           name: file.name,
           mime: file.mime,
-          size: bytes.byteLength,
-          base64: bytes.toString("base64"),
+          size: file.size,
+          skipped: `too large to return over the link (${file.size} bytes; the limit is about ${Math.floor(DOWNLOAD_WIRE_BUDGET / 8 * 3)})`,
           ...origin
         });
+        await rm(file.path, { force: true });
+        continue;
       }
+      const bytes = await readFile(file.path);
+      const entry = {
+        name: file.name,
+        mime: file.mime,
+        size: bytes.byteLength,
+        base64: bytes.toString("base64"),
+        ...origin
+      };
+      if (wire({ files: [...files, entry] }) > DOWNLOAD_WIRE_BUDGET) {
+        files.push({
+          name: file.name,
+          mime: file.mime,
+          size: file.size,
+          skipped: "too large for one result; call download again",
+          ...origin
+        });
+        continue;
+      }
+      taken.add(file);
+      files.push(entry);
       await rm(file.path, { force: true });
     }
+    this.downloads = this.downloads.filter((d) => !taken.has(d));
     return { files };
   }
 };

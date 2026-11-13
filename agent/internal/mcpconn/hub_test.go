@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -299,7 +300,10 @@ func pidGone(pid int) bool {
 	if err := syscall.Kill(pid, 0); err == syscall.ESRCH {
 		return true
 	}
-	b, _ := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil && !os.IsPermission(err) && runtime.GOOS == "linux" {
+		return true // reaped between the two checks
+	}
 	return strings.Contains(string(b), ") Z ")
 }
 
@@ -399,5 +403,337 @@ func TestServerLimitsHoldOneServerToFewerChannels(t *testing.T) {
 	}
 	if _, err := r2.hub.Open(t_ctx(t), "fake"); err == nil {
 		t.Error("the limit raised the default of four")
+	}
+}
+
+func keepTweak(idle, grace time.Duration) func(*Config) {
+	return func(c *Config) {
+		c.KeepAliveIdle, c.KeepAliveGrace = idle, grace
+		c.KeepAlive = map[string]bool{"fake": true}
+	}
+}
+
+// stdioOf is the process behind a channel, read under the hub's lock.
+func (r *rig) stdioOf(id string) *stdioConn {
+	r.t.Helper()
+	r.hub.mu.Lock()
+	ch := r.hub.channels[id]
+	r.hub.mu.Unlock()
+	if ch == nil {
+		r.t.Fatalf("no channel %s", id)
+	}
+	sc, _ := ch.tr.(*stdioConn)
+	if sc == nil {
+		r.t.Fatal("not stdio")
+	}
+	return sc
+}
+
+func (r *rig) parkedPid() (int, bool) {
+	r.hub.mu.Lock()
+	defer r.hub.mu.Unlock()
+	p := r.hub.parked["fake"]
+	if p == nil {
+		return 0, false
+	}
+	return p.sc.Pid(), true
+}
+
+func waitGone(t *testing.T, pid int) {
+	t.Helper()
+	deadline := time.Now().Add(6 * time.Second)
+	for !pidGone(pid) && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !pidGone(pid) {
+		t.Fatalf("process %d still running", pid)
+	}
+}
+
+const initParams = `{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"t","version":"1"}}`
+
+func TestKeptServerIdleParksTheProcessInsteadOfStoppingIt(t *testing.T) {
+	r := newRig(t, fakeConfig("", ""), keepTweak(200*time.Millisecond, time.Minute))
+	ch := r.open("fake")
+	pid := r.stdioOf(ch).Pid()
+	// Traffic keeps the channel; silence retires it.
+	for i := 0; i < 3; i++ {
+		time.Sleep(100 * time.Millisecond)
+		r.call(ch, i+1, "ping", `{}`)
+	}
+	c := r.nextClosed()
+	if c.channel != ch || c.reason != "idle" {
+		t.Fatalf("closed = %+v", c)
+	}
+	if got, ok := r.parkedPid(); !ok || got != pid || pidGone(pid) {
+		t.Fatalf("process not parked: %d %v", got, ok)
+	}
+	ch2 := r.open("fake")
+	if r.stdioOf(ch2).Pid() != pid {
+		t.Error("a new process was started")
+	}
+}
+
+func TestKeptServerSurvivesLinkDownAndIsReattached(t *testing.T) {
+	r := newRig(t, fakeConfig("", ""), keepTweak(0, time.Minute))
+	ch := r.open("fake")
+	r.call(ch, 1, "initialize", initParams)
+	pid := r.stdioOf(ch).Pid()
+	r.hub.LinkDown()
+	if r.hub.OpenChannels() != 0 {
+		t.Error("channels remain")
+	}
+	if got, ok := r.parkedPid(); !ok || got != pid {
+		t.Fatalf("process not kept: %d %v", got, ok)
+	}
+	if pidGone(pid) {
+		t.Fatal("the process was killed on link down")
+	}
+	ch2 := r.open("fake")
+	if ch2 == ch {
+		t.Fatal("same channel id")
+	}
+	if _, ok := r.parkedPid(); ok {
+		t.Error("still parked after reattach")
+	}
+	if got := r.stdioOf(ch2).Pid(); got != pid {
+		t.Errorf("a new process (%d) was started, not %d", got, pid)
+	}
+	// The same ids as the first client used: answered under this client's ids.
+	init := r.call(ch2, 1, "initialize", initParams)
+	if !strings.Contains(string(init["result"]), `"fake"`) {
+		t.Errorf("initialize on the reattached channel: %s", init["result"])
+	}
+	if got := r.call(ch2, 2, "ping", `{}`); got["result"] == nil {
+		t.Errorf("ping: %v", got)
+	}
+	r.hub.Close(ch2)
+	waitGone(t, pid)
+}
+
+func TestKeptServerStopsWhenTheGraceEnds(t *testing.T) {
+	r := newRig(t, fakeConfig("", ""), keepTweak(0, 300*time.Millisecond))
+	ch := r.open("fake")
+	pid := r.stdioOf(ch).Pid()
+	r.hub.LinkDown()
+	if pidGone(pid) {
+		t.Fatal("killed at once")
+	}
+	waitGone(t, pid)
+	if _, ok := r.parkedPid(); ok {
+		t.Error("still parked")
+	}
+}
+
+func TestShutdownStopsAKeptServer(t *testing.T) {
+	r := newRig(t, fakeConfig("", ""), keepTweak(0, time.Minute))
+	ch := r.open("fake")
+	pid := r.stdioOf(ch).Pid()
+	r.hub.LinkDown()
+	r.hub.Shutdown()
+	waitGone(t, pid)
+}
+
+func TestOtherServersAreStillKilledOnLinkDown(t *testing.T) {
+	r := newRig(t, fakeConfig("", ""), func(c *Config) { c.KeepAlive = map[string]bool{"other": true} })
+	ch := r.open("fake")
+	pid := r.stdioOf(ch).Pid()
+	r.hub.LinkDown()
+	if _, ok := r.parkedPid(); ok {
+		t.Fatal("parked a server that is not kept")
+	}
+	waitGone(t, pid)
+}
+
+func TestOpeningAtTheLimitRetiresTheOldChannelAndAdoptsItsProcess(t *testing.T) {
+	r := newRig(t, fakeConfig("", ""), func(c *Config) {
+		keepTweak(0, time.Minute)(c)
+		c.ServerLimits = map[string]int{"fake": 1}
+	})
+	ch := r.open("fake")
+	pid := r.stdioOf(ch).Pid()
+	ch2 := r.open("fake")
+	if ch2 == ch || r.stdioOf(ch2).Pid() != pid {
+		t.Fatalf("not adopted: %s %s", ch, ch2)
+	}
+	if c := r.nextClosed(); c.channel != ch {
+		t.Errorf("closed = %+v", c)
+	}
+	if r.hub.OpenChannels() != 1 {
+		t.Errorf("channels = %d", r.hub.OpenChannels())
+	}
+	if got := r.call(ch2, 1, "ping", `{}`); got["result"] == nil {
+		t.Errorf("ping: %v", got)
+	}
+}
+
+func TestDropParkedLeavesAProcessAlreadyTaken(t *testing.T) {
+	r := newRig(t, fakeConfig("", ""), keepTweak(0, time.Minute))
+	ch := r.open("fake")
+	pid := r.stdioOf(ch).Pid()
+	r.hub.LinkDown()
+	r.hub.mu.Lock()
+	p := r.hub.parked["fake"]
+	r.hub.mu.Unlock()
+	ch2 := r.open("fake") // adopts p
+	r.hub.dropParked(p, "late timer")
+	if pidGone(pid) {
+		t.Fatal("a stale drop killed the adopted process")
+	}
+	if got := r.call(ch2, 1, "ping", `{}`); got["result"] == nil {
+		t.Errorf("ping: %v", got)
+	}
+}
+
+func TestTakeParkedRefusesAChangedEntry(t *testing.T) {
+	r := newRig(t, fakeConfig("", ""), keepTweak(0, time.Minute))
+	ch := r.open("fake")
+	pid := r.stdioOf(ch).Pid()
+	r.hub.LinkDown()
+	e := *r.hub.Entry("fake")
+	e.Args = append(append([]string(nil), e.Args...), "--changed")
+	if p := r.hub.takeParked("fake", &e); p != nil {
+		t.Fatal("adopted a process of another entry")
+	}
+	waitGone(t, pid)
+}
+
+func TestAdoptingADeadProcessIsRefused(t *testing.T) {
+	r := newRig(t, fakeConfig("", ""), keepTweak(0, time.Minute))
+	e := r.hub.Entry("fake")
+	sc, err := startStdio(e, &sink{message: func([]byte) {}, closed: func(string, string) {}, logf: func(string, ...any) {}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc.Close()
+	<-sc.Done()
+	c := newChannel(r.hub, e)
+	c.adopt = &parkedConn{entry: e, sc: sc}
+	if oerr := c.start(t_ctx(t)); oerr == nil || oerr.Code != "unavailable" {
+		t.Fatalf("start = %v", oerr)
+	}
+}
+
+func TestBeforeStartRefusalDropsTheKeptProcess(t *testing.T) {
+	refuse := false
+	r := newRig(t, fakeConfig("", ""), func(c *Config) {
+		keepTweak(0, time.Minute)(c)
+		c.BeforeStart = func(context.Context, *Entry) *OpenError {
+			if refuse {
+				return &OpenError{"forbidden", "no key"}
+			}
+			return nil
+		}
+	})
+	ch := r.open("fake")
+	pid := r.stdioOf(ch).Pid()
+	r.hub.LinkDown()
+	refuse = true
+	if _, oerr := r.hub.Open(t_ctx(t), "fake"); oerr == nil {
+		t.Fatal("open succeeded")
+	}
+	waitGone(t, pid)
+	if _, ok := r.parkedPid(); ok {
+		t.Error("still parked")
+	}
+}
+
+func TestKeptChannelIDsAreRemappedPerGeneration(t *testing.T) {
+	r := newRig(t, fakeConfig("", ""), keepTweak(0, time.Minute))
+	ch := r.open("fake")
+	r.hub.LinkDown()
+	ch2 := r.open("fake")
+	r.hub.mu.Lock()
+	c := r.hub.channels[ch2]
+	r.hub.mu.Unlock()
+	c.mu.Lock()
+	gen := c.gen
+	c.reqIDs["1"], c.reqIDs[`"a"`] = true, true
+	c.mu.Unlock()
+	if gen != 2 {
+		t.Fatalf("gen = %d", gen)
+	}
+	resp := func(id string) []byte {
+		return []byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":%s,"result":{}}`, id))
+	}
+	c.fromServer(resp(`"g1:1"`)) // an earlier client's answer: dropped
+	c.fromServer(resp(`"g2:9"`)) // nobody here asked: dropped
+	select {
+	case f := <-r.frames:
+		t.Fatalf("delivered a stale response: %s", f.message)
+	case <-time.After(100 * time.Millisecond):
+	}
+	c.fromServer(resp(`"g2:1"`))
+	if f := r.next(); !strings.Contains(string(f.message), `"id":1,`) {
+		t.Errorf("number id: %s", f.message)
+	}
+	c.fromServer(resp(`"g2:\"a\""`))
+	if f := r.next(); !strings.Contains(string(f.message), `"id":"a"`) {
+		t.Errorf("string id: %s", f.message)
+	}
+	_ = ch
+}
+
+func TestTransientBeforeStartFailureKeepsTheProcessAndTheOldChannel(t *testing.T) {
+	var fail *OpenError
+	r := newRig(t, fakeConfig("", ""), func(c *Config) {
+		keepTweak(0, time.Minute)(c)
+		c.ServerLimits = map[string]int{"fake": 1}
+		c.BeforeStart = func(context.Context, *Entry) *OpenError { return fail }
+	})
+	ch := r.open("fake")
+	pid := r.stdioOf(ch).Pid()
+	// The limit would retire the old channel, but the key fetch fails first: nothing changes.
+	fail = &OpenError{"unavailable", "key fetch timed out"}
+	if _, oerr := r.hub.Open(t_ctx(t), "fake"); oerr == nil {
+		t.Fatal("open succeeded")
+	}
+	if r.hub.OpenChannels() != 1 || pidGone(pid) {
+		t.Fatal("the old channel was retired by an open that failed")
+	}
+	// A transient failure on a parked process leaves it too.
+	r.hub.LinkDown()
+	if _, oerr := r.hub.Open(t_ctx(t), "fake"); oerr == nil {
+		t.Fatal("open succeeded")
+	}
+	if _, ok := r.parkedPid(); !ok || pidGone(pid) {
+		t.Fatal("a transient failure dropped the kept process")
+	}
+}
+
+func TestCancelledRequestIDIsRemappedAndLocalAnswersForgetTheirIDs(t *testing.T) {
+	r := newRig(t, fakeConfig("", `, "allowedTools": ["read_file"]`), keepTweak(0, time.Minute))
+	ch := r.open("fake")
+	r.hub.LinkDown()
+	ch2 := r.open("fake")
+	r.hub.mu.Lock()
+	c := r.hub.channels[ch2]
+	r.hub.mu.Unlock()
+	if c.gen != 2 {
+		t.Fatalf("gen = %d", c.gen)
+	}
+	r.hub.Message(ch2, []byte(`{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":7,"reason":"x"}}`))
+	// A refused call is answered here and its id forgotten.
+	r.call(ch2, 9, "tools/call", `{"name":"write_file"}`)
+	c.mu.Lock()
+	_, tracked := c.reqIDs["9"]
+	c.mu.Unlock()
+	if tracked {
+		t.Error("a locally answered id is still tracked")
+	}
+	_ = ch
+}
+
+func TestSetRequestIDWrapsTheCancelledId(t *testing.T) {
+	msg := []byte(`{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":7,"reason":"x"}}`)
+	out := setRequestID(msg, wrapID(2, json.RawMessage("7")))
+	var m struct {
+		Params struct {
+			RequestID string `json:"requestId"`
+			Reason    string `json:"reason"`
+		} `json:"params"`
+	}
+	if err := json.Unmarshal(out, &m); err != nil || m.Params.RequestID != "g2:7" || m.Params.Reason != "x" {
+		t.Fatalf("%s (%v)", out, err)
 	}
 }

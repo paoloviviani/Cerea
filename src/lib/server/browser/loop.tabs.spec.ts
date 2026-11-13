@@ -490,7 +490,8 @@ describe("the lease", () => {
 			{ ...base(runtime, model), leaseHeld: async () => false, onKept: (k) => void kept.push(k) }
 		);
 		expect(result.stopped_reason).toBe("lease_lost");
-		expect(runtime.calls.some((c) => c.tool === "end_task")).toBe(false);
+		// The lease is checked before the clean start: a lost one ends nothing at all.
+		expect(runtime.calls.filter((c) => c.tool === "end_task")).toHaveLength(0);
 		expect(kept).toEqual([]);
 	});
 

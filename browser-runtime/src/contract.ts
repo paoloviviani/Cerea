@@ -125,6 +125,9 @@ export const snapshotSchema = z.object({
 	/** Rows the runtime folded away ("... and 37 more rows like this; use extract"). */
 	collapsed: z.number().int().nonnegative().optional(),
 	challenge: challengeSchema.optional(),
+	/** The tree was cut to fit one result; `note` says what to do. */
+	truncated: z.boolean().optional(),
+	note: z.string().max(1000).optional(),
 });
 export type Snapshot = z.infer<typeof snapshotSchema>;
 
@@ -140,6 +143,7 @@ export const diffSchema = z.object({
 	text: z.string().default(""),
 	snapshot: snapshotSchema.optional(),
 	challenge: challengeSchema.optional(),
+	truncated: z.boolean().optional(),
 });
 export type Diff = z.infer<typeof diffSchema>;
 
@@ -317,6 +321,8 @@ export const extractResultSchema = z.object({
 		.default([]),
 	/** The region's visible text (with `ref`, or `mode: "text"`). */
 	text: z.string().max(100_000).optional(),
+	/** Present when the result was cut to fit one message. */
+	note: z.string().max(1000).optional(),
 });
 export type ExtractResult = z.infer<typeof extractResultSchema>;
 
