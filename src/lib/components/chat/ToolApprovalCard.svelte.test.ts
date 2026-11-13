@@ -667,6 +667,21 @@ describe("ToolApprovalCard, plain words", () => {
 			.toHaveAttribute("title", "If you do not answer in time, this is denied automatically.");
 	});
 
+	it("keeps Show details open when the card remounts under a new message id", async () => {
+		const req = { ...connector, elicitationId: "remount-1" } as ElicitationRequestPayload;
+		const first = render(ToolApprovalCard, { conversationId: "c-remount", request: req });
+		await first.getByRole("button", { name: "Show details" }).click();
+		await expect.element(first.getByTestId("approval-details")).toBeVisible();
+		// ChatMessageColumn keys by message.id: swapping it destroys and recreates the card.
+		cleanup();
+		const second = render(ToolApprovalCard, { conversationId: "c-remount", request: req });
+		await expect.element(second.getByTestId("approval-details")).toBeVisible();
+		await second.getByRole("button", { name: "Hide details" }).click();
+		cleanup();
+		const third = render(ToolApprovalCard, { conversationId: "c-remount", request: req });
+		expect(third.getByTestId("approval-details").elements()).toHaveLength(0);
+	});
+
 	it("offers Deny as a bordered button", async () => {
 		const screen = render(ToolApprovalCard, { conversationId: "c1", request: connector });
 		await expect.element(screen.getByRole("button", { name: "Deny" })).toBeVisible();

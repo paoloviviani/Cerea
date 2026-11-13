@@ -2,7 +2,7 @@
 	import * as s from "$lib/components/overlay/styles";
 	import { m } from "$lib/paraglide/messages";
 	import Rich from "$lib/i18n/Rich.svelte";
-	import { getContext } from "svelte";
+	import { getContext, untrack } from "svelte";
 	import type { ElicitationAction, ElicitationRequestPayload } from "$lib/types/McpElicitation";
 	import type { MessageElicitationResolvedUpdate } from "$lib/types/MessageUpdate";
 	import CarbonCheckmark from "~icons/carbon/checkmark";
@@ -17,6 +17,7 @@
 		type RiskTag,
 	} from "$lib/utils/approvalSummary";
 	import type { PermissionClass } from "$lib/types/machineProtocol";
+	import { isDetailsOpen, setDetailsOpen } from "$lib/stores/approvalDetails";
 	import { recurrenceText } from "$lib/utils/scheduleFormat";
 	import type { Recurrence } from "$lib/types/Schedule";
 	import { ALWAYS_CAPPED, type AlwaysCapped } from "$lib/utils/alwaysCappedContext";
@@ -117,7 +118,9 @@
 
 	let showArgs = $state(false);
 	/** Open card: the raw command or JSON behind "Show details". */
-	let showDetails = $state(false);
+	let showDetails = $state(untrack(() => isDetailsOpen(conversationId, request.elicitationId)));
+	// Kept outside the card: the message id swap after the first turn remounts it.
+	$effect(() => setDetailsOpen(conversationId, request.elicitationId, showDetails));
 	/** A risky "always allow" asks once more before it is sent. */
 	let confirmingAlways = $state(false);
 
