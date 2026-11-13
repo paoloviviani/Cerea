@@ -673,3 +673,67 @@ func TestKeptChannelIDsAreRemappedPerGeneration(t *testing.T) {
 	}
 	_ = ch
 }
+
+func TestTransientBeforeStartFailureKeepsTheProcessAndTheOldChannel(t *testing.T) {
+	var fail *OpenError
+	r := newRig(t, fakeConfig("", ""), func(c *Config) {
+		keepTweak(0, time.Minute)(c)
+		c.ServerLimits = map[string]int{"fake": 1}
+		c.BeforeStart = func(context.Context, *Entry) *OpenError { return fail }
+	})
+	ch := r.open("fake")
+	pid := r.stdioOf(ch).Pid()
+	// The limit would retire the old channel, but the key fetch fails first: nothing changes.
+	fail = &OpenError{"unavailable", "key fetch timed out"}
+	if _, oerr := r.hub.Open(t_ctx(t), "fake"); oerr == nil {
+		t.Fatal("open succeeded")
+	}
+	if r.hub.OpenChannels() != 1 || pidGone(pid) {
+		t.Fatal("the old channel was retired by an open that failed")
+	}
+	// A transient failure on a parked process leaves it too.
+	r.hub.LinkDown()
+	if _, oerr := r.hub.Open(t_ctx(t), "fake"); oerr == nil {
+		t.Fatal("open succeeded")
+	}
+	if _, ok := r.parkedPid(); !ok || pidGone(pid) {
+		t.Fatal("a transient failure dropped the kept process")
+	}
+}
+
+func TestCancelledRequestIDIsRemappedAndLocalAnswersForgetTheirIDs(t *testing.T) {
+	r := newRig(t, fakeConfig("", `, "allowedTools": ["read_file"]`), keepTweak(0, time.Minute))
+	ch := r.open("fake")
+	r.hub.LinkDown()
+	ch2 := r.open("fake")
+	r.hub.mu.Lock()
+	c := r.hub.channels[ch2]
+	r.hub.mu.Unlock()
+	if c.gen != 2 {
+		t.Fatalf("gen = %d", c.gen)
+	}
+	r.hub.Message(ch2, []byte(`{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":7,"reason":"x"}}`))
+	// A refused call is answered here and its id forgotten.
+	r.call(ch2, 9, "tools/call", `{"name":"write_file"}`)
+	c.mu.Lock()
+	_, tracked := c.reqIDs["9"]
+	c.mu.Unlock()
+	if tracked {
+		t.Error("a locally answered id is still tracked")
+	}
+	_ = ch
+}
+
+func TestSetRequestIDWrapsTheCancelledId(t *testing.T) {
+	msg := []byte(`{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":7,"reason":"x"}}`)
+	out := setRequestID(msg, wrapID(2, json.RawMessage("7")))
+	var m struct {
+		Params struct {
+			RequestID string `json:"requestId"`
+			Reason    string `json:"reason"`
+		} `json:"params"`
+	}
+	if err := json.Unmarshal(out, &m); err != nil || m.Params.RequestID != "g2:7" || m.Params.Reason != "x" {
+		t.Fatalf("%s (%v)", out, err)
+	}
+}

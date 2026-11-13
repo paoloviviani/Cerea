@@ -20,7 +20,7 @@ import {
 	boundDiff,
 	boundExtract,
 	boundSnapshot,
-	type Measure,
+	wire,
 } from "./budget.ts";
 import { asObject, parseActions, parseApprovals, parseExtract, parseScreenshot } from "./args.ts";
 import { ToolError } from "./errors.ts";
@@ -175,9 +175,6 @@ const failure = (message: string): ToolResult => ({
 	content: [{ type: "text", text: message }],
 	isError: true,
 });
-
-/** The size of a value as the server sends it: the whole result, with both copies of the JSON. */
-const wire: Measure = (value) => bytesOf(json(value));
 
 /** The handler of `tools/call`, usable without any transport (the tests call it directly). */
 export function createToolHandler(session: BrowserSession) {

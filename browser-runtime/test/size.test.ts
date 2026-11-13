@@ -186,8 +186,8 @@ describe("result size", () => {
 			return { name, mime: "application/octet-stream", size, path, actionIndex: 0, grantId: "g" };
 		};
 		const files = [
-			await mk("a.bin", 150_000),
-			await mk("b.bin", 150_000),
+			await mk("a.bin", 200_000),
+			await mk("b.bin", 200_000),
 			await mk("c.bin", 600_000),
 		];
 		(r.session as unknown as { downloads: unknown[] }).downloads = files;
@@ -275,5 +275,50 @@ describe("result size", () => {
 			"the page stays open"
 		);
 		await server.close();
+	});
+
+	it("a file of 320 KB comes back whole, and one that can never fit is refused cleanly", async () => {
+		const dir = join(r.profile, "dl2");
+		await mkdir(dir, { recursive: true });
+		const path = join(dir, "big.bin");
+		await writeFile(path, Buffer.alloc(320_000, 3));
+		(r.session as unknown as { downloads: unknown[] }).downloads = [
+			{ name: "big.bin", mime: "application/octet-stream", size: 320_000, path, actionIndex: 0 },
+		];
+		const res = await r.call("download", {});
+		const got = (res.structuredContent as { files: Array<{ base64?: string }> }).files;
+		assert.equal(got.length, 1);
+		assert.ok(got[0].base64);
+		assert.ok(bytesOf(res) <= RESULT_LIMIT);
+		const huge = join(dir, "huge.bin");
+		await writeFile(huge, Buffer.alloc(400_000, 3));
+		(r.session as unknown as { downloads: unknown[] }).downloads = [
+			{
+				name: "huge.bin",
+				mime: "application/octet-stream",
+				size: 400_000,
+				path: huge,
+				actionIndex: 0,
+			},
+		];
+		const refused = await r.call("download", {});
+		assert.notEqual(refused.isError, true);
+		const f = (refused.structuredContent as { files: Array<{ base64?: string; skipped?: string }> })
+			.files;
+		assert.equal(f[0].base64, undefined);
+		assert.match(f[0].skipped ?? "", /too large to return over the link/);
+	});
+
+	it("many big tables are all cut, none emptied while another keeps everything", () => {
+		const row = Array.from({ length: 5 }, () => "c".repeat(1500));
+		const tables = Array.from({ length: 10 }, () => ({
+			headers: [],
+			rows: Array.from({ length: 300 }, () => row),
+		}));
+		const out = boundExtract({ tables, lists: [] } as never, wire);
+		assert.ok(wire(out) <= WIRE_BUDGET);
+		for (const t of out.tables) assert.ok(t.rows.length >= 1, "every table keeps some rows");
+		const lens = out.tables.map((t) => t.rows.length);
+		assert.ok(Math.max(...lens) <= 2 * Math.min(...lens) + 1, `uneven cut ${lens}`);
 	});
 });

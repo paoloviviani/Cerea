@@ -1,4 +1,4 @@
-// cerea-browser runtime 0.1.0; source-hash: 573d16557f41572647ec371be8a227ef2cbf9940fcd8a783d1f57cc13fb4ebfd
+// cerea-browser runtime 0.1.0; source-hash: a22361b33e1a5490aa13fb6c44cd6bea87c0d945f753ff790cf5bba5589aa25e
 // inlined: @hono/node-server@2.1.8 @modelcontextprotocol/sdk@1.32.2 ajv@8.20.0 ajv-formats@3.0.1 content-type@1.0.5 fast-deep-equal@3.1.3 fast-uri@3.1.9 hono@4.13.18 json-schema-traverse@1.0.0 tldts@7.4.26 zod@3.25.76 zod-to-json-schema@3.25.2
 import { createRequire as __cr } from "node:module";
 const require = __cr(import.meta.url);
@@ -21482,9 +21482,10 @@ function safeFileName(name) {
 // src/budget.ts
 var RESULT_LIMIT = 9e5;
 var WIRE_BUDGET = 7e5;
+var DOWNLOAD_WIRE_BUDGET = 88e4;
 var SCREENSHOT_LIMIT = 7e5;
-var DOWNLOAD_BASE64_LIMIT = 3e5;
 var bytesOf = (value) => Buffer.byteLength(JSON.stringify(value));
+var wire = (value) => bytesOf({ content: [{ type: "text", text: JSON.stringify(value) }], structuredContent: value });
 var SNAPSHOT_NOTE = "[truncated: this page is larger than one result can carry. Scroll to the part you need, use extract for tables and lists, or narrow down with a smaller region.]";
 var CLOSE = `</${CONTENT_TAG}>`;
 function cutText(text, max) {
@@ -21577,21 +21578,23 @@ function boundExtract(e, measure, budget = WIRE_BUDGET) {
   for (let guard = 0; guard < 200; guard++) {
     const out = build();
     if (measure(out) <= budget) return out;
-    let biggest;
-    const consider = (size, cut) => {
-      if (!biggest || size > biggest.size) biggest = { size, cut };
-    };
-    for (const t of tables)
-      consider(bytesOf(t.rows), () => void (t.rows.length = Math.floor(t.rows.length * 0.67)));
-    for (const l of lists)
-      consider(bytesOf(l.items), () => void (l.items.length = Math.floor(l.items.length * 0.67)));
-    if (text !== void 0)
-      consider(
-        Buffer.byteLength(text),
-        () => void (text = cutText(text, Math.floor(Buffer.byteLength(text) * 0.67)))
-      );
-    if (!biggest || biggest.size < 50) break;
-    biggest.cut();
+    let cut = false;
+    const shrink = (n) => n > 1 ? Math.max(1, Math.floor(n * 0.75)) : n;
+    for (const t of tables) {
+      const n = shrink(t.rows.length);
+      cut ||= n < t.rows.length;
+      t.rows.length = n;
+    }
+    for (const l of lists) {
+      const n = shrink(l.items.length);
+      cut ||= n < l.items.length;
+      l.items.length = n;
+    }
+    if (text !== void 0 && Buffer.byteLength(text) > 50) {
+      text = cutText(text, Math.floor(Buffer.byteLength(text) * 0.75));
+      cut = true;
+    }
+    if (!cut) break;
   }
   return { ...build(), tables: [], lists: [], text: void 0 };
 }
@@ -22116,7 +22119,6 @@ var failure = (message) => ({
   content: [{ type: "text", text: message }],
   isError: true
 });
-var wire = (value) => bytesOf(json2(value));
 function createToolHandler(session2) {
   const serial = (work) => session2.serial(work);
   return async (name, rawArgs) => {
@@ -25088,20 +25090,27 @@ url: about:blank
         await rm(file.path, { force: true });
         continue;
       }
-      const encoded = Math.ceil(file.size / 3) * 4;
-      if (encoded > DOWNLOAD_BASE64_LIMIT) {
+      if (Math.ceil(file.size / 3) * 4 * 2 > DOWNLOAD_WIRE_BUDGET) {
         taken.add(file);
         files.push({
           name: file.name,
           mime: file.mime,
           size: file.size,
-          skipped: `too large to return over the link (${file.size} bytes; the limit is about ${Math.floor(DOWNLOAD_BASE64_LIMIT / 4 * 3)})`,
+          skipped: `too large to return over the link (${file.size} bytes; the limit is about ${Math.floor(DOWNLOAD_WIRE_BUDGET / 8 * 3)})`,
           ...origin
         });
         await rm(file.path, { force: true });
         continue;
       }
-      if (base64Total + encoded > DOWNLOAD_BASE64_LIMIT) {
+      const bytes = await readFile2(file.path);
+      const entry = {
+        name: file.name,
+        mime: file.mime,
+        size: bytes.byteLength,
+        base64: bytes.toString("base64"),
+        ...origin
+      };
+      if (wire({ files: [...files, entry] }) > DOWNLOAD_WIRE_BUDGET) {
         files.push({
           name: file.name,
           mime: file.mime,
@@ -25111,16 +25120,8 @@ url: about:blank
         });
         continue;
       }
-      const bytes = await readFile2(file.path);
-      base64Total += Math.ceil(bytes.byteLength / 3) * 4;
       taken.add(file);
-      files.push({
-        name: file.name,
-        mime: file.mime,
-        size: bytes.byteLength,
-        base64: bytes.toString("base64"),
-        ...origin
-      });
+      files.push(entry);
       await rm(file.path, { force: true });
     }
     this.downloads = this.downloads.filter((d) => !taken.has(d));

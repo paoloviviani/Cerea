@@ -1340,6 +1340,8 @@ async function runInner(
 			}
 		}
 		if (!request.resumeToken) {
+			// A task that lost its lease must not end the state of the task that holds it now.
+			await assertLease();
 			// The runtime may have served another task and kept its state (a link that dropped and
 			// came back keeps the process): start from a clean task. Pages stay open.
 			await runtime.endTask({ keep: true }, AbortSignal.timeout(10_000)).catch(() => undefined);

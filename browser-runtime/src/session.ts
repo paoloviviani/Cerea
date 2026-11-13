@@ -6,7 +6,7 @@
  * a takeover pauses the protocol operations by holding the same queue.
  */
 
-import { DOWNLOAD_BASE64_LIMIT, SCREENSHOT_LIMIT } from "./budget.ts";
+import { DOWNLOAD_WIRE_BUDGET, SCREENSHOT_LIMIT, wire } from "./budget.ts";
 import { createWriteStream } from "node:fs";
 import { chmod, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { hostname, tmpdir } from "node:os";
@@ -2129,21 +2129,29 @@ export class BrowserSession {
 				await rm(file.path, { force: true });
 				continue;
 			}
-			const encoded = Math.ceil(file.size / 3) * 4;
-			if (encoded > DOWNLOAD_BASE64_LIMIT) {
+			// The result travels twice: a file whose base64 alone is over half the budget never fits.
+			if (Math.ceil(file.size / 3) * 4 * 2 > DOWNLOAD_WIRE_BUDGET) {
 				// It can never fit one result: say so once, and let it go.
 				taken.add(file);
 				files.push({
 					name: file.name,
 					mime: file.mime,
 					size: file.size,
-					skipped: `too large to return over the link (${file.size} bytes; the limit is about ${Math.floor((DOWNLOAD_BASE64_LIMIT / 4) * 3)})`,
+					skipped: `too large to return over the link (${file.size} bytes; the limit is about ${Math.floor((DOWNLOAD_WIRE_BUDGET / 8) * 3)})`,
 					...origin,
 				});
 				await rm(file.path, { force: true });
 				continue;
 			}
-			if (base64Total + encoded > DOWNLOAD_BASE64_LIMIT) {
+			const bytes = await readFile(file.path);
+			const entry = {
+				name: file.name,
+				mime: file.mime,
+				size: bytes.byteLength,
+				base64: bytes.toString("base64"),
+				...origin,
+			};
+			if (wire({ files: [...files, entry] }) > DOWNLOAD_WIRE_BUDGET) {
 				// Fits alone, not with the others: it stays for the next call.
 				files.push({
 					name: file.name,
@@ -2154,16 +2162,8 @@ export class BrowserSession {
 				});
 				continue;
 			}
-			const bytes = await readFile(file.path);
-			base64Total += Math.ceil(bytes.byteLength / 3) * 4;
 			taken.add(file);
-			files.push({
-				name: file.name,
-				mime: file.mime,
-				size: bytes.byteLength,
-				base64: bytes.toString("base64"),
-				...origin,
-			});
+			files.push(entry);
 			await rm(file.path, { force: true });
 		}
 		this.downloads = this.downloads.filter((d) => !taken.has(d));
