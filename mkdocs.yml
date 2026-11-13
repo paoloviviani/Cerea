@@ -6,7 +6,8 @@
 #
 # docs/source/ is upstream huggingface/chat-ui's old documentation (a
 # doc-builder tree that is not valid mkdocs), left as it was and excluded from
-# the site; parts of it do not apply to Cerea.
+# the site; parts of it do not apply to Cerea. docs/dev/ holds internal notes
+# for coding agents (linked from AGENTS.md) and is not published either.
 # This site's pages are the flat files beside it.
 #
 # mkdocs-material is MIT, mkdocs BSD-2-Clause, pymdown-extensions MIT and
@@ -30,6 +31,7 @@ copyright: Copyright &copy; Paolo Viviani — <a href="https://github.com/paolov
 docs_dir: docs
 exclude_docs: |
   source/**
+  dev/**
   requirements.txt
 
 strict: true
