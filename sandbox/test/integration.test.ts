@@ -16,6 +16,24 @@ import { createProxy } from "../src/socket-proxy/server.ts";
 const enabled = process.env.SANDBOX_INTEGRATION === "1";
 const runtime = process.env.SANDBOX_RUNTIME || "runsc";
 const instance = `it-${process.pid}`;
+/**
+ * A systemd slice to put the sandboxes under (SANDBOX_TEST_CGROUP_PARENT), used only when it
+ * exists on this host: CI creates one; a developer's box is never given one by this test.
+ */
+function existingSlice(): string | undefined {
+	const name = process.env.SANDBOX_TEST_CGROUP_PARENT;
+	if (!name) return undefined;
+	try {
+		// systemd answers "loaded" for any slice name; one the operator defined has a unit file.
+		const path = execFileSync("systemctl", ["show", "-p", "FragmentPath", "--value", name], {
+			encoding: "utf8",
+		}).trim();
+		return path ? name : undefined;
+	} catch {
+		return undefined;
+	}
+}
+const slice = enabled ? existingSlice() : undefined;
 const TOKEN = "integration-token-0123456789";
 
 describe("sandbox manager against Docker", { skip: !enabled }, () => {
@@ -54,7 +72,7 @@ describe("sandbox manager against Docker", { skip: !enabled }, () => {
 	before(async () => {
 		proxy = createProxy(
 			{ socketPath: "/var/run/docker.sock" },
-			{ instance, runtimes: [runtime], images: [DEFAULT_EXEC_IMAGE] }
+			{ instance, runtimes: [runtime], images: [DEFAULT_EXEC_IMAGE], cgroupParent: slice }
 		);
 		await new Promise<void>((r) => proxy.listen(0, "127.0.0.1", r));
 		const proxyPort = (proxy.address() as AddressInfo).port;
@@ -65,6 +83,9 @@ describe("sandbox manager against Docker", { skip: !enabled }, () => {
 			SANDBOX_INSTANCE: instance,
 			SANDBOX_DOCKER_URL: `http://127.0.0.1:${proxyPort}`,
 			SANDBOX_AUDIT_LOG: "",
+			SANDBOX_EXEC_MEMORY_RESERVATION_MB: "256",
+			SANDBOX_EXEC_CPU_RESERVATION: "0.5",
+			SANDBOX_CGROUP_PARENT: slice,
 			SANDBOX_MAX_FILE_BYTES: "65536",
 			SANDBOX_EXEC_MAX_OUTPUT_BYTES: "4096",
 			SANDBOX_EXEC_MAX_OUTPUT_BYTES_CAP: "8192",
@@ -144,6 +165,12 @@ describe("sandbox manager against Docker", { skip: !enabled }, () => {
 				["nofile"]
 			);
 			assert.ok(h.Memory > 0 && h.PidsLimit > 0 && h.NanoCpus > 0);
+			// the budget: a soft reservation, CPU shares, and the shared slice when the host has one
+			assert.equal(h.MemoryReservation, 256 * 1024 * 1024);
+			assert.equal(h.CpuShares, 512);
+			if (slice) assert.equal(h.CgroupParent, slice);
+			else
+				console.log("no SANDBOX_TEST_CGROUP_PARENT slice on this host: CgroupParent not asserted");
 			assert.equal(h.Binds ?? null, null);
 			assert.deepEqual(inspect.Mounts, []);
 			assert.equal(inspect.Config.User, "65534:65534");
