@@ -6,6 +6,7 @@
  * a takeover pauses the protocol operations by holding the same queue.
  */
 
+import { SCREENSHOT_LIMIT } from "./budget.ts";
 import { createWriteStream } from "node:fs";
 import { chmod, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -1969,19 +1970,33 @@ export class BrowserSession {
 		format?: "png" | "jpeg";
 	}): Promise<{ mime: string; base64: string }> {
 		const page = this.requirePage();
-		const type = request.format === "jpeg" ? "jpeg" : "png";
+		const wanted = request.format === "jpeg" ? "jpeg" : "png";
 		try {
-			const buffer = request.ref
-				? await page
-						.getByRef(request.ref)
-						.screenshot({ type, timeout: 5_000, ...(type === "jpeg" ? { quality: 70 } : {}) })
-				: await page.screenshot({
-						type,
-						...(type === "jpeg" ? { quality: 70 } : {}),
-						timeout: 8_000,
-					});
+			const shoot = (type: "png" | "jpeg", quality?: number) =>
+				request.ref
+					? page.getByRef(request.ref).screenshot({
+							type,
+							timeout: 5_000,
+							...(quality ? { quality } : {}),
+						})
+					: page.screenshot({ type, timeout: 8_000, ...(quality ? { quality } : {}) });
+			// One result must fit the link: a heavy page makes a PNG of several MB. Re-encode as
+			// JPEG at falling quality (the mime says what came back) until the base64 fits.
+			let type: "png" | "jpeg" = wanted;
+			let buffer = await shoot(type, type === "jpeg" ? 70 : undefined);
+			for (const quality of [60, 45, 30, 20, 10]) {
+				if (buffer.length * (4 / 3) <= SCREENSHOT_LIMIT) break;
+				type = "jpeg";
+				buffer = await shoot("jpeg", quality);
+			}
+			if (buffer.length * (4 / 3) > SCREENSHOT_LIMIT) {
+				throw new ToolError(
+					"The screenshot is too large to return even at the lowest quality: take one of an element (ref) instead."
+				);
+			}
 			return { mime: `image/${type}`, base64: buffer.toString("base64") };
 		} catch (err) {
+			if (err instanceof ToolError) throw err;
 			if (request.ref && /Timeout/.test(String(err))) {
 				throw new ToolError(
 					`No element with ref ${request.ref} on this page. Refs reset when the page navigates: take a new snapshot.`

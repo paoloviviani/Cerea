@@ -21,7 +21,8 @@ import (
 type stdioConn struct {
 	cmd     *exec.Cmd
 	stdin   io.WriteCloser
-	sink    *sink
+	sinkMu  sync.Mutex
+	sink    *sink // who hears the process; rebound when a kept process meets a new channel
 	closing atomic.Bool
 	done    chan struct{}
 
@@ -46,13 +47,13 @@ func startStdio(e *Entry, s *sink) (*stdioConn, error) {
 	cmd.Dir = e.Cwd
 	setProcAttrs(cmd)
 	c := &stdioConn{cmd: cmd, sink: s, done: make(chan struct{})}
-	out := &lineSplitter{limit: maxReadBytes, fn: func(line []byte) { s.message(append([]byte(nil), line...)) }}
+	out := &lineSplitter{limit: maxReadBytes, fn: func(line []byte) { c.curSink().message(append([]byte(nil), line...)) }}
 	errw := &lineSplitter{limit: 4096, fn: func(line []byte) {
 		text := strings.TrimSpace(string(line))
 		c.mu.Lock()
 		c.lastErr = text
 		c.mu.Unlock()
-		s.logf("connector %s: %s", e.Name, text)
+		c.curSink().logf("connector %s: %s", e.Name, text)
 	}}
 	cmd.Stdout = out
 	cmd.Stderr = errw
@@ -72,7 +73,7 @@ func startStdio(e *Entry, s *sink) (*stdioConn, error) {
 		out.flush()
 		errw.flush()
 		if out.dropped > 0 {
-			s.logf("connector %s: dropped %d message(s) over %d bytes", e.Name, out.dropped, maxReadBytes)
+			c.curSink().logf("connector %s: dropped %d message(s) over %d bytes", e.Name, out.dropped, maxReadBytes)
 		}
 		// Recorded before Done closes, so an open that sees the process gone
 		// can say why.
@@ -85,9 +86,23 @@ func startStdio(e *Entry, s *sink) (*stdioConn, error) {
 		if c.closing.Load() {
 			return
 		}
-		s.closed(c.reason, c.detail)
+		c.curSink().closed(c.reason, c.detail)
 	}()
 	return c, nil
+}
+
+func (c *stdioConn) curSink() *sink {
+	c.sinkMu.Lock()
+	defer c.sinkMu.Unlock()
+	return c.sink
+}
+
+// rebind points the process's output at another channel (or at the hub, while
+// it is kept without one).
+func (c *stdioConn) rebind(s *sink) {
+	c.sinkMu.Lock()
+	c.sink = s
+	c.sinkMu.Unlock()
 }
 
 // LastStderr is the last line the process wrote to stderr.
@@ -117,11 +132,11 @@ func (c *stdioConn) Send(msg []byte) {
 	// One message per line: whitespace between tokens may hold newlines.
 	line, err := compactJSON(msg)
 	if err != nil {
-		c.sink.logf("connector: dropping a message that is not JSON")
+		c.curSink().logf("connector: dropping a message that is not JSON")
 		return
 	}
 	if _, err := c.stdin.Write(append(line, '\n')); err != nil && !c.closing.Load() {
-		c.sink.logf("connector: writing to the server failed: %v", err)
+		c.curSink().logf("connector: writing to the server failed: %v", err)
 	}
 }
 

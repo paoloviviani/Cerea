@@ -36,6 +36,14 @@ type Config struct {
 	// answer refuses the open with that error.
 	BeforeStart func(ctx context.Context, e *Entry) *OpenError
 
+	// KeepAlive names servers that outlive their channel: no idle stop, and when
+	// the link goes down the process is kept for KeepAliveGrace and re-attached
+	// to the next channel opened for it (the browser runtime: its Chrome window
+	// may be in the user's hands). A galopin shutdown, mcp.close or a changed
+	// mcp.json entry still stops it.
+	KeepAlive      map[string]bool
+	KeepAliveGrace time.Duration // default 15 min
+
 	IdleTimeout time.Duration // default 10 min
 	PollEvery   time.Duration // default 3 s
 	MaxChannels int           // per server, default 4
@@ -85,8 +93,9 @@ type Hub struct {
 	fileSig     string
 	loadErr     string
 	reloadCount int
-	pending     map[string]*Pending // state -> sign-in begun from the chat
-	stopping    sync.WaitGroup      // transports closing, for Shutdown to wait on
+	pending     map[string]*Pending    // state -> sign-in begun from the chat
+	stopping    sync.WaitGroup         // transports closing, for Shutdown to wait on
+	parked      map[string]*parkedConn // kept-alive servers without a channel, by name
 
 	localMu       sync.Mutex
 	localSessions map[string]*localSession // in-process clients (local.go), by server
@@ -102,6 +111,9 @@ func New(cfg Config) *Hub {
 	}
 	if cfg.IdleTimeout == 0 {
 		cfg.IdleTimeout = 10 * time.Minute
+	}
+	if cfg.KeepAliveGrace == 0 {
+		cfg.KeepAliveGrace = 15 * time.Minute
 	}
 	if cfg.PollEvery == 0 {
 		cfg.PollEvery = 3 * time.Second
@@ -126,7 +138,7 @@ func New(cfg Config) *Hub {
 		client = newHTTPClient()
 	}
 	h := &Hub{cfg: cfg, client: client, entries: map[string]*Entry{}, channels: map[string]*channel{},
-		needsLogin: map[string]string{}, probed: map[string]bool{}, pending: map[string]*Pending{}}
+		needsLogin: map[string]string{}, probed: map[string]bool{}, pending: map[string]*Pending{}, parked: map[string]*parkedConn{}}
 	h.tokens = NewTokenStore(cfg.StateDir, client)
 	h.Reload()
 	return h
@@ -187,9 +199,18 @@ func (h *Hub) Reload() {
 			stale = append(stale, ch)
 		}
 	}
+	var staleParked []*parkedConn
+	for name, p := range h.parked {
+		if cur, ok := next[name]; !ok || !cur.Same(p.entry) || cur.State() != StateReady {
+			staleParked = append(staleParked, p)
+		}
+	}
 	h.entries, h.order = next, order
 	h.reloadCount++
 	h.mu.Unlock()
+	for _, p := range staleParked {
+		h.dropParked(p, "mcp.json changed")
+	}
 	for _, ch := range stale {
 		detail := "mcp.json changed"
 		ch.shutdown("config", &detail, true)
@@ -345,6 +366,9 @@ func (h *Hub) open(ctx context.Context, name string, setup func(*channel)) (*cha
 		}
 	}
 	ch := newChannel(h, e)
+	if p := h.takeParked(name); p != nil {
+		ch.adopt = p
+	}
 	if setup != nil {
 		setup(ch)
 	}
@@ -432,10 +456,91 @@ func (h *Hub) Message(channelID string, raw []byte) {
 
 // LinkDown closes every channel (PROTOCOL.md §10.6): nobody is left to hear
 // a closed frame.
-func (h *Hub) LinkDown() { h.closeAll("link down") }
+func (h *Hub) LinkDown() { h.closeAll(linkDownWhy) }
 
 // Shutdown closes every channel and waits for the servers to stop.
-func (h *Hub) Shutdown() { h.closeAll("galopin stopping") }
+func (h *Hub) Shutdown() { h.closeAll(shutdownWhy) }
+
+const (
+	shutdownWhy = "galopin stopping"
+	linkDownWhy = "link down"
+)
+
+// parkedConn is a kept-alive server process waiting for the next channel.
+type parkedConn struct {
+	entry *Entry
+	sc    *stdioConn
+	timer *time.Timer
+}
+
+// keeps reports whether the named server outlives its channel.
+func (h *Hub) keeps(name string) bool { return h.cfg.KeepAlive[name] }
+
+// park keeps ch's process running with no channel: its output is dropped until
+// a new channel adopts it, and it is stopped when the grace period ends.
+func (h *Hub) park(ch *channel, sc *stdioConn, why string) {
+	p := &parkedConn{entry: ch.entry, sc: sc}
+	name := ch.entry.Name
+	sc.rebind(&sink{
+		message: func(raw []byte) {
+			h.cfg.Logf("connectors: %s: dropping a message from the kept process (no channel)", name)
+		},
+		closed: func(reason, detail string) {
+			h.mu.Lock()
+			if h.parked[name] == p {
+				delete(h.parked, name)
+			}
+			h.mu.Unlock()
+			if p.timer != nil {
+				p.timer.Stop()
+			}
+			h.cfg.Logf("connectors: %s: kept process ended (%s)", name, reason)
+		},
+		authRequired: func() {},
+		logf:         h.cfg.Logf,
+	})
+	h.mu.Lock()
+	old := h.parked[name]
+	h.parked[name] = p
+	p.timer = time.AfterFunc(h.cfg.KeepAliveGrace, func() { h.dropParked(p, "no link for "+h.cfg.KeepAliveGrace.String()) })
+	h.mu.Unlock()
+	if old != nil {
+		h.dropParked(old, "replaced")
+	}
+	h.cfg.Logf("connectors: %s: kept running (channel %s, %s), stopping in %s unless reattached", name, ch.id, why, h.cfg.KeepAliveGrace)
+}
+
+// takeParked removes and returns the kept process of name, if it still runs.
+func (h *Hub) takeParked(name string) *parkedConn {
+	h.mu.Lock()
+	p := h.parked[name]
+	delete(h.parked, name)
+	h.mu.Unlock()
+	if p == nil {
+		return nil
+	}
+	p.timer.Stop()
+	select {
+	case <-p.sc.Done():
+		return nil
+	default:
+	}
+	return p
+}
+
+// dropParked stops a kept process.
+func (h *Hub) dropParked(p *parkedConn, why string) {
+	h.mu.Lock()
+	if h.parked[p.entry.Name] == p {
+		delete(h.parked, p.entry.Name)
+	}
+	h.mu.Unlock()
+	p.timer.Stop()
+	h.stopping.Add(1)
+	go func() { <-p.sc.Done(); h.stopping.Done() }()
+	p.sc.Close()
+	h.cfg.Logf("connectors: %s: kept process stopped (%s)", p.entry.Name, why)
+}
 
 func (h *Hub) closeAll(why string) {
 	h.mu.Lock()
@@ -446,6 +551,17 @@ func (h *Hub) closeAll(why string) {
 	h.mu.Unlock()
 	for _, ch := range all {
 		ch.end(why, "closed", nil, false)
+	}
+	if why == shutdownWhy {
+		h.mu.Lock()
+		kept := make([]*parkedConn, 0, len(h.parked))
+		for _, p := range h.parked {
+			kept = append(kept, p)
+		}
+		h.mu.Unlock()
+		for _, p := range kept {
+			h.dropParked(p, shutdownWhy)
+		}
 	}
 	done := make(chan struct{})
 	go func() { h.stopping.Wait(); close(done) }()

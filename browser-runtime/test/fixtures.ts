@@ -160,6 +160,41 @@ export async function startFixtures(): Promise<Fixtures> {
 					)
 				: send(200, page("Denied", `<h1>Please sign in first</h1><a href="/login">Sign in</a>`));
 		}
+		if (p === "/huge") {
+			// A marketplace-sized result page: thousands of rows, long lists, hundreds of links.
+			const long = "lorem ipsum dolor sit amet ".repeat(30);
+			const rows = Array.from(
+				{ length: 400 },
+				(_, i) =>
+					`<tr><td>${i}</td><td>${long}${i}</td><td>${long}</td><td><a href="/p/${i}">Offer ${i}</a></td></tr>`
+			).join("");
+			const lists = Array.from(
+				{ length: 15 },
+				(_, k) =>
+					`<ul aria-label="L${k}">${Array.from({ length: 200 }, (_, i) => `<li>${long}${k}-${i}</li>`).join("")}</ul>`
+			).join("");
+			const links = Array.from(
+				{ length: 800 },
+				(_, i) => `<p><a href="/q/${i}">Result ${i} ${"x".repeat(60)}</a></p>`
+			).join("");
+			return send(
+				200,
+				page(
+					"Huge",
+					`<h1>Results</h1><table><caption>Offers</caption><tr><th>N</th><th>Name</th><th>Desc</th><th>Link</th></tr>${rows}</table>${lists}${links}`
+				)
+			);
+		}
+		if (p === "/noise") {
+			// Incompressible pixels: a PNG of this viewport is several MB.
+			return send(
+				200,
+				page(
+					"Noise",
+					`<canvas id="c" width="1280" height="800" style="position:fixed;left:0;top:0"></canvas><script>const c=document.getElementById("c"),x=c.getContext("2d"),d=x.createImageData(1280,800);for(let i=0;i<d.data.length;i++)d.data[i]=i%4===3?255:(Math.random()*256)|0;x.putImageData(d,0,0);</script><h1>Noise</h1>`
+				)
+			);
+		}
 		if (p === "/table") {
 			return send(
 				200,

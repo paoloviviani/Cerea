@@ -5,6 +5,10 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Browser use:** the browser runtime now keeps its Chrome window when the link to Cerea drops (kept for 15 minutes and re-attached when the link returns) and is no longer stopped for idling; and no tool result exceeds about 900 KB (large pages are cut with a note to scroll or use extract, screenshots are re-encoded smaller), so browse runs on heavy pages such as shop and booking results no longer end with a runtime error. **On computers**, re-run the install line to update galopin.
+
 ## v0.51.2 — 2026-11-13
 
 Pins: Cerea `0.51.2` (chat, `cerea-documents` and `galopin` images), Pystino `0.33.2`.

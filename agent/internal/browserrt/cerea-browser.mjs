@@ -1,4 +1,4 @@
-// cerea-browser runtime 0.1.0; source-hash: 30318b3d7e20eb9890c90f52bed53e28a1c3b3ea8ea0d426d37c48855237eeab
+// cerea-browser runtime 0.1.0; source-hash: bf1a5f9591ee1ea2c92ab4e2800e2a25bdbd30b93339c33114ddebb1e48e62ba
 // inlined: @hono/node-server@2.1.8 @modelcontextprotocol/sdk@1.32.2 ajv@8.20.0 ajv-formats@3.0.1 content-type@1.0.5 fast-deep-equal@3.1.3 fast-uri@3.1.9 hono@4.13.18 json-schema-traverse@1.0.0 tldts@7.4.26 zod@3.25.76 zod-to-json-schema@3.25.2
 import { createRequire as __cr } from "node:module";
 const require = __cr(import.meta.url);
@@ -21450,6 +21450,109 @@ var StreamableHTTPServerTransport = class {
   }
 };
 
+// src/budget.ts
+var RESULT_LIMIT = 9e5;
+var PAYLOAD_LIMIT = 4e5;
+var SCREENSHOT_LIMIT = 7e5;
+var bytesOf = (value) => Buffer.byteLength(JSON.stringify(value));
+var SNAPSHOT_NOTE = "[truncated: this page is larger than one result can carry. Scroll to the part you need, use extract for tables and lists, or narrow down with a smaller region.]";
+function cutText(text, max) {
+  if (Buffer.byteLength(text) <= max) return text;
+  let cut = text.slice(0, Math.max(0, max));
+  while (Buffer.byteLength(cut) > max) cut = cut.slice(0, Math.floor(cut.length * 0.9));
+  const nl = cut.lastIndexOf("\n");
+  return nl > max * 0.5 ? cut.slice(0, nl) : cut;
+}
+function boundSnapshot(s, budget = PAYLOAD_LIMIT) {
+  if (bytesOf(s) <= budget) return s;
+  const elements = [...s.elements];
+  let text = s.text;
+  let out = s;
+  for (let guard = 0; guard < 40; guard++) {
+    out = { ...s, text, elements, truncated: true, note: SNAPSHOT_NOTE };
+    if (bytesOf(out) <= budget) return out;
+    if (Buffer.byteLength(text) >= bytesOf(elements)) {
+      text = cutText(text, Math.floor(Buffer.byteLength(text) * 0.7));
+    } else {
+      elements.length = Math.floor(elements.length * 0.7);
+    }
+  }
+  return out;
+}
+function boundDiff(d, budget = PAYLOAD_LIMIT) {
+  if (bytesOf(d) <= budget) return d;
+  let out = { ...d };
+  if (out.snapshot) out = { ...out, snapshot: boundSnapshot(out.snapshot, Math.floor(budget / 2)) };
+  const added = [...out.added];
+  const changed = [...out.changed];
+  const removed = [...out.removed];
+  let text = out.text;
+  for (let guard = 0; guard < 40; guard++) {
+    const next = {
+      ...out,
+      added,
+      changed,
+      removed,
+      text: `${text}
+${SNAPSHOT_NOTE}`,
+      truncated: true
+    };
+    if (bytesOf(next) <= budget) return next;
+    added.length = Math.floor(added.length * 0.7);
+    changed.length = Math.floor(changed.length * 0.7);
+    removed.length = Math.floor(removed.length * 0.7);
+    text = cutText(text, Math.floor(Buffer.byteLength(text) * 0.7));
+  }
+  return {
+    ...out,
+    added: [],
+    changed: [],
+    removed: [],
+    text: SNAPSHOT_NOTE,
+    truncated: true
+  };
+}
+function boundExtract(e, budget = PAYLOAD_LIMIT) {
+  if (bytesOf(e) <= budget) return e;
+  const tables = e.tables.map((t) => ({ ...t, rows: [...t.rows] }));
+  const lists = e.lists.map((l) => ({ ...l, items: [...l.items] }));
+  let text = e.text;
+  const note = "Cut to fit one result: rows and items past the cut are counted in truncated. Narrow down with a ref, or scroll and extract again.";
+  const build = () => ({
+    ...e,
+    tables: tables.map((t, i) => ({
+      ...t,
+      ...e.tables[i].rows.length + (e.tables[i].truncated ?? 0) > t.rows.length ? { truncated: e.tables[i].rows.length + (e.tables[i].truncated ?? 0) - t.rows.length } : {}
+    })),
+    lists: lists.map((l, i) => ({
+      ...l,
+      ...e.lists[i].items.length + (e.lists[i].truncated ?? 0) > l.items.length ? { truncated: e.lists[i].items.length + (e.lists[i].truncated ?? 0) - l.items.length } : {}
+    })),
+    ...text !== void 0 ? { text } : {},
+    note
+  });
+  for (let guard = 0; guard < 200; guard++) {
+    const out = build();
+    if (bytesOf(out) <= budget) return out;
+    let biggest;
+    const consider = (size, cut) => {
+      if (!biggest || size > biggest.size) biggest = { size, cut };
+    };
+    for (const t of tables)
+      consider(bytesOf(t.rows), () => void (t.rows.length = Math.floor(t.rows.length * 0.67)));
+    for (const l of lists)
+      consider(bytesOf(l.items), () => void (l.items.length = Math.floor(l.items.length * 0.67)));
+    if (text !== void 0)
+      consider(
+        Buffer.byteLength(text),
+        () => void (text = cutText(text, Math.floor(Buffer.byteLength(text) * 0.67)))
+      );
+    if (!biggest || biggest.size < 50) break;
+    biggest.cut();
+  }
+  return { ...build(), tables: [], lists: [], text: void 0 };
+}
+
 // src/contract.ts
 var snapshotElementSchema = external_exports.object({
   /** Stable across snapshots of the same page: the handle an action names. */
@@ -21516,7 +21619,10 @@ var snapshotSchema = external_exports.object({
   elements: external_exports.array(snapshotElementSchema).max(2e3),
   /** Rows the runtime folded away ("... and 37 more rows like this; use extract"). */
   collapsed: external_exports.number().int().nonnegative().optional(),
-  challenge: challengeSchema.optional()
+  challenge: challengeSchema.optional(),
+  /** The tree was cut to fit one result; `note` says what to do. */
+  truncated: external_exports.boolean().optional(),
+  note: external_exports.string().max(1e3).optional()
 });
 var diffSchema = external_exports.object({
   url: external_exports.string().max(4096),
@@ -21529,7 +21635,8 @@ var diffSchema = external_exports.object({
   /** The diff as text for the model. */
   text: external_exports.string().default(""),
   snapshot: snapshotSchema.optional(),
-  challenge: challengeSchema.optional()
+  challenge: challengeSchema.optional(),
+  truncated: external_exports.boolean().optional()
 });
 var browserActionSchema = external_exports.discriminatedUnion("type", [
   external_exports.object({ type: external_exports.literal("click"), ref: external_exports.string().min(1).max(64) }),
@@ -21634,7 +21741,9 @@ var extractResultSchema = external_exports.object({
     })
   ).max(50).default([]),
   /** The region's visible text (with `ref`, or `mode: "text"`). */
-  text: external_exports.string().max(1e5).optional()
+  text: external_exports.string().max(1e5).optional(),
+  /** Present when the result was cut to fit one message. */
+  note: external_exports.string().max(1e3).optional()
 });
 var screenshotResultSchema = external_exports.object({
   mime: external_exports.string().max(64),
@@ -21989,12 +22098,22 @@ var failure = (message) => ({
 function createToolHandler(session2) {
   const serial = (work) => session2.serial(work);
   return async (name, rawArgs) => {
+    const result = await run(name, rawArgs);
+    const size = bytesOf(result);
+    if (size > RESULT_LIMIT) {
+      return failure(
+        `result too large: ${clean(name, 60)}, ${size} bytes (limit ${RESULT_LIMIT}); narrow the request: scroll, use extract with a ref, or ask for less.`
+      );
+    }
+    return result;
+  };
+  async function run(name, rawArgs) {
     try {
       switch (name) {
         case "snapshot":
-          return json2(await serial(() => session2.snapshot()));
+          return json2(boundSnapshot(await serial(() => session2.snapshot())));
         case "diff":
-          return json2(await serial(() => session2.diff()));
+          return json2(boundDiff(await serial(() => session2.diff())));
         case "act": {
           const args = asObject(rawArgs);
           const actions = parseActions(args.actions);
@@ -22003,7 +22122,7 @@ function createToolHandler(session2) {
         }
         case "extract": {
           const request = parseExtract(rawArgs);
-          return json2(await serial(() => session2.extract(request)));
+          return json2(boundExtract(await serial(() => session2.extract(request))));
         }
         case "screenshot": {
           const request = parseScreenshot(rawArgs);
@@ -22052,7 +22171,7 @@ function createToolHandler(session2) {
         `The browser runtime failed: ${clean(err instanceof Error ? err.message : err, 300)}`
       );
     }
-  };
+  }
 }
 function createServer2(session2) {
   const handler = createToolHandler(session2);
@@ -24650,15 +24769,28 @@ url: about:blank
   }
   async screenshot(request) {
     const page = this.requirePage();
-    const type = request.format === "jpeg" ? "jpeg" : "png";
+    const wanted = request.format === "jpeg" ? "jpeg" : "png";
     try {
-      const buffer = request.ref ? await page.getByRef(request.ref).screenshot({ type, timeout: 5e3, ...type === "jpeg" ? { quality: 70 } : {} }) : await page.screenshot({
-        type,
-        ...type === "jpeg" ? { quality: 70 } : {},
-        timeout: 8e3
-      });
+      const shoot = (type2, quality) => request.ref ? page.getByRef(request.ref).screenshot({
+        type: type2,
+        timeout: 5e3,
+        ...quality ? { quality } : {}
+      }) : page.screenshot({ type: type2, timeout: 8e3, ...quality ? { quality } : {} });
+      let type = wanted;
+      let buffer = await shoot(type, type === "jpeg" ? 70 : void 0);
+      for (const quality of [60, 45, 30, 20, 10]) {
+        if (buffer.length * (4 / 3) <= SCREENSHOT_LIMIT) break;
+        type = "jpeg";
+        buffer = await shoot("jpeg", quality);
+      }
+      if (buffer.length * (4 / 3) > SCREENSHOT_LIMIT) {
+        throw new ToolError(
+          "The screenshot is too large to return even at the lowest quality: take one of an element (ref) instead."
+        );
+      }
       return { mime: `image/${type}`, base64: buffer.toString("base64") };
     } catch (err) {
+      if (err instanceof ToolError) throw err;
       if (request.ref && /Timeout/.test(String(err))) {
         throw new ToolError(
           `No element with ref ${request.ref} on this page. Refs reset when the page navigates: take a new snapshot.`

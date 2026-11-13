@@ -401,3 +401,132 @@ func TestServerLimitsHoldOneServerToFewerChannels(t *testing.T) {
 		t.Error("the limit raised the default of four")
 	}
 }
+
+func keepTweak(idle, grace time.Duration) func(*Config) {
+	return func(c *Config) {
+		c.IdleTimeout, c.KeepAliveGrace = idle, grace
+		c.KeepAlive = map[string]bool{"fake": true}
+	}
+}
+
+func (r *rig) parkedPid() (int, bool) {
+	r.hub.mu.Lock()
+	defer r.hub.mu.Unlock()
+	p := r.hub.parked["fake"]
+	if p == nil {
+		return 0, false
+	}
+	return p.sc.Pid(), true
+}
+
+func TestKeptServerIsExemptFromTheIdleStop(t *testing.T) {
+	r := newRig(t, fakeConfig("", ""), keepTweak(150*time.Millisecond, time.Minute))
+	ch := r.open("fake")
+	time.Sleep(500 * time.Millisecond)
+	select {
+	case c := <-r.closed:
+		t.Fatalf("a kept server was stopped for idling: %+v", c)
+	default:
+	}
+	if got := r.call(ch, 1, "ping", `{}`); got["result"] == nil {
+		t.Errorf("ping: %v", got)
+	}
+}
+
+func TestKeptServerSurvivesLinkDownAndIsReattached(t *testing.T) {
+	r := newRig(t, fakeConfig("", ""), keepTweak(0, time.Minute))
+	ch := r.open("fake")
+	r.call(ch, 1, "initialize", `{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"t","version":"1"}}`)
+	pid1, _ := r.hub.channels[ch].tr.(*stdioConn)
+	if pid1 == nil {
+		t.Fatal("not stdio")
+	}
+	pid := pid1.Pid()
+	r.hub.LinkDown()
+	if r.hub.OpenChannels() != 0 {
+		t.Error("channels remain")
+	}
+	if got, ok := r.parkedPid(); !ok || got != pid {
+		t.Fatalf("process not kept: %d %v", got, ok)
+	}
+	if pidGone(pid) {
+		t.Fatal("the process was killed on link down")
+	}
+	// The link returns: the new channel takes the same process, and its client's
+	// own initialize is answered again.
+	ch2 := r.open("fake")
+	if ch2 == ch {
+		t.Fatal("same channel id")
+	}
+	if _, ok := r.parkedPid(); ok {
+		t.Error("still parked after reattach")
+	}
+	if tr := r.hub.channels[ch2].tr.(*stdioConn); tr.Pid() != pid {
+		t.Errorf("a new process (%d) was started, not %d", tr.Pid(), pid)
+	}
+	init := r.call(ch2, 1, "initialize", `{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"t","version":"1"}}`)
+	if !strings.Contains(string(init["result"]), `"fake"`) {
+		t.Errorf("initialize on the reattached channel: %s", init["result"])
+	}
+	// And the next idle/close still behaves: mcp.close stops it.
+	r.hub.Close(ch2)
+	deadline := time.Now().Add(5 * time.Second)
+	for !pidGone(pid) && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !pidGone(pid) {
+		t.Error("mcp.close did not stop the process")
+	}
+}
+
+func TestKeptServerStopsWhenTheGraceEnds(t *testing.T) {
+	r := newRig(t, fakeConfig("", ""), keepTweak(0, 300*time.Millisecond))
+	ch := r.open("fake")
+	pid := r.hub.channels[ch].tr.(*stdioConn).Pid()
+	r.hub.LinkDown()
+	if pidGone(pid) {
+		t.Fatal("killed at once")
+	}
+	deadline := time.Now().Add(6 * time.Second)
+	for !pidGone(pid) && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !pidGone(pid) {
+		t.Fatal("still running after the grace period")
+	}
+	if _, ok := r.parkedPid(); ok {
+		t.Error("still parked")
+	}
+}
+
+func TestShutdownStopsAKeptServer(t *testing.T) {
+	r := newRig(t, fakeConfig("", ""), keepTweak(0, time.Minute))
+	ch := r.open("fake")
+	pid := r.hub.channels[ch].tr.(*stdioConn).Pid()
+	r.hub.LinkDown()
+	r.hub.Shutdown()
+	deadline := time.Now().Add(5 * time.Second)
+	for !pidGone(pid) && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !pidGone(pid) {
+		t.Fatal("Shutdown left the kept process running")
+	}
+}
+
+func TestOtherServersAreStillKilledOnLinkDown(t *testing.T) {
+	r := newRig(t, fakeConfig("", ""), func(c *Config) { c.KeepAlive = map[string]bool{"other": true} })
+	ch := r.open("fake")
+	pid := r.hub.channels[ch].tr.(*stdioConn).Pid()
+	r.hub.LinkDown()
+	if _, ok := r.parkedPid(); ok {
+		t.Fatal("parked a server that is not kept")
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for !pidGone(pid) && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !pidGone(pid) {
+		t.Fatal("not stopped")
+	}
+}

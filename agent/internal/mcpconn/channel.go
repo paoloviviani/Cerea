@@ -21,6 +21,7 @@ type channel struct {
 	hub   *Hub
 	entry *Entry
 	tr    transport
+	adopt *parkedConn // a kept process this channel takes over instead of starting one
 
 	queue chan []byte
 	stop  chan struct{}
@@ -61,8 +62,15 @@ func (c *channel) sink() *sink {
 // start opens the transport and registers the channel with the hub.
 func (c *channel) start(ctx context.Context) *OpenError {
 	e := c.entry
-	switch e.Transport {
-	case TransportStdio:
+	switch {
+	case c.adopt != nil:
+		// A kept process (the browser runtime): same process, same Chrome. The new
+		// channel's client sends its own initialize, which the server answers
+		// afresh; nothing in the process is restarted.
+		c.tr = c.adopt.sc
+		c.adopt.sc.rebind(c.sink())
+		c.adopt = nil
+	case e.Transport == TransportStdio:
 		sc, err := startStdio(e, c.sink())
 		if err != nil {
 			return &OpenError{"unavailable", "cannot start " + e.Name + ": " + startError(err)}
@@ -102,7 +110,9 @@ func (c *channel) start(ctx context.Context) *OpenError {
 	c.mu.Lock()
 	c.registered = true
 	early := c.early
-	c.idle = time.AfterFunc(c.hub.cfg.IdleTimeout, func() { c.shutdown("idle", nil, true) })
+	if !c.hub.keeps(e.Name) { // a kept server is never stopped for being idle
+		c.idle = time.AfterFunc(c.hub.cfg.IdleTimeout, func() { c.shutdown("idle", nil, true) })
+	}
 	c.mu.Unlock()
 	if sc, ok := c.tr.(*stdioConn); ok {
 		c.logf("connectors: %s: started (pid %d, channel %s)", e.Name, sc.Pid(), c.id)
@@ -182,6 +192,18 @@ func (c *channel) end(why, reason string, detail *string, emit bool) {
 	c.hub.mu.Unlock()
 	for _, tool := range pending {
 		c.hub.cfg.Audit(c.entry.Name, tool, "error")
+	}
+	if sc, ok := c.tr.(*stdioConn); ok && why == linkDownWhy && c.hub.keeps(c.entry.Name) {
+		select {
+		case <-sc.Done():
+		default:
+			// The link went away, not the user: keep the process (and its Chrome).
+			c.hub.park(c, sc, why)
+			if c.localClosed != nil {
+				c.localClosed()
+			}
+			return
+		}
 	}
 	c.hub.stopping.Add(1)
 	go func() { <-c.tr.Done(); c.hub.stopping.Done() }()

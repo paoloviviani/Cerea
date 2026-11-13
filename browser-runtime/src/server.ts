@@ -13,6 +13,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { RESULT_LIMIT, bytesOf, boundDiff, boundExtract, boundSnapshot } from "./budget.ts";
 import { asObject, parseActions, parseApprovals, parseExtract, parseScreenshot } from "./args.ts";
 import { ToolError } from "./errors.ts";
 import { clean } from "./sanitize.ts";
@@ -170,12 +171,25 @@ export function createToolHandler(session: BrowserSession) {
 	const serial = <T>(work: () => Promise<T>): Promise<T> => session.serial(work);
 
 	return async (name: string, rawArgs: unknown): Promise<ToolResult> => {
+		const result = await run(name, rawArgs);
+		// The last guard: galopin drops what does not fit the link and the run ends with a runtime
+		// error, so an oversize result becomes an error the model can read and act on.
+		const size = bytesOf(result);
+		if (size > RESULT_LIMIT) {
+			return failure(
+				`result too large: ${clean(name, 60)}, ${size} bytes (limit ${RESULT_LIMIT}); narrow the request: scroll, use extract with a ref, or ask for less.`
+			);
+		}
+		return result;
+	};
+
+	async function run(name: string, rawArgs: unknown): Promise<ToolResult> {
 		try {
 			switch (name) {
 				case "snapshot":
-					return json(await serial(() => session.snapshot()));
+					return json(boundSnapshot(await serial(() => session.snapshot())));
 				case "diff":
-					return json(await serial(() => session.diff()));
+					return json(boundDiff(await serial(() => session.diff())));
 				case "act": {
 					const args = asObject(rawArgs);
 					const actions = parseActions(args.actions);
@@ -184,7 +198,7 @@ export function createToolHandler(session: BrowserSession) {
 				}
 				case "extract": {
 					const request = parseExtract(rawArgs);
-					return json(await serial(() => session.extract(request)));
+					return json(boundExtract(await serial(() => session.extract(request))));
 				}
 				case "screenshot": {
 					const request = parseScreenshot(rawArgs);
@@ -237,7 +251,7 @@ export function createToolHandler(session: BrowserSession) {
 				`The browser runtime failed: ${clean(err instanceof Error ? err.message : err, 300)}`
 			);
 		}
-	};
+	}
 }
 
 export function createServer(session: BrowserSession): Server {
