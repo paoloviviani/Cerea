@@ -583,6 +583,97 @@ describe("quotas and accounting", () => {
 		await s.leases.create({ kind: "exec", owner: "u" }); // its share is free again
 	});
 
+	describe("a failed call and the sandbox's fate", () => {
+		const noReply = Buffer.from('{"ok": false, "error": "no reply"}\n');
+		it("says oom_killed and releases at once when Docker saw the OOM kill", async () => {
+			const s = setup({ SANDBOX_TOTAL_MEMORY_MB: "1024" });
+			const lease = await s.leases.create({ kind: "exec", owner: "u" });
+			s.docker.containers.get(lease.containerId!)!.State = { Running: true, OOMKilled: true };
+			s.docker.nextExec = { exitCode: 137 };
+			await assert.rejects(
+				s.leases.exec(lease.id, { command: "x" }),
+				(e: HttpError) => e.status === 410 && e.code === "oom_killed"
+			);
+			assert.throws(() => s.leases.get(lease.id), HttpError);
+			assert.equal(s.leases.active, 0);
+			await s.leases.create({ kind: "exec", owner: "u" }); // its share is free
+		});
+
+		it("says sandbox_gone for a non-zero exit or a daemon with no reply when it is not running", async () => {
+			for (const next of [{ exitCode: 1 }, { exitCode: 0, stdout: noReply }]) {
+				const s = setup();
+				const lease = await s.leases.create({ kind: "exec", owner: "u" });
+				s.docker.containers.get(lease.containerId!)!.State = { Running: false, OOMKilled: false };
+				s.docker.nextExec = next;
+				await assert.rejects(
+					s.leases.exec(lease.id, { command: "x" }),
+					(e: HttpError) => e.status === 410 && e.code === "sandbox_gone"
+				);
+				assert.equal(s.leases.active, 0);
+			}
+		});
+
+		it("keeps a running sandbox, whatever its call's exit code or an unconfirmed no-reply", async () => {
+			const s = setup();
+			const lease = await s.leases.create({ kind: "exec", owner: "u" });
+			s.docker.containers.get(lease.containerId!)!.State = { Running: true, OOMKilled: false };
+			s.docker.nextExec = { exitCode: 2 };
+			assert.equal((await s.leases.exec(lease.id, { command: "x" })).exitCode, 2);
+			s.docker.nextExec = { exitCode: 0, stdout: noReply };
+			assert.equal((await s.leases.exec(lease.id, { command: "x" })).exitCode, 0);
+			assert.equal(s.leases.active, 1);
+		});
+	});
+
+	describe("accounting that survives failures", () => {
+		it("keeps the reservation counted when Docker cannot remove, and the reaper retries", async () => {
+			const s = setup({ SANDBOX_TOTAL_MEMORY_MB: "1024" });
+			const lease = await s.leases.create({ kind: "exec", owner: "u" });
+			s.docker.failRemove = true;
+			await s.leases.release(lease.id);
+			assert.throws(() => s.leases.get(lease.id), HttpError); // gone to its owner...
+			await assert.rejects(
+				s.leases.create({ kind: "exec", owner: "u" }),
+				(e: HttpError) => e.status === 429 // ...but still holding its share
+			);
+			assert.equal(s.usage.length, 0);
+			await s.leases.reap(); // still failing: still counted
+			assert.equal(s.leases.active, 1);
+			s.docker.failRemove = false;
+			await s.leases.reap();
+			assert.equal(s.leases.active, 0);
+			assert.equal(s.usage.length, 1);
+			await s.leases.create({ kind: "exec", owner: "u" });
+		});
+
+		it("refuses creates (503) until the orphan sweep has succeeded", async () => {
+			const docker = new FakeDocker();
+			const leases = new LeaseManager({
+				config: testConfig(),
+				docker,
+				audit: new MemoryAudit(),
+				requireSweep: true,
+			});
+			await assert.rejects(
+				leases.create({ kind: "exec", owner: "u" }),
+				(e: HttpError) => e.status === 503
+			);
+			docker.containers.set("old", {
+				Id: "old",
+				Config: { Labels: { "cerea.sandbox": "1", "cerea.sandbox.instance": "unit" } },
+			});
+			docker.failRemove = true;
+			await assert.rejects(leases.sweepOrphans());
+			await assert.rejects(
+				leases.create({ kind: "exec", owner: "u" }),
+				(e: HttpError) => e.status === 503
+			);
+			docker.failRemove = false;
+			assert.equal(await leases.sweepOrphans(), 1);
+			await leases.create({ kind: "exec", owner: "u" });
+		});
+	});
+
 	it("records exec time and CPU per lease and hands it to the billing seam", async () => {
 		const s = setup();
 		const lease = await s.leases.create({ kind: "exec", owner: "u" });

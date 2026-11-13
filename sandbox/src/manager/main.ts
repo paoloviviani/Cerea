@@ -35,7 +35,12 @@ async function main() {
 		});
 	}
 	const docker = new DockerClient(config.docker);
-	const leases = new LeaseManager({ config, docker, audit: new FileAudit(config.auditLog) });
+	const leases = new LeaseManager({
+		config,
+		docker,
+		audit: new FileAudit(config.auditLog),
+		requireSweep: true,
+	});
 
 	// A previous run's containers are not ours to keep: their leases are gone. The socket proxy may
 	// still be starting, so ask a few times before giving up.

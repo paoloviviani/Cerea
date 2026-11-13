@@ -12,7 +12,7 @@ export class DockerError extends Error {
 export interface ContainerInfo {
 	Id: string;
 	Config?: { Labels?: Record<string, string> | null };
-	State?: { Running?: boolean; Status?: string };
+	State?: { Running?: boolean; Status?: string; OOMKilled?: boolean };
 	HostConfig?: Record<string, unknown>;
 }
 

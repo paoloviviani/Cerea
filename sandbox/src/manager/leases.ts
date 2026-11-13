@@ -21,6 +21,8 @@ export interface Lease {
 	limits: LeaseLimits;
 	/** Counted against the shared totals while the lease lives. */
 	reservation: Reservation;
+	/** Set when Docker could not remove the container: the reaper retries, and the lease stays counted. */
+	removal?: { reason: string; actor: string };
 	createdAt: number;
 	lastActiveAt: number;
 	activeExecs: number;
@@ -68,6 +70,17 @@ export interface ExecResponse {
 	durationMs: number;
 }
 
+/** The exec client's reply when the daemon died under it. */
+function isNoReply(stdout: Buffer): boolean {
+	try {
+		const last = stdout.toString("utf8").trim().split("\n").pop() ?? "";
+		const j = JSON.parse(last) as { ok?: unknown; error?: unknown };
+		return j?.ok === false && j.error === "no reply";
+	} catch {
+		return false;
+	}
+}
+
 const OWNER_RE = /^[A-Za-z0-9_.:@-]{1,128}$/;
 
 export class LeaseManager {
@@ -77,8 +90,13 @@ export class LeaseManager {
 	private audit: Audit;
 	private now: () => number;
 	private sink: UsageSink;
+	/** Whether the start-up orphan sweep has succeeded (creates wait for it when `requireSweep`). */
+	private swept = false;
+	private requireSweep: boolean;
 
 	constructor(deps: {
+		/** Refuse creates (503) until `sweepOrphans` has succeeded: the manager sets it, tests need not. */
+		requireSweep?: boolean;
 		config: ManagerConfig;
 		docker: DockerApi;
 		audit: Audit;
@@ -90,6 +108,7 @@ export class LeaseManager {
 		this.audit = deps.audit;
 		this.now = deps.now ?? Date.now;
 		this.sink = deps.usageSink ?? (() => {});
+		this.requireSweep = deps.requireSweep ?? false;
 	}
 
 	get active(): number {
@@ -184,6 +203,13 @@ export class LeaseManager {
 		}
 		const limits = this.resolveLimits(req.limits);
 
+		if (this.requireSweep && !this.swept) {
+			throw new HttpError(
+				503,
+				"starting",
+				"the manager has not yet cleared the sandboxes of a previous run: try again shortly"
+			);
+		}
 		const mine = [...this.leases.values()].filter((l) => l.owner === req.owner).length;
 		if (this.leases.size >= this.config.maxLeases || mine >= this.config.maxLeasesPerOwner) {
 			const which = mine >= this.config.maxLeasesPerOwner ? "owner" : "global";
@@ -303,6 +329,23 @@ export class LeaseManager {
 		return lease.containerId;
 	}
 
+	/** After a failed call: the error for a sandbox that was OOM-killed or is not running, else null. */
+	private async postMortem(containerId: string): Promise<HttpError | null> {
+		let info: Awaited<ReturnType<DockerApi["inspect"]>>;
+		try {
+			info = await this.docker.inspect(containerId);
+		} catch {
+			return null; // cannot tell: the call's own result stands
+		}
+		if (info?.State?.OOMKilled) {
+			return new HttpError(410, "oom_killed", "the sandbox ran out of memory");
+		}
+		if (!info || info.State?.Running === false) {
+			return new HttpError(410, "sandbox_gone", "the sandbox is no longer running");
+		}
+		return null;
+	}
+
 	async release(id: string, reason = "released", actor = "service"): Promise<void> {
 		const lease = this.get(id);
 		await this.destroy(lease, reason, actor);
@@ -311,6 +354,15 @@ export class LeaseManager {
 	private async destroy(lease: Lease, reason: string, actor: string): Promise<void> {
 		if (lease.state === "released") return;
 		lease.state = "released";
+		await this.finish(lease, reason, actor);
+	}
+
+	/**
+	 * Removes the container and drops the lease. When Docker cannot remove it the lease stays in the
+	 * table (invisible to its owner, but still counted: the container still holds its memory and CPU)
+	 * until the reaper's retry succeeds.
+	 */
+	private async finish(lease: Lease, reason: string, actor: string): Promise<void> {
 		let cpu: number | null = null;
 		if (lease.containerId) {
 			try {
@@ -334,10 +386,13 @@ export class LeaseManager {
 					kind: lease.kind,
 					owner: lease.owner,
 					actor,
-					detail: { error: String(err).slice(0, 200) },
+					detail: { error: String(err).slice(0, 200), retry: true },
 				});
+				lease.removal = { reason, actor };
+				return;
 			}
 		}
+		lease.removal = undefined;
 		this.leases.delete(lease.id);
 		lease.usage.cpuSeconds = cpu;
 		const usage: UsageRecord = {
@@ -483,6 +538,19 @@ export class LeaseManager {
 				}
 				throw new HttpError(502, "docker_error", "the container runtime failed the call");
 			}
+			// A failed call may be the kernel's memory kill: look, and if the sandbox is dead or was
+			// OOM-killed say so, and release it at once (below) so its reservation is freed.
+			if (
+				!result.timedOut &&
+				!result.stillRunning &&
+				(result.exitCode !== 0 || isNoReply(result.stdout))
+			) {
+				const dead = await this.postMortem(containerId);
+				if (dead) {
+					gone = true;
+					throw dead;
+				}
+			}
 		} finally {
 			lease.activeExecs--;
 			lease.lastActiveAt = this.now();
@@ -598,7 +666,12 @@ export class LeaseManager {
 	async reap(): Promise<number> {
 		const t = this.now();
 		let n = 0;
+		if (this.requireSweep && !this.swept) await this.sweepOrphans().catch(() => {});
 		for (const lease of [...this.leases.values()]) {
+			if (lease.removal) {
+				await this.finish(lease, lease.removal.reason, lease.removal.actor);
+				continue;
+			}
 			if (lease.state !== "ready") continue;
 			const idle =
 				lease.activeExecs === 0 && t - lease.lastActiveAt > lease.limits.idleSeconds * 1000;
@@ -618,9 +691,15 @@ export class LeaseManager {
 			`${LABEL_INSTANCE}=${this.config.instance}`,
 		]);
 		let n = 0;
+		let failed: unknown = null;
 		for (const c of found) {
 			if (!isManaged(c.Config?.Labels, this.config.instance)) continue;
-			await this.docker.remove(c.Id).catch(() => {});
+			try {
+				await this.docker.remove(c.Id);
+			} catch (err) {
+				failed = err; // a container we could not remove still holds its resources
+				continue;
+			}
 			n++;
 			this.audit.write({
 				action: "orphan.remove",
@@ -629,6 +708,8 @@ export class LeaseManager {
 				actor: "startup",
 			});
 		}
+		if (failed) throw failed;
+		this.swept = true;
 		return n;
 	}
 
