@@ -60,9 +60,9 @@ describe("OpenBrowserModal", () => {
 	it("opens on the chosen computer with the address, tied to the conversation, and says where", async () => {
 		mount({ computers: [desk, laptop], conversationId: "conv1" });
 		const input = document.body.querySelector<HTMLInputElement>("#open-browser-address");
-		expect(input).not.toBeNull();
-		input!.value = "shop.example.com";
-		input!.dispatchEvent(new Event("input", { bubbles: true }));
+		if (!input) throw new Error("address field missing");
+		input.value = "shop.example.com";
+		input.dispatchEvent(new Event("input", { bubbles: true }));
 		buttons()[1].click();
 		await vi.waitFor(() => expect(calls).toHaveLength(1));
 		expect(calls[0].url).toContain("/api/v2/browser/open");

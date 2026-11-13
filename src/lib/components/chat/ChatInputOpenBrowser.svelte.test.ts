@@ -61,7 +61,8 @@ async function mount(
 }
 
 const openMenu = async (host: HTMLElement) => {
-	const trigger = host.querySelector<HTMLElement>('button[aria-label="Add attachment"]')!;
+	const trigger = host.querySelector<HTMLElement>('button[aria-label="Add attachment"]');
+	if (!trigger) throw new Error("attachment trigger missing");
 	trigger.focus();
 	trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
 	await waitSlow(() => {

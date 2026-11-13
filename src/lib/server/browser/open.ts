@@ -18,7 +18,7 @@ import type { BrowseMachine } from "./availability";
 import { BrowserRuntimeError, type BrowserRuntime } from "./contract";
 import { mongoKeptStore, type KeptStore } from "./kept";
 import { mongoLeaseStore, type LeaseStore } from "./lease";
-import { mongoChoiceStore, rememberConversationDevice, type ChoiceStore } from "./machineChoice";
+import { rememberConversationDevice, type ChoiceStore } from "./machineChoice";
 import { McpBrowserRuntime, mcpRuntimeCall, mcpRuntimeKeepAlive } from "./runtimeClient";
 import { browserSettings, type BrowserSettings } from "./settings";
 import { hostOf, matchesAny } from "./siteRules";

@@ -468,16 +468,16 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 		this.openedCount += 1;
 		const id = `opened-${this.openedCount}`;
 		const known = [...this.pages.values()].find((p) => p.url === url);
-		this.pages.set(id, {
+		const page = {
 			id,
 			url,
 			title: known?.title ?? (url === "about:blank" ? "" : new URL(url).hostname),
 			elements: known ? known.elements.map((e) => ({ ...e })) : [],
 			userTab: true,
-		});
+		};
+		this.pages.set(id, page);
 		this.keptCount += 1;
 		const token = `kept-token-${this.keptCount}`;
-		const page = this.pages.get(id)!;
 		this.keptPages.set(token, { id, title: page.title, url: page.url });
 		return { token, id, title: page.title, url: page.url };
 	}
