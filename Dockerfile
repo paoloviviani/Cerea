@@ -88,6 +88,7 @@ RUN --mount=type=cache,target=/app/.npm \
 FROM golang:1.24 AS galopin
 WORKDIR /src/agent
 COPY --link agent/go.mod agent/go.sum ./
+COPY --link agent/third_party/ ./third_party/
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY --link agent/ ./
 ARG PUBLIC_COMMIT_SHA=
