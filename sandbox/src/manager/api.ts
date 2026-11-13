@@ -49,11 +49,17 @@ export function createApi(config: ManagerConfig, leases: LeaseManager, version =
 		}
 
 		// Bound the work in flight before any body is read: a call can hold megabytes.
-		if (inflight >= config.maxInflight) {
-			return sendError(res, 503, "busy", "the manager has too many requests in flight");
+		// A status read and a release carry no body and cost little, and a release is what frees
+		// capacity: long execs filling the cap must never be able to block them.
+		const light =
+			(method === "GET" || method === "DELETE") && /^\/v1\/leases\/[0-9a-f]{24}$/.test(path);
+		if (!light) {
+			if (inflight >= config.maxInflight) {
+				return sendError(res, 503, "busy", "the manager has too many requests in flight");
+			}
+			inflight++;
+			res.on("close", () => inflight--);
 		}
-		inflight++;
-		res.on("close", () => inflight--);
 
 		if (path === "/v1/leases" && method === "POST") {
 			const body = parseJson(await readBody(req, JSON_LIMIT));

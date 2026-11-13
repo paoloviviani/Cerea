@@ -241,24 +241,29 @@ describe("API", () => {
 		}
 	});
 
-	it("answers 503 when the in-flight cap is reached, before reading a body", async () => {
+	it("answers 503 when the in-flight cap is reached, but never to a status read or a release", async () => {
 		const s = setup({ SANDBOX_MAX_INFLIGHT: "1" });
 		const api = await serve(s);
+		let release: () => void = () => {};
 		try {
 			const lease = (await (
 				await api.call("POST", "/v1/leases", { kind: "exec", owner: "u1" })
 			).json()) as { id: string };
-			let release!: () => void;
 			s.docker.holdExec = new Promise<void>((r) => (release = r));
 			const slow = api.call("POST", `/v1/leases/${lease.id}/exec`, { command: "sleep" });
 			await new Promise((r) => setTimeout(r, 100));
-			const second = await api.call("GET", `/v1/leases/${lease.id}`);
+			// The cap is full: a second exec is refused, health is not counted...
+			const second = await api.call("POST", `/v1/leases/${lease.id}/exec`, { command: "x" });
 			assert.equal(second.status, 503);
-			assert.equal((await fetch(`${api.base}/v1/health`)).status, 200, "health is not counted");
-			release();
-			assert.equal((await slow).status, 200);
+			assert.equal((await fetch(`${api.base}/v1/health`)).status, 200);
+			// ...and a status read and a release still go through, while the exec is held.
 			assert.equal((await api.call("GET", `/v1/leases/${lease.id}`)).status, 200);
+			assert.equal((await api.call("DELETE", `/v1/leases/${lease.id}`)).status, 204);
+			// Release the hold before awaiting the held call.
+			release();
+			await slow;
 		} finally {
+			release();
 			api.close();
 		}
 	});
