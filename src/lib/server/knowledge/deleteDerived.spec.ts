@@ -821,7 +821,7 @@ describe.skipIf(!TEST_DATABASE_URL)("deleteDerived and the knowledge lifecycle",
 			// it cannot index the next turn; the deployment's default no longer matters here.
 			await collections.vectorStores.updateOne(
 				{ _id: new ObjectId(stored.memoryBaseId) },
-				{ $set: { embeddingModel: null } }
+				{ $unset: { embeddingModel: "" } }
 			);
 			const conv = new ObjectId();
 			await collections.conversations.insertOne(
