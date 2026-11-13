@@ -406,9 +406,14 @@ export function parseReply(exec: SandboxExecResult): DaemonReply {
 	} catch {
 		/* not JSON: the call itself failed */
 	}
+	// 137 is SIGKILL with no time limit hit: the kernel's out-of-memory kill (the sandbox's own cap
+	// or the shared budget's), the one way a sandbox dies mid-call. Said plainly to the model.
+	const oom = !exec.timed_out && exec.exit_code === 137;
 	const why = exec.timed_out
 		? "the sandbox's own time limit was hit"
-		: (exec.stderr || exec.stdout || `exit code ${exec.exit_code}`).slice(0, 500);
+		: oom
+			? "the sandbox ran out of memory"
+			: (exec.stderr || exec.stdout || `exit code ${exec.exit_code}`).slice(0, 500);
 	return {
 		unparsed: true,
 		ok: false,

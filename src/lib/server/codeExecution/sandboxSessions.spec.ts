@@ -361,4 +361,10 @@ describe("parseReply", () => {
 		const timed = parseReply({ ...execResult({}), stdout: "", timed_out: true });
 		expect(timed.error).toContain("time limit");
 	});
+
+	it("says plainly that a killed sandbox ran out of memory", () => {
+		const oom = parseReply({ ...execResult({}), stdout: "", exit_code: 137 });
+		expect(oom.unparsed).toBe(true);
+		expect(oom.error).toBe("The sandbox could not run the code: the sandbox ran out of memory");
+	});
 });
