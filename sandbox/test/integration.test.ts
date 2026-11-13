@@ -247,6 +247,49 @@ describe("sandbox manager against Docker", { skip: !enabled }, () => {
 		}
 	);
 
+	it(
+		"a call that allocates past the memory limit fails plainly and frees its share",
+		{ timeout: 300_000 },
+		async () => {
+			const created = await call("POST", "/v1/leases", {
+				kind: "exec",
+				owner: "user-oom",
+				limits: { memory_mb: 128 },
+			});
+			assert.equal(created.status, 201, await created.clone().text());
+			const lease = (await created.json()) as { id: string };
+			owners.set(lease.id, "user-oom");
+			const ran = await call("POST", `/v1/leases/${lease.id}/exec`, {
+				cmd: [
+					"python",
+					"-c",
+					"b = bytearray(1024 * 1024 * 1024)\nfor i in range(0, len(b), 4096): b[i] = 1\nprint('survived')",
+				],
+				timeout_seconds: 8,
+			});
+			const text = await ran.text();
+			assert.ok(!text.includes("survived"), "the allocation must not succeed");
+			if (ran.status === 200) {
+				// The kernel killed the process only: the call reports a non-zero exit.
+				assert.notEqual((JSON.parse(text) as { exit_code: number }).exit_code, 0);
+			} else {
+				// The sandbox died with it: the manager says so, and has released it.
+				assert.equal(ran.status, 410, text);
+				assert.match(text, /oom_killed|sandbox_gone/);
+				const again = await call("GET", `/v1/leases/${lease.id}`);
+				assert.equal(again.status, 404);
+			}
+			await call("DELETE", `/v1/leases/${lease.id}`); // 204, or 404 when already released
+			// whatever happened, a fresh sandbox is available and works
+			const next = await call("POST", "/v1/leases", { kind: "exec", owner: "user-oom" });
+			assert.equal(next.status, 201, await next.clone().text());
+			const n = (await next.json()) as { id: string };
+			owners.set(n.id, "user-oom");
+			const ok = await call("POST", `/v1/leases/${n.id}/exec`, { cmd: ["echo", "fresh"] });
+			assert.equal(((await ok.json()) as { stdout: string }).stdout.trim(), "fresh");
+		}
+	);
+
 	it("the socket proxy refuses what the manager never asks", async () => {
 		const port = (proxy.address() as AddressInfo).port;
 		const raw = (method: string, path: string, body?: unknown) =>
