@@ -6,9 +6,11 @@
  * a takeover pauses the protocol operations by holding the same queue.
  */
 
+import { DOWNLOAD_WIRE_BUDGET, SCREENSHOT_LIMIT, wire } from "./budget.ts";
 import { createWriteStream } from "node:fs";
 import { chmod, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
+import { applyCereaProfile, isBlankUrl, isStartUrl, START_URL, startPageHtml } from "./profile.ts";
 import { dirname, join } from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -89,6 +91,10 @@ export interface SessionOptions {
 	lentMaxMs?: number;
 	/** How long a page may stay silent after a failed action before it is dropped (default 8 s). */
 	probeMs?: number;
+	/** The computer's name on the start page (default: its host name). */
+	computerName?: string;
+	/** Make the profile recognisable (theme colour, name, start page). Default true. */
+	branding?: boolean;
 }
 
 export const DEFAULT_MAX_SNAPSHOT_CHARS = 9_000;
@@ -478,6 +484,10 @@ export class BrowserSession {
 	private idleTimer?: NodeJS.Timeout;
 	private chooserOpened = false;
 	private starting?: Promise<void>;
+	/** The browser was started (not found running) since the last task ended: `tabs` says so. */
+	private launchedForTask = false;
+	/** Cerea's name for this computer, as it last said it (start page and hint name the same one). */
+	private computerName?: string;
 	private readonly navSeq = new WeakMap<Page, number>();
 	/**
 	 * The host of the last real (http/https) site this task's pages were on, mirroring Cerea's
@@ -607,10 +617,23 @@ export class BrowserSession {
 	 * task can `resume` it with that token, and without it the page is just a user tab. A tab the
 	 * user lent to the task is let go, never closed.
 	 */
+	/**
+	 * A new client took over this process (a reattached channel): the old task's state is let go
+	 * the way end_task({keep: true}) does, and what only that task could use is cleared. Pages
+	 * stay open.
+	 */
+	async newClient(): Promise<void> {
+		await this.endTask({ keep: true });
+		this.acting = false;
+		this.downloads = [];
+		this.pendingDownloads.clear();
+	}
+
 	async endTask(
 		options: { keep?: boolean } = {}
 	): Promise<{ closed: number; kept?: NonNullable<EndTaskResult["kept"]> }> {
 		clearTimeout(this.idleTimer);
+		this.launchedForTask = false;
 		// A popup still being adopted is a task page that is not registered yet, and a dropped page may
 		// still be closing: wait for both so the task's pages are all known and none outlives it.
 		while (this.pendingPages.size > 0) await Promise.allSettled([...this.pendingPages]);
@@ -618,7 +641,7 @@ export class BrowserSession {
 		const keep = options.keep ? this.active : undefined;
 		let kept: EndTaskResult["kept"];
 		// A page the task made and never used (still blank) is not worth keeping: it is closed below.
-		const unused = (p: Page) => this.fresh.has(p) && p.url() === "about:blank";
+		const unused = (p: Page) => this.fresh.has(p) && isBlankUrl(p.url());
 		// A tab the user lent stays theirs and stays lent to this conversation, but only on the origin
 		// it was lent on (fixed when they approved it, never read back from where it is now), and
 		// for at most the lend cap. Otherwise it is released with no token.
@@ -775,7 +798,7 @@ export class BrowserSession {
 		for (const p of context.pages()) {
 			if (
 				p.isClosed() ||
-				p.url() !== "about:blank" ||
+				!isBlankUrl(p.url()) ||
 				this.taskPages.has(p) ||
 				[...this.kept.values()].some((e) => e.page === p)
 			)
@@ -820,6 +843,8 @@ export class BrowserSession {
 			title,
 			expires: Date.now() + (this.options.keptTtlMs ?? KEPT_TTL_MS),
 		});
+		// Opening the browser for the user is no task: a later task is not told it just started.
+		this.launchedForTask = false;
 		return { token, id: this.tabId(page), title, url: clean(stripUserUrl(url), 2000) };
 	}
 
@@ -833,15 +858,20 @@ export class BrowserSession {
 	}
 
 	/** The open pages of the persistent context, task pages and the user's own. */
-	async tabs(options: { deny?: string[] } = {}): Promise<{ tabs: Tab[] }> {
+	async tabs(
+		options: { deny?: string[]; computer?: string } = {}
+	): Promise<{ tabs: Tab[]; started?: boolean }> {
 		await this.ensureContext();
 		this.touch();
 		// The sites Cerea keeps the agent out of (its deny list): remembered, so use_tab refuses them too.
+		if (options.computer) this.setComputerName(options.computer);
 		if (options.deny) this.tabDeny = parseSiteList(options.deny.join("\n"));
 		const pages = this.context!.pages().filter((p) => !p.isClosed());
 		const tabs: Tab[] = [];
 		for (const page of pages.slice(0, 50)) {
 			const mine = this.taskPages.has(page);
+			// The start page is no one's page: the agent ignores it like a blank one.
+			if (!mine && isStartUrl(page.url())) continue;
 			if (!mine && this.denied(page.url())) {
 				tabs.push({ id: this.tabId(page), title: "a page on a denied site", url: "", mine: false });
 				continue;
@@ -854,7 +884,17 @@ export class BrowserSession {
 				mine,
 			});
 		}
-		return { tabs };
+		return { tabs, ...(this.launchedForTask ? { started: true } : {}) };
+	}
+
+	private setComputerName(name: string): void {
+		const clean = name.slice(0, 80);
+		if (clean === (this.computerName ?? this.options.computerName)) return;
+		this.computerName = clean;
+		// A start page already showing the old name is shown again.
+		for (const page of this.context?.pages() ?? []) {
+			if (!page.isClosed() && isStartUrl(page.url())) void page.reload().catch(() => {});
+		}
 	}
 
 	private denied(url: string): boolean {
@@ -876,6 +916,8 @@ export class BrowserSession {
 		}
 		await removeStaleDirs();
 		await chmod(profileDir, 0o700).catch(() => {});
+		// Before Chrome starts, never while it runs (see profile.ts).
+		if (this.options.branding !== false) await applyCereaProfile(profileDir);
 		this.downloadDir ??= await mkdtemp(join(tmpdir(), `cerea-browser-${process.pid}-`));
 		let context: BrowserContext;
 		try {
@@ -903,12 +945,36 @@ export class BrowserSession {
 			}
 			throw new ToolError(`The browser could not start: ${message}`);
 		}
+		this.launchedForTask = true;
 		context.setDefaultTimeout(ACTION_TIMEOUT_MS);
 		context.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT_MS);
 		// A page cannot take the browser to a local file or an internal page; only http(s) and blank.
 		await context.route(
 			(url) => !/^(https?|about|blob|data|ws|wss):$/.test(url.protocol),
 			(route) => route.abort("blockedbyclient")
+		);
+		// The start page: answered here, with no network (registered last, so it runs first), and only
+		// as a page's own top-level navigation: a page's fetch or iframe gets what a real `.invalid`
+		// name gives, so a site cannot tell this is the Cerea browser by asking for it.
+		await context.route(
+			(url) => url.href === START_URL,
+			(route) => {
+				const request = route.request();
+				let topLevel = false;
+				try {
+					topLevel = request.isNavigationRequest() && request.frame().parentFrame() === null;
+				} catch {
+					// a request with no frame (a worker's) is not a navigation
+				}
+				if (!topLevel) return void route.abort("namenotresolved").catch(() => {});
+				void route
+					.fulfill({
+						status: 200,
+						contentType: "text/html; charset=utf-8",
+						body: startPageHtml(this.computerName ?? this.options.computerName ?? hostname()),
+					})
+					.catch(() => {});
+			}
 		);
 		context.on("page", (page) => {
 			this.hook(page);
@@ -917,6 +983,13 @@ export class BrowserSession {
 		for (const page of context.pages()) {
 			this.hook(page);
 			this.ours.add(page);
+			// The first tab of a fresh window shows the Cerea start page instead of a blank one.
+			if (
+				this.options.branding !== false &&
+				/^(about:blank|chrome:\/\/newtab\/?)$/.test(page.url())
+			) {
+				void page.goto(START_URL, { waitUntil: "commit", timeout: 5000 }).catch(() => {});
+			}
 		}
 		context.on("response", (response) => {
 			const headers = response.headers();
@@ -1239,7 +1312,7 @@ export class BrowserSession {
 	async snapshot(): Promise<Snapshot> {
 		this.touch();
 		const page = this.livePage();
-		if (!page) return this.noPage();
+		if (!page || isStartUrl(page.url())) return this.noPage();
 		const built = await this.build(page);
 		this.baseline = {
 			page,
@@ -1979,19 +2052,33 @@ export class BrowserSession {
 		format?: "png" | "jpeg";
 	}): Promise<{ mime: string; base64: string }> {
 		const page = this.requirePage();
-		const type = request.format === "jpeg" ? "jpeg" : "png";
+		const wanted = request.format === "jpeg" ? "jpeg" : "png";
 		try {
-			const buffer = request.ref
-				? await page
-						.getByRef(request.ref)
-						.screenshot({ type, timeout: 5_000, ...(type === "jpeg" ? { quality: 70 } : {}) })
-				: await page.screenshot({
-						type,
-						...(type === "jpeg" ? { quality: 70 } : {}),
-						timeout: 8_000,
-					});
+			const shoot = (type: "png" | "jpeg", quality?: number) =>
+				request.ref
+					? page.getByRef(request.ref).screenshot({
+							type,
+							timeout: 5_000,
+							...(quality ? { quality } : {}),
+						})
+					: page.screenshot({ type, timeout: 8_000, ...(quality ? { quality } : {}) });
+			// One result must fit the link: a heavy page makes a PNG of several MB. Re-encode as
+			// JPEG at falling quality (the mime says what came back) until the base64 fits.
+			let type: "png" | "jpeg" = wanted;
+			let buffer = await shoot(type, type === "jpeg" ? 70 : undefined);
+			for (const quality of [60, 45, 30, 20, 10]) {
+				if (buffer.length * (4 / 3) <= SCREENSHOT_LIMIT) break;
+				type = "jpeg";
+				buffer = await shoot("jpeg", quality);
+			}
+			if (buffer.length * (4 / 3) > SCREENSHOT_LIMIT) {
+				throw new ToolError(
+					"The screenshot is too large to return even at the lowest quality: take one of an element (ref) instead."
+				);
+			}
 			return { mime: `image/${type}`, base64: buffer.toString("base64") };
 		} catch (err) {
+			if (err instanceof ToolError) throw err;
 			if (request.ref && /Timeout/.test(String(err))) {
 				throw new ToolError(
 					`No element with ref ${request.ref} on this page. Refs reset when the page navigates: take a new snapshot.`
@@ -2009,14 +2096,17 @@ export class BrowserSession {
 	async download(request: { all?: boolean } = {}): Promise<DownloadResult> {
 		await Promise.race([Promise.allSettled([...this.pendingDownloads]), sleep(15_000)]);
 		const give = this.downloads.filter((d) => request.all || d.actionIndex !== undefined);
-		this.downloads = this.downloads.filter((d) => !give.includes(d));
 		const files: DownloadResult["files"] = [];
-		for (const file of give.slice(0, MAX_DOWNLOADS)) {
+		const taken = new Set<(typeof give)[number]>();
+		let base64Total = 0;
+		for (const file of give) {
 			const origin = {
 				...(file.actionIndex !== undefined ? { actionIndex: file.actionIndex } : {}),
 				...(file.grantId ? { grantId: file.grantId } : {}),
 			};
+			if (files.length >= MAX_DOWNLOADS) break;
 			if (file.skipped || !file.path) {
+				taken.add(file);
 				files.push({
 					name: file.name,
 					mime: file.mime,
@@ -2028,6 +2118,7 @@ export class BrowserSession {
 			}
 			// The size was checked when the file was saved, before anything is read or encoded.
 			if (file.size > MAX_DOWNLOAD_BYTES) {
+				taken.add(file);
 				files.push({
 					name: file.name,
 					mime: file.mime,
@@ -2035,18 +2126,47 @@ export class BrowserSession {
 					skipped: `larger than ${MAX_DOWNLOAD_BYTES / 1024 / 1024} MB`,
 					...origin,
 				});
-			} else {
-				const bytes = await readFile(file.path);
+				await rm(file.path, { force: true });
+				continue;
+			}
+			// The result travels twice: a file whose base64 alone is over half the budget never fits.
+			if (Math.ceil(file.size / 3) * 4 * 2 > DOWNLOAD_WIRE_BUDGET) {
+				// It can never fit one result: say so once, and let it go.
+				taken.add(file);
 				files.push({
 					name: file.name,
 					mime: file.mime,
-					size: bytes.byteLength,
-					base64: bytes.toString("base64"),
+					size: file.size,
+					skipped: `too large to return over the link (${file.size} bytes; the limit is about ${Math.floor((DOWNLOAD_WIRE_BUDGET / 8) * 3)})`,
 					...origin,
 				});
+				await rm(file.path, { force: true });
+				continue;
 			}
+			const bytes = await readFile(file.path);
+			const entry = {
+				name: file.name,
+				mime: file.mime,
+				size: bytes.byteLength,
+				base64: bytes.toString("base64"),
+				...origin,
+			};
+			if (wire({ files: [...files, entry] }) > DOWNLOAD_WIRE_BUDGET) {
+				// Fits alone, not with the others: it stays for the next call.
+				files.push({
+					name: file.name,
+					mime: file.mime,
+					size: file.size,
+					skipped: "too large for one result; call download again",
+					...origin,
+				});
+				continue;
+			}
+			taken.add(file);
+			files.push(entry);
 			await rm(file.path, { force: true });
 		}
+		this.downloads = this.downloads.filter((d) => !taken.has(d));
 		return { files };
 	}
 }

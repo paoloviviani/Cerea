@@ -11,6 +11,7 @@ import { answerTurn, callTurn, scriptedModel, toolTexts, type ScriptedTurn } fro
 import {
 	PAGE_CLOSE,
 	PAGE_OPEN,
+	plainStopReason,
 	runBrowseLoop,
 	systemPrompt,
 	type BrowseFile,
@@ -559,6 +560,14 @@ describe("runBrowseLoop: approvals", () => {
 		expect(ap.asks).toEqual([]);
 		expect(runtime.performed).toEqual([]);
 		expect(result.stopped_reason).toBe("denied");
+		expect(result.stop_detail).toBe("blocked");
+	});
+
+	it("names what stopped a denied task in plain, distinct sentences", () => {
+		expect(plainStopReason("denied", "declined")).toBe("the user declined the approval");
+		expect(plainStopReason("denied", "no_answer")).toMatch(/not answered in time/);
+		expect(plainStopReason("denied", "blocked")).toBe("this site is not allowed");
+		expect(plainStopReason("denied", "page_changed")).toMatch(/page changed/);
 	});
 });
 
@@ -688,7 +697,7 @@ describe("runBrowseLoop: budgets", () => {
 			}
 		);
 		expect(result.stopped_reason).toBe("max_steps");
-		expect(result.result).toContain("Stopped early: the step budget ran out");
+		expect(result.result).toContain("Stopped early: the task needed more steps");
 		expect(result.final_url).toBe("https://shop.example.com/");
 	});
 
@@ -714,7 +723,7 @@ describe("runBrowseLoop: failures", () => {
 		runtime.failNext.snapshot = new BrowserRuntimeError("the machine went away", "unavailable");
 		const result = await runBrowseLoop({ goal: "look" }, deps);
 		expect(result.stopped_reason).toBe("runtime_error");
-		expect(result.result).toContain("the browser could not be used");
+		expect(result.result).toContain("crashed, or the computer went offline");
 	});
 
 	it("stops when the browser disappears mid-task, keeping what it knew", async () => {
@@ -1205,6 +1214,7 @@ describe("L5: extract and screenshot look at the URL first", () => {
 describe("L7: the lease is checked before each act", () => {
 	it("stops with lease_lost, and runs nothing, when the machine is not this task's any more", async () => {
 		let held = true;
+		let checks = 0;
 		const { deps, runtime } = setup({
 			script: [
 				callTurn("act", { actions: [{ type: "scroll", direction: "down" }] }),
@@ -1214,7 +1224,7 @@ describe("L7: the lease is checked before each act", () => {
 			deps: {
 				leaseHeld: async () => {
 					const now = held;
-					held = false; // lost after the first act
+					if (++checks >= 2) held = false; // the start check, then the first act: lost after it
 					return now;
 				},
 			},
@@ -1222,8 +1232,19 @@ describe("L7: the lease is checked before each act", () => {
 		const result = await runBrowseLoop({ goal: "scroll" }, deps);
 		expect(result.stopped_reason).toBe("lease_lost");
 		expect(runtime.performed).toHaveLength(1);
-		// Another task holds the browser now: this one ends nothing of its.
-		expect(runtime.ended).toBe(0);
+		// Another task holds the browser now: this one ends nothing more of its (the one end is
+		// the clean start, before any act).
+		expect(runtime.ended).toBe(1);
+	});
+
+	it("a task that has lost the lease ends nothing, not even at the clean start", async () => {
+		const { deps, runtime } = setup({
+			script: [answerTurn("never")],
+			deps: { leaseHeld: async () => false },
+		});
+		const result = await runBrowseLoop({ goal: "scroll" }, deps);
+		expect(result.stopped_reason).toBe("lease_lost");
+		expect(runtime.calls.filter((c) => c.tool === "end_task")).toHaveLength(0);
 	});
 
 	it("does not ask when there is nothing to check", async () => {
@@ -1308,25 +1329,25 @@ describe("the runtime's task and channel", () => {
 	it("ends the task whatever the outcome: a result, a budget, a stop, a crash", async () => {
 		const a = setup({ script: [answerTurn("done")] });
 		await runBrowseLoop({ goal: "look" }, a.deps);
-		expect(a.runtime.ended).toBe(1);
+		expect(a.runtime.ended).toBe(2); // the clean start, then the end
 
 		const b = setup({
 			script: [callTurn("snapshot", {}), callTurn("snapshot", {})],
 			deps: { budgets: { ...budgets, maxSteps: 1 } },
 		});
 		await runBrowseLoop({ goal: "look" }, b.deps);
-		expect(b.runtime.ended).toBe(1);
+		expect(b.runtime.ended).toBe(2); // the clean start, then the end
 
 		const controller = new AbortController();
 		controller.abort();
 		const c = setup({ script: [answerTurn("never")], deps: { signal: controller.signal } });
 		await runBrowseLoop({ goal: "look" }, c.deps);
-		expect(c.runtime.ended).toBe(1);
+		expect(c.runtime.ended).toBe(2); // the clean start, then the end
 
 		const d = setup({ script: [answerTurn("never")] });
 		d.runtime.failNext.snapshot = new BrowserRuntimeError("gone", "unavailable");
 		await runBrowseLoop({ goal: "look" }, d.deps);
-		expect(d.runtime.ended).toBe(1);
+		expect(d.runtime.ended).toBe(2); // the clean start, then the end
 
 		const e = setup({ script: [answerTurn("x")] });
 		const boom = e.deps.complete;
@@ -1335,7 +1356,7 @@ describe("the runtime's task and channel", () => {
 			throw new TypeError("a bug");
 		};
 		await runBrowseLoop({ goal: "look" }, e.deps);
-		expect(e.runtime.ended).toBe(1);
+		expect(e.runtime.ended).toBe(2); // the clean start, then the end
 	});
 
 	it("still returns the result when ending the task fails", async () => {
@@ -1686,5 +1707,31 @@ describe("allow on this site for this chat (ADR 0116 section 4)", () => {
 		expect(has).not.toHaveBeenCalled();
 		expect(asks).toHaveLength(0);
 		expect(runtime.performed).toHaveLength(0);
+	});
+});
+
+describe("a task after another one on the same runtime", () => {
+	it("starts with end_task({keep: true}) before its first snapshot, unless it resumes a page", async () => {
+		const a = setup({ script: [answerTurn("done")] });
+		await runBrowseLoop({ goal: "look" }, a.deps);
+		const tools = a.runtime.calls.map((c) => c.tool);
+		expect(tools.indexOf("end_task")).toBeLessThan(tools.indexOf("snapshot"));
+		expect(a.runtime.calls.find((c) => c.tool === "end_task")?.args).toEqual({ keep: true });
+	});
+
+	it("shows the runtime's note about a cut page outside the fence, ahead of it", async () => {
+		const { deps, runtime, model } = setup({ script: [answerTurn("done")] });
+		const snapshot = runtime.snapshot.bind(runtime);
+		runtime.snapshot = async () => ({
+			...(await snapshot()),
+			truncated: true,
+			note: "[truncated: scroll or use extract]",
+		});
+		await runBrowseLoop({ goal: "look" }, deps);
+		const first = JSON.stringify(model.requests[0].messages);
+		const at = first.indexOf("Note: [truncated: scroll or use extract]");
+		expect(at).toBeGreaterThan(-1);
+		// The fence opens right after the note, not before it.
+		expect(first.slice(at).indexOf(PAGE_OPEN.replace(/"/g, '\\"'))).toBeLessThan(80);
 	});
 });

@@ -121,6 +121,9 @@ export const snapshotSchema = z.object({
 	/** Rows the runtime folded away ("... and 37 more rows like this; use extract"). */
 	collapsed: z.number().int().nonnegative().optional(),
 	challenge: challengeSchema.optional(),
+	/** The tree was cut to fit one result; `note` says what to do. */
+	truncated: z.boolean().optional(),
+	note: z.string().max(1000).optional(),
 });
 export type Snapshot = z.infer<typeof snapshotSchema>;
 
@@ -136,6 +139,7 @@ export const diffSchema = z.object({
 	text: z.string().default(""),
 	snapshot: snapshotSchema.optional(),
 	challenge: challengeSchema.optional(),
+	truncated: z.boolean().optional(),
 });
 export type Diff = z.infer<typeof diffSchema>;
 
@@ -313,6 +317,8 @@ export const extractResultSchema = z.object({
 		.default([]),
 	/** The region's visible text (with `ref`, or `mode: "text"`). */
 	text: z.string().max(100_000).optional(),
+	/** Present when the result was cut to fit one message. */
+	note: z.string().max(1000).optional(),
 });
 export type ExtractResult = z.infer<typeof extractResultSchema>;
 
@@ -343,7 +349,11 @@ export const tabSchema = z.object({
 	url: z.string().max(4096),
 	mine: z.boolean(),
 });
-export const tabsResultSchema = z.object({ tabs: z.array(tabSchema).max(100) });
+export const tabsResultSchema = z.object({
+	tabs: z.array(tabSchema).max(100),
+	/** True when the browser was (re)started for this task: it was not running before, so it holds no page of the user's. */
+	started: z.boolean().optional(),
+});
 export type Tab = z.infer<typeof tabSchema>;
 export type TabsResult = z.infer<typeof tabsResultSchema>;
 
@@ -458,7 +468,7 @@ export interface BrowserRuntime {
 	screenshot(ref?: string, signal?: AbortSignal): Promise<ScreenshotResult>;
 	download(signal?: AbortSignal): Promise<DownloadResult>;
 	/** The open pages, the user's own included. */
-	tabs(options?: { deny?: string[] }, signal?: AbortSignal): Promise<TabsResult>;
+	tabs(options?: { deny?: string[]; computer?: string }, signal?: AbortSignal): Promise<TabsResult>;
 	/** Make a kept page the active task page. Throws when it is gone or the token expired. */
 	resume(token: string, signal?: AbortSignal): Promise<ResumeResult>;
 	/** Open a page of its own (no task); its token resumes it. Throws on a refused address or site. */

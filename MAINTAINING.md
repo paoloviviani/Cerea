@@ -6,8 +6,9 @@ so a careful but less experienced model can follow it step by step. It says
 what the project is, the rules that are not negotiable, how a change is made,
 verified and released, and the traps that have already cost time.
 
-`AGENTS.md` is the detailed reference (architecture, subsystems, conventions).
-Read this file first, then the `AGENTS.md` section for the area you touch.
+`AGENTS.md` holds the commands, layout and test setup; `docs/dev/` has the
+per-subsystem reference. Read this file first, then `AGENTS.md`, then the
+`docs/dev/` page for the area you touch.
 
 ## 1. What this is
 
@@ -63,16 +64,16 @@ drives `opencode` and connects to Cerea over WSS.
 | You are changing…                                           | Look at                                                                                                                                                           | Docs to update                                                                        |
 | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
 | Chat streaming, final answers, message content              | `src/lib/server/textGeneration/`, `src/lib/server/generation/applyUpdate.ts`, `src/lib/utils/mergeFinalAnswer.ts`, `src/lib/components/chat/ChatMessage.svelte`   | `docs/chat.md`                                                                        |
-| Models, custom models, global prompt                        | `src/lib/server/models.ts`, AGENTS.md "Models"                                                                                                                    | `docs/chat.md`, `docs/configuration.md`                                               |
-| Projects, knowledge, attachments                            | AGENTS.md "Projects and knowledge bases"                                                                                                                          | `docs/knowledge.md`                                                                   |
+| Models, custom models, global prompt                        | `src/lib/server/models.ts`, `docs/dev/models.md`                                                                                                                  | `docs/chat.md`, `docs/configuration.md`                                               |
+| Projects, knowledge, attachments                            | `docs/dev/knowledge-projects.md`                                                                                                                                  | `docs/knowledge.md`                                                                   |
 | Look and feel (fonts, colours, density)                     | `src/styles/tokens.css`, `src/styles/main.css`, palettes (`scripts/generate-palettes.mjs`)                                                                        | screenshots (section 4)                                                               |
 | The /code panel (browser side)                              | `src/lib/components/code/`, `src/routes/code/`, `src/lib/server/code/`                                                                                            | `docs/code-panel.md`                                                                  |
 | The machine link, ops, events                               | `src/lib/server/code/machines.ts` (Cerea), `agent/PROTOCOL.md` (the contract), `agent/*.go`                                                                       | `agent/PROTOCOL.md` first, then `agent/README.md`, `docs/agent-machines-reference.md` |
 | galopin permissions (Deny/Ask/Allow, ceiling, agent tools)  | `agent/internal/permrules/`, `agent/permissions.go`, `agent/agenttools*.go`                                                                                       | `agent/README.md`, `docs/agent-machines-reference.md`                                 |
 | Scheduled actions                                           | `src/lib/server/schedules/` (incl. `chatScheduleExecutor.ts`, `grants.ts`), `src/lib/server/code/scheduleAgentExecutor.ts`, `src/lib/server/code/machineCalls.ts` | `docs/code-panel.md`, AGENTS.md "Scheduled actions"                                   |
-| Stored files (attachments, deliverables, uploads, previews) | `src/lib/server/blobs/` (`BlobStore`; never `GridFSBucket` or an S3 client elsewhere), AGENTS.md "File storage", `scripts/blobs-migrate.mjs`                      | `docs/storage.md`, `docs/configuration.md`, `kit/README.md`                           |
+| Stored files (attachments, deliverables, uploads, previews) | `src/lib/server/blobs/` (`BlobStore`; never `GridFSBucket` or an S3 client elsewhere), `docs/dev/file-storage.md`, `scripts/blobs-migrate.mjs`                    | `docs/storage.md`, `docs/configuration.md`, `kit/README.md`                           |
 | The deploy kit                                              | `kit/` (`configure`, `compose.yaml`, `get-kit.sh`, `tools/pin`)                                                                                                   | `kit/README.md`, `docs/deploy*.md`, `kit/CHANGELOG.md`                                |
-| Release machinery                                           | `scripts/release/`, `.github/workflows/`                                                                                                                          | AGENTS.md "Releasing"                                                                 |
+| Release machinery                                           | `scripts/release/`, `.github/workflows/`                                                                                                                          | `docs/dev/releasing.md`                                                               |
 
 Workflows: `ci.yml` (lint, check, server/ssr tests and galopin's Go checks on
 every push to `main` and every PR; the Svelte `client` tests on pushes,
@@ -93,7 +94,7 @@ documentation, kept as written and not part of the site.
 
 1. **Branch** from up-to-date `main`: `git switch -c fix/<short-name>`.
 2. **Read before writing.** Find the code path with `grep`; read the
-   AGENTS.md section for it. Look for an existing helper before writing one.
+   `docs/dev/` page for it. Look for an existing helper before writing one.
 3. **Change the smallest thing that fixes it.** No drive-by refactors. Match
    the surrounding style and comment density.
 4. **Write the test that fails without your change**, then make it pass. Check
@@ -113,7 +114,7 @@ documentation, kept as written and not part of the site.
    colours changed). Look at every one before saying it is fine.
 7. **Docs in the same change.** Behaviour visible to users goes in `docs/`; a
    contract change goes in `agent/PROTOCOL.md`; a non-obvious design decision
-   goes in AGENTS.md. Build the docs with `--strict`.
+   goes in AGENTS.md or its `docs/dev/` page. Build the docs with `--strict`.
 8. **Commit** with a message that says _why_ (the bug, the rejected
    alternative), not a list of files.
 9. **Merge**: `git switch main && git pull --ff-only && git merge --no-ff <branch>`,

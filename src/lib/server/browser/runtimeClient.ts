@@ -153,10 +153,18 @@ export class McpBrowserRuntime implements BrowserRuntime {
 		);
 	}
 
-	tabs(options?: { deny?: string[] }, signal?: AbortSignal): Promise<TabsResult> {
+	tabs(
+		options?: { deny?: string[]; computer?: string },
+		signal?: AbortSignal
+	): Promise<TabsResult> {
 		// An empty list is sent too: the runtime then clears one it was given before.
 		const deny = options?.deny?.filter((d) => d.length > 0);
-		return this.invoke("tabs", deny ? { deny } : {}, tabsResultSchema, signal);
+		return this.invoke(
+			"tabs",
+			{ ...(deny ? { deny } : {}), ...(options?.computer ? { computer: options.computer } : {}) },
+			tabsResultSchema,
+			signal
+		);
 	}
 
 	resume(token: string, signal?: AbortSignal): Promise<ResumeResult> {

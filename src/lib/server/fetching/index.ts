@@ -55,6 +55,8 @@ export interface FetchedPage {
 	document?: { bytes: ArrayBuffer; mime: string; filename: string };
 	/** `content` is already the compact list of an RSS/Atom feed: plain text, not markup to strip. */
 	feed?: boolean;
+	/** The page's main links (text and absolute URL), taken from the whole page, not the extracted article. */
+	links?: import("./links").PageLink[];
 	/** Absolute URLs of feeds the page advertises in its head (at most 3). */
 	feeds?: string[];
 	/** Said to the model above the content: which address actually answered, after a retry. */

@@ -52,6 +52,46 @@ describe("web_fetch builtin", () => {
 		});
 	});
 
+	it("puts the page's main links after its text, labelled, from a local fixture", async () => {
+		const url = "https://front.example.test/";
+		fetchPage.mockResolvedValue({
+			url,
+			title: "Front",
+			content:
+				'<html><body><nav><a href="/world">World</a></nav><main><h1>Front page</h1>' +
+				'<a href="/news/a-story">A story</a><a href="javascript:x()">Nope</a></main></body></html>',
+			contentType: "text/html",
+			backend: "direct",
+		});
+		const result = (await createWebFetchBuiltin({ allowedUrls: new Set([url]) }).execute(
+			{ url },
+			{} as never
+		)) as { resultText: string };
+		expect(result.resultText).toContain("Front page A story");
+		expect(result.resultText).toMatch(
+			/\n\nMain links on this page, as text: address:\n- A story: https:\/\/front\.example\.test\/news\/a-story$/
+		);
+		expect(result.resultText).not.toContain("World:");
+		expect(result.resultText).not.toContain("javascript");
+	});
+
+	it("uses the links the backend took from the whole page", async () => {
+		const url = "https://front.example.test/";
+		fetchPage.mockResolvedValue({
+			url,
+			title: "Front",
+			content: "<p>Just the extracted article text here.</p>",
+			links: [{ text: "Headline", url: "https://front.example.test/h1" }],
+			contentType: "text/html",
+			backend: "direct",
+		});
+		const result = (await createWebFetchBuiltin({ allowedUrls: new Set([url]) }).execute(
+			{ url },
+			{} as never
+		)) as { resultText: string };
+		expect(result.resultText).toContain("- Headline: https://front.example.test/h1");
+	});
+
 	it("refuses a URL invented by the model before it reaches the renderer", async () => {
 		const result = await createWebFetchBuiltin({ allowedUrls: new Set() }).execute(
 			{ url: "https://metadata.example/secret" },
