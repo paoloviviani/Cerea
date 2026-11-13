@@ -129,7 +129,10 @@ export const TOOLS = [
 			"The pages open in the browser: {id, title, url, mine}. mine is true for a page this task owns; others are the user's (shown without query or fragment). To use one of the user's tabs, act with {type: use_tab, tab: id}, which needs approval. deny: sites whose tabs are hidden.",
 		inputSchema: {
 			type: "object",
-			properties: { deny: { type: "array", items: { type: "string" } } },
+			properties: {
+				deny: { type: "array", items: { type: "string" } },
+				computer: { type: "string" },
+			},
 		},
 	},
 	{
@@ -253,7 +256,15 @@ export function createToolHandler(session: BrowserSession) {
 					const deny = Array.isArray(raw)
 						? raw.filter((x): x is string => typeof x === "string").slice(0, 200)
 						: undefined;
-					return json(await serial(() => session.tabs({ deny })));
+					const computer = asObject(rawArgs).computer;
+					return json(
+						await serial(() =>
+							session.tabs({
+								deny,
+								...(typeof computer === "string" && computer ? { computer } : {}),
+							})
+						)
+					);
 				}
 				case "open": {
 					const args = asObject(rawArgs);

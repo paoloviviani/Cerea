@@ -11,6 +11,7 @@ import { answerTurn, callTurn, scriptedModel, toolTexts, type ScriptedTurn } fro
 import {
 	PAGE_CLOSE,
 	PAGE_OPEN,
+	plainStopReason,
 	runBrowseLoop,
 	systemPrompt,
 	type BrowseFile,
@@ -559,6 +560,14 @@ describe("runBrowseLoop: approvals", () => {
 		expect(ap.asks).toEqual([]);
 		expect(runtime.performed).toEqual([]);
 		expect(result.stopped_reason).toBe("denied");
+		expect(result.stop_detail).toBe("blocked");
+	});
+
+	it("names what stopped a denied task in plain, distinct sentences", () => {
+		expect(plainStopReason("denied", "declined")).toBe("the user declined the approval");
+		expect(plainStopReason("denied", "no_answer")).toMatch(/not answered in time/);
+		expect(plainStopReason("denied", "blocked")).toBe("this site is not allowed");
+		expect(plainStopReason("denied", "page_changed")).toMatch(/page changed/);
 	});
 });
 
@@ -688,7 +697,7 @@ describe("runBrowseLoop: budgets", () => {
 			}
 		);
 		expect(result.stopped_reason).toBe("max_steps");
-		expect(result.result).toContain("Stopped early: the step budget ran out");
+		expect(result.result).toContain("Stopped early: the task needed more steps");
 		expect(result.final_url).toBe("https://shop.example.com/");
 	});
 
@@ -714,7 +723,7 @@ describe("runBrowseLoop: failures", () => {
 		runtime.failNext.snapshot = new BrowserRuntimeError("the machine went away", "unavailable");
 		const result = await runBrowseLoop({ goal: "look" }, deps);
 		expect(result.stopped_reason).toBe("runtime_error");
-		expect(result.result).toContain("the browser could not be used");
+		expect(result.result).toContain("crashed, or the computer went offline");
 	});
 
 	it("stops when the browser disappears mid-task, keeping what it knew", async () => {

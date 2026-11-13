@@ -349,7 +349,11 @@ export const tabSchema = z.object({
 	url: z.string().max(4096),
 	mine: z.boolean(),
 });
-export const tabsResultSchema = z.object({ tabs: z.array(tabSchema).max(100) });
+export const tabsResultSchema = z.object({
+	tabs: z.array(tabSchema).max(100),
+	/** True when the browser was (re)started for this task: it was not running before, so it holds no page of the user's. */
+	started: z.boolean().optional(),
+});
 export type Tab = z.infer<typeof tabSchema>;
 export type TabsResult = z.infer<typeof tabsResultSchema>;
 
@@ -464,7 +468,7 @@ export interface BrowserRuntime {
 	screenshot(ref?: string, signal?: AbortSignal): Promise<ScreenshotResult>;
 	download(signal?: AbortSignal): Promise<DownloadResult>;
 	/** The open pages, the user's own included. */
-	tabs(options?: { deny?: string[] }, signal?: AbortSignal): Promise<TabsResult>;
+	tabs(options?: { deny?: string[]; computer?: string }, signal?: AbortSignal): Promise<TabsResult>;
 	/** Make a kept page the active task page. Throws when it is gone or the token expired. */
 	resume(token: string, signal?: AbortSignal): Promise<ResumeResult>;
 	/** Open a page of its own (no task); its token resumes it. Throws on a refused address or site. */

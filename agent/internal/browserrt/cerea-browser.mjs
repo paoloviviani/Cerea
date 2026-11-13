@@ -1,4 +1,4 @@
-// cerea-browser runtime 0.1.0; source-hash: 15f750fd3090b1ac6fec9a129fff859671d8c465e077d8ef404a686d336f1c9b
+// cerea-browser runtime 0.1.0; source-hash: a22361b33e1a5490aa13fb6c44cd6bea87c0d945f753ff790cf5bba5589aa25e
 // inlined: @hono/node-server@2.1.8 @modelcontextprotocol/sdk@1.32.2 ajv@8.20.0 ajv-formats@3.0.1 content-type@1.0.5 fast-deep-equal@3.1.3 fast-uri@3.1.9 hono@4.13.18 json-schema-traverse@1.0.0 tldts@7.4.26 zod@3.25.76 zod-to-json-schema@3.25.2
 import { createRequire as __cr } from "node:module";
 const require = __cr(import.meta.url);
@@ -7366,44 +7366,44 @@ var require_content_type = __commonJS({
 var require_cjs = __commonJS({
   "node_modules/tldts/dist/cjs/index.js"(exports) {
     "use strict";
-    function shareSameDomainSuffix(hostname2, vhost) {
-      if (hostname2.endsWith(vhost)) {
-        return hostname2.length === vhost.length || hostname2[hostname2.length - vhost.length - 1] === ".";
+    function shareSameDomainSuffix(hostname4, vhost) {
+      if (hostname4.endsWith(vhost)) {
+        return hostname4.length === vhost.length || hostname4[hostname4.length - vhost.length - 1] === ".";
       }
       return false;
     }
-    function extractDomainWithSuffix(hostname2, publicSuffix) {
-      const publicSuffixIndex = hostname2.length - publicSuffix.length - 2;
-      const lastDotBeforeSuffixIndex = hostname2.lastIndexOf(".", publicSuffixIndex);
+    function extractDomainWithSuffix(hostname4, publicSuffix) {
+      const publicSuffixIndex = hostname4.length - publicSuffix.length - 2;
+      const lastDotBeforeSuffixIndex = hostname4.lastIndexOf(".", publicSuffixIndex);
       if (lastDotBeforeSuffixIndex === -1) {
-        return hostname2;
+        return hostname4;
       }
-      return hostname2.slice(lastDotBeforeSuffixIndex + 1);
+      return hostname4.slice(lastDotBeforeSuffixIndex + 1);
     }
-    function getDomain$1(suffix, hostname2, options) {
+    function getDomain$1(suffix, hostname4, options) {
       if (options.validHosts !== null) {
         const validHosts = options.validHosts;
         for (const vhost of validHosts) {
           if (
             /*@__INLINE__*/
-            shareSameDomainSuffix(hostname2, vhost)
+            shareSameDomainSuffix(hostname4, vhost)
           ) {
             return vhost;
           }
         }
       }
       let numberOfLeadingDots = 0;
-      if (hostname2.startsWith(".")) {
-        while (numberOfLeadingDots < hostname2.length && hostname2[numberOfLeadingDots] === ".") {
+      if (hostname4.startsWith(".")) {
+        while (numberOfLeadingDots < hostname4.length && hostname4[numberOfLeadingDots] === ".") {
           numberOfLeadingDots += 1;
         }
       }
-      if (suffix.length === hostname2.length - numberOfLeadingDots) {
+      if (suffix.length === hostname4.length - numberOfLeadingDots) {
         return null;
       }
       return (
         /*@__INLINE__*/
-        extractDomainWithSuffix(hostname2, suffix)
+        extractDomainWithSuffix(hostname4, suffix)
       );
     }
     function getDomainWithoutSuffix$1(domain, suffix) {
@@ -7677,37 +7677,37 @@ var require_cjs = __commonJS({
       while (end > start + 1 && url.charCodeAt(end - 1) === 46) {
         end -= 1;
       }
-      const hostname2 = start !== 0 || end !== url.length ? url.slice(start, end) : url;
+      const hostname4 = start !== 0 || end !== url.length ? url.slice(start, end) : url;
       if (hasUpper) {
-        return hostname2.toLowerCase();
+        return hostname4.toLowerCase();
       }
-      return hostname2;
+      return hostname4;
     }
-    function isProbablyIpv4(hostname2) {
-      if (hostname2.length < 7) {
+    function isProbablyIpv4(hostname4) {
+      if (hostname4.length < 7) {
         return false;
       }
-      if (hostname2.length > 15) {
+      if (hostname4.length > 15) {
         return false;
       }
       let numberOfDots = 0;
-      for (let i = 0; i < hostname2.length; i += 1) {
-        const code = hostname2.charCodeAt(i);
+      for (let i = 0; i < hostname4.length; i += 1) {
+        const code = hostname4.charCodeAt(i);
         if (code === 46) {
           numberOfDots += 1;
         } else if (code < 48 || code > 57) {
           return false;
         }
       }
-      return numberOfDots === 3 && hostname2.charCodeAt(0) !== 46 && hostname2.charCodeAt(hostname2.length - 1) !== 46;
+      return numberOfDots === 3 && hostname4.charCodeAt(0) !== 46 && hostname4.charCodeAt(hostname4.length - 1) !== 46;
     }
-    function isProbablyIpv6(hostname2) {
-      if (hostname2.length < 3) {
-        return hostname2 === "::";
+    function isProbablyIpv6(hostname4) {
+      if (hostname4.length < 3) {
+        return hostname4 === "::";
       }
-      let start = hostname2.startsWith("[") ? 1 : 0;
-      let end = hostname2.length;
-      if (hostname2[end - 1] === "]") {
+      let start = hostname4.startsWith("[") ? 1 : 0;
+      let end = hostname4.length;
+      if (hostname4[end - 1] === "]") {
         end -= 1;
       }
       if (end - start > 39) {
@@ -7715,7 +7715,7 @@ var require_cjs = __commonJS({
       }
       let hasColon = false;
       for (; start < end; start += 1) {
-        const code = hostname2.charCodeAt(start);
+        const code = hostname4.charCodeAt(start);
         if (code === 58) {
           hasColon = true;
         } else if (!(code >= 48 && code <= 57 || // 0-9
@@ -7726,8 +7726,8 @@ var require_cjs = __commonJS({
       }
       return hasColon;
     }
-    function isIp(hostname2) {
-      return isProbablyIpv6(hostname2) || isProbablyIpv4(hostname2);
+    function isIp(hostname4) {
+      return isProbablyIpv6(hostname4) || isProbablyIpv4(hostname4);
     }
     var SPECIAL_USE_DOMAINS = [
       "test",
@@ -7763,9 +7763,9 @@ var require_cjs = __commonJS({
       "eap.arpa"
       // RFC 9965
     ];
-    function isSpecialUse(hostname2) {
+    function isSpecialUse(hostname4) {
       for (const name of SPECIAL_USE_DOMAINS) {
-        if (hostname2.endsWith(name) && (hostname2.length === name.length || hostname2.charCodeAt(hostname2.length - name.length - 1) === 46)) {
+        if (hostname4.endsWith(name) && (hostname4.length === name.length || hostname4.charCodeAt(hostname4.length - name.length - 1) === 46)) {
           return true;
         }
       }
@@ -7774,25 +7774,25 @@ var require_cjs = __commonJS({
     function isValidAscii(code) {
       return code >= 97 && code <= 122 || code >= 48 && code <= 57 || code > 127;
     }
-    function isValidHostname(hostname2) {
-      if (hostname2.length > 255) {
+    function isValidHostname(hostname4) {
+      if (hostname4.length > 255) {
         return false;
       }
-      if (hostname2.length === 0) {
+      if (hostname4.length === 0) {
         return false;
       }
       if (
         /*@__INLINE__*/
-        !isValidAscii(hostname2.charCodeAt(0)) && hostname2.charCodeAt(0) !== 46 && // '.' (dot)
-        hostname2.charCodeAt(0) !== 95
+        !isValidAscii(hostname4.charCodeAt(0)) && hostname4.charCodeAt(0) !== 46 && // '.' (dot)
+        hostname4.charCodeAt(0) !== 95
       ) {
         return false;
       }
       let lastDotIndex = -1;
       let lastCharCode = -1;
-      const len = hostname2.length;
+      const len = hostname4.length;
       for (let i = 0; i < len; i += 1) {
-        const code = hostname2.charCodeAt(i);
+        const code = hostname4.charCodeAt(i);
         if (code === 46) {
           if (
             // Check that previous label is < 63 bytes long (64 = 63 + '.')
@@ -7853,11 +7853,11 @@ var require_cjs = __commonJS({
         setDefaultsImpl(options)
       );
     }
-    function getSubdomain$1(hostname2, domain) {
-      if (domain.length === hostname2.length) {
+    function getSubdomain$1(hostname4, domain) {
+      if (domain.length === hostname4.length) {
         return "";
       }
-      return hostname2.slice(0, -domain.length - 1);
+      return hostname4.slice(0, -domain.length - 1);
     }
     function getEmptyResult() {
       return {
@@ -7935,13 +7935,13 @@ var require_cjs = __commonJS({
       result.domainWithoutSuffix = getDomainWithoutSuffix$1(result.domain, result.publicSuffix);
       return result;
     }
-    function fastPathLookup(hostname2, options, out) {
-      if (!options.allowPrivateDomains && hostname2.length > 3) {
-        const last = hostname2.length - 1;
-        const c3 = hostname2.charCodeAt(last);
-        const c2 = hostname2.charCodeAt(last - 1);
-        const c1 = hostname2.charCodeAt(last - 2);
-        const c0 = hostname2.charCodeAt(last - 3);
+    function fastPathLookup(hostname4, options, out) {
+      if (!options.allowPrivateDomains && hostname4.length > 3) {
+        const last = hostname4.length - 1;
+        const c3 = hostname4.charCodeAt(last);
+        const c2 = hostname4.charCodeAt(last - 1);
+        const c1 = hostname4.charCodeAt(last - 2);
+        const c0 = hostname4.charCodeAt(last - 3);
         if (c3 === 109 && c2 === 111 && c1 === 99 && c0 === 46) {
           out.isIcann = true;
           out.isPrivate = false;
@@ -8006,19 +8006,19 @@ var require_cjs = __commonJS({
     var matchNode = -1;
     var matchStart = 0;
     var matchEnd = 0;
-    function labelEquals(edge, hostname2, start, length) {
+    function labelEquals(edge, hostname4, start, length) {
       if (edgeLength[edge] !== length) {
         return false;
       }
       const offset = edgeOffset[edge];
       for (let i = 0; i < length; i += 1) {
-        if (labelText.charCodeAt(offset + i) !== hostname2.charCodeAt(start + i)) {
+        if (labelText.charCodeAt(offset + i) !== hostname4.charCodeAt(start + i)) {
           return false;
         }
       }
       return true;
     }
-    function findEdge(node, hash, hostname2, start, length) {
+    function findEdge(node, hash, hostname4, start, length) {
       let lo = edgeStart[node];
       let hi = edgeStart[node + 1];
       while (lo < hi) {
@@ -8030,11 +8030,11 @@ var require_cjs = __commonJS({
           hi = mid;
         } else {
           for (let e = mid; e >= lo && edgeHash[e] === hash; e -= 1) {
-            if (labelEquals(e, hostname2, start, length))
+            if (labelEquals(e, hostname4, start, length))
               return e;
           }
           for (let e = mid + 1; e < hi && edgeHash[e] === hash; e += 1) {
-            if (labelEquals(e, hostname2, start, length))
+            if (labelEquals(e, hostname4, start, length))
               return e;
           }
           return -1;
@@ -8042,16 +8042,16 @@ var require_cjs = __commonJS({
       }
       return -1;
     }
-    function walk(hostname2, root, allowedMask) {
+    function walk(hostname4, root, allowedMask) {
       let node = root;
-      let end = hostname2.length;
+      let end = hostname4.length;
       let hash = 5381;
       matchNode = -1;
-      for (let i = hostname2.length - 1; i >= 0; i -= 1) {
-        const code = hostname2.charCodeAt(i);
+      for (let i = hostname4.length - 1; i >= 0; i -= 1) {
+        const code = hostname4.charCodeAt(i);
         if (code === 46) {
           const start = i + 1;
-          let edge2 = findEdge(node, hash >>> 0, hostname2, start, end - start);
+          let edge2 = findEdge(node, hash >>> 0, hostname4, start, end - start);
           if (edge2 === -1) {
             edge2 = wildcardEdge[node];
           }
@@ -8070,7 +8070,7 @@ var require_cjs = __commonJS({
           hash = hash * 33 ^ code;
         }
       }
-      let edge = findEdge(node, hash >>> 0, hostname2, 0, end);
+      let edge = findEdge(node, hash >>> 0, hostname4, 0, end);
       if (edge === -1) {
         edge = wildcardEdge[node];
       }
@@ -8084,27 +8084,27 @@ var require_cjs = __commonJS({
       }
       return matchNode !== -1;
     }
-    function suffixLookup(hostname2, options, out) {
-      if (fastPathLookup(hostname2, options, out)) {
+    function suffixLookup(hostname4, options, out) {
+      if (fastPathLookup(hostname4, options, out)) {
         return;
       }
       const allowedMask = (options.allowPrivateDomains ? 2 : 0) | (options.allowIcannDomains ? 1 : 0);
-      if (walk(hostname2, exceptionsRoot, allowedMask)) {
+      if (walk(hostname4, exceptionsRoot, allowedMask)) {
         out.isIcann = (nodeFlags[matchNode] & 1) !== 0;
         out.isPrivate = (nodeFlags[matchNode] & 2) !== 0;
-        out.publicSuffix = hostname2.slice(matchEnd + 1);
+        out.publicSuffix = hostname4.slice(matchEnd + 1);
         return;
       }
-      if (walk(hostname2, rulesRoot, allowedMask)) {
+      if (walk(hostname4, rulesRoot, allowedMask)) {
         out.isIcann = (nodeFlags[matchNode] & 1) !== 0;
         out.isPrivate = (nodeFlags[matchNode] & 2) !== 0;
-        out.publicSuffix = hostname2.slice(matchStart);
+        out.publicSuffix = hostname4.slice(matchStart);
         return;
       }
       out.isIcann = false;
       out.isPrivate = false;
-      const lastDot = hostname2.lastIndexOf(".");
-      out.publicSuffix = lastDot === -1 ? hostname2 : hostname2.slice(lastDot + 1);
+      const lastDot = hostname4.lastIndexOf(".");
+      out.publicSuffix = lastDot === -1 ? hostname4 : hostname4.slice(lastDot + 1);
     }
     var RESULT = getEmptyResult();
     function parse4(url, options) {
@@ -8149,7 +8149,7 @@ var require_cjs = __commonJS({
 import { chmodSync as chmodSync2, mkdirSync as mkdirSync2 } from "node:fs";
 import { mkdtemp as mkdtemp2, rm as rm2 } from "node:fs/promises";
 import { tmpdir as tmpdir2 } from "node:os";
-import { join as join2 } from "node:path";
+import { join as join3 } from "node:path";
 import { parseArgs } from "node:util";
 import { chromium as chromium2 } from "playwright-core";
 
@@ -14005,7 +14005,7 @@ var $ZodObject = /* @__PURE__ */ $constructor("$ZodObject", (inst, def) => {
     return (payload, ctx) => fn(shape, payload, ctx);
   };
   let fastpass;
-  const isObject2 = isObject;
+  const isObject3 = isObject;
   const jit = !globalConfig.jitless;
   const allowsEval2 = allowsEval;
   const fastEnabled = jit && allowsEval2.value;
@@ -14014,7 +14014,7 @@ var $ZodObject = /* @__PURE__ */ $constructor("$ZodObject", (inst, def) => {
   inst._zod.parse = (payload, ctx) => {
     value ?? (value = _normalized.value);
     const input = payload.value;
-    if (!isObject2(input)) {
+    if (!isObject3(input)) {
       payload.issues.push({
         expected: "object",
         code: "invalid_type",
@@ -21804,7 +21804,11 @@ var tabSchema = external_exports.object({
   url: external_exports.string().max(4096),
   mine: external_exports.boolean()
 });
-var tabsResultSchema = external_exports.object({ tabs: external_exports.array(tabSchema).max(100) });
+var tabsResultSchema = external_exports.object({
+  tabs: external_exports.array(tabSchema).max(100),
+  /** True when the browser was (re)started for this task: it was not running before, so it holds no page of the user's. */
+  started: external_exports.boolean().optional()
+});
 var endTaskResultSchema = external_exports.object({
   closed: external_exports.boolean(),
   kept: external_exports.object({
@@ -22080,7 +22084,10 @@ var TOOLS = [
     description: "The pages open in the browser: {id, title, url, mine}. mine is true for a page this task owns; others are the user's (shown without query or fragment). To use one of the user's tabs, act with {type: use_tab, tab: id}, which needs approval. deny: sites whose tabs are hidden.",
     inputSchema: {
       type: "object",
-      properties: { deny: { type: "array", items: { type: "string" } } }
+      properties: {
+        deny: { type: "array", items: { type: "string" } },
+        computer: { type: "string" }
+      }
     }
   },
   {
@@ -22179,7 +22186,15 @@ function createToolHandler(session2) {
         case "tabs": {
           const raw = asObject(rawArgs).deny;
           const deny = Array.isArray(raw) ? raw.filter((x) => typeof x === "string").slice(0, 200) : void 0;
-          return json2(await serial(() => session2.tabs({ deny })));
+          const computer = asObject(rawArgs).computer;
+          return json2(
+            await serial(
+              () => session2.tabs({
+                deny,
+                ...typeof computer === "string" && computer ? { computer } : {}
+              })
+            )
+          );
         }
         case "open": {
           const args = asObject(rawArgs);
@@ -22290,9 +22305,146 @@ function serveHttp(session2, options) {
 
 // src/session.ts
 import { createWriteStream } from "node:fs";
-import { chmod, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { dirname as dirname2, join } from "node:path";
+import { chmod, mkdtemp, readdir, readFile as readFile2, rm } from "node:fs/promises";
+import { hostname as hostname3, tmpdir } from "node:os";
+
+// src/profile.ts
+import { randomBytes } from "node:crypto";
+import { mkdir, open, readFile, readlink, rename, unlink } from "node:fs/promises";
+import { hostname as hostname2 } from "node:os";
+import { dirname, join } from "node:path";
+var CEREA_ACCENT_ARGB = 4285532391 | 0;
+var CEREA_PROFILE_NAME = "Cerea";
+var THEME_PREFS = {
+  user_color2: CEREA_ACCENT_ARGB,
+  color_variant2: 1,
+  is_grayscale2: false,
+  color_scheme2: 0
+};
+async function profileIsRunning(dir) {
+  let target;
+  try {
+    target = await readlink(join(dir, "SingletonLock"));
+  } catch {
+    return false;
+  }
+  const cut = target.lastIndexOf("-");
+  const pid = Number(target.slice(cut + 1));
+  if (!Number.isInteger(pid) || pid <= 0) return true;
+  if (cut > 0 && target.slice(0, cut) !== hostname2()) return true;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err.code === "EPERM";
+  }
+}
+var isObject2 = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+async function readJson(path) {
+  let text;
+  try {
+    text = await readFile(path, "utf8");
+  } catch (err) {
+    return err.code === "ENOENT" ? {} : null;
+  }
+  if (text.trim() === "") return {};
+  try {
+    const parsed = JSON.parse(text);
+    return isObject2(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+async function writeAtomic(path, data) {
+  await mkdir(dirname(path), { recursive: true, mode: 448 });
+  const tmp = `${path}.cerea-${randomBytes(4).toString("hex")}.tmp`;
+  try {
+    const file = await open(tmp, "w", 384);
+    try {
+      await file.writeFile(JSON.stringify(data));
+      await file.sync();
+    } finally {
+      await file.close();
+    }
+    await rename(tmp, path);
+  } catch (err) {
+    await unlink(tmp).catch(() => {
+    });
+    throw err;
+  }
+}
+function isOurs(name) {
+  return name === void 0 || name === CEREA_PROFILE_NAME || typeof name === "string" && /^(Person \d+|Your Chrome|Default)$/.test(name);
+}
+function child(parent, key) {
+  const existing = parent[key];
+  if (isObject2(existing)) return existing;
+  const made = {};
+  parent[key] = made;
+  return made;
+}
+async function applyCereaProfile(dir, name = CEREA_PROFILE_NAME) {
+  try {
+    if (await profileIsRunning(dir)) return { written: false, reason: "running" };
+    const prefsPath = join(dir, "Default", "Preferences");
+    const statePath = join(dir, "Local State");
+    const prefs = await readJson(prefsPath);
+    const state = await readJson(statePath);
+    if (!prefs || !state) return { written: false, reason: "unreadable" };
+    const theme = child(child(prefs, "browser"), "theme");
+    if (theme.user_color2 === void 0 || theme.user_color2 === CEREA_ACCENT_ARGB) {
+      Object.assign(theme, THEME_PREFS);
+    }
+    const profile = child(prefs, "profile");
+    if (isOurs(profile.name)) {
+      profile.name = name;
+      profile.using_default_name = false;
+    }
+    const info = child(child(child(state, "profile"), "info_cache"), "Default");
+    if (isOurs(info.name)) {
+      info.name = name;
+      info.is_using_default_name = false;
+    }
+    await writeAtomic(prefsPath, prefs);
+    await writeAtomic(statePath, state);
+    return { written: true };
+  } catch {
+    return { written: false, reason: "failed" };
+  }
+}
+var START_URL = "https://start.cerea.invalid/";
+function isStartUrl(url) {
+  return url === START_URL;
+}
+function isBlankUrl(url) {
+  return url === "about:blank" || isStartUrl(url);
+}
+var escapeHtml = (text) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+function startPageHtml(computer) {
+  const name = escapeHtml(computer.slice(0, 80) || "this computer");
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cerea browser</title>
+<style>
+html{color-scheme:light dark}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font:16px/1.5 system-ui,sans-serif;background:#f5f3ff;color:#1a1a1a}
+@media (prefers-color-scheme:dark){body{background:#1b1230;color:#f1ecff}}
+main{text-align:center;padding:2rem;max-width:32rem}
+svg{width:72px;height:72px}
+h1{font-size:1.5rem;margin:1rem 0 .5rem}
+p{margin:0;opacity:.8}
+</style></head>
+<body><main>
+<svg viewBox="0 0 72 72" role="img" aria-label="Cerea"><circle cx="36" cy="36" r="34" fill="#7008e7"/><path d="M45 25a14 14 0 1 0 0 22" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round"/></svg>
+<h1>Cerea browser on ${name}</h1>
+<p>Cerea can use the tabs in this window when you ask in a chat.</p>
+</main></body></html>`;
+}
+
+// src/session.ts
+import { dirname as dirname3, join as join2 } from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import {
@@ -22710,12 +22862,12 @@ function actionDigest(action, ctx) {
 }
 
 // src/session.ts
-import { randomBytes } from "node:crypto";
+import { randomBytes as randomBytes2 } from "node:crypto";
 
 // src/grants.ts
 import { createHmac, timingSafeEqual as timingSafeEqual2 } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname as dirname2 } from "node:path";
 var MAX_GRANT_LIFETIME_MS = 15 * 6e4;
 function readKey(source) {
   let text;
@@ -22767,7 +22919,7 @@ var UsedGrants = class {
     for (const [other, until] of this.ids) if (until <= now) this.ids.delete(other);
     this.ids.set(id, exp);
     if (!this.file) return;
-    mkdirSync(dirname(this.file), { recursive: true, mode: 448 });
+    mkdirSync(dirname2(this.file), { recursive: true, mode: 448 });
     const tmp = `${this.file}.${process.pid}.tmp`;
     writeFileSync(tmp, JSON.stringify(Object.fromEntries(this.ids)), { mode: 384 });
     chmodSync(tmp, 384);
@@ -22844,9 +22996,9 @@ function pageExtract(root, opts) {
       if (!visible(dl) || lists.length >= 20) continue;
       const definitions = [];
       let term = "";
-      for (const child of Array.from(dl.children)) {
-        if (child.tagName === "DT") term = txt(child);
-        else if (child.tagName === "DD") definitions.push({ term, definition: txt(child) });
+      for (const child2 of Array.from(dl.children)) {
+        if (child2.tagName === "DT") term = txt(child2);
+        else if (child2.tagName === "DD") definitions.push({ term, definition: txt(child2) });
       }
       if (definitions.length === 0) continue;
       lists.push({
@@ -23008,8 +23160,8 @@ function isHeaderRow(node) {
   const cells = (node.children ?? []).filter((c) => typeof c !== "string");
   return cells.length > 0 && cells.every((c) => c.role === "columnheader");
 }
-function isCollapsible(child) {
-  return typeof child !== "string" && (child.role === "row" || child.role === "listitem") && !(child.role === "row" && isHeaderRow(child));
+function isCollapsible(child2) {
+  return typeof child2 !== "string" && (child2.role === "row" || child2.role === "listitem") && !(child2.role === "row" && isHeaderRow(child2));
 }
 function collapse(children) {
   let collapsed = 0;
@@ -23017,16 +23169,16 @@ function collapse(children) {
     const out = [];
     let i = 0;
     while (i < list.length) {
-      const child = list[i];
-      if (!isCollapsible(child)) {
-        out.push(typeof child === "string" ? child : recurse(child));
+      const child2 = list[i];
+      if (!isCollapsible(child2)) {
+        out.push(typeof child2 === "string" ? child2 : recurse(child2));
         i += 1;
         continue;
       }
       let j = i;
       while (j < list.length) {
         const next = list[j];
-        if (!isCollapsible(next) || next.role !== child.role) break;
+        if (!isCollapsible(next) || next.role !== child2.role) break;
         j += 1;
       }
       const run = list.slice(i, j);
@@ -23035,7 +23187,7 @@ function collapse(children) {
         for (const row of run.slice(0, keep)) out.push(recurse(row));
         const folded = run.length - keep;
         collapsed += folded;
-        const what = child.role === "row" ? "rows" : "items";
+        const what = child2.role === "row" ? "rows" : "items";
         out.push({
           role: "#collapsed",
           text: `\u2026 and ${folded} more ${what} like this; use extract to read them all`,
@@ -23189,17 +23341,17 @@ function layout(nodes, ctx) {
       buffer = [];
       if (text) push(depth, `text ${quote(text)}`);
     };
-    for (const child of children) {
-      if (typeof child === "string") {
-        buffer.push(child);
+    for (const child2 of children) {
+      if (typeof child2 === "string") {
+        buffer.push(child2);
         continue;
       }
-      if (INLINE_ROLES.has(child.role) && !hasInteractive(child)) {
-        buffer.push(nodeText(child));
+      if (INLINE_ROLES.has(child2.role) && !hasInteractive(child2)) {
+        buffer.push(nodeText(child2));
         continue;
       }
       flush();
-      visit(child, depth);
+      visit(child2, depth);
     }
     flush();
   };
@@ -23254,14 +23406,14 @@ function layout(nodes, ctx) {
   };
   const cellContent = (cell, controls) => {
     const parts = [];
-    const gather = (child) => {
-      if (typeof child === "string") return parts.push(clean(child, TEXT_MAX));
-      if (isInteractive(child)) {
-        controls.push(child);
-        return parts.push(itemToken(child, ctx));
+    const gather = (child2) => {
+      if (typeof child2 === "string") return parts.push(clean(child2, TEXT_MAX));
+      if (isInteractive(child2)) {
+        controls.push(child2);
+        return parts.push(itemToken(child2, ctx));
       }
-      if (child.children && hasInteractive(child)) return child.children.forEach(gather);
-      parts.push(clean(nodeText(child), TEXT_MAX));
+      if (child2.children && hasInteractive(child2)) return child2.children.forEach(gather);
+      parts.push(clean(nodeText(child2), TEXT_MAX));
     };
     if (cell.children && hasInteractive(cell)) cell.children.forEach(gather);
     else parts.push(clean(cell.text ?? cell.name ?? nodeText(cell), TEXT_MAX));
@@ -23497,7 +23649,7 @@ async function removeStaleDirs() {
       } catch (err) {
         alive = err.code === "EPERM";
       }
-      if (!alive) await rm(join(tmpdir(), name), { recursive: true, force: true });
+      if (!alive) await rm(join2(tmpdir(), name), { recursive: true, force: true });
     }
   } catch {
   }
@@ -23542,6 +23694,10 @@ var BrowserSession = class {
   idleTimer;
   chooserOpened = false;
   starting;
+  /** The browser was started (not found running) since the last task ended: `tabs` says so. */
+  launchedForTask = false;
+  /** Cerea's name for this computer, as it last said it (start page and hint name the same one). */
+  computerName;
   navSeq = /* @__PURE__ */ new WeakMap();
   /**
    * The host of the last real (http/https) site this task's pages were on, mirroring Cerea's
@@ -23584,7 +23740,7 @@ var BrowserSession = class {
   constructor(options) {
     this.options = options;
     this.used = new UsedGrants(
-      join(options.stateDir ?? dirname2(options.profileDir), "used-grants.json")
+      join2(options.stateDir ?? dirname3(options.profileDir), "used-grants.json")
     );
   }
   /**
@@ -23616,8 +23772,8 @@ var BrowserSession = class {
     this.touch();
     const context = await this.ensureContext();
     if (!this.active || this.active.isClosed()) {
-      const open = [...this.taskPages].filter((p) => !p.isClosed());
-      this.active = open.at(-1);
+      const open2 = [...this.taskPages].filter((p) => !p.isClosed());
+      this.active = open2.at(-1);
       if (!this.active) {
         this.active = await context.newPage();
         this.fresh.add(this.active);
@@ -23632,8 +23788,8 @@ var BrowserSession = class {
   /** The task's page if it has one: a call that only looks never makes a page. */
   livePage() {
     if (this.active && !this.active.isClosed()) return this.active;
-    const open = [...this.taskPages].filter((p) => !p.isClosed());
-    this.active = open.at(-1);
+    const open2 = [...this.taskPages].filter((p) => !p.isClosed());
+    this.active = open2.at(-1);
     return this.active;
   }
   touch() {
@@ -23660,18 +23816,19 @@ var BrowserSession = class {
   }
   async endTask(options = {}) {
     clearTimeout(this.idleTimer);
+    this.launchedForTask = false;
     while (this.pendingPages.size > 0) await Promise.allSettled([...this.pendingPages]);
     const pages = [...this.taskPages];
     const keep = options.keep ? this.active : void 0;
     let kept;
-    const unused = (p) => this.fresh.has(p) && p.url() === "about:blank";
+    const unused = (p) => this.fresh.has(p) && isBlankUrl(p.url());
     const info = keep ? this.lentInfo.get(keep) : void 0;
     const capEnd = info ? info.since + (this.options.lentMaxMs ?? LENT_MAX_MS) : 0;
     const lendable = !!keep && !!info && info.origin !== "" && originOfUrl(keep.url()) === info.origin && Date.now() < capEnd;
     const adoptedKeep = !!keep && this.adopted.has(keep);
     if (keep && !keep.isClosed() && this.taskPages.has(keep) && !unused(keep) && (!adoptedKeep || lendable)) {
       this.purgeKept();
-      const token = randomBytes(18).toString("base64url");
+      const token = randomBytes2(18).toString("base64url");
       const title = clean(await safeTitle(keep), 300);
       const url = keep.url();
       const lent = adoptedKeep && info ? info : void 0;
@@ -23782,7 +23939,7 @@ var BrowserSession = class {
     }
     let spare;
     for (const p of context.pages()) {
-      if (p.isClosed() || p.url() !== "about:blank" || this.taskPages.has(p) || [...this.kept.values()].some((e) => e.page === p))
+      if (p.isClosed() || !isBlankUrl(p.url()) || this.taskPages.has(p) || [...this.kept.values()].some((e) => e.page === p))
         continue;
       if (this.ours.has(p) || await p.opener().catch(() => p) === null) {
         spare = p;
@@ -23811,7 +23968,7 @@ var BrowserSession = class {
       }
     }
     this.purgeKept();
-    const token = randomBytes(18).toString("base64url");
+    const token = randomBytes2(18).toString("base64url");
     const title = clean(await safeTitle(page), 300);
     const url = page.url();
     this.kept.set(token, {
@@ -23820,6 +23977,7 @@ var BrowserSession = class {
       title,
       expires: Date.now() + (this.options.keptTtlMs ?? KEPT_TTL_MS)
     });
+    this.launchedForTask = false;
     return { token, id: this.tabId(page), title, url: clean(stripUserUrl(url), 2e3) };
   }
   tabId(page) {
@@ -23834,11 +23992,13 @@ var BrowserSession = class {
   async tabs(options = {}) {
     await this.ensureContext();
     this.touch();
+    if (options.computer) this.setComputerName(options.computer);
     if (options.deny) this.tabDeny = parseSiteList(options.deny.join("\n"));
     const pages = this.context.pages().filter((p) => !p.isClosed());
     const tabs = [];
     for (const page of pages.slice(0, 50)) {
       const mine = this.taskPages.has(page);
+      if (!mine && isStartUrl(page.url())) continue;
       if (!mine && this.denied(page.url())) {
         tabs.push({ id: this.tabId(page), title: "a page on a denied site", url: "", mine: false });
         continue;
@@ -23851,7 +24011,16 @@ var BrowserSession = class {
         mine
       });
     }
-    return { tabs };
+    return { tabs, ...this.launchedForTask ? { started: true } : {} };
+  }
+  setComputerName(name) {
+    const clean2 = name.slice(0, 80);
+    if (clean2 === (this.computerName ?? this.options.computerName)) return;
+    this.computerName = clean2;
+    for (const page of this.context?.pages() ?? []) {
+      if (!page.isClosed() && isStartUrl(page.url())) void page.reload().catch(() => {
+      });
+    }
   }
   denied(url) {
     const host = hostOf(url);
@@ -23867,7 +24036,8 @@ var BrowserSession = class {
     await removeStaleDirs();
     await chmod(profileDir2, 448).catch(() => {
     });
-    this.downloadDir ??= await mkdtemp(join(tmpdir(), `cerea-browser-${process.pid}-`));
+    if (this.options.branding !== false) await applyCereaProfile(profileDir2);
+    this.downloadDir ??= await mkdtemp(join2(tmpdir(), `cerea-browser-${process.pid}-`));
     let context;
     try {
       context = await chromium.launchPersistentContext(profileDir2, launchOptions(this.options));
@@ -23892,11 +24062,31 @@ var BrowserSession = class {
       }
       throw new ToolError(`The browser could not start: ${message}`);
     }
+    this.launchedForTask = true;
     context.setDefaultTimeout(ACTION_TIMEOUT_MS);
     context.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT_MS);
     await context.route(
       (url) => !/^(https?|about|blob|data|ws|wss):$/.test(url.protocol),
       (route) => route.abort("blockedbyclient")
+    );
+    await context.route(
+      (url) => url.href === START_URL,
+      (route) => {
+        const request = route.request();
+        let topLevel = false;
+        try {
+          topLevel = request.isNavigationRequest() && request.frame().parentFrame() === null;
+        } catch {
+        }
+        if (!topLevel) return void route.abort("namenotresolved").catch(() => {
+        });
+        void route.fulfill({
+          status: 200,
+          contentType: "text/html; charset=utf-8",
+          body: startPageHtml(this.computerName ?? this.options.computerName ?? hostname3())
+        }).catch(() => {
+        });
+      }
     );
     context.on("page", (page) => {
       this.hook(page);
@@ -23905,6 +24095,10 @@ var BrowserSession = class {
     for (const page of context.pages()) {
       this.hook(page);
       this.ours.add(page);
+      if (this.options.branding !== false && /^(about:blank|chrome:\/\/newtab\/?)$/.test(page.url())) {
+        void page.goto(START_URL, { waitUntil: "commit", timeout: 5e3 }).catch(() => {
+        });
+      }
     }
     context.on("response", (response) => {
       const headers = response.headers();
@@ -23983,7 +24177,7 @@ var BrowserSession = class {
   async capture(download) {
     const name = safeFileName(download.suggestedFilename());
     const dir = this.downloadDir;
-    const path = join(dir, `${this.downloadSeq += 1}-${name}`);
+    const path = join2(dir, `${this.downloadSeq += 1}-${name}`);
     const extension = name.includes(".") ? name.split(".").pop().toLowerCase() : "";
     const seen = this.contentTypes.get(download.url()) ?? await this.announced(download.url());
     const mime = seen?.type ?? MIME_BY_EXTENSION[extension] ?? "application/octet-stream";
@@ -24206,7 +24400,7 @@ url: about:blank
   async snapshot() {
     this.touch();
     const page = this.livePage();
-    if (!page) return this.noPage();
+    if (!page || isStartUrl(page.url())) return this.noPage();
     const built = await this.build(page);
     this.baseline = {
       page,
@@ -24908,7 +25102,7 @@ url: about:blank
         await rm(file.path, { force: true });
         continue;
       }
-      const bytes = await readFile(file.path);
+      const bytes = await readFile2(file.path);
       const entry = {
         name: file.name,
         mime: file.mime,
@@ -25062,7 +25256,7 @@ if (values.http !== void 0) {
   await serveStdio(session);
 }
 async function selfTest(executablePath, channel) {
-  const profile = await mkdtemp2(join2(tmpdir2(), "cerea-browser-selftest-"));
+  const profile = await mkdtemp2(join3(tmpdir2(), "cerea-browser-selftest-"));
   try {
     for (const sandbox of [true, false]) {
       try {

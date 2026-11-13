@@ -85,6 +85,8 @@ export async function rig(
 		lentMaxMs?: number;
 		idleMs?: number;
 		pace?: { minMs: number; maxMs: number };
+		/** The Cerea start page and theme; off by default so the other suites see a blank first tab. */
+		branding?: boolean;
 	} = {}
 ): Promise<Rig> {
 	const fx = await startFixtures();
@@ -101,6 +103,7 @@ export async function rig(
 		idleMs: options.idleMs,
 		pace: options.pace,
 		profileDir: profile,
+		branding: options.branding === true,
 		headless: true,
 		noSandbox: process.env.CEREA_TEST_NO_SANDBOX === "1",
 		executablePath: process.env.CEREA_BROWSER_EXECUTABLE || undefined,

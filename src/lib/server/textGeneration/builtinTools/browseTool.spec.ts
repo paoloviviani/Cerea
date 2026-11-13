@@ -154,7 +154,6 @@ describe("browse: the chat model's tool", () => {
 			result: "The cart total is €120.",
 			data: { total: 120 },
 			final_url: "https://shop.example.com/cart",
-			steps: 1,
 		});
 	});
 
@@ -202,7 +201,13 @@ describe("browse: the chat model's tool", () => {
 		});
 		const out = await t.tool.execute({ goal: "look" }, t.ctx);
 		const body = JSON.parse((out as { resultText: string }).resultText);
-		expect(body).toMatchObject({ result: "partial", stopped_reason: "max_steps", steps: 2 });
+		// The chat model reads a plain reason, never the code or the step count.
+		expect(body).toMatchObject({ result: "partial" });
+		expect(body.stopped).toMatch(/more steps than the browser is allowed/);
+		expect(body.tell_the_user).toMatch(/plain words/);
+		expect(body).not.toHaveProperty("stopped_reason");
+		expect(body).not.toHaveProperty("steps");
+		expect(JSON.stringify(body)).not.toMatch(/max_steps/);
 		expect(browseUpdates(t.updates).at(-1)).toMatchObject({
 			status: "stopped",
 			stoppedReason: "max_steps",
@@ -366,7 +371,8 @@ describe("browse: arguments and machines", () => {
 		});
 		const out = await t.tool.execute({ goal: "scroll" }, t.ctx);
 		const body = JSON.parse((out as { resultText: string }).resultText);
-		expect(body.stopped_reason).toBe("lease_lost");
+		expect(body.stopped).toMatch(/another task took over/);
+		expect(body).not.toHaveProperty("stopped_reason");
 		expect(browseUpdates(t.updates).at(-1)).toMatchObject({
 			status: "stopped",
 			stoppedReason: "lease_lost",

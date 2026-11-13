@@ -1,6 +1,7 @@
 import { fetchPage } from "$lib/server/fetching";
 import { readablePageText } from "$lib/server/fetching/readable";
 import { detectGate, type GateKind } from "$lib/server/fetching/pageQuality";
+import { extractMainLinks, formatLinks } from "$lib/server/fetching/links";
 import { extractDocument } from "$lib/server/files/extractDocument";
 import { logger } from "$lib/server/logger";
 import {
@@ -234,6 +235,13 @@ export async function performFetch(
 							},
 						};
 					}
+					// After the text, in the page's own cached text: reading on by offset and a later
+					// turn's cache hit both see the same links, and every result passes the same
+					// redaction as the rest. Added after the wall check so it never hides a wall.
+					if (!fetched.document && !fetched.feed) {
+						const links = formatLinks(fetched.links ?? extractMainLinks(fetched.content, finalUrl));
+						if (links) text += `\n\n${links}`;
+					}
 					page = { title, finalUrl, text, ...(fetched.note ? { note: fetched.note } : {}) };
 					if (options.persist) {
 						await quietly(
@@ -293,7 +301,7 @@ export function webFetchNeedsApproval(
 const WEB_FETCH_BASE_DESCRIPTION =
 	"Read a web page or a document (PDF, Word, Excel, PowerPoint, epub). Long content arrives in " +
 	"chunks: when the result ends with a note that more remains, call again with the same url and " +
-	"the offset it names to continue. The URL must have been provided by the user or returned by web_search.";
+	"the offset it names to continue. A web page's main links (text and address) follow its text, so a link can be picked from there; reading a listed link is a new page the user may be asked to approve. The URL must have been provided by the user, returned by web_search, or approved.";
 
 const WEB_FETCH_BASE_PREPROMPT =
 	"WEB FETCH: Read one specific page only after the user supplied its URL or web_search returned it. " +
