@@ -74,7 +74,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 		// withhold the console gets no link to it, anywhere. Admins always have it.
 		consoleEnabled: config.CHAT_CONSOLE_ENABLED === "true" && (await consoleAllowedFor(locals)),
 		// Per person (ADR 0096), not a deployment fact: the client's only
-		// source for the Chats | Agents switch (the universal layout load
+		// source for the Chats | Recent | Agents switch (the universal layout load
 		// spreads feature-flags over the layout data), so the deployment-wide
 		// `codeAgentsEnabled()` here would show every chat-only person a
 		// switch whose every use 404s. The same awaited /v1/me check the

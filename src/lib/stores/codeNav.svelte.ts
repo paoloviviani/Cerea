@@ -1,8 +1,8 @@
 import { onCodeReauth } from "$lib/stores/codeReauth.svelte";
 
 /**
- * The sidebar's list is one surface with two contents: the chats tree and
- * the coding-agents tree, switched by the control at the foot of the list.
+ * The sidebar's list is one surface with three contents: the chats tree, the
+ * coding-agents tree and the Recent list, switched by the control at the top.
  * The state lives in a module, not a component, because the sidebar is
  * mounted twice — the desktop rail and the mobile drawer — and the switch
  * must read the same in both.
@@ -20,7 +20,7 @@ import { onCodeReauth } from "$lib/stores/codeReauth.svelte";
  * screen it is on, and the layout knows the route but not the agent.
  */
 export const codeNav = $state({
-	view: "auto" as "auto" | "chats" | "agents",
+	view: "auto" as "auto" | "chats" | "agents" | "recent",
 	agentTitle: "",
 });
 
