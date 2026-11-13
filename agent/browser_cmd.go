@@ -416,8 +416,11 @@ func runtimeArgs(p browserPaths, headed, noSandbox bool, channel string) []strin
 	return args
 }
 
-// browserTools is the connector's ceiling: the protocol's six tools, the end-of-task call, and the tab and resume calls.
-var browserTools = []string{"snapshot", "diff", "act", "extract", "screenshot", "download", "end_task", "tabs", "resume"}
+// browserTools is the connector's ceiling: the protocol's six tools, the end-of-task call, the tab,
+// resume and open calls, and the live view's three (control, screencast, input), which only Cerea's
+// live-view routes call. An mcp.json written by an older `galopin browser enable` lacks the last
+// four: running it again updates the ceiling.
+var browserTools = []string{"snapshot", "diff", "act", "extract", "screenshot", "download", "end_task", "tabs", "resume", "open", "control", "screencast", "input"}
 
 type browserEntry struct {
 	Command      string            `json:"command"`

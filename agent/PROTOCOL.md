@@ -265,6 +265,7 @@ galopin sends these only on a channel Cerea opened with `terminal.attach`, so a 
 
 ```
 byte 0        kind   0x01 term.output (M→C) · 0x02 term.input (C→M) · 0x03 term.ack (C→M)
+                     0x04 browser.frame (M→C, below)
 byte 1        L      channel id length, 1..32
 bytes 2..L+1  channel id, ASCII [A-Za-z0-9_-] (chosen by Cerea in terminal.attach, one per viewer)
 next 8 bytes  u64 big-endian offset
@@ -275,6 +276,8 @@ rest          payload: raw bytes. term.output ≤ 32 KiB; term.input ≤ 16 KiB;
 ```
 
 Unknown kinds are ignored. Offsets are per terminal, start at 0 when it is spawned, and never reset for its life. Terminals die with the galopin process.
+
+**`0x04 browser.frame`** (M→C) is one screencast frame of the browser runtime's live view (ADR 0116). It is sent only while Cerea has asked the runtime to stream (a `screencast` tool call over the runtime's mcp channel, §10), on that channel's id (`ch_…`, 15 bytes), with the frame's sequence number as the offset. The payload is `u16 BE viewport width, u16 BE viewport height` (the page's CSS pixels: the space of the user's input), then the JPEG, at most 1 MiB less the header. The runtime emits the frame as the MCP notification `notifications/cerea/frame` (`{seq, w, h, mime: "image/jpeg", data: base64}`) and galopin, for the browser connector only, converts it; any other server's notification is passed on as an ordinary mcp frame. The stream lane carries it, so it never delays a control frame by more than one write. Pacing is the viewer's: the runtime sends at most three frames beyond the last `ack` it was called with. Nothing about a frame is stored or logged. A peer that does not know the kind ignores it (a Cerea older than this never asks for one).
 
 **Flow control:**
 

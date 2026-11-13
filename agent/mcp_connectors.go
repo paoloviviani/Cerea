@@ -87,6 +87,14 @@ func (mc *machine) startConnectors(stateDir, mcpPath string) *mcpconn.Hub {
 			}
 			return mc.lnk.PublishMcp(channelID, message)
 		},
+		// The runtime's live-view frames go out as binary link frames, not as base64 in JSON.
+		FrameFrom: map[string]bool{browserConnectorName: true},
+		Frame: func(channelID string, seq uint64, payload []byte) error {
+			if mc.lnk == nil {
+				return errNoLink
+			}
+			return mc.lnk.SendBrowserFrame(channelID, seq, payload)
+		},
 		Closed: func(channelID, reason string, detail *string) {
 			if mc.lnk != nil {
 				_ = mc.lnk.PublishMcpClosed(channelID, reason, detail)

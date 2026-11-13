@@ -270,8 +270,14 @@ func TestBrowserEnableRegistersTheWellKnownConnectorAndKeepsTheRest(t *testing.T
 	if e.Env["PLAYWRIGHT_BROWSERS_PATH"] != p.browsers {
 		t.Errorf("env %v", e.Env)
 	}
-	if !contains(e.AllowedTools, "act") || len(e.AllowedTools) != 9 {
+	if !contains(e.AllowedTools, "act") || len(e.AllowedTools) != len(browserTools) {
 		t.Errorf("ceiling %v", e.AllowedTools)
+	}
+	// The live view's three tools are inside the ceiling, or takeover could never reach the page.
+	for _, tool := range []string{"control", "screencast", "input", "open"} {
+		if !contains(e.AllowedTools, tool) {
+			t.Errorf("ceiling lacks %s: %v", tool, e.AllowedTools)
+		}
 	}
 	if st, err := os.Stat(p.profile); err != nil || st.Mode().Perm() != 0o700 {
 		t.Errorf("profile %v %v", st, err)
@@ -390,7 +396,7 @@ func TestBrowserStatusReportsEachStep(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := r.out.String()
-	for _, want := range []string{"installed, up to date", "Chromium 158.0.1 (bundled), sandboxed", "yes, with a window", "not fetched yet", "yes (cerea-browser 0.1.0, 9 tools)"} {
+	for _, want := range []string{"installed, up to date", "Chromium 158.0.1 (bundled), sandboxed", "yes, with a window", "not fetched yet", "yes (cerea-browser 0.1.0, 13 tools)"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("status lacks %q:\n%s", want, out)
 		}

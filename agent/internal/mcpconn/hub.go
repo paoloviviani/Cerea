@@ -28,6 +28,12 @@ type Config struct {
 	Audit func(server, tool, outcome string)
 	// Send delivers a message to Cerea on a channel.
 	Send func(channelID string, message []byte) error
+	// Frame delivers one live-view screencast frame to Cerea as a binary link
+	// frame (PROTOCOL.md §9.2, kind 0x04); nil drops them. FrameFrom names the
+	// servers whose notifications/cerea/frame are converted (the browser
+	// runtime); from any other server the notification is passed on unchanged.
+	Frame     func(channelID string, seq uint64, payload []byte) error
+	FrameFrom map[string]bool
 	// Closed tells Cerea a channel ended (PROTOCOL.md §10.3).
 	Closed func(channelID, reason string, detail *string)
 

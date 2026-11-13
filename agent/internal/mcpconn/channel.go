@@ -3,12 +3,15 @@ package mcpconn
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
 	"sync"
 	"time"
+
+	"galopin/internal/link"
 )
 
 type closeInfo struct {
@@ -335,6 +338,9 @@ func (c *channel) fromServer(raw []byte) {
 	if len(raw) == 0 {
 		return
 	}
+	if c.hub.cfg.FrameFrom[c.entry.Name] && c.frame(raw) {
+		return
+	}
 	parts := splitBatch(raw)
 	if len(parts) == 0 {
 		c.logf("connectors: %s: dropping a message that is not JSON", c.entry.Name)
@@ -396,6 +402,45 @@ func (c *channel) fromServer(raw []byte) {
 			c.toServer(rpcError(h.ID, codeResponseLarge, tooLargeText(len(m))))
 		}
 	}
+}
+
+// frameMethod is the MCP notification the browser runtime sends a screencast
+// frame in (ADR 0116 phase 2a). MCP is JSON, so the JPEG is base64 there; on
+// the link it travels as a binary frame instead, without the third.
+const frameMethod = "notifications/cerea/frame"
+
+// frame forwards a screencast frame notification as a binary link frame and
+// reports whether raw was one. The frame is never logged or kept: a frame that
+// cannot be sent (no link, link busy) is simply dropped, the next one follows.
+func (c *channel) frame(raw []byte) bool {
+	if len(raw) == 0 || raw[0] != '{' || !bytes.Contains(raw, []byte(frameMethod)) {
+		return false
+	}
+	var n struct {
+		Method string `json:"method"`
+		Params struct {
+			Seq  uint64 `json:"seq"`
+			W    int    `json:"w"`
+			H    int    `json:"h"`
+			Mime string `json:"mime"`
+			Data string `json:"data"`
+		} `json:"params"`
+	}
+	if json.Unmarshal(raw, &n) != nil || n.Method != frameMethod {
+		return false
+	}
+	if c.isClosed() || c.local != nil || c.hub.cfg.Frame == nil {
+		return true
+	}
+	jpeg, err := base64.StdEncoding.DecodeString(n.Params.Data)
+	if err != nil || len(jpeg) == 0 || n.Params.Mime != "image/jpeg" || n.Params.W <= 0 || n.Params.H <= 0 ||
+		n.Params.W > 65535 || n.Params.H > 65535 || len(jpeg) > link.MaxBrowserFramePayload-4 {
+		return true
+	}
+	if err := c.hub.cfg.Frame(c.id, n.Params.Seq, link.BrowserFramePayload(uint16(n.Params.W), uint16(n.Params.H), jpeg)); err != nil {
+		return true // dropped: no frame is worth a log line
+	}
+	return true
 }
 
 func callOutcome(result, errObj json.RawMessage) string {

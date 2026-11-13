@@ -12,6 +12,11 @@ const (
 	BinTermOutput byte = 0x01 // M→C
 	BinTermInput  byte = 0x02 // C→M
 	BinTermAck    byte = 0x03 // C→M
+	// BinBrowserFrame is one screencast frame of the browser runtime's live
+	// view (ADR 0116 phase 2a). M→C only, on the channel of the mcp
+	// connection to the runtime: offset is the frame's sequence number and the
+	// payload is BrowserFramePayload.
+	BinBrowserFrame byte = 0x04 // M→C
 )
 
 // Wire limits (PROTOCOL.md §9.2).
@@ -20,6 +25,21 @@ const (
 	MaxOutputFramePayload = 32 << 10
 	MaxInputFramePayload  = 16 << 10
 )
+
+// MaxBrowserFramePayload bounds one screencast frame's payload, so a frame
+// (header plus payload) stays within the 1 MiB frame cap.
+const MaxBrowserFramePayload = 1<<20 - 128
+
+// BrowserFramePayload lays out a BinBrowserFrame payload: u16 big-endian page
+// viewport width, u16 height (CSS pixels, the coordinate space of the user's
+// input), then the JPEG bytes.
+func BrowserFramePayload(width, height uint16, jpeg []byte) []byte {
+	out := make([]byte, 4+len(jpeg))
+	binary.BigEndian.PutUint16(out[0:], width)
+	binary.BigEndian.PutUint16(out[2:], height)
+	copy(out[4:], jpeg)
+	return out
+}
 
 // ErrShortFrame and ErrBadChannelLen are BinaryFrame decode failures — never
 // a panic, whatever bytes arrive (this header parser is fuzzed).
