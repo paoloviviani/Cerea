@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -216,6 +217,21 @@ type Config struct {
 	// is never answered must end on its own.
 	CallTimeout time.Duration
 
+	// PingInterval/PingTimeout drive the client-side liveness check (default
+	// 20s / 10s): the link pings Cerea itself, and a ping unanswered within
+	// PingTimeout ends the connection for an immediate redial. Without it a
+	// half-open TCP connection (after a Mac's sleep or a network change) never
+	// reports an error and the link stays "connected" forever.
+	PingInterval time.Duration
+	PingTimeout  time.Duration
+	// TickInterval is the wake-detector's tick (default 5s); WakeJump is the
+	// wall-clock jump over a tick that counts as a sleep (default 30s) and
+	// triggers a ping at once. Now is the wall clock (default time.Now), so
+	// tests can inject a jump.
+	TickInterval time.Duration
+	WakeJump     time.Duration
+	Now          func() time.Time
+
 	// Logf receives lifecycle-only messages (connecting, connected, paired,
 	// reconnecting, giving up) — never frame contents (R6). Defaults to a
 	// no-op.
@@ -248,6 +264,14 @@ var ErrExpired = errors.New("link: credential refresh failed")
 type redialError struct{ msg string }
 
 func (e *redialError) Error() string { return e.msg }
+
+// deadLinkError ends a connection the liveness check found dead (a ping got no
+// pong, or the machine woke from sleep and the peer did not answer). The
+// network is likely different now, so Run dials again at once, from the
+// minimum backoff; a dial that then fails goes through the ordinary backoff.
+type deadLinkError struct{ msg string }
+
+func (e *deadLinkError) Error() string { return e.msg }
 
 // maxQuickRedials bounds the back-to-back re-dials after a 4401, counted
 // since the last healthy connection: a fresh token that Cerea keeps refusing
@@ -302,6 +326,21 @@ func New(cfg Config) *Link {
 	}
 	if cfg.CallTimeout == 0 {
 		cfg.CallTimeout = 20 * time.Second
+	}
+	if cfg.PingInterval == 0 {
+		cfg.PingInterval = 20 * time.Second
+	}
+	if cfg.PingTimeout == 0 {
+		cfg.PingTimeout = 10 * time.Second
+	}
+	if cfg.TickInterval == 0 {
+		cfg.TickInterval = 5 * time.Second
+	}
+	if cfg.WakeJump == 0 {
+		cfg.WakeJump = 30 * time.Second
+	}
+	if cfg.Now == nil {
+		cfg.Now = time.Now
 	}
 	if cfg.Logf == nil {
 		cfg.Logf = func(string, ...any) {}
@@ -369,6 +408,13 @@ func (l *Link) Run(ctx context.Context) error {
 		if up := l.takeUptime(); up >= l.cfg.HealthyAfter {
 			backoff = l.cfg.MinBackoff
 			quick = 0
+		}
+		var dead *deadLinkError
+		if errors.As(err, &dead) {
+			backoff = l.cfg.MinBackoff
+			quick = 0
+			l.cfg.Logf("link: disconnected (%v), reconnecting now", err)
+			continue
 		}
 		var redial *redialError
 		if errors.As(err, &redial) && quick < maxQuickRedials {
@@ -529,6 +575,77 @@ func (l *Link) runOnce(ctx context.Context) error {
 	}()
 	go sched.run(connCtx)
 
+	// The liveness watcher runs from the dial on (the welcome read needs it
+	// too). It only cancels connCtx and closes the socket; whichever read is
+	// blocked then fails, and the error is replaced by deadLinkError below.
+	var dead atomic.Pointer[deadLinkError]
+	watchDone := make(chan struct{})
+	go func() {
+		defer close(watchDone)
+		if why := l.watchLiveness(connCtx, conn); why != "" {
+			dead.Store(&deadLinkError{msg: "link: " + why})
+			l.cfg.Logf("link: %s, closing the connection", why)
+			connCancel()
+			conn.CloseNow()
+		}
+	}()
+	defer func() { connCancel(); <-watchDone }()
+	err = l.runConn(connCtx, conn, connCancel)
+	if d := dead.Load(); d != nil && ctx.Err() == nil {
+		return d
+	}
+	return err
+}
+
+// watchLiveness pings Cerea every PingInterval, and at once when the wall
+// clock jumped (the machine slept) or the connection has been quiet since a
+// wake. It returns "" when ctx ends, or the reason the peer is dead. conn.Ping
+// is a WebSocket control frame, so a stream backlog does not delay it; the
+// pong is read by the connection's ordinary read loop.
+func (l *Link) watchLiveness(ctx context.Context, conn *websocket.Conn) string {
+	// Round(0) drops the monotonic reading: on macOS it stops during sleep,
+	// which is exactly the jump this has to see.
+	last := l.cfg.Now().Round(0)
+	lastPing := last
+	ticker := time.NewTicker(l.cfg.TickInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ""
+		case <-ticker.C:
+		}
+		now := l.cfg.Now().Round(0)
+		jumped := now.Sub(last) > l.cfg.TickInterval+l.cfg.WakeJump
+		last = now
+		if !jumped && now.Sub(lastPing) < l.cfg.PingInterval {
+			continue
+		}
+		lastPing = now
+		pctx, cancel := context.WithTimeout(ctx, l.cfg.PingTimeout)
+		err := conn.Ping(pctx)
+		cancel()
+		if ctx.Err() != nil {
+			return ""
+		}
+		if err != nil {
+			// A close the peer sent (4401, 4403, ...) is the read loop's to
+			// act on, not a dead link.
+			var closeErr websocket.CloseError
+			if errors.As(err, &closeErr) {
+				return ""
+			}
+			if jumped {
+				return fmt.Sprintf("no answer after the machine woke (%v)", err)
+			}
+			return fmt.Sprintf("no answer to ping (%v)", err)
+		}
+		lastPing = l.cfg.Now().Round(0)
+	}
+}
+
+// runConn is the connection's protocol part: hello, welcome, serve.
+func (l *Link) runConn(connCtx context.Context, conn *websocket.Conn, connCancel context.CancelFunc) error {
 	hello := l.cfg.Hello()
 	if err := l.writeFrame(connCtx, map[string]any{
 		"type":     "hello",
