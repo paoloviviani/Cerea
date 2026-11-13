@@ -127,6 +127,15 @@ export interface ParkedCall extends Timestamps {
 	 */
 	plannedResumeAt?: Date;
 
+	/**
+	 * `kind: "code"`: who runs and answers it. Absent means the person's browser; `server` is the
+	 * server sandbox (ADR 0115), whose answer only the server records: a browser's post for such a
+	 * run is refused.
+	 */
+	runner?: "server";
+	/** `kind: "code"`: told to the model with the result, e.g. that the call ran in the browser as a fallback. */
+	notice?: string;
+
 	/** Set when a sweeper claims the row, so two pods cannot resume the same turn. */
 	takenAt?: Date;
 	resumedAt?: Date;

@@ -20,9 +20,12 @@ browser uses (src/lib/utils/execution/figures.ts); the chat sends its source wit
 request, so there is one copy of that code. A DataFrame prints and returns as text, as it does in
 Pyodide.
 
-One request at a time. A run past its time limit is stopped (SIGALRM, then a watchdog that
-restarts the interpreter) and the namespace is reset: the same "the sandbox restarted" contract as
-Pyodide, which the model is told.
+One request at a time. A run past its time limit is stopped and the INTERPRETER IS REPLACED
+(`os.execv`, so modules, threads, the working directory and the environment do not survive either):
+the same "the sandbox restarted" contract as Pyodide, which the model is told. SIGALRM stops
+Python-level code, a watchdog thread catches what SIGALRM could not, and for a C call that holds the
+GIL (`sum(range(10**13))`) neither can run: the client, run.py, then kills the daemon's process
+group, and the chat releases the sandbox.
 
 Protocol: newline-delimited JSON over a unix socket (/tmp/execd.sock). Request:
     {"code": str, "timeout": seconds, "figures": str | null}
@@ -44,6 +47,7 @@ import traceback
 import types
 
 SOCKET = os.environ.get("EXECD_SOCKET", "/tmp/execd.sock")
+PIDFILE = os.environ.get("EXECD_PIDFILE", "/tmp/execd.pid")
 OUTPUT_ROOT = os.environ.get("EXECD_OUTPUT_ROOT", "/mnt/output")
 MOUNT_ROOT = os.environ.get("EXECD_MOUNT_ROOT", "/mnt/data")
 CWD = os.environ.get("EXECD_CWD", "/workspace")
@@ -231,7 +235,14 @@ class Interpreter:
         return reply
 
 
+def restart() -> None:
+    """Replace this process with a fresh daemon: nothing of the old interpreter survives."""
+    os.execv(sys.executable, [sys.executable, os.path.abspath(__file__), "serve"])
+
+
 def serve(path: str = SOCKET) -> None:
+    with open(PIDFILE, "w") as f:
+        f.write(str(os.getpid()))
     ensure_dir(OUTPUT_ROOT)
     ensure_dir(MOUNT_ROOT)
     try:
@@ -278,7 +289,8 @@ def handle(conn: socket.socket, interpreter: Interpreter) -> None:
 
     def watchdog() -> None:
         # A C call (a long numpy operation) can sit through SIGALRM. Past the grace the interpreter
-        # is replaced, which loses its state exactly as the alarm path does.
+        # is replaced, as on the alarm path. (One that holds the GIL starves this thread too: the
+        # client's own deadline and kill are the last resort.)
         if done.wait(timeout + WATCHDOG_GRACE_SECONDS):
             return
         reply = {
@@ -289,12 +301,14 @@ def handle(conn: socket.socket, interpreter: Interpreter) -> None:
         try:
             conn.sendall(json.dumps(reply).encode() + b"\n")
         finally:
-            os.execv(sys.executable, [sys.executable, os.path.abspath(__file__), "serve"])
+            restart()
 
     threading.Thread(target=watchdog, daemon=True).start()
     reply = interpreter.run(code, timeout, figures_source)
     done.set()
     conn.sendall(json.dumps(reply).encode() + b"\n")
+    if reply.get("timeout"):
+        restart()
 
 
 if __name__ == "__main__":

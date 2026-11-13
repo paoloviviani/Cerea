@@ -10,6 +10,7 @@ import { SandboxClient } from "$lib/server/sandbox/client";
  * The switch is logged when it flips, never per call.
  */
 const TTL_MS = 30_000;
+const FRESH_MS = 5_000;
 
 let state = { ok: false, at: 0 };
 let probing: Promise<boolean> | null = null;
@@ -42,6 +43,13 @@ export function probeSandboxHealth(): Promise<boolean> {
 			probing = null;
 		});
 	return probing;
+}
+
+/** Is the manager answering? The cached answer while it is fresh (a few seconds), else a probe. */
+export function sandboxHealthyNow(): Promise<boolean> {
+	if (Date.now() - state.at < FRESH_MS)
+		return Promise.resolve(state.ok && !!sandboxSettings().config);
+	return probeSandboxHealth();
 }
 
 /** The cached answer; a stale one starts a refresh. */

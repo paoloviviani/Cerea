@@ -76,8 +76,9 @@ export async function extendCodeDeadlineForPause(
  * records the outcome the same way.
  */
 export async function parkCodeCall(
-	{ call, code, limits }: BackendRunRequest,
-	reason: string
+	{ call, code, limits, notice }: BackendRunRequest,
+	reason: string,
+	runner?: "server"
 ): Promise<BackendRunStarted> {
 	const executionId = randomUUID();
 	const now = new Date();
@@ -95,6 +96,8 @@ export async function parkCodeCall(
 		resumeAt: expiresAt,
 		reason,
 		code,
+		...(runner ? { runner } : {}),
+		...(notice ? { notice } : {}),
 		...(call.userId ? { userId: call.userId } : {}),
 		...(call.sessionId ? { sessionId: call.sessionId } : {}),
 		attempts: 0,

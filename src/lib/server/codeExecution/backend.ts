@@ -47,6 +47,10 @@ export interface BackendRunFile {
 
 export interface BackendRunRequest {
 	call: BackendRunCall;
+	/** A scheduled run, with nobody's page to answer: a backend must not hand it to the browser. */
+	unattended?: boolean;
+	/** Something the model is told with this run's result (why it ran where it did). */
+	notice?: string;
 	code: string;
 	/**
 	 * The conversation's files the run may read. The browser backend ignores

@@ -114,4 +114,25 @@ describe.skipIf(!url)("execute_code on a real server sandbox", () => {
 			await sessions.release("it-conv-3");
 		}
 	}, 240_000);
+
+	it("releases a sandbox whose run could not be stopped, and the next call says it is new", async () => {
+		const sessions = new SandboxSessions(client);
+		try {
+			await run(sessions, "kept = 1", [], "it-conv-4");
+			const stuck = await sessions.run({
+				conversationId: "it-conv-4",
+				owner: "it-user",
+				code: "sum(range(10**13))",
+				timeoutSeconds: 2,
+				figuresSource: FIGURES_MODULE_SOURCE,
+				files: [],
+			});
+			expect(stuck.reply.ok).toBe(false);
+			expect(stuck.reply.timeout?.seconds).toBe(2);
+			const next = await run(sessions, "'kept' in globals()", [], "it-conv-4");
+			expect(next.reply.result).toBe("False");
+		} finally {
+			await sessions.release("it-conv-4");
+		}
+	}, 240_000);
 });

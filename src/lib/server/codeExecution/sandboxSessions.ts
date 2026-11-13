@@ -20,6 +20,7 @@ import {
 	type SandboxExecResult,
 } from "$lib/server/sandbox/client";
 import { MOUNT_ROOT, OUTPUT_ROOT } from "$lib/utils/execution/protocol";
+import { outcomeFieldsSchema } from "./outcomeSchema";
 
 /** The surface of `SandboxClient` this module needs, so a test can stand in for the manager. */
 export type SandboxApi = Pick<
@@ -29,6 +30,8 @@ export type SandboxApi = Pick<
 
 /** The daemon's reply: the same shape the browser's worker returns, plus the files it listed. */
 export interface DaemonReply {
+	/** Set when the daemon's answer could not be read: the call itself failed, not the code. */
+	unparsed?: true;
 	ok: boolean;
 	stdout: string;
 	stderr: string;
@@ -87,6 +90,8 @@ export class SandboxUnavailable extends Error {
 export const MAX_OUTPUT_FILES_PER_RUN = 20;
 /** One output file larger than this stays in the sandbox and is reported as skipped. */
 export const MAX_OUTPUT_FILE_BYTES = 8 * 1024 * 1024;
+/** A deliverable's name (its path under the output folder) is at most this long, as the store requires. */
+export const MAX_OUTPUT_NAME_CHARS = 512;
 
 /** The sentence the model reads when its sandbox was recreated. */
 export const SANDBOX_RESTARTED_NOTICE =
@@ -100,13 +105,25 @@ interface Session {
 	owner: string;
 	/** name -> identity of what is staged under /mnt/data. */
 	staged: Map<string, string>;
+	/**
+	 * This sandbox replaced one the conversation had: the model has not yet been told. Set when
+	 * it is made (by `prepare` or by a run), cleared when a run's result carries the notice, so
+	 * a restart found by `prepare` still reaches the model on the run that follows.
+	 */
+	pendingRestart: boolean;
+	/** The exec daemon was found in the image (checked once per sandbox). */
+	verified: boolean;
 }
+
+/** Sessions and the "had one" memory are bounded: the oldest is dropped (its lease released). */
+export const MAX_SESSIONS = 500;
+const MAX_REMEMBERED = 5000;
 
 export class SandboxSessions {
 	private client: SandboxApi;
 	private sessions = new Map<string, Session>();
 	private chains = new Map<string, Promise<unknown>>();
-	private had = new Set<string>();
+	private had = new Map<string, true>();
 
 	constructor(client: SandboxApi) {
 		this.client = client;
@@ -129,17 +146,22 @@ export class SandboxSessions {
 		if (session) await this.client.release(session.leaseId, session.owner).catch(() => undefined);
 	}
 
-	private async ensure(
-		request: SessionRunRequest
-	): Promise<{ session: Session; restarted: boolean }> {
+	private async ensure(request: SessionRunRequest): Promise<Session> {
 		const cached = this.sessions.get(request.conversationId);
 		if (cached) {
-			try {
-				await this.client.status(cached.leaseId, cached.owner);
-				return { session: cached, restarted: false };
-			} catch (err) {
-				if (!(err instanceof SandboxError) || err.status !== 404) throw this.unavailable(err);
-				this.sessions.delete(request.conversationId); // reaped or lost: make a new one
+			if (cached.owner !== request.owner) {
+				// Never run one user's call in a sandbox leased for another.
+				this.sessions.delete(request.conversationId);
+				void this.client.release(cached.leaseId, cached.owner).catch(() => undefined);
+			} else {
+				try {
+					await this.client.status(cached.leaseId, cached.owner);
+					this.touch(request.conversationId, cached);
+					return cached;
+				} catch (err) {
+					if (!(err instanceof SandboxError) || err.status !== 404) throw this.unavailable(err);
+					this.sessions.delete(request.conversationId); // reaped or lost: make a new one
+				}
 			}
 		}
 		let lease;
@@ -152,11 +174,32 @@ export class SandboxSessions {
 		} catch (err) {
 			throw this.unavailable(err);
 		}
-		const session: Session = { leaseId: lease.id, owner: request.owner, staged: new Map() };
-		this.sessions.set(request.conversationId, session);
-		const restarted = this.had.has(request.conversationId);
-		this.had.add(request.conversationId);
-		return { session, restarted };
+		const session: Session = {
+			leaseId: lease.id,
+			owner: request.owner,
+			staged: new Map(),
+			pendingRestart: this.had.has(request.conversationId),
+			verified: false,
+		};
+		this.touch(request.conversationId, session);
+		this.had.delete(request.conversationId);
+		this.had.set(request.conversationId, true);
+		while (this.had.size > MAX_REMEMBERED) {
+			this.had.delete(this.had.keys().next().value as string);
+		}
+		return session;
+	}
+
+	/** Most recently used last; past the bound the oldest conversation's sandbox is given back. */
+	private touch(conversationId: string, session: Session): void {
+		this.sessions.delete(conversationId);
+		this.sessions.set(conversationId, session);
+		while (this.sessions.size > MAX_SESSIONS) {
+			const oldest = this.sessions.keys().next().value as string;
+			const evicted = this.sessions.get(oldest);
+			this.sessions.delete(oldest);
+			if (evicted) void this.client.release(evicted.leaseId, evicted.owner).catch(() => undefined);
+		}
 	}
 
 	private unavailable(err: unknown): SandboxUnavailable {
@@ -172,7 +215,8 @@ export class SandboxSessions {
 	 */
 	async prepare(request: SessionRunRequest): Promise<void> {
 		await this.runExclusive(request.conversationId, async () => {
-			const { session } = await this.ensure(request);
+			const session = await this.ensure(request);
+			await this.verify(session);
 			await this.stage(session, request.files);
 		});
 	}
@@ -189,7 +233,45 @@ export class SandboxSessions {
 		return next;
 	}
 
+	/**
+	 * The image has the exec daemon (SANDBOX_EXEC_IMAGE must be cerea-sandbox-python): checked once
+	 * per sandbox, so a wrong image is a fallback to the browser, not a failed run.
+	 */
+	private async verify(session: Session): Promise<void> {
+		if (session.verified) return;
+		let result: SandboxExecResult;
+		try {
+			result = await this.client.exec(
+				session.leaseId,
+				{ cmd: ["test", "-f", "/opt/execd/run.py"], timeoutSeconds: 10 },
+				session.owner
+			);
+		} catch (err) {
+			throw this.unavailable(err);
+		}
+		if (result.exit_code !== 0) {
+			throw new SandboxUnavailable(
+				"the sandbox image has no exec daemon (SANDBOX_EXEC_IMAGE must be cerea-sandbox-python)",
+				"wrong_image"
+			);
+		}
+		session.verified = true;
+	}
+
 	private async stage(session: Session, files: StageFile[]): Promise<void> {
+		// A file the conversation no longer holds (another branch, a deleted message) leaves the sandbox.
+		const wanted = new Set(files.map((f) => f.name));
+		for (const name of [...session.staged.keys()]) {
+			if (wanted.has(name)) continue;
+			session.staged.delete(name);
+			await this.client
+				.exec(
+					session.leaseId,
+					{ cmd: ["rm", "-f", "--", `/workspace/data/${name}`], timeoutSeconds: 10 },
+					session.owner
+				)
+				.catch(() => undefined);
+		}
 		for (const file of files) {
 			if (session.staged.get(file.name) === file.identity) continue;
 			let bytes: Uint8Array;
@@ -208,9 +290,10 @@ export class SandboxSessions {
 	}
 
 	private async runNow(request: SessionRunRequest): Promise<SessionRunResult> {
-		let { session, restarted } = await this.ensure(request);
+		let session = await this.ensure(request);
 		let attempt = 0;
 		for (;;) {
+			await this.verify(session);
 			await this.stage(session, request.files);
 			let exec: SandboxExecResult;
 			try {
@@ -223,8 +306,9 @@ export class SandboxSessions {
 							timeout: request.timeoutSeconds,
 							figures: request.figuresSource,
 						}),
-						// The daemon enforces the run's limit itself; this is its backstop.
-						timeoutSeconds: request.timeoutSeconds + 20,
+						// The daemon enforces the run's limit itself, and run.py kills it past a grace;
+						// this is the manager's own backstop on top of both.
+						timeoutSeconds: request.timeoutSeconds + 30,
 					},
 					session.owner
 				);
@@ -233,20 +317,23 @@ export class SandboxSessions {
 					// The lease vanished between the check and the call: one fresh start.
 					attempt += 1;
 					this.sessions.delete(request.conversationId);
-					({ session } = await this.ensure(request));
-					restarted = true;
+					session = await this.ensure(request);
 					continue;
 				}
 				throw this.unavailable(err);
 			}
+			const notice = session.pendingRestart ? SANDBOX_RESTARTED_NOTICE : undefined;
+			session.pendingRestart = false;
 			const reply = parseReply(exec);
+			if (exec.timed_out || reply.unparsed) {
+				// The sandbox could not be made to stop, or answered with nothing we can read: its
+				// interpreter's state is not to be trusted. Give it back; the next call gets a fresh
+				// container, and tells the model so.
+				await this.release(request.conversationId);
+				return { reply, outputs: [], skipped: [], ...(notice ? { notice } : {}) };
+			}
 			const { outputs, skipped } = await this.collect(session, reply);
-			return {
-				reply,
-				outputs,
-				skipped,
-				...(restarted ? { notice: SANDBOX_RESTARTED_NOTICE } : {}),
-			};
+			return { reply, outputs, skipped, ...(notice ? { notice } : {}) };
 		}
 	}
 
@@ -260,6 +347,10 @@ export class SandboxSessions {
 		for (const file of reply.files ?? []) {
 			if (!file.path.startsWith(prefix)) continue;
 			const name = file.path.slice(prefix.length);
+			if (name.length > MAX_OUTPUT_NAME_CHARS) {
+				skipped.push({ name: `${name.slice(0, 60)}…`, reason: "its name is too long" });
+				continue;
+			}
 			if (outputs.length >= MAX_OUTPUT_FILES_PER_RUN) {
 				skipped.push({
 					name,
@@ -287,20 +378,27 @@ export class SandboxSessions {
 	}
 }
 
-/** The last line of the daemon client's stdout is its JSON reply. */
+/**
+ * The last line of the daemon client's stdout is its JSON reply. It is held to the same schema as a
+ * browser's outcome; anything else is a failed call, not a failed run.
+ */
 export function parseReply(exec: SandboxExecResult): DaemonReply {
 	const line = exec.stdout.trim().split("\n").pop() ?? "";
 	try {
-		const parsed = JSON.parse(line) as DaemonReply;
-		if (typeof parsed.ok === "boolean") {
+		const raw = JSON.parse(line) as Record<string, unknown>;
+		// The daemon says "no value" with null; the schema says it by leaving the key out.
+		const cleaned = Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== null));
+		const parsed = outcomeFieldsSchema.safeParse(cleaned);
+		if (parsed.success) {
+			const { ok, stdout, stderr, result, error, files, timeout } = parsed.data;
 			return {
-				ok: parsed.ok,
-				stdout: typeof parsed.stdout === "string" ? parsed.stdout : "",
-				stderr: typeof parsed.stderr === "string" ? parsed.stderr : "",
-				result: typeof parsed.result === "string" ? parsed.result : null,
-				error: typeof parsed.error === "string" ? parsed.error : null,
-				files: Array.isArray(parsed.files) ? parsed.files : [],
-				timeout: parsed.timeout ?? null,
+				ok,
+				stdout,
+				stderr,
+				result: result ?? null,
+				error: error ?? null,
+				files,
+				timeout: timeout ?? null,
 			};
 		}
 	} catch {
@@ -310,6 +408,7 @@ export function parseReply(exec: SandboxExecResult): DaemonReply {
 		? "the sandbox's own time limit was hit"
 		: (exec.stderr || exec.stdout || `exit code ${exec.exit_code}`).slice(0, 500);
 	return {
+		unparsed: true,
 		ok: false,
 		stdout: "",
 		stderr: "",

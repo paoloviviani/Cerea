@@ -66,6 +66,17 @@ export async function deleteConversationShares(
  * output is not a reason to leave somebody's uploaded PDF in the database.
  * Each half already logs its own failures per file.
  */
+/** Give a deleted conversation's server sandbox back (best effort; the idle timeout is the backstop). */
+async function releaseSandboxes(conversationId: Conversation["_id"] | Conversation["_id"][]) {
+	try {
+		const { releaseConversationSandboxes } =
+			await import("$lib/server/codeExecution/serverBackend");
+		await releaseConversationSandboxes(conversationId);
+	} catch (err) {
+		logger.debug({ err }, "conversation_sandbox_release_failed: the idle timeout releases it");
+	}
+}
+
 export async function deleteConversationStorage(
 	conversationId: Conversation["_id"] | Conversation["_id"][]
 ): Promise<void> {
@@ -76,6 +87,7 @@ export async function deleteConversationStorage(
 		deleteConversationShares(conversationId),
 		deleteConversationWebFetchCache(conversationId),
 		deleteConversationBrowserScopes(conversationId),
+		releaseSandboxes(conversationId),
 	]);
 	// The first two log their own failures. These do not, and they are the
 	// privacy ones; the daily orphan sweep retries what they leave.

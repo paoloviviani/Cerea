@@ -185,7 +185,7 @@ function executeCodeDescription(kind: string): string {
 	return kind === "server" ? serverDescription() : browserDescription();
 }
 
-export function createExecuteCodeBuiltin(): BuiltinTool[] {
+export function createExecuteCodeBuiltin(options: { unattended?: boolean } = {}): BuiltinTool[] {
 	if (!isExecuteCodeEnabled()) return [];
 	// Fixed for the turn, like the rest of this closure: the tool is described for the engine
 	// that will run it, and a fallback to the browser mid-turn is handled by the backend itself.
@@ -253,22 +253,36 @@ export function createExecuteCodeBuiltin(): BuiltinTool[] {
 
 				const backend = executionBackend();
 				const deadlineMs = codeExecutionDeadlineMs();
-				const { executionId: parkedCallId } = await backend.startRun(
-					{
-						call: {
-							conversationId: ctx.conversationId,
-							messageId: ctx.messageId,
-							toolCallId: ctx.toolCallId,
-							toolUuid: ctx.uuid,
-							...(ctx.generationId ? { generationId: ctx.generationId } : {}),
-							...(ctx.userId ? { userId: ctx.userId } : {}),
-							...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
+				let parkedCallId: string;
+				try {
+					({ executionId: parkedCallId } = await backend.startRun(
+						{
+							...(options.unattended ? { unattended: true } : {}),
+							call: {
+								conversationId: ctx.conversationId,
+								messageId: ctx.messageId,
+								toolCallId: ctx.toolCallId,
+								toolUuid: ctx.uuid,
+								...(ctx.generationId ? { generationId: ctx.generationId } : {}),
+								...(ctx.userId ? { userId: ctx.userId } : {}),
+								...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
+							},
+							code,
+							limits: { runTimeoutMs: codeRunTimeoutMs(), deadlineMs },
 						},
-						code,
-						limits: { runTimeoutMs: codeRunTimeoutMs(), deadlineMs },
-					},
-					(update) => ctx.elicitationSink?.emit(update)
-				);
+						(update) => ctx.elicitationSink?.emit(update)
+					));
+				} catch (err) {
+					if (err instanceof Error && err.name === "ServerSandboxUnavailable") {
+						// A scheduled run with the server sandbox down: nothing can answer, so say so.
+						return {
+							error:
+								"The execution environment is unavailable and nobody is watching this run, " +
+								"so code cannot run now. Do not claim any execution result or file.",
+						};
+					}
+					throw err;
+				}
 
 				logger.info(
 					{
@@ -318,13 +332,15 @@ export async function isParkedCodeCall(
 
 /** The tool result the model reads on the round it wakes into. */
 export function codeResumeResultText(park: ParkedCall, tokenExpired: boolean): string {
+	const fallbackNote = park.notice ? `\n\nNOTE: ${park.notice}` : "";
 	if (!park.outcome && park.reason?.includes("server sandbox")) {
 		return (
 			"The server sandbox gave no answer before the deadline. Do NOT claim any execution result " +
 			"or file, and do not assume the code itself is at fault. Fall back: present the code as a " +
 			"plain fenced ```python code block with no `title=` (a `title=` block renders as a " +
 			"downloadable file, not a running one) and say what you intended it to show; it runs " +
-			"automatically the moment it is complete."
+			"automatically the moment it is complete." +
+			fallbackNote
 		);
 	}
 	if (!park.outcome) {
@@ -339,7 +355,8 @@ export function codeResumeResultText(park: ParkedCall, tokenExpired: boolean): s
 			"as a downloadable file, not a running one) and say what you intended it to show. " +
 			"Do not tell the person to click Run or similar — nothing needs pressing, the block " +
 			"runs automatically the moment it is complete, and mention that keeping the app in " +
-			"the foreground while Python starts up gives it the best chance to finish this time."
+			"the foreground while Python starts up gives it the best chance to finish this time." +
+			fallbackNote
 		);
 	}
 	const outcome = park.outcome;
@@ -347,6 +364,7 @@ export function codeResumeResultText(park: ParkedCall, tokenExpired: boolean): s
 	const where = outcome.engine === "server" ? "the server sandbox" : "the person's browser sandbox";
 	parts.push(outcome.ok ? `Execution finished in ${where}.` : "Execution finished with an error.");
 	if (outcome.notice) parts.push(`NOTE: ${outcome.notice}`);
+	if (park.notice) parts.push(`NOTE: ${park.notice}`);
 	if (outcome.stdout) {
 		parts.push(`stdout:\n${truncateExecuteCodeOutput(outcome.stdout)}`);
 	}

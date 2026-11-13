@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { SandboxError } from "$lib/server/sandbox/client";
 import {
 	MAX_OUTPUT_FILES_PER_RUN,
+	MAX_SESSIONS,
 	SANDBOX_RESTARTED_NOTICE,
 	SandboxSessions,
 	SandboxUnavailable,
@@ -38,6 +39,9 @@ function fake() {
 		execs: [] as Array<{ lease: string; stdin: string; cmd: string[] }>,
 		running: 0,
 		maxRunning: 0,
+		removed: [] as string[],
+		noDaemon: false,
+		timedOut: false,
 	};
 	const api = {
 		lease: vi.fn(async (req: { owner: string }) => {
@@ -60,12 +64,21 @@ function fake() {
 		}),
 		exec: vi.fn(async (id: string, req: { stdin?: string; cmd?: string[] }, _owner?: string) => {
 			if (!state.leases.has(id)) throw new SandboxError(404, "no_such_lease", "no such lease");
+			// The image check and the removal of a stale file are not runs.
+			if (req.cmd?.[0] === "test") {
+				return { ...execResult({}), exit_code: state.noDaemon ? 1 : 0, stdout: "" };
+			}
+			if (req.cmd?.[0] === "rm") {
+				state.removed.push(String(req.cmd.at(-1)));
+				return { ...execResult({}), stdout: "" };
+			}
 			state.running += 1;
 			state.maxRunning = Math.max(state.maxRunning, state.running);
 			state.execs.push({ lease: id, stdin: req.stdin ?? "", cmd: req.cmd ?? [] });
 			await new Promise((r) => setTimeout(r, 5));
 			state.running -= 1;
-			return execResult(state.replies.shift() ?? reply());
+			const out = execResult(state.replies.shift() ?? reply());
+			return state.timedOut ? { ...out, timed_out: true, exit_code: 137, stdout: "" } : out;
 		}),
 	};
 	return { state, api, sessions: new SandboxSessions(api as unknown as SandboxApi) };
@@ -213,6 +226,97 @@ describe("SandboxSessions", () => {
 	});
 });
 
+describe("a sandbox that cannot be stopped or read", () => {
+	it("is released when the call timed out, and the next call gets a fresh one and the notice", async () => {
+		const { api, sessions, state } = fake();
+		await sessions.run(base);
+		state.timedOut = true; // the manager's own timeout killed run.py: a GIL-holding loop
+		const stuck = await sessions.run({ ...base, code: "sum(range(10**13))" });
+		expect(stuck.reply.ok).toBe(false);
+		expect(api.release).toHaveBeenCalledTimes(1);
+		expect(sessions.has("c1")).toBe(false);
+		state.timedOut = false;
+		const next = await sessions.run(base);
+		expect(api.lease).toHaveBeenCalledTimes(2);
+		expect(next.notice).toBe(SANDBOX_RESTARTED_NOTICE);
+	});
+
+	it("is released when its answer cannot be read", async () => {
+		const { api, sessions, state } = fake();
+		state.replies.push({ nonsense: true });
+		const result = await sessions.run(base);
+		expect(result.reply.unparsed).toBe(true);
+		expect(api.release).toHaveBeenCalledTimes(1);
+		expect(result.outputs).toEqual([]);
+	});
+});
+
+describe("the restart notice", () => {
+	it("reaches the model even when prepare found the restart, and when the sandbox is reaped after it", async () => {
+		const { sessions, state } = fake();
+		await sessions.run(base);
+		state.leases.clear(); // the idle reaper
+		await sessions.prepare(base); // the backend's lease-and-stage step makes the new sandbox
+		expect((await sessions.run(base)).notice).toBe(SANDBOX_RESTARTED_NOTICE);
+		// prepare -> reap -> run: the run finds it gone, makes another, and still says so
+		await sessions.prepare(base);
+		state.leases.clear();
+		expect((await sessions.run(base)).notice).toBe(SANDBOX_RESTARTED_NOTICE);
+		// ...and only once.
+		expect((await sessions.run(base)).notice).toBeUndefined();
+	});
+
+	it("is not said for a conversation's first sandbox", async () => {
+		const { sessions } = fake();
+		await sessions.prepare(base);
+		expect((await sessions.run(base)).notice).toBeUndefined();
+	});
+});
+
+describe("sandbox hygiene", () => {
+	it("falls back (unavailable) when the image has no exec daemon", async () => {
+		const { sessions, state } = fake();
+		state.noDaemon = true;
+		await expect(sessions.prepare(base)).rejects.toMatchObject({ code: "wrong_image" });
+		await expect(sessions.run(base)).rejects.toBeInstanceOf(SandboxUnavailable);
+	});
+
+	it("never runs a call in a sandbox leased for another owner", async () => {
+		const { api, sessions } = fake();
+		await sessions.run(base);
+		await sessions.run({ ...base, owner: "u2" });
+		expect(api.lease).toHaveBeenCalledTimes(2);
+		expect(api.release).toHaveBeenCalledWith("lease-1", "u1");
+	});
+
+	it("removes a staged file the conversation no longer holds", async () => {
+		const { sessions, state } = fake();
+		await sessions.run({ ...base, files: [file("a.csv", "hash:1"), file("b.csv", "hash:2")] });
+		await sessions.run({ ...base, files: [file("a.csv", "hash:1")] });
+		expect(state.removed).toEqual(["/workspace/data/b.csv"]);
+	});
+
+	it("bounds how many conversations it remembers, giving the oldest sandbox back", async () => {
+		const { api, sessions } = fake();
+		for (let i = 0; i <= MAX_SESSIONS; i++)
+			await sessions.run({ ...base, conversationId: `c${i}` });
+		expect(sessions.has("c0")).toBe(false);
+		expect(sessions.has(`c${MAX_SESSIONS}`)).toBe(true);
+		expect(api.release).toHaveBeenCalledWith("lease-1", "u1");
+	}, 30_000);
+
+	it("skips an output file whose name is too long", async () => {
+		const { sessions, state } = fake();
+		await sessions.run(base);
+		const long = "x".repeat(600) + ".txt";
+		state.files.set(`lease-1/output/${long}`, new Uint8Array([1]));
+		state.replies.push(reply({ files: [{ path: `/mnt/output/${long}`, size: 1 }] }));
+		const result = await sessions.run(base);
+		expect(result.outputs).toEqual([]);
+		expect(result.skipped[0].reason).toContain("too long");
+	});
+});
+
 describe("parseReply", () => {
 	it("reads the daemon's last line", () => {
 		const r = parseReply({
@@ -220,6 +324,22 @@ describe("parseReply", () => {
 			stdout: "noise\n" + JSON.stringify(reply({ stdout: "hi\n", result: "3" })) + "\n",
 		});
 		expect(r).toMatchObject({ ok: true, stdout: "hi\n", result: "3" });
+	});
+
+	it("holds the reply to the browser outcome's schema", () => {
+		const bad = (over: Record<string, unknown>) =>
+			parseReply({ ...execResult({}), stdout: JSON.stringify(reply(over)) });
+		expect(bad({ ok: "yes" }).unparsed).toBe(true);
+		expect(bad({ files: [{ path: "/mnt/output/a", size: -1 }] }).unparsed).toBe(true);
+		expect(bad({ files: [{ path: "/mnt/output/" + "x".repeat(2000), size: 1 }] }).unparsed).toBe(
+			true
+		);
+		expect(bad({ timeout: { seconds: 0, mountedFiles: [] } }).unparsed).toBe(true);
+		expect(bad({ timeout: { seconds: 2, mountedFiles: ["a"] } }).timeout).toEqual({
+			seconds: 2,
+			mountedFiles: ["a"],
+		});
+		expect(bad({ result: null, error: null }).unparsed).toBeUndefined();
 	});
 
 	it("turns anything else into a failed run that says why", () => {

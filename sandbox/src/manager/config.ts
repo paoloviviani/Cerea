@@ -75,7 +75,7 @@ export function loadConfig(env: Env = process.env): ManagerConfig {
 		);
 	}
 	const defaults: LeaseLimits = {
-		memoryMb: num(env, "SANDBOX_EXEC_MEMORY_MB", 512),
+		memoryMb: num(env, "SANDBOX_EXEC_MEMORY_MB", 1024),
 		cpus: num(env, "SANDBOX_EXEC_CPUS", 1, 0.1),
 		pids: num(env, "SANDBOX_EXEC_PIDS", 256),
 		workspaceMb: num(env, "SANDBOX_EXEC_WORKSPACE_MB", 256),
@@ -117,8 +117,8 @@ export function loadConfig(env: Env = process.env): ManagerConfig {
 		user: env.SANDBOX_USER || "65534:65534",
 		defaults,
 		maxima,
-		maxLeases: num(env, "SANDBOX_MAX_LEASES", 4),
-		maxLeasesPerOwner: num(env, "SANDBOX_MAX_LEASES_PER_OWNER", 2),
+		maxLeases: num(env, "SANDBOX_MAX_LEASES", 8),
+		maxLeasesPerOwner: num(env, "SANDBOX_MAX_LEASES_PER_OWNER", 3),
 		warmPoolSize: num(env, "SANDBOX_WARM_POOL_SIZE", 0, 0),
 		maxFileBytes: num(env, "SANDBOX_MAX_FILE_BYTES", 8_388_608),
 		maxConcurrentExecsPerLease: num(env, "SANDBOX_MAX_CONCURRENT_EXECS", 4),

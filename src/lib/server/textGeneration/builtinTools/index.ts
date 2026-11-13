@@ -233,7 +233,7 @@ export function getEnabledBuiltinTools(params: {
 
 	// Gated on the deployment-level flag alone: absent flag = fences only,
 	// exactly today's behavior. The tool withholds itself when the flag is off.
-	tools.push(...createExecuteCodeBuiltin());
+	tools.push(...createExecuteCodeBuiltin({ unattended: params.unattended }));
 
 	// PDF conversion through the deployment's Gotenberg (the kit's `office`
 	// profile). Gated on `CHAT_GOTENBERG_URL` alone: unset, nothing registers.

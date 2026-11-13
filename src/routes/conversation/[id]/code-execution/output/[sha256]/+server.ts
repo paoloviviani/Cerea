@@ -1,3 +1,4 @@
+import { attachmentDisposition } from "$lib/server/files/contentDisposition";
 import type { RequestHandler } from "./$types";
 import { authCondition } from "$lib/server/auth";
 import { collections } from "$lib/server/database";
@@ -35,7 +36,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 			"Content-Security-Policy":
 				"default-src 'none'; script-src 'none'; style-src 'none'; sandbox;",
 			"X-Content-Type-Options": "nosniff",
-			"Content-Disposition": `attachment; filename="${file.name.replace(/[\r\n"]/g, "")}"`,
+			"Content-Disposition": attachmentDisposition(file.name),
 			"Content-Length": file.size.toString(),
 			"Accept-Ranges": "bytes",
 		},

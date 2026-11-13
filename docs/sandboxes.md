@@ -52,6 +52,14 @@ What differs is the engine, which the tool's description says:
   `sandbox/exec-image/execd.py`, is a small standard-library program that keeps one interpreter and
   returns `stdout`, `stderr`, the last value, the error and the files. It is the seam to swap if
   inline HTML is ever wanted.)
+- **A run that cannot be stopped.** The daemon stops a run at its limit and replaces its interpreter
+  (nothing survives, not even a changed module). A C call that holds the interpreter (a huge `sum(range(...))`)
+  defeats the daemon's own timers, so the client in the sandbox gives up after the limit plus a grace and kills
+  the daemon's process group; the chat then releases that sandbox, and the next call gets a fresh one and the
+  model is told its state is gone.
+- **Fallback is told.** When a call runs in the browser because a sandbox could not be leased (the limits below,
+  or the manager down), the model's result says so. A scheduled run, which has no browser to fall back to,
+  fails with an "unavailable" result instead.
 - **Limits.** One run is stopped after the configured limit (`CHAT_CODE_RUN_TIMEOUT_SECONDS`, 60 s by
   default); a stopped run restarts the interpreter and the model is told. Memory, CPU, processes, workspace
   and the other limits are the sandbox's (see [Sizing](#sizing)); one sandbox is leased per conversation,
@@ -199,7 +207,7 @@ Everything below is a variable in `.env` (see `.env.example`); an empty one mean
 
 | Limit                                                            | Variable                        | Default | Maximum |
 | ---------------------------------------------------------------- | ------------------------------- | ------- | ------- |
-| Memory                                                           | `SANDBOX_EXEC_MEMORY_MB`        | 512 MB  | 2048 MB |
+| Memory                                                           | `SANDBOX_EXEC_MEMORY_MB`        | 1024 MB | 2048 MB |
 | CPUs                                                             | `SANDBOX_EXEC_CPUS`             | 1       | 2       |
 | Processes                                                        | `SANDBOX_EXEC_PIDS`             | 256     | 1024    |
 | Workspace (a RAM-backed tmpfs: it counts against memory)         | `SANDBOX_EXEC_WORKSPACE_MB`     | 256 MB  | 1024 MB |
@@ -215,8 +223,8 @@ Everything below is a variable in `.env` (see `.env.example`); an empty one mean
 
 | Limit                                                                             | Variable                       | Default                                                        |
 | --------------------------------------------------------------------------------- | ------------------------------ | -------------------------------------------------------------- |
-| Concurrent sandboxes overall                                                      | `SANDBOX_MAX_LEASES`           | 4                                                              |
-| Concurrent sandboxes per user                                                     | `SANDBOX_MAX_LEASES_PER_OWNER` | 2                                                              |
+| Concurrent sandboxes overall                                                      | `SANDBOX_MAX_LEASES`           | 8                                                              |
+| Concurrent sandboxes per user                                                     | `SANDBOX_MAX_LEASES_PER_OWNER` | 3                                                              |
 | Requests the manager handles at once (more get `503 busy`, before a body is read) | `SANDBOX_MAX_INFLIGHT`         | 16                                                             |
 | File transfers in flight (a subset of the above)                                  | `SANDBOX_MAX_FILE_TRANSFERS`   | 4                                                              |
 | Warm pool (pristine sandboxes kept ready)                                         | `SANDBOX_WARM_POOL_SIZE`       | 0 (reserved; the pool arrives with the `execute_code` backend) |
@@ -245,17 +253,22 @@ a small script uses far less than its cap. Plan for the worst case, with the def
 
 | Concurrent sandboxes  | Memory cap (plus about 0.65 GB for the two services) | CPU cap |
 | --------------------- | ---------------------------------------------------- | ------- |
-| 1                     | 0.5 GB                                               | 1       |
-| 2                     | 1 GB                                                 | 2       |
-| 4 (the default total) | 2 GB                                                 | 4       |
-| 8                     | 4 GB                                                 | 8       |
+| 1                     | 1 GB                                                 | 1       |
+| 2                     | 2 GB                                                 | 2       |
+| 4                     | 4 GB                                                 | 4       |
+| 8 (the default total) | 8 GB                                                 | 8       |
 
 gVisor adds some memory and start-up time per sandbox beyond the cap's own use; measure on your
-host. The default total of 4 suits a host with 4 to 8 GB and 4 cores shared with the rest of the
-stack. On a dedicated sandbox host, raise `SANDBOX_MAX_LEASES` to what the memory table allows, and keep
+host. The default total of 8 wants a host with 8 to 16 GB to spare; on a 4 to 8 GB host shared with the rest of the stack set `SANDBOX_MAX_LEASES` to 3 or 4. On a dedicated sandbox host, raise `SANDBOX_MAX_LEASES` to what the memory table allows, and keep
 the per-user limit low enough that one user cannot take them all.
-Since a sandbox lives only while a conversation uses it, a deployment of N users rarely needs N
-sandboxes at once.
+Since a sandbox lives only while a conversation uses it (and for about twenty idle minutes after), a
+deployment of N users rarely needs N sandboxes at once.
+
+**Quotas with `execute_code` on the server.** Each conversation that runs code holds one sandbox. A user
+can run code in `SANDBOX_MAX_LEASES_PER_OWNER` conversations at once (default 3); the whole deployment in
+`SANDBOX_MAX_LEASES` (default 8). A call that needs a new sandbox when a limit is reached is not refused:
+it runs in the browser, and the model is told so in the result. Raise the limits with the RAM table above,
+or lower `SANDBOX_IDLE_SECONDS` so idle sandboxes free their share sooner.
 
 ## The API (for the curious)
 

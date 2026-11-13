@@ -16,7 +16,7 @@ import {
 } from "$lib/types/MessageUpdate";
 import type { BackendRunRequest, ExecutionBackend } from "./backend";
 import { browserBackend, parkCodeCall } from "./browserBackend";
-import { probeSandboxHealth } from "./sandboxHealth";
+import { sandboxHealthyNow } from "./sandboxHealth";
 import {
 	SandboxSessions,
 	SandboxUnavailable,
@@ -39,6 +39,9 @@ import type { attachmentsToStage } from "./sandboxStage";
  * there is no fallback (it may have had effects); a failure is reported as the run's error.
  */
 
+/** At most this many output-file notes are put in a result; the rest are counted. */
+const MAX_NOTES = 20;
+
 /** What the backend needs from outside, so a test can stand in for each. */
 export interface ServerBackendDeps {
 	/** The sandbox sessions, or null when sandboxes are not configured. */
@@ -51,6 +54,39 @@ export interface ServerBackendDeps {
 	kick(): void;
 	fallback: ExecutionBackend;
 	park: typeof parkCodeCall;
+}
+
+/** A scheduled run needed the browser, and nobody's browser is there to answer. */
+export class ServerSandboxUnavailable extends Error {
+	constructor(why: string) {
+		super(`the server sandbox is unavailable (${why}) and this run has no browser to fall back to`);
+		this.name = "ServerSandboxUnavailable";
+	}
+}
+
+/** What the model is told when a call ran in the browser although the server was asked for. */
+export function fallbackNotice(code?: string): string {
+	const why =
+		code === "quota_exceeded"
+			? "the server sandboxes are busy (the limit on concurrent sandboxes was reached)"
+			: code === "wrong_image"
+				? "the server sandbox image has no exec daemon"
+				: "the server sandbox is unavailable";
+	return (
+		`This call ran in the person's browser instead of the server sandbox, because ${why}. ` +
+		"Packages installed on the server are not there and there is no variable state from earlier calls on the server."
+	);
+}
+
+/** Give a conversation's sandbox back, when it is deleted. Best effort: the idle timeout is the backstop. */
+export async function releaseConversationSandboxes(
+	conversationIds: ObjectId | ObjectId[]
+): Promise<void> {
+	const sessions = defaultDeps.sessions();
+	if (!sessions) return;
+	for (const id of Array.isArray(conversationIds) ? conversationIds : [conversationIds]) {
+		await sessions.release(id.toString()).catch(() => undefined);
+	}
 }
 
 let cached: { key: string; sessions: SandboxSessions } | null = null;
@@ -70,7 +106,7 @@ const defaultDeps: ServerBackendDeps = {
 		}
 		return cached.sessions;
 	},
-	healthy: probeSandboxHealth,
+	healthy: sandboxHealthyNow,
 	// Loaded when first used, not with this module: the backend is imported by everything that
 	// builds the tool list, and these pull in the sweeper, the stores and the file previews.
 	stageFiles: async (conversationId, messageId) =>
@@ -147,7 +183,10 @@ export async function buildOutcome(
 	}
 	for (const skipped of result.skipped)
 		notes.push(`${skipped.name} was not kept (${skipped.reason})`);
-	const notice = [result.notice, notes.length ? `Output files: ${notes.join("; ")}.` : ""]
+	// A run that makes hundreds of files must not make a hundred-line notice.
+	const shown = notes.slice(0, MAX_NOTES);
+	if (notes.length > MAX_NOTES) shown.push(`and ${notes.length - MAX_NOTES} more`);
+	const notice = [result.notice, shown.length ? `Output files: ${shown.join("; ")}.` : ""]
 		.filter(Boolean)
 		.join(" ");
 	return {
@@ -223,12 +262,14 @@ export function createServerBackend(deps: ServerBackendDeps = defaultDeps): Exec
 
 		async startRun(request, emit: (update: MessageUpdate) => void) {
 			const sessions = deps.sessions();
-			const fallback = (why: string) => {
+			const fallback = (why: string, code?: string) => {
+				// A scheduled run has nobody's page: the browser would never answer. Say so now.
+				if (request.unattended) throw new ServerSandboxUnavailable(why);
 				logger.warn(
 					{ conversationId: request.call.conversationId.toString(), why },
 					"[execute_code] the server sandbox is not usable: running this call in the browser"
 				);
-				return deps.fallback.startRun(request, emit);
+				return deps.fallback.startRun({ ...request, notice: fallbackNotice(code) }, emit);
 			};
 			if (!sessions || !(await deps.healthy())) return fallback("the manager is not healthy");
 
@@ -238,13 +279,14 @@ export function createServerBackend(deps: ServerBackendDeps = defaultDeps): Exec
 				// The lease and the staging, before the code is committed to the server.
 				await sessions.prepare(sessionRequest(request, files));
 			} catch (err) {
-				if (err instanceof SandboxUnavailable) return fallback(err.message);
+				if (err instanceof SandboxUnavailable) return fallback(err.message, err.code);
 				throw err;
 			}
 
 			const { executionId, expiresAt } = await deps.park(
 				request,
-				"code execution in a server sandbox"
+				"code execution in a server sandbox",
+				"server"
 			);
 			emit({
 				type: MessageUpdateType.CodeExecution,

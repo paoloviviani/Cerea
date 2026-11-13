@@ -10,6 +10,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -20,6 +21,8 @@ os.environ.update(
     EXECD_MOUNT_ROOT=os.path.join(TMP, "data"),
     EXECD_CWD=TMP,
     EXECD_SOCKET=os.path.join(TMP, "execd.sock"),
+    EXECD_PIDFILE=os.path.join(TMP, "execd.pid"),
+    EXECD_CLIENT_GRACE="2",
 )
 sys.path.insert(0, str(HERE))
 import execd  # noqa: E402
@@ -137,6 +140,27 @@ class Client(unittest.TestCase):
     def test_two_calls_share_one_interpreter(self):
         self.assertEqual(self.call("counter = 10")["ok"], True)
         self.assertEqual(self.call("counter += 5\ncounter")["result"], "15")
+
+    def test_a_timeout_replaces_the_interpreter_not_just_its_namespace(self):
+        self.call("import json\njson.marker = 1\nkept = 1")
+        stopped = self.call("while True:\n    pass", timeout=1)
+        self.assertEqual(stopped["timeout"]["seconds"], 1)
+        time.sleep(0.5)  # the daemon re-executes itself after answering
+        # A new process: neither the namespace nor a change made to a module survives.
+        self.assertEqual(self.call("('kept' in globals(), hasattr(__import__('json'), 'marker'))")["result"], "(False, False)")
+
+    def test_a_c_call_that_holds_the_gil_is_killed_by_the_client(self):
+        """Neither SIGALRM nor the watchdog thread can run inside sum(range(10**13)); run.py's deadline
+        kills the daemon's process group, and the next call starts a fresh one."""
+        self.call("survivor = 1")
+        started = time.monotonic()
+        r = self.call("sum(range(10**13))", timeout=1)
+        self.assertEqual(r["timeout"]["seconds"], 1)
+        self.assertLess(time.monotonic() - started, 30)
+        pid = int(Path(os.environ["EXECD_PIDFILE"]).read_text()) if Path(os.environ["EXECD_PIDFILE"]).exists() else None
+        self.assertIsNone(pid, "the pidfile of the killed daemon is gone")
+        again = self.call("'survivor' in globals()")
+        self.assertEqual(again["result"], "False")
 
     def test_a_run_past_its_limit_answers_with_the_timeout_shape(self):
         r = self.call("import time\ntime.sleep(30)", timeout=1)

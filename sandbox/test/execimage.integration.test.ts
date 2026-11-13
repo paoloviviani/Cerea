@@ -173,4 +173,26 @@ describe("the Python exec image", { skip: !enabled }, () => {
 			assert.equal(after.result, "False");
 		}
 	);
+
+	it(
+		"kills a run that holds the GIL, which neither signals nor a watchdog thread can stop",
+		{ timeout: 240_000 },
+		async () => {
+			await run("survivor = 1");
+			const started = Date.now();
+			const stuck = await run("sum(range(10**13))", 2);
+			assert.equal(stuck.ok, false);
+			assert.equal(stuck.timeout?.seconds, 2);
+			// run.py's own deadline (the limit plus a grace) fired, not the manager's backstop.
+			assert.ok(Date.now() - started < 45_000, `took ${Date.now() - started} ms`);
+			// the daemon was killed with its process group, and the next call starts a fresh one
+			const after = await run("'survivor' in globals()");
+			assert.equal(after.result, "False");
+			// no runaway process is left burning a CPU
+			const ps = await call("POST", `/v1/leases/${lease}/exec`, {
+				command: "ps -eo args | grep -c 'range(10' || true",
+			});
+			assert.ok(Number(((await ps.json()) as { stdout: string }).stdout.trim()) <= 1);
+		}
+	);
 });

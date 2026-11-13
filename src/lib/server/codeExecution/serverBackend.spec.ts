@@ -10,10 +10,20 @@ vi.mock("$lib/server/generation/parkedSweeper", () => ({ sweepParkedCalls: vi.fn
 vi.mock("$lib/server/execution/deliverables", () => ({ storeDeliverable: vi.fn() }));
 vi.mock("$lib/server/sandbox/boot", () => ({ sandboxSettings: () => ({ config: null }) }));
 vi.mock("./sandboxStage", () => ({ attachmentsToStage: vi.fn() }));
-vi.mock("./sandboxHealth", () => ({ probeSandboxHealth: vi.fn(), sandboxUsable: () => true }));
+vi.mock("./sandboxHealth", () => ({
+	probeSandboxHealth: vi.fn(),
+	sandboxHealthyNow: vi.fn(async () => true),
+	sandboxUsable: () => true,
+}));
 
 import type { ExecutionBackend } from "./backend";
-import { buildOutcome, createServerBackend, type ServerBackendDeps } from "./serverBackend";
+import {
+	ServerSandboxUnavailable,
+	buildOutcome,
+	createServerBackend,
+	fallbackNotice,
+	type ServerBackendDeps,
+} from "./serverBackend";
 import { SandboxUnavailable, type SandboxSessions } from "./sandboxSessions";
 
 const conversationId = new ObjectId();
@@ -136,6 +146,47 @@ describe("the server backend", () => {
 		expect(emitted).toEqual([]);
 	});
 
+	it("tells the model, with the result, that a fallback call ran in the browser and why", async () => {
+		const { backend, fallback } = setup(
+			{},
+			{
+				prepare: vi.fn(async () => {
+					throw new SandboxUnavailable("full", "quota_exceeded");
+				}),
+			}
+		);
+		await backend.startRun(request, emit as never);
+		const passed = vi.mocked(fallback.startRun).mock.calls[0][0];
+		expect(passed.notice).toBe(fallbackNotice("quota_exceeded"));
+		expect(passed.notice).toContain("busy");
+		expect(passed.notice).toContain("browser");
+	});
+
+	it("fails fast, never handing a scheduled run to a browser nobody has open", async () => {
+		const sick = setup({ healthy: async () => false });
+		await expect(
+			sick.backend.startRun({ ...request, unattended: true }, emit as never)
+		).rejects.toBeInstanceOf(ServerSandboxUnavailable);
+		expect(sick.fallback.startRun).not.toHaveBeenCalled();
+		const noLease = setup(
+			{},
+			{
+				prepare: vi.fn(async () => {
+					throw new SandboxUnavailable("full", "quota_exceeded");
+				}),
+			}
+		);
+		await expect(
+			noLease.backend.startRun({ ...request, unattended: true }, emit as never)
+		).rejects.toBeInstanceOf(ServerSandboxUnavailable);
+	});
+
+	it("marks the parked row as the server's, so a browser's post for it is refused", async () => {
+		const { backend, deps } = setup();
+		await backend.startRun(request, emit as never);
+		expect(vi.mocked(deps.park).mock.calls[0][2]).toBe("server");
+	});
+
 	it("reports a run that fails after it was committed as the run's error, not a fallback", async () => {
 		const { backend, deps, fallback } = setup(
 			{},
@@ -197,6 +248,17 @@ describe("the outcome of a server run", () => {
 		expect(outcome.notice).toContain("restarted");
 		expect(outcome.notice).toContain("x.xlsx could not be saved");
 		expect(outcome.notice).toContain("big.bin was not kept");
+	});
+
+	it("caps the output-file notes at twenty and counts the rest", async () => {
+		const outcome = await buildOutcome({ store: vi.fn() as never }, request, {
+			reply: { ok: true, stdout: "", stderr: "", files: [] },
+			outputs: [],
+			skipped: Array.from({ length: 30 }, (_, i) => ({ name: `f${i}.bin`, reason: "too big" })),
+		});
+		const text = outcome.notice ?? "";
+		expect(text.match(/was not kept/g)).toHaveLength(20);
+		expect(text).toContain("and 10 more");
 	});
 
 	it("carries a timeout the way the browser's outcome does", async () => {

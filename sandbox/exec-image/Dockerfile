@@ -10,11 +10,13 @@ LABEL org.opencontainers.image.title="cerea-sandbox-python" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.version="${VERSION}"
 COPY requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir --root-user-action=ignore --only-binary=:all: -r /tmp/requirements.txt \
+RUN pip install --no-cache-dir --root-user-action=ignore --only-binary=:all: --require-hashes --no-deps -r /tmp/requirements.txt \
  && rm /tmp/requirements.txt \
  && MPLCONFIGDIR=/tmp/mpl python -c "import numpy, pandas, matplotlib, scipy, PIL, openpyxl, docx, pptx, xlsxwriter, reportlab, pypdf, seaborn, lxml, sklearn, sympy"
 COPY execd.py run.py /opt/execd/
 # The paths the model is told (/mnt/data for attachments, /mnt/output for deliverables), pointing into
 # the sandbox's one writable workspace: the root file system is read-only.
 RUN mkdir -p /mnt /workspace && ln -s /workspace/data /mnt/data && ln -s /workspace/output /mnt/output
+# Not root even if something starts it without the manager's own user setting.
+USER 65534:65534
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 MPLBACKEND=Agg

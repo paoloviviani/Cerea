@@ -6,6 +6,7 @@ const warn = vi.hoisted(() => vi.fn());
 vi.mock("./sandboxHealth", () => ({
 	sandboxUsable: () => state.usable,
 	probeSandboxHealth: async () => state.usable,
+	sandboxHealthyNow: async () => state.usable,
 }));
 vi.mock("$lib/server/logger", () => ({
 	logger: { warn, info: vi.fn(), error: vi.fn(), debug: vi.fn() },

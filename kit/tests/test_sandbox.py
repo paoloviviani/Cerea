@@ -277,11 +277,13 @@ class ComposeRules(unittest.TestCase):
     def test_the_exec_image_is_built_from_a_digest_pinned_base(self):
         dockerfile = (ROOT.parent / "sandbox" / "exec-image" / "Dockerfile").read_text(encoding="utf-8")
         self.assertRegex(dockerfile, r"(?m)^FROM python:3\.13-slim@sha256:[0-9a-f]{64}$")
+        self.assertIn("--require-hashes --no-deps", dockerfile)
         requirements = (ROOT.parent / "sandbox" / "exec-image" / "requirements.txt").read_text(encoding="utf-8")
-        lines = [l for l in requirements.splitlines() if l.strip()]
-        self.assertTrue(lines and all("==" in l for l in lines), "every package is pinned to a version")
+        pins = [l for l in requirements.splitlines() if re.match(r"^[A-Za-z0-9_.-]+==", l)]
+        self.assertTrue(pins and all(l.rstrip(" \\").count("==") == 1 for l in pins))
+        self.assertGreaterEqual(requirements.count("--hash=sha256:"), len(pins), "every package carries hashes")
         for want in ("numpy", "pandas", "matplotlib", "scipy", "pillow", "openpyxl", "python-docx", "python-pptx"):
-            self.assertTrue(any(l.lower().startswith(want + "==") for l in lines), want)
+            self.assertTrue(any(l.lower().startswith(want + "==") for l in pins), want)
 
     def test_the_exec_image_is_published_and_checked_with_the_others(self):
         images = (ROOT.parent / ".github" / "workflows" / "images.yml").read_text(encoding="utf-8")
