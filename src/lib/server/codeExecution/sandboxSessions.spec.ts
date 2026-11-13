@@ -168,6 +168,34 @@ describe("SandboxSessions", () => {
 		expect(api.lease).toHaveBeenCalledTimes(2);
 	});
 
+	it("treats a 410 from the manager like a 404: one fresh lease, not the browser", async () => {
+		const { api, sessions, state } = fake();
+		await sessions.run(base);
+		api.exec.mockImplementationOnce(async () => {
+			state.leases.clear();
+			throw new SandboxError(410, "sandbox_gone", "the sandbox is no longer running");
+		});
+		const result = await sessions.run(base);
+		expect(result.reply.ok).toBe(true);
+		expect(api.lease).toHaveBeenCalledTimes(2);
+		expect(result.notice).toBe(SANDBOX_RESTARTED_NOTICE);
+	});
+
+	it("reports a confirmed out-of-memory kill plainly, and the next call gets a new sandbox", async () => {
+		const { api, sessions } = fake();
+		await sessions.run(base);
+		api.exec.mockRejectedValueOnce(
+			new SandboxError(410, "oom_killed", "the sandbox ran out of memory")
+		);
+		const result = await sessions.run(base);
+		expect(result.reply.ok).toBe(false);
+		expect(result.reply.error).toBe(
+			"The sandbox could not run the code: the sandbox ran out of memory"
+		);
+		expect((await sessions.run(base)).reply.ok).toBe(true);
+		expect(api.lease).toHaveBeenCalledTimes(2);
+	});
+
 	it("is unavailable, for the browser fallback, when the manager refuses a lease", async () => {
 		const { api, sessions } = fake();
 		api.lease.mockRejectedValueOnce(new SandboxError(429, "quota_exceeded", "full"));
@@ -362,9 +390,19 @@ describe("parseReply", () => {
 		expect(timed.error).toContain("time limit");
 	});
 
-	it("says plainly that a killed sandbox ran out of memory", () => {
-		const oom = parseReply({ ...execResult({}), stdout: "", exit_code: 137 });
-		expect(oom.unparsed).toBe(true);
-		expect(oom.error).toBe("The sandbox could not run the code: the sandbox ran out of memory");
+	it("says a killed sandbox was most likely out of memory, and never shows raw JSON", () => {
+		const killed = parseReply({ ...execResult({}), stdout: "", exit_code: 137 });
+		expect(killed.unparsed).toBe(true);
+		expect(killed.error).toBe(
+			"The sandbox could not run the code: the sandbox was killed (most likely it ran out of memory)"
+		);
+		const noReply = parseReply({
+			...execResult({}),
+			stdout: '{"ok": false, "error": "no reply"}\n',
+			exit_code: 0,
+		});
+		expect(noReply.unparsed).toBe(true);
+		expect(noReply.error).toContain("most likely it ran out of memory");
+		expect(noReply.error).not.toContain("{");
 	});
 });
