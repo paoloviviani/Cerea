@@ -1,0 +1,19 @@
+# The top-level packages of the exec image. `requirements.txt` is generated from this file with hashes:
+#   uv pip compile requirements.in --generate-hashes --python-version 3.13 --python-platform linux -o requirements.txt
+# and installed with `pip install --require-hashes --no-deps`, so what is built is exactly what was reviewed.
+numpy
+pandas
+matplotlib
+scipy
+pillow
+openpyxl
+python-docx
+python-pptx
+xlsxwriter
+reportlab
+pypdf
+seaborn
+lxml
+scikit-learn
+sympy
+tabulate

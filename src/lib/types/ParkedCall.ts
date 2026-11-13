@@ -36,6 +36,16 @@ export interface PersistedDeliverableRef {
 export type CodeExecutionOutcome = RunOutcome & {
 	files: RuntimeFile[];
 	fileRefs?: PersistedDeliverableRef[];
+	/**
+	 * Which engine ran it. Absent means the browser's Pyodide; `server` is a sandbox on the
+	 * server (ADR 0115), which the model's result says so it can describe it truthfully.
+	 */
+	engine?: "server";
+	/**
+	 * Something the model must know that the run's own output does not say, such as that the
+	 * sandbox was recreated and the earlier calls' variables and files are gone.
+	 */
+	notice?: string;
 };
 
 /**
@@ -116,6 +126,15 @@ export interface ParkedCall extends Timestamps {
 	 * as "still not ready after the wait I asked for".
 	 */
 	plannedResumeAt?: Date;
+
+	/**
+	 * `kind: "code"`: who runs and answers it. Absent means the person's browser; `server` is the
+	 * server sandbox (ADR 0115), whose answer only the server records: a browser's post for such a
+	 * run is refused.
+	 */
+	runner?: "server";
+	/** `kind: "code"`: told to the model with the result, e.g. that the call ran in the browser as a fallback. */
+	notice?: string;
 
 	/** Set when a sweeper claims the row, so two pods cannot resume the same turn. */
 	takenAt?: Date;

@@ -59,13 +59,18 @@
 	// The agent transcript never executes (see AgentView/SubagentCard): a
 	// parked `execute_code` row there renders its persisted outcome only.
 	const codeExecutionDisabled = isCodeExecutionDisabled();
-	let runKey = $derived(runsStore ? chatRunKey(request.code) : "");
+	// A server run (ADR 0115) is the server's alone: this page neither runs the code nor posts an
+	// outcome for it, and a fence with the same code must not settle this card. With no run key,
+	// nothing below finds a run of this page to read, restart, pause or post.
+	const serverRun = $derived(request.runner === "server");
+	let runKey = $derived(runsStore && !serverRun ? chatRunKey(request.code) : "");
 	let runState = $derived(runsStore && runKey ? runsStore.get(runKey) : undefined);
 
 	// Kick the run exactly once per mounted card: the RunsStore dedups by key,
 	// so a fence autorun of the same code settles this card too.
 	let kicked = false;
 	$effect(() => {
+		if (serverRun) return;
 		if (resolved || codeExecutionDisabled || !runsStore || !runKey || kicked) return;
 		kicked = true;
 		runsStore.run(runKey, request.code);
@@ -92,7 +97,7 @@
 	let posted = false;
 
 	function runUnfinished(): boolean {
-		if (!runsStore || !runKey || posted) return false;
+		if (serverRun || !runsStore || !runKey || posted) return false;
 		const st = runsStore.get(runKey);
 		if (!st) return false;
 		return (
@@ -120,7 +125,7 @@
 	// Restart the run from the start on a fresh sandbox, and ask the server for the
 	// longer wait again since the new warm-up takes a while.
 	function doRestart() {
-		if (!runsStore) return;
+		if (serverRun || !runsStore) return;
 		restarts += 1;
 		resumedNote = true;
 		reportPaused(conversationId, request.executionId);
@@ -192,7 +197,7 @@
 	// keeps the actual reason in the model's tool result.
 	$effect(() => {
 		const state = runState;
-		if (resolved || posted || !state) return;
+		if (serverRun || resolved || posted || !state) return;
 		if (state.status !== "done" && state.status !== "error") return;
 		// A sandbox failure after the page was away is the freeze, not the code
 		// (a timer that fired late on thaw): wait for the page to be back, then
@@ -315,10 +320,12 @@
 	// traceback means nothing to most users, and the model reads it anyway.
 	let isRunning = $derived(
 		!resolved &&
-			runState != null &&
-			(runState.status === "loading" ||
-				runState.status === "running" ||
-				runState.status === "queued")
+			// A server run has no state in this page: it is running until the resolved update arrives.
+			(serverRun ||
+				(runState != null &&
+					(runState.status === "loading" ||
+						runState.status === "running" ||
+						runState.status === "queued")))
 	);
 	let isOpen = $state(false);
 	let failed = $derived(!!displayState && displayState.status === "error" && !isRunning);
@@ -334,7 +341,7 @@
 					})
 				: m["chat.run.seconds"]({ value: formatNumber(Math.round(ms / 1000)) });
 	});
-	let pausable = $derived(browserExecutionEnabled());
+	let pausable = $derived(browserExecutionEnabled() && !serverRun);
 	// The server gave up on this run while the page was away: the resolved
 	// update carries no outcome.
 	let missed = $derived(

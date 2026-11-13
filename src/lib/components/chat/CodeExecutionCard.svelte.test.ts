@@ -314,3 +314,26 @@ describe("CodeExecutionCard file presentation (live run)", () => {
 		}
 	});
 });
+
+describe("CodeExecutionCard for a server run (ADR 0115)", () => {
+	const serverRequest = { ...request, runner: "server" as const };
+
+	it("shows the card as running and never runs the code in the page", async () => {
+		const screen = render(CodeExecutionCard, {
+			props: { conversationId: "conv-1", request: serverRequest },
+			context: context(fileRegistry),
+		} as never);
+		await expect.element(screen.getByText("Running code")).toBeVisible();
+		// It waits for the server: no keep-the-page-open hint, and the page's sandbox is not started.
+		expect(screen.baseElement.textContent).not.toContain("keep the page open");
+		expect(sessionMock.run).not.toHaveBeenCalled();
+	});
+
+	it("shows the resolved result once the server records it", async () => {
+		const screen = render(CodeExecutionCard, {
+			props: { conversationId: "conv-1", request: serverRequest, resolved: resolvedWith(SHA) },
+			context: context(fileRegistry),
+		} as never);
+		await expect.element(screen.getByText("Ran code")).toBeVisible();
+	});
+});

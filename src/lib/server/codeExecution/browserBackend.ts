@@ -5,7 +5,12 @@ import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import { submitCodeExecutionResult } from "$lib/server/generation/codeExecution";
 import { codePausedWaitMs } from "./deadlines";
-import type { ExecutionBackend, PauseResult } from "./backend";
+import type {
+	BackendRunRequest,
+	BackendRunStarted,
+	ExecutionBackend,
+	PauseResult,
+} from "./backend";
 import {
 	MessageCodeExecutionUpdateType,
 	MessageUpdateType,
@@ -66,6 +71,43 @@ export async function extendCodeDeadlineForPause(
 }
 
 /**
+ * Park the turn on a `code` call: the row the outcome is recorded on, whichever engine runs the
+ * code. The browser backend hands the code to the page; the server backend runs it itself and
+ * records the outcome the same way.
+ */
+export async function parkCodeCall(
+	{ call, code, limits, notice }: BackendRunRequest,
+	reason: string,
+	runner?: "server"
+): Promise<BackendRunStarted> {
+	const executionId = randomUUID();
+	const now = new Date();
+	const expiresAt = new Date(now.getTime() + limits.deadlineMs);
+	await collections.parkedCalls.insertOne({
+		_id: new ObjectId(),
+		parkedCallId: executionId,
+		conversationId: call.conversationId,
+		...(call.generationId ? { generationId: call.generationId } : {}),
+		messageId: call.messageId,
+		toolCallId: call.toolCallId,
+		toolUuid: call.toolUuid,
+		kind: "code",
+		status: "waiting",
+		resumeAt: expiresAt,
+		reason,
+		code,
+		...(runner ? { runner } : {}),
+		...(notice ? { notice } : {}),
+		...(call.userId ? { userId: call.userId } : {}),
+		...(call.sessionId ? { sessionId: call.sessionId } : {}),
+		attempts: 0,
+		createdAt: now,
+		updatedAt: now,
+	});
+	return { executionId, expiresAt };
+}
+
+/**
  * The browser backend: the turn parks on the person's page (`parkedCalls`,
  * kind `code`), the code streams there, their ExecutionSession runs it, and the
  * page posts the outcome back to the resolve endpoint.
@@ -78,29 +120,12 @@ export const browserBackend: ExecutionBackend = {
 	supportsPause: true,
 	promptEngine: "in the person's browser (Pyodide, WebAssembly)",
 
-	async startRun({ call, code, limits }, emit: (update: MessageUpdate) => void) {
-		const executionId = randomUUID();
-		const now = new Date();
-		const expiresAt = new Date(now.getTime() + limits.deadlineMs);
-		await collections.parkedCalls.insertOne({
-			_id: new ObjectId(),
-			parkedCallId: executionId,
-			conversationId: call.conversationId,
-			...(call.generationId ? { generationId: call.generationId } : {}),
-			messageId: call.messageId,
-			toolCallId: call.toolCallId,
-			toolUuid: call.toolUuid,
-			kind: "code",
-			status: "waiting",
-			resumeAt: expiresAt,
-			reason: "code execution in the person's browser",
-			code,
-			...(call.userId ? { userId: call.userId } : {}),
-			...(call.sessionId ? { sessionId: call.sessionId } : {}),
-			attempts: 0,
-			createdAt: now,
-			updatedAt: now,
-		});
+	async startRun(request, emit: (update: MessageUpdate) => void) {
+		const { call, code } = request;
+		const { executionId, expiresAt } = await parkCodeCall(
+			request,
+			"code execution in the person's browser"
+		);
 		// The code streams to the person's browser over the same channel
 		// elicitation uses; their ExecutionSession runs it and posts the
 		// outcome back to the resolve endpoint, which wakes the parked row.

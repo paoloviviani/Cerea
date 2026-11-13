@@ -278,6 +278,9 @@ if [ "$build_cerea" = 1 ]; then
   # The sandbox manager and its socket proxy (ADR 0115): one image, versioned the same way.
   if [ "$build_sandbox" = 1 ]; then
     ensure "local/cerea-sandbox:$c_tag" "$c_sha" "$SRC/cerea/sandbox"
+    # The image the sandboxes run (Python, the scientific stack, the exec daemon).
+    ensure "local/cerea-sandbox-python:$c_tag" "$c_sha" "$SRC/cerea/sandbox/exec-image"
+    env_items+=("SANDBOX_EXEC_IMAGE=local/cerea-sandbox-python:$c_tag")
   fi
 fi
 

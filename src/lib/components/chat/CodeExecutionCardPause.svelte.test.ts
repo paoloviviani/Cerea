@@ -262,3 +262,33 @@ describe("CodeExecutionCard pause and resume", () => {
 		expect(JSON.parse(posts()[0][1].body).outcome.ok).toBe(false);
 	});
 });
+
+describe("CodeExecutionCard for a server run (ADR 0115)", () => {
+	const serverRequest = (code: string) => ({ ...request(code), runner: "server" as const });
+
+	it("never runs the code, reports a pause or posts an outcome from the page", async () => {
+		const screen = mount(serverRequest("print('server-only')") as never);
+		await expect.element(screen.getByText("Running code")).toBeVisible();
+		setRuntime("ready");
+		setVisibility("hidden");
+		setVisibility("visible");
+		await new Promise((r) => setTimeout(r, 50));
+		expect(session.run).not.toHaveBeenCalled();
+		expect(paused).not.toHaveBeenCalled();
+		expect(posts()).toHaveLength(0);
+	});
+
+	it("is not settled by a fence that ran the same code in the page", async () => {
+		const code = "print('same-code')";
+		session.run.mockResolvedValue({ ok: true, stdout: "same-code\n", stderr: "" });
+		setRuntime("ready");
+		// A browser card (a fence, an artifact) runs this code and posts its own outcome...
+		mount(request(code));
+		await vi.waitFor(() => expect(posts()).toHaveLength(1));
+		// ...which must not settle, or post for, the server card with the same code.
+		const screen = mount(serverRequest(code) as never);
+		await new Promise((r) => setTimeout(r, 100));
+		expect(posts()).toHaveLength(1);
+		await expect.element(screen.getByText("Running code")).toBeVisible();
+	});
+});

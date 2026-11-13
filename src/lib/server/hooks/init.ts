@@ -27,6 +27,7 @@ import { adminTokenManager } from "$lib/server/adminToken";
 import { MetricsServer } from "$lib/server/metrics";
 import { logExecutionBackendAtBoot } from "$lib/server/codeExecution/backend";
 import { logSandboxAtBoot } from "$lib/server/sandbox/boot";
+import { probeSandboxHealth } from "$lib/server/codeExecution/sandboxHealth";
 
 export async function initServer(): Promise<void> {
 	// Wait for config to be fully loaded
@@ -43,6 +44,8 @@ export async function initServer(): Promise<void> {
 	logger.info({ mode }, "[models] Model mode");
 	logExecutionBackendAtBoot();
 	logSandboxAtBoot();
+	// So `execute_code` knows from the first turn whether the server sandbox is usable.
+	void probeSandboxHealth();
 
 	logger.info("Starting server...");
 	initExitHandler();

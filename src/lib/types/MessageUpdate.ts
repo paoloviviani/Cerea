@@ -289,6 +289,11 @@ export interface MessageCodeExecutionRequestUpdate {
 	toolUuid?: string;
 	/** Epoch ms of the sweeper's backstop deadline; shown like a 2026-era prompt (no countdown). */
 	expiresAt?: number;
+	/**
+	 * `server`: the code runs in a sandbox on the server (ADR 0115), so the page shows the card
+	 * and waits for the resolved update instead of running the code in its own Pyodide.
+	 */
+	runner?: "server";
 }
 
 /**

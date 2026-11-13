@@ -142,7 +142,7 @@ describe("API", () => {
 			const created = await api.call("POST", "/v1/leases", { kind: "exec", owner: "u1" });
 			assert.equal(created.status, 201);
 			const lease = (await created.json()) as { id: string; limits: { memory_mb: number } };
-			assert.equal(lease.limits.memory_mb, 512);
+			assert.equal(lease.limits.memory_mb, 1024);
 
 			const run = await api.call("POST", `/v1/leases/${lease.id}/exec`, { cmd: ["echo", "hi"] });
 			assert.equal(((await run.json()) as { stdout: string }).stdout, "ok\n");

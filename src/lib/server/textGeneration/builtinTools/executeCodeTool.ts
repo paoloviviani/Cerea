@@ -96,8 +96,100 @@ export function isExecuteCodeEnabled(): boolean {
 	return executionBackend().toolOffered();
 }
 
-export function createExecuteCodeBuiltin(): BuiltinTool[] {
+const browserDescription = () =>
+	"Run a Python snippet in the person's own browser sandbox and read the " +
+	"result, so you can iterate: run, read the output, fix, run again. " +
+	"Invoke this tool through the function-calling mechanism, as a real " +
+	"tool call — never by writing the call into your reply as text markup, " +
+	"which runs nothing and leaves the person with broken markup. The " +
+	"engine is the same sandbox the code blocks run in: no network access " +
+	"at run time (no sockets, no urllib, no requests), but " +
+	'micropip.install("<package>") works for the standard library plus ' +
+	"vendored packages (python-docx, openpyxl, pypdf, python-pptx, xlsxwriter, " +
+	"reportlab, seaborn; install first, a plain import fails until then) " +
+	"and whatever else this runtime already bundles (numpy, pandas, lxml, " +
+	"Pillow, ...) — same-origin only, never a third-party request. Any other " +
+	"PyPI package installs unless the person or the administrator has turned " +
+	"that off in the settings; if it fails as not-found, say the setting controls it rather " +
+	"than telling them to install it themselves.\n\n" +
+	"You see the truncated stdout, stderr and the last expression's result " +
+	"yourself, plus the names of files the run saved to the output folder.\n\n" +
+	`Where files go: only files written under ${OUTPUT_ROOT}/ (for example ` +
+	`${OUTPUT_ROOT}/report.xlsx) are offered to the person as download cards ` +
+	`(kept ${retentionPhrase()}). Anything else you write, in the working directory ` +
+	"or /tmp, is scratch: it stays in the sandbox and is never shown, so " +
+	"save a deliverable only once, in its final form, to the output folder " +
+	"and keep test or round-trip copies elsewhere. Files the person " +
+	"attached are read-only inputs at /mnt/data/<name>, and they are " +
+	"restored automatically if the sandbox restarts.\n\n" +
+	"Each run is stopped after a time limit (60 seconds by default). A " +
+	"stopped run restarts the sandbox: variables, imports and files " +
+	"outside /mnt/data are lost, so work in steps that each finish in " +
+	"time and write results to the output folder as you go.\n\n" +
+	"If the answer says the execution environment is unavailable (the " +
+	"person's browser did not answer in time), do NOT claim any execution " +
+	"result or file: fall back to a plain fenced ```python code block with " +
+	"no `title=` (a `title=` block is a downloadable file, not a running " +
+	"one) — it runs automatically the moment it is complete, with no Run " +
+	"button to mention.\n\n" +
+	"It computes on data already in the conversation, attached files or " +
+	"earlier tool results. It is not a stand-in for a tool you lack: it " +
+	"cannot search, fetch or call a service or connector, and must not " +
+	"simulate one with made-up data — say the capability is missing " +
+	"instead.\n\n" +
+	"Do not use this for code the person wants to read or keep — that " +
+	"belongs in a code block, which stays in the transcript and can be run " +
+	"manually. Each call spends one of this turn's few execute_code calls; " +
+	"prefer one decisive snippet over many fragments.";
+
+/**
+ * The same tool, described for the engine it runs on. The server sandbox (ADR 0115) has its
+ * packages installed and no network, keeps variables between calls within a conversation, and
+ * reads and writes the same two folders; the browser's has micropip and loses state on a restart.
+ */
+const serverDescription = () =>
+	"Run a Python snippet in a sandbox on the server and read the result, so you can iterate: run, " +
+	"read the output, fix, run again. " +
+	"Invoke this tool through the function-calling mechanism, as a real tool call — never by " +
+	"writing the call into your reply as text markup, which runs nothing and leaves the person " +
+	"with broken markup. The sandbox is Python 3.13 with numpy, pandas, scipy, scikit-learn, " +
+	"matplotlib, seaborn, sympy, Pillow, lxml, python-docx, openpyxl, XlsxWriter, python-pptx, " +
+	"pypdf and reportlab already installed, and NO network access: nothing can be installed or " +
+	"downloaded, so use only those and the standard library.\n\n" +
+	"Variables, imports and files you create stay between calls in this conversation, for as " +
+	"long as the sandbox lives (it is released after about twenty idle minutes; if it was, the " +
+	"result tells you, and you must run the earlier steps again).\n\n" +
+	"You see the truncated stdout, stderr and the last expression's result yourself, plus the " +
+	"names of files the run saved to the output folder. A matplotlib figure you draw is saved as " +
+	"a PNG in the output folder for you.\n\n" +
+	`Where files go: only files written under ${OUTPUT_ROOT}/ (for example ` +
+	`${OUTPUT_ROOT}/report.xlsx) are offered to the person as download cards ` +
+	`(kept ${retentionPhrase()}). Anything else you write is scratch: it stays in the sandbox ` +
+	"and is never shown, so save a deliverable only once, in its final form, to the output folder. " +
+	"Files the person attached are read-only inputs at /mnt/data/<name>.\n\n" +
+	"Each run is stopped after a time limit (60 seconds by default). A stopped run restarts the " +
+	"interpreter: variables and imports are lost, so work in steps that each finish in time.\n\n" +
+	"If the answer says the execution environment is unavailable, do NOT claim any execution " +
+	"result or file: fall back to a plain fenced ```python code block with no `title=` (a " +
+	"`title=` block is a downloadable file, not a running one) — it runs automatically the " +
+	"moment it is complete.\n\n" +
+	"It computes on data already in the conversation, attached files or earlier tool results. It " +
+	"is not a stand-in for a tool you lack: it cannot search, fetch or call a service or " +
+	"connector, and must not simulate one with made-up data — say the capability is missing " +
+	"instead.\n\n" +
+	"Do not use this for code the person wants to read or keep — that belongs in a code block. " +
+	"Each call spends one of this turn's few execute_code calls; prefer one decisive snippet over " +
+	"many fragments.";
+
+function executeCodeDescription(kind: string): string {
+	return kind === "server" ? serverDescription() : browserDescription();
+}
+
+export function createExecuteCodeBuiltin(options: { unattended?: boolean } = {}): BuiltinTool[] {
 	if (!isExecuteCodeEnabled()) return [];
+	// Fixed for the turn, like the rest of this closure: the tool is described for the engine
+	// that will run it, and a fallback to the browser mid-turn is handled by the backend itself.
+	const backendKind = executionBackend().kind;
 
 	// Counted in this closure, which is built once per turn (getEnabledBuiltinTools
 	// runs once per runMcpFlow invocation), so the cap resets with the turn.
@@ -110,51 +202,7 @@ export function createExecuteCodeBuiltin(): BuiltinTool[] {
 				type: "function",
 				function: {
 					name: EXECUTE_CODE_TOOL_NAME,
-					description:
-						"Run a Python snippet in the person's own browser sandbox and read the " +
-						"result, so you can iterate: run, read the output, fix, run again. " +
-						"Invoke this tool through the function-calling mechanism, as a real " +
-						"tool call — never by writing the call into your reply as text markup, " +
-						"which runs nothing and leaves the person with broken markup. The " +
-						"engine is the same sandbox the code blocks run in: no network access " +
-						"at run time (no sockets, no urllib, no requests), but " +
-						'micropip.install("<package>") works for the standard library plus ' +
-						"vendored packages (python-docx, openpyxl, pypdf, python-pptx, xlsxwriter, " +
-						"reportlab, seaborn; install first, a plain import fails until then) " +
-						"and whatever else this runtime already bundles (numpy, pandas, lxml, " +
-						"Pillow, ...) — same-origin only, never a third-party request. Any other " +
-						"PyPI package installs unless the person or the administrator has turned " +
-						"that off in the settings; if it fails as not-found, say the setting controls it rather " +
-						"than telling them to install it themselves.\n\n" +
-						"You see the truncated stdout, stderr and the last expression's result " +
-						"yourself, plus the names of files the run saved to the output folder.\n\n" +
-						`Where files go: only files written under ${OUTPUT_ROOT}/ (for example ` +
-						`${OUTPUT_ROOT}/report.xlsx) are offered to the person as download cards ` +
-						`(kept ${retentionPhrase()}). Anything else you write, in the working directory ` +
-						"or /tmp, is scratch: it stays in the sandbox and is never shown, so " +
-						"save a deliverable only once, in its final form, to the output folder " +
-						"and keep test or round-trip copies elsewhere. Files the person " +
-						"attached are read-only inputs at /mnt/data/<name>, and they are " +
-						"restored automatically if the sandbox restarts.\n\n" +
-						"Each run is stopped after a time limit (60 seconds by default). A " +
-						"stopped run restarts the sandbox: variables, imports and files " +
-						"outside /mnt/data are lost, so work in steps that each finish in " +
-						"time and write results to the output folder as you go.\n\n" +
-						"If the answer says the execution environment is unavailable (the " +
-						"person's browser did not answer in time), do NOT claim any execution " +
-						"result or file: fall back to a plain fenced ```python code block with " +
-						"no `title=` (a `title=` block is a downloadable file, not a running " +
-						"one) — it runs automatically the moment it is complete, with no Run " +
-						"button to mention.\n\n" +
-						"It computes on data already in the conversation, attached files or " +
-						"earlier tool results. It is not a stand-in for a tool you lack: it " +
-						"cannot search, fetch or call a service or connector, and must not " +
-						"simulate one with made-up data — say the capability is missing " +
-						"instead.\n\n" +
-						"Do not use this for code the person wants to read or keep — that " +
-						"belongs in a code block, which stays in the transcript and can be run " +
-						"manually. Each call spends one of this turn's few execute_code calls; " +
-						"prefer one decisive snippet over many fragments.",
+					description: executeCodeDescription(backendKind),
 					parameters: {
 						type: "object",
 						properties: {
@@ -173,7 +221,7 @@ export function createExecuteCodeBuiltin(): BuiltinTool[] {
 			},
 			mayPark: true,
 			parkRefusalMessage:
-				"Only one code execution can wait on the browser per turn. " +
+				"Only one code execution can wait on its runner per turn. " +
 				"Run one snippet per round and read its result before the next call.",
 			async execute(args, ctx) {
 				const parsed = args as { code?: unknown };
@@ -205,22 +253,36 @@ export function createExecuteCodeBuiltin(): BuiltinTool[] {
 
 				const backend = executionBackend();
 				const deadlineMs = codeExecutionDeadlineMs();
-				const { executionId: parkedCallId } = await backend.startRun(
-					{
-						call: {
-							conversationId: ctx.conversationId,
-							messageId: ctx.messageId,
-							toolCallId: ctx.toolCallId,
-							toolUuid: ctx.uuid,
-							...(ctx.generationId ? { generationId: ctx.generationId } : {}),
-							...(ctx.userId ? { userId: ctx.userId } : {}),
-							...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
+				let parkedCallId: string;
+				try {
+					({ executionId: parkedCallId } = await backend.startRun(
+						{
+							...(options.unattended ? { unattended: true } : {}),
+							call: {
+								conversationId: ctx.conversationId,
+								messageId: ctx.messageId,
+								toolCallId: ctx.toolCallId,
+								toolUuid: ctx.uuid,
+								...(ctx.generationId ? { generationId: ctx.generationId } : {}),
+								...(ctx.userId ? { userId: ctx.userId } : {}),
+								...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
+							},
+							code,
+							limits: { runTimeoutMs: codeRunTimeoutMs(), deadlineMs },
 						},
-						code,
-						limits: { runTimeoutMs: codeRunTimeoutMs(), deadlineMs },
-					},
-					(update) => ctx.elicitationSink?.emit(update)
-				);
+						(update) => ctx.elicitationSink?.emit(update)
+					));
+				} catch (err) {
+					if (err instanceof Error && err.name === "ServerSandboxUnavailable") {
+						// A scheduled run with the server sandbox down: nothing can answer, so say so.
+						return {
+							error:
+								"The execution environment is unavailable and nobody is watching this run, " +
+								"so code cannot run now. Do not claim any execution result or file.",
+						};
+					}
+					throw err;
+				}
 
 				logger.info(
 					{
@@ -270,6 +332,17 @@ export async function isParkedCodeCall(
 
 /** The tool result the model reads on the round it wakes into. */
 export function codeResumeResultText(park: ParkedCall, tokenExpired: boolean): string {
+	const fallbackNote = park.notice ? `\n\nNOTE: ${park.notice}` : "";
+	if (!park.outcome && park.reason?.includes("server sandbox")) {
+		return (
+			"The server sandbox gave no answer before the deadline. Do NOT claim any execution result " +
+			"or file, and do not assume the code itself is at fault. Fall back: present the code as a " +
+			"plain fenced ```python code block with no `title=` (a `title=` block renders as a " +
+			"downloadable file, not a running one) and say what you intended it to show; it runs " +
+			"automatically the moment it is complete." +
+			fallbackNote
+		);
+	}
 	if (!park.outcome) {
 		return (
 			"The execution environment gave no answer before the deadline — the browser never " +
@@ -282,16 +355,16 @@ export function codeResumeResultText(park: ParkedCall, tokenExpired: boolean): s
 			"as a downloadable file, not a running one) and say what you intended it to show. " +
 			"Do not tell the person to click Run or similar — nothing needs pressing, the block " +
 			"runs automatically the moment it is complete, and mention that keeping the app in " +
-			"the foreground while Python starts up gives it the best chance to finish this time."
+			"the foreground while Python starts up gives it the best chance to finish this time." +
+			fallbackNote
 		);
 	}
 	const outcome = park.outcome;
 	const parts: string[] = [];
-	parts.push(
-		outcome.ok
-			? "Execution finished in the person's browser sandbox."
-			: "Execution finished with an error."
-	);
+	const where = outcome.engine === "server" ? "the server sandbox" : "the person's browser sandbox";
+	parts.push(outcome.ok ? `Execution finished in ${where}.` : "Execution finished with an error.");
+	if (outcome.notice) parts.push(`NOTE: ${outcome.notice}`);
+	if (park.notice) parts.push(`NOTE: ${park.notice}`);
 	if (outcome.stdout) {
 		parts.push(`stdout:\n${truncateExecuteCodeOutput(outcome.stdout)}`);
 	}

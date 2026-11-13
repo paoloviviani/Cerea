@@ -129,4 +129,32 @@ describe.sequential("POST /conversation/[id]/code-execution", () => {
 		} as never);
 		expect(res.status).toBe(200);
 	});
+
+	it("refuses a browser's post for a run the server sandbox owns, and leaves it unanswered", async () => {
+		const { locals, conv } = await parkedRun();
+		await collections.parkedCalls.updateOne(
+			{ parkedCallId: EXECUTION_ID },
+			{ $set: { runner: "server", reason: "code execution in a server sandbox" } }
+		);
+		let refused: { status?: number } | undefined;
+		try {
+			await POST({
+				params: { id: conv._id.toString() },
+				locals,
+				request: new Request("http://localhost/x", {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({
+						executionId: EXECUTION_ID,
+						outcome: { ok: true, stdout: "from the page", stderr: "", files: [] },
+					}),
+				}),
+			} as never);
+		} catch (e) {
+			refused = e as { status?: number };
+		}
+		expect(refused?.status).toBe(409);
+		const row = await collections.parkedCalls.findOne({ parkedCallId: EXECUTION_ID });
+		expect(row?.outcome).toBeUndefined();
+	});
 });

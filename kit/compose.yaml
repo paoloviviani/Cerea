@@ -36,8 +36,9 @@ x-cerea-image: &cerea-image ${CEREA_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paolovivian
 x-documents-image: &documents-image ${DOCUMENTS_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea-documents:${CEREA_VERSION:-0.51.2}}
 # The sandbox manager and its Docker socket proxy (ADR 0115): one small image, two commands.
 x-sandbox-image: &sandbox-image ${SANDBOX_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea-sandbox:${CEREA_VERSION:-0.51.2}}
-# The image a sandbox runs, by digest. The manager and the socket proxy must agree on it.
-x-sandbox-exec-image: &sandbox-exec-image ${SANDBOX_EXEC_IMAGE:-python:3.13-slim@sha256:e48f59cdba69a3cbd9ed2cf0f348d90d45a8d350d98134cf1070bc106ee9ed90}
+# The image a sandbox runs: Python 3.13 with the scientific and office stack and the exec daemon
+# (sandbox/exec-image), versioned with the chat. The manager and the socket proxy must agree on it.
+x-sandbox-exec-image: &sandbox-exec-image ${SANDBOX_EXEC_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea-sandbox-python:${CEREA_VERSION:-0.51.2}}
 
 # `docker compose pull` fails on an image that exists only on this host. dev/build.sh
 # writes <NAME>_PULL_POLICY=never next to each local/ image it points .env at, so

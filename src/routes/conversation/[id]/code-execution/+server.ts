@@ -8,31 +8,14 @@ import { markStoredRefs, noteRunProducer } from "$lib/server/execution/deliverab
 import { error, json } from "@sveltejs/kit";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
+import { outcomeFieldsSchema } from "$lib/server/codeExecution/outcomeSchema";
 
 const bodySchema = z.object({
 	executionId: z.string().uuid(),
-	outcome: z.object({
-		ok: z.boolean(),
-		stdout: z.string(),
-		stderr: z.string(),
-		result: z.string().optional(),
-		error: z.string().optional(),
-		files: z
-			.array(z.object({ path: z.string(), size: z.number() }))
-			.max(200)
-			.default([]),
-		// Set when the browser stopped the run at the time limit and restarted
-		// the sandbox; the model's result says so, and lists the restored files.
-		timeout: z
-			.object({
-				seconds: z.number().int().positive().max(3600),
-				mountedFiles: z.array(z.string().max(512)).max(500),
-			})
-			.optional(),
-		// Every file the run produced, named by the sha256 the browser computed,
-		// whether or not its upload (see `code-execution/output/+server.ts`)
-		// succeeded: the server marks which ones are really stored, so a failed
-		// save is recorded as such instead of leaving no trace.
+	outcome: outcomeFieldsSchema.extend({
+		// Every file the run produced, named by the sha256 the browser computed, whether or not its
+		// upload (see `code-execution/output/+server.ts`) succeeded: the server marks which ones are
+		// really stored, so a failed save is recorded as such instead of leaving no trace.
 		fileRefs: z
 			.array(
 				z.object({
@@ -69,6 +52,14 @@ export const POST: RequestHandler = async ({ params, locals, request }) => {
 
 	const parsed = bodySchema.safeParse(await request.json().catch(() => null));
 	if (!parsed.success) error(400, "Invalid code execution outcome");
+
+	// A run on the server sandbox is answered by the server alone: a page that also ran the same
+	// code (a fence, an artifact) must not be able to settle it with its own output.
+	const park = await collections.parkedCalls.findOne(
+		{ parkedCallId: parsed.data.executionId, conversationId, kind: "code" },
+		{ projection: { runner: 1 } }
+	);
+	if (park?.runner === "server") error(409, "This run belongs to the server sandbox.");
 
 	const { fileRefs: claimed, ...rest } = parsed.data.outcome;
 	const fileRefs = claimed?.length ? await markStoredRefs(conversationId, claimed) : undefined;
