@@ -18,6 +18,7 @@ import { deleteDerived } from "$lib/server/knowledge/deleteDerived";
 import { legacyShares } from "$lib/server/legacyShares";
 import { logger } from "$lib/server/logger";
 import { deleteConversationWebFetchCache } from "$lib/server/webFetchCache";
+import { deleteConversationBrowserScopes } from "$lib/server/browser/kept";
 import type { Conversation } from "$lib/types/Conversation";
 
 /**
@@ -74,6 +75,7 @@ export async function deleteConversationStorage(
 		deleteDerived({ conversationId }),
 		deleteConversationShares(conversationId),
 		deleteConversationWebFetchCache(conversationId),
+		deleteConversationBrowserScopes(conversationId),
 	]);
 	// The first two log their own failures. These do not, and they are the
 	// privacy ones; the daily orphan sweep retries what they leave.
@@ -90,6 +92,13 @@ export async function deleteConversationStorage(
 		logger.error(
 			{ err: fetchCache.reason },
 			"conversation_web_fetch_cache_delete_failed: the entries expire with their TTL"
+		);
+	}
+	const scopes = results[5];
+	if (scopes.status === "rejected") {
+		logger.error(
+			{ err: scopes.reason },
+			"conversation_browser_scopes_delete_failed: they lapse on their own within hours"
 		);
 	}
 	if (derived.status === "rejected") {

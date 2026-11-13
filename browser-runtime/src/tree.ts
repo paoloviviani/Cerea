@@ -38,6 +38,12 @@ export interface DomMeta {
 	form?: string;
 	formMethod?: "get" | "post";
 	submits?: boolean;
+	/** Enter in this field would submit its form (see `SnapshotElement.formSubmit`). */
+	formSubmit?: boolean;
+	editable?: boolean;
+	search?: boolean;
+	hint?: string;
+	formLabel?: string;
 	/** The host the form would send its data to (its action URL, resolved). */
 	formActionHost?: string;
 	download?: boolean;
@@ -305,14 +311,21 @@ export function toElement(node: AriaNode, ctx: LayoutContext): SnapshotElement {
 		}
 	}
 	const disabled = node.disabled === true || meta.disabled === true;
+	const name = effectiveName(node);
+	const noName = name.trim() === "";
 	const element: SnapshotElement = {
 		ref: node.ref ?? "",
 		role: node.role,
-		name: effectiveName(node),
+		name,
 		...(meta.inputType ? { inputType: meta.inputType } : {}),
 		...(meta.form ? { form: meta.form } : {}),
 		...(meta.formMethod ? { formMethod: meta.formMethod } : {}),
 		...(meta.submits ? { submits: true } : {}),
+		...(meta.formSubmit !== undefined ? { formSubmit: meta.formSubmit } : {}),
+		...(meta.editable ? { editable: true as const } : {}),
+		...(meta.search ? { search: true as const } : {}),
+		...(noName && meta.hint ? { hint: clean(meta.hint, 120) } : {}),
+		...(noName && meta.formLabel ? { formLabel: clean(meta.formLabel, 120) } : {}),
 		...(meta.formActionHost ? { formActionHost: meta.formActionHost } : {}),
 		...(href && node.role === "link" ? { href } : {}),
 		...(linkDomain ? { linkDomain } : {}),

@@ -335,6 +335,8 @@ export interface CodeDevice {
 		string,
 		{ token: string; url?: string; at: Date; lent?: boolean; origin?: string }
 	>;
+	/** "Allow on this site for this chat" allowances, by conversation id (`browser/kept.ts`). */
+	browserScopes?: Record<string, { since: Date; at: Date; keys: string[] }>;
 	/** This user's default computer for browsing (one per user, set from Connectors; `browser/machineChoice.ts`). */
 	browserDefault?: boolean;
 	/** When `browserDefault` was set: if several are ever set, the latest wins. */

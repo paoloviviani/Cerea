@@ -171,12 +171,92 @@ function pageMeta(el: Element): DomMeta {
 	const submitter =
 		(tag === "button" && (control.type === "submit" || !control.getAttribute("type"))) ||
 		(tag === "input" && (type === "submit" || type === "image"));
+	// A field is submitted by its form's default button, which may carry its own method and action.
+	const defaultButton =
+		form && !submitter
+			? (Array.from(form.elements) as HTMLInputElement[]).find((c) => {
+					const t = c.tagName.toLowerCase();
+					return (
+						(t === "button" && c.type === "submit") ||
+						(t === "input" && (c.type === "submit" || c.type === "image"))
+					);
+				})
+			: undefined;
 	const rawMethod = (
 		el.getAttribute("formmethod") ||
+		defaultButton?.getAttribute("formmethod") ||
 		form?.getAttribute("method") ||
 		"get"
 	).toLowerCase();
 	const anchor = el.closest("a");
+	// Whether Enter in a field would submit its form: it has a submit control, or this is the
+	// form's one text field (implicit submission). Computed from the form's own controls.
+	let formSubmit: boolean | undefined;
+	let singleSearchField = false;
+	if (form) {
+		const controls = Array.from(form.elements) as HTMLInputElement[];
+		const texty = (c: HTMLInputElement) =>
+			c.tagName.toLowerCase() === "input" &&
+			[
+				"text",
+				"search",
+				"url",
+				"tel",
+				"email",
+				"password",
+				"date",
+				"month",
+				"week",
+				"time",
+				"datetime-local",
+				"number",
+			].includes((c.type || "text").toLowerCase());
+		const hasSubmit = controls.some((c) => {
+			const t = c.tagName.toLowerCase();
+			return (
+				(t === "button" && c.type === "submit") ||
+				(t === "input" && (c.type === "submit" || c.type === "image"))
+			);
+		});
+		formSubmit = hasSubmit || controls.filter(texty).length === 1;
+		// A GET form with one plain text field and no other field to fill in is a search box.
+		singleSearchField =
+			controls.filter(texty).length === 1 &&
+			controls.filter((c) => c.tagName.toLowerCase() === "textarea").length === 0 &&
+			["text", "search"].includes((controls.find(texty)?.type || "text").toLowerCase());
+	}
+	const search =
+		(!form || rawMethod === "get") &&
+		(el.getAttribute("role") === "searchbox" ||
+			type === "search" ||
+			!!el.closest('[role="search"], search') ||
+			(!!form && rawMethod === "get" && singleSearchField));
+	const editable =
+		(el as HTMLElement).isContentEditable === true ||
+		(el.getAttribute("role") === "textbox" && tag !== "input" && tag !== "textarea") ||
+		(tag === "textarea" && !form);
+	// What tells an unnamed control apart: its title, description, icon text or symbol, and the form it is in.
+	const text = (node: Element | null | undefined): string =>
+		(node?.textContent ?? "").replace(/\s+/g, " ").trim();
+	const hint =
+		el.getAttribute("title") ||
+		el.getAttribute("aria-description") ||
+		text(el.querySelector("svg > title")) ||
+		text(el).slice(0, 40) ||
+		"";
+	const formLabel = form
+		? form.getAttribute("aria-label") ||
+			form.getAttribute("title") ||
+			text(
+				(() => {
+					const ids = (form.getAttribute("aria-labelledby") ?? "").split(/\s+/)[0];
+					return ids ? document.getElementById(ids) : null;
+				})()
+			) ||
+			text(form.querySelector("legend")) ||
+			text(form.querySelector("h1, h2, h3, h4")) ||
+			""
+		: "";
 	// A human-verification widget (reCAPTCHA, hCaptcha, Turnstile, an interstitial) is the user's to solve.
 	const widget =
 		!!el.closest(
@@ -198,11 +278,19 @@ function pageMeta(el: Element): DomMeta {
 			? { formMethod: rawMethod as "get" | "post" }
 			: {}),
 		...(submitter && form ? { submits: true } : {}),
+		...(formSubmit !== undefined ? { formSubmit } : {}),
+		...(editable ? { editable: true } : {}),
+		...(search ? { search: true } : {}),
+		...(hint ? { hint: hint.slice(0, 120) } : {}),
+		...(formLabel ? { formLabel: formLabel.slice(0, 120) } : {}),
 		...(form
 			? (() => {
 					try {
 						const action = new URL(
-							el.getAttribute("formaction") || form.getAttribute("action") || location.href,
+							el.getAttribute("formaction") ||
+								defaultButton?.getAttribute("formaction") ||
+								form.getAttribute("action") ||
+								location.href,
 							location.href
 						);
 						return action.protocol === "http:" || action.protocol === "https:"
@@ -1549,6 +1637,29 @@ export class BrowserSession {
 			let outcome = await this.perform(page, action);
 			if (action.type !== "navigate" && page.url() !== before && !page.isClosed()) {
 				outcome = clean(`${outcome}; the page navigated to ${clean(page.url(), 150)}`, 300);
+			}
+			// A tab the user lent stays lent when Cerea itself takes it to another site with an approval
+			// (the leaving had its own question): the lent origin follows it. A tab the user moves by
+			// themselves is never followed: `endTask` and `resume` then see an origin that differs.
+			// Only the approved host counts: a redirect to anywhere else is not carried over.
+			if (
+				klass === "commit" &&
+				classified.reason === "new-domain" &&
+				classified.targetHost &&
+				!page.isClosed() &&
+				this.adopted.has(page)
+			) {
+				const info = this.lentInfo.get(page);
+				const now = originOfUrl(page.url());
+				let landed = "";
+				try {
+					landed = new URL(page.url()).hostname.toLowerCase();
+				} catch {
+					// Not an address: nothing to follow.
+				}
+				if (info && now !== "" && now !== info.origin && landed === classified.targetHost) {
+					this.lentInfo.set(page, { origin: now, since: info.since });
+				}
 			}
 			return { ok: true, outcome };
 		} catch (err) {

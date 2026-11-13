@@ -89,7 +89,7 @@
 		toolApproval?.tool === "edit" ? m["chat.approval.always_edits"]() : m["chat.approval.always"]()
 	);
 
-	let submitting = $state<"once" | "conversation" | "always" | "deny" | null>(null);
+	let submitting = $state<"once" | "conversation" | "always" | "site" | "deny" | null>(null);
 	let error = $state<string | null>(null);
 	/** Settles the card without waiting for the run to echo the outcome back. */
 	let submitted = $state<ElicitationAction | null>(null);
@@ -149,7 +149,10 @@
 		return m["chat.approval.denied"]();
 	});
 
-	async function send(action: ElicitationAction, scope?: "once" | "conversation" | "always") {
+	async function send(
+		action: ElicitationAction,
+		scope?: "once" | "conversation" | "always" | "site"
+	) {
 		if (submitting || !open) return;
 		submitting = scope ?? "deny";
 		error = null;
@@ -635,6 +638,16 @@
 						<CarbonClose class="mr-1 inline size-3.5 align-text-bottom" />
 						{browse?.challenge ? m["chat.approval.browse.stop"]() : m["chat.approval.deny"]()}
 					</button>
+					{#if browse?.siteScope && !browse.challenge}
+						<button
+							type="button"
+							onclick={() => send("accept", "site")}
+							disabled={submitting !== null}
+							data-testid="browse-approval-site"
+							class="min-h-9 rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
+							>{m["chat.approval.browse.allow_site"]()}</button
+						>
+					{/if}
 					{#if !galopin && !onceOnly && !proposesSchedule && !browse}
 						<button
 							type="button"

@@ -53,10 +53,12 @@ export interface ApprovalAsk {
 	/** A verification (captcha, bot check) appeared: the card asks the user to solve it, then Continue. */
 	challenge?: { kind: string };
 	screenshot?: { mime: string; base64: string };
+	/** Also offer "Allow on this site for this chat" (see `siteScope.ts`); never for a hard commit. */
+	siteScope?: boolean;
 }
 
 export type ApprovalOutcome =
-	| { verdict: "approved"; id: string }
+	| { verdict: "approved"; id: string; scope?: "site" }
 	| { verdict: "denied" }
 	| { verdict: "expired" }
 	| { verdict: "aborted" };
@@ -82,6 +84,7 @@ export function createElicitationApprover(options: {
 			...(ask.url ? { url: ask.url } : {}),
 			...(ask.reason ? { reason: ask.reason } : {}),
 			...(ask.challenge ? { challenge: true } : {}),
+			...(ask.siteScope && !ask.challenge ? { siteScope: true } : {}),
 			...(safeScreenshot(ask.screenshot) ? { screenshot: safeScreenshot(ask.screenshot) } : {}),
 		};
 		const request: ElicitationRequestPayload = {
@@ -96,7 +99,12 @@ export function createElicitationApprover(options: {
 					title: ask.challenge ? "Continue?" : "Allow this action?",
 					required: true,
 					multiple: false,
-					options: [{ value: "once", label: ask.challenge ? "Continue" : "Allow this action" }],
+					options: [
+						{ value: "once", label: ask.challenge ? "Continue" : "Allow this action" },
+						...(ask.siteScope && !ask.challenge
+							? [{ value: "site", label: "Allow on this site for this chat" }]
+							: []),
+					],
 				},
 			],
 			toolApproval: {
@@ -155,7 +163,13 @@ export function createElicitationApprover(options: {
 			...(outcome.content ? { content: outcome.content } : {}),
 		});
 
-		if (outcome.action === "accept") return { verdict: "approved", id: elicitationId };
+		if (outcome.action === "accept") {
+			return {
+				verdict: "approved",
+				id: elicitationId,
+				...(ask.siteScope && outcome.content?.scope === "site" ? { scope: "site" as const } : {}),
+			};
+		}
 		if (outcome.resolution === "expired") return { verdict: "expired" };
 		if (outcome.resolution === "aborted" || outcome.resolution === "withdrawn") {
 			return { verdict: "aborted" };

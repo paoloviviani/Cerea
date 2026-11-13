@@ -9,6 +9,7 @@
  *
  * It fails closed: a click on an element Cerea has no metadata for is a commit. The name rule is
  * deliberately broad (a "Remove filter" button asks too); asking is cheap, a wrong click is not.
+ * A control with no name at all commits only when it submits a form.
  * Verbs are listed in English, Italian, Spanish, French and German; a name in another language
  * that is not matched still asks when the element submits a form or leaves the site.
  */
@@ -179,6 +180,8 @@ function hasLatinLetters(name: string): boolean {
 }
 
 const MODIFIER = /^(control|ctrl|shift|alt|meta|cmd|command|option|mod|controlormeta)$/i;
+/** The modifiers of the editing shortcuts (Ctrl on most systems, Meta on a Mac). */
+const EDIT_MODIFIER = /^(control|ctrl|meta|cmd|command|mod|controlormeta)$/i;
 /** A modifier that turns a key into a shortcut (Shift alone only changes the character). */
 const SHORTCUT_MODIFIER = /^(control|ctrl|alt|meta|cmd|command|option|mod|controlormeta)$/i;
 /** Navigation and editing keys that do nothing but move or edit in the field. */
@@ -207,7 +210,13 @@ export type KeyKind = "enter" | "space" | "safe" | "unknown";
  * whitespace character, a key with a shortcut modifier, an unknown name) is `unknown`, which the
  * classifier treats as a commit.
  */
-export function normalizeKey(raw: string): { key: string; modified: boolean; kind: KeyKind } {
+export function normalizeKey(raw: string): {
+	key: string;
+	modified: boolean;
+	kind: KeyKind;
+	/** Cut, undo or redo: changes the field's text, so it needs a text field to act on. */
+	mutates?: true;
+} {
 	let modifiers: string[];
 	let last: string;
 	if (raw.endsWith("++") || raw === "+") {
@@ -219,7 +228,7 @@ export function normalizeKey(raw: string): { key: string; modified: boolean; kin
 		modifiers = parts.slice(0, -1);
 	}
 	const modified = modifiers.length > 0;
-	const unknown = (): { key: string; modified: boolean; kind: KeyKind } => ({
+	const unknown = (): { key: string; modified: boolean; kind: KeyKind; mutates?: true } => ({
 		key: last.toLowerCase(),
 		modified,
 		kind: "unknown",
@@ -235,6 +244,10 @@ export function normalizeKey(raw: string): { key: string; modified: boolean; kin
 		return { key: "enter", modified, kind: "enter" };
 	}
 	const shortcut = modifiers.some((m) => SHORTCUT_MODIFIER.test(m.trim()));
+	if (shortcut && isEditShortcut(modifiers, lower)) {
+		const mutates = ["x", "z", "y"].includes(lower);
+		return { key: lower, modified, kind: "safe", ...(mutates ? { mutates: true as const } : {}) };
+	}
 	if (last === " " || lower === "space" || lower === "spacebar") {
 		return shortcut ? unknown() : { key: "space", modified, kind: "space" };
 	}
@@ -245,6 +258,20 @@ export function normalizeKey(raw: string): { key: string; modified: boolean; kin
 	if (SAFE_NAMED.has(lower)) return { key: lower, modified, kind: "safe" };
 	if ([...last].length === 1) return { key: last, modified, kind: "safe" };
 	return unknown();
+}
+
+/**
+ * Select all, copy, cut, undo and redo (Ctrl or Meta + A, C, X, Z, Y, and + Shift with Z): they
+ * edit or select in the field and send nothing. Paste is not here: it would put the user's
+ * clipboard into the page.
+ */
+function isEditShortcut(modifiers: string[], key: string): boolean {
+	const names = modifiers.map((m) => m.trim().toLowerCase());
+	const shift = names.includes("shift");
+	if (!names.every((m) => m === "shift" || EDIT_MODIFIER.test(m))) return false;
+	if (!names.some((m) => EDIT_MODIFIER.test(m))) return false;
+	if (shift) return key === "z";
+	return ["a", "c", "x", "z", "y"].includes(key);
 }
 
 function resolveUrl(url: string, base: string): URL | undefined {
@@ -286,6 +313,17 @@ function submitClass(el: SnapshotElement | undefined, currentUrl: string): Class
 	return { class: "commit", reason: "submit" };
 }
 
+/** Submitting a search: a read, unless the form sends it to another site. */
+function searchClass(el: SnapshotElement, currentUrl: string): Classification {
+	if (nameMeansCommit(el.name)) return { class: "commit", reason: "verb" };
+	const current = hostOf(currentUrl);
+	const target = el.formActionHost ? hostOf(el.formActionHost) : undefined;
+	if (target && current && !sameSite(target, current)) {
+		return { class: "commit", reason: "new-domain", targetHost: target };
+	}
+	return { class: "read" };
+}
+
 export function classifyAction(action: BrowserAction, ctx: ClassifyContext): Classification {
 	const current = hostOf(ctx.currentUrl);
 	// The runtime could not read this element's metadata: nothing about it can be trusted.
@@ -309,24 +347,36 @@ export function classifyAction(action: BrowserAction, ctx: ClassifyContext): Cla
 		case "fill":
 			return action.submit ? submitClass(ctx.element, ctx.currentUrl) : { class: "input" };
 		case "press": {
-			const { kind, modified } = normalizeKey(action.key);
+			const { kind, modified, mutates } = normalizeKey(action.key);
 			if (kind === "unknown") return { class: "commit", reason: "unknown-element" };
-			if (kind === "safe") return { class: "input" };
+			const typing = (role: string) =>
+				role === "textbox" || role === "searchbox" || role === "combobox";
+			if (kind === "safe") {
+				// Cut, undo and redo change a field's text: they need a text field named, or fail closed.
+				if (mutates && !(action.ref && ctx.element && typing(ctx.element.role))) {
+					return { class: "commit", reason: "unknown-element" };
+				}
+				return { class: "input" };
+			}
 			// Enter or Space with no target element acts on whatever has focus: unknown.
 			if (!action.ref) return { class: "commit", reason: "unknown-element" };
 			const el = ctx.element;
 			if (!el) return { class: "commit", reason: "unknown-element" };
 			// A modified Enter (Control+Enter, Meta+Enter, Shift+Enter) sends or submits in most apps.
 			if (kind === "enter" && modified) return { class: "commit", reason: "submit" };
-			const typing = el.role === "textbox" || el.role === "searchbox" || el.role === "combobox";
 			// Enter or Space on anything that is not a place to type is a click on it: the verb,
 			// href, download and cross-site rules apply whatever its role.
-			if (!typing) return classifyAction({ type: "click", ref: el.ref }, ctx);
+			if (!typing(el.role)) return classifyAction({ type: "click", ref: el.ref }, ctx);
 			if (kind === "enter") {
+				// A rich-text editor sends on Enter (Slack, WhatsApp Web, Discord), form or not.
+				if (el.editable) return { class: "commit", reason: "submit" };
+				// A search box submitted by Enter reads, unless it leaves the site or the name is a verb.
+				if (el.search) return searchClass(el, ctx.currentUrl);
+				// Enter in a field of a form with no submit control only takes the key. Anything else
+				// submits or sends (a form's submit control, or a page script that listens for Enter):
+				// the same as typing with `submit`.
+				if (el.form && el.formSubmit === false) return { class: "input" };
 				if (el.form || el.submits) return submitClass(el, ctx.currentUrl);
-				// A search box is a read; a text box or a combobox with no form is a chat box or a
-				// contenteditable that sends on Enter (Slack, WhatsApp Web, Discord).
-				if (el.role === "searchbox") return { class: "input" };
 				return { class: "commit", reason: "submit" };
 			}
 			return { class: "input" };
@@ -373,8 +423,15 @@ export function classifyAction(action: BrowserAction, ctx: ClassifyContext): Cla
 			// The name of every click target counts, whatever its role: a div with an onclick is
 			// still "Delete".
 			if (nameMeansCommit(el.name)) return { class: "commit", reason: "verb" };
-			// A button we cannot read the name of (empty, or no Latin letters) cannot be classified.
-			if (el.role === "button" && (!el.name.trim() || !hasLatinLetters(el.name))) {
+			// A control with no name is told apart by its hint (title, description, icon text).
+			const hint = el.name.trim() ? "" : (el.hint ?? "");
+			if (hint && nameMeansCommit(hint)) return { class: "commit", reason: "verb" };
+			if (el.role === "button" && hint.trim() && !hasLatinLetters(hint)) {
+				return { class: "commit", reason: "unclassified" };
+			}
+			// A button named in a script we cannot read (or only a symbol) cannot be classified. One with
+			// no name at all is judged like any other: it commits only when it submits a form (above).
+			if (el.role === "button" && el.name.trim() && !hasLatinLetters(el.name)) {
 				return { class: "commit", reason: "unclassified" };
 			}
 			// A relative href resolves on the current site; only an absolute one can leave it.
@@ -406,26 +463,56 @@ export function quoted(text: string, max: number): string {
 	return JSON.stringify(clip(sanitizeText(text).trim(), max));
 }
 
+const ROLE_NOUN: Record<string, string> = {
+	button: "button",
+	link: "link",
+	textbox: "field",
+	searchbox: "search field",
+	combobox: "list",
+	checkbox: "checkbox",
+	radio: "option",
+	switch: "switch",
+	menuitem: "menu item",
+	tab: "tab",
+};
+
+/**
+ * How a sentence names the element: its quoted name, or, with none, its role and whatever the page
+ * gives to tell it apart (`the "+" button (no label)`, `an unlabelled button in the "Attendances"
+ * form`). Never empty quotes. Without an element at all, the generic noun.
+ */
+export function describeTarget(el: SnapshotElement | undefined, generic: string): string {
+	if (!el) return generic;
+	const name = sanitizeText(el.name).trim();
+	if (name) return quoted(name, 80);
+	const noun = ROLE_NOUN[el.role] ?? "element";
+	const hint = el.hint ? sanitizeText(el.hint).trim() : "";
+	const form = el.formLabel ? sanitizeText(el.formLabel).trim() : "";
+	const where = form ? ` in the ${quoted(form, 60)} form` : "";
+	if (hint) return `the ${quoted(hint, 60)} ${noun} (no label)${where}`;
+	return `an unlabelled ${noun}${where}`;
+}
+
 /** The plain sentence an approval card shows: 'Click "Pay €120" on shop.example.com'. */
 export function describeAction(action: BrowserAction, ctx: ClassifyContext): string {
 	const site = hostOf(ctx.currentUrl) ?? ctx.currentUrl;
-	const label = ctx.element?.name ? quoted(ctx.element.name, 80) : undefined;
+	const el = ctx.element;
 	switch (action.type) {
 		case "use_tab": {
 			const host = ctx.tab ? (hostOf(ctx.tab.url) ?? "") : "";
 			return `Let Cerea use your tab ${quoted(ctx.tab?.title || host || "a tab", 80)}${host ? ` (${host})` : ""}?`;
 		}
 		case "click":
-			if (ctx.element?.download) {
-				return `Download ${label ?? "a file"} from ${site}`;
+			if (el?.download) {
+				return `Download ${sanitizeText(el.name).trim() ? quoted(el.name, 80) : "a file"} from ${site}`;
 			}
-			return `Click ${label ?? "an element"} on ${site}`;
+			return `Click ${describeTarget(el, "an element")} on ${site}`;
 		case "fill":
-			return `Type into ${label ?? "a field"} on ${site}${action.submit ? " and press Enter" : ""}`;
+			return `Type into ${describeTarget(el, "a field")} on ${site}${action.submit ? " and press Enter" : ""}`;
 		case "select":
-			return `Choose ${quoted(action.value, 60)} in ${label ?? "a list"} on ${site}`;
+			return `Choose ${quoted(action.value, 60)} in ${describeTarget(el, "a list")} on ${site}`;
 		case "press":
-			return `Press ${action.key}${label ? ` in ${label}` : ""} on ${site}`;
+			return `Press ${action.key}${el ? ` in ${describeTarget(el, "a field")}` : ""} on ${site}`;
 		case "scroll":
 			return `Scroll ${action.direction} on ${site}`;
 		case "wait_for":

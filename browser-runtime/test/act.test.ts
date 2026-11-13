@@ -190,6 +190,54 @@ describe("act", () => {
 		assert.equal(r.fx.hits.posts.length, posts);
 	});
 
+	it("lets select-all and the like through, asks for a paste, and reads Enter by what it would do", async () => {
+		const snap = await r.goto("/meta");
+		const first = r.ref(snap, "textbox", "First");
+		const lone = r.ref(snap, "textbox", "Lone");
+		const where = r.ref(snap, "textbox", "Where to");
+		const editor = r.ref(snap, "textbox", "Message");
+		const posts = r.fx.hits.posts.length;
+		await r.act([{ type: "fill", ref: first, text: "x" }]);
+		for (const key of ["Control+a", "Meta+c", "Control+z", "Control+Shift+Z"]) {
+			assert.equal((await r.act([{ type: "press", key, ref: first }])).results[0].ok, true, key);
+		}
+		for (const key of ["Control+v", "Shift+Insert"]) {
+			assert.equal(
+				(await r.act([{ type: "press", key, ref: first }])).results[0].refused,
+				"approval_required",
+				key
+			);
+		}
+		// A field of a form with no submit control only takes the key.
+		assert.equal((await r.act([{ type: "press", key: "Enter", ref: first }])).results[0].ok, true);
+		// A form's one text field submits on Enter, an editor sends, a search reads.
+		assert.equal(
+			(await r.act([{ type: "press", key: "Enter", ref: lone }])).results[0].refused,
+			"approval_required"
+		);
+		assert.equal(
+			(await r.act([{ type: "press", key: "Enter", ref: editor }])).results[0].refused,
+			"approval_required"
+		);
+		assert.equal((await r.act([{ type: "press", key: "Enter", ref: where }])).results[0].ok, true);
+		// A GET form whose default button posts is not a search.
+		const phrase = r.ref(snap, "textbox", "Phrase");
+		assert.equal(
+			(await r.act([{ type: "press", key: "Enter", ref: phrase }])).results[0].refused,
+			"approval_required"
+		);
+		// Cut, undo and redo need a text field named.
+		assert.equal(
+			(await r.act([{ type: "press", key: "Control+x" }])).results[0].refused,
+			"approval_required"
+		);
+		assert.equal(
+			(await r.act([{ type: "press", key: "Control+x", ref: first }])).results[0].ok,
+			true
+		);
+		assert.equal(r.fx.hits.posts.length, posts);
+	});
+
 	it("walks a login wall: the sign-in needs an approval, then the page opens", async () => {
 		const wall = await r.goto("/dashboard");
 		assert.match(wall.text, /Please sign in first/);

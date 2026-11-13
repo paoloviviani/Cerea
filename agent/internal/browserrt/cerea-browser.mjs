@@ -1,4 +1,4 @@
-// cerea-browser runtime 0.1.0; source-hash: 86475f4d17d3f008a727794dadf440386489b480507c78dd062a24493ebe8798
+// cerea-browser runtime 0.1.0; source-hash: 30318b3d7e20eb9890c90f52bed53e28a1c3b3ea8ea0d426d37c48855237eeab
 // inlined: @hono/node-server@2.1.8 @modelcontextprotocol/sdk@1.32.2 ajv@8.20.0 ajv-formats@3.0.1 content-type@1.0.5 fast-deep-equal@3.1.3 fast-uri@3.1.9 hono@4.13.18 json-schema-traverse@1.0.0 tldts@7.4.26 zod@3.25.76 zod-to-json-schema@3.25.2
 import { createRequire as __cr } from "node:module";
 const require = __cr(import.meta.url);
@@ -21473,6 +21473,23 @@ var snapshotElementSchema = external_exports.object({
   formMethod: external_exports.enum(["get", "post"]).optional(),
   /** True for a control that submits its form (`type=submit`, or a form's default button). */
   submits: external_exports.boolean().optional(),
+  /**
+   * For a field in a form: whether pressing Enter in it would submit the form (the form has a
+   * submit control, or this is its one text field). `false` means Enter does nothing there; absent
+   * (an older runtime) is read as "it submits".
+   */
+  formSubmit: external_exports.boolean().optional(),
+  /** A rich-text editor (contenteditable, or a textbox that is not an input or textarea): many send on Enter. */
+  editable: external_exports.literal(true).optional(),
+  /**
+   * A search box, or its button: `role=search`, `type=search`, or a GET form with a single text
+   * field, not a form that posts.
+   */
+  search: external_exports.literal(true).optional(),
+  /** For a control with no accessible name: its title, aria-description, icon text or symbol. Only ever shown in a sentence. */
+  hint: external_exports.string().max(120).optional(),
+  /** The name of the form the element is in (its label, name or legend). Only ever shown in a sentence. */
+  formLabel: external_exports.string().max(120).optional(),
   /** A link's target, as written in the page. */
   href: external_exports.string().max(2048).optional(),
   /**
@@ -22300,6 +22317,7 @@ function hasLatinLetters(name) {
   return /[a-z]/i.test(normalizeName(name));
 }
 var MODIFIER = /^(control|ctrl|shift|alt|meta|cmd|command|option|mod|controlormeta)$/i;
+var EDIT_MODIFIER = /^(control|ctrl|meta|cmd|command|mod|controlormeta)$/i;
 var SHORTCUT_MODIFIER = /^(control|ctrl|alt|meta|cmd|command|option|mod|controlormeta)$/i;
 var SAFE_NAMED = /* @__PURE__ */ new Set([
   "tab",
@@ -22339,6 +22357,10 @@ function normalizeKey(raw) {
     return { key: "enter", modified, kind: "enter" };
   }
   const shortcut = modifiers.some((m) => SHORTCUT_MODIFIER.test(m.trim()));
+  if (shortcut && isEditShortcut(modifiers, lower)) {
+    const mutates = ["x", "z", "y"].includes(lower);
+    return { key: lower, modified, kind: "safe", ...mutates ? { mutates: true } : {} };
+  }
   if (last === " " || lower === "space" || lower === "spacebar") {
     return shortcut ? unknown2() : { key: "space", modified, kind: "space" };
   }
@@ -22347,6 +22369,14 @@ function normalizeKey(raw) {
   if (SAFE_NAMED.has(lower)) return { key: lower, modified, kind: "safe" };
   if ([...last].length === 1) return { key: last, modified, kind: "safe" };
   return unknown2();
+}
+function isEditShortcut(modifiers, key) {
+  const names = modifiers.map((m) => m.trim().toLowerCase());
+  const shift = names.includes("shift");
+  if (!names.every((m) => m === "shift" || EDIT_MODIFIER.test(m))) return false;
+  if (!names.some((m) => EDIT_MODIFIER.test(m))) return false;
+  if (shift) return key === "z";
+  return ["a", "c", "x", "z", "y"].includes(key);
 }
 function resolveUrl(url, base) {
   try {
@@ -22363,6 +22393,15 @@ function submitClass(el, currentUrl) {
   }
   if (el?.formMethod === "get" && !nameMeansCommit(el.name)) return { class: "read" };
   return { class: "commit", reason: "submit" };
+}
+function searchClass(el, currentUrl) {
+  if (nameMeansCommit(el.name)) return { class: "commit", reason: "verb" };
+  const current = hostOf(currentUrl);
+  const target = el.formActionHost ? hostOf(el.formActionHost) : void 0;
+  if (target && current && !sameSite(target, current)) {
+    return { class: "commit", reason: "new-domain", targetHost: target };
+  }
+  return { class: "read" };
 }
 function classifyAction(action, ctx) {
   const current = hostOf(ctx.currentUrl);
@@ -22384,18 +22423,25 @@ function classifyAction(action, ctx) {
     case "fill":
       return action.submit ? submitClass(ctx.element, ctx.currentUrl) : { class: "input" };
     case "press": {
-      const { kind, modified } = normalizeKey(action.key);
+      const { kind, modified, mutates } = normalizeKey(action.key);
       if (kind === "unknown") return { class: "commit", reason: "unknown-element" };
-      if (kind === "safe") return { class: "input" };
+      const typing = (role) => role === "textbox" || role === "searchbox" || role === "combobox";
+      if (kind === "safe") {
+        if (mutates && !(action.ref && ctx.element && typing(ctx.element.role))) {
+          return { class: "commit", reason: "unknown-element" };
+        }
+        return { class: "input" };
+      }
       if (!action.ref) return { class: "commit", reason: "unknown-element" };
       const el = ctx.element;
       if (!el) return { class: "commit", reason: "unknown-element" };
       if (kind === "enter" && modified) return { class: "commit", reason: "submit" };
-      const typing = el.role === "textbox" || el.role === "searchbox" || el.role === "combobox";
-      if (!typing) return classifyAction({ type: "click", ref: el.ref }, ctx);
+      if (!typing(el.role)) return classifyAction({ type: "click", ref: el.ref }, ctx);
       if (kind === "enter") {
+        if (el.editable) return { class: "commit", reason: "submit" };
+        if (el.search) return searchClass(el, ctx.currentUrl);
+        if (el.form && el.formSubmit === false) return { class: "input" };
         if (el.form || el.submits) return submitClass(el, ctx.currentUrl);
-        if (el.role === "searchbox") return { class: "input" };
         return { class: "commit", reason: "submit" };
       }
       return { class: "input" };
@@ -22430,7 +22476,12 @@ function classifyAction(action, ctx) {
         if (submitted.class === "commit") return submitted;
       }
       if (nameMeansCommit(el.name)) return { class: "commit", reason: "verb" };
-      if (el.role === "button" && (!el.name.trim() || !hasLatinLetters(el.name))) {
+      const hint = el.name.trim() ? "" : el.hint ?? "";
+      if (hint && nameMeansCommit(hint)) return { class: "commit", reason: "verb" };
+      if (el.role === "button" && hint.trim() && !hasLatinLetters(hint)) {
+        return { class: "commit", reason: "unclassified" };
+      }
+      if (el.role === "button" && el.name.trim() && !hasLatinLetters(el.name)) {
         return { class: "commit", reason: "unclassified" };
       }
       const hrefHost = el.href ? resolveUrl(el.href, ctx.currentUrl)?.hostname.toLowerCase() : void 0;
@@ -22880,14 +22931,21 @@ function toElement(node, ctx) {
     }
   }
   const disabled = node.disabled === true || meta.disabled === true;
+  const name = effectiveName(node);
+  const noName = name.trim() === "";
   const element = {
     ref: node.ref ?? "",
     role: node.role,
-    name: effectiveName(node),
+    name,
     ...meta.inputType ? { inputType: meta.inputType } : {},
     ...meta.form ? { form: meta.form } : {},
     ...meta.formMethod ? { formMethod: meta.formMethod } : {},
     ...meta.submits ? { submits: true } : {},
+    ...meta.formSubmit !== void 0 ? { formSubmit: meta.formSubmit } : {},
+    ...meta.editable ? { editable: true } : {},
+    ...meta.search ? { search: true } : {},
+    ...noName && meta.hint ? { hint: clean(meta.hint, 120) } : {},
+    ...noName && meta.formLabel ? { formLabel: clean(meta.formLabel, 120) } : {},
     ...meta.formActionHost ? { formActionHost: meta.formActionHost } : {},
     ...href && node.role === "link" ? { href } : {},
     ...linkDomain ? { linkDomain } : {},
@@ -23135,8 +23193,47 @@ function pageMeta(el) {
     formId = form.id || form.getAttribute("name") || `form${index + 1}`;
   }
   const submitter = tag === "button" && (control.type === "submit" || !control.getAttribute("type")) || tag === "input" && (type === "submit" || type === "image");
-  const rawMethod = (el.getAttribute("formmethod") || form?.getAttribute("method") || "get").toLowerCase();
+  const defaultButton = form && !submitter ? Array.from(form.elements).find((c) => {
+    const t = c.tagName.toLowerCase();
+    return t === "button" && c.type === "submit" || t === "input" && (c.type === "submit" || c.type === "image");
+  }) : void 0;
+  const rawMethod = (el.getAttribute("formmethod") || defaultButton?.getAttribute("formmethod") || form?.getAttribute("method") || "get").toLowerCase();
   const anchor = el.closest("a");
+  let formSubmit;
+  let singleSearchField = false;
+  if (form) {
+    const controls = Array.from(form.elements);
+    const texty = (c) => c.tagName.toLowerCase() === "input" && [
+      "text",
+      "search",
+      "url",
+      "tel",
+      "email",
+      "password",
+      "date",
+      "month",
+      "week",
+      "time",
+      "datetime-local",
+      "number"
+    ].includes((c.type || "text").toLowerCase());
+    const hasSubmit = controls.some((c) => {
+      const t = c.tagName.toLowerCase();
+      return t === "button" && c.type === "submit" || t === "input" && (c.type === "submit" || c.type === "image");
+    });
+    formSubmit = hasSubmit || controls.filter(texty).length === 1;
+    singleSearchField = controls.filter(texty).length === 1 && controls.filter((c) => c.tagName.toLowerCase() === "textarea").length === 0 && ["text", "search"].includes((controls.find(texty)?.type || "text").toLowerCase());
+  }
+  const search = (!form || rawMethod === "get") && (el.getAttribute("role") === "searchbox" || type === "search" || !!el.closest('[role="search"], search') || !!form && rawMethod === "get" && singleSearchField);
+  const editable = el.isContentEditable === true || el.getAttribute("role") === "textbox" && tag !== "input" && tag !== "textarea" || tag === "textarea" && !form;
+  const text = (node) => (node?.textContent ?? "").replace(/\s+/g, " ").trim();
+  const hint = el.getAttribute("title") || el.getAttribute("aria-description") || text(el.querySelector("svg > title")) || text(el).slice(0, 40) || "";
+  const formLabel = form ? form.getAttribute("aria-label") || form.getAttribute("title") || text(
+    (() => {
+      const ids = (form.getAttribute("aria-labelledby") ?? "").split(/\s+/)[0];
+      return ids ? document.getElementById(ids) : null;
+    })()
+  ) || text(form.querySelector("legend")) || text(form.querySelector("h1, h2, h3, h4")) || "" : "";
   const widget = !!el.closest(
     ".g-recaptcha, #recaptcha, .h-captcha, .cf-turnstile, #cf-challenge-running, #challenge-form, #challenge-stage, [data-sitekey]"
   ) || tag === "iframe" && /google\.com\/recaptcha|recaptcha\.net|hcaptcha\.com|challenges\.cloudflare\.com|arkoselabs\.com/i.test(
@@ -23150,10 +23247,15 @@ function pageMeta(el) {
     ...formId ? { form: formId } : {},
     ...form && (rawMethod === "get" || rawMethod === "post") ? { formMethod: rawMethod } : {},
     ...submitter && form ? { submits: true } : {},
+    ...formSubmit !== void 0 ? { formSubmit } : {},
+    ...editable ? { editable: true } : {},
+    ...search ? { search: true } : {},
+    ...hint ? { hint: hint.slice(0, 120) } : {},
+    ...formLabel ? { formLabel: formLabel.slice(0, 120) } : {},
     ...form ? (() => {
       try {
         const action = new URL(
-          el.getAttribute("formaction") || form.getAttribute("action") || location.href,
+          el.getAttribute("formaction") || defaultButton?.getAttribute("formaction") || form.getAttribute("action") || location.href,
           location.href
         );
         return action.protocol === "http:" || action.protocol === "https:" ? { formActionHost: action.hostname.toLowerCase() } : {};
@@ -24268,6 +24370,18 @@ url: about:blank
       let outcome = await this.perform(page, action);
       if (action.type !== "navigate" && page.url() !== before && !page.isClosed()) {
         outcome = clean(`${outcome}; the page navigated to ${clean(page.url(), 150)}`, 300);
+      }
+      if (klass === "commit" && classified.reason === "new-domain" && classified.targetHost && !page.isClosed() && this.adopted.has(page)) {
+        const info = this.lentInfo.get(page);
+        const now = originOfUrl(page.url());
+        let landed = "";
+        try {
+          landed = new URL(page.url()).hostname.toLowerCase();
+        } catch {
+        }
+        if (info && now !== "" && now !== info.origin && landed === classified.targetHost) {
+          this.lentInfo.set(page, { origin: now, since: info.since });
+        }
       }
       return { ok: true, outcome };
     } catch (err) {

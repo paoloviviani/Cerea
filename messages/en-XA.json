@@ -1169,6 +1169,7 @@
 	"chat.approval.wait_minutes": "[Áúťó-ďéńý íń {count} ḿíń]",
 	"chat.approval.wait_seconds": "[Áúťó-ďéńý íń {count} ś]",
 	"chat.approval.browse.allow": "[Áľľóŵ ťȟíś áćťíóń]",
+	"chat.approval.browse.allow_site": "[Áľľóŵ óń ťȟíś śíťé ƒóŕ ťȟíś ćȟáť]",
 	"chat.approval.browse.site": "[Śíťé]",
 	"chat.approval.browse.why": "[Ŵȟý ýóú áŕé áśķéď]",
 	"chat.approval.browse.screenshot": "[Ťȟé éľéḿéńť óń ťȟé þáǧé]",

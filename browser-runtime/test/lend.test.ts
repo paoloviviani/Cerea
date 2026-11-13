@@ -67,6 +67,32 @@ describe("a lent tab stays lent to the conversation", () => {
 		await user.close();
 	});
 
+	it("follows the tab when Cerea itself takes it to another site with an approval", async () => {
+		const { user } = await lend("/title?t=Moved");
+		const snap = await r.snapshot();
+		const nav = { type: "navigate" as const, url: `${r.fx.other}/title?t=Elsewhere` };
+		assert.equal((await r.act([nav])).results[0].refused, "approval_required");
+		const moved = await r.act([nav], [r.grant(snap, nav)]);
+		assert.equal(moved.results[0].ok, true, JSON.stringify(moved));
+		const end = (await r.call("end_task", { keep: true })).structuredContent as { kept?: Kept };
+		assert.equal(end.kept?.lent, true);
+		assert.equal(end.kept?.origin, r.fx.other, "the lent origin followed the approved navigation");
+		const back = (await r.call("resume", { token: end.kept!.token })).structuredContent as {
+			refused?: string;
+			lent?: boolean;
+		};
+		assert.equal(back.refused, undefined);
+		assert.equal(back.lent, true);
+		// The user then moves it themselves to a third site: not followed.
+		const end2 = (await r.call("end_task", { keep: true })).structuredContent as { kept: Kept };
+		await user.goto(`${r.fx.base}/title?t=Third`);
+		const refused = (await r.call("resume", { token: end2.kept.token })).structuredContent as {
+			refused?: string;
+		};
+		assert.equal(refused.refused, "page_changed");
+		await user.close();
+	});
+
 	it("refuses to resume once the tab is on another origin: it is a user tab again", async () => {
 		const { user } = await lend("/title?t=Away");
 		const end = (await r.call("end_task", { keep: true })).structuredContent as { kept: Kept };
