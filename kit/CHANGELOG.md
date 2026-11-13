@@ -5,7 +5,11 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.52.1 — 2026-11-13
+
+Pins: Cerea `0.52.1` (chat, `cerea-documents`, `galopin`, and the new `cerea-sandbox` and `cerea-sandbox-python` images), Pystino `0.33.2`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. Server sandboxes stay off until `./configure --sandbox local|remote` (the host needs gVisor, `runsc`) and `--code-execution server`; see `docs/sandboxes.md`. **On computers**, re-run the install line from the **Pair a computer** dialog; on a Mac, install the Cerea connector from this release's page.
 
 v0.52.0 was tagged but never published: its kit pinned `mongo:8.0.37`, an image that does not exist, and the release check stopped before anything reached users. Everything below ships in v0.52.1.
 
