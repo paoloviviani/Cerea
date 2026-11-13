@@ -201,3 +201,21 @@ jobs:
           done
           [ "${found:-}" = 1 ] || { echo "release $TAG never appeared in 90 minutes; run scripts/release/release.sh, then re-run this job"; exit 1; }
           gh release upload "$TAG" dist/* --clobber
+      - name: Add the Mac connector links to the release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          body=$(gh release view "$TAG" --json body --jq .body)
+          if printf '%s\n' "$body" | grep -qF '**Cerea connector for Mac:**'; then
+            echo "release notes already list the Mac connector"; exit 0
+          fi
+          base="https://github.com/$REPO/releases/download/$TAG"
+          {
+            printf '%s\n\n' "$body"
+            printf '**Cerea connector for Mac:** [Apple Silicon](%s/Cerea-connector-macos-arm64.zip) · [Intel](%s/Cerea-connector-macos-amd64.zip) (unzip, move to Applications, right-click → Open), or install with:\n' "$base" "$base"
+            printf '```sh\ncurl -fsSL https://github.com/%s/releases/latest/download/install-cerea-connector.sh | sh\n```\n' "$REPO"
+          } > "$RUNNER_TEMP/notes.md"
+          gh release edit "$TAG" --notes-file "$RUNNER_TEMP/notes.md"
