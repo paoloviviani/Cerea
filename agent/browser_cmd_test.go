@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -270,7 +271,7 @@ func TestBrowserEnableRegistersTheWellKnownConnectorAndKeepsTheRest(t *testing.T
 	if e.Env["PLAYWRIGHT_BROWSERS_PATH"] != p.browsers {
 		t.Errorf("env %v", e.Env)
 	}
-	if !contains(e.AllowedTools, "act") || len(e.AllowedTools) != len(browserTools) {
+	if !contains(e.AllowedTools, "act") || len(e.AllowedTools) != len(browserTools) || !contains(e.AllowedTools, "open") {
 		t.Errorf("ceiling %v", e.AllowedTools)
 	}
 	// The live view's three tools are inside the ceiling, or takeover could never reach the page.
@@ -853,4 +854,28 @@ func serverField(t *testing.T, path, server, field string) json.RawMessage {
 		t.Fatal(err)
 	}
 	return entry[field]
+}
+
+// Every tool Cerea calls on the browser runtime must be inside galopin's ceiling, or galopin
+// refuses it (an "open" missing here made Open browser fail with "did not answer").
+func TestBrowserToolsCoverCereaRuntimeTools(t *testing.T) {
+	src, err := os.ReadFile("../src/lib/server/browser/contract.ts")
+	if err != nil {
+		t.Skipf("Cerea sources not beside the agent: %v", err)
+	}
+	s := string(src)
+	start := strings.Index(s, "export const RUNTIME_TOOLS = [")
+	if start < 0 {
+		t.Fatal("RUNTIME_TOOLS not found in contract.ts")
+	}
+	end := strings.Index(s[start:], "]")
+	have := map[string]bool{}
+	for _, tool := range browserTools {
+		have[tool] = true
+	}
+	for _, m := range regexp.MustCompile(`"([a-z_]+)"`).FindAllStringSubmatch(s[start:start+end], -1) {
+		if !have[m[1]] {
+			t.Errorf("Cerea calls %q but galopin's browser ceiling lacks it", m[1])
+		}
+	}
 }
