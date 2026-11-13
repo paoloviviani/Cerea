@@ -123,6 +123,7 @@ nav:
   - Operating Cerea:
       - Deploying: deploy.md
       - "The deploy kit": deploy-kit.md
+      - "Server sandboxes": sandboxes.md
       - Configuration: configuration.md
       - "File storage": storage.md
       - "Administering the chat": chat-admin.md
