@@ -325,8 +325,7 @@ export class SandboxSessions {
 			const notice = session.pendingRestart ? SANDBOX_RESTARTED_NOTICE : undefined;
 			session.pendingRestart = false;
 			const reply = parseReply(exec);
-			const replyTimedOut =
-				reply.timeout !== null && reply.timeout !== undefined && reply.timeout !== false;
+			const replyTimedOut = reply.timeout != null;
 			if (exec.timed_out || reply.unparsed || replyTimedOut) {
 				// The sandbox could not be made to stop, answered with nothing we can read, or ran out
 				// of time: whatever the code started (a child in its own session, a tampered pidfile)
