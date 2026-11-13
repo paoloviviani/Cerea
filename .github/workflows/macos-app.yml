@@ -18,7 +18,7 @@ on:
       - "agent/go.mod"
       - "agent/go.sum"
       - "agent/third_party/**"
-      - "agent/run.go"
+      - "agent/*.go"
       - ".github/workflows/macos-app.yml"
   push:
     branches: [main]
@@ -29,7 +29,7 @@ on:
       - "agent/go.mod"
       - "agent/go.sum"
       - "agent/third_party/**"
-      - "agent/run.go"
+      - "agent/*.go"
       - ".github/workflows/macos-app.yml"
     tags: ["v*"]
 
@@ -148,12 +148,20 @@ jobs:
           "$app/Resources/node/bin/node" --version
           "$app/Resources/node/bin/npm" --version
 
-      - uses: actions/upload-artifact@v4
+      # archive: false uploads each file as it is, so the Actions page serves the
+      # .zip itself (one zip, not a zip in a zip). Each artifact is named after its
+      # file; only a single file is allowed per unarchived artifact.
+      - name: Upload the zip
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: cerea-connector-macos-${{ matrix.arch }}
-          path: |
-            dist/Cerea-connector-macos-${{ matrix.arch }}.zip
-            dist/Cerea-connector-macos-${{ matrix.arch }}.zip.sha256
+          path: dist/Cerea-connector-macos-${{ matrix.arch }}.zip
+          archive: false
+          if-no-files-found: error
+      - name: Upload the checksum
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: dist/Cerea-connector-macos-${{ matrix.arch }}.zip.sha256
+          archive: false
           if-no-files-found: error
 
   release:
@@ -164,11 +172,21 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: cerea-connector-macos-*
+          pattern: Cerea-connector-macos-*
           merge-multiple: true
+          skip-decompress: true # the artifacts are the release files themselves
           path: dist
+      - name: Check the release files
+        run: |
+          ls -l dist
+          for a in arm64 amd64; do
+            for f in "Cerea-connector-macos-$a.zip" "Cerea-connector-macos-$a.zip.sha256"; do
+              [ -f "dist/$f" ] || { echo "missing dist/$f"; exit 1; }
+            done
+            unzip -tq "dist/Cerea-connector-macos-$a.zip"
+          done
       - name: Attach to the release
         env:
           GH_TOKEN: ${{ github.token }}
