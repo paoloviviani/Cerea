@@ -241,6 +241,20 @@ describe("a sandbox that cannot be stopped or read", () => {
 		expect(next.notice).toBe(SANDBOX_RESTARTED_NOTICE);
 	});
 
+	it("is released when run.py or the daemon reports a timeout, so a child that escaped the kill dies with the container", async () => {
+		const { api, sessions, state } = fake();
+		await sessions.run(base);
+		state.replies.push(
+			reply({ ok: false, error: "timed out", timeout: { seconds: 60, mountedFiles: [] } })
+		);
+		const result = await sessions.run({ ...base, code: "import os; os.fork() or os.setsid()" });
+		expect(result.reply.timeout).not.toBeNull();
+		expect(api.release).toHaveBeenCalledTimes(1);
+		expect(sessions.has("c1")).toBe(false);
+		const next = await sessions.run(base);
+		expect(next.notice).toBe(SANDBOX_RESTARTED_NOTICE);
+	});
+
 	it("is released when its answer cannot be read", async () => {
 		const { api, sessions, state } = fake();
 		state.replies.push({ nonsense: true });

@@ -325,10 +325,13 @@ export class SandboxSessions {
 			const notice = session.pendingRestart ? SANDBOX_RESTARTED_NOTICE : undefined;
 			session.pendingRestart = false;
 			const reply = parseReply(exec);
-			if (exec.timed_out || reply.unparsed) {
-				// The sandbox could not be made to stop, or answered with nothing we can read: its
-				// interpreter's state is not to be trusted. Give it back; the next call gets a fresh
-				// container, and tells the model so.
+			const replyTimedOut =
+				reply.timeout !== null && reply.timeout !== undefined && reply.timeout !== false;
+			if (exec.timed_out || reply.unparsed || replyTimedOut) {
+				// The sandbox could not be made to stop, answered with nothing we can read, or ran out
+				// of time: whatever the code started (a child in its own session, a tampered pidfile)
+				// may still be running. Give it back; the next call gets a fresh container, and tells
+				// the model so.
 				await this.release(request.conversationId);
 				return { reply, outputs: [], skipped: [], ...(notice ? { notice } : {}) };
 			}

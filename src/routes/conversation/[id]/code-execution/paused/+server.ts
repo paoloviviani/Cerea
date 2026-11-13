@@ -38,6 +38,13 @@ export const POST: RequestHandler = async ({ params, locals, request }) => {
 	const parsed = bodySchema.safeParse(await request.json().catch(() => null));
 	if (!parsed.success) error(400, "Invalid pause signal");
 
+	// A server-sandbox run is paced by the server alone: a page must not stretch its deadline.
+	const park = await collections.parkedCalls.findOne(
+		{ parkedCallId: parsed.data.executionId, conversationId, kind: "code" },
+		{ projection: { runner: 1 } }
+	);
+	if (park?.runner === "server") error(409, "This run belongs to the server sandbox.");
+
 	const result = await backend.pause(conversationId, parsed.data.executionId);
 	if (!result.ok) error(result.status, result.error);
 	return json({ ok: true, resumeAt: result.resumeAt.getTime() });
