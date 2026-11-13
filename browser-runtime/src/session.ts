@@ -530,7 +530,13 @@ export class BrowserSession {
 	private touch(): void {
 		this.live.refreshBanner();
 		clearTimeout(this.idleTimer);
-		this.idleTimer = setTimeout(() => void this.endTask(), this.options.idleMs ?? DEFAULT_IDLE_MS);
+		// While the user has the page, the quiet is theirs (a takeover can be long, and what they do
+		// reaches the page, not this runtime): the idle close waits for the hand-back.
+		if (this.live.paused) return;
+		this.idleTimer = setTimeout(() => {
+			if (this.live.paused) return;
+			void this.endTask();
+		}, this.options.idleMs ?? DEFAULT_IDLE_MS);
 		this.idleTimer.unref();
 	}
 

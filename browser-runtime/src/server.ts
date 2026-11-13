@@ -243,7 +243,7 @@ export function createToolHandler(session: BrowserSession) {
 					const action = asObject(rawArgs).action;
 					if (action === "takeover") return json(session.live.takeover("cerea"));
 					if (action === "handback") return json(session.live.handback());
-					return json(session.live.control());
+					return json(session.live.poll());
 				}
 				case "screencast": {
 					const args = asObject(rawArgs);

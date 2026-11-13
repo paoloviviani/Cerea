@@ -213,6 +213,85 @@ describe("screencast: frames on repaint, acked, stopped", () => {
 	});
 });
 
+describe("screencast credit survives lost acks", () => {
+	let r: Rig;
+	const frames: Frame[] = [];
+	const repaint = () =>
+		r.session.withPage((page) =>
+			page.evaluate(() => {
+				document.body.style.background = `hsl(${Math.floor(Math.random() * 360)} 50% 50%)`;
+			})
+		);
+	before(async () => {
+		r = await rig({
+			live: { maxInFlight: 2, minFrameMs: 20, viewerTimeoutMs: 20_000, creditAfterMs: 400 },
+		});
+		await r.goto("/pad");
+		r.session.live.setSink((f) => frames.push(f));
+	});
+	after(() => r.close());
+
+	it("grants credit again when no ack comes for a while", async () => {
+		await r.call("screencast", { action: "start", width: 640 });
+		await until("two frames", () => frames.length >= 2);
+		const n = frames.length;
+		await repaint();
+		await sleep(150);
+		assert.equal(frames.length, n, "held while out of credit");
+		await sleep(400);
+		await repaint();
+		await until("a frame after the credit came back", () => frames.length > n);
+	});
+
+	it("restores credit on the keepalive start", async () => {
+		const n = frames.length;
+		// Use up the credit again, with the timer made irrelevant by a long wait for it.
+		await until("credit used", async () => {
+			await repaint();
+			return frames.length >= n + 2;
+		});
+		const m = frames.length;
+		await r.call("screencast", { action: "start", width: 640 });
+		await repaint();
+		await until("a frame after the keepalive", async () => {
+			await repaint();
+			return frames.length > m;
+		});
+	});
+});
+
+describe("the idle close does not end a takeover or a watched stream", () => {
+	let r: Rig;
+	before(async () => {
+		r = await rig({ idleMs: 700, live: { minFrameMs: 20 } });
+		await r.goto("/pad");
+		r.session.live.setSink(() => {});
+	});
+	after(() => r.close());
+
+	it("waits out a quiet takeover, then closes after the hand back", async () => {
+		const page = await r.session.withPage(async (p) => p);
+		await r.call("control", { action: "takeover" });
+		await sleep(1_500);
+		assert.equal(page.isClosed(), false);
+		await r.call("control", { action: "handback" });
+		await until("the idle close", () => page.isClosed(), 3_000);
+	});
+
+	it("counts a viewer's acks and state polls as activity", async () => {
+		await r.goto("/pad");
+		const page = await r.session.withPage(async (p) => p);
+		await r.call("screencast", { action: "start" });
+		for (let i = 0; i < 8; i += 1) {
+			await r.call("screencast", { action: "ack", seq: 0 });
+			await r.call("control", { action: "state" });
+			await sleep(200);
+		}
+		assert.equal(page.isClosed(), false);
+		await r.call("screencast", { action: "stop" });
+	});
+});
+
 describe("banner: in the window, not in the agent's view", () => {
 	let r: Rig;
 	before(async () => {
@@ -286,6 +365,114 @@ describe("banner: in the window, not in the agent's view", () => {
 		assert.deepEqual(outcome.globals, []);
 		await sleep(200);
 		assert.equal(r.session.live.paused, false);
+	});
+
+	it("a page stylesheet cannot hide, fade, move or clip it, and it still works", async () => {
+		await r.snapshot();
+		await until("the banner", present);
+		await r.session.withPage((page) =>
+			page.addStyleTag({
+				content:
+					"[popover],div,body *{opacity:0!important;visibility:hidden!important;translate:4000px 0!important;scale:0!important;rotate:90deg!important;filter:blur(20px)!important;clip-path:inset(100%)!important;transform:translateY(-9000px)!important;display:none!important}",
+			})
+		);
+		await r.snapshot();
+		const style = await r.session.withPage((page) =>
+			page.evaluate((sel) => {
+				const cs = getComputedStyle(document.querySelector(sel)!);
+				const rect = document.querySelector(sel)!.getBoundingClientRect();
+				return {
+					opacity: cs.opacity,
+					visibility: cs.visibility,
+					display: cs.display,
+					transform: cs.transform,
+					translate: cs.translate,
+					filter: cs.filter,
+					clipPath: cs.clipPath,
+					onScreen: rect.top >= 0 && rect.bottom <= innerHeight && rect.left >= 0,
+				};
+			}, selector())
+		);
+		assert.deepEqual(style, {
+			opacity: "1",
+			visibility: "visible",
+			display: "block",
+			transform: "none",
+			translate: "none",
+			filter: "none",
+			clipPath: "none",
+			onScreen: true,
+		});
+		const at = await buttonAt();
+		await r.session.withPage((page) => page.mouse.click(at.x, at.y));
+		await until("takeover", () => r.session.live.paused);
+		r.session.live.handback();
+	});
+
+	it("refuses a click when a page script has faded or moved the bar itself", async () => {
+		await r.snapshot();
+		await until("the banner", present);
+		const at = await buttonAt();
+		for (const [prop, value] of [
+			["opacity", "0"],
+			["filter", "opacity(0)"],
+			["clip-path", "inset(100%)"],
+		] as const) {
+			await r.session.withPage((page) =>
+				page.evaluate(
+					([sel, p, v]) =>
+						(document.querySelector(sel!) as HTMLElement).style.setProperty(p!, v!, "important"),
+					[selector(), prop, value]
+				)
+			);
+			await r.session.withPage((page) => page.mouse.click(at.x, at.y));
+			await sleep(250);
+			assert.equal(r.session.live.paused, false, `${prop} must refuse the click`);
+			await r.session.withPage((page) =>
+				page.evaluate(
+					([sel, p]) => (document.querySelector(sel!) as HTMLElement).style.removeProperty(p!),
+					[selector(), prop]
+				)
+			);
+			// A refused click on a pinned property: the pin itself is gone, so put the bar back.
+			await r.session.withPage((page) =>
+				page.evaluate((sel) => document.querySelector(sel)!.remove(), selector())
+			);
+			await r.snapshot();
+			await until("the banner again", present);
+		}
+		// And the untouched bar still works.
+		const again = await buttonAt();
+		await r.session.withPage((page) => page.mouse.click(again.x, again.y));
+		await until("takeover", () => r.session.live.paused);
+		r.session.live.handback();
+	});
+
+	it("is only in the main frame, not in frames inside the page", async () => {
+		await r.session.withPage((page) =>
+			page.evaluate(
+				() =>
+					new Promise<void>((resolve) => {
+						const f = document.createElement("iframe");
+						f.src = "/title?t=Sub";
+						f.onload = () => resolve();
+						document.body.appendChild(f);
+					})
+			)
+		);
+		await r.snapshot();
+		await sleep(400);
+		await r.snapshot();
+		await sleep(300);
+		const counts = await r.session.withPage((page) =>
+			Promise.all(
+				page
+					.frames()
+					.map((f) => f.evaluate((sel) => document.querySelectorAll(sel).length, selector()))
+			)
+		);
+		assert.equal(counts.length, 2);
+		assert.deepEqual(counts.sort(), [0, 1]);
 	});
 
 	it("goes with the task", async () => {

@@ -1,4 +1,4 @@
-// cerea-browser runtime 0.1.0; source-hash: 2e1a7986cbae4c0960ad5f8e821db2d3c4f593dbf2648f1692b030134bb1bd36
+// cerea-browser runtime 0.1.0; source-hash: e09c549e3905085ad206200f89615d0a71d0dc17fc93176cff2a2d73fb29542c
 // inlined: @hono/node-server@2.1.8 @modelcontextprotocol/sdk@1.32.2 ajv@8.20.0 ajv-formats@3.0.1 content-type@1.0.5 fast-deep-equal@3.1.3 fast-uri@3.1.9 hono@4.13.18 json-schema-traverse@1.0.0 tldts@7.4.26 zod@3.25.76 zod-to-json-schema@3.25.2
 import { createRequire as __cr } from "node:module";
 const require = __cr(import.meta.url);
@@ -22037,6 +22037,11 @@ var LiveView = class {
   control() {
     return { ...this.state };
   }
+  /** The viewer asked who has the page: proof it is there, so the task is not idle. */
+  poll() {
+    this.host.touch();
+    return this.control();
+  }
   /** The user takes the page. Idempotent. */
   takeover(source) {
     if (this.state.controller !== "user") {
@@ -22100,6 +22105,8 @@ var LiveView = class {
       Math.min(90, Math.max(30, finite(request.quality, 100) ? request.quality : 60))
     );
     this.want = { width, quality };
+    this.acked = this.lastSent;
+    this.host.touch();
     this.heartbeat();
     const page = this.host.activePage();
     if (!page) return;
@@ -22110,7 +22117,10 @@ var LiveView = class {
   /** The viewer shows frames up to `seq`: credit for more, and proof it is still there. */
   ackFrame(seq) {
     if (Number.isFinite(seq) && seq > this.acked) this.acked = Math.min(seq, this.seq);
+    this.host.touch();
     this.heartbeat();
+    clearTimeout(this.ackTimer);
+    this.ackTimer = void 0;
     this.flush();
   }
   async stopScreencast() {
@@ -22118,6 +22128,7 @@ var LiveView = class {
     clearTimeout(this.viewerTimer);
     clearTimeout(this.ackTimer);
     this.followTimer = this.viewerTimer = this.ackTimer = void 0;
+    this.acked = this.lastSent;
     this.want = void 0;
     this.latest = void 0;
     const cast = this.cast;
@@ -22191,7 +22202,15 @@ var LiveView = class {
   flush() {
     const frame = this.latest;
     if (!frame || !this.sink) return;
-    if (this.lastSent - this.acked >= (this.options.maxInFlight ?? 3)) return;
+    if (this.lastSent - this.acked >= (this.options.maxInFlight ?? 3)) {
+      this.ackTimer ??= setTimeout(() => {
+        this.ackTimer = void 0;
+        this.acked = this.lastSent;
+        this.flush();
+      }, this.options.creditAfterMs ?? 2e3);
+      this.ackTimer.unref();
+      return;
+    }
     this.latest = void 0;
     this.lastSent = frame.seq;
     try {
@@ -22325,14 +22344,20 @@ var Banner = class {
   attr = `data-cb-${randomBytes(6).toString("hex")}`;
   pages = /* @__PURE__ */ new Map();
   hostSelector = `[${this.attr}]`;
-  hideCss = `${this.hostSelector}{visibility:hidden!important;display:none!important}`;
+  /** The host's display is `var(--hide, block)` inline, so only this (not a page rule) can hide it. */
+  hideVar = `--cb-${randomBytes(6).toString("hex")}`;
+  hideCss = `${this.hostSelector}{${this.hideVar}:none!important}`;
   live;
   constructor(live) {
     this.live = live;
   }
   async install(page, host) {
     if (this.pages.has(page)) return;
-    const entry = { cdp: void 0, contexts: /* @__PURE__ */ new Set() };
+    const entry = {
+      cdp: void 0,
+      contexts: /* @__PURE__ */ new Set(),
+      main: void 0
+    };
     this.pages.set(page, entry);
     page.once("close", () => this.pages.delete(page));
     try {
@@ -22342,8 +22367,11 @@ var Banner = class {
       entry.cdp = cdp;
       cdp.on("Runtime.executionContextCreated", (ev) => {
         if (ev.context.name !== this.world || ev.context.auxData?.isDefault !== false) return;
-        entry.contexts.add(ev.context.id);
-        void this.apply(page, entry, ev.context.id, host);
+        void this.isMainFrame(entry, ev.context.auxData?.frameId).then((main) => {
+          if (!main) return;
+          entry.contexts.add(ev.context.id);
+          void this.apply(page, entry, ev.context.id, host);
+        });
       });
       cdp.on("Runtime.executionContextDestroyed", (ev) => {
         entry.contexts.delete(ev.executionContextId);
@@ -22365,6 +22393,18 @@ var Banner = class {
       });
     } catch {
     }
+  }
+  /** Is `frameId` the page's main frame? Asks the browser when it is not the one last seen. */
+  async isMainFrame(entry, frameId) {
+    if (!frameId) return false;
+    if (frameId === entry.main) return true;
+    try {
+      const tree = await entry.cdp.send("Page.getFrameTree");
+      entry.main = tree.frameTree.frame.id;
+    } catch {
+      return false;
+    }
+    return frameId === entry.main;
   }
   onClick(payload) {
     let action;
@@ -22401,9 +22441,29 @@ var Banner = class {
   script() {
     return `(() => {
 	if (globalThis.__ceraBanner) return;
+	if (window.top !== window) return;
 	const text = {
 		agent: ["Cerea is using this window", "Take over", "takeover"],
 		user: ["You are in control", "Hand back", "handback"],
+	};
+	// Pinned inline with !important: a page stylesheet cannot hide, fade, move or clip the bar (it
+	// is centred with margins, not a transform, so "no transform" is the one right value).
+	const HOST_STYLE = "position:fixed!important;display:var(${this.hideVar},block)!important;inset:auto 0 12px 0!important;width:max-content!important;height:auto!important;max-width:100vw!important;margin:0 auto!important;border:0!important;padding:0!important;background:transparent!important;overflow:visible!important;z-index:2147483647!important;opacity:1!important;visibility:visible!important;transform:none!important;translate:none!important;scale:none!important;rotate:none!important;filter:none!important;clip-path:none!important;mask:none!important;pointer-events:auto!important;";
+	// A script of the page can still rewrite the host's own style: so the click is acted on only when
+	// the bar really is what the user saw (visible, opaque, unmoved, on screen).
+	const intact = () => {
+		if (!host || !host.isConnected) return false;
+		try {
+			if (!host.checkVisibility({ opacityProperty: true, visibilityProperty: true, checkOpacity: true, checkVisibilityCSS: true })) return false;
+		} catch { return false; }
+		const cs = getComputedStyle(host);
+		if (cs.opacity !== "1" || cs.visibility !== "visible" || cs.display === "none") return false;
+		for (const p of ["transform", "translate", "scale", "rotate", "filter", "clipPath", "mask"]) {
+			const v = cs[p];
+			if (v && v !== "none") return false;
+		}
+		const r = host.getBoundingClientRect();
+		return r.width > 0 && r.height > 0 && r.left >= 0 && r.top >= 0 && r.right <= window.innerWidth + 1 && r.bottom <= window.innerHeight + 1;
 	};
 	let host = null;
 	const build = (mode) => {
@@ -22411,14 +22471,14 @@ var Banner = class {
 			host = document.createElement("div");
 			host.setAttribute(${JSON.stringify(this.attr)}, "");
 			host.setAttribute("popover", "manual");
-			host.style.cssText = "position:fixed!important;inset:auto auto 12px 50%!important;transform:translateX(-50%)!important;margin:0!important;border:0!important;padding:0!important;background:transparent!important;overflow:visible!important;z-index:2147483647!important;";
+			host.style.cssText = HOST_STYLE;
 			const root = host.attachShadow({ mode: "closed" });
 			root.innerHTML = '<style>.b{font:13px/1.2 system-ui,sans-serif;display:flex;align-items:center;gap:10px;background:#1f2937;color:#fff;border-radius:999px;padding:6px 6px 6px 14px;box-shadow:0 2px 10px rgba(0,0,0,.35)}button{font:inherit;cursor:pointer;border:0;border-radius:999px;padding:5px 12px;background:#fff;color:#111827}</style><div class="b"><span></span><button type="button"></button></div>';
 			const span = root.querySelector("span");
 			const button = root.querySelector("button");
 			host.__set = (m) => { span.textContent = text[m][0]; button.textContent = text[m][1]; button.dataset.a = text[m][2]; };
 			button.addEventListener("click", (ev) => {
-				if (!ev.isTrusted) return;
+				if (!ev.isTrusted || !intact()) return;
 				const call = globalThis[${JSON.stringify(this.binding)}];
 				if (typeof call === "function") call(JSON.stringify({ a: button.dataset.a }));
 			}, true);
@@ -22662,7 +22722,7 @@ function createToolHandler(session2) {
           const action = asObject(rawArgs).action;
           if (action === "takeover") return json2(session2.live.takeover("cerea"));
           if (action === "handback") return json2(session2.live.handback());
-          return json2(session2.live.control());
+          return json2(session2.live.poll());
         }
         case "screencast": {
           const args = asObject(rawArgs);
@@ -24085,7 +24145,11 @@ var BrowserSession = class {
   touch() {
     this.live.refreshBanner();
     clearTimeout(this.idleTimer);
-    this.idleTimer = setTimeout(() => void this.endTask(), this.options.idleMs ?? DEFAULT_IDLE_MS);
+    if (this.live.paused) return;
+    this.idleTimer = setTimeout(() => {
+      if (this.live.paused) return;
+      void this.endTask();
+    }, this.options.idleMs ?? DEFAULT_IDLE_MS);
     this.idleTimer.unref();
   }
   /**

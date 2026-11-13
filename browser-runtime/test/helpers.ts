@@ -86,7 +86,12 @@ export async function rig(
 		idleMs?: number;
 		pace?: { minMs: number; maxMs: number };
 		banner?: boolean;
-		live?: { maxInFlight?: number; minFrameMs?: number; viewerTimeoutMs?: number };
+		live?: {
+			maxInFlight?: number;
+			minFrameMs?: number;
+			viewerTimeoutMs?: number;
+			creditAfterMs?: number;
+		};
 	} = {}
 ): Promise<Rig> {
 	const fx = await startFixtures();
