@@ -1,0 +1,23 @@
+{
+	"_meta": {
+		"spec": "§5 Machine calls",
+		"direction": "M→C",
+		"op": "memory.save"
+	},
+	"frame": {
+		"type": "call",
+		"id": "c1",
+		"op": "memory.save",
+		"sessionId": "ses_02",
+		"rootSessionId": "ses_01",
+		"caller": {
+			"workspaceId": "ws_01",
+			"permissionMode": "ask",
+			"coordination": []
+		},
+		"args": {
+			"scope": "workspace",
+			"text": "Use pnpm, not npm."
+		}
+	}
+}

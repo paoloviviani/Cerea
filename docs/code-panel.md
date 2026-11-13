@@ -406,6 +406,33 @@ The **Agents** option of the sidebar's Chats | Recent | Agents switch carries a 
 badge while asks are pending (that badge is all: there is no separate "Needs you"
 line in the sidebar). Push notifications (below) are unchanged.
 
+## Notes an agent keeps
+
+An agent can keep short notes for itself, so it does not lose a convention or a
+decision when its context is compacted. There are two lists, and only two:
+
+- **This session**: notes for one agent session. They survive the agent's
+  context being compacted and the session being restarted, and are deleted with
+  the session.
+- **This workspace**: notes for one folder on one computer, read by every
+  session in it. They are deleted when the workspace is removed (and all of a
+  computer's notes when you remove the computer).
+
+The agent uses three tools, `memory_list`, `memory_save` and `memory_forget`;
+none asks for approval, because a note is one short line that you can see and
+delete. Open **Notes** in the session's header to read them, edit them, delete
+them or add your own.
+
+What an agent **cannot** do, and Cerea enforces it on the server rather than
+trusting the agent: it cannot read or write your personal memory, a project's
+memory or a chat's notes, and your chats never read an agent's notes. Notes do
+not cross computers or users.
+
+An agent may write a note after reading code it does not control, so a note is
+only a note: the list says so, and a note never has the authority of one of
+your instructions. Delete anything odd. Switching memory off for the deployment
+(`CHAT_MEMORY_ENABLED=false`) also switches agent notes off.
+
 ## Notifications for agents
 
 With Web Push set up ([Notifications](notifications.md#for-operators): the

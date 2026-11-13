@@ -10,7 +10,15 @@ export const SIDE_PANE_DEFAULT_FRACTION = "33vw";
 
 /** Which view owns the pane. One slot, so the views are mutually exclusive. */
 export type SidePaneView =
-	"artifact" | "trackio" | "library" | "preview" | "diff" | "files" | "terminal" | "tasks";
+	| "artifact"
+	| "trackio"
+	| "library"
+	| "preview"
+	| "diff"
+	| "files"
+	| "terminal"
+	| "tasks"
+	| "notes";
 
 /**
  * A one-shot rendered view of a single fence or file: no registry entry, no
@@ -225,6 +233,23 @@ class SidePaneStore {
 		this.view = "tasks";
 		this.open = true;
 		this.revealNonce += 1;
+	}
+
+	/** The agent's notes for this session and workspace (a view with no selection). */
+	openNotes() {
+		if (!this.mayLeaveFiles("notes")) return;
+		this.view = "notes";
+		this.open = true;
+		this.revealNonce += 1;
+	}
+
+	/** What the Notes button does: open, or close what it already opened. */
+	toggleNotes() {
+		if (this.open && this.view === "notes") {
+			this.close();
+			return;
+		}
+		this.openNotes();
 	}
 
 	/** What the Tasks button does: open, or close what it already opened. */

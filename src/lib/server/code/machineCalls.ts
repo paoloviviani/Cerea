@@ -29,6 +29,7 @@ import { codeSchedulesEnabled } from "$lib/server/codeEnabled";
 import { recordCodeAuditRow } from "$lib/server/code/audit";
 import { MachineLink } from "$lib/server/code/machines";
 import { CONNECTOR_CALL_OPS, handleConnectorCall } from "$lib/server/code/machineConnectors";
+import { handleMemoryCall, MEMORY_CALL_OPS } from "$lib/server/code/machineMemory";
 import "$lib/server/code/scheduleAgentExecutor";
 import { parseTarget, type AgentTarget } from "$lib/server/code/scheduleAgentExecutor";
 import {
@@ -56,7 +57,7 @@ import {
 import type { Schedule } from "$lib/types/Schedule";
 
 /** The op families `welcome.features.machineCalls` advertises. */
-export const MACHINE_CALL_FEATURES = ["schedule", "connector", "browser"];
+export const MACHINE_CALL_FEATURES = ["schedule", "connector", "browser", "memory"];
 
 export const MAX_ACTIVE_AGENT_SCHEDULES = 5;
 export const MAX_CALLS_PER_HOUR = 10;
@@ -492,7 +493,15 @@ async function opDelete(ctx: CallContext) {
 }
 
 const OPS: Record<
-	Exclude<MachineCallOp, "connector.list" | "connector.call" | "browser.key">,
+	Exclude<
+		MachineCallOp,
+		| "connector.list"
+		| "connector.call"
+		| "browser.key"
+		| "memory.list"
+		| "memory.save"
+		| "memory.forget"
+	>,
 	{ mutating: boolean; run: (ctx: CallContext) => Promise<unknown> }
 > = {
 	"schedule.context": { mutating: false, run: opContext },
@@ -528,6 +537,8 @@ export async function handleMachineCall(deviceId: string, frame: CallFrame): Pro
 	// The connector family (ADR 0108, item 3) is its own handler: it has no schedules kill switch
 	// and no serialising queue, and its rules are the connector resolver's.
 	if (CONNECTOR_CALL_OPS.includes(frame.op)) return handleConnectorCall(deviceId, frame);
+	// The memory family: an agent's notes for its session or workspace; never a chat scope.
+	if (MEMORY_CALL_OPS.includes(frame.op)) return handleMemoryCall(deviceId, frame);
 	// The browser family: the runtime fetches its grant-signing key (PROTOCOL.md 10.7).
 	if (BROWSER_CALL_OPS.includes(frame.op)) return handleBrowserCall(deviceId, frame);
 	const op = Object.hasOwn(OPS, frame.op) ? OPS[frame.op as keyof typeof OPS] : undefined;

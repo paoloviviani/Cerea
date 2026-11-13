@@ -410,6 +410,19 @@ a click on the approval card creates. Coordination between agents is a grant.
 
 Full reference: [docs/dev/schedules.md](docs/dev/schedules.md).
 
+### Memory: scopes, notes and the prompt cache
+
+One `Scope` abstraction (`src/lib/server/memory/service.ts`) serves personal,
+project, **chat** (`conversationMemories`) and **agent** (`agentMemories`) notes.
+`remember`/`forget` take `scope: conversation | project | global`; global needs the
+user's words. Agents get only `session` and `workspace` through the `memory` machine
+call, and are refused every chat scope server-side. **Prompt-cache rule:** nothing
+that changes mid-chat may sit before the newest user message: personal and project
+memory are a per-chat snapshot in the system prompt, and chat notes plus later
+writes go in the tail (`memory/tail.ts`, `injectConversationNotes`).
+
+Full reference: [docs/dev/scoped-memory.md](docs/dev/scoped-memory.md).
+
 ### Document tools
 
 `doc_outline`, `doc_read`, `doc_edit`, `doc_create`, `doc_create_from_template`

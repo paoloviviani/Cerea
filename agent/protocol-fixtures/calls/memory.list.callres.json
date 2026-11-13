@@ -1,0 +1,28 @@
+{
+	"_meta": {
+		"spec": "§5 Machine calls",
+		"direction": "C→M",
+		"op": "memory.list"
+	},
+	"frame": {
+		"type": "callres",
+		"id": "c1",
+		"ok": true,
+		"result": {
+			"session": [
+				{
+					"id": "65f1a2b3c4d5e6f708192a3c",
+					"text": "The tests need the database running.",
+					"source": "agent"
+				}
+			],
+			"workspace": [
+				{
+					"id": "65f1a2b3c4d5e6f708192a3d",
+					"text": "Use pnpm, not npm.",
+					"source": "user"
+				}
+			]
+		}
+	}
+}

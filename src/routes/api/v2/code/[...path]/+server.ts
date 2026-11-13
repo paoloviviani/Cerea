@@ -39,6 +39,7 @@ import { mintTerminalTicket } from "$lib/server/code/terminalTickets";
 import { allowsModel, filterModels } from "$lib/server/code/modelPolicy";
 import { buildHandoffHistory } from "$lib/server/code/handoff";
 import { logger } from "$lib/server/logger";
+import { deleteAgentSessionNotes, deleteAgentWorkspaceNotes } from "$lib/server/memory/service";
 import { promptAttachments } from "$lib/server/code/promptAttachments";
 import {
 	MAX_TOOL_IMAGE_BYTES,
@@ -1572,6 +1573,12 @@ export const POST: RequestHandler = async (event) => {
 				...(parsed.data.force ? { force: true } : {}),
 			})
 		);
+		// A removed workspace takes its notes with it.
+		await deleteAgentWorkspaceNotes(
+			device.userId,
+			device._id.toString(),
+			decodeURIComponent(archiveWorkspaceMatch[1])
+		).catch((err) => logger.error({ err }, "failed to delete a removed workspace's agent notes"));
 		return superjsonResponse({ ok: true });
 	}
 
@@ -1639,6 +1646,10 @@ export const DELETE: RequestHandler = async (event) => {
 	// The session is gone on the machine; what it was sent goes with it.
 	await deleteAttachments(codeAttachmentKey(device._id.toHexString(), sessionId)).catch((err) =>
 		logger.error({ err, sessionId }, "failed to delete a deleted session's attachments")
+	);
+	// ...and so do the notes its agent kept for it.
+	await deleteAgentSessionNotes(device.userId, deviceId, sessionId).catch((err) =>
+		logger.error({ err, sessionId }, "failed to delete a deleted session's agent notes")
 	);
 	return superjsonResponse({ ok: true });
 };

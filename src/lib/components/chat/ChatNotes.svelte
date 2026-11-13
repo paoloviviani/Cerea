@@ -39,7 +39,7 @@
 
 	const root = $derived(`${base}/api/v2/conversations/${conversationId}/memory`);
 
-	async function call(url: string, init?: RequestInit) {
+	async function call(url: string, init?: Parameters<typeof fetch>[1]) {
 		const response = await fetch(url, init);
 		if (!response.ok) {
 			const parsed = await response.json().catch(() => null);

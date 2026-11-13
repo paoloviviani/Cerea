@@ -115,6 +115,8 @@
 	import CodeFiles from "./CodeFiles.svelte";
 	import CodeTerminals from "./CodeTerminals.svelte";
 	import CodeTasks from "./CodeTasks.svelte";
+	import AgentNotes from "./AgentNotes.svelte";
+	import { listAgentNotes } from "$lib/agentNotesApi";
 	import { latestPlan, planIsActive, planKey, planProgress } from "$lib/utils/codeTasks";
 	import AskQuestion from "$lib/components/chat/AskQuestion.svelte";
 	import { firstQuestionFor } from "$lib/stores/pendingQuestion";
@@ -1124,6 +1126,29 @@
 
 	/** The panels the header offers, with their live figures. */
 	let changesCount = $state<number | null>(null);
+	/** Notes the agent keeps for this session and workspace; read when the screen opens and after each turn. */
+	let notesCount = $state(0);
+	let notesOffered = $derived((page.data as { memoryEnabled?: boolean }).memoryEnabled !== false);
+	async function refreshNotesCount() {
+		if (!notesOffered) return;
+		try {
+			const wsId = workspace?.id ?? workspaceId;
+			const lists = await Promise.all([
+				listAgentNotes({ deviceId, scope: "session", key: agentId }),
+				wsId ? listAgentNotes({ deviceId, scope: "workspace", key: wsId }) : Promise.resolve([]),
+			]);
+			notesCount = lists[0].length + lists[1].length;
+		} catch {
+			// The badge is a convenience; the view reports its own failures.
+		}
+	}
+	$effect(() => {
+		void deviceId;
+		void agentId;
+		void workspace?.id;
+		void sessionBusy;
+		if (!sessionBusy) void refreshNotesCount();
+	});
 	let paneItems = $derived.by<PaneItem[]>(() => {
 		const items: PaneItem[] = [
 			{
@@ -1140,6 +1165,21 @@
 				title: m["code.view.tasks_title"](),
 				pressed: sidePane.open && sidePane.view === "tasks",
 			},
+			...(notesOffered
+				? [
+						{
+							id: "notes" as const,
+							word: m["code.view.notes"](),
+							label:
+								notesCount > 0
+									? m["code.view.notes_progress"]({ count: notesCount })
+									: m["code.view.notes"](),
+							badge: notesCount > 0 ? String(notesCount) : undefined,
+							title: m["code.view.notes_title"](),
+							pressed: sidePane.open && sidePane.view === "notes",
+						},
+					]
+				: []),
 			{
 				id: "diff",
 				word: m["code.view.changes"](),
@@ -1183,6 +1223,7 @@
 	}
 	function selectPane(id: PaneId) {
 		if (id === "tasks") sidePane.toggleTasks();
+		else if (id === "notes") sidePane.toggleNotes();
 		else if (id === "diff") sidePane.toggleDiff();
 		else if (id === "files") sidePane.toggleFiles();
 		else sidePane.toggleTerminal();
@@ -1627,6 +1668,15 @@
 		{#if sidePane.open && sidePane.view === "tasks"}
 			<SidePane label={m["code.view.tasks"]()} title={m["code.view.tasks"]()}>
 				<CodeTasks plan={latestTasks} />
+			</SidePane>
+		{:else if sidePane.open && sidePane.view === "notes"}
+			<SidePane label={m["code.view.notes"]()} title={m["code.view.notes"]()}>
+				<AgentNotes
+					{deviceId}
+					sessionId={agentId}
+					workspaceId={workspace?.id ?? workspaceId}
+					oncount={(count) => (notesCount = count)}
+				/>
 			</SidePane>
 		{:else if sidePane.open && sidePane.view === "diff"}
 			<SidePane label={m["code.view.changes_label"]()} title={m["code.view.changes"]()}>
