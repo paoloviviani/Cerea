@@ -15,13 +15,15 @@ export const RESULT_LIMIT = 900_000;
 export const WIRE_BUDGET = 700_000;
 /** The most base64 characters of one screenshot. */
 export const SCREENSHOT_LIMIT = 700_000;
-/** The most base64 characters of the files of one `download` result (they travel twice). */
-export const DOWNLOAD_BASE64_LIMIT = 300_000;
 
 /** The size of a value on the wire. */
 export type Measure = (value: object) => number;
 
 export const bytesOf = (value: unknown): number => Buffer.byteLength(JSON.stringify(value));
+
+/** The size of a JSON tool result on the wire: both copies of it, the text one escaped. */
+export const wire: Measure = (value) =>
+	bytesOf({ content: [{ type: "text", text: JSON.stringify(value) }], structuredContent: value });
 
 export const SNAPSHOT_NOTE =
 	"[truncated: this page is larger than one result can carry. Scroll to the part you need, use extract for tables and lists, or narrow down with a smaller region.]";
@@ -131,22 +133,25 @@ export function boundExtract(
 	for (let guard = 0; guard < 200; guard++) {
 		const out = build();
 		if (measure(out) <= budget) return out;
-		// Cut the biggest part by a third.
-		let biggest: { size: number; cut: () => void } | undefined;
-		const consider = (size: number, cut: () => void) => {
-			if (!biggest || size > biggest.size) biggest = { size, cut };
-		};
-		for (const t of tables)
-			consider(bytesOf(t.rows), () => void (t.rows.length = Math.floor(t.rows.length * 0.67)));
-		for (const l of lists)
-			consider(bytesOf(l.items), () => void (l.items.length = Math.floor(l.items.length * 0.67)));
-		if (text !== undefined)
-			consider(
-				Buffer.byteLength(text),
-				() => void (text = cutText(text!, Math.floor(Buffer.byteLength(text!) * 0.67)))
-			);
-		if (!biggest || biggest.size < 50) break;
-		biggest.cut();
+		// Cut every part by a quarter, so many big tables share the room (none ends up empty
+		// while another keeps everything) and each keeps at least one row.
+		let cut = false;
+		const shrink = (n: number) => (n > 1 ? Math.max(1, Math.floor(n * 0.75)) : n);
+		for (const t of tables) {
+			const n = shrink(t.rows.length);
+			cut ||= n < t.rows.length;
+			t.rows.length = n;
+		}
+		for (const l of lists) {
+			const n = shrink(l.items.length);
+			cut ||= n < l.items.length;
+			l.items.length = n;
+		}
+		if (text !== undefined && Buffer.byteLength(text) > 50) {
+			text = cutText(text, Math.floor(Buffer.byteLength(text) * 0.75));
+			cut = true;
+		}
+		if (!cut) break;
 	}
 	return { ...build(), tables: [], lists: [], text: undefined };
 }

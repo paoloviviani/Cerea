@@ -1205,6 +1205,7 @@ describe("L5: extract and screenshot look at the URL first", () => {
 describe("L7: the lease is checked before each act", () => {
 	it("stops with lease_lost, and runs nothing, when the machine is not this task's any more", async () => {
 		let held = true;
+		let checks = 0;
 		const { deps, runtime } = setup({
 			script: [
 				callTurn("act", { actions: [{ type: "scroll", direction: "down" }] }),
@@ -1214,7 +1215,7 @@ describe("L7: the lease is checked before each act", () => {
 			deps: {
 				leaseHeld: async () => {
 					const now = held;
-					held = false; // lost after the first act
+					if (++checks >= 2) held = false; // the start check, then the first act: lost after it
 					return now;
 				},
 			},
@@ -1225,6 +1226,16 @@ describe("L7: the lease is checked before each act", () => {
 		// Another task holds the browser now: this one ends nothing more of its (the one end is
 		// the clean start, before any act).
 		expect(runtime.ended).toBe(1);
+	});
+
+	it("a task that has lost the lease ends nothing, not even at the clean start", async () => {
+		const { deps, runtime } = setup({
+			script: [answerTurn("never")],
+			deps: { leaseHeld: async () => false },
+		});
+		const result = await runBrowseLoop({ goal: "scroll" }, deps);
+		expect(result.stopped_reason).toBe("lease_lost");
+		expect(runtime.calls.filter((c) => c.tool === "end_task")).toHaveLength(0);
 	});
 
 	it("does not ask when there is nothing to check", async () => {

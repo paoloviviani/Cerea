@@ -71,6 +71,7 @@ func (c *channel) start(ctx context.Context) *OpenError {
 		// channel's client sends its own initialize, which the server answers
 		// afresh; nothing in the process is restarted.
 		c.tr = c.adopt.sc
+		c.gen = c.adopt.sc.gen.Add(1) // before the process can reach this channel
 		c.adopt.sc.rebind(c.sink())
 		c.adopt = nil
 		select {
@@ -84,6 +85,9 @@ func (c *channel) start(ctx context.Context) *OpenError {
 			return &OpenError{"unavailable", "cannot start " + e.Name + ": " + startError(err)}
 		}
 		c.tr = sc
+		if c.hub.keeps(e.Name) {
+			c.gen = sc.gen.Add(1)
+		}
 		select {
 		case <-sc.Done():
 			// It ended before it could be used: say why now, not as a closed
@@ -119,9 +123,6 @@ func (c *channel) start(ctx context.Context) *OpenError {
 	c.registered = true
 	early := c.early
 	c.idle = time.AfterFunc(c.idleFor(), func() { c.shutdown("idle", nil, true) })
-	if sc, ok := c.tr.(*stdioConn); ok && c.hub.keeps(e.Name) {
-		c.gen = sc.gen.Add(1)
-	}
 	c.mu.Unlock()
 	if sc, ok := c.tr.(*stdioConn); ok {
 		c.logf("connectors: %s: started (pid %d, channel %s)", e.Name, sc.Pid(), c.id)
@@ -270,6 +271,7 @@ func (c *channel) toServer(raw []byte) {
 	case c.queue <- raw:
 	default:
 		for _, id := range requestIDs(raw) {
+			c.answeredHere(c.clientID(id))
 			c.toCerea(rpcError(c.clientID(id), codeServerError, "the connector is busy: too many messages waiting"))
 		}
 	}
@@ -279,7 +281,8 @@ type msgHeader struct {
 	ID     json.RawMessage `json:"id"`
 	Method string          `json:"method"`
 	Params struct {
-		Name string `json:"name"`
+		Name      string          `json:"name"`
+		RequestID json.RawMessage `json:"requestId"`
 	} `json:"params"`
 }
 
@@ -315,6 +318,7 @@ func (c *channel) fromClient(raw []byte) {
 			if c.entry.AllowedTools != nil && !contains(c.entry.AllowedTools, tool) {
 				c.hub.cfg.Audit(c.entry.Name, tool, "refused")
 				if h.hasID() {
+					c.answeredHere(h.ID)
 					c.toCerea(rpcError(h.ID, -32001, "this tool is not allowed on this machine"))
 				}
 				continue
@@ -332,6 +336,10 @@ func (c *channel) fromClient(raw []byte) {
 				c.listIDs[string(h.ID)] = true
 				c.mu.Unlock()
 			}
+		}
+		if c.gen > 0 && h.Method == "notifications/cancelled" && len(h.Params.RequestID) > 0 {
+			m = setRequestID(m, wrapID(c.gen, h.Params.RequestID))
+			remapped = true
 		}
 		if c.gen > 0 && h.Method != "" && h.hasID() {
 			// A kept process outlives its channels: ids are made unique per generation
@@ -371,7 +379,9 @@ func (c *channel) oversizeFromClient(parts []json.RawMessage) {
 		}
 		c.logf("connectors: %s: dropping a %d-byte message from Cerea (limit %d)", c.entry.Name, len(m), MaxMessageBytes)
 		if h.Method != "" && h.hasID() {
-			c.toCerea(rpcError(c.clientID(h.ID), codeResponseLarge, tooLargeText(len(m))))
+			id := c.clientID(h.ID)
+			c.answeredHere(id)
+			c.toCerea(rpcError(id, codeResponseLarge, tooLargeText(len(m))))
 		}
 	}
 }
@@ -591,4 +601,33 @@ func (c *channel) unwrapResponses(raw []byte, parts []json.RawMessage) ([]byte, 
 		return b, out, true
 	}
 	return out[0], out, true
+}
+
+// answeredHere forgets a request this channel answered itself: no response will
+// come from the server for it.
+func (c *channel) answeredHere(id json.RawMessage) {
+	c.mu.Lock()
+	delete(c.reqIDs, string(id))
+	delete(c.callIDs, string(id))
+	delete(c.listIDs, string(id))
+	c.mu.Unlock()
+}
+
+// setRequestID returns a notifications/cancelled message with params.requestId replaced.
+func setRequestID(msg, id json.RawMessage) json.RawMessage {
+	var top map[string]json.RawMessage
+	if json.Unmarshal(msg, &top) != nil {
+		return msg
+	}
+	var params map[string]json.RawMessage
+	if json.Unmarshal(top["params"], &params) != nil {
+		return msg
+	}
+	params["requestId"] = id
+	top["params"], _ = json.Marshal(params)
+	out, err := json.Marshal(top)
+	if err != nil {
+		return msg
+	}
+	return out
 }

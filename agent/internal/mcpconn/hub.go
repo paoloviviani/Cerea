@@ -359,10 +359,6 @@ func (h *Hub) open(ctx context.Context, name string, setup func(*channel)) (*cha
 		}
 	}
 	h.mu.Unlock()
-	for _, ch := range retire {
-		ch.end("replaced", "closed", nil, true)
-		open--
-	}
 	switch {
 	case e == nil:
 		return nil, &OpenError{"not_found", "no connector named " + name}
@@ -372,7 +368,7 @@ func (h *Hub) open(ctx context.Context, name string, setup func(*channel)) (*cha
 		return nil, &OpenError{"forbidden", "the connector " + name + " is disabled on this machine"}
 	case e.Transport != TransportStdio && h.loginNeeded(e):
 		return nil, &OpenError{"forbidden", "the connector " + name + " needs a sign-in. " + loginSentence(name)}
-	case open >= h.limit(name):
+	case open >= h.limit(name) && len(retire) == 0:
 		return nil, &OpenError{"unavailable", fmt.Sprintf("the connector %s already has %d open channels", name, open)}
 	}
 	if e.Transport == TransportHTTP {
@@ -382,9 +378,17 @@ func (h *Hub) open(ctx context.Context, name string, setup func(*channel)) (*cha
 	}
 	if h.cfg.BeforeStart != nil && e.Transport == TransportStdio {
 		if oerr := h.cfg.BeforeStart(ctx, e); oerr != nil {
-			h.dropParkedNamed(name, "the key could not be refreshed")
+			// Only a refusal (no key on this machine) ends the kept process; a transient
+			// failure to fetch the key leaves it for the next try.
+			if oerr.Code == "forbidden" {
+				h.dropParkedNamed(name, "the key could not be refreshed")
+			}
 			return nil, oerr
 		}
+	}
+	// Retire the old channel only now that nothing can refuse the open any more.
+	for _, ch := range retire {
+		ch.end("replaced", "closed", nil, true)
 	}
 	ch := newChannel(h, e)
 	if p := h.takeParked(name, e); p != nil {
