@@ -13,7 +13,7 @@ const CONV = "conv-1";
 const choose = (
 	ready: Array<{ id: string; name: string }>,
 	store = memoryChoiceStore({ devices }),
-	extra: { conversationId?: string; hint?: string } = {}
+	extra: { conversationId?: string; hint?: string; userText?: string } = {}
 ) => chooseMachine({ userId, ready, store, ...extra });
 
 describe("which computer", () => {
