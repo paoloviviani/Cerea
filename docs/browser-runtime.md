@@ -136,6 +136,23 @@ used, and a page the task opened that leaves the site is reported, not followed.
 on one computer are refused by Cerea. If you also open the same profile in
 another Chromium, the runtime says the profile is already in use.
 
+## Watching and taking over
+
+While a browse task runs, you can watch its page in the chat and take it over
+(see "Live view and taking over" in the browser use page). On this computer that
+means two things:
+
+- The runtime streams the page's picture to Cerea through galopin whenever you
+  are watching, and stops when you are not. Nothing is kept on the way.
+- With a visible window (`galopin browser enable --headed`) a small bar shows
+  over the page the agent is using, **Cerea is using this window · Take over**.
+  Clicking it pauses the agent so you can use the window; **Hand back** in the
+  same bar lets it continue. The runtime keeps the bar out of the page's tree and
+  out of the agent's screenshots, and page scripts cannot click it.
+
+The agent stays paused for as long as you hold the page; a task you leave
+paused still ends after ten minutes with no activity, like any other.
+
 ## Sandbox
 
 Chromium runs in its own sandbox when the computer allows it. Some systems

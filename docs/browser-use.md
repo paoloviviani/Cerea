@@ -133,6 +133,31 @@ The browser itself does not emulate a window size: in a window you can see, page
 size, so a tab of yours is never resized. Only a browser with no window uses a default size
 (1280 by 800).
 
+### Live view and taking over
+
+While a task runs on a computer, the Browsing card shows a small **Live view**
+of its page. Click it to enlarge it to the whole screen, which also works on a
+phone. Only you, the owner of the chat, can watch it. The picture is sent only
+when the page changes, nothing is kept, and it stops as soon as you close the
+view, the task ends or the computer is taken by another task.
+
+**Take over** pauses the browsing agent: it reads nothing, does nothing, and the
+time you spend does not count toward its time budget. What you do in the live
+view (click, tap, scroll, type, use the phone keyboard) happens on the page as if
+you were at the computer, and is yours: it is not asked about or approved. **Hand
+back** lets the agent continue from a fresh look at the page as you leave it.
+Anything it does after that that commits still asks you first.
+
+If the computer shows the browser window, the runtime puts a small bar over the
+page the agent is using: **Cerea is using this window · Take over**. Clicking it
+pauses the agent the same way, so you can act in the window itself, and the bar
+then offers **Hand back**. The bar is not part of the page: the agent never sees
+it in a snapshot or a screenshot, and a page cannot click it or read it.
+
+A scheduled run can be watched but not taken over: nobody is there to hand it
+back. If the computer's galopin is older than this feature, the card shows no live
+view; update galopin there.
+
 ### Verifications
 
 A verification (a captcha or a bot check) is never solved by the model. The task
@@ -283,11 +308,29 @@ leaves for another site.
 
 - An approval waits inside the running turn. If the chat restarts while one is
   open, the task ends and the card shows it as expired.
-- Live view and taking over the browser, and replaying known tasks, are not part
-  of this release.
+- Taking over is sent as a stream of pictures (a dozen a second at most), good
+  for clicking and typing; a smoother video stream for longer sessions, marking
+  an area to tell the agent about, and replaying known tasks are not part of this
+  release.
 
 ## For developers
 
 The runtime contract (MCP tools: `snapshot`, `diff`, `act`, `extract`,
-`screenshot`, `download`, `tabs`, `open`, `resume`, `end_task`) is in `src/lib/server/browser/contract.ts`, with a fake
+`screenshot`, `download`, `tabs`, `open`, `resume`, `end_task`; and for the live view
+`control`, `screencast`, `input`, which only the live-view routes call) is in
+`src/lib/server/browser/contract.ts`, with a fake
 runtime for tests in `fakeRuntime.ts`. The design is ADR 0116.
+
+### The live view's path (phase 2a)
+
+The runtime casts the active page with CDP `Page.startScreencast` (JPEG, on
+repaint, acked) and sends each frame as an MCP notification
+`notifications/cerea/frame` over its stdio channel. galopin turns it into a
+binary link frame (kind `0x04`, PROTOCOL.md §9.2) on the stream lane, so no
+base64 crosses the link. Cerea routes the frames by device to the task's
+viewers (`liveView.ts`) and sends them to the browser as Server-Sent Events from
+`GET /api/v2/browse/live/<task>`; input and takeover are `POST`s to `.../input`
+and `.../control`. The routes answer only the owner of a running task (anything
+else is a 404), input is rate limited, and no frame is stored or logged. Pausing
+is in the runtime (every agent tool answers `paused`) and mirrored by
+`takeover.ts` for the loop, which waits and then looks at the page again.
