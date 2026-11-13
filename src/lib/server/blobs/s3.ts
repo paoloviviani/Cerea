@@ -307,6 +307,12 @@ export class S3BlobStore extends IndexedBlobStore {
 	 * reachable (created when `CHAT_S3_CREATE_BUCKET` allows it), and a probe
 	 * object must survive put, get and delete under the configured prefix.
 	 */
+	async reachable(): Promise<void> {
+		await this.client.send(new HeadBucketCommand({ Bucket: this.config.bucket }), {
+			abortSignal: AbortSignal.timeout(3000),
+		});
+	}
+
 	async selfCheck(): Promise<void> {
 		const where = `${this.config.endpoint ?? "AWS S3"} bucket "${this.config.bucket}"`;
 		try {

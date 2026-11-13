@@ -17,6 +17,7 @@
 	import { page } from "$app/state";
 	import { m } from "$lib/paraglide/messages";
 	import { base } from "$app/paths";
+	import IconActivity from "~icons/carbon/activity";
 	import IconBook from "~icons/carbon/book";
 	import IconDataBase from "~icons/carbon/data-base";
 	import IconEarth from "~icons/carbon/earth";
@@ -30,7 +31,7 @@
 
 	let { data, children }: { data: LayoutServerData; children: import("svelte").Snippet } = $props();
 
-	// Six tabs, so the row stays on one line. Web (search + fetching) and
+	// Eight tabs at most, so the row stays on one line. Web (search + fetching) and
 	// Assistant (instructions + sub-agents + voice) each stack what used to be
 	// separate tabs as sections with anchors; the old addresses redirect there.
 	// Only what exists. A tab leading to a 404 is
@@ -52,6 +53,7 @@
 			icon: IconShieldCheck,
 		},
 		{ href: "/admin/storage", label: m["admin.layout.section.storage"](), icon: IconDataBase },
+		{ href: "/admin/services", label: m["admin.layout.section.services"](), icon: IconActivity },
 	]);
 
 	const current = $derived(page.url.pathname);

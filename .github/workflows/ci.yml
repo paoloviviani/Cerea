@@ -10,7 +10,7 @@
 #     no Node and would otherwise wait behind npm ci for nothing;
 #   - the client project (a real Chromium in the Playwright image, the
 #     costliest suite) runs on pushes to main, weekly and on demand, and on a
-#     PR only when it touches src/lib/components (job `changes` decides);
+#     PR only when it touches src/lib/components or a route component (job `changes` decides);
 #   - the end-to-end suite (tests/, Playwright against a real build, its own
 #     Mongo and a mock LLM upstream): a tagged smoke subset (@smoke in the
 #     title, ~15 specs, a few minutes) on every push to main and every PR, and
@@ -231,7 +231,7 @@ jobs:
         run: docker logs docs || true
 
   # Whether the client project should run: always, except on a PR that leaves
-  # src/lib/components alone (a component change is what the project tests).
+  # src/lib/components and the route components (src/routes/**/*.svelte and their tests) alone (a component change is what the project tests).
   changes:
     if: github.event.schedule != '17 3 * * *'
     runs-on: ubuntu-latest
@@ -257,7 +257,7 @@ jobs:
             exit 0
           fi
           changed="$(git diff --name-only "$BASE" "$GITHUB_SHA")"
-          if grep -q '^src/lib/components/' <<<"$changed"; then
+          if grep -qE '^src/(lib/components/|routes/.*\.svelte$)|\.svelte\.(test|spec)\.(js|ts)$' <<<"$changed"; then
             echo "client=true" >> "$GITHUB_OUTPUT"
           else
             echo "client=false" >> "$GITHUB_OUTPUT"

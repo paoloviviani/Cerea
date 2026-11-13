@@ -187,6 +187,7 @@ describe("the switcher on the pages", () => {
 			"Assistant",
 			"Agents",
 			"Storage",
+			"Services",
 		]);
 		admin.unmount();
 

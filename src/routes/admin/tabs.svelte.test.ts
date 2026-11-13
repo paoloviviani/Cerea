@@ -1,5 +1,5 @@
 /**
- * The administration tab row: seven tabs, in this order, on one line, and the
+ * The administration tab row: eight tabs, in this order, on one line, and the
  * console link as a small button at the end of the title row.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -26,7 +26,7 @@ const tabs = () =>
 	}));
 
 describe("Administration tabs", () => {
-	it("are seven, in order, each at its own address", async () => {
+	it("are eight, in order, each at its own address", async () => {
 		renderWithApp(Layout, { data: admin, children: (() => {}) as never } as never, {
 			page: { url: "http://localhost:3000/admin/web", data: {} },
 		});
@@ -39,6 +39,7 @@ describe("Administration tabs", () => {
 			{ label: "Assistant", href: "/admin/assistant" },
 			{ label: "Agents", href: "/admin/agents" },
 			{ label: "Storage", href: "/admin/storage" },
+			{ label: "Services", href: "/admin/services" },
 		]);
 	});
 
@@ -54,6 +55,7 @@ describe("Administration tabs", () => {
 			"Assistant",
 			"Agents",
 			"Storage",
+			"Services",
 		]);
 	});
 
