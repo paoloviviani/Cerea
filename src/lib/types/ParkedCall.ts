@@ -36,6 +36,16 @@ export interface PersistedDeliverableRef {
 export type CodeExecutionOutcome = RunOutcome & {
 	files: RuntimeFile[];
 	fileRefs?: PersistedDeliverableRef[];
+	/**
+	 * Which engine ran it. Absent means the browser's Pyodide; `server` is a sandbox on the
+	 * server (ADR 0115), which the model's result says so it can describe it truthfully.
+	 */
+	engine?: "server";
+	/**
+	 * Something the model must know that the run's own output does not say, such as that the
+	 * sandbox was recreated and the earlier calls' variables and files are gone.
+	 */
+	notice?: string;
 };
 
 /**

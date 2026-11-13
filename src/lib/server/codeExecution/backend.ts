@@ -4,6 +4,8 @@ import { logger } from "$lib/server/logger";
 import type { CodeExecutionOutcome } from "$lib/types/ParkedCall";
 import type { MessageUpdate } from "$lib/types/MessageUpdate";
 import { browserBackend } from "./browserBackend";
+import { serverBackend } from "./serverBackend";
+import { sandboxUsable } from "./sandboxHealth";
 
 /**
  * Where model-written code runs. One setting, read in this module only:
@@ -11,8 +13,10 @@ import { browserBackend } from "./browserBackend";
  * - `browser` (the default): the signed-in person's own Pyodide sandbox. The
  *   turn parks on the page (`parkedCalls`, kind `code`) and the page posts the
  *   outcome back. Python fences run automatically in the same sandbox.
- * - `server`: reserved for a server-side sandbox. It has no implementation
- *   yet; configured, it logs a warning and behaves as `off`.
+ * - `server`: the `execute_code` tool runs in a gVisor sandbox the sandbox manager leases to the
+ *   conversation (ADR 0115, `serverBackend.ts`). Chosen only where `SANDBOX` is on and the manager
+ *   answers; otherwise it is the browser backend, and that is logged. Python fences still run in
+ *   the person's browser.
  * - `off`: no code execution at all: no `execute_code` tool, no auto-run
  *   fences, no Run button, no execution wording in the system prompt.
  *
@@ -22,8 +26,8 @@ import { browserBackend } from "./browserBackend";
  */
 export type ExecutionBackendSetting = "browser" | "server" | "off";
 
-/** What the app can actually do: `server` is not yet one of these. */
-export type ExecutionBackendKind = "browser" | "off";
+/** What the app can actually do right now. */
+export type ExecutionBackendKind = "browser" | "server" | "off";
 
 export interface BackendRunCall {
 	conversationId: ObjectId;
@@ -141,11 +145,11 @@ const offBackend: ExecutionBackend = {
 	},
 };
 
-let warnedServer = false;
+let fellBack: boolean | null = null;
 
-/** For tests: the `server` warning is logged once per process. */
+/** For tests: the fallback is logged when it starts or ends, not per call. */
 export function resetExecutionBackendWarning(): void {
-	warnedServer = false;
+	fellBack = null;
 }
 
 /** The backend this deployment runs code on, read from the configuration each call. */
@@ -153,14 +157,20 @@ export function executionBackend(): ExecutionBackend {
 	const setting = parseExecutionSetting(config.CHAT_CODE_EXECUTION);
 	if (setting === "off") return offBackend;
 	if (setting === "server") {
-		if (!warnedServer) {
-			warnedServer = true;
+		// Forced to the browser when sandboxes are off or the manager is not answering.
+		if (sandboxUsable()) {
+			if (fellBack) logger.info("[code-execution] the server sandbox is back: using it");
+			fellBack = false;
+			return serverBackend;
+		}
+		if (fellBack !== true) {
+			fellBack = true;
 			logger.warn(
-				"[code-execution] CHAT_CODE_EXECUTION=server has no implementation yet: code execution is OFF. " +
-					"Set it to browser to run code in the person's browser, or off to silence this."
+				"[code-execution] CHAT_CODE_EXECUTION=server, but the sandbox manager is off or not answering " +
+					"(see SANDBOX): code runs in the person's browser"
 			);
 		}
-		return offBackend;
+		return browserBackend;
 	}
 	return browserBackend;
 }

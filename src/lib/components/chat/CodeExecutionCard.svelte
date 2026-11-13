@@ -66,6 +66,9 @@
 	// so a fence autorun of the same code settles this card too.
 	let kicked = false;
 	$effect(() => {
+		// A server run (ADR 0115) is not the page's to run: the card shows the code and waits for
+		// the resolved update the server records.
+		if (request.runner === "server") return;
 		if (resolved || codeExecutionDisabled || !runsStore || !runKey || kicked) return;
 		kicked = true;
 		runsStore.run(runKey, request.code);
@@ -315,10 +318,12 @@
 	// traceback means nothing to most users, and the model reads it anyway.
 	let isRunning = $derived(
 		!resolved &&
-			runState != null &&
-			(runState.status === "loading" ||
-				runState.status === "running" ||
-				runState.status === "queued")
+			// A server run has no state in this page: it is running until the resolved update arrives.
+			(request.runner === "server" ||
+				(runState != null &&
+					(runState.status === "loading" ||
+						runState.status === "running" ||
+						runState.status === "queued")))
 	);
 	let isOpen = $state(false);
 	let failed = $derived(!!displayState && displayState.status === "error" && !isRunning);
@@ -334,7 +339,7 @@
 					})
 				: m["chat.run.seconds"]({ value: formatNumber(Math.round(ms / 1000)) });
 	});
-	let pausable = $derived(browserExecutionEnabled());
+	let pausable = $derived(browserExecutionEnabled() && request.runner !== "server");
 	// The server gave up on this run while the page was away: the resolved
 	// update carries no outcome.
 	let missed = $derived(

@@ -58,7 +58,9 @@ export const GET: RequestHandler = async ({ locals }) => {
 		taskModelId,
 		pyodidePyPiInstallAllowed: config.CHAT_PYODIDE_PYPI_DISABLED !== "true",
 		codeRunTimeoutSeconds: Math.round(codeRunTimeoutMs() / 1000),
-		codeExecution: executionBackend().kind,
+		// The page's own execution (Run buttons, fences) is the browser's whenever code is on at all:
+		// the server backend only changes where the model's `execute_code` tool runs.
+		codeExecution: executionBackend().kind === "off" ? "off" : "browser",
 		// Also requires a configured gateway (mirrored in pystinoProvider.ts's
 		// own isEnabled): a flag with no OPENAI_BASE_URL would show a tab whose
 		// only provider can never answer.

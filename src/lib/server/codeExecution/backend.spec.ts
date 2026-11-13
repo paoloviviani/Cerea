@@ -1,8 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const state = vi.hoisted(() => ({ exec: "", tool: "" }));
+const state = vi.hoisted(() => ({ exec: "", tool: "", usable: false }));
 const warn = vi.hoisted(() => vi.fn());
 
+vi.mock("./sandboxHealth", () => ({
+	sandboxUsable: () => state.usable,
+	probeSandboxHealth: async () => state.usable,
+}));
 vi.mock("$lib/server/logger", () => ({
 	logger: { warn, info: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
@@ -23,12 +27,17 @@ vi.mock("$lib/server/config", async (importOriginal) => {
 });
 
 import { executionBackend, parseExecutionSetting, resetExecutionBackendWarning } from "./backend";
-import { createExecuteCodeBuiltin } from "$lib/server/textGeneration/builtinTools/executeCodeTool";
+import {
+	codeResumeResultText,
+	createExecuteCodeBuiltin,
+} from "$lib/server/textGeneration/builtinTools/executeCodeTool";
+import type { ParkedCall } from "$lib/types/ParkedCall";
 import { resolvePreprompt } from "$lib/server/textGeneration/preprompt";
 
 beforeEach(() => {
 	state.exec = "";
 	state.tool = "true";
+	state.usable = false;
 	warn.mockClear();
 	resetExecutionBackendWarning();
 });
@@ -61,13 +70,60 @@ describe("execution backend configuration", () => {
 		expect(prompt).not.toContain("Pyodide");
 	});
 
-	it("server has no implementation: it warns once and behaves as off", () => {
+	it("server falls back to the browser, logged once, when sandboxes are off or unhealthy", () => {
 		state.exec = "server";
-		expect(executionBackend().kind).toBe("off");
-		expect(executionBackend().kind).toBe("off");
-		expect(createExecuteCodeBuiltin()).toHaveLength(0);
+		expect(executionBackend().kind).toBe("browser");
+		expect(executionBackend().kind).toBe("browser");
+		expect(createExecuteCodeBuiltin()).toHaveLength(1);
 		expect(warn).toHaveBeenCalledTimes(1);
-		expect(String(warn.mock.calls[0][0])).toContain("no implementation");
+		expect(String(warn.mock.calls[0][0])).toContain("sandbox manager is off or not answering");
+	});
+
+	it("server is the server backend while the manager answers, and falls back again when it stops", () => {
+		state.exec = "server";
+		state.usable = true;
+		expect(executionBackend().kind).toBe("server");
+		expect(createExecuteCodeBuiltin()).toHaveLength(1);
+		expect(warn).not.toHaveBeenCalled();
+		state.usable = false;
+		expect(executionBackend().kind).toBe("browser");
+		expect(warn).toHaveBeenCalledTimes(1);
+	});
+
+	it("describes the tool for the engine that runs it, with the same name and arguments", () => {
+		const browser = createExecuteCodeBuiltin()[0].definition.function;
+		state.exec = "server";
+		state.usable = true;
+		const server = createExecuteCodeBuiltin()[0].definition.function;
+		expect(server.name).toBe(browser.name);
+		expect(server.parameters).toEqual(browser.parameters);
+		expect(browser.description).toContain("browser sandbox");
+		expect(server.description).toContain("server");
+		expect(server.description).toContain("NO network");
+		expect(server.description).not.toContain("micropip");
+	});
+
+	it("words the result for a server run, with the restart notice", () => {
+		const park = {
+			parkedCallId: "p",
+			outcome: {
+				ok: true,
+				stdout: "1\n",
+				stderr: "",
+				files: [],
+				engine: "server",
+				notice: "The server sandbox was restarted since your last call",
+			},
+		} as unknown as ParkedCall;
+		const text = codeResumeResultText(park, false);
+		expect(text).toContain("Execution finished in the server sandbox.");
+		expect(text).toContain("NOTE: The server sandbox was restarted");
+		expect(text).not.toContain("browser");
+		const silent = codeResumeResultText(
+			{ parkedCallId: "p", reason: "code execution in a server sandbox" } as unknown as ParkedCall,
+			false
+		);
+		expect(silent).toContain("The server sandbox gave no answer");
 	});
 
 	it("the browser backend names its engine in the prompt", () => {

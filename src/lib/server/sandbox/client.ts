@@ -1,6 +1,6 @@
 /**
  * A typed client of the sandbox manager's HTTP API (ADR 0115). The manager is only ever reached by
- * URL and service token. Nothing here runs code yet: `execute_code` is wired to it in step 2.
+ * URL and service token. `execute_code` runs through it (`codeExecution/serverBackend.ts`) when CHAT_CODE_EXECUTION=server.
  *
  * Every answer is parsed with zod; optional fields are `.nullish()` because a gateway or a proxy in
  * between may turn an absent field into null.

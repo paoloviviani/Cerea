@@ -102,6 +102,13 @@ def sweep():
         _save_open(plt)
 `;
 
+/**
+ * The figure module's own source, for an interpreter that is not Pyodide: the server sandbox's
+ * exec daemon (ADR 0115) loads it as the module `_cerea_figures`, so a figure becomes the same
+ * `figure-<n>.png` in the output folder there as it does in the browser, from one copy of the code.
+ */
+export const FIGURES_MODULE_SOURCE = MODULE_BODY;
+
 /** Runs once per interpreter, in a scratch namespace. */
 export const FIGURES_SETUP_SOURCE = `
 import sys
