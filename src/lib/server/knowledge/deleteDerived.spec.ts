@@ -47,7 +47,9 @@ vi.mock("$env/dynamic/private", async () => {
 	return { env };
 });
 vi.mock("./embed", () => ({ embed: embedMock }));
-vi.mock("$lib/server/files/extractDocument", () => ({
+vi.mock("$lib/server/files/extractDocument", async (importOriginal) => ({
+	// The rest (documentMime, which the upload sniffing calls) stays real
+	...(await importOriginal<typeof import("$lib/server/files/extractDocument")>()),
 	NO_READER_MESSAGE: "no reader",
 	resolveExtractorModel: async () => "reader",
 	isExtractableDocument: () => false,
@@ -815,8 +817,12 @@ describe.skipIf(!TEST_DATABASE_URL)("deleteDerived and the knowledge lifecycle",
 				locals: memberLocals,
 			});
 			const stored = need(await collections.projects.findOne({ _id: project._id }));
-			// The deployment loses its embedding model; the next turn cannot be indexed.
-			await collections.knowledgeConfig.updateMany({}, { $set: { embeddingModel: null } });
+			// The base itself holds its embedding model (chosen when it was made), so a base that loses
+			// it cannot index the next turn; the deployment's default no longer matters here.
+			await collections.vectorStores.updateOne(
+				{ _id: new ObjectId(stored.memoryBaseId) },
+				{ $set: { embeddingModel: null } }
+			);
 			const conv = new ObjectId();
 			await collections.conversations.insertOne(
 				convOf(conv, memberId, project._id) as unknown as never
