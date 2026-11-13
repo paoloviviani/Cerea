@@ -44,6 +44,7 @@ const INFO = {
 	origin: "https://shop.example.com",
 	controller: "agent",
 	unattended: false,
+	userOwned: false,
 };
 
 let calls: Array<{ url: string; body: { action?: string; events?: unknown[] } }>;

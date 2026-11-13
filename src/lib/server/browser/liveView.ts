@@ -46,6 +46,8 @@ export interface LiveSessionInfo {
 	controller: TaskController;
 	/** A scheduled run: watchable, not takeable. */
 	unattended: boolean;
+	/** A browser the user opened themselves (no agent): input from the start, nothing to hand back. */
+	userOwned: boolean;
 }
 
 export type LiveEvent =
@@ -82,8 +84,12 @@ export interface LiveTaskInit {
 	control: TaskControl;
 	/** A scheduled run: nobody to take over. */
 	unattended?: boolean;
+	/** The user's own browser session on a machine, opened on request (`userSession.ts`). */
+	userOwned?: boolean;
 	/** Still the holder of the machine's browser? */
 	leaseHeld?: () => Promise<boolean>;
+	/** Called once when the stream ends (the task ended, or the lease was lost). */
+	onEnd?: () => void;
 	/** Test seams. */
 	subscribeFrames?: typeof subscribeBrowserFrames;
 	timing?: Partial<typeof TIMING>;
@@ -179,6 +185,7 @@ export class LiveTask {
 			origin,
 			controller: this.controller,
 			unattended: this.unattended,
+			userOwned: this.init.userOwned === true,
 		};
 	}
 
@@ -299,6 +306,7 @@ export class LiveTask {
 		if (this.ended) return;
 		this.ended = true;
 		registry.delete(this.taskId);
+		this.init.onEnd?.();
 		const viewers = [...this.viewers];
 		this.viewers.clear();
 		for (const viewer of viewers) viewer.send({ type: "end", reason });
@@ -354,6 +362,7 @@ export class LiveTask {
 	// ---- takeover and input ----------------------------------------------------------------
 
 	async takeover(): Promise<LiveOk<{ controller: TaskController }> | LiveRefusal> {
+		if (this.init.userOwned) return { ok: true, controller: this.controller };
 		if (this.unattended) {
 			return {
 				ok: false,
@@ -377,6 +386,9 @@ export class LiveTask {
 	}
 
 	async handBack(): Promise<LiveOk<{ controller: TaskController }> | LiveRefusal> {
+		if (this.init.userOwned) {
+			return { ok: false, status: 409, message: "This browser is yours: close it instead." };
+		}
 		if (!this.init.control.supported) {
 			return { ok: false, status: 501, message: "This runtime cannot hand control over." };
 		}

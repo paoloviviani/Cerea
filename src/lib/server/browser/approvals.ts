@@ -53,6 +53,8 @@ export interface ApprovalAsk {
 	/** A verification (captcha, bot check) appeared: the card asks the user to solve it, then Continue. */
 	challenge?: { kind: string };
 	screenshot?: { mime: string; base64: string };
+	/** Called with the ask's id once it is recorded, so a surface can point at it (live view). */
+	onAsked?: (elicitationId: string) => void;
 }
 
 export type ApprovalOutcome =
@@ -107,6 +109,7 @@ export function createElicitationApprover(options: {
 		};
 		const now = new Date();
 		try {
+			ask.onAsked?.(elicitationId);
 			await collections.mcpElicitations.insertOne({
 				_id: new ObjectId(),
 				elicitationId,

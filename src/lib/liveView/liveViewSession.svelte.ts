@@ -24,6 +24,8 @@ export interface LiveSessionInfo {
 	origin: string | null;
 	controller: "agent" | "user";
 	unattended: boolean;
+	/** A browser the user opened themselves: input from the start, nothing to hand back. */
+	userOwned: boolean;
 }
 export type LiveStatus = "connecting" | "live" | "ended" | "unavailable";
 

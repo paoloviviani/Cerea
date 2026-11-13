@@ -220,4 +220,19 @@ describe("takeover: the loop pauses while the user has the browser", () => {
 		const result = await runBrowseLoop({ goal: "look" }, r.deps);
 		expect(result.stopped_reason).toBe("runtime_error");
 	});
+
+	it("tells a surface when the agent needs the user, with the approval's id", async () => {
+		const needs: Array<{ reason: string; approvalId?: string }> = [];
+		const r = rig({
+			start: "cart",
+			script: [callTurn("act", { actions: [{ type: "click", ref: "e1" }] }), answerTurn("paid")],
+			approver: async (ask) => {
+				ask.onAsked?.("elicitation-1");
+				return { verdict: "approved", id: "a1" };
+			},
+		});
+		r.deps.observer = { needsUser: (n) => needs.push(n) };
+		await runBrowseLoop({ goal: "pay" }, r.deps);
+		expect(needs).toEqual([{ reason: "approval", approvalId: "elicitation-1" }]);
+	});
 });

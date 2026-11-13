@@ -97,7 +97,14 @@ export interface PauseGate {
 	waitForHandBack(signal?: AbortSignal): Promise<void>;
 }
 
+export type NeedsUserReason = "approval" | "challenge" | "sign_in" | "handover";
+
 export interface LoopObserver {
+	/**
+	 * The agent needs the user (an approval, a verification, a sign-in or a handover): a surface may
+	 * open the live view now. `approvalId` is the ask's elicitation id when there is one.
+	 */
+	needsUser?(need: { reason: NeedsUserReason; approvalId?: string }): void;
 	/** The page the browser is on, and whether it is a tab the user lent (for the live view). */
 	page?(url: string, lent: boolean): void;
 	/** The user took control of the browser (`"user"`), or handed it back (null). */
@@ -634,6 +641,7 @@ async function runInner(
 				site: hostOf(finalUrl) ?? finalUrl,
 				url: urlWithoutFragment(finalUrl),
 				challenge: { kind },
+				onAsked: (approvalId) => observer?.needsUser?.({ reason: "challenge", approvalId }),
 			},
 			deps.signal
 		);
@@ -935,6 +943,7 @@ async function runInner(
 				const answer = await deps.approve(
 					{
 						sentence,
+						onAsked: (approvalId) => observer?.needsUser?.({ reason: "approval", approvalId }),
 						site: classification.targetHost ?? hostOf(finalUrl) ?? finalUrl,
 						url: urlWithoutFragment(
 							action.type === "use_tab" ? (ctx.tab?.url ?? finalUrl) : finalUrl

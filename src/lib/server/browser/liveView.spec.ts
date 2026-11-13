@@ -174,6 +174,7 @@ describe("what a stream is of", () => {
 				origin: null,
 				controller: "agent",
 				unattended: false,
+				userOwned: false,
 			},
 		});
 		task.setPage("https://shop.example.com/cart?token=secret#x", false);

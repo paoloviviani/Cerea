@@ -6,6 +6,7 @@ import {
 	MessageUpdateType,
 	type BrowseStep,
 	type MessageBrowseUpdate,
+	type BrowseNeedsUser,
 } from "$lib/types/MessageUpdate";
 import type { BrowseMachine } from "$lib/server/browser/availability";
 import type { BrowserRuntime } from "$lib/server/browser/contract";
@@ -403,6 +404,7 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 			const takeover = new TaskControl(runtime);
 			const liveRuntime = runtime as BrowserRuntime & Partial<LiveRuntime>;
 			let liveAvailable = false;
+			let needsUser: BrowseNeedsUser | undefined;
 			const emit = () => {
 				const update: MessageBrowseUpdate = {
 					type: MessageUpdateType.Browse,
@@ -412,6 +414,7 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 					status: waitingOn ? "waiting" : status,
 					...(status === "running" && !waitingOn && activity ? { activity } : {}),
 					...(waitingOn ? { waitingOn } : {}),
+					...(needsUser ? { needsUser } : {}),
 					steps: [...steps.values()].slice(-MAX_STEPS_SHOWN),
 					...(ending.finalUrl ? { finalUrl: ending.finalUrl } : {}),
 					...(ending.stoppedReason ? { stoppedReason: ending.stoppedReason } : {}),
@@ -429,7 +432,26 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 					activity = step.action;
 					emit();
 				},
+				needsUser(need) {
+					const info = liveTaskFor(ctx.uuid, String(params.userId))?.info();
+					needsUser = {
+						reason: need.reason,
+						taskId: ctx.uuid,
+						...(need.approvalId ? { approvalId: need.approvalId } : {}),
+						stream: {
+							id: ctx.uuid,
+							machineId: machine.id,
+							machineName: machine.name,
+							kind: info?.kind ?? "browse_task",
+							url: info?.url ?? null,
+							origin: info?.origin ?? null,
+							streamUrl: `/api/v2/browse/live/${ctx.uuid}`,
+						},
+					};
+					emit();
+				},
 				waiting(sentence) {
+					if (sentence === null) needsUser = undefined;
 					waitingOn = sentence ?? undefined;
 					emit();
 				},
