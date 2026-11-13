@@ -17,7 +17,7 @@
 </script>
 
 <!--
-	The left panel, top to bottom: the logo, the Chats | Agents switch, the one
+	The left panel, top to bottom: the logo, the Chats | Recent | Agents switch, the one
 	"New …" button that follows the switch, the list (two trees in Chats, the
 	machines tree in Agents), then the foot — Schedules, Workspace, and the user
 	row with its menu.
@@ -82,6 +82,8 @@
 	import { useMoveConversation } from "$lib/utils/useMoveConversation";
 	import CarbonChat from "~icons/carbon/chat";
 	import CarbonCode from "~icons/carbon/code";
+	import CarbonRecent from "~icons/carbon/recently-viewed";
+	import RecentList from "./nav/RecentList.svelte";
 	import CarbonEdit from "~icons/carbon/edit";
 	import CarbonSettings from "~icons/carbon/settings";
 	import CodeNavTree from "./code/CodeNavTree.svelte";
@@ -179,26 +181,38 @@
 		)
 	);
 
+	// One page request at a time: the scroll marker fires every 250 ms while it
+	// is on screen, and a second request would ask for a page the first is
+	// already fetching.
+	let loadingMore = false;
 	async function handleVisible() {
+		if (loadingMore || !hasMore) return;
+		loadingMore = true;
 		p++;
-		const newConvs = await client.conversations
-			.get({
-				query: {
-					p,
-				},
-			})
-			.then(handleResponse)
-			.then((r) => r.conversations)
-			.catch((): ConvSidebar[] => []);
+		try {
+			const result = await client.conversations
+				.get({
+					query: {
+						p,
+					},
+				})
+				.then(handleResponse)
+				.catch(() => null);
+			const newConvs: ConvSidebar[] = result?.conversations ?? [];
 
-		if (newConvs.length === 0) {
-			hasMore = false;
+			// The server says whether more pages exist; an empty page (or a failed
+			// read) also ends the paging.
+			if (newConvs.length === 0 || result?.hasMore === false) {
+				hasMore = false;
+			}
+
+			// A list that shifted between pages can hand back a chat already shown:
+			// keep one row per id (the keyed list would throw on a duplicate).
+			const seen = new Set(conversations.map((c) => c.id));
+			conversations = [...conversations, ...newConvs.filter((c: ConvSidebar) => !seen.has(c.id))];
+		} finally {
+			loadingMore = false;
 		}
-
-		// A list that shifted between pages can hand back a chat already shown:
-		// keep one row per id (the keyed list would throw on a duplicate).
-		const seen = new Set(conversations.map((c) => c.id));
-		conversations = [...conversations, ...newConvs.filter((c: ConvSidebar) => !seen.has(c.id))];
 	}
 
 	$effect(() => {
@@ -231,14 +245,17 @@
 	const schedulesActive = $derived(page.url.pathname === `${base}/schedules`);
 	// Agents only exist where the deployment has them: with the switch gone, the
 	// list is always chats.
-	const effectiveView = $derived(
-		!codeAgentsEnabled
-			? "chats"
-			: codeNav.view === "auto"
-				? page.route.id === "/code"
-					? "agents"
-					: "chats"
-				: codeNav.view
+	// "recent" needs no agents: without them it lists chats only.
+	const effectiveView = $derived<"chats" | "agents" | "recent">(
+		codeNav.view === "recent"
+			? "recent"
+			: !codeAgentsEnabled
+				? "chats"
+				: codeNav.view === "auto"
+					? page.route.id === "/code"
+						? "agents"
+						: "chats"
+					: codeNav.view
 	);
 	// One Schedules page for both kinds. The row opens it filtered to the mode
 	// you are in; the page's own filter changes that.
@@ -269,29 +286,44 @@
 		>
 			<Logo variant="tile" decorative classNames="h-8 w-8 max-sm:h-9 max-sm:w-9" />
 		</a>
-		{#if codeAgentsEnabled}
-			<!-- The panel switch: chats and coding agents are two contents of the same
+		<!-- The panel switch: chats, coding agents and what was recent are contents of the same
 		     list, not two destinations. It decides what the button below makes.
 		     Two boxes of padding rather than margins: +layout.svelte pins every
 		     NavMenu child to the nav's column (`--nav-width`), so horizontal insets
 		     must be padding inside that box. -->
-			<div
-				class="@container flex h-8 min-w-0 flex-1 rounded-lg bg-gray-100 p-0.5 max-sm:h-9 dark:bg-gray-800"
-				data-testid="sidebar-switch"
+		<div
+			class="@container flex h-8 min-w-0 flex-1 rounded-lg bg-gray-100 p-0.5 max-sm:h-9 dark:bg-gray-800"
+			data-testid="sidebar-switch"
+		>
+			<button
+				data-testid="sidebar-view-chats"
+				class="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors {effectiveView ===
+				'chats'
+					? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600/60 dark:text-white'
+					: 'text-ink-muted hover:text-ink'}"
+				aria-label={m["app.nav.chats"]()}
+				aria-pressed={effectiveView === "chats"}
+				title={m["app.nav.chats"]()}
+				onclick={() => (codeNav.view = "chats")}
 			>
-				<button
-					data-testid="sidebar-view-chats"
-					class="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors {effectiveView ===
-					'chats'
-						? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600/60 dark:text-white'
-						: 'text-ink-muted hover:text-ink'}"
-					aria-label={m["app.nav.chats"]()}
-					title={m["app.nav.chats"]()}
-					onclick={() => (codeNav.view = "chats")}
-				>
-					<CarbonChat class="size-3.5 shrink-0" />
-					<span class="hidden @[9rem]:inline">{m["app.nav.chats"]()}</span>
-				</button>
+				<CarbonChat class="size-3.5 shrink-0" />
+				<span class="hidden @[9rem]:inline">{m["app.nav.chats"]()}</span>
+			</button>
+			<button
+				data-testid="sidebar-view-recent"
+				class="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors {effectiveView ===
+				'recent'
+					? 'bg-white text-gray-900 shadow-xs dark:bg-gray-600/60 dark:text-white'
+					: 'text-ink-muted hover:text-ink'}"
+				aria-label={m["app.nav.recent"]()}
+				aria-pressed={effectiveView === "recent"}
+				title={m["app.nav.recent"]()}
+				onclick={() => (codeNav.view = "recent")}
+			>
+				<CarbonRecent class="size-3.5 shrink-0" />
+				<span class="hidden @[9rem]:inline">{m["app.nav.recent"]()}</span>
+			</button>
+			{#if codeAgentsEnabled}
 				<button
 					data-testid="sidebar-view-agents"
 					class="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors {effectiveView ===
@@ -301,6 +333,7 @@
 					aria-label={needsYouCount > 0
 						? m["app.nav.agents_needs_you"]({ count: needsYouCount })
 						: undefined}
+					aria-pressed={effectiveView === "agents"}
 					title={m["app.nav.agents"]()}
 					onclick={() => (codeNav.view = "agents")}
 				>
@@ -315,8 +348,8 @@
 						>
 					{/if}
 				</button>
-			</div>
-		{/if}
+			{/if}
+		</div>
 	</div>
 
 	<!-- Follows the switch. The same bordered, quiet button in both modes so the
@@ -352,7 +385,7 @@
 		<!-- While the sign-in is stale the tree draws no machines and no counts;
 		     the card says why and offers the way back (as the main panel does).
 		     Before /status has answered nothing is drawn: a card shown then would
-		     flash for every signed-in user. The Chats | Agents switch above stays. -->
+		     flash for every signed-in user. The Chats | Recent | Agents switch above stays. -->
 		{#if codeReauth.required}
 			<!-- On /code the panel itself already shows the full card, right
 			     beside this column: one prompt there, not two. -->
@@ -362,6 +395,13 @@
 		{:else if codeReauth.checked}
 			<CodeNavTree />
 		{/if}
+	{:else if effectiveView === "recent"}
+		<RecentList
+			{conversations}
+			{hasMore}
+			onloadmore={handleVisible}
+			agentsEnabled={codeAgentsEnabled}
+		/>
 	{:else}
 		{#if signedIn}
 			<ProjectsBranch />

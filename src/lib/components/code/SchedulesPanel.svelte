@@ -197,7 +197,7 @@
 				</div>
 
 				{#if filterShown}
-					<!-- The same gray pill the sidebar's Chats | Agents switch uses. Links, not
+					<!-- The same gray pill the sidebar's Chats | Recent | Agents switch uses. Links, not
 					     buttons: the filter is the address, so it survives reload and back. -->
 					<div
 						class="mb-4 flex w-fit rounded-lg bg-gray-100 p-0.5 dark:bg-gray-800"

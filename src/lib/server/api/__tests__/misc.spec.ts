@@ -228,7 +228,7 @@ describe("GET /api/v2/feature-flags", () => {
 });
 
 /**
- * `codeAgentsEnabled` is the client's only source for the Chats | Agents
+ * `codeAgentsEnabled` is the client's only source for the Chats | Recent | Agents
  * switch (the universal layout load spreads feature-flags over its data), so
  * this flag decides whether a person sees the switch at all. It answers per
  * person (ADR 0096): the gateway's `capabilities.code_agents` for the
