@@ -31,6 +31,8 @@ services:
       SANDBOX_ALLOWED_IMAGES: *sandbox-exec-image
       SANDBOX_CGROUP_PARENT: ${SANDBOX_CGROUP_PARENT:-}
       SANDBOX_EXEC_MAX_CPUS: ${SANDBOX_EXEC_MAX_CPUS:-}
+      SANDBOX_EXEC_MAX_MEMORY_MB: ${SANDBOX_EXEC_MAX_MEMORY_MB:-}
+      SANDBOX_EXEC_MAX_PIDS: ${SANDBOX_EXEC_MAX_PIDS:-}
       SANDBOX_DOCKER_SOCKET: /var/run/docker.sock
     volumes:
       - ${SANDBOX_DOCKER_SOCKET_HOST:-/var/run/docker.sock}:/var/run/docker.sock

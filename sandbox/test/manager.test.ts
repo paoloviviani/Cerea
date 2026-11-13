@@ -656,6 +656,74 @@ describe("quotas and accounting", () => {
 			await s.leases.create({ kind: "exec", owner: "u" });
 		});
 
+		it("does not remove twice or record usage twice when reaps overlap", async () => {
+			const s = setup();
+			const lease = await s.leases.create({ kind: "exec", owner: "u" });
+			s.docker.failRemove = true;
+			await s.leases.release(lease.id);
+			s.docker.failRemove = false;
+			let open: () => void = () => {};
+			s.docker.holdInspect = new Promise<void>((r) => (open = r));
+			const a = s.leases.reap();
+			const b = s.leases.reap();
+			open();
+			await Promise.all([a, b]);
+			assert.equal(s.usage.length, 1);
+			assert.equal(s.docker.removed.length, 1);
+			assert.equal(
+				s.audit.records.filter((r) => r.action === "lease.release" && r.outcome === "success")
+					.length,
+				1
+			);
+		});
+
+		it("keeps a container that started but whose create then failed counted until it is removed", async () => {
+			const s = setup({ SANDBOX_TOTAL_MEMORY_MB: "1024" });
+			s.docker.start = async () => {
+				throw new Error("runtime failed after the container was created");
+			};
+			s.docker.failRemove = true;
+			await assert.rejects(
+				s.leases.create({ kind: "exec", owner: "u" }),
+				(e: HttpError) => e.status === 503
+			);
+			assert.equal(s.leases.active, 1, "still holds its share");
+			await assert.rejects(
+				s.leases.create({ kind: "exec", owner: "u" }),
+				(e: HttpError) => e.status === 429
+			);
+			s.docker.failRemove = false;
+			await s.leases.reap();
+			assert.equal(s.leases.active, 0);
+			assert.equal(s.usage.length, 0, "a lease that never started records no usage");
+		});
+
+		it("says why the sweep is blocked in the health answer, and clears it", async () => {
+			const docker = new FakeDocker();
+			const leases = new LeaseManager({
+				config: testConfig(),
+				docker,
+				audit: new MemoryAudit(),
+				requireSweep: true,
+			});
+			const server = createApi(testConfig(), leases);
+			await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+			const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1/health`;
+			const sweep = async () => ((await (await fetch(url)).json()) as { sweep: string }).sweep;
+			assert.equal(await sweep(), "pending");
+			docker.containers.set("old", {
+				Id: "old",
+				Config: { Labels: { "cerea.sandbox": "1", "cerea.sandbox.instance": "unit" } },
+			});
+			docker.failRemove = true;
+			await assert.rejects(leases.sweepOrphans());
+			assert.equal(await sweep(), "blocked");
+			docker.failRemove = false;
+			await leases.reap(); // the reaper retries the sweep
+			assert.equal(await sweep(), "ok");
+			server.close();
+		});
+
 		it("refuses creates (503) until the orphan sweep has succeeded", async () => {
 			const docker = new FakeDocker();
 			const leases = new LeaseManager({

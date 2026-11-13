@@ -20,6 +20,9 @@ export interface PolicyConfig {
 	cgroupParent?: string;
 	/** The most CPUs a sandbox may be given (`SANDBOX_EXEC_MAX_CPUS`): CpuShares stay within 1024 each. Default 2. */
 	maxCpus?: number;
+	/** The most memory (MB) and pids a sandbox may be given (`SANDBOX_EXEC_MAX_MEMORY_MB`, `_PIDS`). Defaults 2048 and 1024. */
+	maxMemoryMb?: number;
+	maxPids?: number;
 }
 
 export interface PolicyDeps {
@@ -152,8 +155,25 @@ export function validateCreate(body: unknown, cfg: PolicyConfig): string | null 
 		return "SecurityOpt may only be no-new-privileges";
 	}
 	if (h.IpcMode !== undefined && h.IpcMode !== "private") return "IpcMode must be private";
-	for (const k of ["Memory", "NanoCpus", "PidsLimit"]) {
-		if (typeof h[k] !== "number" || (h[k] as number) <= 0) return `${k} must be a positive limit`;
+	// Whole, safe integers within the configured maxima: a limit that is not finite would be
+	// re-serialised as null, which Docker reads as "unset".
+	const caps: Record<string, number> = {
+		Memory: (cfg.maxMemoryMb ?? 2048) * 1024 * 1024,
+		NanoCpus: Math.round((cfg.maxCpus ?? 2) * 1e9),
+		PidsLimit: cfg.maxPids ?? 1024,
+	};
+	for (const [k, cap] of Object.entries(caps)) {
+		const v = h[k];
+		if (typeof v !== "number" || !Number.isSafeInteger(v) || v <= 0 || v > cap) {
+			return `${k} must be a positive whole number of at most ${cap}`;
+		}
+	}
+	const stop = b.StopTimeout;
+	if (
+		stop !== undefined &&
+		(!Number.isSafeInteger(stop) || (stop as number) < 0 || (stop as number) > 60)
+	) {
+		return "StopTimeout must be a whole number of seconds, at most 60";
 	}
 	if (h.MemorySwap !== h.Memory) return "swap must equal memory (none)";
 	if (h.MemoryReservation !== undefined) {

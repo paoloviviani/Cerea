@@ -8,13 +8,20 @@ import net from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, afterEach, before, describe, it } from "node:test";
+import { DEFAULT_EXEC_IMAGE } from "../src/manager/config.ts";
+import { execContainerSpec } from "../src/manager/spec.ts";
+import { testConfig } from "./fakes.ts";
 import type { PolicyConfig } from "../src/socket-proxy/policy.ts";
 import { createProxy } from "../src/socket-proxy/server.ts";
 
 const FULL = (c: string) => c.repeat(64);
 const EXEC = FULL("e");
 const managed = { "cerea.sandbox": "1", "cerea.sandbox.instance": "unit" };
-const cfg: PolicyConfig = { instance: "unit", runtimes: ["runc"], images: ["img"] };
+const cfg: PolicyConfig = {
+	instance: "unit",
+	runtimes: ["runc"],
+	images: ["img", DEFAULT_EXEC_IMAGE],
+};
 
 /** A fake Docker on a unix socket. It records every byte it receives, per connection. */
 function fakeDocker(socketPath: string, startReply: "101" | "200") {
@@ -231,6 +238,66 @@ describe("socket proxy: request smuggling", () => {
 			assert.match(out, /^HTTP\/1\.1 400/);
 			assert.match(out, /repeats a key/);
 			assert.equal(reached(fake.received, "POST /containers/create"), false);
+		});
+
+		describe("numbers that would not survive re-serialisation", () => {
+			const spec = () => {
+				const c = testConfig();
+				return JSON.stringify(
+					execContainerSpec(c, { id: "a".repeat(24), owner: "u", kind: "exec" }, c.defaults)
+				);
+			};
+			const create = (payload: string) =>
+				post(`/containers/create?name=cerea-sbx-${"a".repeat(24)}`, payload);
+
+			it("forwards a valid create (the control)", async () => {
+				const { port, fake } = await setup("101");
+				const out = await rawExchange(port, create(spec()));
+				assert.doesNotMatch(out, /^HTTP\/1\.1 400|^HTTP\/1\.1 403/);
+				assert.equal(reached(fake.received, "POST /containers/create"), true);
+			});
+
+			it("refuses Infinity-valued limits, whichever way they are written, forwarding nothing", async () => {
+				const { port, fake } = await setup("101");
+				const valid = spec();
+				for (const token of ["1e400", "-1e400", "1e309", "1E999", "123456789e400"]) {
+					for (const field of ["Memory", "MemorySwap", "NanoCpus", "PidsLimit", "StopTimeout"]) {
+						const swapped = valid.replace(new RegExp(`"${field}":\\d+`), `"${field}":${token}`);
+						assert.notEqual(swapped, valid, field);
+						const out = await rawExchange(port, create(swapped));
+						assert.match(out, /^HTTP\/1\.1 400/, `${field}=${token}`);
+					}
+				}
+				// Memory and MemorySwap both Infinity: equal, positive, and null once re-serialised
+				const both = valid
+					.replace(/"Memory":\d+/, '"Memory":1e400')
+					.replace(/"MemorySwap":\d+/, '"MemorySwap":1e400');
+				assert.match(await rawExchange(port, create(both)), /^HTTP\/1\.1 400/);
+				assert.equal(reached(fake.received, "POST /containers/create"), false);
+			});
+
+			it("refuses integers above 2^53 in those fields", async () => {
+				const { port, fake } = await setup("101");
+				const valid = spec();
+				for (const field of ["NanoCpus", "PidsLimit", "StopTimeout"]) {
+					const swapped = valid.replace(
+						new RegExp(`"${field}":\\d+`),
+						`"${field}":9007199254740993`
+					);
+					assert.match(await rawExchange(port, create(swapped)), /^HTTP\/1\.1 (400|403)/, field);
+				}
+				assert.equal(reached(fake.received, "POST /containers/create"), false);
+			});
+
+			it("also refuses a non-finite number on the upgrade path", async () => {
+				const { port, fake } = await setup("101");
+				const out = await rawExchange(
+					port,
+					startRequest(EXEC, '{"Detach":false,"Tty":false,"x":1e400}')
+				);
+				assert.match(out, /^HTTP\/1\.1 400/);
+				assert.equal(reached(fake.received, "POST /exec/"), false);
+			});
 		});
 
 		it("refuses a repeated key at depth, and an escaped spelling of a repeated key", async () => {

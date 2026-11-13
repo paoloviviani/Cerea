@@ -261,6 +261,57 @@ describe("socket proxy: create bodies", () => {
 			assert.equal((await at(4096, 4)).allow, true);
 			assert.equal((await at(4097, 4)).allow, false);
 		});
+		it("requires whole, safe numbers within the maxima for the limits and StopTimeout", async () => {
+			const MiB = 1024 * 1024;
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const bad: [string, (b: Record<string, any>) => void][] = [
+				[
+					"Memory Infinity",
+					(b) => ((b.HostConfig.Memory = Infinity), (b.HostConfig.MemorySwap = Infinity)),
+				],
+				["Memory NaN", (b) => ((b.HostConfig.Memory = NaN), (b.HostConfig.MemorySwap = NaN))],
+				[
+					"Memory above 2^53",
+					(b) => ((b.HostConfig.Memory = 2 ** 53 + 2), (b.HostConfig.MemorySwap = 2 ** 53 + 2)),
+				],
+				[
+					"Memory above the maximum",
+					(b) => ((b.HostConfig.Memory = 2049 * MiB), (b.HostConfig.MemorySwap = 2049 * MiB)),
+				],
+				[
+					"Memory fractional",
+					(b) => ((b.HostConfig.Memory = 1000.5), (b.HostConfig.MemorySwap = 1000.5)),
+				],
+				["NanoCpus Infinity", (b) => (b.HostConfig.NanoCpus = Infinity)],
+				["NanoCpus above the maximum", (b) => (b.HostConfig.NanoCpus = 2.5e9)],
+				["NanoCpus above 2^53", (b) => (b.HostConfig.NanoCpus = 2 ** 60)],
+				["PidsLimit Infinity", (b) => (b.HostConfig.PidsLimit = Infinity)],
+				["PidsLimit above the maximum", (b) => (b.HostConfig.PidsLimit = 1025)],
+				["PidsLimit above 2^53", (b) => (b.HostConfig.PidsLimit = 2 ** 54)],
+				["StopTimeout Infinity", (b) => (b.StopTimeout = Infinity)],
+				["StopTimeout huge", (b) => (b.StopTimeout = 2 ** 54)],
+				["StopTimeout negative", (b) => (b.StopTimeout = -1)],
+			];
+			for (const [what, mutate] of bad) {
+				const b = body(slice);
+				mutate(b);
+				assert.equal((await verdict(b, withParent(slice))).allow, false, what);
+			}
+			const ok = body(slice);
+			ok.HostConfig.Memory = 2048 * MiB;
+			ok.HostConfig.MemorySwap = 2048 * MiB;
+			ok.HostConfig.MemoryReservation = 512 * MiB;
+			ok.HostConfig.NanoCpus = 2e9;
+			ok.HostConfig.PidsLimit = 1024;
+			assert.equal((await verdict(ok, withParent(slice))).allow, true, "the maxima themselves");
+			const raised = body(slice);
+			raised.HostConfig.PidsLimit = 4096;
+			assert.equal(
+				(await verdict(raised, { ...withParent(slice), maxPids: 4096 })).allow,
+				true,
+				"a raised maximum"
+			);
+		});
 		it("bounds the reservation and the shares, and refuses extra keys", async () => {
 			const c = withParent(slice);
 			const mutations: [string, (h: Record<string, unknown>) => void][] = [

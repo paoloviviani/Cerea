@@ -25,7 +25,7 @@ export function cpuShares(cpus: number): number {
 /** The soft memory limit in whole MB (rounded down), never above the hard one and never below 1 MB. */
 export function reservationBytes(reservationMb: number, limitMb: number): number {
 	const mb = Math.max(1, Math.min(Math.floor(reservationMb), Math.floor(limitMb)));
-	return mb * 1024 * 1024;
+	return Math.min(mb * 1024 * 1024, Math.floor(limitMb * 1024 * 1024));
 }
 
 export function containerName(leaseId: string): string {
@@ -80,8 +80,8 @@ export function execContainerSpec(
 			Privileged: false,
 			Init: true,
 			IpcMode: "private",
-			Memory: limits.memoryMb * 1024 * 1024,
-			MemorySwap: limits.memoryMb * 1024 * 1024,
+			Memory: Math.floor(limits.memoryMb * 1024 * 1024),
+			MemorySwap: Math.floor(limits.memoryMb * 1024 * 1024),
 			MemoryReservation: reservationBytes(reservation.memoryMb, limits.memoryMb),
 			CpuShares: cpuShares(reservation.cpus),
 			...(config.cgroupParent ? { CgroupParent: config.cgroupParent } : {}),

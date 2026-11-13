@@ -3,12 +3,23 @@ import net from "node:net";
 import type { Duplex } from "node:stream";
 import { authorize, type PolicyConfig, type PolicyDeps } from "./policy.ts";
 import { HttpError, logLine, readBody } from "../shared/http.ts";
-import { DuplicateKeyError, canonicalBody, parseStrictJson } from "../shared/strictjson.ts";
+import {
+	DuplicateKeyError,
+	NonFiniteNumberError,
+	canonicalBody,
+	parseStrictJson,
+} from "../shared/strictjson.ts";
 
 export interface Upstream {
 	socketPath?: string;
 	host?: string;
 	port?: number;
+}
+
+function badBodyReason(err: unknown): string {
+	if (err instanceof DuplicateKeyError) return "the body repeats a key";
+	if (err instanceof NonFiniteNumberError) return "the body has a number that is not finite";
+	return "the body is not JSON";
 }
 
 const BODY_LIMIT = 65_536;
@@ -90,12 +101,7 @@ export function createProxy(up: Upstream, cfg: PolicyConfig, deps: PolicyDeps = 
 				try {
 					body = parseStrictJson(raw.toString("utf8"));
 				} catch (err) {
-					return refuse(
-						res,
-						400,
-						err instanceof DuplicateKeyError ? "the body repeats a key" : "the body is not JSON",
-						req
-					);
+					return refuse(res, 400, badBodyReason(err), req);
 				}
 			}
 			const v = await authorize(req.method ?? "GET", req.url ?? "/", body, cfg, deps);
@@ -165,10 +171,7 @@ export function createProxy(up: Upstream, cfg: PolicyConfig, deps: PolicyDeps = 
 			try {
 				parsed = length ? parseStrictJson(raw.toString("utf8")) : undefined;
 			} catch (err) {
-				return fail(
-					400,
-					err instanceof DuplicateKeyError ? "the body repeats a key" : "the body is not JSON"
-				);
+				return fail(400, badBodyReason(err));
 			}
 			const v = await authorize(req.method ?? "GET", req.url ?? "/", parsed, cfg, deps);
 			if (!v.allow) return fail(v.status, v.reason);

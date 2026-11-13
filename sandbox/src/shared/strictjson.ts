@@ -4,6 +4,8 @@
  * refuses repeated keys at any depth and forwards the canonical re-serialisation of what it checked.
  */
 export class DuplicateKeyError extends Error {}
+/** A number JSON.parse turned into Infinity (`1e400`): re-serialised it would become `null`, "unset" to Go. */
+export class NonFiniteNumberError extends Error {}
 
 /** Parse JSON text; throw `DuplicateKeyError` when any object repeats a key, SyntaxError when it is not JSON. */
 export function parseStrictJson(text: string): unknown {
@@ -50,7 +52,12 @@ export function parseStrictJson(text: string): unknown {
 		} else if (c === '"') {
 			str();
 		} else {
+			const start = i;
 			while (i < text.length && !",]} \t\r\n".includes(text[i] ?? ",")) i++;
+			const tok = text.slice(start, i);
+			if (tok !== "true" && tok !== "false" && tok !== "null" && !Number.isFinite(Number(tok))) {
+				throw new NonFiniteNumberError(`the number ${tok.slice(0, 20)} is not finite`);
+			}
 		}
 	};
 	walk();
@@ -59,5 +66,12 @@ export function parseStrictJson(text: string): unknown {
 
 /** The bytes to forward: exactly what was validated, in one canonical form. */
 export function canonicalBody(parsed: unknown): Buffer {
-	return Buffer.from(JSON.stringify(parsed), "utf8");
+	return Buffer.from(
+		JSON.stringify(parsed, (_key, v: unknown) => {
+			if (typeof v === "number" && !Number.isFinite(v))
+				throw new NonFiniteNumberError("not finite");
+			return v;
+		}),
+		"utf8"
+	);
 }

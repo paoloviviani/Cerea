@@ -306,7 +306,12 @@ that the kernel enforces.
   "the sandbox was killed (most likely it ran out of memory)" and the chat gives that sandbox back. If Docker
   cannot remove a released sandbox, its reservation stays counted until the manager's reaper removes it.
 - **After a restart.** The manager removes the sandboxes of a previous run first and refuses new leases
-  (`503 starting`, so the chat runs the call in the browser) until that has succeeded.
+  (`503 starting`, so the chat runs the call in the browser) until that has succeeded. While a container of the
+  previous run cannot be removed, `/v1/health` says `"sweep": "blocked"` (`"pending"` before the first try,
+  `"ok"` after) and the manager logs the reason, at most once a minute.
+- **The proxy holds the maxima too.** It refuses a sandbox whose memory, CPUs or processes pass
+  `SANDBOX_EXEC_MAX_MEMORY_MB`, `SANDBOX_EXEC_MAX_CPUS` or `SANDBOX_EXEC_MAX_PIDS` (the same variables, passed to
+  both services), whole numbers only, and a request body that repeats a key or holds a number that is not finite.
 
 **The hard cap: a systemd slice (once, on the Docker host).** Create the slice, then name it. Cerea never
 creates it, and the sandbox proxy lets sandboxes join only this one slice:

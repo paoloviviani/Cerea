@@ -3,7 +3,7 @@ import type { Audit } from "./audit.ts";
 import type { DockerApi, ExecResult } from "./docker.ts";
 import { DockerError } from "./docker.ts";
 import type { LeaseLimits, ManagerConfig, Reservation } from "./config.ts";
-import { HttpError } from "../shared/http.ts";
+import { HttpError, logLine } from "../shared/http.ts";
 import { LABEL_INSTANCE, LABEL_LEASE, LABEL_MANAGED, isManaged } from "../shared/labels.ts";
 import { WORKSPACE, workspaceDir, workspacePath } from "./paths.ts";
 import { containerName, execContainerSpec, leaseReservation } from "./spec.ts";
@@ -23,6 +23,8 @@ export interface Lease {
 	reservation: Reservation;
 	/** Set when Docker could not remove the container: the reaper retries, and the lease stays counted. */
 	removal?: { reason: string; actor: string };
+	/** A removal is in progress: overlapping reaps must not run it twice (or record usage twice). */
+	finishing?: boolean;
 	createdAt: number;
 	lastActiveAt: number;
 	activeExecs: number;
@@ -93,6 +95,8 @@ export class LeaseManager {
 	/** Whether the start-up orphan sweep has succeeded (creates wait for it when `requireSweep`). */
 	private swept = false;
 	private requireSweep: boolean;
+	private sweepError: string | null = null;
+	private sweepLoggedAt = 0;
 
 	constructor(deps: {
 		/** Refuse creates (503) until `sweepOrphans` has succeeded: the manager sets it, tests need not. */
@@ -109,6 +113,12 @@ export class LeaseManager {
 		this.now = deps.now ?? Date.now;
 		this.sink = deps.usageSink ?? (() => {});
 		this.requireSweep = deps.requireSweep ?? false;
+	}
+
+	/** "ok" once the start-up sweep has succeeded (always, when it is not required), else why not yet. */
+	get sweepState(): "ok" | "pending" | "blocked" {
+		if (!this.requireSweep || this.swept) return "ok";
+		return this.sweepError ? "blocked" : "pending";
 	}
 
 	get active(): number {
@@ -273,8 +283,9 @@ export class LeaseManager {
 			lease.state = "ready";
 			lease.lastActiveAt = this.now();
 		} catch (err) {
-			if (lease.containerId) await this.docker.remove(lease.containerId).catch(() => {});
-			this.leases.delete(id);
+			// A container that did start still holds its share: it leaves the table only once removed.
+			lease.state = "released";
+			await this.finish(lease, "create_failed", actor);
 			this.audit.write({
 				action: "lease.create",
 				outcome: "failure",
@@ -363,6 +374,8 @@ export class LeaseManager {
 	 * until the reaper's retry succeeds.
 	 */
 	private async finish(lease: Lease, reason: string, actor: string): Promise<void> {
+		if (lease.finishing) return;
+		lease.finishing = true;
 		let cpu: number | null = null;
 		if (lease.containerId) {
 			try {
@@ -389,11 +402,13 @@ export class LeaseManager {
 					detail: { error: String(err).slice(0, 200), retry: true },
 				});
 				lease.removal = { reason, actor };
+				lease.finishing = false;
 				return;
 			}
 		}
 		lease.removal = undefined;
 		this.leases.delete(lease.id);
+		if (reason === "create_failed") return; // never ready: no usage to record
 		lease.usage.cpuSeconds = cpu;
 		const usage: UsageRecord = {
 			lease: lease.id,
@@ -686,10 +701,16 @@ export class LeaseManager {
 
 	/** On start: remove every labelled container of this instance left by a previous run. */
 	async sweepOrphans(): Promise<number> {
-		const found = await this.docker.listManaged([
-			`${LABEL_MANAGED}=1`,
-			`${LABEL_INSTANCE}=${this.config.instance}`,
-		]);
+		let found: Awaited<ReturnType<DockerApi["listManaged"]>>;
+		try {
+			found = await this.docker.listManaged([
+				`${LABEL_MANAGED}=1`,
+				`${LABEL_INSTANCE}=${this.config.instance}`,
+			]);
+		} catch (err) {
+			this.noteSweepFailure(err);
+			throw err;
+		}
 		let n = 0;
 		let failed: unknown = null;
 		for (const c of found) {
@@ -708,9 +729,26 @@ export class LeaseManager {
 				actor: "startup",
 			});
 		}
-		if (failed) throw failed;
+		if (failed) {
+			this.noteSweepFailure(failed);
+			throw failed;
+		}
 		this.swept = true;
+		this.sweepError = null;
 		return n;
+	}
+
+	private noteSweepFailure(err: unknown): void {
+		this.sweepError = String(err).slice(0, 200);
+		// Said on every retry, but at most once a minute.
+		if (this.now() - this.sweepLoggedAt >= 60_000) {
+			this.sweepLoggedAt = this.now();
+			logLine({
+				level: "warn",
+				msg: "orphan sweep blocked: sandboxes of a previous run cannot be listed or removed; new sandboxes wait",
+				error: this.sweepError,
+			});
+		}
 	}
 
 	async shutdown(): Promise<void> {

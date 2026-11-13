@@ -282,7 +282,8 @@ class SharedSlice(unittest.TestCase):
             proxy = service(text, "sandbox-socket-proxy")
             manager = service(text, "sandbox-manager")
             self.assertIn("SANDBOX_CGROUP_PARENT: ${SANDBOX_CGROUP_PARENT:-}", proxy)
-            self.assertIn("SANDBOX_EXEC_MAX_CPUS: ${SANDBOX_EXEC_MAX_CPUS:-}", proxy)
+            for var in ("SANDBOX_EXEC_MAX_CPUS", "SANDBOX_EXEC_MAX_MEMORY_MB", "SANDBOX_EXEC_MAX_PIDS"):
+                self.assertIn(f"{var}: ${{{var}:-}}", proxy)
             for var in (
                 "SANDBOX_CGROUP_PARENT",
                 "SANDBOX_TOTAL_MEMORY_MB",

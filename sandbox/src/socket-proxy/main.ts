@@ -29,21 +29,30 @@ if (!(maxCpus > 0)) {
 	logLine({ level: "fatal", msg: "SANDBOX_EXEC_MAX_CPUS must be a positive number" });
 	process.exit(2);
 }
+const maxMemoryMb = Number(process.env.SANDBOX_EXEC_MAX_MEMORY_MB || 2048);
+const maxPids = Number(process.env.SANDBOX_EXEC_MAX_PIDS || 1024);
+if (!(maxMemoryMb > 0) || !(maxPids > 0)) {
+	logLine({
+		level: "fatal",
+		msg: "SANDBOX_EXEC_MAX_MEMORY_MB and SANDBOX_EXEC_MAX_PIDS must be positive numbers",
+	});
+	process.exit(2);
+}
 const runtimes = runtime === "runc" && allowRunc ? ["runc"] : ["runsc"];
 const port = Number(process.env.SANDBOX_PROXY_PORT || 2375);
 const socketPath = process.env.SANDBOX_DOCKER_SOCKET || "/var/run/docker.sock";
 
-createProxy({ socketPath }, { instance, runtimes, images, cgroupParent, maxCpus }).listen(
-	port,
-	"0.0.0.0",
-	() =>
-		logLine({
-			level: "info",
-			msg: "sandbox socket proxy listening",
-			port,
-			instance,
-			runtimes,
-			images: images.length,
-			cgroupParent: cgroupParent ?? null,
-		})
+createProxy(
+	{ socketPath },
+	{ instance, runtimes, images, cgroupParent, maxCpus, maxMemoryMb, maxPids }
+).listen(port, "0.0.0.0", () =>
+	logLine({
+		level: "info",
+		msg: "sandbox socket proxy listening",
+		port,
+		instance,
+		runtimes,
+		images: images.length,
+		cgroupParent: cgroupParent ?? null,
+	})
 );
