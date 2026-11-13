@@ -94,6 +94,33 @@ export async function startFixtures(): Promise<Fixtures> {
 				)
 			);
 		}
+		if (p === "/pad") {
+			// A page to drive with the user's own input: it logs what reaches it, and repaints.
+			return send(
+				200,
+				page(
+					"Pad",
+					`<h1>Pad</h1>
+<button id="b" style="position:absolute;left:100px;top:200px;width:120px;height:40px">Press</button>
+<input id="t" style="position:absolute;left:100px;top:300px;width:240px" aria-label="Note">
+<div id="touch" style="position:absolute;left:400px;top:200px;width:200px;height:200px;background:#cde"></div>
+<div id="tick" style="position:absolute;left:400px;top:500px;width:100px;height:40px"></div>
+<div style="height:3000px"></div>
+<script>
+window.__log = [];
+const log = (x) => window.__log.push(x);
+b.addEventListener("click", () => log("click:" + (event.isTrusted ? "trusted" : "synthetic")));
+t.addEventListener("keydown", (e) => log("key:" + e.key));
+t.addEventListener("input", () => log("input:" + t.value));
+touch.addEventListener("touchstart", () => log("touchstart"));
+touch.addEventListener("touchend", () => log("touchend"));
+addEventListener("wheel", () => log("wheel"), { passive: true });
+let n = 0;
+setInterval(() => { tick.style.background = "hsl(" + (n += 37) % 360 + " 80% 50%)"; }, 60);
+</script>`
+				)
+			);
+		}
 		if (p === "/search") {
 			const q = url.searchParams.get("q") ?? "";
 			return send(

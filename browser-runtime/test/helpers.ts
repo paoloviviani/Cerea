@@ -85,6 +85,8 @@ export async function rig(
 		lentMaxMs?: number;
 		idleMs?: number;
 		pace?: { minMs: number; maxMs: number };
+		banner?: boolean;
+		live?: { maxInFlight?: number; minFrameMs?: number; viewerTimeoutMs?: number };
 	} = {}
 ): Promise<Rig> {
 	const fx = await startFixtures();
@@ -100,6 +102,8 @@ export async function rig(
 		lentMaxMs: options.lentMaxMs,
 		idleMs: options.idleMs,
 		pace: options.pace,
+		banner: options.banner ?? false,
+		live: options.live,
 		profileDir: profile,
 		headless: true,
 		noSandbox: process.env.CEREA_TEST_NO_SANDBOX === "1",

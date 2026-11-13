@@ -46,6 +46,7 @@ import {
 	type SnapshotElement,
 } from "./contract.ts";
 import { ToolError } from "./errors.ts";
+import { LiveView, PausedError } from "./live.ts";
 import { pageExtract, shapeExtract, type ExtractOptions, type RawExtract } from "./extract.ts";
 import { playwrightKey } from "./keys.ts";
 import { clean, safeFileName } from "./sanitize.ts";
@@ -89,6 +90,10 @@ export interface SessionOptions {
 	lentMaxMs?: number;
 	/** How long a page may stay silent after a failed action before it is dropped (default 8 s). */
 	probeMs?: number;
+	/** Put the "Cerea is using this window" bar on task pages (default: when the window is headed). */
+	banner?: boolean;
+	/** Live view tuning (tests shorten these). */
+	live?: { maxInFlight?: number; minFrameMs?: number; viewerTimeoutMs?: number };
 }
 
 export const DEFAULT_MAX_SNAPSHOT_CHARS = 9_000;
@@ -444,9 +449,20 @@ export class BrowserSession {
 	private currentUntil = 0;
 	private acting = false;
 	private readonly used: UsedGrants;
+	/** Screencast, takeover and the banner (phase 2a). */
+	readonly live: LiveView;
 
 	constructor(options: SessionOptions) {
 		this.options = options;
+		this.live = new LiveView(
+			{
+				activePage: () => this.livePage(),
+				context: () => this.context,
+				taskPages: () => [...this.taskPages].filter((p) => !p.isClosed()),
+				touch: () => this.touch(),
+			},
+			{ banner: options.banner ?? !options.headless, ...options.live }
+		);
 		this.used = new UsedGrants(
 			join(options.stateDir ?? dirname(options.profileDir), "used-grants.json")
 		);
@@ -492,6 +508,7 @@ export class BrowserSession {
 				this.taskPages.add(this.active);
 				this.baseline = undefined;
 				this.taskLastSite = undefined;
+				this.live.refreshBanner();
 			}
 		}
 		return this.active;
@@ -505,7 +522,13 @@ export class BrowserSession {
 		return this.active;
 	}
 
+	/** The agent's own tools stop while the user is in control. */
+	private assertAgent(): void {
+		if (this.live.paused) throw new PausedError();
+	}
+
 	private touch(): void {
+		this.live.refreshBanner();
 		clearTimeout(this.idleTimer);
 		this.idleTimer = setTimeout(() => void this.endTask(), this.options.idleMs ?? DEFAULT_IDLE_MS);
 		this.idleTimer.unref();
@@ -571,6 +594,7 @@ export class BrowserSession {
 		this.active = undefined;
 		this.baseline = undefined;
 		this.notes = [];
+		await this.live.taskEnded();
 		// A tab the user lent, and the page being kept, are let go (never closed); a lent one
 		// that was not kept is simply released.
 		const own = pages.filter((p) => !this.adopted.has(p) && p !== (kept ? keep : undefined));
@@ -741,6 +765,7 @@ export class BrowserSession {
 
 	/** The open pages of the persistent context, task pages and the user's own. */
 	async tabs(options: { deny?: string[] } = {}): Promise<{ tabs: Tab[] }> {
+		this.assertAgent();
 		await this.ensureContext();
 		this.touch();
 		// The sites Cerea keeps the agent out of (its deny list): remembered, so use_tab refuses them too.
@@ -849,6 +874,7 @@ export class BrowserSession {
 
 	private hook(page: Page): void {
 		this.navSeq.set(page, 0);
+		void this.live.installBanner(page);
 		page.on("framenavigated", (frame) => {
 			if (frame !== page.mainFrame()) return;
 			this.navSeq.set(page, (this.navSeq.get(page) ?? 0) + 1);
@@ -1018,6 +1044,7 @@ export class BrowserSession {
 
 	async close(): Promise<void> {
 		clearTimeout(this.idleTimer);
+		await this.live.stopScreencast();
 		this.taskPages.clear();
 		const context = this.context;
 		this.context = undefined;
@@ -1144,6 +1171,7 @@ export class BrowserSession {
 	}
 
 	async snapshot(): Promise<Snapshot> {
+		this.assertAgent();
 		this.touch();
 		const page = this.livePage();
 		if (!page) return this.noPage();
@@ -1159,6 +1187,7 @@ export class BrowserSession {
 	}
 
 	async diff(): Promise<Diff> {
+		this.assertAgent();
 		this.touch();
 		const page = this.livePage();
 		if (!page) {
@@ -1274,9 +1303,11 @@ export class BrowserSession {
 	}
 
 	async act(actions: BrowserAction[], approvals: ApprovalGrant[] | undefined): Promise<ActResult> {
+		this.assertAgent();
 		await this.ensureContext();
 		this.touch();
 		const results: ActionResult[] = [];
+		let wasPaused = false;
 		const downloadsBefore = this.downloads.length;
 		this.notes = [];
 		this.foreignTabs = [];
@@ -1289,6 +1320,12 @@ export class BrowserSession {
 			if (this.lastActEnd > 0) await this.pause(Date.now() - this.lastActEnd);
 			for (let index = 0; index < actions.length; index += 1) {
 				const action = actions[index];
+				// The user took control (the banner, or Cerea's live view) while the batch ran: what
+				// has been done is reported, the rest is not started.
+				if (index > 0 && this.live.paused) {
+					wasPaused = true;
+					break;
+				}
 				if (index > 0) await this.pause(0);
 				// No page is made for use_tab: a page is made lazily, by the first action that needs one.
 				const budget = await this.withBudget(this.runOne(action, index, approvals));
@@ -1380,6 +1417,7 @@ export class BrowserSession {
 			url: page ? page.url() : "about:blank",
 			title: page ? clean(await safeTitle(page), 300) : "",
 			...(downloads.length > 0 ? { downloads } : {}),
+			...(wasPaused || this.live.paused ? { paused: true } : {}),
 		};
 	}
 
@@ -1822,6 +1860,7 @@ export class BrowserSession {
 
 	/** For the calls that read a page: no page yet is an answer, not a reason to open one. */
 	private requirePage(): Page {
+		this.assertAgent();
 		this.touch();
 		const page = this.livePage();
 		if (!page) throw new ToolError("No page is open yet: navigate to an address first.");
@@ -1859,13 +1898,18 @@ export class BrowserSession {
 	}): Promise<{ mime: string; base64: string }> {
 		const page = this.requirePage();
 		const type = request.format === "jpeg" ? "jpeg" : "png";
+		const style = this.live.screenshotStyle();
 		try {
 			const buffer = request.ref
-				? await page
-						.getByRef(request.ref)
-						.screenshot({ type, timeout: 5_000, ...(type === "jpeg" ? { quality: 70 } : {}) })
+				? await page.getByRef(request.ref).screenshot({
+						type,
+						timeout: 5_000,
+						...(style ? { style } : {}),
+						...(type === "jpeg" ? { quality: 70 } : {}),
+					})
 				: await page.screenshot({
 						type,
+						...(style ? { style } : {}),
 						...(type === "jpeg" ? { quality: 70 } : {}),
 						timeout: 8_000,
 					});
@@ -1886,6 +1930,7 @@ export class BrowserSession {
 	 * its own stays here unless `all` is set. Cerea decides what to do with the rest.
 	 */
 	async download(request: { all?: boolean } = {}): Promise<DownloadResult> {
+		this.assertAgent();
 		await Promise.race([Promise.allSettled([...this.pendingDownloads]), sleep(15_000)]);
 		const give = this.downloads.filter((d) => request.all || d.actionIndex !== undefined);
 		this.downloads = this.downloads.filter((d) => !give.includes(d));

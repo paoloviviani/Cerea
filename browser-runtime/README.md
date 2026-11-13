@@ -22,4 +22,8 @@ Set `CEREA_TEST_NO_SANDBOX=1` for the tests where Chromium's sandbox is unavaila
 Layout: `session.ts` (browser, tabs, the six operations, approval gate), `tree.ts`
 (aria JSON to the pruned snapshot, collapsing, size cap), `extract.ts`, `grants.ts`
 (signed grants), `server.ts` (MCP), `args.ts` (lenient argument parsing), `sanitize.ts`.
-Phase 2 (screencast, input) hooks in through `BrowserSession.withPage`.
+`live.ts` is the live view (phase 2a): CDP screencast (frames go out as `notifications/cerea/frame`
+over stdio), the control state (`control`: takeover pauses every agent tool with "paused"), the
+user's `input` (mouse, touch, special keys, text) and the headed window's banner (isolated world,
+closed shadow root, hidden from snapshots and screenshots). The tools `control`, `screencast` and
+`input` are for Cerea's live-view routes, not the sub-agent, and bypass the session's queue.
