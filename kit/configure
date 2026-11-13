@@ -1711,6 +1711,43 @@ def sandbox_runtime_problem(values: dict) -> str | None:
     return None
 
 
+CGROUP_PARENT_RE = re.compile(r"^[a-zA-Z0-9_.-]+\.slice$")
+
+
+def sandbox_slice_warnings(values: dict) -> list:
+    """Why SANDBOX_CGROUP_PARENT may not cap anything on this host, one sentence each (warnings, never errors).
+
+    Only reads `systemctl show` and `docker info`. systemd reports every slice name as loaded, so a
+    slice the operator never defined is told apart by having neither a unit file nor a drop-in.
+    """
+    parent = values.get("SANDBOX_CGROUP_PARENT", "")
+    if not parent or not CGROUP_PARENT_RE.match(parent):
+        return []
+    out = []
+    driver = _run(["docker", "info", "--format", "{{.CgroupDriver}}"], timeout=30)
+    if driver and driver.returncode == 0 and driver.stdout.strip() == "cgroupfs":
+        out.append(
+            "Docker uses the cgroupfs cgroup driver, so SANDBOX_CGROUP_PARENT names a cgroup directory, "
+            "not a systemd slice: create it by hand (docs/sandboxes.md, \"A shared budget\") or switch "
+            "Docker to the systemd driver"
+        )
+        return out
+    proc = _run(
+        ["systemctl", "show", "-p", "FragmentPath,DropInPaths,MemoryMax,CPUQuotaPerSecUSec", parent], timeout=15
+    )
+    if proc is None or proc.returncode != 0:
+        return [f"cannot ask systemd about SANDBOX_CGROUP_PARENT={parent} (`systemctl show` failed): not checked"]
+    props = dict(line.split("=", 1) for line in proc.stdout.splitlines() if "=" in line)
+    if not props.get("FragmentPath") and not props.get("DropInPaths"):
+        out.append(
+            f"SANDBOX_CGROUP_PARENT={parent} is not defined on this host (no unit file): the sandboxes would "
+            f"start in an empty slice with no cap. Create it once, see docs/sandboxes.md, \"A shared budget\""
+        )
+    elif props.get("MemoryMax", "infinity") == "infinity" and props.get("CPUQuotaPerSecUSec", "infinity") == "infinity":
+        out.append(f"{parent} sets neither MemoryMax nor CPUQuota, so it caps nothing")
+    return out
+
+
 def compose_version() -> tuple | None:
     proc = _run(["docker", "compose", "version", "--short"], timeout=20)
     if not proc or proc.returncode != 0:
@@ -2006,6 +2043,12 @@ def check_values(values: dict, report: Report) -> None:
                 "SANDBOX=off but the sandbox profile or SANDBOX_MANAGER_URL / SANDBOX_MANAGER_TOKEN are set: "
                 "run ./configure --sandbox off (or --sandbox local / remote)"
             )
+    parent = values.get("SANDBOX_CGROUP_PARENT", "")
+    if parent and not CGROUP_PARENT_RE.match(parent):
+        report.errors.append(
+            f"SANDBOX_CGROUP_PARENT='{parent}' is not a systemd slice name (letters, digits, _ . - "
+            "and a .slice ending, such as cerea-sandbox.slice): the sandbox proxy would refuse to start"
+        )
     if values.get("CHAT_CODE_EXECUTION") == "server" and mode not in ("local", "remote"):
         report.warnings.append(
             "CHAT_CODE_EXECUTION=server but SANDBOX is off: execute_code runs in the browser. "
@@ -2162,6 +2205,8 @@ def check_host(values: dict, report: Report, *, root: Path, network: bool) -> No
         problem = sandbox_runtime_problem(values)
         if problem:
             report.errors.append(f"SANDBOX=local: {problem}")
+    if values.get("SANDBOX") == "local":
+        report.warnings.extend(sandbox_slice_warnings(values))
     version = compose_version()
     if version is None:
         report.errors.append("`docker compose` is not available here (Docker Engine with Compose v2)")

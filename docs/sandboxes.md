@@ -229,7 +229,7 @@ Everything below is a variable in `.env` (see `.env.example`); an empty one mean
 | File transfers in flight (a subset of the above)                                  | `SANDBOX_MAX_FILE_TRANSFERS`   | 4                                                              |
 | Warm pool (pristine sandboxes kept ready)                                         | `SANDBOX_WARM_POOL_SIZE`       | 0 (reserved; the pool arrives with the `execute_code` backend) |
 
-A request over a total gets `429 quota_exceeded`.
+A request over a total gets `429 quota_exceeded`. A CPU and memory total over all sandboxes is in [A shared budget](#a-shared-budget).
 
 **The services**: the manager is capped at 512 MB, 0.5 CPU and 128 processes
 (`SANDBOX_MANAGER_MEM_LIMIT`, `_CPUS`, `_PIDS`); the socket proxy at 128 MB, 0.25 CPU and 64
@@ -269,6 +269,80 @@ can run code in `SANDBOX_MAX_LEASES_PER_OWNER` conversations at once (default 3)
 `SANDBOX_MAX_LEASES` (default 8). A call that needs a new sandbox when a limit is reached is not refused:
 it runs in the browser, and the model is told so in the result. Raise the limits with the RAM table above,
 or lower `SANDBOX_IDLE_SECONDS` so idle sandboxes free their share sooner.
+
+## A shared budget
+
+Per-sandbox limits are caps, and by default eight sandboxes may each use theirs at once. To let
+each sandbox burst (say to 1 CPU and 1 GB when it is alone) while all of them together stay inside a
+total (say 1.5 CPU and 1.5 GB), set a total, a reservation per sandbox, and optionally a hard cap
+that the kernel enforces.
+
+| Setting                              | Meaning                                                                          | Default          |
+| ------------------------------------ | -------------------------------------------------------------------------------- | ---------------- |
+| `SANDBOX_TOTAL_MEMORY_MB`            | The most memory all sandboxes may reserve together                               | empty: no limit  |
+| `SANDBOX_TOTAL_CPUS`                 | The most CPUs all sandboxes may reserve together (fractions work, such as `1.5`) | empty: no limit  |
+| `SANDBOX_EXEC_MEMORY_RESERVATION_MB` | What one sandbox reserves (its soft memory limit)                                | its memory limit |
+| `SANDBOX_EXEC_CPU_RESERVATION`       | What one sandbox reserves (its CPU weight, `cpus x 1024` shares)                 | its CPU limit    |
+| `SANDBOX_EXEC_MEMORY_MB` / `_CPUS`   | The limit: the most one sandbox may use, alone                                   | 1024 MB / 1      |
+| `SANDBOX_CGROUP_PARENT`              | A systemd slice that holds every sandbox under one hard cap                      | empty: no slice  |
+
+**How they interact.**
+
+- **Admission counts reservations.** A new sandbox is refused (`429 quota_exceeded`) when the reservations of
+  the sandboxes that exist, plus its own, would pass either total. The chat then runs that call in the browser
+  and tells the model the server sandboxes are busy. A sandbox still being created already holds its share.
+- **A limit above the reservation is a burst.** Docker gets the reservation as `MemoryReservation` and
+  `CpuShares`: when the host is short of memory or CPU, sandboxes are pushed back towards their reservation
+  and share CPU in proportion to it. Alone, a sandbox may use its whole limit.
+- **Reservations alone do not cap the sum.** Three sandboxes bursting at once can use three limits.
+  Only the slice below is a hard cap on all of them together.
+- **Checked at start-up** (the manager refuses to start otherwise): a reservation must not exceed its limit, and
+  one sandbox's limit (and maximum) must not exceed the total. An unset maximum is lowered to the total for you.
+- **When the cap is hit.** The kernel kills a process that passes the sandbox's memory limit, or the slice's.
+  The call fails with "the sandbox ran out of memory", the sandbox is released (its reservation is free again),
+  and the next call gets a fresh one with no earlier variables. The model is told.
+
+**The hard cap: a systemd slice (once, on the Docker host).** Create the slice, then name it. Cerea never
+creates it, and the sandbox proxy lets sandboxes join only this one slice:
+
+```bash
+sudo tee /etc/systemd/system/cerea-sandbox.slice >/dev/null <<'EOF'
+[Slice]
+CPUQuota=150%
+MemoryMax=1536M
+EOF
+sudo systemctl daemon-reload
+systemctl show -p MemoryMax,CPUQuotaPerSecUSec cerea-sandbox.slice   # check
+```
+
+Then set `SANDBOX_CGROUP_PARENT=cerea-sandbox.slice` in `.env` and `docker compose up -d`. The name must
+look like `name.slice` (letters, digits, `_`, `.`, `-`); the manager and the proxy refuse anything else, and
+the proxy refuses a sandbox that names a different parent or none. `./configure --check` warns (it does not
+fail) when the slice is set but systemd does not know it, or sets no cap. **Docker must use the systemd
+cgroup driver** (`docker info --format '{{.CgroupDriver}}'` says `systemd`, the default on current
+distributions). With `cgroupfs`, the value names a cgroup directory instead of a slice: `./configure --check`
+warns, and you create the cgroup by hand or switch Docker to the systemd driver.
+
+**A small-box preset** (1.5 CPU and 1.5 GB for all sandboxes, each may burst to 1 CPU and 1 GB):
+
+```
+SANDBOX_TOTAL_CPUS=1.5
+SANDBOX_TOTAL_MEMORY_MB=1536
+SANDBOX_EXEC_CPUS=1
+SANDBOX_EXEC_MEMORY_MB=1024
+SANDBOX_EXEC_CPU_RESERVATION=0.5
+SANDBOX_EXEC_MEMORY_RESERVATION_MB=512
+SANDBOX_MAX_LEASES=3
+SANDBOX_CGROUP_PARENT=cerea-sandbox.slice
+```
+
+Three sandboxes reserve 1.5 CPU and 1536 MB, so a fourth is refused. One alone may use 1 CPU and 1 GB.
+The slice keeps all three, bursting, inside 1.5 CPU and 1.5 GB. Leave the memory the manager and proxy use
+(about 0.65 GB) out of the host's budget.
+
+**A dedicated VM** (for example a multipass VM that only runs the sandbox host): the VM's vCPUs and memory are
+already the outer wall, so no slice is needed. Set the totals a little under them (leave about 1 GB for the
+operating system, Docker and the two services) and keep `SANDBOX_CGROUP_PARENT` empty.
 
 ## The API (for the curious)
 
