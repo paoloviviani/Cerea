@@ -18,9 +18,9 @@ for(let y=0;y<8;y++)for(let x=0;x<24;x++){const i=(y*24+x)*4;if(d[i+3]>40&&(d[i]
 const rows=maxY-minY+2; const cell=4; const W=24*cell, H=rows*cell; 
 const c=document.getElementById('c');c.width=W;c.height=H;const cx=c.getContext('2d');cx.fillStyle='#000';
 for(const [x,y] of on){cx.fillRect(x*cell,(y-minY)*cell,cell,cell*2);} // two cells thick, solid
-// preview: menu bar sized (scaled to 18px tall) on grey, light and dark
+// preview: menu bar sized (scaled to 9px tall) on grey, light and dark
 const v=document.getElementById('v');v.width=260;v.height=60;const vx=v.getContext('2d');vx.fillStyle='#d9d9d9';vx.fillRect(0,0,130,60);vx.fillStyle='#2b2b2b';vx.fillRect(130,0,130,60);
-const h=18,w=Math.round(W*h/H);vx.imageSmoothingEnabled=true;vx.drawImage(c,20,21,w,h);
+const h=9,w=Math.round(W*h/H);vx.imageSmoothingEnabled=true;vx.drawImage(c,20,21,w,h);
 const inv=document.createElement('canvas');inv.width=W;inv.height=H;const ix=inv.getContext('2d');ix.drawImage(c,0,0);ix.globalCompositeOperation='source-in';ix.fillStyle='#fff';ix.fillRect(0,0,W,H);vx.drawImage(inv,150,21,w,h);
 document.title='done '+W+'x'+H;};img.src='${src}';</script></body></html>`);
 	await p.waitForFunction(() => document.title.startsWith("done"));
