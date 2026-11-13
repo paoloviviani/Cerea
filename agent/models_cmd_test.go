@@ -292,3 +292,30 @@ func TestPickGroupStaleRecordedGroupFallsBack(t *testing.T) {
 		t.Fatal("explicit stale group must fail")
 	}
 }
+
+// Pairing with another Cerea must not reuse the old deployment's identity
+// provider, gateway, client id or billing group (the connector app kept sending
+// users to the previous Cerea's sign-in).
+func TestEnrollWithAnotherCereaDropsTheOldDeploymentSettings(t *testing.T) {
+	dir := t.TempDir()
+	creds := filepath.Join(dir, "credentials.json")
+	writeCreds(t, creds, &credentials{
+		Issuer: "https://old-idp", Gateway: "https://old-gw/v1", Group: "team", ClientID: "old-client",
+		CereaOrigin: "https://old.example", ShimPort: 41900, OpencodeConfig: "/x/opencode.json", BillToDefault: true,
+	})
+	opts := &enrollOptions{creds: creds, cerea: "https://new.example/chat", clientID: defaultEnrollClientID, shimPort: defaultShimPort}
+	applyRecordedDefaults(opts, map[string]bool{"cerea": true})
+	if opts.issuer != "" || opts.gateway != "" || opts.clientID != defaultEnrollClientID || opts.group != "" || opts.groupRecorded || opts.defaultGroup {
+		t.Fatalf("old deployment settings carried over: %+v", opts)
+	}
+	if opts.cerea != "https://new.example/chat" || opts.shimPort != 41900 || opts.output != "/x/opencode.json" {
+		t.Fatalf("local settings lost: %+v", opts)
+	}
+
+	// The same Cerea (another path or case) still re-enrolls with the recorded settings.
+	opts = &enrollOptions{creds: creds, cerea: "https://OLD.example/chat", clientID: defaultEnrollClientID, shimPort: defaultShimPort}
+	applyRecordedDefaults(opts, map[string]bool{"cerea": true})
+	if opts.issuer != "https://old-idp" || opts.clientID != "old-client" || opts.group != "team" {
+		t.Fatalf("same Cerea lost its settings: %+v", opts)
+	}
+}

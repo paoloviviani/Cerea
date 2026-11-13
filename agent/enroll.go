@@ -613,18 +613,28 @@ func applyRecordedDefaults(opts *enrollOptions, set map[string]bool) bool {
 			*dst = recorded
 		}
 	}
-	fill("issuer", &opts.issuer, rec.Issuer)
-	fill("gateway", &opts.gateway, rec.Gateway)
+	// Enrolling with another Cerea (pairing the machine somewhere else): the
+	// recorded issuer, gateway, client id and billing group belong to the old
+	// deployment, so they are not carried over and the new Cerea's own facts
+	// (/galopin/enroll.json) are used instead. Local settings still carry over.
+	other := opts.cerea != "" && rec.CereaOrigin != "" && !sameCereaOrigin(opts.cerea, rec.CereaOrigin)
+	if !other {
+		fill("issuer", &opts.issuer, rec.Issuer)
+		fill("gateway", &opts.gateway, rec.Gateway)
+	}
 	fill("cerea", &opts.cerea, rec.CereaOrigin)
 	fill("output", &opts.output, rec.OpencodeConfig)
 	if !set["engine"] && validEngine(rec.Engine) && rec.Engine != "" {
 		opts.engine = rec.Engine
 	}
-	if !set["client-id"] && rec.ClientID != "" {
+	if !other && !set["client-id"] && rec.ClientID != "" {
 		opts.clientID = rec.ClientID
 	}
 	if !set["shim-port"] && rec.ShimPort != 0 {
 		opts.shimPort = rec.ShimPort
+	}
+	if other {
+		return true
 	}
 	if !set["group"] && rec.Group != "" {
 		opts.group = rec.Group
@@ -1306,4 +1316,15 @@ func finishConnectorsEnroll(opts *enrollOptions) error {
 	fmt.Fprintf(os.Stderr, "next: put your MCP servers in %s (the format Claude Desktop and Claude Code use),\n", filepath.Join(dir, mcpConfigFileName))
 	fmt.Fprintf(os.Stderr, "      run 'galopin run', then approve this machine under Local connectors in the chat.\n")
 	return nil
+}
+
+// sameCereaOrigin reports whether two Cerea addresses name the same deployment
+// (scheme and host, case-insensitive; the path, such as /chat, is ignored).
+func sameCereaOrigin(a, b string) bool {
+	pa, errA := url.Parse(strings.TrimSpace(a))
+	pb, errB := url.Parse(strings.TrimSpace(b))
+	if errA != nil || errB != nil {
+		return strings.EqualFold(strings.TrimRight(a, "/"), strings.TrimRight(b, "/"))
+	}
+	return strings.EqualFold(pa.Scheme, pb.Scheme) && strings.EqualFold(pa.Host, pb.Host)
 }
