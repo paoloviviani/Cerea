@@ -30,6 +30,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 COMPOSE = ROOT / "compose.yaml"
+#: The standalone sandbox host (ADR 0115) pins the same Cerea image.
+SANDBOX_COMPOSE = ROOT / "sandbox" / "compose.yaml"
 #: .env.example shows the pins in its commented-out override examples.
 EXAMPLE = ROOT / ".env.example"
 EXAMPLE_PIN = {
@@ -114,6 +116,12 @@ def main(argv: list[str] | None = None) -> int:
         if old != tag:
             new = PIN[name].sub(lambda m, t=tag: m.group(1) + t + m.group(3), new)
             changes.append(f"{name}: {old} -> {tag}")
+    # The standalone sandbox compose follows the cerea pin.
+    sandbox_text = SANDBOX_COMPOSE.read_text(encoding="utf-8")
+    want_cerea = next(iter(pins(new)["cerea"]))
+    new_sandbox = PIN["cerea"].sub(lambda m: m.group(1) + want_cerea + m.group(3), sandbox_text)
+    if new_sandbox != sandbox_text:
+        changes.append(f"sandbox/compose.yaml: cerea pin -> {want_cerea}")
     # The examples follow the pins, whichever way the pins changed.
     example = EXAMPLE.read_text(encoding="utf-8")
     new_example = example
@@ -132,6 +140,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if changes else 0
     if changes:
         COMPOSE.write_text(new, encoding="utf-8")
+        SANDBOX_COMPOSE.write_text(new_sandbox, encoding="utf-8")
         EXAMPLE.write_text(new_example, encoding="utf-8")
         for line in changes:
             print(line)

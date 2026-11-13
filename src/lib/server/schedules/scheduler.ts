@@ -309,10 +309,18 @@ export async function fireClaim(
 }
 
 let ticking = false;
+let lastTick: number | null = null;
+
+/** When the last pass started (ms), or null before the first: the Services page's heartbeat. */
+export function lastTickAt(): number | null {
+	return lastTick;
+}
 
 /** One pass: claim and fire everything due. Returns how many occurrences were handled. */
 export async function runDue(now: Date = new Date(), owner: string = instanceId): Promise<number> {
-	if (!schedulesEnabled() || ticking) return 0;
+	if (!schedulesEnabled()) return 0;
+	lastTick = Date.now();
+	if (ticking) return 0;
 	ticking = true;
 	try {
 		const claims: Claim[] = [];

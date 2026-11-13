@@ -34,6 +34,10 @@ x-redaction-image: &redaction-image ${REDACTION_IMAGE:-${PYSTINO_REGISTRY:-ghcr.
 x-extractor-image: &extractor-image ${EXTRACTOR_IMAGE:-${REDACTION_IMAGE:-${PYSTINO_REGISTRY:-ghcr.io/paoloviviani}/pystino-redaction:${PYSTINO_VERSION:-0.33.2}-pattern}}
 x-cerea-image: &cerea-image ${CEREA_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea:${CEREA_VERSION:-0.51.2}}
 x-documents-image: &documents-image ${DOCUMENTS_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea-documents:${CEREA_VERSION:-0.51.2}}
+# The sandbox manager and its Docker socket proxy (ADR 0115): one small image, two commands.
+x-sandbox-image: &sandbox-image ${SANDBOX_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea-sandbox:${CEREA_VERSION:-0.51.2}}
+# The image a sandbox runs, by digest. The manager and the socket proxy must agree on it.
+x-sandbox-exec-image: &sandbox-exec-image ${SANDBOX_EXEC_IMAGE:-python:3.13-slim@sha256:e48f59cdba69a3cbd9ed2cf0f348d90d45a8d350d98134cf1070bc106ee9ed90}
 
 # `docker compose pull` fails on an image that exists only on this host. dev/build.sh
 # writes <NAME>_PULL_POLICY=never next to each local/ image it points .env at, so
@@ -479,6 +483,13 @@ services:
       # two in step). Empty: no Office previews through LibreOffice and no
       # convert_document tool; PowerPoint previews fall back to the browser.
       CHAT_GOTENBERG_URL: ${CHAT_GOTENBERG_URL:-}
+      # Set only while the redaction profile runs (./configure keeps the two in
+      # step). Used by the admin Services page to show redaction's health and
+      # whether it uses pattern matching or NER; empty tries the same address.
+      CHAT_REDACTION_URL: ${CHAT_REDACTION_URL:-}
+      # The Pystino release this stack pins, for the admin Services page's update
+      # check (the gateway does not say its own version). tools/pin keeps it in step.
+      PYSTINO_VERSION: ${PYSTINO_VERSION:-0.33.2}
       # Where the chat keeps files (attachments, deliverables, uploads,
       # previews): MongoDB's GridFS (the default) or an S3-compatible bucket,
       # the bundled `rustfs` profile's or your own (docs/storage.md). Empty is
@@ -564,6 +575,11 @@ services:
       CHAT_BROWSER_MAX_SECONDS: ${CHAT_BROWSER_MAX_SECONDS:-}
       CHAT_BROWSER_SITES_ALLOW: ${CHAT_BROWSER_SITES_ALLOW:-}
       CHAT_BROWSER_SITES_DENY: ${CHAT_BROWSER_SITES_DENY:-}
+      # Server sandboxes (ADR 0115): off, local or remote, and where the manager is. The chat warns
+      # at start when these disagree; ./configure --check says so too.
+      SANDBOX: ${SANDBOX:-off}
+      SANDBOX_MANAGER_URL: ${SANDBOX_MANAGER_URL:-}
+      SANDBOX_MANAGER_TOKEN: ${SANDBOX_MANAGER_TOKEN:-}
       CHAT_WEBFETCH_FRESH_MINUTES: ${CHAT_WEBFETCH_FRESH_MINUTES:-}
       # One issuer for all three clients: the machine link reads the same
       # OIDC_ISSUER, OIDC_AUDIENCE and OIDC_MACHINE_CLIENT_ID as the console
@@ -611,9 +627,9 @@ services:
     # `default` is the stack's network; `office`, `docs` and `objects` are the
     # internal-only ones the document converter, the document service and the
     # bundled object store live on, and `fetch` is the headless browser's own
-    # (see below). Listing a network replaces the implicit default, so all
-    # are named.
-    networks: [default, office, docs, objects, fetch]
+    # (see below), and `sandbox-api` reaches the sandbox manager when it runs
+    # here. Listing a network replaces the implicit default, so all are named.
+    networks: [default, office, docs, objects, fetch, sandbox-api]
     depends_on:
       chat-mongo:
         condition: service_healthy
@@ -890,6 +906,106 @@ services:
       retries: 5
       start_period: 20s
 
+  # --- profile: sandbox (server sandboxes for code execution, ADR 0115) -------
+  #
+  # Two small services from one dependency-free image, and nothing else here touches Docker:
+  #   - sandbox-socket-proxy is the only service that mounts the Docker socket. It allows just
+  #     the calls the manager makes (create, start, remove, inspect, exec on containers labelled
+  #     cerea.sandbox=1 for this project), re-checks every create body (gVisor runtime, no
+  #     network, no mounts, no capabilities, an allow-listed image) and refuses the rest.
+  #     It sits on `sandbox-docker`, an internal network shared with the manager alone;
+  #   - sandbox-manager holds the leases, quotas, idle reaper and audit log. The chat reaches it
+  #     on `sandbox-api` (internal) with SANDBOX_MANAGER_TOKEN. It publishes no port.
+  # Each sandbox is its own container: gVisor (runsc), non-root, read-only root, a tmpfs
+  # workspace, no network, no capabilities, memory/CPU/process limits. Sizing is in .env.example
+  # and docs/sandboxes.md. Without the runsc runtime registered, ./configure leaves this off.
+
+  sandbox-socket-proxy:
+    profiles: [sandbox]
+    image: *sandbox-image
+    pull_policy: ${SANDBOX_PULL_POLICY:-missing}
+    command: ["node", "src/socket-proxy/main.ts"]
+    restart: unless-stopped
+    environment:
+      SANDBOX_INSTANCE: ${COMPOSE_PROJECT_NAME:-cerea}
+      SANDBOX_RUNTIME: ${SANDBOX_RUNTIME:-runsc}
+      SANDBOX_ALLOW_RUNC: ${SANDBOX_ALLOW_RUNC:-}
+      SANDBOX_ALLOWED_IMAGES: *sandbox-exec-image
+      SANDBOX_DOCKER_SOCKET: /var/run/docker.sock
+    volumes:
+      - ${SANDBOX_DOCKER_SOCKET_HOST:-/var/run/docker.sock}:/var/run/docker.sock
+    group_add: ["${SANDBOX_DOCKER_GID:-999}"]
+    networks: [sandbox-docker]
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: ${SANDBOX_PROXY_MEM_LIMIT:-128m}
+    cpus: ${SANDBOX_PROXY_CPUS:-0.25}
+    pids_limit: ${SANDBOX_PROXY_PIDS:-64}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:2375/_ping').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  sandbox-manager:
+    profiles: [sandbox]
+    image: *sandbox-image
+    pull_policy: ${SANDBOX_PULL_POLICY:-missing}
+    command: ["node", "src/manager/main.ts"]
+    restart: unless-stopped
+    environment:
+      # An empty token makes the manager refuse to start.
+      SANDBOX_MANAGER_TOKEN: ${SANDBOX_MANAGER_TOKEN:-}
+      SANDBOX_INSTANCE: ${COMPOSE_PROJECT_NAME:-cerea}
+      SANDBOX_DOCKER_URL: http://sandbox-socket-proxy:2375
+      SANDBOX_RUNTIME: ${SANDBOX_RUNTIME:-runsc}
+      SANDBOX_ALLOW_RUNC: ${SANDBOX_ALLOW_RUNC:-}
+      SANDBOX_MACHINES_ENABLED: ${SANDBOX_MACHINES_ENABLED:-}
+      SANDBOX_EXEC_IMAGE: *sandbox-exec-image
+      SANDBOX_MAX_LEASES: ${SANDBOX_MAX_LEASES:-}
+      SANDBOX_MAX_LEASES_PER_OWNER: ${SANDBOX_MAX_LEASES_PER_OWNER:-}
+      SANDBOX_WARM_POOL_SIZE: ${SANDBOX_WARM_POOL_SIZE:-}
+      SANDBOX_IDLE_SECONDS: ${SANDBOX_IDLE_SECONDS:-}
+      SANDBOX_MAX_IDLE_SECONDS: ${SANDBOX_MAX_IDLE_SECONDS:-}
+      SANDBOX_MAX_LIFETIME_SECONDS: ${SANDBOX_MAX_LIFETIME_SECONDS:-}
+      SANDBOX_EXEC_MEMORY_MB: ${SANDBOX_EXEC_MEMORY_MB:-}
+      SANDBOX_EXEC_MAX_MEMORY_MB: ${SANDBOX_EXEC_MAX_MEMORY_MB:-}
+      SANDBOX_EXEC_CPUS: ${SANDBOX_EXEC_CPUS:-}
+      SANDBOX_EXEC_MAX_CPUS: ${SANDBOX_EXEC_MAX_CPUS:-}
+      SANDBOX_EXEC_PIDS: ${SANDBOX_EXEC_PIDS:-}
+      SANDBOX_EXEC_MAX_PIDS: ${SANDBOX_EXEC_MAX_PIDS:-}
+      SANDBOX_EXEC_WORKSPACE_MB: ${SANDBOX_EXEC_WORKSPACE_MB:-}
+      SANDBOX_EXEC_MAX_WORKSPACE_MB: ${SANDBOX_EXEC_MAX_WORKSPACE_MB:-}
+      SANDBOX_EXEC_TIMEOUT_SECONDS: ${SANDBOX_EXEC_TIMEOUT_SECONDS:-}
+      SANDBOX_EXEC_MAX_TIMEOUT_SECONDS: ${SANDBOX_EXEC_MAX_TIMEOUT_SECONDS:-}
+      SANDBOX_EXEC_MAX_OUTPUT_BYTES: ${SANDBOX_EXEC_MAX_OUTPUT_BYTES:-}
+      SANDBOX_EXEC_MAX_OUTPUT_BYTES_CAP: ${SANDBOX_EXEC_MAX_OUTPUT_BYTES_CAP:-}
+      SANDBOX_MAX_FILE_BYTES: ${SANDBOX_MAX_FILE_BYTES:-}
+      SANDBOX_MAX_INFLIGHT: ${SANDBOX_MAX_INFLIGHT:-}
+      SANDBOX_MAX_FILE_TRANSFERS: ${SANDBOX_MAX_FILE_TRANSFERS:-}
+    volumes:
+      - sandbox-audit:/var/lib/sandbox
+    networks: [sandbox-docker, sandbox-api]
+    depends_on:
+      sandbox-socket-proxy:
+        condition: service_healthy
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: ${SANDBOX_MANAGER_MEM_LIMIT:-512m}
+    cpus: ${SANDBOX_MANAGER_CPUS:-0.5}
+    pids_limit: ${SANDBOX_MANAGER_PIDS:-128}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/v1/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
 # The names are the ones every existing install already has, so adopting an
 # install under its old project name mounts the same data.
 volumes:
@@ -901,6 +1017,8 @@ volumes:
   caddy-data:
   caddy-config:
   rustfs-data:
+  # The sandbox manager's append-only audit log (sandbox profile).
+  sandbox-audit:
 
 networks:
   # No route out: Docker gives an internal network no gateway and publishes no
@@ -920,3 +1038,10 @@ networks:
   # internet; kept off `default` so a compromised browser reaches none of the
   # stack's services.
   fetch:
+  # The sandbox manager and its Docker socket proxy only (sandbox profile): internal, so
+  # neither has a route out.
+  sandbox-docker:
+    internal: true
+  # The chat and the sandbox manager only. The socket proxy is not on it.
+  sandbox-api:
+    internal: true

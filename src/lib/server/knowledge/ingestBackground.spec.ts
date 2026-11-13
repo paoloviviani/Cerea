@@ -38,7 +38,9 @@ vi.mock("$env/dynamic/private", async () => {
 	return { env };
 });
 vi.mock("./embed", () => ({ embed: embedMock }));
-vi.mock("$lib/server/files/extractDocument", () => ({
+vi.mock("$lib/server/files/extractDocument", async (importOriginal) => ({
+	// The rest (documentMime, which the upload sniffing calls) stays real
+	...(await importOriginal<typeof import("$lib/server/files/extractDocument")>()),
 	NO_READER_MESSAGE: "no reader",
 	resolveExtractorModel: async () => "reader",
 	isExtractableDocument: (mime: string) => mime === "application/pdf",
