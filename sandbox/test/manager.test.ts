@@ -118,7 +118,7 @@ describe("API", () => {
 			);
 			const res = await api.call("GET", "/v1/limits", undefined, TOKEN);
 			assert.equal(res.status, 200);
-			const body = await res.json();
+			const body = (await res.json()) as Record<string, unknown>;
 			assert.deepEqual(Object.keys(body).sort(), [
 				"cpus",
 				"maxLeases",
