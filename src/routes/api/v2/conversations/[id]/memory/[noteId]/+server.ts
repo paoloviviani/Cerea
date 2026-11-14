@@ -6,7 +6,7 @@
 import { error, json, type RequestHandler } from "@sveltejs/kit";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
-import { requireAuth } from "$lib/server/api/utils/requireAuth";
+import { requireUser } from "$lib/server/api/utils/requireAuth";
 import { resolveConversation } from "$lib/server/api/utils/resolveConversation";
 import { memoryEnabled } from "$lib/server/memoryEnabled";
 import {
@@ -20,7 +20,7 @@ import { CONVERSATION_MEMORY_TEXT_MAX_CHARS } from "$lib/types/ScopedMemory";
 const patch = z.object({ text: z.string().trim().min(1).max(CONVERSATION_MEMORY_TEXT_MAX_CHARS) });
 
 async function ownChat(locals: App.Locals, id: string | undefined) {
-	requireAuth(locals);
+	requireUser(locals);
 	const conversation = await resolveConversation(id ?? "", locals);
 	return new ObjectId(conversation._id);
 }

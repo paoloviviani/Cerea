@@ -25,6 +25,7 @@
  */
 
 import type { ObjectId } from "mongodb";
+import { authorTag } from "$lib/server/memory/authorTag";
 import { fitMemoriesToBudget } from "$lib/utils/memoryBudget";
 import {
 	listMemories,
@@ -116,6 +117,7 @@ export const MEMORY_UPDATES_MAX_CHARS = 3000;
 interface CurrentRow {
 	_id: ObjectId;
 	text: string;
+	source?: "model" | "user";
 }
 
 function diff(snapshot: SnapshotRow[], current: CurrentRow[]): string[] {
@@ -124,14 +126,22 @@ function diff(snapshot: SnapshotRow[], current: CurrentRow[]): string[] {
 	const lines: string[] = [];
 	for (const row of current) {
 		const id = row._id.toString();
-		if (!before.has(id)) lines.push(`- added: ${row.text}`);
+		if (!before.has(id)) lines.push(`- added ${authorTag(row.source)}: ${row.text}`);
 		else {
 			const old = before.get(id);
-			if (old !== undefined && old !== row.text) lines.push(`- now reads: ${row.text}`);
+			if (old !== undefined && old !== row.text) {
+				lines.push(`- now reads ${authorTag(row.source)}: ${row.text}`);
+			}
 		}
 	}
-	for (const row of snapshot) {
-		if (!now.has(row.id) && row.text !== undefined) lines.push(`- removed: ${row.text}`);
+	// A removed row is reported without its text: a delete must not put the deleted words
+	// back in front of the model. (A normal delete rebuilds the snapshot instead, see
+	// `service.ts`; this is the backstop for a removal that bypassed it.)
+	const gone = snapshot.filter((row) => !now.has(row.id) && row.text !== undefined).length;
+	if (gone > 0) {
+		lines.push(
+			`- ${gone === 1 ? "an entry" : `${gone} entries`} listed above ${gone === 1 ? "was" : "were"} removed and no longer apply`
+		);
 	}
 	return lines;
 }

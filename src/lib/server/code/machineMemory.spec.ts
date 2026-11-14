@@ -21,7 +21,12 @@ import {
 	deleteAgentDeviceNotes,
 	agentNoteViews,
 } from "$lib/server/memory/service";
-import { handleMemoryCall, MAX_WRITES_PER_MINUTE, resetMemoryRate } from "./machineMemory";
+import {
+	handleMemoryCall,
+	MAX_NOTES_PER_DEVICE,
+	MAX_WRITES_PER_MINUTE,
+	resetMemoryRate,
+} from "./machineMemory";
 import { handleMachineCall } from "./machineCalls";
 import type { CallFrame, CallResFrame } from "$lib/types/machineProtocol";
 
@@ -46,6 +51,9 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+	await collections.codeAudit.deleteMany({
+		deviceId: { $in: [deviceA, deviceB, strangerDevice] },
+	});
 	await collections.codeDevices.deleteMany({ _id: { $in: [deviceA, deviceB, strangerDevice] } });
 	await collections.agentMemories.deleteMany({ userId: { $in: [owner, stranger] } });
 	await collections.memories.deleteMany({ userId: { $in: [owner, stranger] } });
@@ -108,6 +116,37 @@ describe("session and workspace notes", () => {
 		expect((await list(deviceA, "ses_2", "ws_2")).workspace).toEqual([]);
 	});
 
+	it("keys session notes by the root session, so a child session shares its parent's notes", async () => {
+		const asChild = (op: string, args: Record<string, unknown>) => ({
+			...frame(op, args, "ses_child"),
+			rootSessionId: "ses_root",
+		});
+		ok(
+			await call(deviceA, asChild("memory.save", { scope: "session", text: "Found by the child." }))
+		);
+		// The parent (its own session id is the root) sees it; an unrelated session does not.
+		const parent = frame("memory.list", {}, "ses_root");
+		const seen = ok(await call(deviceA, { ...parent, rootSessionId: "ses_root" })) as unknown as {
+			session: { text: string }[];
+		};
+		expect(seen.session.map((n) => n.text)).toEqual(["Found by the child."]);
+		expect((await list(deviceA, "ses_other")).session).toEqual([]);
+		// And a note written by the parent is listed by the child.
+		ok(
+			await call(deviceA, {
+				...frame("memory.save", { scope: "session", text: "From the parent." }, "ses_root"),
+				rootSessionId: "ses_root",
+			})
+		);
+		const fromChild = ok(await call(deviceA, asChild("memory.list", {}))) as unknown as {
+			session: { text: string }[];
+		};
+		expect(fromChild.session.map((n) => n.text)).toEqual([
+			"Found by the child.",
+			"From the parent.",
+		]);
+	});
+
 	it("never crosses computers or users, even with the same session and workspace ids", async () => {
 		ok(await save(deviceA, "session", "A's note.", "ses_1", "ws_1"));
 		ok(await save(deviceA, "workspace", "A's folder.", "ses_1", "ws_1"));
@@ -149,6 +188,32 @@ describe("session and workspace notes", () => {
 		resetMemoryRate();
 		for (let i = 0; i < MAX_WRITES_PER_MINUTE; i++) await save(deviceB, "workspace", `W${i}`);
 		expect(err(await save(deviceB, "workspace", "over the rate")).code).toBe("limit");
+	});
+
+	it("caps the notes a computer holds across every list, letting only a repeat through", async () => {
+		const now = new Date();
+		await collections.agentMemories.insertMany(
+			Array.from({ length: MAX_NOTES_PER_DEVICE }, (_, i) => ({
+				_id: new ObjectId(),
+				userId: owner,
+				deviceId: deviceA.toString(),
+				scope: "session" as const,
+				key: `ses_bulk_${i % 100}`,
+				text: `Bulk ${i}`,
+				source: "model" as const,
+				createdAt: now,
+				updatedAt: now,
+			}))
+		);
+		const refused = err(await save(deviceA, "session", "One too many", "ses_new"));
+		expect(refused.code).toBe("limit");
+		expect(refused.message).toContain(String(MAX_NOTES_PER_DEVICE));
+		// A computer's other lists are not affected by another computer's notes.
+		ok(await save(deviceB, "session", "Fine here"));
+		// A repeat in a full list still answers as a no-op.
+		expect(ok(await save(deviceA, "session", "Bulk 0", "ses_bulk_0"))).toMatchObject({
+			created: false,
+		});
 	});
 
 	it("refuses an unpaired or unknown machine", async () => {
@@ -200,6 +265,20 @@ describe("agents have no global, project or chat memory", () => {
 			"Chat note.",
 		]);
 		expect(await collections.agentMemories.countDocuments({ userId: owner })).toBe(0);
+	});
+
+	it("audits a refused chat-scope attempt: scope word and outcome, never the text", async () => {
+		await collections.codeAudit.deleteMany({ deviceId: deviceA });
+		err(await save(deviceA, "global", "Secret words that must not be logged."));
+		const rows = await collections.codeAudit.find({ deviceId: deviceA }).toArray();
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			action: "memory.save.refused",
+			outcome: "forbidden",
+			origin: "agent",
+			name: "global",
+		});
+		expect(JSON.stringify(rows)).not.toContain("Secret words");
 	});
 
 	it("never returns chat memory to an agent and never leaks agent notes into the chat", async () => {

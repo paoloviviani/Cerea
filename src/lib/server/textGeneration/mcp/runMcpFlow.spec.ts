@@ -158,7 +158,8 @@ vi.mock("$lib/server/textGeneration/utils/prepareFiles", () => ({
 	},
 }));
 
-vi.mock("$lib/server/endpoints/images", () => ({
+vi.mock("$lib/server/endpoints/images", async (importOriginal) => ({
+	...(await importOriginal<typeof import("$lib/server/endpoints/images")>()),
 	// Hands an image back as it came, like the real processor does for one inside the limits.
 	makeImageProcessor: () => async (file: { value: string; mime: string }) => ({
 		image: Buffer.from(file.value, "base64"),
@@ -176,7 +177,18 @@ vi.mock("$lib/server/abortedGenerations", () => ({
 	AbortedGenerations: { getInstance: () => ({ getAbortTime: mocks.getAbortTime }) },
 }));
 
+// The memory-and-cache tests below run the real `textGeneration` (what builds the request), with the
+// title call and file preprocessing stubbed out.
+// eslint-disable-next-line require-yield
+vi.mock("../title", () => ({ async *generateTitleForConversation () {} }));
+vi.mock("../userPrompts", () => ({ userPromptsFor: async () => ({}) }));
+vi.mock("../../generateFromDefaultEndpoint", () => ({ generateFromDefaultEndpoint: vi.fn() }));
+vi.mock("../../endpoints/preprocessMessages", () => ({
+	preprocessMessages: async (messages: unknown) => messages,
+}));
+
 const { runMcpFlow } = await import("./runMcpFlow");
+const { textGeneration } = await import("../index");
 
 type ScriptedCall = { id?: string; name?: string; arguments: string };
 
@@ -2415,120 +2427,270 @@ describe("runMcpFlow and look_doc", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Memory and the prompt cache
+// Memory and the prompt cache, through the real turn builder (`textGeneration`)
 //
-// The provider's prompt cache matches a byte-identical prefix. Memory must
-// therefore never change anything before the newest user message: the system
-// prompt carries the snapshot taken when the chat started, and every later write
-// (a chat note, a personal fact, a project note) travels in the tail.
+// The provider's prompt cache matches a byte-identical prefix of the request. So
+// nothing memory-shaped may change before the newest user message, and the block
+// that rode on a message must ride on it unchanged on every later turn:
+//  - personal and project memory are frozen per chat in the system prompt;
+//  - the chat's notes, and memory written since, are a block in front of each user
+//    message, stored with it and replayed, so only the newest message is new.
 // ---------------------------------------------------------------------------
 
-describe("runMcpFlow: memory and the prompt cache", () => {
-	const history = [
-		{ from: "user", content: "first question" },
-		{ from: "assistant", content: "first answer" },
-		{ from: "user", content: "second question" },
-	];
+describe("textGeneration: memory and the prompt cache", () => {
+	type Msg = { id: string; from: "user" | "assistant"; content: string; memoryBlock?: string };
+	const msg = (id: string, from: Msg["from"], content: string): Msg => ({ id, from, content });
 
-	async function setup() {
-		const user = { _id: new ObjectId(), username: "cachey" };
-		await collections.settings.insertOne({
-			_id: new ObjectId(),
+	async function world(existing?: { _id: ObjectId; username: string }) {
+		const user = existing ?? { _id: new ObjectId(), username: "cachey" };
+		if (!existing) {
+			await collections.settings.insertOne({
+				_id: new ObjectId(),
+				userId: user._id,
+				memoryEnabled: true,
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			} as never);
+		}
+		const convId = new ObjectId();
+		const turns: Msg[] = [
+			msg("u1", "user", "first question"),
+			msg("a1", "assistant", "first answer"),
+			msg("u2", "user", "second question"),
+		];
+		await collections.conversations.insertOne({
+			_id: convId,
 			userId: user._id,
-			memoryEnabled: true,
+			model: "test/model",
+			title: "t",
+			messages: turns,
 			createdAt: new Date(),
 			updatedAt: new Date(),
 		} as never);
-		const conv = { _id: new ObjectId() } as never as Record<string, unknown> & { _id: ObjectId };
-		return { user, conv };
+		return { user, convId, turns };
 	}
 
-	/** One whole turn: what the gateway was sent, system prompt built from the snapshot like the real path. */
-	async function sentRequest(
+	/** One turn, as the route would run it: the conversation and its path are read from the database. */
+	async function runTurn(
 		user: { _id: ObjectId },
-		conv: Record<string, unknown> & { _id: ObjectId },
-		available: { globalOn: boolean }
+		convId: ObjectId,
+		path: string[],
+		endpoint?: (params: { messages: unknown[] }) => unknown
 	) {
-		const { takeMemorySnapshot, snapshotApplies, snapshotBlocks } =
-			await import("$lib/server/memory/snapshot");
-		const wanted = { userId: user._id, globalOn: available.globalOn };
-		if (!snapshotApplies(conv.memorySnapshot as never, wanted)) {
-			conv.memorySnapshot = await takeMemorySnapshot(wanted);
-		}
-		const preprompt = snapshotBlocks(conv.memorySnapshot as never).global;
+		const conv = (await collections.conversations.findOne({ _id: convId })) as never as Record<
+			string,
+			unknown
+		> & { messages: Msg[] };
+		const messages = path.map((id) => conv.messages.find((m) => m.id === id) as Msg);
 		mocks.create.mockReset();
 		scriptRounds([{ content: "ok" }]);
-		await runFlow({
-			conv,
-			messages: history,
-			preprompt,
-			locals: { user },
-		} as never);
-		return requestMessages(0);
+		const updates: MessageUpdate[] = [];
+		try {
+			for await (const update of textGeneration({
+				model: {
+					id: "test/model",
+					name: "test/model",
+					supportsTools: true,
+					supportsArtifacts: false,
+					parameters: {},
+				},
+				endpoint:
+					endpoint ??
+					(async () => {
+						throw new Error("no endpoint expected");
+					}),
+				conv,
+				messages,
+				promptedAt: new Date(),
+				ip: "127.0.0.1",
+				locals: { user },
+				abortController: new AbortController(),
+			} as never)) {
+				updates.push(update);
+			}
+		} catch {
+			// The fallback path's endpoint stub ends the stream itself.
+		}
+		return mocks.create.mock.calls.length > 0 ? requestMessages(0) : [];
 	}
+
+	const bytes = (messages: unknown[]) => JSON.stringify(messages);
+	const content = (m: ChatCompletionMessageParam | undefined) => String(m?.content ?? "");
 
 	afterEach(async () => {
 		await collections.settings.deleteMany({ memoryEnabled: true });
 	});
 
 	it("editing a chat note changes only the newest user message", async () => {
-		const { user, conv } = await setup();
+		const { user, convId } = await world();
 		const { rememberForConversation, updateConversationMemory } =
 			await import("$lib/server/memory/service");
 		const { memory } = await rememberForConversation({
-			conversationId: conv._id,
+			conversationId: convId,
 			text: "Use metric units.",
 			source: "user",
 		});
-		const before = await sentRequest(user, conv, { globalOn: true });
-		await updateConversationMemory(conv._id, memory._id, "Use imperial units.");
-		const after = await sentRequest(user, conv, { globalOn: true });
+		const before = await runTurn(user, convId, ["u1", "a1", "u2"]);
+		await updateConversationMemory(convId, memory._id, "Use imperial units.");
+		const after = await runTurn(user, convId, ["u1", "a1", "u2"]);
 
-		expect(before).toHaveLength(after.length);
-		// Everything but the newest message, the system prompt included, is the same bytes.
-		expect(JSON.stringify(after.slice(0, -1))).toBe(JSON.stringify(before.slice(0, -1)));
-		expect(String(before.at(-1)?.content)).toContain("Use metric units.");
-		expect(String(after.at(-1)?.content)).toContain("Use imperial units.");
-		expect(String(after.at(-1)?.content)).toMatch(/second question$/);
-		// The notes never reach the system prompt.
-		expect(String(before[0].content)).not.toContain("Use metric");
+		expect(after).toHaveLength(before.length);
+		// The system prompt and every message before the newest are the same bytes.
+		expect(bytes(after.slice(0, -1))).toBe(bytes(before.slice(0, -1)));
+		expect(content(before.at(-1))).toContain("(typed by the user) Use metric units.");
+		expect(content(after.at(-1))).toContain("Use imperial units.");
+		expect(content(after.at(-1))).toMatch(/\[END OF NOTES\]\n\nsecond question$/);
+		expect(content(before[0])).not.toContain("Use metric");
 	});
 
-	it("renders unchanged notes as identical bytes, turn after turn", async () => {
-		const { user, conv } = await setup();
-		const { rememberForConversation } = await import("$lib/server/memory/service");
-		for (const text of ["Note A.", "Note B."]) {
-			await rememberForConversation({ conversationId: conv._id, text, source: "user" });
-		}
-		const one = await sentRequest(user, conv, { globalOn: true });
-		const two = await sentRequest(user, conv, { globalOn: true });
-		expect(JSON.stringify(two)).toBe(JSON.stringify(one));
-	});
-
-	it("a personal-memory write mid-conversation reaches the tail, never the prefix", async () => {
-		const { user, conv } = await setup();
-		const { rememberFact, deleteMemory } = await import("$lib/server/memory/service");
-		const { memory } = await rememberFact({
-			userId: user._id,
-			text: "Prefers short answers.",
-			source: "user",
+	it("growing the history keeps every byte up to the end of the last turn", async () => {
+		const { user, convId } = await world();
+		const { rememberForConversation, updateConversationMemory } =
+			await import("$lib/server/memory/service");
+		const { memory } = await rememberForConversation({
+			conversationId: convId,
+			text: "Use metric units.",
+			source: "model",
 		});
-		const before = await sentRequest(user, conv, { globalOn: true });
-		expect(String(before[0].content)).toContain("Prefers short answers.");
-		expect(String(before.at(-1)?.content)).not.toContain("UPDATED IN THIS CONVERSATION");
+		const turnN = await runTurn(user, convId, ["u1", "a1", "u2"]);
+		// The answer lands and the user writes again; the note changes in between.
+		await collections.conversations.updateOne({ _id: convId }, {
+			$push: {
+				messages: {
+					$each: [msg("a2", "assistant", "second answer"), msg("u3", "user", "third question")],
+				},
+			},
+		} as never);
+		await updateConversationMemory(convId, memory._id, "Use imperial units.");
+		const turnN1 = await runTurn(user, convId, ["u1", "a1", "u2", "a2", "u3"]);
+
+		// Everything turn N sent, including u2 with the block it carried then, is replayed unchanged.
+		expect(bytes(turnN1.slice(0, turnN.length))).toBe(bytes(turnN));
+		expect(content(turnN1[turnN.length - 1])).toContain("Use metric units.");
+		// Only the new messages are new, and the newest carries the fresh block.
+		expect(turnN1).toHaveLength(turnN.length + 2);
+		expect(content(turnN1.at(-1))).toContain("Use imperial units.");
+		expect(content(turnN1.at(-1))).toMatch(/third question$/);
+		// And it is stable: the same turn again gives the same request.
+		expect(bytes(await runTurn(user, convId, ["u1", "a1", "u2", "a2", "u3"]))).toBe(bytes(turnN1));
+	});
+
+	it("a personal-memory write mid-chat reaches the tail only; the system prompt and history do not move", async () => {
+		const { user, convId } = await world();
+		const { rememberFact } = await import("$lib/server/memory/service");
+		await rememberFact({ userId: user._id, text: "Prefers short answers.", source: "user" });
+		const turnN = await runTurn(user, convId, ["u1", "a1", "u2"]);
+		expect(content(turnN[0])).toContain("Prefers short answers.");
 
 		await rememberFact({ userId: user._id, text: "Lives in Rome.", source: "model" });
-		await deleteMemory(user._id, memory._id);
-		const after = await sentRequest(user, conv, { globalOn: true });
-
-		expect(JSON.stringify(after.slice(0, -1))).toBe(JSON.stringify(before.slice(0, -1)));
-		const tail = String(after.at(-1)?.content);
+		await collections.conversations.updateOne({ _id: convId }, {
+			$push: {
+				messages: {
+					$each: [msg("a2", "assistant", "second answer"), msg("u3", "user", "third question")],
+				},
+			},
+		} as never);
+		const turnN1 = await runTurn(user, convId, ["u1", "a1", "u2", "a2", "u3"]);
+		expect(bytes(turnN1.slice(0, turnN.length))).toBe(bytes(turnN));
+		const tail = content(turnN1.at(-1));
 		expect(tail).toContain("UPDATED IN THIS CONVERSATION");
-		expect(tail).toContain("added: Lives in Rome.");
-		expect(tail).toContain("removed: Prefers short answers.");
-		// A new conversation takes a fresh snapshot, so the prefix then carries it.
-		const fresh = await sentRequest(user, { _id: new ObjectId() } as never, { globalOn: true });
-		expect(String(fresh[0].content)).toContain("Lives in Rome.");
-		expect(String(fresh[0].content)).not.toContain("Prefers short answers.");
+		expect(tail).toContain("added (saved by the assistant): Lives in Rome.");
+		expect(content(turnN1[0])).not.toContain("Lives in Rome.");
+		// A new chat takes a fresh snapshot, so the prefix then carries it.
+		const fresh = await world(user);
+		const next = await runTurn(user, fresh.convId, ["u1", "a1", "u2"]);
+		expect(content(next[0])).toContain("Lives in Rome.");
+	});
+
+	it("deleting a fact takes effect on the next turn: no snapshot, no stored block keeps its words", async () => {
+		const { user, convId } = await world();
+		const { rememberFact, deleteMemory } = await import("$lib/server/memory/service");
+		const { memory: secret } = await rememberFact({
+			userId: user._id,
+			text: "Takes medication X.",
+			source: "user",
+		});
+		const { memory: later } = await rememberFact({
+			userId: user._id,
+			text: "Added later: allergic to Y.",
+			source: "user",
+		});
+		const first = await runTurn(user, convId, ["u1", "a1", "u2"]);
+		expect(bytes(first)).toContain("Takes medication X.");
+		await deleteMemory(user._id, later._id);
+		expect(bytes(await runTurn(user, convId, ["u1", "a1", "u2"]))).not.toContain("allergic");
+		await deleteMemory(user._id, secret._id);
+		const after = await runTurn(user, convId, ["u1", "a1", "u2"]);
+		expect(bytes(after)).not.toContain("Takes medication X.");
+		const stored = await collections.conversations.findOne({ _id: convId });
+		expect(JSON.stringify(stored)).not.toContain("Takes medication X.");
+	});
+
+	it("deleting a chat note drops it from the blocks of earlier messages too", async () => {
+		const { user, convId } = await world();
+		const { rememberForConversation, deleteConversationMemory } =
+			await import("$lib/server/memory/service");
+		const { memory } = await rememberForConversation({
+			conversationId: convId,
+			text: "Secret detail.",
+			source: "user",
+		});
+		expect(bytes(await runTurn(user, convId, ["u1", "a1", "u2"]))).toContain("Secret detail.");
+		await deleteConversationMemory(convId, memory._id);
+		expect(bytes(await runTurn(user, convId, ["u1", "a1", "u2"]))).not.toContain("Secret detail.");
+		expect(JSON.stringify(await collections.conversations.findOne({ _id: convId }))).not.toContain(
+			"Secret detail."
+		);
+	});
+
+	it("switching personal memory off drops it from chats under way", async () => {
+		const { user, convId } = await world();
+		const { rememberFact, dropPersonalMemoryFromChats } =
+			await import("$lib/server/memory/service");
+		await rememberFact({ userId: user._id, text: "Kept private.", source: "user" });
+		expect(bytes(await runTurn(user, convId, ["u1", "a1", "u2"]))).toContain("Kept private.");
+		await collections.settings.updateOne({ userId: user._id }, { $set: { memoryEnabled: false } });
+		await dropPersonalMemoryFromChats(user._id);
+		expect(bytes(await runTurn(user, convId, ["u1", "a1", "u2"]))).not.toContain("Kept private.");
+	});
+
+	it("the tool-free fallback sends the same blocks as the tool flow", async () => {
+		const { user, convId } = await world();
+		const { rememberForConversation } = await import("$lib/server/memory/service");
+		await rememberForConversation({
+			conversationId: convId,
+			text: "Fallback note.",
+			source: "user",
+		});
+		let sent: Array<{ from: string; content: string }> = [];
+		const endpoint = async (params: { messages: unknown[] }) => {
+			sent = params.messages as typeof sent;
+			return (async function* () {})();
+		};
+		// The upstream rejects the very first request: nothing was shown, so the turn falls back.
+		mocks.create.mockReset();
+		scriptRounds([{ error: Object.assign(new Error("400 rejected"), { status: 400 }) }]);
+		const conv = (await collections.conversations.findOne({ _id: convId })) as never as {
+			messages: Msg[];
+		};
+		try {
+			for await (const update of textGeneration({
+				model: { id: "test/model", name: "test/model", supportsTools: true, parameters: {} },
+				endpoint,
+				conv,
+				messages: conv.messages,
+				promptedAt: new Date(),
+				ip: "127.0.0.1",
+				locals: { user },
+				abortController: new AbortController(),
+			} as never)) {
+				void update;
+			}
+		} catch {
+			// The stub endpoint ends without the fields the stats reader wants.
+		}
+		const newest = sent.filter((m) => m.from === "user").at(-1);
+		expect(newest?.content).toContain("Fallback note.");
+		expect(newest?.content).toMatch(/second question$/);
 	});
 });

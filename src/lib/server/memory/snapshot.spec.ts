@@ -70,13 +70,16 @@ describe("the start-of-chat snapshot", () => {
 		await updateProjectMemory(projectId, note._id, "New convention.");
 		await rememberForProject({ projectId, authorUserId: userId, text: "Extra.", source: "model" });
 		const first = memoryUpdatesBlock(snapshot, await current());
-		expect(first).toContain("added: Lives in Rome.");
-		expect(first).toContain("now reads: New convention.");
-		expect(first).toContain("added: Extra.");
+		expect(first).toContain("added (saved by the assistant): Lives in Rome.");
+		expect(first).toContain("now reads (typed by the user): New convention.");
+		expect(first).toContain("added (saved by the assistant): Extra.");
 		expect(memoryUpdatesBlock(snapshot, await current())).toBe(first);
 
 		await deleteProjectMemory(projectId, note._id);
-		expect(memoryUpdatesBlock(snapshot, await current())).toContain("removed: Old convention.");
+		// A removed row is reported without its words.
+		const removed = memoryUpdatesBlock(snapshot, await current());
+		expect(removed).toContain("an entry listed above was removed");
+		expect(removed).not.toContain("Old convention.");
 	});
 
 	it("caps the updates and says so", async () => {

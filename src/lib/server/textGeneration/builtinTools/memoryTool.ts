@@ -86,7 +86,7 @@ function doctrine(scopes: MemoryToolScope[]): string {
 		lines.push(
 			'- scope "global": standing facts about the user, kept in every future chat. Only when they clearly ' +
 				'mean always or about themselves ("always", "from now on", "about me", "in every chat"). ' +
-				"You must pass their own words in user_words. If it is unclear whether a note should be for " +
+				"You must pass their own words, quoted from their latest message, in user_words. If it is unclear whether a note should be for " +
 				'this chat or for every chat, ask the user, and do not guess "global".'
 		);
 	}
@@ -215,7 +215,16 @@ function guardsFor(ctx: BuiltinToolContext): ObjectId | undefined {
 	return ctx.userId;
 }
 
-function build(scopes: MemoryToolScope[], projectId: ObjectId | undefined): BuiltinTool[] {
+/** Case and whitespace folded, so "Always  reply in Italian" matches "always reply in italian". */
+function fold(text: string): string {
+	return text.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function build(
+	scopes: MemoryToolScope[],
+	projectId: ObjectId | undefined,
+	latestUserText: (() => string) | undefined
+): BuiltinTool[] {
 	const textMax = textMaxFor(scopes);
 	const scopeProperty = {
 		type: "string",
@@ -237,8 +246,9 @@ function build(scopes: MemoryToolScope[], projectId: ObjectId | undefined): Buil
 	const userWords = {
 		type: "string",
 		description:
-			'Required for scope "global": the user\'s own words that make this note permanent ("always", ' +
-			'"about me", "in every chat"). Leave out for other scopes. If you have no such words, ask the user instead.',
+			'Required for scope "global": the words, quoted exactly from the user\'s latest message, that make ' +
+			'this note permanent ("always", "about me", "in every chat"). It is checked against that message. ' +
+			"Leave out for other scopes. If they said nothing like that, ask the user instead.",
 	};
 
 	const remember: BuiltinTool = {
@@ -279,12 +289,19 @@ function build(scopes: MemoryToolScope[], projectId: ObjectId | undefined): Buil
 			const picked = resolveScope(args.scope, scopes);
 			if ("error" in picked) return picked;
 			const { scope } = picked;
-			if (scope === "global" && !String(args.user_words ?? "").trim()) {
-				return {
-					error:
-						"A global note needs the user's own words saying it should last (pass them as user_words). " +
-						"If they did not say so, ask whether it is for this chat only or for every chat.",
-				};
+			if (scope === "global") {
+				// The words must be the user's: they have to appear in their newest message. A
+				// model can invent a justification; it cannot invent what the user typed.
+				const words = fold(String(args.user_words ?? ""));
+				const said = latestUserText ? fold(latestUserText()) : "";
+				if (!words || !said.includes(words)) {
+					return {
+						error:
+							"A global note needs the user's own words, quoted from their latest message, saying it " +
+							"should last (pass them as user_words). Ask the user whether this is for this chat only " +
+							"or for every chat, and do not guess.",
+					};
+				}
 			}
 			try {
 				const { text, id, created } = await rememberAt(scope, String(args.fact ?? ""), {
@@ -410,11 +427,13 @@ export function createMemoryBuiltins(params: {
 	/** The deployment flag is on, so this chat may keep its own notes. */
 	conversation?: boolean;
 	project?: { projectId: ObjectId };
+	/** The user's newest message, for the `global` scope's quote check; without it no global write passes. */
+	latestUserText?: () => string;
 }): BuiltinTool[] {
 	const scopes: MemoryToolScope[] = [];
 	if (params.conversation) scopes.push("conversation");
 	if (params.project) scopes.push("project");
 	if (params.enabled) scopes.push("global");
 	if (scopes.length === 0) return [];
-	return build(scopes, params.project?.projectId);
+	return build(scopes, params.project?.projectId, params.latestUserText);
 }

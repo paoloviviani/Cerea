@@ -178,5 +178,12 @@ export const POST: RequestHandler = async ({ locals, request, getClientAddress }
 		{ upsert: true }
 	);
 
+	// Switching personal memory off must stop it reaching chats already under way: their frozen
+	// snapshot of it (and any tail blocks quoting it) is dropped, and the next turn rebuilds.
+	if (parsedSettings.memoryEnabled === false && locals.user) {
+		const { dropPersonalMemoryFromChats } = await import("$lib/server/memory/service");
+		await dropPersonalMemoryFromChats(locals.user._id).catch(() => undefined);
+	}
+
 	return new Response();
 };

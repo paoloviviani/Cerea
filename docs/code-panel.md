@@ -411,7 +411,7 @@ line in the sidebar). Push notifications (below) are unchanged.
 An agent can keep short notes for itself, so it does not lose a convention or a
 decision when its context is compacted. There are two lists, and only two:
 
-- **This session**: notes for one agent session. They survive the agent's
+- **This session**: notes for one agent session (its helpers, such as a subagent it starts, share them). They survive the agent's
   context being compacted and the session being restarted, and are deleted with
   the session.
 - **This workspace**: notes for one folder on one computer, read by every

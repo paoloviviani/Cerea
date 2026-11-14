@@ -11,6 +11,9 @@ import {
 	type MemorySnapshot,
 } from "$lib/server/memory/snapshot";
 
+/** Closes every tail block, so where the notes stop and the user's own message starts is never in doubt. */
+export const END_OF_NOTES = "[END OF NOTES]";
+
 /**
  * Everything memory-shaped that goes in the uncached tail of a request: the
  * chat's own notes, then whatever personal or project memory changed since the
@@ -47,5 +50,5 @@ export async function memoryTail(options: {
 	} catch (err) {
 		logger.warn({ err: String(err) }, "memory_updates_degraded: answering without them");
 	}
-	return parts.length > 0 ? parts.join("\n\n") : undefined;
+	return parts.length > 0 ? `${parts.join("\n\n")}\n${END_OF_NOTES}` : undefined;
 }

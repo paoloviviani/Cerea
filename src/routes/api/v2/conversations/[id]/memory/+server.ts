@@ -10,7 +10,7 @@
 import { error, json, type RequestHandler } from "@sveltejs/kit";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
-import { requireAuth } from "$lib/server/api/utils/requireAuth";
+import { requireUser } from "$lib/server/api/utils/requireAuth";
 import { resolveConversation } from "$lib/server/api/utils/resolveConversation";
 import { memoryEnabled } from "$lib/server/memoryEnabled";
 import {
@@ -24,7 +24,7 @@ const create = z.object({ text: z.string().trim().min(1).max(CONVERSATION_MEMORY
 
 async function ownChat(locals: App.Locals, id: string | undefined) {
 	if (!memoryEnabled()) error(404, "Memory is not turned on here.");
-	requireAuth(locals);
+	requireUser(locals);
 	const conversation = await resolveConversation(id ?? "", locals);
 	return new ObjectId(conversation._id);
 }

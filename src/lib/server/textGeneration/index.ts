@@ -140,6 +140,14 @@ async function* textGenerationWithoutTitle(
 	// no memory. The whole block is a try/catch that logs and continues: a store
 	// that cannot be read is a reason for a worse answer, never for none.
 	let projectMemoryBlock: { block: string | undefined } | undefined;
+	// What the tail of the request needs (see `memory/blocks.ts`), settled with the snapshot.
+	let memoryState:
+		| {
+				userId: NonNullable<typeof conv.userId>;
+				globalOn: boolean;
+				projectId: typeof conv.projectId;
+		  }
+		| undefined;
 	try {
 		const memoryUserId = ctx.locals?.user?._id;
 		if (memoryUserId) {
@@ -162,6 +170,7 @@ async function* textGenerationWithoutTitle(
 							{ $set: { memorySnapshot: snapshot } }
 						);
 					}
+					memoryState = { userId: memoryUserId, globalOn, projectId: member?._id };
 					const blocks = snapshotBlocks(snapshot);
 					if (blocks.global)
 						preprompt = preprompt ? `${preprompt}\n\n${blocks.global}` : blocks.global;
@@ -216,6 +225,31 @@ async function* textGenerationWithoutTitle(
 		conv.messages
 	);
 
+	// The memory block for each user message, computed once for both paths below: the
+	// chat's notes and any memory changed since the chat started ride the tail of the
+	// request, replayed unchanged on earlier messages so the cached prefix never moves.
+	let memoryBlocks = new Map<string, string>();
+	if (ctx.locals?.user) {
+		const { memoryEnabled } = await import("$lib/server/memoryEnabled");
+		if (memoryEnabled()) {
+			const { prepareMemoryBlocks } = await import("$lib/server/memory/blocks");
+			memoryBlocks = await prepareMemoryBlocks({
+				conversationId: convId,
+				messages,
+				conversationMessages: conv.messages,
+				snapshot: conv.memorySnapshot,
+				userId: ctx.locals.user._id,
+				globalOn: memoryState?.globalOn ?? false,
+				projectId: memoryState?.projectId,
+			});
+		}
+	}
+	const { applyMemoryBlocks, blocksByPosition } = await import("$lib/server/memory/blocks");
+	const promptMessages = applyMemoryBlocks(
+		processedMessages,
+		blocksByPosition(messages, processedMessages.length, memoryBlocks)
+	);
+
 	let mcpProducedOutput = false;
 
 	// Try MCP tool flow first; fall back to default generation if not selected/available
@@ -224,6 +258,9 @@ async function* textGenerationWithoutTitle(
 			model: ctx.model,
 			conv,
 			messages: processedMessages,
+			// The same messages with their memory blocks in front, for the request only: the
+			// notes are not the user's words, so URLs and hints are still read from `messages`.
+			promptMessages,
 			forceMultimodal: ctx.forceMultimodal,
 			forceTools: ctx.forceTools,
 			reasoningEffort: ctx.reasoningEffort,
@@ -254,7 +291,7 @@ async function* textGenerationWithoutTitle(
 		// throw, and re-running would discard whatever the user has already been shown.
 		if (mcpResult === "not_applicable" && !mcpProducedOutput) {
 			// fallback to normal text generation
-			yield* generate({ ...ctx, messages: processedMessages }, preprompt);
+			yield* generate({ ...ctx, messages: promptMessages }, preprompt);
 		}
 		// Every other result already emitted a final answer; falling back would replace it.
 	} catch (err) {
@@ -272,7 +309,7 @@ async function* textGenerationWithoutTitle(
 			throw err;
 		} else {
 			// Nothing was shown yet, so a clean tool-free retry is a real recovery.
-			yield* generate({ ...ctx, messages: processedMessages }, preprompt);
+			yield* generate({ ...ctx, messages: promptMessages }, preprompt);
 		}
 	}
 	done.abort();

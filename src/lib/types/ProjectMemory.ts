@@ -39,7 +39,7 @@ export interface ProjectMemory extends Timestamps {
 	/** The note itself. */
 	text: string;
 
-	/** `model` came from a `remember_for_project` call; `user` was typed in the tab. */
+	/** `model` came from a `remember` call with `scope: project`; `user` was typed in the tab. */
 	source: "model" | "user";
 
 	/** Who wrote it, or in whose turn the model did. */

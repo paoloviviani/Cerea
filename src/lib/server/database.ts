@@ -622,6 +622,14 @@ export class Database {
 		projectMemories
 			.createIndex({ projectId: 1, createdAt: 1 })
 			.catch((e) => logger.error(e, "Error creating index for projectMemories by projectId"));
+		// A deleted personal fact or project note drops the snapshots that hold it (memory/service):
+		// found by the id the snapshot lists, so those two paths are indexed (only chats with one).
+		conversations
+			.createIndex({ "memorySnapshot.global.id": 1 }, { sparse: true })
+			.catch((e) => logger.error(e, "Error creating index for conversations by memory snapshot"));
+		conversations
+			.createIndex({ "memorySnapshot.project.id": 1 }, { sparse: true })
+			.catch((e) => logger.error(e, "Error creating index for conversations by memory snapshot"));
 		// A chat's own notes, and an agent's notes per owner, computer and session or workspace.
 		conversationMemories
 			.createIndex({ conversationId: 1, createdAt: 1 })

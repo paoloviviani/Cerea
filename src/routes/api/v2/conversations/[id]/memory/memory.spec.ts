@@ -8,11 +8,16 @@ import { collections, ready } from "$lib/server/database";
 import {
 	cleanupTestData,
 	createTestConversation,
+	createTestLocals,
 	createTestUser,
 } from "$lib/server/api/__tests__/testHelpers";
 import { testRequest } from "$lib/server/__tests__/testRequest";
 import { deleteConversationStorage } from "$lib/server/conversationStorage";
-import { buildConversationMemoryBlock } from "$lib/server/memory/service";
+import {
+	buildConversationMemoryBlock,
+	rememberForConversation,
+	sweepOrphanConversationNotes,
+} from "$lib/server/memory/service";
 import { DELETE, PATCH } from "./[noteId]/+server";
 import { GET, POST } from "./+server";
 
@@ -136,5 +141,31 @@ describe("/api/v2/conversations/[id]/memory", () => {
 		expect((await add(me.locals, conv._id, "x".repeat(1001))).status).toBe(400);
 		for (let i = 0; i < 50; i++) await add(me.locals, conv._id, `Note ${i}`);
 		expect((await add(me.locals, conv._id, "Too many")).status).toBe(400);
+	});
+
+	it("has no anonymous notes: a session with no account is refused", async () => {
+		const { conv } = await setup();
+		const anonymous = createTestLocals({ sessionId: "anon-session" });
+		const anonConv = await createTestConversation(anonymous);
+		expect((await add(anonymous, anonConv._id, "Nowhere durable.")).status).toBe(401);
+		const read = await testRequest(GET, {
+			path: "x",
+			params: { id: anonConv._id.toString() },
+			locals: anonymous,
+		});
+		expect(read.status).toBe(401);
+		expect(
+			await collections.conversationMemories.countDocuments({ conversationId: conv._id })
+		).toBe(0);
+	});
+
+	it("the orphan sweep removes notes whose chat is gone and keeps the rest", async () => {
+		const { me, conv } = await setup();
+		await add(me.locals, conv._id, "Live chat note.");
+		const gone = new ObjectId();
+		await rememberForConversation({ conversationId: gone, text: "Orphan.", source: "user" });
+		expect(await sweepOrphanConversationNotes()).toBeGreaterThanOrEqual(1);
+		expect(await buildConversationMemoryBlock(gone)).toBeUndefined();
+		expect(await buildConversationMemoryBlock(conv._id)).toContain("Live chat note.");
 	});
 });

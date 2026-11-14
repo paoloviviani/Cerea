@@ -27,8 +27,14 @@ beforeEach(async () => {
 
 const names = (tools: { name: string }[]) => tools.map((tool) => tool.name);
 const ctx = { uuid: "u1", toolCallId: "c1", userId, conversationId } as never;
+const USER_SAID = "Please keep this:  ALWAYS answer in Italian, whatever I ask.";
 const all = () =>
-	createMemoryBuiltins({ enabled: true, conversation: true, project: { projectId } });
+	createMemoryBuiltins({
+		enabled: true,
+		conversation: true,
+		project: { projectId },
+		latestUserText: () => USER_SAID,
+	});
 const tool = (name: string, tools = all()) => {
 	const found = tools.find((candidate) => candidate.name === name);
 	if (!found) throw new Error(`no tool ${name}`);
@@ -154,15 +160,34 @@ describe("scope selection", () => {
 			{ fact: "Prefers Italian.", scope: "global" },
 			ctx
 		);
-		expect(refused).toMatchObject({ error: expect.stringContaining("ask") });
+		expect(refused).toMatchObject({ error: expect.stringMatching(/ask/i) });
 		expect(await collections.memories.countDocuments({ userId })).toBe(0);
 
+		// Words the user did not type are refused, whatever the model claims they said.
+		const invented = await tool(REMEMBER_TOOL_NAME).execute(
+			{ fact: "Prefers Italian.", scope: "global", user_words: "from now on in every chat" },
+			ctx
+		);
+		expect(invented).toMatchObject({ error: expect.stringContaining("their latest message") });
+		expect(await collections.memories.countDocuments({ userId })).toBe(0);
+
+		// Case and spacing are folded: the quote matches their message either way.
 		const saved = await tool(REMEMBER_TOOL_NAME).execute(
-			{ fact: "Prefers Italian.", scope: "global", user_words: "always answer in Italian" },
+			{ fact: "Prefers Italian.", scope: "global", user_words: "always   answer in italian" },
 			ctx
 		);
 		expect(saved).toMatchObject({ resultText: expect.stringContaining("every chat") });
 		expect(await collections.memories.countDocuments({ userId })).toBe(1);
+	});
+
+	it("refuses every global write when it cannot see the user's message", async () => {
+		const blind = createMemoryBuiltins({ enabled: true, conversation: true });
+		const refused = await tool(REMEMBER_TOOL_NAME, blind).execute(
+			{ fact: "x", scope: "global", user_words: "always" },
+			ctx
+		);
+		expect(refused).toHaveProperty("error");
+		expect(await collections.memories.countDocuments({ userId })).toBe(0);
 	});
 
 	it("tells the model, in its description, to take the narrowest scope and to ask when unclear", () => {

@@ -242,6 +242,7 @@ export async function* runMcpFlow({
 	model,
 	conv,
 	messages,
+	promptMessages,
 	forceMultimodal,
 	forceTools,
 	reasoningEffort,
@@ -256,6 +257,12 @@ export async function* runMcpFlow({
 	abortController,
 	promptedAt,
 }: RunMcpFlowContext & {
+	/**
+	 * `messages` with each user message's memory block in front (`memory/blocks.ts`),
+	 * for the request only. `messages` stays the user's own words: URL trust, browse
+	 * hints and skills read from it, never from the notes.
+	 */
+	promptMessages?: RunMcpFlowContext["messages"];
 	preprompt?: string;
 	/** The administrator's block, already at the start of `preprompt`: moved to the very front here. */
 	adminInstructions?: string;
@@ -439,6 +446,9 @@ export async function* runMcpFlow({
 		modelSeesImages: Boolean(forceMultimodal ?? model.multimodal) && !model.toolImagesOff,
 		pictureState,
 		memoryEnabled: memoryAllowed,
+		// The newest user message, for the memory tool's check that a global note quotes the user.
+		latestUserText: () =>
+			String([...messages].reverse().find((message) => message.from === "user")?.content ?? ""),
 		// A chat's own notes need the deployment flag only: they die with the chat.
 		conversationMemoryEnabled: memoryEnabled() && Boolean(locals?.user),
 		...(memoryProject ? { projectMemoryProjectId: memoryProject._id } : {}),
@@ -745,7 +755,7 @@ export async function* runMcpFlow({
 
 		const userTimezone = locals?.timezone;
 		let messagesOpenAI: ChatCompletionMessageParam[] = await prepareMessagesWithFiles(
-			messages,
+			promptMessages ?? messages,
 			imageProcessor,
 			mmEnabled,
 			{
@@ -810,26 +820,6 @@ export async function* runMcpFlow({
 			}
 		} else if (mergedPreprompt.length > 0) {
 			messagesOpenAI = [{ role: "system", content: mergedPreprompt }, ...messagesOpenAI];
-		}
-
-		// The uncached tail, in front of the newest user message and never in the system
-		// prompt: this chat's own notes, and any personal or project memory written since
-		// the chat's snapshot (see `memory/snapshot`). Editing any of it leaves every
-		// earlier token of the request byte-identical, so the cache holds.
-		if (memoryEnabled() && locals?.user) {
-			const { memoryTail } = await import("$lib/server/memory/tail");
-			const { injectConversationNotes } =
-				await import("$lib/server/memory/injectConversationNotes");
-			messagesOpenAI = injectConversationNotes(
-				messagesOpenAI,
-				await memoryTail({
-					conversationId: conv._id,
-					snapshot: conv.memorySnapshot,
-					userId: locals.user._id,
-					globalOn: memoryAllowed,
-					projectId: memoryProject?._id,
-				})
-			);
 		}
 
 		// Tail-injected once per turn; within the turn, freshness travels in the tool

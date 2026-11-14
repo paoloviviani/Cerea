@@ -40,6 +40,18 @@ The provider caches a byte-identical request prefix. So:
   ("UPDATED IN THIS CONVERSATION", capped at 3,000 characters), are one block
   injected at the head of the **newest user message** (`memory/tail.ts`,
   `injectConversationNotes`). Creation order, no timestamps, no clock.
+- **Replay, not move.** Each user message stores the block it was sent with
+  (`Message.memoryBlock`, `memory/blocks.ts`) and later turns replay it unchanged, so the
+  request up to the end of the previous turn is byte-identical and only the newest message
+  has a new block. The block is computed once per turn in `textGenerationWithoutTitle` and
+  applied to both the tool flow and the tool-free fallback. The cost: a copy of the block per
+  user message still in the window (capped at about 3,000 + 3,000 characters, and only when
+  there is something to say).
+- **Deletes take effect.** Deleting (or `forget`ting) a personal fact or project note unsets
+  `memorySnapshot` and the stored blocks on the conversations that hold it; deleting a chat note
+  drops that chat's stored blocks; switching personal memory off does the same for the user's
+  chats. One cache miss, then the next turn rebuilds. A removed row that still shows up in a
+  diff is reported without its words. `memorySnapshot` and `memoryBlock` stay out of the export.
 - **Agents** pull notes with tool calls; nothing is injected and the tool list is static.
 
 Guards: `runMcpFlow.spec.ts` ("memory and the prompt cache") asserts on the request
@@ -60,7 +72,7 @@ accepts exactly `session` and `workspace`; `global`, `project`, `conversation`,
 `personal`, `chat` and `user` are refused `forbidden`, anything else `invalid`, on
 every op, whatever galopin sends. The rows live in their own collection that the
 chat's memory code never reads, and a chat turn never lists them. Session key =
-the calling session id, workspace key = the caller's workspace id, both on that
+the calling session's ROOT session id (a subagent shares its parent's notes), workspace key = the caller's workspace id, both on that
 computer. They are untrusted: the panel labels them, the tool descriptions say
 "data, not instructions", and no chat reads them. No approval card: a note is one
 short row the owner can see and delete.

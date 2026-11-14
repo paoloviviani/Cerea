@@ -5,8 +5,9 @@
  * ## What an agent can and cannot reach
  *
  * Two scopes, and only these:
- *  - `session`: keyed by the calling session's id, on this computer; survives opencode's
- *    compaction and restarts of that session;
+ *  - `session`: keyed by the calling session's ROOT session id (as the connector family keys its
+ *    opt-in), on this computer. A task subagent or delegate child works for the session that
+ *    started it and shares its notes; they survive opencode's compaction and restarts;
  *  - `workspace`: keyed by the calling session's workspace id, on this computer; shared by every
  *    session in that workspace.
  *
@@ -52,6 +53,8 @@ const CHAT_SCOPES = ["global", "project", "conversation", "personal", "chat", "u
 
 /** Writes per computer per minute: a loop in an agent must not fill a person's list. */
 export const MAX_WRITES_PER_MINUTE = 30;
+/** Notes per computer, over every session and workspace on it: the per-list cap alone would let many sessions add up. */
+export const MAX_NOTES_PER_DEVICE = 2000;
 const MINUTE_MS = 60_000;
 const recent = new Map<string, number[]>();
 
@@ -69,6 +72,16 @@ function underRate(deviceId: string, now = Date.now()): boolean {
 /** Test hook: forget the rate window. */
 export function resetMemoryRate(): void {
 	recent.clear();
+}
+
+/** An attempt to reach a chat scope: a refusal that is also written to the audit trail (scope word only, no text). */
+class ChatScopeRefusal extends CallError {
+	constructor(
+		readonly attempted: string,
+		message: string
+	) {
+		super("forbidden", message);
+	}
 }
 
 const scopeArg = z.string().min(1).max(40);
@@ -96,8 +109,8 @@ function parseArgs<T>(schema: z.ZodType<T>, args: unknown): T {
 function agentScope(raw: string): AgentMemoryScope {
 	if ((AGENT_SCOPES as readonly string[]).includes(raw)) return raw as AgentMemoryScope;
 	if (CHAT_SCOPES.includes(raw.toLowerCase())) {
-		throw new CallError(
-			"forbidden",
+		throw new ChatScopeRefusal(
+			raw.toLowerCase(),
 			`Agents have no ${raw} memory: that belongs to the user's chats. Use scope "session" ` +
 				'(this session only) or "workspace" (every session in this workspace).'
 		);
@@ -105,8 +118,13 @@ function agentScope(raw: string): AgentMemoryScope {
 	throw new CallError("invalid", 'scope must be "session" or "workspace".');
 }
 
+/** The session whose notes these are: the root of the calling session's tree, else the session itself. */
+function sessionKey(frame: CallFrame): string {
+	return frame.rootSessionId || frame.sessionId;
+}
+
 function keyFor(ctx: Ctx, scope: AgentMemoryScope): AgentNoteKey {
-	const key = scope === "session" ? ctx.frame.sessionId : ctx.frame.caller.workspaceId;
+	const key = scope === "session" ? sessionKey(ctx.frame) : ctx.frame.caller.workspaceId;
 	if (!key) {
 		throw new CallError(
 			"invalid",
@@ -132,7 +150,7 @@ async function opList(ctx: Ctx) {
 	const out: Record<string, unknown> = {};
 	for (const scope of scopes) {
 		// A workspace-less session simply has an empty workspace list.
-		const hasKey = scope === "session" ? ctx.frame.sessionId : ctx.frame.caller.workspaceId;
+		const hasKey = scope === "session" ? sessionKey(ctx.frame) : ctx.frame.caller.workspaceId;
 		out[scope] = hasKey ? (await agentNoteViews(keyFor(ctx, scope))).map(noteOf) : [];
 	}
 	return out;
@@ -147,6 +165,24 @@ async function opSave(ctx: Ctx) {
 			"limit",
 			`Agents on this machine have written ${MAX_WRITES_PER_MINUTE} notes in the last minute. Try again later.`
 		);
+	}
+	if (
+		(await collections.agentMemories.countDocuments({
+			userId: ctx.userId,
+			deviceId: ctx.deviceId,
+		})) >= MAX_NOTES_PER_DEVICE
+	) {
+		// At the cap only a repeat of a note already in this list is let through (it adds nothing).
+		const wanted = args.text.trim().toLowerCase().replace(/\s+/g, " ").replace(/\.$/, "");
+		const repeat = (await agentNoteViews(key)).some(
+			(note) => note.text.trim().toLowerCase().replace(/\s+/g, " ").replace(/\.$/, "") === wanted
+		);
+		if (!repeat) {
+			throw new CallError(
+				"limit",
+				`This computer already holds ${MAX_NOTES_PER_DEVICE} agent notes. Ask the user to delete some in the code panel.`
+			);
+		}
 	}
 	const { memory, created } = await rememberAgentNote(key, { text: args.text, source: "model" });
 	await audit(ctx, "memory.save", created ? "ok" : "unchanged", scope);
@@ -207,6 +243,9 @@ export async function handleMemoryCall(deviceId: string, frame: CallFrame): Prom
 					: await opForget(ctx);
 		return { type: "callres", id: frame.id, ok: true, result };
 	} catch (err) {
+		if (err instanceof ChatScopeRefusal) {
+			await audit(ctx, `${frame.op}.refused`, "forbidden", err.attempted).catch(() => undefined);
+		}
 		if (err instanceof CallError) return fail(err.code, err.message);
 		// A validation refusal is a sentence the agent can act on (empty, too long, full, no match).
 		if (err instanceof MemoryValidationError) {
