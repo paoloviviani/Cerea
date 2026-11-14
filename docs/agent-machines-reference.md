@@ -272,10 +272,12 @@ a repo cannot redirect your prompts; an attempt to (a repo's `opencode.json`
 setting `provider`, `enabled_providers`, `model`, `small_model` or an agent's
 model) is written to the computer's `audit.log` as
 `project_config.override_attempt`, listing the keys and never the values. An
-agent-level model naming a provider outside the allowlist fails with an error
-rather than routing anywhere. With `--allow-opencode-provider` as well there is
-no allowlist to pin and this last guarantee does not hold (**known: no
-guarantee**): a repo agent can name the repo's own provider.
+agent-level model naming a provider outside the allowlist does not route to it
+(on opencode 2 the gateway serves the prompt; 1.x raised an error). With
+`--allow-opencode-provider` as well there is no allowlist to pin and this last
+guarantee does not hold (**known: no guarantee**): a repo agent can name the
+repo's own provider, and on opencode 2 a repo's own `enabled_providers` can
+drop the gateway from the list.
 
 ### What the file explorer may see
 
@@ -1205,6 +1207,14 @@ CI job runs galopin's real-opencode suite against each new release
 `opencode serve`, and it is the only runtime dependency. opencode is a
 separate open-source project (MIT licence) installed from its own
 installer; Cerea does not redistribute it and is not affiliated with it.
+
+**Upgrading opencode.** Upgrades within opencode 2 keep session history, and
+galopin's own per-session state (mode, model, Deny / Ask / Allow, exceptions,
+spawn marks) keeps applying: it is keyed on session ids and galopin's own files,
+never on anything an opencode release changes (an integration test makes a
+session under an earlier 2.x and opens it under the installed one). From 1.x it
+is a reinstall: session history from 1.x may not carry over, so back up
+`~/.local/share/opencode/opencode.db` first if you want to keep it.
 
 With the installer above, skip to `enroll`. From a build of your own:
 

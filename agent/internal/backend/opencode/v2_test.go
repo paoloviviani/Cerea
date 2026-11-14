@@ -50,3 +50,31 @@ func TestAdaptSubagentToolLinksTheChild(t *testing.T) {
 		t.Errorf("part = tool %q child %q, want task linked to ses_c", p.Tool, p.SubtaskSessionID)
 	}
 }
+
+// opencode 2 numbers text and reasoning parts each from 0: both get an id that
+// tells the kind, live and in the transcript, so one never replaces the other.
+func TestReasoningAndTextPartsDoNotShareAnID(t *testing.T) {
+	st := newAsmState()
+	r := st.adapt("session.reasoning.started", 1, map[string]any{"sessionID": "s", "assistantMessageID": "m", "ordinal": 0})
+	x := st.adapt("session.text.started", 2, map[string]any{"sessionID": "s", "assistantMessageID": "m", "ordinal": 0})
+	rid := r[0].props["part"].(map[string]any)["id"]
+	xid := x[0].props["part"].(map[string]any)["id"]
+	if rid == xid {
+		t.Fatalf("reasoning and text both have part id %v", rid)
+	}
+	parts := assistantParts("s", map[string]any{"id": "m", "content": []any{
+		map[string]any{"type": "reasoning", "text": "think"}, map[string]any{"type": "text", "text": "say"}}})
+	if parts[0].(map[string]any)["id"] != rid || parts[1].(map[string]any)["id"] != xid {
+		t.Errorf("transcript ids %v / %v differ from the live ids %v / %v", parts[0].(map[string]any)["id"], parts[1].(map[string]any)["id"], rid, xid)
+	}
+}
+
+func TestModeReminderIsNotThePersonsText(t *testing.T) {
+	parts := userParts("m", "s", "hello\n<system-reminder>\nPlan mode.\n</system-reminder>", nil, nil)
+	if len(parts) != 2 {
+		t.Fatalf("parts = %v, want the synthetic reminder and the text", parts)
+	}
+	if parts[1].(map[string]any)["text"] != "hello" || parts[0].(map[string]any)["synthetic"] != true {
+		t.Errorf("parts = %v", parts)
+	}
+}

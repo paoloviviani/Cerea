@@ -69,10 +69,11 @@ func withLoc(path, dir string) string {
 	return path + "?" + p
 }
 
-// partKey is the part id galopin gives a text or reasoning part: 2.x numbers
-// them by their index in the assistant message's content array.
-func partKey(messageID string, ordinal int) string {
-	return fmt.Sprintf("%s:%d", messageID, ordinal)
+// partKey is the part id galopin gives a text or reasoning part: 2.x numbers text
+// parts and reasoning parts each from 0 (a text and a reasoning part can both be
+// ordinal 0), so the kind is part of the id: "<msg>:t0", "<msg>:r0".
+func partKey(messageID, kind string, ordinal int) string {
+	return fmt.Sprintf("%s:%c%d", messageID, kind[0], ordinal)
 }
 
 // toolPartKey is the part id of a tool call: 2.x names a call by the
@@ -190,6 +191,12 @@ func fileDataURL(f map[string]any) string {
 
 // userParts builds the 1.x parts of a user message: its text, then its files.
 func userParts(id, sessionID string, text string, files []any, synthetic []string) []any {
+	// opencode 2 appends a mode's <system-reminder> block to the user's own text
+	// (1.x kept it a synthetic part): the person's text stays the person's.
+	if i := strings.Index(text, "<system-reminder>"); i >= 0 {
+		synthetic = append(append([]string(nil), synthetic...), strings.TrimSpace(text[i:]))
+		text = strings.TrimRight(text[:i], " \n")
+	}
 	var parts []any
 	for i, s := range synthetic {
 		parts = append(parts, map[string]any{
@@ -238,13 +245,16 @@ func assistantInfo(sessionID string, m map[string]any) map[string]any {
 func assistantParts(sessionID string, m map[string]any) []any {
 	id := getStr(m, "id")
 	var parts []any
-	for i, c := range asMaps(getSlice(m, "content")) {
+	n := map[string]int{}
+	for _, c := range asMaps(getSlice(m, "content")) {
 		switch getStr(c, "type") {
 		case "text", "reasoning":
+			kind := getStr(c, "type")
 			parts = append(parts, map[string]any{
-				"id": partKey(id, i), "messageID": id, "sessionID": sessionID,
-				"type": getStr(c, "type"), "text": getStr(c, "text"),
+				"id": partKey(id, kind, n[kind]), "messageID": id, "sessionID": sessionID,
+				"type": kind, "text": getStr(c, "text"),
 			})
+			n[kind]++
 		case "tool":
 			t := getMap(c, "time")
 			parts = append(parts, map[string]any{
@@ -332,11 +342,21 @@ func syntheticEntry(sessionID, id, text string) map[string]any {
 	}
 }
 
+// subagentTitle gives a subagent session the title 1.x gave it, "<description>
+// (@<agent> subagent)": 2.x records the agent on the session instead, and the
+// panel and the roster read the agent from that suffix.
+func subagentTitle(title, parentID, agent string) string {
+	if parentID == "" || agent == "" || strings.HasSuffix(title, " subagent)") {
+		return title
+	}
+	return title + " (@" + agent + " subagent)"
+}
+
 // sessionInfo is the 1.x session info of a 2.x session object.
 func sessionInfoV1(m map[string]any) map[string]any {
 	info := map[string]any{
-		"id": getStr(m, "id"), "title": getStr(m, "title"), "parentID": getStr(m, "parentID"),
-		"agent": getStr(m, "agent"),
+		"id": getStr(m, "id"), "title": subagentTitle(getStr(m, "title"), getStr(m, "parentID"), getStr(m, "agent")),
+		"parentID": getStr(m, "parentID"), "agent": getStr(m, "agent"),
 	}
 	if t := getMap(m, "time"); t != nil {
 		info["time"] = map[string]any{"created": getFloat(t, "created"), "updated": getFloat(t, "updated")}
@@ -521,7 +541,8 @@ func (st *asmState) adapt(typ string, created float64, d map[string]any) []frame
 	switch typ {
 	case "session.created":
 		info := map[string]any{
-			"id": sid, "title": getStr(d, "title"), "parentID": getStr(d, "parentID"), "agent": getStr(d, "agent"),
+			"id": sid, "title": subagentTitle(getStr(d, "title"), getStr(d, "parentID"), getStr(d, "agent")),
+			"parentID": getStr(d, "parentID"), "agent": getStr(d, "agent"),
 			"time": map[string]any{"created": created, "updated": created},
 		}
 		if loc := getMap(d, "location"); loc != nil {
@@ -646,13 +667,17 @@ func (st *asmState) adapt(typ string, created float64, d map[string]any) []frame
 			kind = "reasoning"
 		}
 		return []frame{partUpdated(sid, map[string]any{
-			"id": partKey(mid, int(getFloat(d, "ordinal"))), "messageID": mid, "type": kind, "text": "",
+			"id": partKey(mid, kind, int(getFloat(d, "ordinal"))), "messageID": mid, "type": kind, "text": "",
 		})}
 
 	case "session.text.delta", "session.reasoning.delta":
 		mid := getStr(d, "assistantMessageID")
+		dkind := "text"
+		if strings.Contains(typ, "reasoning") {
+			dkind = "reasoning"
+		}
 		return []frame{{"message.part.delta", map[string]any{
-			"sessionID": sid, "messageID": mid, "partID": partKey(mid, int(getFloat(d, "ordinal"))),
+			"sessionID": sid, "messageID": mid, "partID": partKey(mid, dkind, int(getFloat(d, "ordinal"))),
 			"field": "text", "delta": getStr(d, "delta"),
 		}}}
 
@@ -663,7 +688,7 @@ func (st *asmState) adapt(typ string, created float64, d map[string]any) []frame
 			kind = "reasoning"
 		}
 		return []frame{partUpdated(sid, map[string]any{
-			"id": partKey(mid, int(getFloat(d, "ordinal"))), "messageID": mid, "type": kind, "text": getStr(d, "text"),
+			"id": partKey(mid, kind, int(getFloat(d, "ordinal"))), "messageID": mid, "type": kind, "text": getStr(d, "text"),
 		})}
 
 	case "session.tool.input.started":

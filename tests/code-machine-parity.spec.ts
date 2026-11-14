@@ -802,7 +802,7 @@ test.describe("owned machine agent: parity", () => {
 			toolCalls: [
 				{
 					id: "call_task",
-					name: "task",
+					name: "subagent",
 					arguments: JSON.stringify({
 						description: "Inspect the repo",
 						prompt: "List what is in the repo.",

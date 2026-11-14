@@ -530,6 +530,9 @@ func childEnv(cfg Config, patch map[string]any) ([]string, error) {
 	// then assumes the model takes images: say text only for those, in the
 	// content layer, so a machine enrolled before the upgrade needs no re-enroll.
 	fix := textOnlyModalities(cfg.ConfigPath)
+	if tools := toolsConfig(cfg.ToolsDir); tools != nil {
+		fix = mergeConfig(fix, tools)
+	}
 	if !cfg.ProjectConfig {
 		env = append(env, "OPENCODE_DISABLE_PROJECT_CONFIG=1")
 	} else if cfg.ConfigPath != "" {
@@ -745,4 +748,18 @@ func textOnlyModalities(path string) map[string]any {
 		return nil
 	}
 	return map[string]any{"provider": map[string]any{gatewayProviderID: map[string]any{"models": fix}}}
+}
+
+// toolsConfig points opencode at galopin's plugin and skill directory. 2.x
+// takes OPENCODE_CONFIG_DIR as THE global config directory (1.x added to it), so
+// setting it would hide the user's own ~/.config/opencode (their commands,
+// agents and skills): the directories are named in config instead.
+func toolsConfig(toolsDir string) map[string]any {
+	if toolsDir == "" {
+		return nil
+	}
+	return map[string]any{
+		"plugins": []any{map[string]any{"package": filepath.Join(toolsDir, "plugins", "galopin-tools")}},
+		"skills":  []any{filepath.Join(toolsDir, "skills")},
+	}
 }

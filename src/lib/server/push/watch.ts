@@ -68,6 +68,12 @@ const scheduledSessions = new Map<
 	string,
 	{ userId: ObjectId; name: string; scheduleId: string; at: number }
 >();
+/**
+ * Subagents at work, by their root session. opencode 2 runs every subagent in the background, so
+ * a scheduled run's parent can go idle while children still work (and their report starts a new
+ * parent turn): the run is not finished until they are.
+ */
+const workingChildren = new Map<string, Map<string, number>>();
 const announced = new Map<string, number>();
 
 const key = (deviceId: string, sessionId: string) => `${deviceId}:${sessionId}`;
@@ -152,6 +158,15 @@ export function observeMachineEvent(
 		}
 		case "status": {
 			const k = key(deviceId, sessionId);
+			if (envelope.rootSessionId && envelope.rootSessionId !== sessionId) {
+				const rk = key(deviceId, envelope.rootSessionId);
+				const kids = workingChildren.get(rk) ?? new Map<string, number>();
+				if (event.status === "busy" || event.status === "retry") kids.set(sessionId, deps.now());
+				else if (event.status === "idle") kids.delete(sessionId);
+				for (const [id, at] of kids) if (deps.now() - at > STALE_MS) kids.delete(id);
+				if (kids.size) workingChildren.set(rk, kids);
+				else workingChildren.delete(rk);
+			}
 			if (event.status === "busy" || event.status === "retry") {
 				if (!turns.has(k)) {
 					sweep(turns, deps.now());
@@ -199,6 +214,11 @@ function turnEnded(
 ): void {
 	const { sessionId } = envelope;
 	const scheduled = scheduledSessions.get(key(deviceId, sessionId));
+	if (scheduled && workingChildren.get(key(deviceId, sessionId))?.size) {
+		// Idle, but subagents are still working: not finished. Their report starts another turn of
+		// this session, and that turn's end is what tells the run is over.
+		return;
+	}
 	if (scheduled) {
 		scheduledSessions.delete(key(deviceId, sessionId));
 		deps.notify(scheduled.userId, "scheduleRun", {
@@ -294,6 +314,7 @@ export function chatTurnFinished(
 export function _resetWatchState(): void {
 	turns.clear();
 	scheduledSessions.clear();
+	workingChildren.clear();
 	announced.clear();
 }
 

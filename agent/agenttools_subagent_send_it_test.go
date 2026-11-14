@@ -111,8 +111,12 @@ func TestSubagentSendToAnotherSessionGetsACardIntegration(t *testing.T) {
 
 	// The background child's first turn ends its task, and its result wakes a
 	// new turn in the parent — the report channel the fix keeps intact.
-	r.hub.wait(t, afterList, 240*time.Second, "the notification turn to start in the parent", func(e sessions.Envelope) bool {
-		return e.SessionID == parent.ID && e.Event.Kind == backend.EventStatus && e.Event.Status == backend.StatusBusy
+	// Anchored on the injected report itself, not on a busy edge: the wake lands
+	// within milliseconds of the parent's idle, before a 100ms poll could see it.
+	r.hub.wait(t, afterList, 240*time.Second, "the child's report in the parent", func(e sessions.Envelope) bool {
+		p := e.Event.Part
+		return e.SessionID == parent.ID && e.Event.Kind == backend.EventPart && p != nil && p.Type == backend.PartText &&
+			p.Synthetic && strings.Contains(p.Text, "<subagent")
 	})
 	r.idle(parent, afterList)
 

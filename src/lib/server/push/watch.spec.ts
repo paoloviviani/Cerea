@@ -160,6 +160,22 @@ describe("a scheduled run", () => {
 		expect(notify.mock.calls.map((c) => c[1])).toEqual(["scheduleRun", "agentTurn"]);
 	});
 
+	it("is not finished while its background subagents are still working", () => {
+		afterScheduleRun(sent(), deps);
+		observeMachineEvent(me, "dev1", envelope(status("busy"), "s1", "s1"), deps);
+		observeMachineEvent(me, "dev1", envelope(status("busy"), "kid", "s1"), deps);
+		// the parent's own turn ends first: the child is still going
+		observeMachineEvent(me, "dev1", envelope(status("idle"), "s1", "s1"), deps);
+		expect(notify).not.toHaveBeenCalled();
+		// the child reports, which starts a new turn of the parent; its end finishes the run
+		observeMachineEvent(me, "dev1", envelope(status("idle"), "kid", "s1"), deps);
+		expect(notify).not.toHaveBeenCalled();
+		observeMachineEvent(me, "dev1", envelope(status("busy"), "s1", "s1"), deps);
+		observeMachineEvent(me, "dev1", envelope(status("idle"), "s1", "s1"), deps);
+		expect(notify).toHaveBeenCalledOnce();
+		expect(firstCall()[2].title).toBe("Scheduled run finished");
+	});
+
 	it("tells a failed turn as a failed run", () => {
 		afterScheduleRun(sent(), deps);
 		observeMachineEvent(me, "dev1", envelope(status("busy")), deps);

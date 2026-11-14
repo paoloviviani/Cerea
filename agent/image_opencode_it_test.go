@@ -61,10 +61,10 @@ func noisePNG(t *testing.T, w, h int) []byte {
 func TestToolImagesIntegration(t *testing.T) { toolImagesIT(t, 0) }
 
 // TestToolImagesOversizedEventIntegration is the same battery with galopin's
-// SSE line limit lowered to 16 MiB, so the nine-screenshot call (~24 MiB in
+// SSE line limit lowered to 8 MiB, so the nine-screenshot call (~14 MiB in
 // one event line) takes the skip-and-resync path for real: the stream must
 // stay up and the images must still arrive, through the transcript.
-func TestToolImagesOversizedEventIntegration(t *testing.T) { toolImagesIT(t, 16<<20) }
+func TestToolImagesOversizedEventIntegration(t *testing.T) { toolImagesIT(t, 8<<20) }
 
 func toolImagesIT(t *testing.T, sseLimit int) {
 	if !itEnabled("GALOPIN_OPENCODE_IT", "PYSTINO_AGENT_OPENCODE_IT") {
@@ -117,6 +117,7 @@ func toolImagesIT(t *testing.T, sseLimit int) {
 		"permission":        map[string]any{"itimg_shots": "allow"},
 		"mcp": map[string]any{"itimg": map[string]any{
 			"type": "local", "command": []string{"node", mcpImagesPath}, "enabled": true,
+			"codemode": false, // opencode 2 offers MCP tools through Code Mode unless told not to
 		}},
 	})
 	configPath := filepath.Join(root, "opencode.json")
@@ -124,7 +125,7 @@ func toolImagesIT(t *testing.T, sseLimit int) {
 		t.Fatal(err)
 	}
 
-	// A 17 MiB cache: the nine screenshots nearly fill it, so a later image
+	// A 10 MiB cache: the nine screenshots nearly fill it, so a later image
 	// evicts the first one, which forces the re-read path for real.
 	ocBackend := backendopencode.New(backendopencode.Config{
 		ConfigPath: configPath,
@@ -136,7 +137,7 @@ func toolImagesIT(t *testing.T, sseLimit int) {
 		StateDir:             dirs["state"],
 		StartupTimeout:       90 * time.Second,
 		Logf:                 t.Logf,
-		AttachmentCacheBytes: 17 << 20,
+		AttachmentCacheBytes: 10 << 20,
 		SSEMaxLineBytes:      sseLimit,
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -276,8 +277,8 @@ func toolImagesIT(t *testing.T, sseLimit int) {
 		}
 	})
 
-	// One call, nine ~2 MiB screenshots, ~24 MiB of data: URLs in the tool
-	// part's SSE line: past a 16 MiB line limit, so (in the lowered-limit run)
+	// One call, nine ~1.2 MiB screenshots, ~14 MiB of data: URLs in the tool
+	// part's SSE line: past an 8 MiB line limit, so (in the lowered-limit run)
 	// the event is skipped and the session resynced; either way the stream
 	// must stay up and the images must arrive, capped at 8 with the ninth
 	// counted, and be servable.

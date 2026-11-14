@@ -290,7 +290,6 @@ func (b *Backend) toolEnv() []string {
 		return nil
 	}
 	return []string{
-		"OPENCODE_CONFIG_DIR=" + b.cfg.ToolsDir,
 		"GALOPIN_TOOL_URL=" + tp.url,
 		"GALOPIN_TOOL_TOKEN=" + tp.token,
 	}
