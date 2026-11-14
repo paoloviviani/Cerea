@@ -1127,7 +1127,11 @@
 
 	/** The panels the header offers, with their live figures. */
 	let changesCount = $state<number | null>(null);
-	/** Notes the agent keeps for this session and workspace; read when the screen opens and after each turn. */
+	/**
+	 * Notes the agent keeps for this session and workspace. Read only once the Notes view has been opened
+	 * (and after each turn from then on): the screen's first load is timing-sensitive, and a count nobody
+	 * has asked for is not worth a request beside it.
+	 */
 	let notesCount = $state(0);
 	let notesOffered = $derived((page.data as { memoryEnabled?: boolean }).memoryEnabled !== false);
 	/** Notes belong to the root of a session tree: a subagent's view shows its parent's. */
@@ -1145,12 +1149,16 @@
 			// The badge is a convenience; the view reports its own failures.
 		}
 	}
+	let notesTouched = $state(false);
+	$effect(() => {
+		if (sidePane.open && sidePane.view === "notes") notesTouched = true;
+	});
 	$effect(() => {
 		void deviceId;
 		void notesSessionId;
 		void workspace?.id;
 		void sessionBusy;
-		if (!sessionBusy) void refreshNotesCount();
+		if (notesTouched && !sessionBusy) void refreshNotesCount();
 	});
 	let paneItems = $derived.by<PaneItem[]>(() => {
 		const items: PaneItem[] = [
