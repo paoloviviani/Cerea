@@ -157,6 +157,53 @@ test.describe("the terminal on a real machine", () => {
 		});
 	});
 
+	test("on a phone, a swipe scrolls the scrollback and jump-to-bottom returns", async ({
+		page,
+		db,
+		session,
+		browserName,
+	}) => {
+		test.skip(browserName !== "chromium", "real touch input goes through CDP, Chromium only");
+		const sub = `e2e-${randomUUID()}`;
+		await seedUser(db, session.sessionId, sub);
+		machine = await startMachine({ sub, policy: { terminal: "allowed" } });
+
+		await pairAndOpenWorkspace(page, machine);
+		await openTerminalTab(page);
+		const term = page.getByTestId("code-terminal");
+		await page.keyboard.type("seq 1 400");
+		await page.keyboard.press("Enter");
+		await expect(term).toContainText("400", { timeout: 15_000 });
+
+		// iPhone 13 emulation: its viewport (below the mobile breakpoint, so
+		// the view-mode key bar shows) and real touch input through CDP.
+		await page.setViewportSize({ width: 390, height: 664 });
+		const cdp = await page.context().newCDPSession(page);
+		await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
+		const jump = page.getByRole("button", { name: "Scroll to bottom" });
+		await expect(jump).toHaveCount(0);
+
+		const box = await page.locator(".xterm-screen").boundingBox();
+		if (!box) throw new Error("no terminal screen");
+		const x = box.x + box.width / 2;
+		const touch = (type: "touchStart" | "touchMove" | "touchEnd", y: number) =>
+			cdp.send("Input.dispatchTouchEvent", {
+				type,
+				touchPoints: type === "touchEnd" ? [] : [{ x, y }],
+			});
+		const y0 = box.y + 40;
+		await touch("touchStart", y0);
+		for (let i = 1; i <= 10; i++) {
+			await touch("touchMove", y0 + i * 20);
+			await page.waitForTimeout(16);
+		}
+		await touch("touchEnd", y0 + 200);
+
+		await expect(jump).toBeVisible();
+		await jump.click();
+		await expect(jump).toHaveCount(0);
+	});
+
 	test("coexistence: a busy terminal doesn't stall a streaming session turn", async ({
 		page,
 		db,
