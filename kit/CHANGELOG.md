@@ -5,7 +5,11 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.53.0 — 2026-11-14
+
+Pins: Cerea `0.53.0` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.2`, opencode `2.3.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. **On computers:** galopin now needs opencode 2: run `curl -fsSL <your-cerea>/galopin/install.sh | sh -s -- --upgrade` (keeps the enrollment and backs up `opencode.db`; add `--with-opencode` to install the pinned opencode). Moving from opencode 1.x is a hard migration: session history from 1.x may not carry over. Upgrades within opencode 2 keep history. Subagents now run in the background.
 
 - **Agents on a phone: one top bar.** The session name with its status dot, and the side-panel button, now sit in the app's top bar between the menu and new-chat buttons instead of in a second row below it. The side-panel button now uses the same icon and look as the chat's. The name truncates to fit, and no empty padded block is left above the page; the desktop layout is unchanged.
 
