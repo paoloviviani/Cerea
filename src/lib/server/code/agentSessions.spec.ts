@@ -13,6 +13,8 @@ describe("a parent whose subagents run in the background", () => {
 		expect(busyReason(waiting)).toMatch(/waiting for an approval/);
 		expect(sessionState(running)).toBe("working");
 		expect(sessionState(waiting)).toBe("needs-you");
-		expect(sessionState({ ...idle, childSummary: { children: 1, running: 0, waiting: 0 } } as Session)).toBe("idle");
+		expect(
+			sessionState({ ...idle, childSummary: { children: 1, running: 0, waiting: 0 } } as Session)
+		).toBe("idle");
 	});
 });
