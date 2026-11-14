@@ -180,7 +180,7 @@ vi.mock("$lib/server/abortedGenerations", () => ({
 // The memory-and-cache tests below run the real `textGeneration` (what builds the request), with the
 // title call and file preprocessing stubbed out.
 // eslint-disable-next-line require-yield
-vi.mock("../title", () => ({ async *generateTitleForConversation () {} }));
+vi.mock("../title", () => ({ async *generateTitleForConversation() {} }));
 vi.mock("../userPrompts", () => ({ userPromptsFor: async () => ({}) }));
 vi.mock("../../generateFromDefaultEndpoint", () => ({ generateFromDefaultEndpoint: vi.fn() }));
 vi.mock("../../endpoints/preprocessMessages", () => ({
