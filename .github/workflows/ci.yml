@@ -132,6 +132,8 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run check
+      # galopinUpgrade.spec.ts runs the installer's --upgrade tests under busybox ash too.
+      - run: command -v busybox >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq busybox-static)
       # One shared Mongo, no per-file isolation: the files run serially.
       # pyodide.worker.integration.spec.ts skips here: it needs the ~325 MB
       # vendored Pyodide dist (not fetched, to keep PR runs short) and is a

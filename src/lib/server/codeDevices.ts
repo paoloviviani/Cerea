@@ -52,6 +52,8 @@ export interface CodeDeviceView {
 	machine?: CodeDevice["machine"];
 	/** galopin's own version, as its last hello said (undefined until it has sent one). */
 	agentVersion?: string;
+	/** galopin runs in a container: upgraded by pulling the image, not by the installer. */
+	agentContainer?: boolean;
 	policy: CodeDevice["policy"];
 	credentialState: CodeDevice["credentialState"];
 	online: boolean;
@@ -85,6 +87,7 @@ export function deviceView(device: CodeDevice, online: boolean): CodeDeviceView 
 		backends: device.backends,
 		...(device.machine ? { machine: device.machine } : {}),
 		...(device.agentVersion ? { agentVersion: device.agentVersion } : {}),
+		...(device.agentContainer ? { agentContainer: true } : {}),
 		policy: device.policy,
 		credentialState: device.credentialState,
 		online,

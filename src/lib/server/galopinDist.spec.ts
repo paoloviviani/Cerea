@@ -123,7 +123,7 @@ describe("install.sh", () => {
 			expect(script).toContain(`${archive}) want=${sum} ;;`);
 		}
 		// into galopin's own directory: never over a goose the user installed themselves
-		expect(script).toContain('mv "$tmp/goose-x/goose" "$dir/galopin-goose/goose"');
+		expect(script).toContain('install_bin "$tmp/goose-x/goose" "$dir/galopin-goose/goose"');
 		expect(script).not.toContain('"$dir/goose"');
 		expect(script).toContain("--engine) [ $# -ge 2 ]");
 		expect(renderInstallScript("https://s.example", { enrollReady: true })).toContain(
@@ -157,6 +157,11 @@ describe("install.sh", () => {
 			"GALOPIN_UPGRADE:-",
 			"nothing to upgrade, run the normal install",
 			"galopin.prev",
+			"galopin.old",
+			"trap 'exit 129' HUP",
+			"systemd-run --user --collect",
+			"GALOPIN_TERMINAL",
+			"could not list processes; stop galopin first",
 			"pre-upgrade-",
 			"opencode.db-wal",
 			"galopin browser setup",
@@ -169,6 +174,9 @@ describe("install.sh", () => {
 		]) {
 			expect(script).toContain(piece);
 		}
+		// the whole installer is one function called last, so a cut-short download does nothing
+		expect(script.trimEnd().endsWith('main "$@"')).toBe(true);
+		expect(script).toMatch(/\nmain\(\) \{\n/);
 		// every placeholder of galopinUpgrade.sh was filled, and its comments are not shipped
 		expect(script).not.toMatch(/@[A-Z_]+@/);
 		expect(script).not.toContain("shellcheck");

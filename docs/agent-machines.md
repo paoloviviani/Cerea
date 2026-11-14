@@ -248,35 +248,59 @@ curl -fsSL "$CEREA_BASE_URL/galopin/install.sh" | sh -s -- --upgrade
 
 or, from a galopin new enough to have it, `galopin upgrade` (it downloads that
 installer from the Cerea the computer is enrolled with, shows what it will do and asks
-first; `--yes` skips the question; it only fetches over https, or http on the
-computer itself). In order, `--upgrade`:
+first; `--yes` skips the question, `--show` prints the installer and runs nothing; it
+only fetches over https, or http on the computer itself, and refuses a redirect to
+another site). In order, `--upgrade`:
 
 1. **Checks** that the computer is enrolled (galopin's `credentials.json` in its
    configuration directory, `~/.config/galopin` on Linux). Without one it stops with
-   "nothing to upgrade, run the normal install".
-2. **Stops** galopin: the `galopin` systemd user unit if it is running. A `galopin run`
-   you started by hand is not stopped for you unless you add `--stop`, which sends
-   SIGTERM to your own `galopin run` (and nothing else). On a Mac the Cerea connector
-   app owns galopin: upgrade through its installer, and the script says so. Inside a
-   Docker container it prints the `docker pull` and recreate steps instead.
-3. **Backs up** galopin's configuration and state (not the browser's profile and
-   downloads) and, for the opencode engine, opencode's database
-   (`~/.local/share/opencode/opencode.db` with its `-wal` and `-shm` files), into
-   `<galopin config dir>/backups/pre-upgrade-<date>/`, and prints the path. opencode 2
-   migrates a 1.x database in place, so keep this until you are sure of the new engine.
-4. **Installs** the new galopin (verified against `SHA256SUMS`; the previous binary is
-   kept as `galopin.prev`) and, for the opencode engine, the opencode version your
-   Cerea pins when galopin's own copy in `~/.opencode/bin` differs or is missing (goose
-   the same way for the goose engine). An opencode you installed elsewhere, such as with
-   npm, is left alone, with a note on how to update it.
-5. **Refreshes** the browser runtime when you set it up (`galopin browser setup`) and
+   "nothing to upgrade, run the normal install". It also finds out what runs galopin.
+2. **Downloads and verifies** the new galopin and the engine **before** stopping anything,
+   so a bad download or checksum changes nothing.
+3. **Stops** galopin: the `galopin` systemd user unit if it is running (the unit's own
+   `~/.local/bin/galopin` is the one upgraded). A `galopin run` you started by hand is not
+   stopped unless you add `--stop`, which sends SIGTERM to your own `galopin run` whose
+   binary is the one being upgraded, and to nothing else. On a Mac the Cerea connector app
+   owns galopin: upgrade through its installer, and the script says so. Inside a Docker
+   container it prints the `docker pull` and recreate steps instead.
+   If the upgrade is started from **inside galopin** (Cerea's own terminal, or anything in
+   the unit's cgroup), stopping galopin would close it half way, so with the systemd unit
+   the installer re-runs itself as a transient `systemd-run --user` unit, prints
+   "Upgrade continues in the background; this terminal will close when galopin restarts",
+   and logs to `<galopin config dir>/backups/upgrade-<date>.log`; without `systemd-run`,
+   or for a foreground `galopin run`, it refuses and asks for a terminal outside galopin.
+   `galopin upgrade --yes` run by an agent takes the same path.
+4. **Backs up** galopin's configuration and state (not the browser's profile and
+   downloads, nor opencode's tools and temporary files), the binary being replaced and,
+   for the opencode engine, opencode's database (`~/.local/share/opencode/opencode.db`
+   with its `-wal` and `-shm` files), into
+   `<galopin config dir>/backups/pre-upgrade-<date>/` (the last three are kept), and
+   prints the path. opencode 2 migrates a 1.x database in place, so keep this until you
+   are sure of the new engine.
+5. **Installs** the new galopin (each binary is copied beside its place and renamed into
+   it; the previous galopin stays as `galopin.prev`). If the new galopin does not run,
+   the old one is put back at once. For the opencode engine it installs the opencode
+   version your Cerea pins when galopin's own copy in `~/.opencode/bin` is older or
+   missing (never a downgrade, unless you pass `--with-opencode`); goose the same way for
+   the goose engine. An opencode you installed elsewhere, such as with npm, is left alone,
+   with a note on how to update it.
+6. **Refreshes** the browser runtime when you set it up (`galopin browser setup`) and
    checks the credential (`galopin auth status`).
-6. **Restarts** the systemd unit if it was running, and prints the old and new versions.
+7. **Starts** the systemd unit again (when it was running, is enabled, or an earlier
+   failed run stopped it), and prints the old and new versions.
 
-If a step fails after galopin was stopped, the installer prints how to roll back: put
-`galopin.prev` back over `galopin`, restore the opencode database from the backup, and
-only then start galopin. A failure before the new binary is in place starts the old one
-again by itself. Running it again is safe.
+If the installer is interrupted or fails after galopin was stopped and before the new
+galopin is in place, it starts the old one again. After that, it prints how to roll back:
+put the old binary (kept in the backup, and as `galopin.prev`) back over `galopin`,
+restore the opencode database from the backup, and only then start galopin. Running the
+upgrade again is safe. The installer is one function called on its last line, so a
+download cut short does nothing.
+
+The panel offers the upgrade line for a computer whose galopin reports an older version
+than your Cerea. galopin's version is the Cerea release it was built from (`galopin
+version`); a galopin built from source **without** the release's `-ldflags "-X
+main.agentVersion=X.Y.Z"` reports `0.1.0`, as every galopin from before this did, and is
+therefore always offered the upgrade. Containers are not offered it (pull the image).
 
 ## Removing galopin
 

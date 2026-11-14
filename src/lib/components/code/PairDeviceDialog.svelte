@@ -125,7 +125,9 @@
 	const upgradable = $derived(
 		codeDeviceList.devices.filter(
 			(device) =>
-				device.status === "paired" && galopinNeedsUpgrade(device.agentVersion, APP_VERSION)
+				device.status === "paired" &&
+				!device.agentContainer &&
+				galopinNeedsUpgrade(device.agentVersion, APP_VERSION)
 		)
 	);
 	const upgradeCommand = $derived(buildUpgradeCommand(origin));

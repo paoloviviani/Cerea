@@ -360,6 +360,8 @@ export interface CodeDevice {
 	/** galopin's own version (`hello.agent.version`): the Cerea release it was built from, or
 	 * "0.1.0" for a build from before that. Absent until the machine's next hello. */
 	agentVersion?: string;
+	/** `hello.agent.container`: galopin runs in a Docker/Podman container, upgraded by pulling the image. */
+	agentContainer?: boolean;
 	/** What this galopin build implements (`hello.machine`: files, terminal…);
 	 * absent for a machine that predates it. */
 	machine?: Machine;

@@ -808,7 +808,7 @@
 						</div>
 					</div>
 				{/if}
-				{#if device.status === "paired" && !isDead && galopinNeedsUpgrade(device.agentVersion, APP_VERSION)}
+				{#if device.status === "paired" && !isDead && !device.agentContainer && galopinNeedsUpgrade(device.agentVersion, APP_VERSION)}
 					<div
 						class="mb-1.5 ml-7 rounded-lg border border-line bg-sunken p-2 text-xs text-ink-muted"
 						data-testid="device-upgrade"

@@ -8,15 +8,17 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
 const upgradeUsage = `galopin upgrade — upgrade this galopin from the Cerea it is enrolled with.
 
 Usage:
-  galopin upgrade [--yes] [--stop] [--creds PATH]
+  galopin upgrade [--yes] [--stop] [--show] [--creds PATH]
 
 Downloads <cerea>/galopin/install.sh from the Cerea recorded at enroll time
 (https, or http only on this computer) and runs it with --upgrade: it stops
@@ -26,6 +28,7 @@ it), refreshes the browser runtime, and restarts the systemd unit. Enrollment
 and settings are kept. It shows what will happen and asks first.
 
   --yes        Do not ask.
+  --show       Print the installer and exit; nothing is run.
   --stop       Let the installer send SIGTERM to your own running 'galopin run'
                (a foreground one started by hand) before it upgrades.
   --creds PATH Credential file (default <config-dir>/galopin/credentials.json).
@@ -48,7 +51,8 @@ func realUpgradeEnv() *upgradeEnv {
 			if err != nil {
 				return nil, err
 			}
-			resp, err := (&http.Client{Timeout: 60 * time.Second}).Do(req)
+			client := &http.Client{Timeout: 60 * time.Second, CheckRedirect: sameOriginRedirects(req.URL)}
+			resp, err := client.Do(req)
 			if err != nil {
 				return nil, err
 			}
@@ -59,10 +63,26 @@ func realUpgradeEnv() *upgradeEnv {
 			return io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		},
 		run: func(ctx context.Context, script string, args []string, env []string) error {
-			cmd := exec.CommandContext(ctx, "sh", append([]string{script}, args...)...)
+			// Not CommandContext: killing the installer half way through would leave galopin
+			// stopped. The installer traps INT itself (the terminal sends it to both of us);
+			// TERM and HUP are passed on, and the temporary directory is removed when it ends.
+			cmd := exec.Command("sh", append([]string{script}, args...)...)
 			cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 			cmd.Env = env
-			return cmd.Run()
+			sigs := make(chan os.Signal, 4)
+			signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+			defer signal.Stop(sigs)
+			if err := cmd.Start(); err != nil {
+				return err
+			}
+			go func() {
+				for sig := range sigs {
+					if sig != syscall.SIGINT {
+						_ = cmd.Process.Signal(sig)
+					}
+				}
+			}()
+			return cmd.Wait()
 		},
 		confirm: promptYes,
 		exe:     os.Executable,
@@ -76,6 +96,7 @@ func runUpgrade(args []string) error {
 	var credsPath string
 	yes := fs.Bool("yes", false, "")
 	stop := fs.Bool("stop", false, "")
+	show := fs.Bool("show", false, "")
 	fs.StringVar(&credsPath, "creds", "", "")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -94,7 +115,7 @@ func runUpgrade(args []string) error {
 	if err != nil {
 		return fmt.Errorf("nothing to upgrade, run the normal install: %w", err)
 	}
-	return upgradeFrom(context.Background(), realUpgradeEnv(), creds.CereaOrigin, *yes, *stop, credsPath)
+	return upgradeFrom(context.Background(), realUpgradeEnv(), creds.CereaOrigin, *yes, *stop, *show, credsPath)
 }
 
 // upgradeOrigin checks the enrolled Cerea origin is one the installer may be
@@ -117,12 +138,20 @@ func upgradeOrigin(origin string) (string, error) {
 	return origin, nil
 }
 
-func upgradeFrom(ctx context.Context, env *upgradeEnv, origin string, yes, stop bool, credsPath string) error {
+func upgradeFrom(ctx context.Context, env *upgradeEnv, origin string, yes, stop, show bool, credsPath string) error {
 	origin, err := upgradeOrigin(origin)
 	if err != nil {
 		return err
 	}
 	installURL := origin + "/galopin/install.sh"
+	if show {
+		body, err := env.fetch(ctx, installURL)
+		if err != nil {
+			return fmt.Errorf("could not download the installer: %w", err)
+		}
+		_, err = env.out.Write(body)
+		return err
+	}
 	fmt.Fprintf(env.out, "galopin %s, enrolled with %s.\n\nThis will:\n"+
 		"  1. download %s and run it with --upgrade\n"+
 		"  2. stop galopin, back up its state and opencode's database\n"+

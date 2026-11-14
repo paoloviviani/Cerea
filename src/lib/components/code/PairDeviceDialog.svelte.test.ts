@@ -110,6 +110,14 @@ describe("PairDeviceDialog", () => {
 		expect(current.getByTestId("pair-upgrade").elements()).toHaveLength(0);
 		unmountRendered();
 
+		// a container is upgraded by pulling its image: no installer line for it
+		listed.devices = [{ ...device("c", "0.1.0"), agentContainer: true }];
+		const boxed = mount();
+		await expect.element(boxed.getByText("Pair a computer")).toBeVisible();
+		await new Promise((r) => setTimeout(r, 300));
+		expect(boxed.getByTestId("pair-upgrade").elements()).toHaveLength(0);
+		unmountRendered();
+
 		listed.devices = [device("b", "0.1.0")];
 		const old = mount();
 		await expect.element(old.getByTestId("pair-upgrade")).toBeVisible();

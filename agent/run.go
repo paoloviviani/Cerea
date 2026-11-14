@@ -607,10 +607,11 @@ func buildHelloBase(pol policy.Policy) link.Hello {
 	}
 	return link.Hello{
 		Agent: link.AgentInfo{
-			Version:  agentVersion,
-			OS:       runtime.GOOS,
-			Arch:     runtime.GOARCH,
-			Hostname: hostname,
+			Version:   agentVersion,
+			OS:        runtime.GOOS,
+			Arch:      runtime.GOARCH,
+			Hostname:  hostname,
+			Container: inContainer(),
 		},
 		Policy: link.PolicyInfo{
 			AutoAccept:          autoAcceptRetired,
@@ -990,4 +991,14 @@ func diffProtect(pr decide.Protected) filediff.Protect {
 		_, sensitive := decide.Classify(decide.Policy{Protected: pr}, rq)
 		return sensitive
 	}
+}
+
+// inContainer reports whether galopin runs inside a Docker or Podman container.
+func inContainer() bool {
+	for _, marker := range []string{"/.dockerenv", "/run/.containerenv"} {
+		if _, err := os.Stat(marker); err == nil {
+			return true
+		}
+	}
+	return false
 }

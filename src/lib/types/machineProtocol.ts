@@ -869,7 +869,7 @@ export interface HistoryPage {
 export interface HelloFrame {
 	type: "hello";
 	protocol: number;
-	agent: { version: string; os: string; arch: string; hostname: string };
+	agent: { version: string; os: string; arch: string; hostname: string; container?: boolean };
 	backends: Backend[];
 	machine?: Machine;
 	policy: Policy;
@@ -1083,10 +1083,12 @@ export const helloFrameSchema: z.ZodType<HelloFrame> = z.object({
 	type: z.literal("hello"),
 	protocol: z.number(),
 	agent: z.object({
-		version: z.string(),
+		// A version is a short string; the bound keeps one hello from storing a long value.
+		version: z.string().max(64),
 		os: z.string(),
 		arch: z.string(),
 		hostname: z.string(),
+		container: z.boolean().optional(),
 	}),
 	backends: z.array(backendSchema),
 	machine: machineSchema.optional(),
