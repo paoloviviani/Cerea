@@ -710,6 +710,22 @@ func (b *Backend) postCommand(ctx context.Context, workspaceDir, sessionID strin
 	if err := b.applySelection(ctx, sessionID); err != nil {
 		return err
 	}
+	// The agent the dispatcher resolved (its escalation rule already ran) is the one the
+	// command runs as: set it on the session first, so a command can never move a Plan
+	// session to Build behind the panel's back. The next prompt puts the overlay's agent back.
+	if run.Agent != "" {
+		b.selMu.Lock()
+		cur := b.selApplied[sessionID]
+		b.selMu.Unlock()
+		if run.Agent != cur.agent {
+			if err := b.doJSON(ctx, http.MethodPost, "/api/session/"+url.PathEscape(sessionID)+"/agent", map[string]any{"agent": run.Agent}, nil); err != nil {
+				return err
+			}
+		}
+	}
+	// A command may switch the session's agent or model itself: forget what was applied, so the
+	// next prompt writes the overlay's choice again.
+	defer b.forgetSelection(sessionID)
 	body := map[string]any{"name": run.Name, "text": run.Arguments, "delivery": "steer"}
 	if len(run.Attachments) > 0 {
 		files := make([]map[string]any, 0, len(run.Attachments))

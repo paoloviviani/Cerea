@@ -193,9 +193,13 @@ func fileDataURL(f map[string]any) string {
 func userParts(id, sessionID string, text string, files []any, synthetic []string) []any {
 	// opencode 2 appends a mode's <system-reminder> block to the user's own text
 	// (1.x kept it a synthetic part): the person's text stays the person's.
-	if i := strings.Index(text, "<system-reminder>"); i >= 0 {
-		synthetic = append(append([]string(nil), synthetic...), strings.TrimSpace(text[i:]))
-		text = strings.TrimRight(text[:i], " \n")
+	// Only a single block that closes the text counts as opencode's own reminder; a person's
+	// literal "<system-reminder>" in the middle of their text stays their text.
+	if t := strings.TrimSpace(text); strings.HasSuffix(t, "</system-reminder>") && strings.Count(t, "</system-reminder>") == 1 {
+		if i := strings.LastIndex(t, "<system-reminder>"); i >= 0 {
+			synthetic = append(append([]string(nil), synthetic...), t[i:])
+			text = strings.TrimRight(t[:i], " \n")
+		}
 	}
 	var parts []any
 	for i, s := range synthetic {
@@ -496,6 +500,8 @@ type asmState struct {
 	// askSession: the session each pending permission request belongs to (2.x
 	// answers a request through ITS session's route; a card may name the root).
 	askSession map[string]string
+	// toolSess: the session of each in-flight call (to forget them on an interrupt).
+	toolSess map[string]string
 	// inputs: the arguments of each call (a permission ask for a shell call
 	// carries only its split subcommands; the whole command line is here).
 	inputs map[string]map[string]any
@@ -504,6 +510,8 @@ type asmState struct {
 	// isPreface says whether a synthetic message is one galopin sent as the
 	// preface of a prompt (recorded by id before it is sent).
 	isPreface func(id string) bool
+	// connected: the event stream has connected at least once.
+	connected bool
 	// seen: directories sessions live in (known dirs).
 	seen map[string]bool
 	// started: assistant messages announced, with their info.
@@ -521,7 +529,7 @@ type inboxItem struct {
 
 func newAsmState() *asmState {
 	return &asmState{
-		inbox: map[string]inboxItem{}, synthetic: map[string][]string{}, tools: map[string]string{}, inputs: map[string]map[string]any{}, askSession: map[string]string{},
+		inbox: map[string]inboxItem{}, synthetic: map[string][]string{}, tools: map[string]string{}, inputs: map[string]map[string]any{}, askSession: map[string]string{}, toolSess: map[string]string{},
 		dirs: map[string]string{}, started: map[string]map[string]any{},
 	}
 }
@@ -605,9 +613,13 @@ func (st *asmState) adapt(typ string, created float64, d map[string]any) []frame
 		return []frame{{"session.status", map[string]any{"sessionID": sid, "status": map[string]any{"type": "busy"}}}}
 
 	case "session.execution.succeeded", "session.execution.interrupted":
+		if typ == "session.execution.interrupted" {
+			st.forgetSession(sid)
+		}
 		return []frame{{"session.idle", map[string]any{"sessionID": sid}}}
 
 	case "session.execution.failed":
+		st.forgetSession(sid)
 		return []frame{
 			{"session.error", map[string]any{"sessionID": sid, "error": errorObject(getMap(d, "error"))}},
 			{"session.idle", map[string]any{"sessionID": sid}},
@@ -698,6 +710,7 @@ func (st *asmState) adapt(typ string, created float64, d map[string]any) []frame
 		mid, call, name := getStr(d, "assistantMessageID"), getStr(d, "id"), v1Name(getStr(d, "name"))
 		st.mu.Lock()
 		st.tools[mid+":"+call] = name
+		st.toolSess[mid+":"+call] = sid
 		st.mu.Unlock()
 		return []frame{partUpdated(sid, map[string]any{
 			"id": toolPartKey(mid, call), "messageID": mid, "type": "tool", "callID": call, "tool": name,
@@ -735,6 +748,7 @@ func (st *asmState) adapt(typ string, created float64, d map[string]any) []frame
 		}
 		delete(st.inputs, mid+":"+call)
 		delete(st.tools, mid+":"+call)
+		delete(st.toolSess, mid+":"+call)
 		st.mu.Unlock()
 		content := getSlice(d, "content")
 		state["output"] = contentText(content)
@@ -763,6 +777,9 @@ func (st *asmState) adapt(typ string, created float64, d map[string]any) []frame
 		return []frame{{"permission.asked", p}}
 
 	case "permission.replied":
+		st.mu.Lock()
+		delete(st.askSession, getStr(d, "requestID"))
+		st.mu.Unlock()
 		return []frame{{"permission.replied", map[string]any{
 			"sessionID": sid, "requestID": getStr(d, "requestID"), "reply": getStr(d, "reply"),
 		}}}
@@ -881,4 +898,34 @@ func (st *asmState) sessionOfAsk(requestID, fallback string) string {
 		return sid
 	}
 	return fallback
+}
+
+// forgetSession drops what the adapter holds for a session whose run was cut short or failed: the
+// events that would have finished those calls, messages and prompts will not come.
+func (st *asmState) forgetSession(sid string) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	for k, s := range st.toolSess {
+		if s == sid {
+			delete(st.inputs, k)
+			delete(st.tools, k)
+			delete(st.toolSess, k)
+		}
+	}
+	for id, info := range st.started {
+		if getStr(info, "sessionID") == sid {
+			delete(st.started, id)
+		}
+	}
+	for id, it := range st.inbox {
+		if it.sessionID == sid {
+			delete(st.inbox, id)
+		}
+	}
+	delete(st.synthetic, sid)
+	for id, s := range st.askSession {
+		if s == sid {
+			delete(st.askSession, id)
+		}
+	}
 }

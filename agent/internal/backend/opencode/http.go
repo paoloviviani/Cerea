@@ -348,6 +348,14 @@ func (b *Backend) DeleteSession(ctx context.Context, _ string, sessionID string)
 	return b.doJSON(ctx, http.MethodDelete, "/api/session/"+url.PathEscape(sessionID), nil, nil)
 }
 
+// forgetSelection drops the record of the agent/model last written to a session, so the next
+// prompt writes the overlay's choice again.
+func (b *Backend) forgetSelection(sessionID string) {
+	b.selMu.Lock()
+	delete(b.selApplied, sessionID)
+	b.selMu.Unlock()
+}
+
 // planNoteKey is the session instruction entry that carries planNote.
 const planNoteKey = "galopin-plan"
 
@@ -841,6 +849,11 @@ func (b *Backend) History(ctx context.Context, workspaceDir, sessionID, before s
 	// The revert point is read BEFORE the message list, exactly as Transcript
 	// reads it (see there).
 	revertedFrom := b.revertPoint(ctx, sessionID)
+	// An id galopin made up (a synthetic message nothing server-side names, or a live compaction
+	// marker) is no cursor the server knows: page by position over the whole list instead.
+	if strings.HasPrefix(before, "syn:") || strings.HasPrefix(before, "compaction_") {
+		return b.historyAscending(ctx, sessionID, before, limit, revertedFrom)
+	}
 	cursor, err := messageCursor(before)
 	if err != nil {
 		return backend.HistoryPage{}, err
@@ -850,11 +863,17 @@ func (b *Backend) History(ctx context.Context, workspaceDir, sessionID, before s
 	for page := 0; page < 20; page++ {
 		msgs, next, err := b.messagesPage(ctx, sessionID, "desc", cursor, messagePageLimit)
 		if err != nil {
-			if strings.Contains(err.Error(), "status 404") || strings.Contains(err.Error(), "status 400") {
+			if strings.Contains(err.Error(), "status 404") {
 				// A message the storage no longer holds (a revert's cleanup
 				// deletes the reverted turns) has nothing older to page
 				// through: an empty page ends the walk instead of failing it.
 				return backend.HistoryPage{}, nil
+			}
+			if strings.Contains(err.Error(), "status 400") {
+				// The server refused the cursor (its encoding changed, or the id is not one):
+				// say so, and page by position over the whole list.
+				b.cfg.Logf("opencode: history cursor for %s refused (%v); paging over the whole list", sessionID, err)
+				return b.historyAscending(ctx, sessionID, before, limit, revertedFrom)
 			}
 			return backend.HistoryPage{}, err
 		}
@@ -893,6 +912,41 @@ func (b *Backend) History(ctx context.Context, workspaceDir, sessionID, before s
 		pageOut.Before = pageOut.Entries[0].Message.ID
 	}
 	return pageOut, nil
+}
+
+// historyAscending is History without the server's cursor: it reads the whole list oldest first
+// and takes the limit entries just before `before`. Used when the cursor route refuses.
+func (b *Backend) historyAscending(ctx context.Context, sessionID, before string, limit int, revertedFrom string) (backend.HistoryPage, error) {
+	raw, err := b.allMessages(ctx, sessionID)
+	if err != nil {
+		return backend.HistoryPage{}, err
+	}
+	all := v1Entries(sessionID, raw, b.isPreface)
+	idx := -1
+	for i, e := range all {
+		if getStr(getMap(e, "info"), "id") == before {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return backend.HistoryPage{}, nil
+	}
+	start := idx - limit
+	if start < 0 {
+		start = 0
+	}
+	out := backend.HistoryPage{HasMore: start > 0}
+	for _, e := range all[start:idx] {
+		if revertedFrom != "" && getStr(getMap(e, "info"), "id") == revertedFrom {
+			break
+		}
+		out.Entries = append(out.Entries, b.entryToTranscript(sessionID, e))
+	}
+	if len(out.Entries) > 0 {
+		out.Before = out.Entries[0].Message.ID
+	}
+	return out, nil
 }
 
 // messageCursor encodes the paging cursor 2.x's message list answers with for

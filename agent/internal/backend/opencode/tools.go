@@ -222,11 +222,6 @@ func (b *Backend) startTools() error {
 	if !b.toolsEnabled() {
 		return nil
 	}
-	for _, kv := range b.cfg.Env {
-		if strings.HasPrefix(kv, "OPENCODE_CONFIG_DIR=") {
-			return fmt.Errorf("opencode: OPENCODE_CONFIG_DIR is already set in the environment; galopin's tools need their own directory (unset it, or leave Config.ToolsDir empty)")
-		}
-	}
 	token, err := randomHex(32)
 	if err != nil {
 		return fmt.Errorf("opencode: minting the tool relay token: %w", err)

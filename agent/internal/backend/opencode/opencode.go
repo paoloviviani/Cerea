@@ -84,11 +84,10 @@ type Config struct {
 	// model/small_model pinned to the gateway, so the repo cannot redirect
 	// the provider or pick another default model (see pinnedConfig).
 	ProjectConfig bool
-	// BackgroundSubagents is whether opencode may run background subagents
-	// (task background:true, 1.18.32). True exports
-	// OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=1; false (the zero value)
-	// strips any inherited value, so background:true fails closed inside
-	// opencode. Set only from policy.BackgroundSubagentsAllowed.
+	// BackgroundSubagents is whether the machine has the subagent tool. opencode 2
+	// runs every subagent in the background and has no switch for it, so false (the
+	// zero value) denies the tool outright in the floor (floor.go). Set only from
+	// policy.BackgroundSubagentsAllowed.
 	BackgroundSubagents bool
 	// Protect names the paths whose content must never be read into a diff
 	// (galopin's own filediff fallback); nil protects nothing.
@@ -534,7 +533,7 @@ func childEnv(cfg Config, patch map[string]any) ([]string, error) {
 		fix = mergeConfig(fix, tools)
 	}
 	if !cfg.ProjectConfig {
-		env = append(env, "OPENCODE_DISABLE_PROJECT_CONFIG=1")
+		env = append(env, "OPENCODE_DISABLE_PROJECT_CONFIG=1", "OPENCODE_CONFIG_PROJECT_DISABLE=1")
 	} else if cfg.ConfigPath != "" {
 		pinned, err := pinnedConfig(cfg.ConfigPath)
 		if err != nil {
@@ -622,7 +621,9 @@ func (b *Backend) runOnce(ctx context.Context) error {
 func stripChildSwitches(env []string) []string {
 	kept := env[:0]
 	for _, kv := range env {
-		if !strings.HasPrefix(kv, "OPENCODE_DISABLE_PROJECT_CONFIG=") && !strings.HasPrefix(kv, "OPENCODE_CONFIG_CONTENT=") && !strings.HasPrefix(kv, "GALOPIN_BACKGROUND_SUBAGENTS=") {
+		// opencode 2 reads OPENCODE_CONFIG_PROJECT_DISABLE first and the other name only when it
+		// is unset: an inherited value of either must never decide, and both are set below.
+		if !strings.HasPrefix(kv, "OPENCODE_DISABLE_PROJECT_CONFIG=") && !strings.HasPrefix(kv, "OPENCODE_CONFIG_PROJECT_DISABLE=") && !strings.HasPrefix(kv, "OPENCODE_CONFIG_CONTENT=") && !strings.HasPrefix(kv, "GALOPIN_BACKGROUND_SUBAGENTS=") {
 			kept = append(kept, kv)
 		}
 	}

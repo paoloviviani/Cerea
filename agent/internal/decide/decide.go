@@ -286,10 +286,11 @@ func excepted(exs []permrules.Exception, r Request, overAskOnly ...bool) bool {
 	}
 	for _, e := range exs {
 		// opencode 2 raises two asks for a file outside the workspace: external_directory,
-		// then the read or edit itself. An exception for the directory covers both
-		// (1.x asked only the first), so one "always allow" is still one decision.
+		// then the read itself. An exception for the directory covers a READ of it (1.x asked
+		// only the first), so one "always allow" is still one decision. It never covers an
+		// edit: a write outside the project is its own card every time.
 		sameKey := e.Permission == r.Key ||
-			(e.Permission == "external_directory" && (r.Key == "read" || r.Key == "edit"))
+			(e.Permission == "external_directory" && r.Key == "read")
 		if !sameKey || (overAsk && !e.OverAsk) {
 			continue
 		}

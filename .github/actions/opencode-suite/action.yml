@@ -35,8 +35,11 @@ runs:
         git config --global user.email ci@example.invalid
     - name: Install an earlier opencode 2 for the upgrade test
       shell: bash
+      env:
+        # the release the upgrade test starts from: any earlier opencode 2 will do
+        PREV_OPENCODE_VERSION: "2.2.7"
       run: |
-        npm install --prefix "$RUNNER_TEMP/prev-opencode" "@opencode/cli@2.2.7"
+        npm install --prefix "$RUNNER_TEMP/prev-opencode" "@opencode/cli@${PREV_OPENCODE_VERSION}"
         "$RUNNER_TEMP/prev-opencode/node_modules/.bin/opencode" --version
     - name: Run the real-opencode suite
       id: test

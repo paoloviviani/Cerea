@@ -184,3 +184,32 @@ func TestMessageCursorMatchesTheServerShape(t *testing.T) {
 		t.Fatalf("cursor payload = %s", raw)
 	}
 }
+
+// A refused cursor (400) falls back to paging by position over the whole list.
+func TestHistoryFallsBackToAscendingPagingWhenTheCursorIsRefused(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/message") && r.URL.Query().Get("cursor") != "":
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = io.WriteString(w, `{"_tag":"InvalidCursorError"}`)
+		case strings.HasSuffix(r.URL.Path, "/message"):
+			_, _ = io.WriteString(w, `{"data":[{"id":"msg_1","type":"user","text":"a","time":{"created":1}},{"id":"msg_2","type":"user","text":"b","time":{"created":2}},{"id":"msg_3","type":"user","text":"c","time":{"created":3}}],"cursor":{}}`)
+		default:
+			_, _ = io.WriteString(w, `{"data":{"id":"ses_1"}}`)
+		}
+	}))
+	defer srv.Close()
+	b := fakeServerBackend(t, srv)
+	page, err := b.History(context.Background(), "/ws", "ses_1", "msg_3", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Entries) != 1 || page.Entries[0].Message.ID != "msg_2" || !page.HasMore {
+		t.Errorf("page = %+v more=%v, want msg_2 with more behind", page.Entries, page.HasMore)
+	}
+	// a made-up synthetic id never reaches the server's cursor
+	page, err = b.History(context.Background(), "/ws", "ses_1", "syn:7", 5)
+	if err != nil || len(page.Entries) != 0 {
+		t.Errorf("synthetic before: %+v %v, want an empty page", page.Entries, err)
+	}
+}

@@ -2,6 +2,8 @@ package opencode
 
 import (
 	"testing"
+
+	"galopin/internal/backend"
 )
 
 // A subagent's report is a synthetic message opencode injects into its parent;
@@ -87,5 +89,46 @@ func TestAnAskIsAnsweredThroughItsOwnSession(t *testing.T) {
 	}
 	if got := st.sessionOfAsk("per_unknown", "ses_root"); got != "ses_root" {
 		t.Errorf("an unknown request falls back to the caller's session, got %q", got)
+	}
+}
+
+func TestAnInterruptForgetsWhatTheSessionLeftHalfDone(t *testing.T) {
+	st := newAsmState()
+	st.adapt("session.tool.input.started", 1, map[string]any{"sessionID": "s", "assistantMessageID": "m", "id": "c", "name": "shell"})
+	st.adapt("session.tool.called", 2, map[string]any{"sessionID": "s", "assistantMessageID": "m", "id": "c", "input": map[string]any{"command": "x"}})
+	st.adapt("session.step.started", 3, map[string]any{"sessionID": "s", "assistantMessageID": "m", "agent": "build", "model": map[string]any{"id": "x", "providerID": "p"}})
+	st.adapt("permission.asked", 4, map[string]any{"id": "per", "sessionID": "s", "action": "shell", "resources": []any{"x"}})
+	st.adapt("session.execution.interrupted", 5, map[string]any{"sessionID": "s", "reason": "user"})
+	if len(st.tools)+len(st.inputs)+len(st.started)+len(st.toolSess)+len(st.askSession) != 0 {
+		t.Errorf("left behind: tools %v inputs %v started %v asks %v", st.tools, st.inputs, st.started, st.askSession)
+	}
+	st.adapt("permission.asked", 6, map[string]any{"id": "per2", "sessionID": "s", "action": "shell", "resources": []any{"y"}})
+	st.adapt("permission.replied", 7, map[string]any{"sessionID": "s", "requestID": "per2", "reply": "once"})
+	if len(st.askSession) != 0 {
+		t.Errorf("a replied ask is still remembered: %v", st.askSession)
+	}
+}
+
+func TestReconnectResyncsKnownSessionsButNotTheFirstConnection(t *testing.T) {
+	b := New(Config{})
+	b.asm.dirs["ses_1"] = "/ws"
+	out := make(chan backend.BackendEvent, 4)
+	b.resyncKnownSessions(out)
+	if len(out) != 0 {
+		t.Fatal("the first connection must not resync")
+	}
+	b.resyncKnownSessions(out)
+	if len(out) != 1 {
+		t.Fatalf("a reconnect sent %d resyncs, want 1", len(out))
+	}
+	if ev := <-out; ev.SessionID != "ses_1" || ev.Event.Kind != backend.EventResync || ev.WorkspaceDir != "/ws" {
+		t.Errorf("event = %+v", ev)
+	}
+}
+
+func TestOnlyATrailingReminderBlockIsNotThePersonsText(t *testing.T) {
+	mid := userParts("m", "s", "see <system-reminder>x</system-reminder> in the docs, then do it", nil, nil)
+	if len(mid) != 1 || mid[0].(map[string]any)["synthetic"] == true {
+		t.Errorf("a literal tag in the middle of the person's text was split off: %v", mid)
 	}
 }

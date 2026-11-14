@@ -22,6 +22,8 @@ package opencode
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/url"
 	"os"
 	"reflect"
 	"sort"
@@ -71,7 +73,7 @@ func (b *Backend) builtinAgentFloor(denies map[string]bool) map[string]any {
 			denyBlock = append(denyBlock, mk(k, "*", "deny"))
 		}
 	}
-	planRules := []rule{mk("edit", "*", "deny")}
+	planRules := []rule{mk("edit", "*", "deny"), mk("task", "general", "deny")}
 	for _, d := range b.PlanDirs() {
 		// galopin lets the plan file through on Plan (it asks).
 		planRules = append(planRules, mk("edit", d+"/*", "ask"))
@@ -133,6 +135,29 @@ func (b *Backend) floorContent(patch map[string]any, denies map[string]bool) map
 		if _, builtin := agents[name]; !builtin {
 			agents[name] = v
 		}
+	}
+	// "build" has no restated denies but is still an agent block: a repo's own
+	// agents.build.permissions must not be able to loosen the floor.
+	if _, ok := agents["build"]; !ok {
+		agents["build"] = map[string]any{"permissions": []rule{}}
+	}
+	// Every agent block, built-in or patched, is the whole top-level floor, then
+	// the agent's own restated rules, then the machine's denies once more: an
+	// agent's own `* ask` or `subagent * ask` can neither lead nor trail past them.
+	tail := []rule{mk("execute", "*", "deny")}
+	if !b.cfg.BackgroundSubagents {
+		tail = append(tail, mk("task", "*", "deny"))
+	}
+	for _, k := range floorKeys {
+		if denies[k] {
+			tail = append(tail, mk(k, "*", "deny"))
+		}
+	}
+	for name, v := range agents {
+		blk, _ := v.(map[string]any)
+		own, _ := blk["permissions"].([]rule)
+		full := append(append(append([]rule{}, top...), own...), tail...)
+		agents[name] = map[string]any{"permissions": full}
 	}
 	return map[string]any{"permissions": top, "agents": agents}
 }
@@ -343,11 +368,32 @@ func (b *Backend) checkFloor(ctx context.Context) {
 	for _, e := range entries {
 		agents = append(agents, agentInfo{Name: getStr(e, "id", "name"), Permission: rulesFromV2(getSlice(e, "permissions"))})
 	}
+	// Every directory sessions live in has its own agents (a project's own, loaded when the
+	// machine allows project config): the floor is checked in each, not only in the server's.
+	_, _ = b.ListSessions(ctx, "")
+	for _, dir := range b.asm.seenDirs() {
+		more, derr := b.agentEntries(ctx, dir)
+		if derr != nil {
+			b.cfg.Logf("opencode: could not read the agents of %s to check the permission floor: %v", dir, derr)
+			continue
+		}
+		for _, e := range more {
+			agents = append(agents, agentInfo{Name: getStr(e, "id", "name"), Permission: rulesFromV2(getSlice(e, "permissions"))})
+		}
+	}
 	breaches := findBreaches(agents)
+	seenName := map[string]bool{}
 	names := make([]string, 0, len(breaches))
 	for _, br := range breaches {
-		names = append(names, br.Agent+":"+br.Key)
+		n := br.Agent + ":" + br.Key
+		if !seenName[n] {
+			seenName[n] = true
+			names = append(names, n)
+		}
 	}
+	// A saved approval is a project-wide standing allow that sits beneath galopin's selector and
+	// the machine's ceiling: report it and remove it.
+	names = append(names, b.dropSavedApprovals(ctx)...)
 	b.perm.floorMu.Lock()
 	b.perm.floorBreaches = names
 	have := b.perm.floorPatch
@@ -441,4 +487,29 @@ func hasFloorMarker(entries []map[string]any) bool {
 		}
 	}
 	return false
+}
+
+// dropSavedApprovals lists opencode's saved ("always") approvals in every known directory and
+// deletes them, returning one "saved:<action> <resource>" entry for each. galopin never asks
+// opencode to save one (it answers once), so any present came from elsewhere.
+func (b *Backend) dropSavedApprovals(ctx context.Context) []string {
+	var out []string
+	for _, dir := range append([]string{""}, b.asm.seenDirs()...) {
+		var saved []any
+		if err := b.doData(ctx, http.MethodGet, withLoc("/api/permission/saved", dir), nil, &saved); err != nil {
+			continue
+		}
+		for _, m := range asMaps(saved) {
+			out = append(out, "saved:"+v1Name(getStr(m, "action"))+" "+getStr(m, "resource"))
+			if id := getStr(m, "id"); id != "" {
+				if err := b.doJSON(ctx, http.MethodDelete, "/api/permission/saved/"+url.PathEscape(id), nil, nil); err != nil {
+					b.cfg.Logf("opencode: could not remove the saved approval %s: %v", id, err)
+				}
+			}
+		}
+	}
+	if len(out) > 0 {
+		b.cfg.Logf("opencode: removed saved approvals (they would bypass the selector and the ceiling): %s", strings.Join(out, ", "))
+	}
+	return out
 }

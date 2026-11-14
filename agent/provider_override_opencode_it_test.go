@@ -108,7 +108,7 @@ func runProviderOverride(t *testing.T, allowProject, allowProviders bool) {
 		"HOME=" + dirs["home"], "XDG_CONFIG_HOME=" + dirs["config"], "XDG_DATA_HOME=" + dirs["data"],
 		"XDG_CACHE_HOME=" + dirs["cache"], "TMPDIR=" + itTmpDir(t), "PATH=" + os.Getenv("PATH"),
 		// A repo's .envrc could set these; galopin's own choice must win.
-		"OPENCODE_DISABLE_PROJECT_CONFIG=0", "OPENCODE_CONFIG_CONTENT={}",
+		"OPENCODE_DISABLE_PROJECT_CONFIG=0", "OPENCODE_CONFIG_PROJECT_DISABLE=0", "OPENCODE_CONFIG_CONTENT={}",
 	}
 	pol := policy.Default()
 	if allowProject {

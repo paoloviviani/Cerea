@@ -76,6 +76,19 @@ const scheduledSessions = new Map<
 const workingChildren = new Map<string, Map<string, number>>();
 const announced = new Map<string, number>();
 
+/** Forget children that stopped reporting (a missed idle) and keep the map bounded. */
+function pruneChildren(now: number) {
+	for (const [root, kids] of workingChildren) {
+		for (const [id, at] of kids) if (now - at > STALE_MS) kids.delete(id);
+		if (!kids.size) workingChildren.delete(root);
+	}
+	while (workingChildren.size > MAX_TRACKED) {
+		const oldest = workingChildren.keys().next().value;
+		if (oldest === undefined) break;
+		workingChildren.delete(oldest);
+	}
+}
+
 const key = (deviceId: string, sessionId: string) => `${deviceId}:${sessionId}`;
 
 function sweep(map: Map<string, { at?: number; busySince?: number }>, now: number) {
@@ -166,6 +179,7 @@ export function observeMachineEvent(
 				for (const [id, at] of kids) if (deps.now() - at > STALE_MS) kids.delete(id);
 				if (kids.size) workingChildren.set(rk, kids);
 				else workingChildren.delete(rk);
+				if (workingChildren.size > MAX_TRACKED) pruneChildren(deps.now());
 			}
 			if (event.status === "busy" || event.status === "retry") {
 				if (!turns.has(k)) {
@@ -213,6 +227,7 @@ function turnEnded(
 	deps: Deps
 ): void {
 	const { sessionId } = envelope;
+	pruneChildren(deps.now());
 	const scheduled = scheduledSessions.get(key(deviceId, sessionId));
 	if (scheduled && workingChildren.get(key(deviceId, sessionId))?.size) {
 		// Idle, but subagents are still working: not finished. Their report starts another turn of

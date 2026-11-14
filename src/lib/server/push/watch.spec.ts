@@ -176,6 +176,15 @@ describe("a scheduled run", () => {
 		expect(firstCall()[2].title).toBe("Scheduled run finished");
 	});
 
+	it("stops waiting for a child that went silent", () => {
+		afterScheduleRun(sent(), deps);
+		observeMachineEvent(me, "dev1", envelope(status("busy"), "s1", "s1"), deps);
+		observeMachineEvent(me, "dev1", envelope(status("busy"), "kid", "s1"), deps);
+		clock += 7 * 3600_000; // its idle was never seen
+		observeMachineEvent(me, "dev1", envelope(status("idle"), "s1", "s1"), deps);
+		expect(notify).toHaveBeenCalledOnce();
+	});
+
 	it("tells a failed turn as a failed run", () => {
 		afterScheduleRun(sent(), deps);
 		observeMachineEvent(me, "dev1", envelope(status("busy")), deps);

@@ -106,6 +106,9 @@ func (b *Backend) streamOnce(ctx context.Context, out chan<- backend.BackendEven
 		return err
 	}
 	defer resp.Body.Close()
+	// A reconnect (opencode restarted, or the stream broke) may have missed events: every
+	// session galopin knows is asked to re-read its transcript and state.
+	b.resyncKnownSessions(out)
 
 	// Lines are read with a bounded reader, not bufio.Scanner: a tool part
 	// carries its images inline as data: URLs, so one message.part.updated
@@ -195,6 +198,20 @@ func (b *Backend) handleSSEData(raw string, out chan<- backend.BackendEvent) {
 		} else {
 			dir = b.sessionDir(sid)
 		}
+	}
+	// A session's agent or model changed by something other than galopin's own write (a command
+	// that names an agent, another client): forget what was applied so the overlay is re-asserted.
+	if frame.Type == "session.agent.selected" || frame.Type == "session.model.selected" {
+		b.selMu.Lock()
+		cur := b.selApplied[sid]
+		if frame.Type == "session.agent.selected" && getStr(d, "agent") != cur.agent {
+			delete(b.selApplied, sid)
+		}
+		if m := getMap(d, "model"); frame.Type == "session.model.selected" && m != nil &&
+			getStr(m, "providerID")+"/"+getStr(m, "id") != cur.model {
+			delete(b.selApplied, sid)
+		}
+		b.selMu.Unlock()
 	}
 	if frame.Type == "session.created" || frame.Type == "session.renamed" {
 		b.noteDir(dir)
@@ -496,4 +513,23 @@ func (b *Backend) resyncAfterOversized(o *oversizedLine, out chan<- backend.Back
 		}
 	}
 	out <- backend.BackendEvent{WorkspaceDir: dir, SessionID: m[1], Event: backend.Event{Kind: backend.EventResync}}
+}
+
+// resyncKnownSessions announces EventResync for every session seen so far, from the second
+// connection of the event stream on (the first has nothing behind it).
+func (b *Backend) resyncKnownSessions(out chan<- backend.BackendEvent) {
+	b.asm.mu.Lock()
+	first := !b.asm.connected
+	b.asm.connected = true
+	dirs := make(map[string]string, len(b.asm.dirs))
+	for sid, dir := range b.asm.dirs {
+		dirs[sid] = dir
+	}
+	b.asm.mu.Unlock()
+	if first {
+		return
+	}
+	for sid, dir := range dirs {
+		out <- backend.BackendEvent{WorkspaceDir: dir, SessionID: sid, Event: backend.Event{Kind: backend.EventResync}}
+	}
 }

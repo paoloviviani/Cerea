@@ -1,7 +1,11 @@
 package opencode
 
 import (
+	"context"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -76,14 +80,32 @@ func TestFloorContentShape(t *testing.T) {
 			t.Errorf("no restated denies for %s", n)
 		}
 	}
-	// plan's edit deny comes first, the plan directory after it (asking).
-	plan := got.Agents["plan"].Permissions
-	if len(plan) != 2 || plan[0]["action"] != "edit" || plan[0]["effect"] != "deny" ||
-		plan[1]["resource"] != "/home/u/.opencode/plan/*" || plan[1]["effect"] != "ask" {
+	// Every agent block is the whole top-level floor, the agent's own rules, then the machine's
+	// denies again (here: Code Mode); own() is the middle.
+	own := func(name string) []map[string]string {
+		p := got.Agents[name].Permissions
+		if len(p) < len(got.Permissions)+1 {
+			t.Fatalf("%s block is shorter than the floor: %v", name, p)
+		}
+		for i, r := range got.Permissions {
+			if p[i]["action"] != r["action"] || p[i]["effect"] != r["effect"] {
+				t.Errorf("%s block does not start with the top-level floor at %d: %v", name, i, p[i])
+			}
+		}
+		if last := p[len(p)-1]; last["action"] != "execute" || last["effect"] != "deny" {
+			t.Errorf("%s block does not end with the machine denies: %v", name, last)
+		}
+		return p[len(got.Permissions) : len(p)-1]
+	}
+	// plan's edit deny comes first (then general), the plan directory after it (asking).
+	plan := own("plan")
+	if len(plan) != 3 || plan[0]["action"] != "edit" || plan[0]["effect"] != "deny" ||
+		plan[1]["action"] != "subagent" || plan[1]["resource"] != "general" || plan[1]["effect"] != "deny" ||
+		plan[2]["resource"] != "/home/u/.opencode/plan/*" || plan[2]["effect"] != "ask" {
 		t.Errorf("plan's edit rules lost their order: %v", plan)
 	}
 	// explore's blanket deny leads.
-	if ex := got.Agents["explore"].Permissions; ex[0]["action"] != "*" || ex[0]["effect"] != "deny" || ex[1]["action"] != "shell" {
+	if ex := own("explore"); ex[0]["action"] != "*" || ex[0]["effect"] != "deny" || ex[1]["action"] != "shell" {
 		t.Errorf("explore's blanket deny must lead: %v", ex)
 	}
 }
@@ -157,5 +179,62 @@ func TestFileDenyStandsUnderTheFloor(t *testing.T) {
 	top := topLevel(t, body)
 	if !hasRule(top, "edit", "*", "deny") || hasRule(top, "edit", "*", "ask") {
 		t.Errorf("the owner's file deny did not survive the floor: %s", body)
+	}
+}
+
+// A custom agent's own `* ask` or `subagent * ask` cannot reopen what the machine denies: each
+// block ends with Code Mode and (when background subagents are off) the subagent tool denied.
+func TestEveryAgentBlockEndsWithTheMachineDenies(t *testing.T) {
+	b := floorBackend(false)
+	patch := map[string]any{"zed": map[string]any{"permissions": []rule{mk("*", "*", "ask"), mk("task", "*", "ask")}}}
+	body, err := b.floorConfig(nil, patch, map[string]bool{"edit": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Agents map[string]struct {
+			Permissions []map[string]string `json:"permissions"`
+		} `json:"agents"`
+	}
+	if err := json.Unmarshal([]byte(body), &got); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"build", "plan", "explore", "general", "zed", "title"} {
+		p := got.Agents[name].Permissions
+		if len(p) == 0 {
+			t.Errorf("no block for %s", name)
+			continue
+		}
+		tail := p[len(p)-3:]
+		want := [][2]string{{"execute", "deny"}, {"subagent", "deny"}, {"edit", "deny"}}
+		for i, w := range want {
+			if tail[i]["action"] != w[0] || tail[i]["effect"] != w[1] || tail[i]["resource"] != "*" {
+				t.Errorf("%s block tail = %v, want execute, subagent, edit denied", name, tail)
+				break
+			}
+		}
+	}
+}
+
+// opencode 2's saved ("always") approvals are project-wide standing allows beneath galopin's
+// selector and ceiling: the floor check reports and deletes them.
+func TestSavedApprovalsAreReportedAndDeleted(t *testing.T) {
+	var deleted []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/permission/saved":
+			_, _ = io.WriteString(w, `{"data":[{"id":"psv_1","action":"shell","resource":"make *"}]}`)
+		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/permission/saved/"):
+			deleted = append(deleted, strings.TrimPrefix(r.URL.Path, "/api/permission/saved/"))
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	b := fakeServerBackend(t, srv)
+	got := b.dropSavedApprovals(context.Background())
+	if len(got) != 1 || got[0] != "saved:bash make *" || len(deleted) != 1 || deleted[0] != "psv_1" {
+		t.Errorf("reported %v, deleted %v", got, deleted)
 	}
 }

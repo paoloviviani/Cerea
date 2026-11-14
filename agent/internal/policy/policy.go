@@ -79,12 +79,10 @@ type Policy struct {
 	// galopin starts opencode with OPENCODE_DISABLE_PROJECT_CONFIG=1. A
 	// local `galopin policy set` can only turn it off.
 	ProjectConfig string `json:"projectConfig,omitempty"`
-	// BackgroundSubagents gates opencode's background task tool
-	// (OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS): "allowed" or "denied"
-	// (the default; `enroll --allow-background-subagents` opens it). While
-	// denied galopin never sets the env flag, so a task with background:true
-	// fails closed inside opencode ("Background subagents require
-	// OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=true"). A local
+	// BackgroundSubagents gates opencode's subagent tool: "allowed" or "denied". A
+	// policy.json without the field reads denied (`enroll` writes allowed unless
+	// --no-background-subagents). opencode 2 runs every subagent in the background and has
+	// no switch for it, so while denied the floor denies the tool outright. A local
 	// `galopin policy set` can only turn it off.
 	BackgroundSubagents string `json:"backgroundSubagents,omitempty"`
 }

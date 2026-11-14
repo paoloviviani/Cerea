@@ -62,14 +62,21 @@ export async function workspaceNameOn(
 	return workspaces.find((w) => w.id === workspaceId)?.name ?? null;
 }
 
+/** How long a child may be silent before it stops counting as working. */
+const CHILD_STALE_MS = 6 * 3600_000;
+
 /** Why a session cannot take a prompt right now, or `null` when it can. */
 export function busyReason(session: Session): string | null {
 	if (visiblePendingPermissions(session) > 0) return "is waiting for an approval";
 	if (session.status === "busy" || session.status === "retry") return "is still working";
 	// opencode 2 subagents run in the background: an idle parent can have children at work
 	// (or waiting for an approval), and a scheduled run is not finished until they are.
-	if ((session.childSummary?.waiting ?? 0) > 0) return "has a subagent waiting for an approval";
-	if ((session.childSummary?.running ?? 0) > 0) return "has subagents still working";
+	// A child counted as working but silent for hours (its idle was missed) must not hold the
+	// session forever: the parent's own last update is the clock.
+	const stale = Date.now() - Date.parse(session.updatedAt) > CHILD_STALE_MS;
+	if ((session.childSummary?.waiting ?? 0) > 0 && !stale)
+		return "has a subagent waiting for an approval";
+	if ((session.childSummary?.running ?? 0) > 0 && !stale) return "has subagents still working";
 	return null;
 }
 

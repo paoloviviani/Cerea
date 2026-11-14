@@ -32,6 +32,7 @@ type commandFake struct {
 	failAgent     bool             // make GET /api/agent fail
 	lastAgentDir  string           // the location[directory] GET /api/agent last saw
 	queuedID      string           // the id the command POST answers with
+	agentSet      []string         // bodies of POST .../agent
 }
 
 func newCommandFake(t *testing.T, cfg func(*commandFake)) (*Backend, *commandFake) {
@@ -75,6 +76,12 @@ func newCommandFake(t *testing.T, cfg func(*commandFake)) (*Backend, *commandFak
 			}
 			w.WriteHeader(http.StatusNoContent) // opencode 2.3 answers a command with no body
 			_ = id
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agent"):
+			body, _ := io.ReadAll(r.Body)
+			f.mu.Lock()
+			f.agentSet = append(f.agentSet, string(body))
+			f.mu.Unlock()
+			w.WriteHeader(http.StatusNoContent)
 		case strings.HasSuffix(r.URL.Path, "/message"):
 			f.mu.Lock()
 			id := f.queuedID
@@ -510,5 +517,50 @@ func TestResolveCommandKnowsNoTemplate(t *testing.T) {
 
 	if _, err := b.ResolveCommand(context.Background(), "/ws", "ses_1", "nope", ""); !errors.Is(err, backend.ErrCommandNotFound) {
 		t.Errorf("unknown name err = %v, want ErrCommandNotFound", err)
+	}
+}
+
+// A command runs as the agent the dispatcher resolved, and afterwards the session's applied
+// agent/model record is forgotten so the next prompt writes the overlay's choice again.
+func TestRunCommandSetsTheResolvedAgentThenForgetsTheSelection(t *testing.T) {
+	b, f := newCommandFake(t, nil)
+	b.selApplied["ses_1"] = appliedSel{agent: "plan", model: "p/m"}
+	if err := b.RunCommand(context.Background(), "/ws", "ses_1", backend.CommandRun{Name: "review", Agent: "plan"}); err != nil {
+		t.Fatal(err)
+	}
+	f.waitCommand(t)
+	// Agent already "plan": nothing written; a different resolved agent is written first.
+	if len(f.agentSet) != 0 {
+		t.Errorf("agent written %v although the session already ran as plan", f.agentSet)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		b.selMu.Lock()
+		_, still := b.selApplied["ses_1"]
+		b.selMu.Unlock()
+		if !still {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the applied selection was not forgotten after the command")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	b.selApplied["ses_2"] = appliedSel{agent: "build"}
+	if err := b.RunCommand(context.Background(), "/ws", "ses_2", backend.CommandRun{Name: "review", Agent: "plan"}); err != nil {
+		t.Fatal(err)
+	}
+	deadline = time.Now().Add(3 * time.Second)
+	for {
+		f.mu.Lock()
+		n := len(f.agentSet)
+		f.mu.Unlock()
+		if n == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the resolved agent was never written to the session")
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }

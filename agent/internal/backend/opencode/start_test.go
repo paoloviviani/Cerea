@@ -86,6 +86,7 @@ func TestStripChildSwitchesDropsInheritedBackgroundFlag(t *testing.T) {
 		"PATH=/usr/bin",
 		"GALOPIN_BACKGROUND_SUBAGENTS=1",
 		"OPENCODE_DISABLE_PROJECT_CONFIG=1",
+		"OPENCODE_CONFIG_PROJECT_DISABLE=0",
 		"OPENCODE_CONFIG_CONTENT={}",
 		"HOME=/root",
 	}
@@ -93,6 +94,7 @@ func TestStripChildSwitchesDropsInheritedBackgroundFlag(t *testing.T) {
 	for _, kv := range got {
 		if strings.HasPrefix(kv, "GALOPIN_BACKGROUND_SUBAGENTS=") ||
 			strings.HasPrefix(kv, "OPENCODE_DISABLE_PROJECT_CONFIG=") ||
+			strings.HasPrefix(kv, "OPENCODE_CONFIG_PROJECT_DISABLE=") ||
 			strings.HasPrefix(kv, "OPENCODE_CONFIG_CONTENT=") {
 			t.Errorf("inherited switch survived stripping: %q", kv)
 		}

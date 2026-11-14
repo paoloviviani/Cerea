@@ -1131,6 +1131,13 @@ func (mc *machine) opPermissionReply(ctx context.Context, args json.RawMessage) 
 	}
 	// One answer path for opencode's asks and galopin's own (gp_).
 	asked := mc.askedRequest(a.SessionID, a.RequestID)
+	if asked == nil && !strings.HasPrefix(a.RequestID, "gp_") {
+		// An opencode request this session never raised (or one already withdrawn): it is not
+		// forwarded, so a reply cannot answer another session's ask or guess an id.
+		mc.mat.WithdrawPermission(a.SessionID, a.RequestID)
+		mc.audit.permissionReply(a.SessionID, a.RequestID, "", a.Decision, actor, false, false, "unknown request, not forwarded")
+		return map[string]any{"alreadyResolved": true}, nil
+	}
 	if actor.Kind == actorRule && (asked == nil || !asked.ReadOnly) {
 		// The rule exists for the machine's own read-only mark, nothing else.
 		return nil, opErrf("invalid", "a rule reply is only for an ask the machine marked read-only")
@@ -1533,6 +1540,10 @@ func (mc *machine) opSessionCommand(ctx context.Context, args json.RawMessage) (
 		// a command naming an agent is refused rather than gated on an
 		// empty mode.
 		return refuse("forbidden", "the session's mode could not be read, and this command names agent %q", command.Agent)
+	}
+	if command.Subtask && !mc.pol.BackgroundSubagentsAllowed() {
+		// A subtask command spawns a subagent, and opencode 2 only has background ones.
+		return refuse("forbidden", "this command runs as a subagent, and this machine has subagents turned off (--no-background-subagents)")
 	}
 	escalating := overlayModeWinsAgent(sessionMode, command.Agent)
 	if escalating {
