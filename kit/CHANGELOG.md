@@ -5,7 +5,11 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.53.1 — 2026-11-14
+
+Pins: Cerea `0.53.1` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.2`, opencode `2.3.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. **On computers:** `curl -fsSL <your-cerea>/galopin/install.sh | sh -s -- --upgrade` for the session-name fix.
 
 - **Agent sessions without a name get one again.** On opencode 2 a new session starts with no name, and when opencode's own title step does not produce one (a provider that rejects it, a model that answers with nothing) it stayed nameless; the phone top bar then showed the folder path. A session now shows the first words of its first prompt until opencode names it (the real title replaces it when it arrives), and where a folder is used as a name the code panel shows only its last segment, never the whole path. New workspaces added without a name are named by their folder. **On computers:** update galopin to get this. opencode's title step itself was never blocked by the permission floor (it uses no tools).
 - **Phones: content fades under the top bar instead of being cut off.** In chats and in the agent view, scrolled content (answer boxes with rounded corners) dissolves over about 20px at the top bar's edge instead of being clipped hard. Nothing is faded when you are at the very top, and desktop is unchanged.
