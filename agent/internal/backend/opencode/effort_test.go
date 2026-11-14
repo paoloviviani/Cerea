@@ -16,23 +16,29 @@ import (
 )
 
 // fakeOpencode answers the few endpoints these tests touch, recording the
-// last prompt_async body.
+// last model selection written to the session (2.x keeps the variant on the
+// session's model, not on the prompt).
 func fakeOpencode(t *testing.T) (*Backend, *map[string]any) {
 	t.Helper()
-	var lastPrompt map[string]any
+	var lastModel map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case strings.HasSuffix(r.URL.Path, "/prompt_async"):
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/model"):
 			body, _ := io.ReadAll(r.Body)
-			lastPrompt = nil
-			_ = json.Unmarshal(body, &lastPrompt)
+			lastModel = nil
+			_ = json.Unmarshal(body, &lastModel)
 			w.WriteHeader(http.StatusNoContent)
-		case r.URL.Path == "/config/providers":
-			_, _ = io.WriteString(w, `{"default":{"pystino":"thinker"},"providers":[{"id":"pystino","models":{
-				"thinker":{"name":"Thinker","variants":{"high":{"reasoningEffort":"high"},"low":{"reasoningEffort":"low"},"medium":{"reasoningEffort":"medium"},"off":{"disabled":true}}},
-				"plain":{"name":"Plain"}}}]}`)
-		case strings.HasPrefix(r.URL.Path, "/session/"):
-			_, _ = io.WriteString(w, `{"id":"ses_1","title":"t"}`)
+		case strings.HasSuffix(r.URL.Path, "/prompt") && r.Method == http.MethodPost:
+			_, _ = io.WriteString(w, `{"data":{}}`)
+		case r.URL.Path == "/api/model":
+			_, _ = io.WriteString(w, `{"data":[
+				{"id":"thinker","modelID":"thinker","providerID":"pystino","name":"Thinker","enabled":true,"capabilities":{"tools":true,"input":["text"],"output":["text"]},
+				 "variants":[{"id":"high"},{"id":"low"},{"id":"medium"},{"id":"off","disabled":true}]},
+				{"id":"plain","modelID":"plain","providerID":"pystino","name":"Plain","enabled":true,"capabilities":{"tools":true,"input":["text"],"output":["text"]},"variants":[]}]}`)
+		case r.URL.Path == "/api/model/default":
+			_, _ = io.WriteString(w, `{"data":{"id":"thinker","providerID":"pystino"}}`)
+		case strings.HasPrefix(r.URL.Path, "/api/session/"):
+			_, _ = io.WriteString(w, `{"data":{"id":"ses_1","title":"t"}}`)
 		default:
 			http.NotFound(w, r)
 		}
@@ -40,7 +46,7 @@ func fakeOpencode(t *testing.T) (*Backend, *map[string]any) {
 	t.Cleanup(srv.Close)
 	host, portStr, _ := net.SplitHostPort(strings.TrimPrefix(srv.URL, "http://"))
 	port, _ := strconv.Atoi(portStr)
-	return New(Config{Hostname: host, Port: port, Password: "x"}), &lastPrompt
+	return New(Config{Hostname: host, Port: port, Password: "x"}), &lastModel
 }
 
 func TestSetEffortIsSentAsTheVariant(t *testing.T) {
@@ -56,8 +62,9 @@ func TestSetEffortIsSentAsTheVariant(t *testing.T) {
 	if err := b.Prompt(ctx, "/ws", "ses_1", backend.Prompt{Text: "go"}); err != nil {
 		t.Fatal(err)
 	}
-	if (*last)["variant"] != "high" {
-		t.Fatalf("prompt body = %v, want variant high", *last)
+	ref, _ := (*last)["model"].(map[string]any)
+	if ref["variant"] != "high" || ref["id"] != "thinker" || ref["providerID"] != "pystino" {
+		t.Fatalf("model selection = %v, want the default model with variant high", *last)
 	}
 
 	// Cleared: the prompt goes out on the model's default.
@@ -67,8 +74,9 @@ func TestSetEffortIsSentAsTheVariant(t *testing.T) {
 	if err := b.Prompt(ctx, "/ws", "ses_1", backend.Prompt{Text: "go"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := (*last)["variant"]; ok {
-		t.Fatalf("prompt body = %v, want no variant once cleared", *last)
+	ref, _ = (*last)["model"].(map[string]any)
+	if _, ok := ref["variant"]; ok {
+		t.Fatalf("model selection = %v, want no variant once cleared", *last)
 	}
 }
 

@@ -99,7 +99,7 @@ func TestACPToolImagesIntegration(t *testing.T) {
 
 	setMockScenario(t, mockOrigin, map[string]any{
 		"toolCalls": []map[string]any{{
-			"id": "call_a", "name": "read", "arguments": `{"filePath":"` + filepath.Join(workDir, "a.png") + `"}`,
+			"id": "call_a", "name": "read", "arguments": `{"path":"` + filepath.Join(workDir, "a.png") + `"}`,
 		}},
 		"content": []string{"Looked."}, "finishReason": "stop",
 	})

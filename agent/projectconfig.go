@@ -59,7 +59,7 @@ func projectOverrideKeys(dir string) []string {
 		if cfg == nil {
 			continue
 		}
-		for _, k := range []string{"provider", "enabled_providers", "model", "small_model"} {
+		for _, k := range []string{"provider", "enabled_providers", "model", "small_model", "agents", "permissions", "permission"} {
 			if _, ok := cfg[k]; ok {
 				seen[k] = true
 			}

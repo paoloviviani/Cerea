@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"sort"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -168,5 +169,15 @@ func TestEnrollFlagsExposedSetIsTheDialogsControlList(t *testing.T) {
 	d := loadEnrollFlags(t).DialogOnly
 	if len(d) != 1 || d[0].Control != "install-opencode" || !d[0].Exposed {
 		t.Errorf("dialogOnly = %+v, want the install-opencode control", d)
+	}
+}
+
+func TestProjectConfigAndOpencodeProvidersAreRefusedTogether(t *testing.T) {
+	_, err := enrollPolicy(&enrollOptions{allowProjectConfig: true, allowOpencodeProviders: true})
+	if err == nil || !strings.Contains(err.Error(), "--allow-opencode-provider") {
+		t.Fatalf("err = %v, want the combination refused with its reason", err)
+	}
+	if _, err := enrollPolicy(&enrollOptions{allowProjectConfig: true}); err != nil {
+		t.Errorf("project config alone: %v", err)
 	}
 }

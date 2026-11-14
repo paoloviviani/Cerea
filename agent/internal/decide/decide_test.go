@@ -332,3 +332,14 @@ func TestConnectorCallDecision(t *testing.T) {
 		}
 	}
 }
+
+// An external_directory exception covers a read of that directory, never a write.
+func TestExternalDirectoryExceptionCoversReadsNotEdits(t *testing.T) {
+	exs := []permrules.Exception{{ID: "e1", Permission: "external_directory", Patterns: []string{"/srv/data/*"}}}
+	if !excepted(exs, Request{Key: "read", Patterns: []string{"/srv/data/a.txt"}}) {
+		t.Error("a read under the excepted directory must be covered")
+	}
+	if excepted(exs, Request{Key: "edit", Patterns: []string{"/srv/data/a.txt"}}) {
+		t.Error("an edit under the excepted directory must still ask")
+	}
+}

@@ -27,19 +27,19 @@ func revertRace(t *testing.T) *Backend {
 		defer func() { cleaned = true }()
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/message"):
-			body := `[{"info":{"id":"msg_1","role":"user"},"parts":[]},{"info":{"id":"msg_2","role":"assistant"},"parts":[]}`
+			body := `[{"id":"msg_1","type":"user","text":"a","time":{"created":1}},{"id":"msg_2","type":"assistant","content":[],"time":{"created":2}}`
 			if !cleaned {
-				body += `,{"info":{"id":"msg_3","role":"user"},"parts":[]},{"info":{"id":"msg_4","role":"assistant"},"parts":[]}`
+				body += `,{"id":"msg_3","type":"user","text":"b","time":{"created":3}},{"id":"msg_4","type":"assistant","content":[],"time":{"created":4}}`
 			}
-			_, _ = io.WriteString(w, body+"]")
-		case r.URL.Path == "/session/ses_1":
+			_, _ = io.WriteString(w, `{"data":`+body+`],"cursor":{}}`)
+		case r.URL.Path == "/api/session/ses_1":
 			if cleaned {
-				_, _ = io.WriteString(w, `{"id":"ses_1"}`)
+				_, _ = io.WriteString(w, `{"data":{"id":"ses_1"}}`)
 			} else {
-				_, _ = io.WriteString(w, `{"id":"ses_1","revert":{"messageID":"msg_3"}}`)
+				_, _ = io.WriteString(w, `{"data":{"id":"ses_1","revert":{"messageID":"msg_3"}}}`)
 			}
 		default:
-			_, _ = io.WriteString(w, `[]`)
+			_, _ = io.WriteString(w, `{"data":[]}`)
 		}
 	}))
 	t.Cleanup(srv.Close)

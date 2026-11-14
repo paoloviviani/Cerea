@@ -6,7 +6,7 @@ description: >
   the job itself: the caller decides, after it has reported.
 inputs:
   version:
-    description: opencode-ai release to install
+    description: opencode release to install (npm @opencode/cli)
     required: true
 outputs:
   ok:
@@ -27,18 +27,28 @@ runs:
       env:
         VERSION: ${{ inputs.version }}
       run: |
-        npm install -g "opencode-ai@${VERSION}"
-        got=$(opencode --version)
+        npm install -g "@opencode/cli@${VERSION}"
+        got=$(opencode --version | sed 's/^opencode //; s/^v//')
         echo "opencode --version: $got"
         [ "$got" = "$VERSION" ] || { echo "::error::installed opencode $got, wanted $VERSION"; exit 1; }
         git config --global user.name ci
         git config --global user.email ci@example.invalid
+    - name: Install an earlier opencode 2 for the upgrade test
+      shell: bash
+      env:
+        # the release the upgrade test starts from: any earlier opencode 2 will do
+        PREV_OPENCODE_VERSION: "2.2.7"
+      run: |
+        npm install --prefix "$RUNNER_TEMP/prev-opencode" "@opencode/cli@${PREV_OPENCODE_VERSION}"
+        "$RUNNER_TEMP/prev-opencode/node_modules/.bin/opencode" --version
     - name: Run the real-opencode suite
       id: test
       shell: bash
       env:
         GALOPIN_OPENCODE_IT: "1"
         GALOPIN_ACP_IT: "1"
+        # sessions made by this release must survive an upgrade to the one under test
+        GALOPIN_OPENCODE_PREV_BIN: ${{ runner.temp }}/prev-opencode/node_modules/.bin/opencode
       working-directory: agent
       run: |
         mkdir -p "$RUNNER_TEMP/opencode-suite"

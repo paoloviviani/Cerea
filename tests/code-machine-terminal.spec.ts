@@ -183,7 +183,17 @@ test.describe("the terminal on a real machine", () => {
 		const jump = page.getByRole("button", { name: "Scroll to bottom" });
 		await expect(jump).toHaveCount(0);
 
-		const box = await page.locator(".xterm-screen").boundingBox();
+		// The viewport change reflows the pane (and the sheet it opens in): measure the
+		// screen once its box has stopped moving, not on the tick after the resize.
+		const screen = page.locator(".xterm-screen");
+		let box = await screen.boundingBox();
+		await expect(async () => {
+			const next = await screen.boundingBox();
+			const same =
+				!!box && !!next && next.x === box.x && next.y === box.y && next.height === box.height;
+			box = next;
+			expect(same).toBe(true);
+		}).toPass({ timeout: 10_000 });
 		if (!box) throw new Error("no terminal screen");
 		const x = box.x + box.width / 2;
 		const touch = (type: "touchStart" | "touchMove" | "touchEnd", y: number) =>

@@ -107,7 +107,7 @@ func TestAgentToolsWithNoRuleRaiseACardIntegration(t *testing.T) {
 			"content":   []string{"done"}, "chunkDelayMs": 5, "finishReason": "stop",
 		}},
 		{"contains": "trigger-deny-spawn", "scenario": map[string]any{
-			"toolCalls": []map[string]any{{"id": "call_deny_spawn", "name": "session_spawn", "arguments": mustJSON2(map[string]any{"title": "it-deny-child", "prompt": "hi", "mode": "inherit"})}},
+			"toolCalls": []map[string]any{{"id": "call_deny_spawn", "name": "session_spawn", "arguments": mustJSON2(map[string]any{"title": "it-deny-child", "prompt": "hi", "mode": "inherit", "report": false})}},
 			"content":   []string{"done"}, "chunkDelayMs": 5, "finishReason": "stop",
 		}},
 	}})

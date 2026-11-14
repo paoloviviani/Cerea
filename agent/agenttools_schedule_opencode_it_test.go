@@ -313,9 +313,13 @@ func TestScheduleToolsIntegration(t *testing.T) {
 		if !buildHello(oc, pol).Backends[0].Capabilities["scheduleTools"] {
 			t.Fatal("hello does not carry scheduleTools")
 		}
+		plugin, err := os.ReadFile(filepath.Join(dirs["state"], "opencode-tools", "plugins", "galopin-tools", "index.js"))
+		if err != nil {
+			t.Fatalf("tools plugin: %v", err)
+		}
 		for _, name := range []string{"schedule_list", "schedule_create", "schedule_update", "schedule_delete"} {
-			if _, err := os.Stat(filepath.Join(dirs["state"], "opencode-tools", "tools", name+".js")); err != nil {
-				t.Errorf("tool file %s: %v", name, err)
+			if !strings.Contains(string(plugin), `name: "`+name+`"`) {
+				t.Errorf("tool %s is not registered by the plugin", name)
 			}
 		}
 	})

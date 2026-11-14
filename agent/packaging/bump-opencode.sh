@@ -39,6 +39,10 @@ const block = lines.map(([h, n]) => `\t"${n}": "${h}",`).join("\n");
 src = src.replace(/(export const OPENCODE_SHA256: Record<string, string> = \{\n)[\s\S]*?(\n\};)/, `$1${block}$2`);
 fs.writeFileSync(file, src);
 ' "$root/src/lib/opencodeVersion.ts" "$tmp/sums"
+# the generated block must already be what prettier (the lint) would write
+if [ -x "$root/node_modules/.bin/prettier" ]; then
+    "$root/node_modules/.bin/prettier" --write "$root/src/lib/opencodeVersion.ts" > /dev/null
+fi
 printf '%s\n' "$version" > "$root/agent/packaging/opencode-version"
 sed -i "s/^export const OPENCODE_VERSION = \"[0-9.]*\";\$/export const OPENCODE_VERSION = \"$version\";/" "$ts"
 echo "pinned opencode $version in:"
@@ -48,7 +52,7 @@ echo "  agent/packaging/opencode-sha256, src/lib/opencodeVersion.ts (archive che
 cat <<MSG
 
 Before committing, prove it locally (real opencode, one at a time on a shared box):
-  npm i -g opencode-ai@$version && opencode --version
+  npm i -g @opencode/cli@$version && opencode --version
   cd agent && GALOPIN_OPENCODE_IT=1 GALOPIN_ACP_IT=1 go test -count=1 -v -timeout 25m ./...
   cd .. && npx vitest run --project=server src/lib/codeEnrollCommand.spec.ts
 

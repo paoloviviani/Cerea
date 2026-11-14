@@ -310,7 +310,9 @@
 	let permissionsKey = $state(0);
 	$effect(() => {
 		const state = shownState;
-		if (lastTurnState === "running" && state !== "running") filesTurnKey += 1;
+		// Any change of the turn's state may follow a write (a turn that waited for an
+		// approval can settle in the same tick as its tool), and a re-read is cheap.
+		if (lastTurnState !== undefined && state !== lastTurnState) filesTurnKey += 1;
 		if (lastTurnState !== undefined && lastTurnState !== state) permissionsKey += 1;
 		lastTurnState = state;
 	});

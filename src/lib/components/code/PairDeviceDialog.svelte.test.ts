@@ -413,6 +413,18 @@ describe("quoting in the preview", () => {
 	});
 });
 
+describe("project config and opencode's own providers", () => {
+	it("cannot both be on: galopin refuses the pair, so the dialog never prints it", async () => {
+		const screen = mount();
+		await openAdvanced(screen);
+		await screen.getByTestId("enroll-allow-project-config").click();
+		expect(screen.getByTestId("enroll-allow-opencode-provider").element()).toBeDisabled();
+		await screen.getByTestId("enroll-allow-project-config").click();
+		await screen.getByTestId("enroll-allow-opencode-provider").click();
+		expect(screen.getByTestId("enroll-allow-project-config").element()).toBeDisabled();
+	});
+});
+
 describe("the risky ones read as risky", () => {
 	it("terminal, trusting repos, the command shell, dropping the secret list and saving files carry the warning tone", async () => {
 		const screen = mount();

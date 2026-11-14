@@ -34,10 +34,10 @@ func TestSubagentSendToAnotherSessionGetsACardIntegration(t *testing.T) {
 
 	taskCall := map[string]any{
 		"id":   "call_bg_send",
-		"name": "task",
+		"name": "subagent",
 		"arguments": mustJSON2(map[string]any{
 			"description": "background child", "prompt": marker + ": report what you find",
-			"subagent_type": "general", "background": true,
+			"agent": "general", "background": true,
 		}),
 	}
 	listCall := map[string]any{
@@ -107,11 +107,13 @@ func TestSubagentSendToAnotherSessionGetsACardIntegration(t *testing.T) {
 
 	// The background child's first turn ends its task, and its result wakes a
 	// new turn in the parent — the report channel the fix keeps intact.
-	afterList := r.hub.mark()
-	r.hub.wait(t, afterList, 240*time.Second, "the notification turn to start in the parent", func(e sessions.Envelope) bool {
-		return e.SessionID == parent.ID && e.Event.Kind == backend.EventStatus && e.Event.Status == backend.StatusBusy
+	// Anchored on the injected report itself, not on a busy edge: the wake lands
+	// within milliseconds of the parent's idle, before a 100ms poll could see it.
+	r.hub.wait(t, mark, 240*time.Second, "the child's report in the parent", func(e sessions.Envelope) bool {
+		p := e.Event.Part
+		return e.SessionID == parent.ID && e.Event.Kind == backend.EventPart && p != nil && p.Type == backend.PartText &&
+			p.Synthetic && strings.Contains(p.Text, "<subagent")
 	})
-	r.idle(parent, afterList)
 
 	// Phase two: the child's next prompt sends to the bystander, the turn
 	// after the send answers plainly.

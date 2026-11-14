@@ -33,7 +33,7 @@ export const DEFAULT_CODE_CLIENT_ID = "opencode-enrollment";
  * galopin depends on.
  * `codeEnrollCommand.spec.ts` fails if this drifts from the file; change both
  * with `agent/packaging/bump-opencode.sh <version>`. */
-export const OPENCODE_VERSION = "1.19.3";
+export const OPENCODE_VERSION = "2.3.0";
 
 export interface EnrollCommandOptions extends Partial<EnrollPolicyChoices> {
 	/** This deployment's own address, base path included (`PublicConfig`'s

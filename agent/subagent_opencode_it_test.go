@@ -62,8 +62,8 @@ func waitForChild(t *testing.T, ctx context.Context, ocBackend *backendopencode.
 func taskScenario(childCommand string) map[string]any {
 	return map[string]any{
 		"toolCalls": []map[string]any{{
-			"id": "call_task", "name": "task",
-			"arguments": `{"description":"Inspect the repo","prompt":"List what is in the repo.","subagent_type":"general"}`,
+			"id": "call_task", "name": "subagent",
+			"arguments": `{"description":"Inspect the repo","prompt":"List what is in the repo.","agent":"general"}`,
 		}},
 		"content":      []string{"Parent done."},
 		"chunkDelayMs": 10,
@@ -163,10 +163,11 @@ func TestSubagentPermissionIntegration(t *testing.T) {
 	}
 
 	ocBackend := backendopencode.New(backendopencode.Config{
-		ConfigPath:     configPath,
-		Env:            isolatedEnv,
-		StartupTimeout: 90 * time.Second,
-		Logf:           t.Logf,
+		BackgroundSubagents: true,
+		ConfigPath:          configPath,
+		Env:                 isolatedEnv,
+		StartupTimeout:      90 * time.Second,
+		Logf:                t.Logf,
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()

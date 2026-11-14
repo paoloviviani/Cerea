@@ -29,6 +29,9 @@ type permFake struct {
 	prompts  []map[string]any
 	saved    []map[string]any
 	deleted  []string
+	// planNote is whether the plan note entry is currently on a session:
+	// the last PUT (true) or DELETE (false) of the instruction entry.
+	planNote bool
 	agents   string // GET /agent's answer; fakeAgents when empty
 	// gone answers PATCH /session/<id> with the status (404 for a child
 	// opencode no longer has, 500 for one that merely fails), opencode's
@@ -77,11 +80,11 @@ func (f *permFake) getCount(sessionID string) int {
 	return n
 }
 
-const fakeAgents = `[
- {"name":"build","mode":"primary","permission":[{"permission":"*","pattern":"*","action":"allow"}]},
- {"name":"plan","mode":"primary","permission":[{"permission":"*","pattern":"*","action":"allow"},{"permission":"edit","pattern":"*","action":"deny"}]},
- {"name":"explore","mode":"subagent","permission":[{"permission":"*","pattern":"*","action":"deny"},{"permission":"read","pattern":"*","action":"allow"}]}
-]`
+const fakeAgents = `{"data":[
+ {"id":"build","name":"Build","mode":"primary","permissions":[{"action":"*","resource":"*","effect":"allow"}]},
+ {"id":"plan","name":"Plan","mode":"primary","permissions":[{"action":"*","resource":"*","effect":"allow"},{"action":"edit","resource":"*","effect":"deny"}]},
+ {"id":"explore","name":"Explore","mode":"subagent","permissions":[{"action":"*","resource":"*","effect":"deny"},{"action":"read","resource":"*","effect":"allow"}]}
+]}`
 
 func newPermFake(t *testing.T, layers func() permrules.Layers) (*Backend, *permFake) {
 	t.Helper()
@@ -93,17 +96,17 @@ func newPermFake(t *testing.T, layers func() permrules.Layers) (*Backend, *permF
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		switch {
-		case r.URL.Path == "/agent":
+		case r.URL.Path == "/api/agent":
 			if f.agents != "" {
 				_, _ = io.WriteString(w, f.agents)
 			} else {
 				_, _ = io.WriteString(w, fakeAgents)
 			}
-		case r.Method == http.MethodPost && r.URL.Path == "/session":
+		case r.Method == http.MethodPost && r.URL.Path == "/api/session":
 			f.creates = append(f.creates, parsed)
-			_, _ = io.WriteString(w, `{"id":"ses_new","title":"t"}`)
-		case r.Method == http.MethodPatch && strings.HasPrefix(r.URL.Path, "/session/"):
-			id := strings.TrimPrefix(r.URL.Path, "/session/")
+			_, _ = io.WriteString(w, `{"data":{"id":"ses_new","title":"t"}}`)
+		case r.Method == http.MethodPatch && strings.HasPrefix(r.URL.Path, "/api/session/"):
+			id := strings.TrimPrefix(r.URL.Path, "/api/session/")
 			f.patchIDs = append(f.patchIDs, id)
 			if status, dead := f.gone[id]; dead {
 				w.WriteHeader(status)
@@ -113,19 +116,25 @@ func newPermFake(t *testing.T, layers func() permrules.Layers) (*Backend, *permF
 				return
 			}
 			f.patches = append(f.patches, parsed)
-			_, _ = io.WriteString(w, `{"id":"ses_1","title":"t"}`)
-		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/session/"):
-			id := strings.TrimPrefix(r.URL.Path, "/session/")
+			_, _ = io.WriteString(w, `{"data":{"id":"ses_1","title":"t"}}`)
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/session/") && !strings.Contains(strings.TrimPrefix(r.URL.Path, "/api/session/"), "/"):
+			id := strings.TrimPrefix(r.URL.Path, "/api/session/")
 			f.gets = append(f.gets, id)
 			if rules, ok := f.stored[id]; ok {
-				out, _ := json.Marshal(map[string]any{"id": id, "title": "t", "permission": rules})
+				out, _ := json.Marshal(map[string]any{"data": map[string]any{"id": id, "title": "t", "permissions": rulesToV2(rules)}})
 				_, _ = w.Write(out)
 				break
 			}
-			_, _ = io.WriteString(w, `{"id":"`+id+`","title":"t"}`)
-		case strings.HasSuffix(r.URL.Path, "/prompt_async"):
-			f.prompts = append(f.prompts, parsed)
+			_, _ = io.WriteString(w, `{"data":{"id":"`+id+`","title":"t"}}`)
+		case strings.Contains(r.URL.Path, "/instructions/entries/"+planNoteKey):
+			f.planNote = r.Method == http.MethodPut
+			if f.planNote && parsed["value"] != planNote {
+				t.Errorf("instruction entry value = %v, want the plan note", parsed["value"])
+			}
 			w.WriteHeader(http.StatusNoContent)
+		case strings.HasSuffix(r.URL.Path, "/prompt") && r.Method == http.MethodPost:
+			f.prompts = append(f.prompts, parsed)
+			_, _ = io.WriteString(w, `{"data":{}}`)
 		case r.URL.Path == "/api/permission/saved" && r.Method == http.MethodGet:
 			out, _ := json.Marshal(map[string]any{"data": f.saved})
 			_, _ = w.Write(out)
@@ -154,12 +163,12 @@ func ceilingAsk(keys ...string) func() permrules.Layers {
 
 func rulesOf(t *testing.T, body map[string]any) []permrules.Rule {
 	t.Helper()
-	raw, _ := json.Marshal(body["permission"])
-	var rules []permrules.Rule
-	if err := json.Unmarshal(raw, &rules); err != nil {
-		t.Fatalf("permission field %s: %v", raw, err)
+	raw, _ := json.Marshal(body["permissions"])
+	var arr []any
+	if err := json.Unmarshal(raw, &arr); err != nil {
+		t.Fatalf("permissions field %s: %v", raw, err)
 	}
-	return rules
+	return rulesFromV2(arr)
 }
 
 func TestCreateSessionWritesNoRules(t *testing.T) {
@@ -168,8 +177,8 @@ func TestCreateSessionWritesNoRules(t *testing.T) {
 		t.Fatal(err)
 	}
 	creates, patches, _ := f.snapshot()
-	if len(creates) != 1 || creates[0]["permission"] != nil {
-		t.Errorf("create body = %v, want no permission field (ADR 0097)", creates)
+	if len(creates) != 1 || creates[0]["permissions"] != nil {
+		t.Errorf("create body = %v, want no permissions field (ADR 0097)", creates)
 	}
 	if len(patches) != 0 {
 		t.Errorf("patches = %v, want none", patches)
@@ -274,18 +283,19 @@ func TestPlanNoteRidesOnPlanPromptsOnly(t *testing.T) {
 		if err := b.Prompt(ctx, "/ws", s.ID, backend.Prompt{Text: "curl example.com"}); err != nil {
 			t.Fatal(err)
 		}
-		_, _, prompts := f.snapshot()
-		last := prompts[len(prompts)-1]
-		if got := last["system"] == planNote; got != c.want {
-			t.Errorf("%s: system = %v, want the plan note: %v", c.mode, last["system"], c.want)
+		f.mu.Lock()
+		got := f.planNote
+		f.mu.Unlock()
+		if got != c.want {
+			t.Errorf("%s: plan note on the session = %v, want %v", c.mode, got, c.want)
 		}
 	}
 }
 
 func TestPendingAsksListsWhatOpencodeStillHolds(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/permission" {
-			_, _ = io.WriteString(w, `[{"id":"per_1","sessionID":"ses_1","permission":"bash","patterns":["ls"],"always":["ls *"]}]`)
+		if r.URL.Path == "/api/permission/request" {
+			_, _ = io.WriteString(w, `{"data":[{"id":"per_1","sessionID":"ses_1","action":"shell","resources":["ls"],"save":["ls *"]}]}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -315,7 +325,7 @@ func TestToolsNeverReachesOpencode(t *testing.T) {
 	port, _ := strconv.Atoi(portStr)
 	b := New(Config{Hostname: host, Port: port, Password: "x"})
 	body := map[string]any{"parts": []any{}, "tools": map[string]bool{"bash": true}, "permission": []any{}}
-	if err := b.doJSON(context.Background(), http.MethodPost, "/session/ses_1/prompt_async", body, nil); err != nil {
+	if err := b.doJSON(context.Background(), http.MethodPost, "/api/session/ses_1/prompt", body, nil); err != nil {
 		t.Fatal(err)
 	}
 	mu.Lock()
@@ -334,7 +344,7 @@ func TestFloorConfigMergesOverThePinnedContent(t *testing.T) {
 		"permission": map[string]any{"read": "allow"},
 		"agent":      map[string]any{"build": map[string]any{"model": "pystino/m"}},
 	}
-	body, err := floorConfig(base, nil, nil)
+	body, err := floorBackend(true).floorConfig(base, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,14 +355,20 @@ func TestFloorConfigMergesOverThePinnedContent(t *testing.T) {
 	if got["model"] != "pystino/m" {
 		t.Error("the pinned model was lost")
 	}
-	if got["permission"].(map[string]any)["read"] != "ask" {
-		t.Errorf("the floor must beat a pinned read allow: %v", got["permission"])
+	if _, has := got["permission"]; has {
+		t.Error("the 1.x permission object must not travel beside the 2.x array")
 	}
-	if got["agent"].(map[string]any)["build"].(map[string]any)["model"] != "pystino/m" {
-		t.Error("build's pinned model was lost")
+	// the pinned read allow is converted and sits BEFORE the floor's read ask,
+	// so the last match for read is the ask
+	var last string
+	for _, r := range got["permissions"].([]any) {
+		m := r.(map[string]any)
+		if m["action"] == "read" && m["resource"] == "*" {
+			last = m["effect"].(string)
+		}
 	}
-	if base["permission"].(map[string]any)["read"] != "allow" {
-		t.Error("floorConfig mutated its base")
+	if last != "ask" {
+		t.Errorf("the floor must beat a pinned read allow: %v", got["permissions"])
 	}
 }
 

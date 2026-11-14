@@ -18,8 +18,8 @@ const (
 	eventStreamMaxBackoff = 30 * time.Second
 )
 
-// Subscribe streams every session's events from GET /global/event (SSE,
-// all directories). It reconnects on its own with backoff whenever the
+// Subscribe streams every session's events from GET /api/event (SSE, all
+// directories; 2.x events, adapted by v2.go). It reconnects on its own with backoff whenever the
 // stream ends — including every time opencode itself restarts underneath
 // it — for as long as ctx lives; the returned channel only closes when ctx
 // is done.
@@ -96,7 +96,7 @@ func (b *Backend) subscribeLoop(ctx context.Context, out chan<- backend.BackendE
 }
 
 func (b *Backend) streamOnce(ctx context.Context, out chan<- backend.BackendEvent) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, b.baseURL()+"/global/event", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, b.baseURL()+"/api/event", nil)
 	if err != nil {
 		return err
 	}
@@ -106,6 +106,9 @@ func (b *Backend) streamOnce(ctx context.Context, out chan<- backend.BackendEven
 		return err
 	}
 	defer resp.Body.Close()
+	// A reconnect (opencode restarted, or the stream broke) may have missed events: every
+	// session galopin knows is asked to re-read its transcript and state.
+	b.resyncKnownSessions(out)
 
 	// Lines are read with a bounded reader, not bufio.Scanner: a tool part
 	// carries its images inline as data: URLs, so one message.part.updated
@@ -157,25 +160,75 @@ func (b *Backend) streamOnce(ctx context.Context, out chan<- backend.BackendEven
 	}
 }
 
-// sseFrame is GET /global/event's per-message envelope: {directory,
-// payload:{id,type,properties}}.
+// sseFrame is GET /api/event's per-message envelope: {id, type, created,
+// location?:{directory}, data}.
 type sseFrame struct {
-	Directory string         `json:"directory"`
-	Payload   map[string]any `json:"payload"`
+	Type     string  `json:"type"`
+	Created  float64 `json:"created"`
+	Location struct {
+		Directory string `json:"directory"`
+	} `json:"location"`
+	Data map[string]any `json:"data"`
 }
 
 func (b *Backend) handleSSEData(raw string, out chan<- backend.BackendEvent) {
 	var frame sseFrame
-	if json.Unmarshal([]byte(raw), &frame) != nil || frame.Payload == nil {
+	if json.Unmarshal([]byte(raw), &frame) != nil || frame.Type == "" {
 		return
 	}
-	typ, _ := frame.Payload["type"].(string)
-	props, _ := frame.Payload["properties"].(map[string]any)
-	if props == nil {
-		props = map[string]any{}
+	d := frame.Data
+	if d == nil {
+		d = map[string]any{}
 	}
-	for _, be := range b.translateEvent(frame.Directory, typ, props) {
-		out <- be
+	sid := getStr(d, "sessionID")
+	if sid == "" {
+		if f := getMap(d, "form"); f != nil {
+			sid = getStr(f, "sessionID")
+		}
+	}
+	dir := frame.Location.Directory
+	if loc := getMap(d, "location"); dir == "" && loc != nil {
+		dir = getStr(loc, "directory")
+	}
+	if sid != "" {
+		if dir != "" {
+			b.asm.mu.Lock()
+			b.asm.dirs[sid] = dir
+			b.asm.mu.Unlock()
+		} else {
+			dir = b.sessionDir(sid)
+		}
+	}
+	// A session's agent or model changed by something other than galopin's own write (a command
+	// that names an agent, another client): forget what was applied so the overlay is re-asserted.
+	if frame.Type == "session.agent.selected" || frame.Type == "session.model.selected" {
+		b.selMu.Lock()
+		cur := b.selApplied[sid]
+		if frame.Type == "session.agent.selected" && getStr(d, "agent") != cur.agent {
+			delete(b.selApplied, sid)
+		}
+		if m := getMap(d, "model"); frame.Type == "session.model.selected" && m != nil &&
+			getStr(m, "providerID")+"/"+getStr(m, "id") != cur.model {
+			delete(b.selApplied, sid)
+		}
+		b.selMu.Unlock()
+	}
+	if frame.Type == "session.created" || frame.Type == "session.renamed" {
+		b.noteDir(dir)
+	}
+	if frame.Type == "session.renamed" && sid != "" {
+		// the 1.x session.updated carried the whole session: read it
+		if info := b.fetchSessionInfo(sid); info != nil {
+			for _, be := range b.translateEvent(dir, "session.updated", map[string]any{"info": info}) {
+				out <- be
+			}
+		}
+		return
+	}
+	for _, f := range b.asm.adapt(frame.Type, frame.Created, d) {
+		for _, be := range b.translateEvent(dir, f.typ, f.props) {
+			out <- be
+		}
 	}
 }
 
@@ -360,6 +413,10 @@ func (b *Backend) translateEvent(directory, typ string, props map[string]any) []
 		}
 		return []backend.BackendEvent{wrap(sessionID, backend.Event{Kind: backend.EventTodo, Todos: todos})}
 
+	case "session.compacted":
+		// compaction and revert change the stored transcript: re-read it
+		return []backend.BackendEvent{wrap(sessionID, backend.Event{Kind: backend.EventResync})}
+
 	case "server.heartbeat":
 		return nil
 
@@ -456,4 +513,23 @@ func (b *Backend) resyncAfterOversized(o *oversizedLine, out chan<- backend.Back
 		}
 	}
 	out <- backend.BackendEvent{WorkspaceDir: dir, SessionID: m[1], Event: backend.Event{Kind: backend.EventResync}}
+}
+
+// resyncKnownSessions announces EventResync for every session seen so far, from the second
+// connection of the event stream on (the first has nothing behind it).
+func (b *Backend) resyncKnownSessions(out chan<- backend.BackendEvent) {
+	b.asm.mu.Lock()
+	first := !b.asm.connected
+	b.asm.connected = true
+	dirs := make(map[string]string, len(b.asm.dirs))
+	for sid, dir := range b.asm.dirs {
+		dirs[sid] = dir
+	}
+	b.asm.mu.Unlock()
+	if first {
+		return
+	}
+	for sid, dir := range dirs {
+		out <- backend.BackendEvent{WorkspaceDir: dir, SessionID: sid, Event: backend.Event{Kind: backend.EventResync}}
+	}
 }

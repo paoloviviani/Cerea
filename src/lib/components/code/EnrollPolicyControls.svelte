@@ -70,7 +70,14 @@
 {#snippet plainCode(text: string)}<code>{text}</code>{/snippet}
 {#snippet flag(key: BooleanKey, testid: string, label: string, text: string, risky = false)}
 	<label class="mb-3 flex items-start gap-2 text-xs text-ink-muted">
-		<input type="checkbox" class="mt-0.5" data-testid={testid} bind:checked={choices[key]} />
+		<input
+			type="checkbox"
+			class="mt-0.5"
+			data-testid={testid}
+			bind:checked={choices[key]}
+			disabled={(key === "allowProjectConfig" && choices.allowOpencodeProvider) ||
+				(key === "allowOpencodeProvider" && choices.allowProjectConfig)}
+		/>
 		<span>
 			<span
 				class="font-medium {risky ? 'text-amber-700 dark:text-amber-400' : 'text-ink'}"
