@@ -95,9 +95,9 @@ export const GET: RequestHandler = async ({ locals, params }) => {
 	}
 
 	// A code block's and an artifact cell's stored files, on their messages.
-	// The memory block a message was sent with is server-side state: it stays out of the payload.
+	// The note events attached to a message are server-side state: they stay out of the payload.
 	const messages = (await withRunFiles(conversation._id, conversation.messages)).map(
-		({ memoryBlock: _memoryBlock, ...message }) => message
+		({ notes: _notes, ...message }) => message
 	);
 
 	return superjsonResponse({

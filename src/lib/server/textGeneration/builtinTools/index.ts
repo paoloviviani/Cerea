@@ -101,8 +101,6 @@ export function getEnabledBuiltinTools(params: {
 	 * die with the chat.
 	 */
 	conversationMemoryEnabled?: boolean;
-	/** The user's newest message, read when a `global` memory write must quote it. */
-	latestUserText?: () => string;
 	/**
 	 * Whether `ask_user_question` joins this conversation even outside the ML
 	 * Assistant preset (which always has it): the deployment switch
@@ -275,7 +273,6 @@ export function getEnabledBuiltinTools(params: {
 		...createMemoryBuiltins({
 			enabled: params.memoryEnabled === true,
 			conversation: params.conversationMemoryEnabled === true,
-			...(params.latestUserText ? { latestUserText: params.latestUserText } : {}),
 			...(params.projectMemoryProjectId
 				? { project: { projectId: params.projectMemoryProjectId } }
 				: {}),

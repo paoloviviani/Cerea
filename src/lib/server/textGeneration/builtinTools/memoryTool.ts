@@ -36,11 +36,13 @@ export type MemoryToolScope = "conversation" | "project" | "global";
  * first guard, and each branch below is the second, because a model can name
  * a value it was not offered.
  *
- * `global` is the widest and the only one a model may not pick on its own
- * judgement: it must quote the user's own words that make a note permanent
- * (`user_words`), and a call without them is refused with an instruction to
- * ask. That cannot prove what the user meant, but it turns "default to
- * global" into a deliberate act the transcript card then shows.
+ * `global` is the widest, and it is a rule in the descriptions, not a check in
+ * the code: the model chooses it only when the user's wording clearly means
+ * always or about themselves, and asks when that is unclear. (A server-side
+ * test of the user's words was tried and dropped: it could not tell a clear
+ * wish from a phrase, and made the tool harder to use than the mistake it
+ * guarded against. The card in the transcript says where each note went, with
+ * an undo.)
  *
  * ## Why these are not behind the approval gate
  *
@@ -70,8 +72,8 @@ function doctrine(scopes: MemoryToolScope[]): string {
 		lines.push(
 			'- scope "conversation": for this chat only. Use it for "remember this for this chat", ' +
 				'"for now", "in this conversation", or any detail that matters here and nowhere else (a naming ' +
-				"choice, a constraint of this task, what the user has decided so far). These notes are shown to " +
-				"you on every turn of this chat and never appear in another."
+				"choice, a constraint of this task, what the user has decided so far). The note stays in this " +
+				"chat's history (your call and its result) and never appears in another chat."
 		);
 	}
 	if (has("project")) {
@@ -85,9 +87,9 @@ function doctrine(scopes: MemoryToolScope[]): string {
 	if (has("global")) {
 		lines.push(
 			'- scope "global": standing facts about the user, kept in every future chat. Only when they clearly ' +
-				'mean always or about themselves ("always", "from now on", "about me", "in every chat"). ' +
-				"You must pass their own words, quoted from their latest message, in user_words. If it is unclear whether a note should be for " +
-				'this chat or for every chat, ask the user, and do not guess "global".'
+				'mean always or about themselves ("always", "from now on", "about me", "in every chat"); read their ' +
+				"actual wording, and write the note as a short summary of it. If it is unclear whether a note " +
+				'should be for this chat or for every chat, ask the user, and do not guess "global".'
 		);
 	}
 	lines.push(
@@ -215,58 +217,7 @@ function guardsFor(ctx: BuiltinToolContext): ObjectId | undefined {
 	return ctx.userId;
 }
 
-/** Case, whitespace and apostrophes folded, so "Always  reply in Italian" matches "always reply in italian". */
-function fold(text: string): string {
-	return text
-		.toLowerCase()
-		.replace(/[\u2018\u2019\u02bc`]/g, "'")
-		.replace(/\s+/g, " ")
-		.trim();
-}
-
-/**
- * Words that make a note permanent, in English and Italian. A quote for a `global` note must hold one:
- * "remember I like tea" says nothing about for how long. Matched on folded text, on word edges.
- */
-const PERMANENCE_MARKERS = new RegExp(
-	"(?<![\\p{L}])(" +
-		[
-			// English
-			"always",
-			"forever",
-			"permanently",
-			"from now on",
-			"about me",
-			"about myself",
-			"every chat",
-			"all chats",
-			"every conversation",
-			"all conversations",
-			// Italian
-			"sempre",
-			"per sempre",
-			"ogni chat",
-			"tutte le chat",
-			"ogni conversazione",
-			"tutte le conversazioni",
-			"d'ora in poi",
-			"da ora in poi",
-			"su di me",
-			"di me stess[oa]",
-		].join("|") +
-		")(?![\\p{L}])",
-	"u"
-);
-
-/** The least a quote may be: two words and about ten characters, so "always" alone is no evidence. */
-const MIN_QUOTE_CHARS = 10;
-const MIN_QUOTE_WORDS = 2;
-
-function build(
-	scopes: MemoryToolScope[],
-	projectId: ObjectId | undefined,
-	latestUserText: (() => string) | undefined
-): BuiltinTool[] {
+function build(scopes: MemoryToolScope[], projectId: ObjectId | undefined): BuiltinTool[] {
 	const textMax = textMaxFor(scopes);
 	const scopeProperty = {
 		type: "string",
@@ -283,16 +234,6 @@ function build(
 				? '"global" is every future chat, only when the user clearly means always or about themselves. '
 				: "") +
 			"Take the narrowest that fits.",
-	};
-	const withGlobal = scopes.includes("global");
-	const userWords = {
-		type: "string",
-		description:
-			'Required for scope "global": the words, quoted exactly from the user\'s latest message, that make ' +
-			'this note permanent: at least two words that include a marker such as "always", "every chat", ' +
-			'"from now on" or "about me" (or the Italian "sempre", "in ogni chat", "d\'ora in poi", "su di me"). ' +
-			"It is checked against that message. " +
-			"Leave out for other scopes. If they said nothing like that, ask the user instead.",
 	};
 
 	const remember: BuiltinTool = {
@@ -317,7 +258,6 @@ function build(
 								'For example: "Prefers concise answers with no preamble".',
 						},
 						scope: scopeProperty,
-						...(withGlobal ? { user_words: userWords } : {}),
 					},
 					required: scopes.length > 1 ? ["fact", "scope"] : ["fact"],
 				},
@@ -333,23 +273,6 @@ function build(
 			const picked = resolveScope(args.scope, scopes);
 			if ("error" in picked) return picked;
 			const { scope } = picked;
-			if (scope === "global") {
-				// The words must be the user's: they have to appear in their newest message. A
-				// model can invent a justification; it cannot invent what the user typed.
-				const words = fold(String(args.user_words ?? ""));
-				const said = latestUserText ? fold(latestUserText()) : "";
-				const substantial =
-					words.length >= MIN_QUOTE_CHARS && words.split(" ").length >= MIN_QUOTE_WORDS;
-				if (!substantial || !PERMANENCE_MARKERS.test(words) || !said.includes(words)) {
-					return {
-						error:
-							"A global note needs the user's own words, quoted from their latest message (a phrase of at " +
-							'least two words, such as "always answer in Italian" or "remember this about me"), ' +
-							"saying it should last. Ask the user whether this is for this chat only or for every " +
-							"chat, and do not guess.",
-					};
-				}
-			}
 			try {
 				const { text, id, created } = await rememberAt(scope, String(args.fact ?? ""), {
 					userId,
@@ -474,13 +397,11 @@ export function createMemoryBuiltins(params: {
 	/** The deployment flag is on, so this chat may keep its own notes. */
 	conversation?: boolean;
 	project?: { projectId: ObjectId };
-	/** The user's newest message, for the `global` scope's quote check; without it no global write passes. */
-	latestUserText?: () => string;
 }): BuiltinTool[] {
 	const scopes: MemoryToolScope[] = [];
 	if (params.conversation) scopes.push("conversation");
 	if (params.project) scopes.push("project");
 	if (params.enabled) scopes.push("global");
 	if (scopes.length === 0) return [];
-	return build(scopes, params.project?.projectId, params.latestUserText);
+	return build(scopes, params.project?.projectId);
 }

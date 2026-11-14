@@ -14,12 +14,10 @@ export interface Conversation extends Timestamps {
 	model: string;
 
 	/**
-	 * Personal and project memory as they stood when this chat started (see
-	 * `$lib/server/memory/snapshot`). Rendered once into the system prompt so
-	 * that prefix is the same on every turn and stays in the provider's prompt
-	 * cache; writes made later in the chat travel in the tail of the request.
+	 * Notes the user kept in the side panel since their last message, waiting to ride the next one
+	 * (`$lib/server/memory/blocks`: they are attached to that message when the turn starts and cleared).
 	 */
-	memorySnapshot?: import("$lib/server/memory/snapshot").MemorySnapshot;
+	pendingNotes?: import("$lib/types/ScopedMemory").NoteEvent[];
 
 	/**
 	 * The connectors whose tools the assistant has loaded in this conversation

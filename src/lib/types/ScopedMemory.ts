@@ -56,6 +56,17 @@ export const CONVERSATION_MEMORY_TEXT_MAX_CHARS = 1000;
 export const CONVERSATION_MEMORY_MAX_NOTES = 50;
 export const CONVERSATION_MEMORY_BLOCK_MAX_CHARS = 3000;
 
+/**
+ * A note the user typed or edited in the chat's side panel, waiting to be attached to their next
+ * message (`Conversation.pendingNotes`) and then kept on it (`Message.notes`). Deleting a note is not an
+ * event: what was said stays in its turn, and only the carried-over block (see `blocks.ts`) forgets it.
+ */
+export interface NoteEvent {
+	kind: "added" | "edited";
+	noteId: string;
+	text: string;
+}
+
 export type AgentMemoryScope = "session" | "workspace";
 
 export interface AgentMemory extends Timestamps {

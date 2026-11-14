@@ -14,7 +14,7 @@ import {
 import { testRequest } from "$lib/server/__tests__/testRequest";
 import { deleteConversationStorage } from "$lib/server/conversationStorage";
 import {
-	buildConversationMemoryBlock,
+	listConversationMemories,
 	rememberForConversation,
 	sweepOrphanConversationNotes,
 } from "$lib/server/memory/service";
@@ -133,8 +133,8 @@ describe("/api/v2/conversations/[id]/memory", () => {
 		await add(me.locals, conv._id, "Goes with the chat.");
 		await add(me.locals, otherConv._id, "Stays.");
 		await deleteConversationStorage(conv._id);
-		expect(await buildConversationMemoryBlock(conv._id)).toBeUndefined();
-		expect(await buildConversationMemoryBlock(otherConv._id)).toContain("Stays.");
+		expect(await listConversationMemories(conv._id)).toEqual([]);
+		expect((await listConversationMemories(otherConv._id)).map((n) => n.text)).toEqual(["Stays."]);
 	});
 
 	it("caps the size of a note and the number of notes", async () => {
@@ -166,15 +166,22 @@ describe("/api/v2/conversations/[id]/memory", () => {
 		const gone = new ObjectId();
 		await rememberForConversation({ conversationId: gone, text: "Orphan.", source: "user" });
 		expect(await sweepOrphanConversationNotes()).toBeGreaterThanOrEqual(1);
-		expect(await buildConversationMemoryBlock(gone)).toBeUndefined();
-		expect(await buildConversationMemoryBlock(conv._id)).toContain("Live chat note.");
+		expect(await listConversationMemories(gone)).toEqual([]);
+		expect((await listConversationMemories(conv._id)).map((n) => n.text)).toEqual([
+			"Live chat note.",
+		]);
 	});
 
-	it("keeps a message's stored memory block out of the conversation payload", async () => {
+	it("keeps a message's stored note events out of the conversation payload", async () => {
 		const me = await createTestUser();
 		const chat = await createTestConversation(me.locals, {
 			messages: [
-				{ id: "u1", from: "user", content: "hi", memoryBlock: "[NOTES: private words]" },
+				{
+					id: "u1",
+					from: "user",
+					content: "hi",
+					notes: [{ kind: "added", noteId: "n1", text: "private words" }],
+				},
 				{ id: "a1", from: "assistant", content: "hello" },
 			],
 		} as never);
@@ -187,6 +194,37 @@ describe("/api/v2/conversations/[id]/memory", () => {
 		const text = await res.text();
 		expect(text).toContain("hello");
 		expect(text).not.toContain("private words");
-		expect(text).not.toContain("memoryBlock");
+		expect(text).not.toContain("noteId");
+	});
+
+	it("tells the model of a note the user keeps with their next message: pending events, pulled by a delete", async () => {
+		const { me, conv } = await setup();
+		const pending = async () =>
+			(
+				(await collections.conversations.findOne({ _id: conv._id })) as unknown as {
+					pendingNotes?: { kind: string; noteId: string; text: string }[];
+				}
+			).pendingNotes ?? [];
+		const created = await add(me.locals, conv._id, "Keep it short.");
+		const note = (await created.json()).data;
+		expect(await pending()).toEqual([{ kind: "added", noteId: note.id, text: "Keep it short." }]);
+
+		await testRequest(PATCH, {
+			path: "x",
+			method: "PATCH",
+			params: { id: conv._id.toString(), noteId: note.id },
+			locals: me.locals,
+			...json({ text: "Keep it very short." }),
+		});
+		expect((await pending()).map((event) => event.kind)).toEqual(["added", "edited"]);
+
+		// Removed before the next message: never something to tell the model.
+		await testRequest(DELETE, {
+			path: "x",
+			method: "DELETE",
+			params: { id: conv._id.toString(), noteId: note.id },
+			locals: me.locals,
+		});
+		expect(await pending()).toEqual([]);
 	});
 });

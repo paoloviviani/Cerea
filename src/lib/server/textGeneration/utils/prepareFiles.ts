@@ -439,6 +439,12 @@ export async function prepareMessagesWithFiles(
 		 * Without code there is no sandbox to point at, so the line is left out.
 		 */
 		codeToolOffered?: boolean;
+		/**
+		 * Filled in with the positions (in `messages`) of the turns whose tool history was flattened
+		 * to plain text because the history budget ran out: what the model no longer sees of them.
+		 * Memory carries the chat notes made in those turns over (`memory/blocks.ts`).
+		 */
+		report?: { flattened: number[] };
 	}
 ): Promise<OpenAI.Chat.Completions.ChatCompletionMessageParam[]> {
 	type ReplayCandidate = { replay: AssistantReplayMessage[]; flat: ChatMessageParam };
@@ -583,6 +589,11 @@ export async function prepareMessagesWithFiles(
 		newestCandidate = false;
 		budget -= upgrade;
 		resolved[i] = entry.replay;
+	}
+	if (options?.report) {
+		options.report.flattened = prepared.flatMap((entry, i) =>
+			!Array.isArray(entry) && resolved[i] === flatForms[i] ? [i] : []
+		);
 	}
 	return resolved.flat();
 }

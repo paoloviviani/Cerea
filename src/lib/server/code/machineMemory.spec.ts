@@ -13,7 +13,6 @@ import {
 	rememberForConversation,
 	rememberForProject,
 	listConversationMemories,
-	buildConversationMemoryBlock,
 	buildMemoryBlock,
 	buildProjectMemoryBlock,
 	deleteAgentSessionNotes,
@@ -291,7 +290,7 @@ describe("agents have no global, project or chat memory", () => {
 		expect(all).toContain("Agent note");
 		// The chat's blocks are built from the chat's own stores only.
 		expect(await buildMemoryBlock(owner)).not.toContain("Agent note");
-		expect(await buildConversationMemoryBlock(new ObjectId())).toBeUndefined();
+		expect(await listConversationMemories(new ObjectId())).toEqual([]);
 		expect(await buildProjectMemoryBlock(new ObjectId())).toBeUndefined();
 		expect(await collections.memories.countDocuments({ text: /Agent note/ })).toBe(0);
 	});

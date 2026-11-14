@@ -258,8 +258,8 @@ export async function* runMcpFlow({
 	promptedAt,
 }: RunMcpFlowContext & {
 	/**
-	 * `messages` with each user message's memory block in front (`memory/blocks.ts`),
-	 * for the request only. `messages` stays the user's own words: URL trust, browse
+	 * `messages` with the notes the user kept before each message in front of it
+	 * (`memory/blocks.ts`), for the request only. `messages` stays the user's own words: URL trust, browse
 	 * hints and skills read from it, never from the notes.
 	 */
 	promptMessages?: RunMcpFlowContext["messages"];
@@ -446,9 +446,6 @@ export async function* runMcpFlow({
 		modelSeesImages: Boolean(forceMultimodal ?? model.multimodal) && !model.toolImagesOff,
 		pictureState,
 		memoryEnabled: memoryAllowed,
-		// The newest user message, for the memory tool's check that a global note quotes the user.
-		latestUserText: () =>
-			String([...messages].reverse().find((message) => message.from === "user")?.content ?? ""),
 		// A chat's own notes need the deployment flag only: they die with the chat.
 		conversationMemoryEnabled: memoryEnabled() && Boolean(locals?.user),
 		...(memoryProject ? { projectMemoryProjectId: memoryProject._id } : {}),
@@ -754,6 +751,8 @@ export async function* runMcpFlow({
 		const targetContextLength = model.contextLength;
 
 		const userTimezone = locals?.timezone;
+		// Which turns' tool history the history budget flattened: the chat notes made there are carried over.
+		const replayReport = { flattened: [] as number[] };
 		let messagesOpenAI: ChatCompletionMessageParam[] = await prepareMessagesWithFiles(
 			promptMessages ?? messages,
 			imageProcessor,
@@ -770,8 +769,22 @@ export async function* runMcpFlow({
 				maxOutputTokens: maxTokens,
 				timezone: userTimezone,
 				codeToolOffered: oaTools.some((tool) => tool.function.name === EXECUTE_CODE_TOOL_NAME),
+				report: replayReport,
 			}
 		);
+		// Only when a turn that made a chat note was flattened: the current text of those notes, once,
+		// at the start of the kept history. Otherwise nothing is added, and nothing changes turn to turn.
+		if (replayReport.flattened.length > 0 && memoryEnabled() && locals?.user) {
+			const { carriedNotesBlock, injectCarriedNotes } = await import("$lib/server/memory/blocks");
+			messagesOpenAI = injectCarriedNotes(
+				messagesOpenAI,
+				await carriedNotesBlock({
+					conversationId: conv._id,
+					messages,
+					flattened: replayReport.flattened,
+				}).catch(() => undefined)
+			);
+		}
 		const toolPreprompt = buildToolPreprompt(oaTools, userTimezone, builtinTools, {
 			artifacts: artifactsEnabled && artifactsMode === "tags",
 			artifactsMode,

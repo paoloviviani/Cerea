@@ -21,14 +21,11 @@ vi.mock("$lib/server/files/downloadFile", () => ({ downloadFile: async () => nul
 
 const CONVERSATION = {
 	_id: new ObjectId(),
-	// Server-side memory state: frozen memory and a stored tail block, neither the user's data.
-	memorySnapshot: { globalOn: true, global: [{ id: "g1", text: "Frozen fact." }], project: [] },
 	messages: [
 		{
 			id: "m1",
 			from: "assistant",
 			content: "Hello Mario",
-			memoryBlock: "[NOTES FOR THIS CHAT: Stored block text.]",
 			updates: [{ type: "stream", token: "Hello" }],
 			files: [
 				{
@@ -76,9 +73,5 @@ describe("data export", () => {
 		expect(text).toContain("secret.pdf");
 		expect(text).toContain("withheld by privacy rule 'no-health' (pipeline 'strict')");
 		expect(state.added.filter((f) => f.name.startsWith("file-"))).toHaveLength(0);
-		// What the chat froze or replayed from memory is not part of the user's export.
-		expect(text).not.toContain("memorySnapshot");
-		expect(text).not.toContain("Frozen fact.");
-		expect(text).not.toContain("Stored block text.");
 	});
 });

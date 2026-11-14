@@ -91,13 +91,10 @@ export const GET: RequestHandler = async ({ locals }) => {
 
 						return {
 							...conversation,
-							// What the chat froze or replayed from memory is server-side state, not the user's data.
-							memorySnapshot: undefined,
 							// The hidden values the gateway reported stay out of the file.
 							messages: stripRedactionValues(conversation.messages).map((message) => {
 								return {
 									...message,
-									memoryBlock: undefined,
 									files: filenames,
 									...(message.files?.some((file) => file.withheld)
 										? {

@@ -32,10 +32,7 @@ import type { Conversation } from "$lib/types/Conversation";
 
 /** Clear `projectId` and drop the transcript from the project's memory. */
 export async function detachConversation(conversationId: Conversation["_id"]): Promise<void> {
-	// The chat's stored memory blocks quote the project's notes (and the snapshot it froze): both go.
-	await collections.conversations.updateOne({ _id: conversationId }, {
-		$unset: { projectId: "", memorySnapshot: "", "messages.$[].memoryBlock": "" },
-	} as never);
+	await collections.conversations.updateOne({ _id: conversationId }, { $unset: { projectId: "" } });
 	await deleteDerived({ conversationId }).catch((err) =>
 		logger.warn({ err, conversationId }, "project_detach_transcript_cleanup_failed")
 	);
@@ -87,11 +84,10 @@ export async function moveConversationToProject(options: {
 		return { projectId: project._id.toString(), projectName: project.name };
 	}
 
-	await collections.conversations.updateOne({ _id: conversation._id }, {
-		$set: { projectId: project._id },
-		// Another project's notes: what the chat froze and stored from the old one must not follow it.
-		$unset: { memorySnapshot: "", "messages.$[].memoryBlock": "" },
-	} as never);
+	await collections.conversations.updateOne(
+		{ _id: conversation._id },
+		{ $set: { projectId: project._id } }
+	);
 	if (current) {
 		await deleteDerived({ conversationId: conversation._id }).catch((err) =>
 			logger.warn(

@@ -8,6 +8,7 @@ import { ObjectId } from "mongodb";
 import { z } from "zod";
 import { requireUser } from "$lib/server/api/utils/requireAuth";
 import { resolveConversation } from "$lib/server/api/utils/resolveConversation";
+import { collections } from "$lib/server/database";
 import { memoryEnabled } from "$lib/server/memoryEnabled";
 import {
 	conversationMemoryViews,

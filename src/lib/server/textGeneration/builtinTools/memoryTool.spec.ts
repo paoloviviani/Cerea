@@ -27,14 +27,8 @@ beforeEach(async () => {
 
 const names = (tools: { name: string }[]) => tools.map((tool) => tool.name);
 const ctx = { uuid: "u1", toolCallId: "c1", userId, conversationId } as never;
-const USER_SAID = "Please keep this:  ALWAYS answer in Italian, whatever I ask.";
 const all = () =>
-	createMemoryBuiltins({
-		enabled: true,
-		conversation: true,
-		project: { projectId },
-		latestUserText: () => USER_SAID,
-	});
+	createMemoryBuiltins({ enabled: true, conversation: true, project: { projectId } });
 const tool = (name: string, tools = all()) => {
 	const found = tools.find((candidate) => candidate.name === name);
 	if (!found) throw new Error(`no tool ${name}`);
@@ -155,88 +149,27 @@ describe("scope selection", () => {
 		expect(ok).toMatchObject({ resultText: expect.stringContaining("this chat's notes") });
 	});
 
-	it("keeps global for the user's own words: refused without them, with an instruction to ask", async () => {
-		const refused = await tool(REMEMBER_TOOL_NAME).execute(
+	it("writes a global note on the model's judgement, with no server-side test of the user's words", async () => {
+		const result = await tool(REMEMBER_TOOL_NAME).execute(
 			{ fact: "Prefers Italian.", scope: "global" },
 			ctx
 		);
-		expect(refused).toMatchObject({ error: expect.stringMatching(/ask/i) });
-		expect(await collections.memories.countDocuments({ userId })).toBe(0);
-
-		// Words the user did not type are refused, whatever the model claims they said.
-		const invented = await tool(REMEMBER_TOOL_NAME).execute(
-			{ fact: "Prefers Italian.", scope: "global", user_words: "from now on in every chat" },
-			ctx
-		);
-		expect(invented).toMatchObject({ error: expect.stringContaining("their latest message") });
-		expect(await collections.memories.countDocuments({ userId })).toBe(0);
-
-		// Case and spacing are folded: the quote matches their message either way.
-		const saved = await tool(REMEMBER_TOOL_NAME).execute(
-			{ fact: "Prefers Italian.", scope: "global", user_words: "always   answer in italian" },
-			ctx
-		);
-		expect(saved).toMatchObject({ resultText: expect.stringContaining("every chat") });
-		expect(await collections.memories.countDocuments({ userId })).toBe(1);
+		expect(result).toMatchObject({ resultText: expect.stringContaining("every chat") });
+		// No user_words parameter exists any more.
+		const params = tool(REMEMBER_TOOL_NAME).definition.function.parameters as {
+			properties: Record<string, unknown>;
+		};
+		expect(Object.keys(params.properties).sort()).toEqual(["fact", "scope"]);
+		// The row remembers the chat that wrote it, so that chat's own system prompt can leave it out.
+		expect(await collections.memories.findOne({ userId })).toMatchObject({ conversationId });
 	});
 
-	describe("the quote for a global note", () => {
-		const globalWrite = (said: string, quote: string, fact = "A standing fact.") =>
-			tool(
-				REMEMBER_TOOL_NAME,
-				createMemoryBuiltins({ enabled: true, conversation: true, latestUserText: () => said })
-			).execute({ fact, scope: "global", user_words: quote }, ctx);
-
-		it("refuses a one-word or very short quote, even a real one", async () => {
-			expect(await globalWrite("Always.", "always")).toHaveProperty("error");
-			expect(await globalWrite("Sempre!", "sempre")).toHaveProperty("error");
-			// Two words, but under about ten characters: still no evidence.
-			expect(await globalWrite("Ok, always me", "always me")).toHaveProperty("error");
-			expect(await collections.memories.countDocuments({ userId })).toBe(0);
-		});
-
-		it("refuses a long quote with no permanence marker", async () => {
-			const said = "Please translate this paragraph into French for the letter I am writing.";
-			const refused = await globalWrite(said, "translate this paragraph into french");
-			expect(refused).toMatchObject({ error: expect.stringContaining("latest message") });
-			expect(await collections.memories.countDocuments({ userId })).toBe(0);
-		});
-
-		it("accepts English and Italian permanence markers", async () => {
-			const cases: [string, string][] = [
-				["Reply briefly from now on, thanks", "reply briefly from now on"],
-				["Remember this about me: I live in Rome", "remember this about me"],
-				["In every chat, answer in metric units", "in every chat, answer in metric units"],
-				["Use Celsius in all chats please", "use celsius in all chats"],
-				["Ricordalo sempre: rispondi in italiano", "ricordalo sempre"],
-				["In ogni chat rispondi in italiano", "in ogni chat rispondi"],
-				["In tutte le chat usa il tu", "in tutte le chat usa il tu"],
-				["D\u2019ora in poi rispondi breve", "d'ora in poi rispondi breve"],
-				["Ecco una cosa su di me: vivo a Torino", "una cosa su di me"],
-				["Ricorda per sempre che amo il tè", "ricorda per sempre che amo"],
-			];
-			for (const [i, [said, quote]] of cases.entries()) {
-				const result = await globalWrite(said, quote, `Fact number ${i}.`);
-				expect(result, quote).toMatchObject({ resultText: expect.stringContaining("every chat") });
-			}
-			expect(await collections.memories.countDocuments({ userId })).toBe(cases.length);
-		});
-
-		it("does not take a marker inside another word", async () => {
-			const said = "This is not at all the same as hallways or alwaysome things";
-			expect(await globalWrite(said, "not at all the same as hallways")).toHaveProperty("error");
-			expect(await globalWrite(said, "hallways or alwaysome things")).toHaveProperty("error");
-		});
-	});
-
-	it("refuses every global write when it cannot see the user's message", async () => {
-		const blind = createMemoryBuiltins({ enabled: true, conversation: true });
-		const refused = await tool(REMEMBER_TOOL_NAME, blind).execute(
-			{ fact: "x", scope: "global", user_words: "always" },
-			ctx
-		);
-		expect(refused).toHaveProperty("error");
-		expect(await collections.memories.countDocuments({ userId })).toBe(0);
+	it("keeps global a rule in the descriptions: clearly always or about the user, ask when unclear", () => {
+		const remember = tool(REMEMBER_TOOL_NAME);
+		const text = `${remember.preprompt}\n${JSON.stringify(remember.definition)}`;
+		expect(text).toMatch(/clearly mean always or about themselves/);
+		expect(text).toMatch(/ask the user/i);
+		expect(text).toMatch(/short summary of it/);
 	});
 
 	it("tells the model, in its description, to take the narrowest scope and to ask when unclear", () => {

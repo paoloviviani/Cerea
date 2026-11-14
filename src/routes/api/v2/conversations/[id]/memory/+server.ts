@@ -12,6 +12,7 @@ import { ObjectId } from "mongodb";
 import { z } from "zod";
 import { requireUser } from "$lib/server/api/utils/requireAuth";
 import { resolveConversation } from "$lib/server/api/utils/resolveConversation";
+import { collections } from "$lib/server/database";
 import { memoryEnabled } from "$lib/server/memoryEnabled";
 import {
 	conversationMemoryViews,
@@ -41,12 +42,20 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 	try {
 		// `source: "user"` regardless of caller: this route is the Notes list,
 		// and the tool writes through the service directly.
-		const { memory } = await rememberForConversation({
+		const { memory, created } = await rememberForConversation({
 			conversationId,
 			...(locals.user ? { ownerUserId: locals.user._id } : {}),
 			text: parsed.data.text,
 			source: "user",
 		});
+		// The model learns of it with the user's next message, not by the prompt changing under the chat.
+		if (created) {
+			await collections.conversations.updateOne({ _id: conversationId }, {
+				$push: {
+					pendingNotes: { kind: "added", noteId: memory._id.toString(), text: memory.text },
+				},
+			} as never);
+		}
 		const view = (await conversationMemoryViews(conversationId)).find(
 			(note) => note.id === memory._id.toString()
 		);

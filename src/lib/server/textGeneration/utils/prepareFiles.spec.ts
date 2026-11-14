@@ -392,6 +392,25 @@ describe("prepareMessagesWithFiles tool history replay", () => {
 			expect(await toolCount(undefined)).toBe(10);
 		});
 
+		it("reports the turns it flattened, which memory carries the chat notes of over", async () => {
+			const report = { flattened: [] as number[] };
+			await prepareMessagesWithFiles(messages, imageProcessor, false, {
+				replayToolHistory: true,
+				contextLengthTokens: 32_768,
+				report,
+			});
+			// The tool-heavy turn lost its tool history; the plain user turn is not a replay candidate.
+			expect(report.flattened).toEqual([0]);
+
+			const roomy = { flattened: [0] };
+			await prepareMessagesWithFiles(messages, imageProcessor, false, {
+				replayToolHistory: true,
+				contextLengthTokens: 1_048_576,
+				report: roomy,
+			});
+			expect(roomy.flattened).toEqual([]);
+		});
+
 		it("degrades on a window too small for the expansion", async () => {
 			// The regression this closes: the flat history fits this model, and
 			// before the budget knew the window, replay would expand it past what

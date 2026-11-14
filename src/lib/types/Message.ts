@@ -28,15 +28,11 @@ export type Message = Partial<Timestamps> & {
 	updates?: MessageUpdate[];
 
 	/**
-	 * The memory block that rode in front of this user message when it was sent
-	 * (the chat's notes and any personal or project memory changed since the chat
-	 * started; see `$lib/server/memory/tail`). Stored so later turns replay it
-	 * unchanged: the provider's prompt cache needs every byte before the newest
-	 * message to be the same as last turn. Server-side only; never sent to a
-	 * client, an export or the conversation API. Present only when it differed from
-	 * the last block on the path. Dropped when a row it quotes is deleted or edited.
+	 * Notes the user kept in the chat's side panel before sending this message (added or edited), stored
+	 * with it and rendered into what the model reads (`$lib/server/memory/blocks`), the same way on every
+	 * later turn. Server-side state: kept out of the conversation API.
 	 */
-	memoryBlock?: string;
+	notes?: import("$lib/types/ScopedMemory").NoteEvent[];
 
 	// Optional server or client-side reasoning content (inside the think tag)
 	reasoning?: string;
