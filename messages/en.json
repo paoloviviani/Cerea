@@ -354,6 +354,7 @@
 	"code.nav.state_error": "Failed",
 	"code.nav.state_running": "Running",
 	"code.nav.sub_waiting_title": "A subagent is waiting for your approval",
+	"code.nav.upgrade_galopin": "This computer runs an older galopin ({version}). Upgrade it, keeping its pairing and settings:",
 	"code.nav.waiting_title": "Waiting for your approval",
 	"code.nav.workspace_actions": "Workspace actions",
 	"code.nav.workspace_count": [
@@ -396,6 +397,8 @@
 	"code.pair.reject": "Reject",
 	"code.pair.subtitle": "Run these on the computer your coding agents run on, then confirm it below.",
 	"code.pair.title": "Pair a computer",
+	"code.pair.upgrade_label": "Upgrade galopin",
+	"code.pair.upgrade_note": "On a paired computer with an older galopin ({names}), run this instead; it keeps the pairing and settings.",
 	"code.pair.waiting": "Waiting for confirmation",
 	"code.panel.disabled_detail": "This deployment has no computer link configured.",
 	"code.panel.disabled_title": "Coding agents are not enabled",

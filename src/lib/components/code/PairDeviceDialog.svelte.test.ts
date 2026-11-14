@@ -21,16 +21,21 @@ vi.mock("$env/dynamic/public", () => ({
 	env: { PUBLIC_APP_ASSETS: "chatui", PUBLIC_APP_NAME: "chat-ui" },
 }));
 
+const listed = vi.hoisted(() => ({ devices: [] as Array<Record<string, unknown>> }));
+
 vi.mock("$lib/codeApi", async (importOriginal) => ({
 	...(await importOriginal<typeof import("$lib/codeApi")>()),
-	listDevices: async () => ({ devices: [] }),
+	listDevices: async () => ({ devices: listed.devices }),
 }));
 
 const ISSUER = "https://issuer.example/realms/r";
 const GATEWAY = "https://gw.example";
 const ORIGIN = "https://chat.example";
 
-afterEach(() => unmountRendered());
+afterEach(() => {
+	listed.devices = [];
+	unmountRendered();
+});
 
 function mount(data: Record<string, unknown> = {}) {
 	return renderWithApp(
@@ -85,6 +90,43 @@ function policyPart(screen: Screen): string {
 }
 
 describe("PairDeviceDialog", () => {
+	it("offers the upgrade line only while a paired computer reports an older galopin", async () => {
+		await browserPage.viewport(1200, 1000);
+		const device = (id: string, agentVersion: string) => ({
+			id,
+			name: `box-${id}`,
+			status: "paired",
+			backends: [],
+			policy: {},
+			credentialState: "ok",
+			online: true,
+			createdAt: new Date(),
+			agentVersion,
+		});
+		listed.devices = [device("a", APP_VERSION)];
+		const current = mount();
+		await expect.element(current.getByText("Pair a computer")).toBeVisible();
+		await new Promise((r) => setTimeout(r, 300));
+		expect(current.getByTestId("pair-upgrade").elements()).toHaveLength(0);
+		unmountRendered();
+
+		// a container is upgraded by pulling its image: no installer line for it
+		listed.devices = [{ ...device("c", "0.1.0"), agentContainer: true }];
+		const boxed = mount();
+		await expect.element(boxed.getByText("Pair a computer")).toBeVisible();
+		await new Promise((r) => setTimeout(r, 300));
+		expect(boxed.getByTestId("pair-upgrade").elements()).toHaveLength(0);
+		unmountRendered();
+
+		listed.devices = [device("b", "0.1.0")];
+		const old = mount();
+		await expect.element(old.getByTestId("pair-upgrade")).toBeVisible();
+		expect(old.getByTestId("galopin-upgrade-command").element().textContent?.trim()).toBe(
+			`curl -fsSL '${ORIGIN}/galopin/install.sh' | sh -s -- --upgrade`
+		);
+		expect(old.getByTestId("pair-upgrade").element().textContent).toContain("box-b");
+	});
+
 	it("prints the short command, with the long one behind Using an older galopin?", async () => {
 		await browserPage.viewport(1200, 1000);
 		const screen = mount({ codeOidcClientId: "machine-client" });

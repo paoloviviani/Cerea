@@ -61,6 +61,9 @@ type AgentInfo struct {
 	OS       string `json:"os"`
 	Arch     string `json:"arch"`
 	Hostname string `json:"hostname"`
+	// Container is true inside a container (Docker, Podman): such a galopin is upgraded by
+	// pulling the new image, so the panel does not offer the installer's --upgrade for it.
+	Container bool `json:"container,omitempty"`
 }
 
 // PermissionInfo is policy.json's permission block as the hello reports it.

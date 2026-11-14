@@ -123,7 +123,7 @@ describe("install.sh", () => {
 			expect(script).toContain(`${archive}) want=${sum} ;;`);
 		}
 		// into galopin's own directory: never over a goose the user installed themselves
-		expect(script).toContain('mv "$tmp/goose-x/goose" "$dir/galopin-goose/goose"');
+		expect(script).toContain('install_bin "$tmp/goose-x/goose" "$dir/galopin-goose/goose"');
 		expect(script).not.toContain('"$dir/goose"');
 		expect(script).toContain("--engine) [ $# -ge 2 ]");
 		expect(renderInstallScript("https://s.example", { enrollReady: true })).toContain(
@@ -146,6 +146,58 @@ describe("install.sh", () => {
 		expect(script).toContain("/etc/alpine-release");
 		expect(script).toContain('"$tmp/oc-x/opencode" --version');
 		expect(script).not.toContain("opencode.ai");
+	});
+
+	it("has an --upgrade mode (also GALOPIN_UPGRADE=1) that stays POSIX sh and bash-free", () => {
+		const script = renderInstallScript("https://stack.example.org/chat", { enrollReady: true });
+		for (const piece of [
+			"--upgrade) upgrade=1",
+			"--stop) stopfg=1",
+			"--creds) ",
+			"GALOPIN_UPGRADE:-",
+			"nothing to upgrade, run the normal install",
+			"galopin.prev",
+			"galopin.old",
+			"trap 'exit 129' HUP",
+			"systemd-run --user --collect",
+			"GALOPIN_TERMINAL",
+			"could not list processes; stop galopin first",
+			"pre-upgrade-",
+			"opencode.db-wal",
+			"galopin browser setup",
+			"Enrollment and settings kept; backup in",
+			"To roll back",
+			"docker pull ghcr.io/",
+			"launchctl",
+			`oc_pinned=${OPENCODE_VERSION}`,
+			`goose_pinned=${GOOSE_VERSION}`,
+		]) {
+			expect(script).toContain(piece);
+		}
+		// the whole installer is one function called last, so a cut-short download does nothing
+		expect(script.trimEnd().endsWith('main "$@"')).toBe(true);
+		expect(script).toMatch(/\nmain\(\) \{\n/);
+		// every placeholder of galopinUpgrade.sh was filled, and its comments are not shipped
+		expect(script).not.toMatch(/@[A-Z_]+@/);
+		expect(script).not.toContain("shellcheck");
+		// the user's own process is matched by fields, never by a bare `pgrep -f`
+		expect(script).not.toMatch(/pgrep|pkill|killall/);
+		expect(script).not.toMatch(/\[\[ |<\(|pipefail/);
+		const syntax = spawnSync("sh", ["-n"], { input: script });
+		expect(syntax.status, syntax.stderr.toString()).toBe(0);
+		// an unknown option and a missing enrollment are refused before anything is touched
+		const home = mkdtempSync(join(tmpdir(), "galopin-nohome-"));
+		try {
+			const run = spawnSync("sh", ["-s", "--", "--upgrade"], {
+				input: script,
+				env: { PATH: process.env.PATH ?? "", HOME: home, TMPDIR: home },
+				encoding: "utf8",
+			});
+			expect(run.status).not.toBe(0);
+			expect(run.stderr).toContain("nothing to upgrade, run the normal install");
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
 	});
 
 	it("prints the complete enroll commands, or none and a pointer", () => {

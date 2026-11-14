@@ -268,6 +268,9 @@ jobs:
           if docker buildx imagetools inspect "ghcr.io/${{ github.repository_owner }}/galopin:${GITHUB_REF_NAME#v}" >/dev/null 2>&1; then
             echo "::error::galopin:${GITHUB_REF_NAME#v} already exists; a release tag is immutable"; exit 1
           fi
+      # galopin reports the Cerea release it is built from (`galopin version`).
+      - id: ver
+        run: echo "v=$(jq -r .version package.json)" >> "$GITHUB_OUTPUT"
       - id: meta
         uses: docker/metadata-action@v5
         with:
@@ -288,6 +291,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: agent
+          build-args: GALOPIN_VERSION=${{ steps.ver.outputs.v }}
           load: true
           tags: galopin:smoke
           cache-from: type=gha,scope=galopin
@@ -297,8 +301,9 @@ jobs:
       - name: Smoke test
         run: |
           want=$(cat agent/packaging/opencode-version)
-          docker run --rm -e WANT="$want" galopin:smoke bash -ec '
+          docker run --rm -e WANT="$want" -e WANT_GALOPIN="${{ steps.ver.outputs.v }}" galopin:smoke bash -ec '
             galopin help >/dev/null
+            [ "$(galopin version)" = "$WANT_GALOPIN" ]
             [ "$(opencode --version)" = "$WANT" ]
             node -v; python3 --version; gcc --version | head -1; git --version; gh --version | head -1
             pnpm -v; uv --version; rg --version | head -1; jq --version
@@ -307,6 +312,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: agent
+          build-args: GALOPIN_VERSION=${{ steps.ver.outputs.v }}
           labels: ${{ steps.meta.outputs.labels }}
           tags: ${{ steps.meta.outputs.tags }}
           push: true

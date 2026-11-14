@@ -1398,6 +1398,11 @@ run` so it runs the new binary: `systemctl --user restart galopin` on Linux, or
 stop and start the `run` you started by hand. On macOS,
 `launchctl kickstart -k gui/$(id -u)/org.cerea.galopin`.
 
+`install.sh --upgrade` (or `galopin upgrade`) does the whole update in one step: it
+stops galopin, backs up its state and opencode's database, installs the new galopin
+and the pinned engine, and restarts it; see
+[Upgrading galopin](agent-machines.md#upgrading-galopin).
+
 Updating the deployment is what makes a newer galopin available, so a computer
 that was paired long ago gets new features (delegate profiles, the committee,
 the MCP tools) only after this. A panel feature that needs it says so ("update

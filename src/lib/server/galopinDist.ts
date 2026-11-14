@@ -16,7 +16,10 @@ import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { config } from "$lib/server/config";
-import { OPENCODE_VERSION } from "$lib/codeEnrollCommand";
+import { GALOPIN_IMAGE, OPENCODE_VERSION } from "$lib/codeEnrollCommand";
+import { APP_VERSION } from "$lib/utils/appVersion";
+import upgradeFunctions from "./galopinUpgrade.sh?raw";
+import installBody from "./galopinInstall.sh?raw";
 import { GOOSE_SHA256, GOOSE_VERSION } from "$lib/gooseVersion";
 import { OPENCODE_SHA256 } from "$lib/opencodeVersion";
 
@@ -80,6 +83,17 @@ function shellQuote(value: string): string {
  * opencode release (`OPENCODE_VERSION`) from opencode's own GitHub release
  * archive into $HOME/.opencode/bin, verified against the sha256 recorded in
  * this repo (`opencodeVersion.ts`), the same way.
+ *
+ * With `--upgrade` (or GALOPIN_UPGRADE=1) it upgrades an enrolled galopin in
+ * place, keeping enrollment and settings (`galopinUpgrade.sh`): refuses without
+ * an enrollment, stops the systemd user unit (or, with --stop, the user's own
+ * foreground `galopin run`), backs up galopin's state and opencode's database,
+ * installs the new binary (the old one stays as galopin.prev) and the pinned
+ * opencode or goose when galopin's own copy differs, refreshes the browser
+ * runtime, restarts the unit, and on a failure after the stop prints how to
+ * roll back:
+ *
+ *   curl -fsSL https://<origin><base>/galopin/install.sh | sh -s -- --upgrade
  */
 export function renderInstallScript(origin: string, opts: { enrollReady?: boolean } = {}): string {
 	// Either the complete enroll command or none: `enroll` asks this Cerea for the issuer, the
@@ -96,19 +110,47 @@ printf 'Then confirm it: an agent computer in the /code panel, a connectors comp
 	const opencodeSums = Object.entries(OPENCODE_SHA256)
 		.map(([name, sum]) => `\t\t${name}) want=${sum} ;;`)
 		.join("\n");
+	const fill = (text: string, values: Record<string, string>) =>
+		text
+			.replace(/^[ \t]*#.*\n/gm, "")
+			.replace(/@([A-Z_]+)@/g, (all, key: string) => values[key] ?? all)
+			.trimEnd();
+	const versions = { OPENCODE_VERSION, GOOSE_VERSION };
+	const upgradeScript = fill(upgradeFunctions, {
+		...versions,
+		DOCKER_IMAGE: `${GALOPIN_IMAGE}:${APP_VERSION}`,
+	});
+	const installFlow = fill(installBody, {
+		...versions,
+		OPENCODE_SUMS: opencodeSums,
+		GOOSE_SUMS: gooseSums,
+		NEXT: `if [ -z "$upgrade" ]; then\n${next}\nfi`,
+	});
 	return `#!/bin/sh
 # galopin, the Cerea machine agent: installer served by ${origin}
 set -eu
 
+# Everything is inside main, called on the last line: a download cut short does nothing.
+main() {
 origin=${shellQuote(origin)}
 dir="\${GALOPIN_INSTALL_DIR:-$HOME/.local/bin}"
 engine="\${GALOPIN_ENGINE:-opencode}"
 withopencode="\${GALOPIN_WITH_OPENCODE:-}"
+upgrade="\${GALOPIN_UPGRADE:-}"
+creds="\${GALOPIN_CREDS:-}"
+stopfg=""
+dogoose=1
+engine_set=""
+if [ -n "\${GALOPIN_ENGINE:-}" ]; then engine_set=1; fi
 while [ $# -gt 0 ]; do
 	case "$1" in
-		--engine) [ $# -ge 2 ] || { echo "galopin install: --engine needs opencode or goose" >&2; exit 1; }; engine=$2; shift 2 ;;
+		--engine) [ $# -ge 2 ] || { echo "galopin install: --engine needs opencode or goose" >&2; exit 1; }; engine=$2; engine_set=1; shift 2 ;;
 		--with-opencode) withopencode=1; shift ;;
-		--engine=*) engine=\${1#--engine=}; shift ;;
+		--engine=*) engine=\${1#--engine=}; engine_set=1; shift ;;
+		--upgrade) upgrade=1; shift ;;
+		--stop) stopfg=1; shift ;;
+		--creds) [ $# -ge 2 ] || { echo "galopin install: --creds needs a file" >&2; exit 1; }; creds=$2; shift 2 ;;
+		--creds=*) creds=\${1#--creds=}; shift ;;
 		*) echo "galopin install: unknown option $1" >&2; exit 1 ;;
 	esac
 done
@@ -149,99 +191,10 @@ sha256() {
 }
 
 tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT INT TERM
-
-fetch "$origin/galopin/$name" "$tmp/$name" || fail "could not download $name from $origin"
-fetch "$origin/galopin/SHA256SUMS" "$tmp/SHA256SUMS" || fail "could not download SHA256SUMS from $origin"
-
-want=$(awk -v n="$name" '$2 == n || $2 == "*" n { print $1 }' "$tmp/SHA256SUMS")
-[ -n "$want" ] || fail "SHA256SUMS lists no $name"
-got=$(sha256 "$tmp/$name")
-[ "$got" = "$want" ] || fail "checksum mismatch for $name (expected $want, got $got); nothing installed"
-
-mkdir -p "$dir"
-chmod 755 "$tmp/$name"
-mv "$tmp/$name" "$dir/galopin"
-if [ "$os" = darwin ] && command -v xattr >/dev/null 2>&1; then
-	xattr -d com.apple.quarantine "$dir/galopin" 2>/dev/null || true
-fi
-
-printf 'Installed galopin to %s/galopin (checksum verified).\\n' "$dir"
-
-if [ "$engine" = opencode ] && [ -n "$withopencode" ]; then
-	# The same variant choice opencode's own installer makes: the -baseline build
-	# for a CPU without AVX2, the -musl build on Alpine or another musl system.
-	musl=
-	baseline=
-	if [ "$os" = linux ]; then
-		[ -f /etc/alpine-release ] && musl=-musl
-		if command -v ldd >/dev/null 2>&1 && ldd --version 2>&1 | grep -qi musl; then musl=-musl; fi
-		if [ "$arch" = amd64 ] && ! grep -qwi avx2 /proc/cpuinfo 2>/dev/null; then baseline=-baseline; fi
-	fi
-	ocarch=$arch
-	if [ "$os" = darwin ]; then
-		[ "$arch" = amd64 ] && [ "$(sysctl -n sysctl.proc_translated 2>/dev/null || echo 0)" = 1 ] && ocarch=arm64
-		if [ "$ocarch" = amd64 ] && [ "$(sysctl -n hw.optional.avx2_0 2>/dev/null || echo 0)" != 1 ]; then baseline=-baseline; fi
-	fi
-	case "$ocarch" in amd64) ocarch=x64 ;; esac
-	ext=.tar.gz
-	[ "$os" = darwin ] && ext=.zip
-	archive="opencode-$os-$ocarch$baseline$musl$ext"
-	case "$archive" in
-${opencodeSums}
-		*) fail "opencode publishes no $archive build for this computer: install opencode yourself, then run galopin enroll" ;;
-	esac
-	fetch "https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/$archive" "$tmp/$archive" || fail "could not download opencode ${OPENCODE_VERSION} ($archive)"
-	got=$(sha256 "$tmp/$archive")
-	[ "$got" = "$want" ] || fail "checksum mismatch for $archive (expected $want, got $got); opencode not installed"
-	mkdir -p "$tmp/oc-x" "$HOME/.opencode/bin"
-	case "$archive" in
-		*.zip) command -v unzip >/dev/null 2>&1 || fail "needs unzip to unpack $archive"; unzip -q -o "$tmp/$archive" -d "$tmp/oc-x" || fail "could not unpack $archive" ;;
-		*) tar -xzf "$tmp/$archive" -C "$tmp/oc-x" || fail "could not unpack $archive" ;;
-	esac
-	[ -f "$tmp/oc-x/opencode" ] || fail "$archive holds no opencode binary"
-	chmod 755 "$tmp/oc-x/opencode"
-	# never report success for a binary that cannot run here (a wrong CPU or libc build)
-	"$tmp/oc-x/opencode" --version >/dev/null 2>&1 || fail "the opencode build $archive does not run on this computer; opencode not installed. Install opencode yourself, then run galopin enroll"
-	mv "$tmp/oc-x/opencode" "$HOME/.opencode/bin/opencode"
-	if [ "$os" = darwin ] && command -v xattr >/dev/null 2>&1; then
-		xattr -d com.apple.quarantine "$HOME/.opencode/bin/opencode" 2>/dev/null || true
-	fi
-	printf 'Installed opencode ${OPENCODE_VERSION} to %s/.opencode/bin/opencode (checksum verified; galopin finds it there).\\n' "$HOME"
-fi
-
-if [ "$engine" = goose ]; then
-	case "$os-$arch" in
-		linux-amd64) target=x86_64-unknown-linux-gnu ;;
-		linux-arm64) target=aarch64-unknown-linux-gnu ;;
-		darwin-amd64) target=x86_64-apple-darwin ;;
-		darwin-arm64) target=aarch64-apple-darwin ;;
-	esac
-	archive="goose-$target.tar.gz"
-	case "$archive" in
-${gooseSums}
-		*) fail "no recorded checksum for $archive" ;;
-	esac
-	fetch "https://github.com/block/goose/releases/download/v${GOOSE_VERSION}/$archive" "$tmp/$archive" || fail "could not download goose ${GOOSE_VERSION} ($archive)"
-	got=$(sha256 "$tmp/$archive")
-	[ "$got" = "$want" ] || fail "checksum mismatch for $archive (expected $want, got $got); goose not installed"
-	mkdir -p "$tmp/goose-x" "$dir/galopin-goose"
-	tar -xzf "$tmp/$archive" -C "$tmp/goose-x" || fail "could not unpack $archive"
-	[ -f "$tmp/goose-x/goose" ] || fail "$archive holds no goose binary"
-	chmod 755 "$tmp/goose-x/goose"
-	mv "$tmp/goose-x/goose" "$dir/galopin-goose/goose"
-	if [ "$os" = darwin ] && command -v xattr >/dev/null 2>&1; then
-		xattr -d com.apple.quarantine "$dir/galopin-goose/goose" 2>/dev/null || true
-	fi
-	printf 'Installed goose ${GOOSE_VERSION} to %s/galopin-goose/goose (checksum verified; a goose you installed yourself is left alone).\\n' "$dir"
-fi
-case ":$PATH:" in
-	*":$dir:"*) ;;
-	*) printf 'Note: %s is not on your PATH; add it, or run %s/galopin directly.\\n' "$dir" "$dir" ;;
-esac
-engineflag=""
-[ "$engine" = goose ] && engineflag=" --engine goose"
-${next}
+${upgradeScript}
+${installFlow}
+}
+main "$@"
 `;
 }
 

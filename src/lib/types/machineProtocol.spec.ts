@@ -50,6 +50,21 @@ describe("hello policy", () => {
 		expect(parseMachineFrame(old)?.type).toBe("hello");
 	});
 
+	it("bounds the agent version, and reads the container flag", () => {
+		const policy = { workspaceRoots: [], allowFreeModels: false };
+		const long = hello(policy);
+		long.agent.version = "9".repeat(65);
+		expect(parseMachineFrame(long)).toBeNull();
+		const ok = hello(policy);
+		ok.agent.version = "9".repeat(64);
+		expect(parseMachineFrame(ok)?.type).toBe("hello");
+		const box = hello(policy);
+		(box.agent as Record<string, unknown>).container = true;
+		expect((parseMachineFrame(box) as { agent: { container?: boolean } }).agent.container).toBe(
+			true
+		);
+	});
+
 	it("accepts the machine's permission policy and keeps it for the panel to read", () => {
 		const frame = parseMachineFrame(
 			hello({
