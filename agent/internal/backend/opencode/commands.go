@@ -471,10 +471,10 @@ func (b *Backend) listRawCommands(ctx context.Context, directory string) ([]list
 	b.perm.agentMu.Unlock()
 	need := 1
 	if !warm {
-		need = 4 // the project's own commands arrive after the builtins
+		need = 8 // the project's own commands arrive after the builtins
 	}
 	prev, same := "", 0
-	for attempt := 0; attempt < 20; attempt++ {
+	for attempt := 0; attempt < 40; attempt++ {
 		raw = nil
 		if err := b.doData(ctx, http.MethodGet, withLoc("/api/command", directory), nil, &raw); err != nil {
 			return nil, err

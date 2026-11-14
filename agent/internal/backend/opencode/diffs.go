@@ -18,7 +18,13 @@ func (b *Backend) trackEdit(directory, sessionID string, p backend.Part) {
 	}
 	switch p.ToolStatus {
 	case backend.ToolPending, backend.ToolRunning:
-		b.diffs.Begin(sessionID, p.CallID, directory, filediff.InputPaths(p.Input))
+		// opencode 2 announces a call (pending) before it has any arguments: the
+		// snapshot is taken once the paths are known (the running part).
+		paths := filediff.InputPaths(p.Input)
+		if len(paths) == 0 {
+			return
+		}
+		b.diffs.Begin(sessionID, p.CallID, directory, paths)
 	case backend.ToolCompleted, backend.ToolFailed:
 		b.diffs.End(sessionID, p.CallID)
 	}
