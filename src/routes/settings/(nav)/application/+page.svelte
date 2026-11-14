@@ -500,7 +500,7 @@
 					</select>
 				</div>
 
-				{#if page.data.pyodidePyPiInstallAllowed}
+				{#if page.data.pyodidePyPiInstallAllowed && !page.data.modelCodeOnServer}
 					<div class="flex items-start justify-between py-3">
 						<div>
 							<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">

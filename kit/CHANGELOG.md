@@ -7,6 +7,8 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **Settings: the PyPI option is hidden with server sandboxes.** "Let code install extra Python packages" only concerns code run in the browser; when the model's code runs in the server sandbox (`CHAT_CODE_EXECUTION=server`), which never installs packages, the option is no longer shown.
+
 - **Upgrade an existing galopin in one step.** `curl -fsSL <origin>/galopin/install.sh | sh -s -- --upgrade`
   (or `galopin upgrade`) stops galopin, backs up its state and opencode's database to
   `<config>/galopin/backups/pre-upgrade-<date>/`, installs the new galopin (the old one stays
