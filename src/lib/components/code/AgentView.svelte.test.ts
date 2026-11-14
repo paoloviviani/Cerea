@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { page as browserPage } from "@vitest/browser/context";
 import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
+import { render } from "vitest-browser-svelte";
+import MobileNav from "$lib/components/MobileNav.svelte";
 import AgentView from "./AgentView.svelte";
 import { sidePane } from "$lib/stores/sidePane.svelte";
 import { codeDeviceList } from "$lib/stores/codeDeviceList.svelte";
@@ -233,7 +235,11 @@ describe("AgentView Tasks pane", () => {
 	it("never opens on a narrow viewport", async () => {
 		await browserPage.viewport(400, 800);
 		const screen = mount();
+		render(MobileNav, { title: "" });
 		await arrive([ACTIVE]);
+		// On a phone the header lives in the one top bar, not in a row of its own.
+		const header = screen.getByTestId("agent-header").element() as HTMLElement;
+		expect(header.closest("nav")).not.toBeNull();
 		// A phone folds the panels behind one button; the sheet lists them with
 		// their words and the task progress.
 		await expect.element(screen.getByRole("button", { name: "Tasks 0/2" })).not.toBeInTheDocument();
@@ -674,5 +680,36 @@ describe("AgentView transcript cache", () => {
 		// stored under the address while the history is in question.
 		await expect.element(screen.getByTestId("transcript-loading")).toBeVisible();
 		expect(getTranscript("d1:a1")).toBeUndefined();
+	});
+});
+
+describe("AgentView header block on a phone", () => {
+	it("takes no space when there is no forked-from or spawned-by line", async () => {
+		await browserPage.viewport(400, 800);
+		const screen = mount();
+		render(MobileNav, { title: "" });
+		await arrive([ACTIVE]);
+		const block = screen.getByTestId("agent-header-block").element() as HTMLElement;
+		expect(block.getBoundingClientRect().height).toBe(0);
+		expect(getComputedStyle(block).paddingTop).toBe("0px");
+	});
+
+	it("still shows the block when a line is present", async () => {
+		await browserPage.viewport(400, 800);
+		fake.parentId = "root-1";
+		const screen = mount();
+		render(MobileNav, { title: "" });
+		await arrive([ACTIVE]);
+		const block = screen.getByTestId("agent-header-block").element() as HTMLElement;
+		await vi.waitFor(() => expect(block.getBoundingClientRect().height).toBeGreaterThan(0));
+		expect(getComputedStyle(block).paddingTop).not.toBe("0px");
+	});
+
+	it("keeps its padding on desktop", async () => {
+		await browserPage.viewport(1200, 800);
+		const screen = mount();
+		await arrive([ACTIVE]);
+		const block = screen.getByTestId("agent-header-block").element() as HTMLElement;
+		expect(getComputedStyle(block).paddingTop).not.toBe("0px");
 	});
 });
