@@ -14,16 +14,17 @@ import (
 // an empty modelId made the panel name the machine's default model for it.
 // A top-level session with no explicit choice still reports none.
 func TestGetSessionReportsTheModelASubagentRunsOn(t *testing.T) {
-	messages := `[{"info":{"id":"msg_1","role":"user"},"parts":[]},
-		{"info":{"id":"msg_2","role":"assistant","providerID":"older","modelID":"older-model"},"parts":[]},
-		{"info":{"id":"msg_3","role":"assistant","providerID":"cortecs","modelID":"glm-5.3-flash"},"parts":[]}]`
+	// newest first, as the server answers order=desc
+	messages := `{"data":[{"id":"msg_3","type":"assistant","model":{"providerID":"cortecs","id":"glm-5.3-flash"},"content":[],"time":{"created":3}},
+		{"id":"msg_2","type":"assistant","model":{"providerID":"older","id":"older-model"},"content":[],"time":{"created":2}},
+		{"id":"msg_1","type":"user","text":"x","time":{"created":1}}],"cursor":{}}`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
-		case r.URL.Path == "/session/ses_child":
-			_, _ = w.Write([]byte(`{"id":"ses_child","parentID":"ses_root","title":"t (@general subagent)","directory":"/ws"}`))
-		case r.URL.Path == "/session/ses_root":
-			_, _ = w.Write([]byte(`{"id":"ses_root","title":"root","directory":"/ws"}`))
+		case r.URL.Path == "/api/session/ses_child":
+			_, _ = w.Write([]byte(`{"data":{"id":"ses_child","parentID":"ses_root","title":"t","agent":"general","location":{"directory":"/ws"}}}`))
+		case r.URL.Path == "/api/session/ses_root":
+			_, _ = w.Write([]byte(`{"data":{"id":"ses_root","title":"root","location":{"directory":"/ws"}}}`))
 		case strings.HasSuffix(r.URL.Path, "/message"):
 			_, _ = w.Write([]byte(messages))
 		default:

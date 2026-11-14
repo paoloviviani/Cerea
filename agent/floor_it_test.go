@@ -34,6 +34,13 @@ func TestFloorEveryAgentAsksAndReadOnlyAgentsKeepTheirDenies(t *testing.T) {
 			if k == "todowrite" && a == "general" {
 				continue // general's own deny is restated by task.ts at the child
 			}
+			if k == "task" && a != "zed" && a != "build" {
+				// a subagent never starts subagents of its own: the floor restates the deny
+				if got != permrules.Deny {
+					t.Errorf("agent %s key task = %s, want deny", a, got)
+				}
+				continue
+			}
 			if k == "edit" && a == "zed" {
 				if got != permrules.Deny {
 					t.Errorf("zed edit = %s, want its own deny kept", got)
@@ -50,12 +57,11 @@ func TestFloorEveryAgentAsksAndReadOnlyAgentsKeepTheirDenies(t *testing.T) {
 	if got := permrules.Evaluate(plan, "edit", "src/a.go"); got != permrules.Deny {
 		t.Errorf("plan edit src/a.go = %s, want deny", got)
 	}
-	if got := permrules.Evaluate(plan, "edit", ".opencode/plans/x.md"); got != permrules.Ask {
+	if got := permrules.Evaluate(plan, "edit", filepath.Join(r.root, "home", ".opencode", "plan", "x.md")); got != permrules.Ask {
 		t.Errorf("plan edit of its plan file = %s, want ask (galopin lets it through on Plan)", got)
 	}
-	if got := permrules.Evaluate(plan, "task", "general"); got != permrules.Deny {
-		t.Errorf("plan task general = %s, want deny", got)
-	}
+	// opencode 2's plan agent has no rule against starting `general`; the Plan
+	// word (galopin's own decision) is what keeps a Plan session from delegating.
 	explore := r.agentRules("explore")
 	for k, want := range map[string]permrules.Action{
 		"edit": permrules.Deny, "write": permrules.Deny, "galopin_probe_tool": permrules.Deny,

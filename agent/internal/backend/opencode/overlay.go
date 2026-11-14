@@ -2,6 +2,7 @@ package opencode
 
 import (
 	"encoding/json"
+	"time"
 
 	"galopin/internal/backend"
 	"galopin/internal/fsutil"
@@ -28,6 +29,9 @@ type overlayFile struct {
 	// SentMarkers maps the message id a session_send produced to its sender
 	// (PROTOCOL.md §7 Message.sentBy).
 	SentMarkers map[string]backend.MessageSender `json:"sentMarkers,omitempty"`
+	// Prefaces are the ids of the synthetic messages galopin sent ahead of a
+	// prompt; the transcript folds each into the user message after it.
+	Prefaces map[string]bool `json:"prefaces,omitempty"`
 }
 
 func (b *Backend) getOverlay(sessionID string) sessionOverlay {
@@ -59,6 +63,7 @@ func (b *Backend) resolveClientMessageID(sessionID string, msg *backend.Message)
 	// The command marker rides on the message's own id, independent of the
 	// clientMessageId mapping a prompt may or may not have carried.
 	b.attachCommandMarker(msg)
+	b.claimCommandMarker(sessionID, msg)
 
 	b.clientMsgMu.Lock()
 	if id, ok := b.clientMessageIDs[msg.ID]; ok {
@@ -101,6 +106,37 @@ func (b *Backend) attachCommandMarker(msg *backend.Message) {
 	}
 	msg.Command = b.commandMarkerFor(msg.ID)
 	msg.SentBy = b.sentMarkerFor(msg.ID)
+}
+
+// pendingCommand is a command run whose user message has not shown up yet:
+// opencode 2 answers a command with 204 and no message id, so the marker is
+// claimed by the first user message of the session created after the run.
+type pendingCommand struct {
+	marker backend.MessageCommand
+	at     time.Time
+}
+
+// claimCommandMarker gives msg the marker of a pending command run on sessionID
+// when msg is a user message created after the run, and records it for the id.
+func (b *Backend) claimCommandMarker(sessionID string, msg *backend.Message) {
+	if msg.Role != "user" || msg.Command != nil {
+		return
+	}
+	b.pendingMu.Lock()
+	pc, ok := b.pendingCmd[sessionID]
+	if ok && !msg.CreatedAt.IsZero() && msg.CreatedAt.Before(pc.at.Add(-2*time.Second)) {
+		ok = false // an older message re-listed by a transcript read
+	}
+	if ok {
+		delete(b.pendingCmd, sessionID)
+	}
+	b.pendingMu.Unlock()
+	if !ok {
+		return
+	}
+	b.recordCommandMarker(msg.ID, pc.marker.Name, pc.marker.Arguments)
+	m := pc.marker
+	msg.Command = &m
 }
 
 // spendPendingClaim clears sessionID's pending fallback claim when the id
@@ -204,6 +240,11 @@ func (b *Backend) loadOverlay() error {
 	if f.CommandMarkers != nil {
 		b.commandMarkers = f.CommandMarkers
 	}
+	if f.Prefaces != nil {
+		b.prefaceMu.Lock()
+		b.prefaces = f.Prefaces
+		b.prefaceMu.Unlock()
+	}
 	if f.SentMarkers != nil {
 		b.sentMarkers = f.SentMarkers
 	}
@@ -245,6 +286,7 @@ func (b *Backend) saveOverlay() error {
 		ClientMessageIDs: clientMessageIDs,
 		CommandMarkers:   commandMarkers,
 		SentMarkers:      sentMarkers,
+		Prefaces:         b.prefacesCopy(),
 	}, "", "  ")
 	if err != nil {
 		return err
@@ -276,4 +318,35 @@ func (b *Backend) commandMarkerFor(messageID string) *backend.MessageCommand {
 		return &marker
 	}
 	return nil
+}
+
+// recordPreface remembers, durably, that a synthetic message is galopin's
+// preface to a prompt.
+func (b *Backend) recordPreface(id string) {
+	b.prefaceMu.Lock()
+	if b.prefaces == nil {
+		b.prefaces = map[string]bool{}
+	}
+	b.prefaces[id] = true
+	b.prefaceMu.Unlock()
+	_ = b.saveOverlay()
+}
+
+func (b *Backend) isPreface(id string) bool {
+	b.prefaceMu.Lock()
+	defer b.prefaceMu.Unlock()
+	return b.prefaces[id]
+}
+
+func (b *Backend) prefacesCopy() map[string]bool {
+	b.prefaceMu.Lock()
+	defer b.prefaceMu.Unlock()
+	if len(b.prefaces) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(b.prefaces))
+	for k, v := range b.prefaces {
+		out[k] = v
+	}
+	return out
 }

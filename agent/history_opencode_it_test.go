@@ -147,7 +147,7 @@ func TestHistoryPagingIntegration(t *testing.T) {
 			setMockScenario(t, mockOrigin, map[string]any{
 				"toolCalls": []map[string]any{{
 					"id": "call_read_5", "name": "read",
-					"arguments": `{"filePath":"` + filepath.Join(workDir, "out.txt") + `"}`,
+					"arguments": `{"path":"` + filepath.Join(workDir, "out.txt") + `"}`,
 				}},
 				"content": []string{"Read it."}, "finishReason": "stop",
 			})

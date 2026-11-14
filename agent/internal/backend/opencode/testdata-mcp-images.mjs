@@ -1,12 +1,12 @@
 // The image IT's own MCP server: one tool, `shots`, whose single result
-// carries nine ~2 MiB image blocks, so the tool part opencode streams holds
-// ~24 MiB of data: URLs in one SSE line. Hand-written JSON-RPC over stdio
+// carries nine ~1.2 MiB image blocks, so the tool part opencode streams holds
+// ~14 MiB of data: URLs in one SSE line. Hand-written JSON-RPC over stdio
 // (see testdata-mcp-server.mjs for why no SDK).
 import { createInterface } from "node:readline";
 import { randomBytes } from "node:crypto";
 import { deflateSync, crc32 } from "node:zlib";
 
-// A real, decodable ~2 MiB PNG of noise (opencode resizes or omits images it
+// A real, decodable ~1.2 MiB PNG of noise (opencode resizes or omits images it
 // cannot decode, so random bytes would never reach the tool part).
 function chunk(type, data) {
 	const head = Buffer.alloc(8);
@@ -56,7 +56,7 @@ const handlers = {
 			...Array.from({ length: 9 }, () => ({
 				type: "image",
 				mimeType: "image/png",
-				data: noisePng(720).toString("base64"),
+				data: noisePng(540).toString("base64"),
 			})),
 		],
 	}),

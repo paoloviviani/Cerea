@@ -243,7 +243,7 @@ describe.skipIf(!HAVE_BINARY)(
 					allowBackgroundSubagents: true,
 					noAgentTools: true,
 					allowFreeModels: true,
-					allowOpencodeProvider: true,
+					// not allowOpencodeProvider: galopin refuses it together with project config
 					workspaceRoots: ["/a b"],
 					noFiles: false,
 					allowFileWrite: true,

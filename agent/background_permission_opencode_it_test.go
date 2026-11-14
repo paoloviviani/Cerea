@@ -17,8 +17,8 @@ func (r *permRig) delegateGeneral(root backend.Session, marker string, backgroun
 	r.t.Helper()
 	r.script(map[string]any{
 		"toolCalls": []map[string]any{{
-			"id": fmt.Sprintf("call_task%d", r.next()), "name": "task",
-			"arguments": mustJSON2(map[string]any{"description": "subagent test", "prompt": marker, "subagent_type": "general", "background": background}),
+			"id": fmt.Sprintf("call_task%d", r.next()), "name": "subagent",
+			"arguments": mustJSON2(map[string]any{"description": "subagent test", "prompt": marker, "agent": "general", "background": background}),
 		}},
 		"routes": []map[string]any{{
 			"contains": marker,

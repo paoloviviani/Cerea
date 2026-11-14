@@ -266,8 +266,8 @@ func TestAlwaysIsAnExceptionAndOpencodeGetsOnce(t *testing.T) {
 	reply("per_1", "always") // a human's always on a command: an exception
 	reply("per_2", "always") // edit is not capped: an exception
 	reply("per_3", "reject")
-	reply("per_unknown", "always") // an ask the machine does not hold: nothing to store
-	want := []backend.Decision{backend.DecisionOnce, backend.DecisionOnce, backend.DecisionReject, backend.DecisionOnce}
+	reply("per_unknown", "always") // an ask the machine does not hold: not forwarded, nothing to store
+	want := []backend.Decision{backend.DecisionOnce, backend.DecisionOnce, backend.DecisionReject}
 	if len(rb.replies) != len(want) {
 		t.Fatalf("replies = %v, want %v", rb.replies, want)
 	}

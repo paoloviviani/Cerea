@@ -16,13 +16,13 @@ import (
 )
 
 // promptFake answers the endpoints the prompt-path tests touch, recording
-// the last prompt_async body. messageIDBehaviour decides what the server
+// the last prompt body. messageIDBehaviour decides what the server
 // does with the caller-minted id, which is exactly the fork in behaviour
 // the mapping has two paths for:
 //
 //   - honour: the id is echoed back as the user message on GET /message —
 //     what opencode 1.18.32 does (plan §1.2 probed session.command's
-//     identical field live; §3.6 found the field on prompt_async too).
+//     identical field live; §3.6 found the field on prompt too).
 //   - rewrite: the server invents its own id and the minted one never
 //     appears — the fallback (next new user message) path.
 func promptFake(t *testing.T, honour bool) (*Backend, *map[string]any) {
@@ -30,19 +30,19 @@ func promptFake(t *testing.T, honour bool) (*Backend, *map[string]any) {
 	var lastPrompt map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case strings.HasSuffix(r.URL.Path, "/prompt_async"):
+		case strings.HasSuffix(r.URL.Path, "/prompt") && r.Method == http.MethodPost:
 			body, _ := io.ReadAll(r.Body)
 			lastPrompt = nil
 			_ = json.Unmarshal(body, &lastPrompt)
-			w.WriteHeader(http.StatusNoContent)
+			_, _ = io.WriteString(w, `{"data":{}}`)
 		case strings.HasSuffix(r.URL.Path, "/message"):
 			id := "msg_serverwrote0000000000000000aa"
 			if honour {
-				id, _ = lastPrompt["messageID"].(string)
+				id, _ = lastPrompt["id"].(string)
 			}
-			_, _ = io.WriteString(w, `[{"info":{"id":"`+id+`","role":"user"},"parts":[]}]`)
-		case r.URL.Path == "/session/ses_1":
-			_, _ = io.WriteString(w, `{"id":"ses_1","title":"t"}`)
+			_, _ = io.WriteString(w, `{"data":[{"id":"`+id+`","type":"user","text":"go","time":{"created":1}}],"cursor":{}}`)
+		case r.URL.Path == "/api/session/ses_1":
+			_, _ = io.WriteString(w, `{"data":{"id":"ses_1","title":"t"}}`)
 		default:
 			http.NotFound(w, r)
 		}
@@ -54,7 +54,7 @@ func promptFake(t *testing.T, honour bool) (*Backend, *map[string]any) {
 }
 
 // TestPromptSendsAMintedAscendingMessageID pins the minted id's wire shape:
-// present as exactly the messageID field, opencode-shaped ("msg_" + 26
+// present as exactly the id field, opencode-shaped ("msg_" + 26
 // chars: 12 hex of (millis*0x1000+counter), then 14 base62), and ascending
 // across successive prompts.
 func TestPromptSendsAMintedAscendingMessageID(t *testing.T) {
@@ -68,9 +68,9 @@ func TestPromptSendsAMintedAscendingMessageID(t *testing.T) {
 			t.Fatal(err)
 		}
 		after := time.Now().UnixMilli()
-		id, _ := (*last)["messageID"].(string)
+		id, _ := (*last)["id"].(string)
 		if id == "" {
-			t.Fatalf("prompt body = %v, want a messageID field", *last)
+			t.Fatalf("prompt body = %v, want an id field", *last)
 		}
 		if !strings.HasPrefix(id, "msg_") || len(id) != len("msg_")+26 {
 			t.Fatalf("messageID = %q, want msg_ + 26 characters", id)
@@ -172,8 +172,8 @@ func TestPromptMintsEvenWithoutAClientMessageID(t *testing.T) {
 	if err := b.Prompt(ctx, "/ws", "ses_1", backend.Prompt{Text: "go"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := (*last)["messageID"]; !ok {
-		t.Fatalf("prompt body = %v, want a messageID even with no clientMessageId", *last)
+	if _, ok := (*last)["id"]; !ok {
+		t.Fatalf("prompt body = %v, want an id even with no clientMessageId", *last)
 	}
 	tr, err := b.Transcript(ctx, "/ws", "ses_1")
 	if err != nil {

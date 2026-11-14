@@ -194,7 +194,8 @@ func evalModel(t *testing.T, model, key, base string, prompts []evalPrompt, perR
 		"XDG_CACHE_HOME=" + dirs["cache"], "TMPDIR=" + itTmpDir(t), "PATH=" + os.Getenv("PATH"),
 	}
 	oc := backendopencode.New(backendopencode.Config{
-		ConfigPath: configPath, Env: env, StateDir: dirs["state"],
+		BackgroundSubagents: true,
+		ConfigPath:          configPath, Env: env, StateDir: dirs["state"],
 		OverlayPath:    filepath.Join(dirs["state"], "opencode-overlay.json"),
 		ToolsDir:       filepath.Join(dirs["state"], "opencode-tools"),
 		StartupTimeout: 90 * time.Second, Logf: func(string, ...any) {},

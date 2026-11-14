@@ -200,8 +200,10 @@ func TestBuildOpencodeConfigMarksImageModels(t *testing.T) {
 		if m.Attachment != nil {
 			t.Errorf("%s attachment = %v, want unset (gateway said no image / said nothing)", id, *m.Attachment)
 		}
-		if m.Modalities != nil {
-			t.Errorf("%s modalities = %+v, want unset", id, m.Modalities)
+		// opencode 2 assumes images for a model that states none, so a model with
+		// no image claim says text only.
+		if m.Modalities == nil || !reflect.DeepEqual(m.Modalities.Input, []string{"text"}) {
+			t.Errorf("%s modalities = %+v, want input [text]", id, m.Modalities)
 		}
 	}
 }

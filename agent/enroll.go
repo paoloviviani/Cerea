@@ -90,12 +90,12 @@ Usage:
                 audits any attempt to change them; plugins still run as you.
                 With --allow-opencode-provider the provider allowlist cannot
                 be pinned (known: no guarantee).
-   --no-background-subagents  Stop subagents from running in the
-                background (default: allowed: a task can keep running after
-                its parent turn ends, its result injected back as a synthetic
-                message the panel shows as a background marker). While off,
-                galopin never sets OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS,
-                so a task with background:true fails closed inside opencode.
+   --no-background-subagents  Remove the subagent tool (default: allowed).
+                opencode 2 runs every subagent in the background: the call
+                returns the child's session at once and the child keeps working
+                after its parent turn ends, reporting back in a message the
+                panel marks as automatic. While off, the subagent tool is
+                denied outright (there is no foreground form to fall back to).
                 --allow-background-subagents restates the default.
   --allow-auto-accept  Does nothing, and is accepted for one more release so
                existing scripts keep working. Auto-accept is gone: a session
@@ -1126,9 +1126,9 @@ func commandShellPolicySummary(pol policy.Policy) string {
 // may run background subagents on this machine.
 func backgroundSubagentsPolicySummary(pol policy.Policy) string {
 	if !pol.BackgroundSubagentsAllowed() {
-		return "Background subagents: DENIED — OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS is never set, so a task with background:true fails closed."
+		return "Background subagents: DENIED — the subagent tool is denied outright (opencode 2 runs every subagent in the background)."
 	}
-	return "Background subagents: ALLOWED — a task may keep running after its parent turn ends; its result returns as a synthetic message the panel shows."
+	return "Background subagents: ALLOWED — a subagent returns at once and keeps working after its parent turn ends; its report returns as an automatic message the panel shows."
 }
 
 // freshEnrollPolicy is what a machine with no policy gets from `enroll` with
@@ -1250,6 +1250,14 @@ func enrollPolicy(opts *enrollOptions) (policy.Policy, error) {
 		pol.AgentTools = policy.TerminalDenied
 	}
 	if opts.allowProjectConfig {
+		if opts.allowOpencodeProviders {
+			// On opencode 2 a repo's own enabled_providers is a deny-by-default policy that drops the
+			// gateway from the list, so with no allowlist of our own to pin a repo can reroute every
+			// prompt. The two options together are refused, not merely warned about.
+			return policy.Policy{}, errors.New("--allow-project-config cannot be combined with --allow-opencode-provider: " +
+				"without galopin's provider allowlist a repo's own opencode.json can send your prompts to its own provider. " +
+				"Pick one (project config with the gateway only, or opencode's own providers with project config ignored)")
+		}
 		pol.ProjectConfig = policy.TerminalAllowed
 	}
 	if given("max-terminals") {

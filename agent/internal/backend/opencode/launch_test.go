@@ -53,7 +53,7 @@ func TestLaunchEnvIsTheSupervisedEnvMinusTheStripped(t *testing.T) {
 	}
 	for _, project := range []bool{false, true} {
 		cfg := Config{
-			Env: []string{"PATH=/bin", "ANTHROPIC_API_KEY=a"}, ConfigPath: conf, TmpDir: filepath.Join(dir, "tmp"),
+			Env: []string{"PATH=/bin", "ANTHROPIC_API_KEY=a", "OPENCODE_CONFIG_PROJECT_DISABLE=0"}, ConfigPath: conf, TmpDir: filepath.Join(dir, "tmp"),
 			ProjectConfig: project, Permissions: func() permrules.Layers { return permrules.Layers{} },
 		}
 		sup, err := childEnv(cfg, nil)
@@ -77,10 +77,13 @@ func TestLaunchEnvIsTheSupervisedEnvMinusTheStripped(t *testing.T) {
 		if b["OPENCODE_CONFIG"] != conf || b["TMPDIR"] != filepath.Join(dir, "tmp") {
 			t.Errorf("config/tmp not set: %v", b)
 		}
-		if _, off := b["OPENCODE_DISABLE_PROJECT_CONFIG"]; off == project {
-			t.Errorf("project=%v but OPENCODE_DISABLE_PROJECT_CONFIG present=%v", project, off)
+		for _, name := range []string{"OPENCODE_DISABLE_PROJECT_CONFIG", "OPENCODE_CONFIG_PROJECT_DISABLE"} {
+			// opencode 2 reads the second name first: both must be set when project config is off
+			if v, off := b[name]; off == project || (off && v != "1") {
+				t.Errorf("project=%v but %s = %q (present=%v)", project, name, v, off)
+			}
 		}
-		if !strings.Contains(b["OPENCODE_CONFIG_CONTENT"], `"permission"`) {
+		if !strings.Contains(b["OPENCODE_CONFIG_CONTENT"], `"permissions"`) {
 			t.Errorf("no permission floor: %q", b["OPENCODE_CONFIG_CONTENT"])
 		}
 		if project && !strings.Contains(b["OPENCODE_CONFIG_CONTENT"], `"model":"pystino/m"`) {
@@ -90,7 +93,8 @@ func TestLaunchEnvIsTheSupervisedEnvMinusTheStripped(t *testing.T) {
 }
 
 func TestLaunchArgs(t *testing.T) {
-	if got := strings.Join(LaunchArgs(Config{}, []string{"run", "hi"}), " "); got != "--pure run hi" {
+	// 2.x has no --pure: the switch is OPENCODE_DISABLE_PROJECT_CONFIG (LaunchEnv)
+	if got := strings.Join(LaunchArgs(Config{}, []string{"run", "hi"}), " "); got != "run hi" {
 		t.Errorf("got %q", got)
 	}
 	if got := strings.Join(LaunchArgs(Config{ProjectConfig: true}, []string{"-c"}), " "); got != "-c" {

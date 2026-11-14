@@ -31,8 +31,8 @@ func TestSubagentKeepsItsToolsAfterTheParentWasOnDeny(t *testing.T) {
 	r.script(map[string]any{
 		"toolCalls": []map[string]any{{
 			"id":        fmt.Sprintf("call_sv%d", r.next()),
-			"name":      "task",
-			"arguments": mustJSON2(map[string]any{"description": "child", "prompt": marker + ": say done", "subagent_type": "general"}),
+			"name":      "subagent",
+			"arguments": mustJSON2(map[string]any{"description": "child", "prompt": marker + ": say done", "agent": "general"}),
 		}},
 		// The child's own requests carry the marker: answer them with text,
 		// so the child finishes after its first step either way.
@@ -51,36 +51,42 @@ func TestSubagentKeepsItsToolsAfterTheParentWasOnDeny(t *testing.T) {
 			(p.ToolStatus == backend.ToolCompleted || p.ToolStatus == backend.ToolFailed)
 	})
 
-	resp, err := http.Get(r.mock + "/__control/request-log")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	var log struct {
-		Requests []struct {
-			Prompts []string `json:"prompts"`
-			Tools   []string `json:"tools"`
-		} `json:"requests"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&log); err != nil {
-		t.Fatal(err)
-	}
+	// the child runs in the background: its request follows the task call
 	var first []string
 	found := false
-	for _, req := range log.Requests {
-		if strings.Contains(strings.Join(req.Prompts, "\n"), marker) {
-			first, found = req.Tools, true
-			break
+	var seen int
+	for deadline := time.Now().Add(30 * time.Second); !found && time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
+		resp, err := http.Get(r.mock + "/__control/request-log")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var log struct {
+			Requests []struct {
+				Prompts []string `json:"prompts"`
+				Tools   []string `json:"tools"`
+			} `json:"requests"`
+		}
+		err = json.NewDecoder(resp.Body).Decode(&log)
+		resp.Body.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen = len(log.Requests)
+		for _, req := range log.Requests {
+			if strings.Contains(strings.Join(req.Prompts, "\n"), marker) {
+				first, found = req.Tools, true
+				break
+			}
 		}
 	}
 	if !found {
-		t.Fatalf("the subagent's request never reached the model (%d requests seen)", len(log.Requests))
+		t.Fatalf("the subagent's request never reached the model (%d requests seen)", seen)
 	}
 	has := map[string]bool{}
 	for _, name := range first {
 		has[name] = true
 	}
-	for _, want := range []string{"bash", "read", "glob", "grep"} {
+	for _, want := range []string{"shell", "read", "glob", "grep"} {
 		if !has[want] {
 			t.Errorf("the subagent's first request offered no %q (tools: %v)", want, first)
 		}
@@ -214,9 +220,9 @@ func TestChildUnderDenyRootIsRefusedWithoutACard(t *testing.T) {
 func TestStaleDenyReportedForOldStyleBlock(t *testing.T) {
 	r := newPermRig(t, permRigOpts{})
 	s := r.session("stale", "")
-	r.raw(http.MethodPatch, "/session/"+s.ID, map[string]any{"permission": []map[string]any{
-		{"permission": "*", "pattern": "*", "action": "deny"},
-		{"permission": "bash", "pattern": "*", "action": "deny"},
+	r.raw(http.MethodPatch, "/api/session/"+s.ID, map[string]any{"permissions": []map[string]any{
+		{"action": "*", "resource": "*", "effect": "deny"},
+		{"action": "shell", "resource": "*", "effect": "deny"},
 	}})
 	r.oc.PrepareSession(r.ctx, r.work, s.ID)
 	raw, _ := json.Marshal(map[string]any{"sessionId": s.ID})

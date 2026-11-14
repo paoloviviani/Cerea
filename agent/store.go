@@ -371,6 +371,14 @@ func modelEntries(models []gatewayModel) map[string]opencodeModel {
 			t := true
 			entry.Attachment = &t
 			entry.Modalities = &opencodeModalities{Input: opencodeInputModalities(m.InputModalities)}
+		} else {
+			// opencode 2 assumes a model with no stated modalities takes images; a
+			// model the gateway does not say takes them must not claim to.
+			in := opencodeInputModalities(m.InputModalities)
+			if len(in) == 0 {
+				in = []string{"text"}
+			}
+			entry.Modalities = &opencodeModalities{Input: in}
 		}
 		entries[m.ID] = entry
 	}

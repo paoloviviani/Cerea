@@ -103,7 +103,7 @@ test.describe("owned machine agent: parity", () => {
 			{
 				id: "call_w",
 				name: "write",
-				arguments: JSON.stringify({ filePath: "out.txt", content: "parity\n" }),
+				arguments: JSON.stringify({ path: "out.txt", content: "parity\n" }),
 			},
 		],
 		content: ["Wrote", " it", "."],
@@ -410,11 +410,11 @@ test.describe("owned machine agent: parity", () => {
 		toolCalls: [
 			{
 				id: "call_task",
-				name: "task",
+				name: "subagent",
 				arguments: JSON.stringify({
 					description: "Inspect the repo",
 					prompt: "List what is in the repo.",
-					subagent_type: "general",
+					agent: "general",
 				}),
 			},
 		],
@@ -714,7 +714,11 @@ test.describe("owned machine agent: parity", () => {
 		await expect(
 			page.locator('[data-message-role="assistant"]').getByText("Child done.").first()
 		).toBeVisible({ timeout: 60_000 });
-		expect(existsSync(join(m.workspace, "child.txt"))).toBe(true);
+		// The child runs in the background, so its file lands a moment after the parent's
+		// view shows text: poll for it.
+		await expect
+			.poll(() => existsSync(join(m.workspace, "child.txt")), { timeout: 30_000 })
+			.toBe(true);
 	});
 
 	test("sidebar: a subagent is nested under its parent, and its wait shows on both rows", async ({
@@ -802,11 +806,11 @@ test.describe("owned machine agent: parity", () => {
 			toolCalls: [
 				{
 					id: "call_task",
-					name: "task",
+					name: "subagent",
 					arguments: JSON.stringify({
 						description: "Inspect the repo",
 						prompt: "List what is in the repo.",
-						subagent_type: "general",
+						agent: "general",
 					}),
 				},
 			],
@@ -824,8 +828,15 @@ test.describe("owned machine agent: parity", () => {
 		// The card's title gains the roster's "(@general subagent)" a moment after the child
 		// appears, and the card remounts collapsed when it does: expanding before that is undone.
 		// So wait for the settled title, then expand.
-		await page.getByRole("button", { name: "Expand Inspect the repo (@general subagent)" }).click();
-		await expect(page.getByText("List what is in the repo.")).toBeVisible({ timeout: 30_000 });
+		// The child runs in the background (opencode 2), so its own events can remount the card
+		// collapsed while the page settles: expand again until the child's prompt shows.
+		await expect(async () => {
+			const expand = page.getByRole("button", {
+				name: "Expand Inspect the repo (@general subagent)",
+			});
+			if (await expand.count()) await expand.click();
+			await expect(page.getByText("List what is in the repo.")).toBeVisible({ timeout: 4_000 });
+		}).toPass({ timeout: 45_000 });
 	});
 
 	test("questions: opencode's own question tool becomes the SAME card as chat's ask_user_question, and the turn resumes once answered", async ({
