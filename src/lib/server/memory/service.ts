@@ -295,6 +295,8 @@ async function updateIn(scope: Scope, id: ObjectId, rawText: string): Promise<Ro
 	if (result.matchedCount === 0) throw new MemoryValidationError(`No such ${scope.noun}.`);
 	const updated = await scope.collection.findOne(filter);
 	if (!updated) throw new MemoryValidationError(`No such ${scope.noun}.`);
+	// An edit must not leave the old words in a chat's frozen snapshot or stored blocks, either.
+	await removed(scope, id);
 	return updated;
 }
 

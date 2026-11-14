@@ -215,10 +215,52 @@ function guardsFor(ctx: BuiltinToolContext): ObjectId | undefined {
 	return ctx.userId;
 }
 
-/** Case and whitespace folded, so "Always  reply in Italian" matches "always reply in italian". */
+/** Case, whitespace and apostrophes folded, so "Always  reply in Italian" matches "always reply in italian". */
 function fold(text: string): string {
-	return text.toLowerCase().replace(/\s+/g, " ").trim();
+	return text
+		.toLowerCase()
+		.replace(/[\u2018\u2019\u02bc`]/g, "'")
+		.replace(/\s+/g, " ")
+		.trim();
 }
+
+/**
+ * Words that make a note permanent, in English and Italian. A quote for a `global` note must hold one:
+ * "remember I like tea" says nothing about for how long. Matched on folded text, on word edges.
+ */
+const PERMANENCE_MARKERS = new RegExp(
+	"(?<![\\p{L}])(" +
+		[
+			// English
+			"always",
+			"forever",
+			"permanently",
+			"from now on",
+			"about me",
+			"about myself",
+			"every chat",
+			"all chats",
+			"every conversation",
+			"all conversations",
+			// Italian
+			"sempre",
+			"per sempre",
+			"ogni chat",
+			"tutte le chat",
+			"ogni conversazione",
+			"tutte le conversazioni",
+			"d'ora in poi",
+			"da ora in poi",
+			"su di me",
+			"di me stess[oa]",
+		].join("|") +
+		")(?![\\p{L}])",
+	"u"
+);
+
+/** The least a quote may be: two words and about ten characters, so "always" alone is no evidence. */
+const MIN_QUOTE_CHARS = 10;
+const MIN_QUOTE_WORDS = 2;
 
 function build(
 	scopes: MemoryToolScope[],
@@ -247,7 +289,9 @@ function build(
 		type: "string",
 		description:
 			'Required for scope "global": the words, quoted exactly from the user\'s latest message, that make ' +
-			'this note permanent ("always", "about me", "in every chat"). It is checked against that message. ' +
+			'this note permanent: at least two words that include a marker such as "always", "every chat", ' +
+			'"from now on" or "about me" (or the Italian "sempre", "in ogni chat", "d\'ora in poi", "su di me"). ' +
+			"It is checked against that message. " +
 			"Leave out for other scopes. If they said nothing like that, ask the user instead.",
 	};
 
@@ -294,12 +338,15 @@ function build(
 				// model can invent a justification; it cannot invent what the user typed.
 				const words = fold(String(args.user_words ?? ""));
 				const said = latestUserText ? fold(latestUserText()) : "";
-				if (!words || !said.includes(words)) {
+				const substantial =
+					words.length >= MIN_QUOTE_CHARS && words.split(" ").length >= MIN_QUOTE_WORDS;
+				if (!substantial || !PERMANENCE_MARKERS.test(words) || !said.includes(words)) {
 					return {
 						error:
-							"A global note needs the user's own words, quoted from their latest message, saying it " +
-							"should last (pass them as user_words). Ask the user whether this is for this chat only " +
-							"or for every chat, and do not guess.",
+							"A global note needs the user's own words, quoted from their latest message (a phrase of at " +
+							'least two words, such as "always answer in Italian" or "remember this about me"), ' +
+							"saying it should last. Ask the user whether this is for this chat only or for every " +
+							"chat, and do not guess.",
 					};
 				}
 			}

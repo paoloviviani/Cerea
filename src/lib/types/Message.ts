@@ -33,7 +33,8 @@ export type Message = Partial<Timestamps> & {
 	 * started; see `$lib/server/memory/tail`). Stored so later turns replay it
 	 * unchanged: the provider's prompt cache needs every byte before the newest
 	 * message to be the same as last turn. Server-side only; never sent to a
-	 * client or an export. Dropped when a row it quotes is deleted.
+	 * client, an export or the conversation API. Present only when it differed from
+	 * the last block on the path. Dropped when a row it quotes is deleted or edited.
 	 */
 	memoryBlock?: string;
 

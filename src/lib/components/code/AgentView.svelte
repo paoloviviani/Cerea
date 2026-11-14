@@ -116,6 +116,7 @@
 	import CodeTerminals from "./CodeTerminals.svelte";
 	import CodeTasks from "./CodeTasks.svelte";
 	import AgentNotes from "./AgentNotes.svelte";
+	import { notesSessionId as notesSessionIdOf } from "$lib/utils/agentNotesSession";
 	import { listAgentNotes } from "$lib/agentNotesApi";
 	import { latestPlan, planIsActive, planKey, planProgress } from "$lib/utils/codeTasks";
 	import AskQuestion from "$lib/components/chat/AskQuestion.svelte";
@@ -1129,12 +1130,14 @@
 	/** Notes the agent keeps for this session and workspace; read when the screen opens and after each turn. */
 	let notesCount = $state(0);
 	let notesOffered = $derived((page.data as { memoryEnabled?: boolean }).memoryEnabled !== false);
+	/** Notes belong to the root of a session tree: a subagent's view shows its parent's. */
+	let notesSessionId = $derived(notesSessionIdOf(agent, agentId));
 	async function refreshNotesCount() {
 		if (!notesOffered) return;
 		try {
 			const wsId = workspace?.id ?? workspaceId;
 			const lists = await Promise.all([
-				listAgentNotes({ deviceId, scope: "session", key: agentId }),
+				listAgentNotes({ deviceId, scope: "session", key: notesSessionId }),
 				wsId ? listAgentNotes({ deviceId, scope: "workspace", key: wsId }) : Promise.resolve([]),
 			]);
 			notesCount = lists[0].length + lists[1].length;
@@ -1144,7 +1147,7 @@
 	}
 	$effect(() => {
 		void deviceId;
-		void agentId;
+		void notesSessionId;
 		void workspace?.id;
 		void sessionBusy;
 		if (!sessionBusy) void refreshNotesCount();
@@ -1673,7 +1676,7 @@
 			<SidePane label={m["code.view.notes"]()} title={m["code.view.notes"]()}>
 				<AgentNotes
 					{deviceId}
-					sessionId={agentId}
+					sessionId={notesSessionId}
 					workspaceId={workspace?.id ?? workspaceId}
 					oncount={(count) => (notesCount = count)}
 				/>

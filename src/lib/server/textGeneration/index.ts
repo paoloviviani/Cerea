@@ -241,6 +241,7 @@ async function* textGenerationWithoutTitle(
 				userId: ctx.locals.user._id,
 				globalOn: memoryState?.globalOn ?? false,
 				projectId: memoryState?.projectId,
+				contextLengthTokens: ctx.model.contextLength,
 			});
 		}
 	}

@@ -22,8 +22,9 @@ One pair, `remember` / `forget`, in `builtinTools/memoryTool.ts`. `scope` is an
 enum of only the scopes that exist for the turn (conversation: deployment flag;
 project: flag + membership; global: flag + the user's opt-in), and each branch
 re-checks, because a model can name a value it was not offered. `global` also
-needs `user_words` (the user's own words that make it permanent); without them
-the call is refused with an instruction to ask. Results say where the note went.
+needs `user_words`: a quote of at least two words (about ten characters) from the user's newest message that
+holds a permanence marker (always, every chat, from now on, about me, sempre, in ogni chat, d'ora in poi,
+su di me, and so on, English and Italian); otherwise the call is refused with an instruction to ask. Results say where the note went.
 The tool definitions depend only on which scopes exist, so they are byte-stable
 across turns (the tools part of the prompt stays cached).
 
@@ -40,16 +41,18 @@ The provider caches a byte-identical request prefix. So:
   ("UPDATED IN THIS CONVERSATION", capped at 3,000 characters), are one block
   injected at the head of the **newest user message** (`memory/tail.ts`,
   `injectConversationNotes`). Creation order, no timestamps, no clock.
-- **Replay, not move.** Each user message stores the block it was sent with
-  (`Message.memoryBlock`, `memory/blocks.ts`) and later turns replay it unchanged, so the
-  request up to the end of the previous turn is byte-identical and only the newest message
-  has a new block. The block is computed once per turn in `textGenerationWithoutTitle` and
-  applied to both the tool flow and the tool-free fallback. The cost: a copy of the block per
-  user message still in the window (capped at about 3,000 + 3,000 characters, and only when
-  there is something to say).
-- **Deletes take effect.** Deleting (or `forget`ting) a personal fact or project note unsets
-  `memorySnapshot` and the stored blocks on the conversations that hold it; deleting a chat note
-  drops that chat's stored blocks; switching personal memory off does the same for the user's
+- **Replay, not move, and only when changed.** Each user message stores the block it was sent with
+  (`Message.memoryBlock`, `memory/blocks.ts`) and later turns replay it unchanged, so the request up to
+  the end of the previous turn is byte-identical. The newest message gets a fresh block only when it
+  differs from the last block on the path; unchanged notes ride one message and later ones carry none.
+  If that carrier has more than `reemitSpanFor(contextLength)` characters of history after it (a quarter
+  of the default 400,000-character budget, less on a small window), the block is sent again on the newest
+  message before the history budget can trim it away. The decision is stored with the message, so a replay
+  reproduces it. The block is computed once per turn in `textGenerationWithoutTitle` and applied to both
+  the tool flow and the tool-free fallback.
+- **Deletes and edits take effect.** Deleting, editing or `forget`ting a personal fact or project note unsets
+  `memorySnapshot` and the stored blocks on the conversations that hold it; deleting or editing a chat
+  note drops that chat's stored blocks; moving a chat into or out of a project clears its snapshot and blocks; switching personal memory off does the same for the user's
   chats. One cache miss, then the next turn rebuilds. A removed row that still shows up in a
   diff is reported without its words. `memorySnapshot` and `memoryBlock` stay out of the export.
 - **Agents** pull notes with tool calls; nothing is injected and the tool list is static.

@@ -19,6 +19,7 @@ import {
 	sweepOrphanConversationNotes,
 } from "$lib/server/memory/service";
 import { DELETE, PATCH } from "./[noteId]/+server";
+import { GET as getConversation } from "../+server";
 import { GET, POST } from "./+server";
 
 beforeAll(async () => {
@@ -167,5 +168,25 @@ describe("/api/v2/conversations/[id]/memory", () => {
 		expect(await sweepOrphanConversationNotes()).toBeGreaterThanOrEqual(1);
 		expect(await buildConversationMemoryBlock(gone)).toBeUndefined();
 		expect(await buildConversationMemoryBlock(conv._id)).toContain("Live chat note.");
+	});
+
+	it("keeps a message's stored memory block out of the conversation payload", async () => {
+		const me = await createTestUser();
+		const chat = await createTestConversation(me.locals, {
+			messages: [
+				{ id: "u1", from: "user", content: "hi", memoryBlock: "[NOTES: private words]" },
+				{ id: "a1", from: "assistant", content: "hello" },
+			],
+		} as never);
+		const res = await testRequest(getConversation, {
+			path: "x",
+			params: { id: chat._id.toString() },
+			locals: me.locals,
+		});
+		expect(res.status).toBe(200);
+		const text = await res.text();
+		expect(text).toContain("hello");
+		expect(text).not.toContain("private words");
+		expect(text).not.toContain("memoryBlock");
 	});
 });

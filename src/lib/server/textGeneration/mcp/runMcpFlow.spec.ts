@@ -2521,7 +2521,23 @@ describe("textGeneration: memory and the prompt cache", () => {
 		await collections.settings.deleteMany({ memoryEnabled: true });
 	});
 
-	it("editing a chat note changes only the newest user message", async () => {
+	const countBlocks = (messages: unknown[]) =>
+		bytes(messages).split("[NOTES FOR THIS CHAT").length - 1;
+	/** The answer lands and the user writes again. */
+	async function growBy(convId: ObjectId, id: number, answerChars = 0) {
+		await collections.conversations.updateOne({ _id: convId }, {
+			$push: {
+				messages: {
+					$each: [
+						msg(`a${id}`, "assistant", answerChars ? "x".repeat(answerChars) : `answer ${id}`),
+						msg(`u${id + 1}`, "user", `question ${id + 1}`),
+					],
+				},
+			},
+		} as never);
+	}
+
+	it("editing a chat note leaves no old text anywhere and the newest message carries the new one", async () => {
 		const { user, convId } = await world();
 		const { rememberForConversation, updateConversationMemory } =
 			await import("$lib/server/memory/service");
@@ -2531,48 +2547,95 @@ describe("textGeneration: memory and the prompt cache", () => {
 			source: "user",
 		});
 		const before = await runTurn(user, convId, ["u1", "a1", "u2"]);
+		expect(content(before.at(-1))).toContain("(typed by the user) Use metric units.");
 		await updateConversationMemory(convId, memory._id, "Use imperial units.");
 		const after = await runTurn(user, convId, ["u1", "a1", "u2"]);
-
-		expect(after).toHaveLength(before.length);
-		// The system prompt and every message before the newest are the same bytes.
-		expect(bytes(after.slice(0, -1))).toBe(bytes(before.slice(0, -1)));
-		expect(content(before.at(-1))).toContain("(typed by the user) Use metric units.");
+		// An edit invalidates like a delete: the old words are not in the request or the stored chat.
+		expect(bytes(after)).not.toContain("metric");
+		expect(JSON.stringify(await collections.conversations.findOne({ _id: convId }))).not.toContain(
+			"metric"
+		);
 		expect(content(after.at(-1))).toContain("Use imperial units.");
 		expect(content(after.at(-1))).toMatch(/\[END OF NOTES\]\n\nsecond question$/);
 		expect(content(before[0])).not.toContain("Use metric");
 	});
 
-	it("growing the history keeps every byte up to the end of the last turn", async () => {
+	it("unchanged notes ride one message only, and every earlier byte is replayed unchanged", async () => {
 		const { user, convId } = await world();
-		const { rememberForConversation, updateConversationMemory } =
-			await import("$lib/server/memory/service");
-		const { memory } = await rememberForConversation({
+		const { rememberForConversation } = await import("$lib/server/memory/service");
+		await rememberForConversation({
 			conversationId: convId,
 			text: "Use metric units.",
 			source: "model",
 		});
-		const turnN = await runTurn(user, convId, ["u1", "a1", "u2"]);
-		// The answer lands and the user writes again; the note changes in between.
-		await collections.conversations.updateOne({ _id: convId }, {
-			$push: {
-				messages: {
-					$each: [msg("a2", "assistant", "second answer"), msg("u3", "user", "third question")],
-				},
-			},
-		} as never);
-		await updateConversationMemory(convId, memory._id, "Use imperial units.");
-		const turnN1 = await runTurn(user, convId, ["u1", "a1", "u2", "a2", "u3"]);
+		const turn2 = await runTurn(user, convId, ["u1", "a1", "u2"]);
+		expect(countBlocks(turn2)).toBe(1);
 
-		// Everything turn N sent, including u2 with the block it carried then, is replayed unchanged.
-		expect(bytes(turnN1.slice(0, turnN.length))).toBe(bytes(turnN));
-		expect(content(turnN1[turnN.length - 1])).toContain("Use metric units.");
-		// Only the new messages are new, and the newest carries the fresh block.
-		expect(turnN1).toHaveLength(turnN.length + 2);
-		expect(content(turnN1.at(-1))).toContain("Use imperial units.");
-		expect(content(turnN1.at(-1))).toMatch(/third question$/);
-		// And it is stable: the same turn again gives the same request.
-		expect(bytes(await runTurn(user, convId, ["u1", "a1", "u2", "a2", "u3"]))).toBe(bytes(turnN1));
+		await growBy(convId, 2);
+		const turn3 = await runTurn(user, convId, ["u1", "a1", "u2", "a2", "u3"]);
+		// Everything turn 2 sent, including u2 with its block, is replayed unchanged; the new messages carry none.
+		expect(bytes(turn3.slice(0, turn2.length))).toBe(bytes(turn2));
+		expect(turn3).toHaveLength(turn2.length + 2);
+		expect(countBlocks(turn3)).toBe(1);
+		expect(content(turn3.at(-1))).toBe("question 3");
+
+		await growBy(convId, 3);
+		const turn4 = await runTurn(user, convId, ["u1", "a1", "u2", "a2", "u3", "a3", "u4"]);
+		expect(bytes(turn4.slice(0, turn3.length))).toBe(bytes(turn3));
+		expect(countBlocks(turn4)).toBe(1);
+		// Stable: the same turn again gives the same request.
+		expect(bytes(await runTurn(user, convId, ["u1", "a1", "u2", "a2", "u3", "a3", "u4"]))).toBe(
+			bytes(turn4)
+		);
+	});
+
+	it("a change emits a new block on the newest message and leaves the earlier bytes alone", async () => {
+		const { user, convId } = await world();
+		const { rememberForConversation } = await import("$lib/server/memory/service");
+		await rememberForConversation({
+			conversationId: convId,
+			text: "Use metric units.",
+			source: "model",
+		});
+		const turn2 = await runTurn(user, convId, ["u1", "a1", "u2"]);
+		await growBy(convId, 2);
+		// An added note is a change, not an edit: nothing already sent has to move.
+		await rememberForConversation({
+			conversationId: convId,
+			text: "Answer in French.",
+			source: "user",
+		});
+		const turn3 = await runTurn(user, convId, ["u1", "a1", "u2", "a2", "u3"]);
+		expect(bytes(turn3.slice(0, turn2.length))).toBe(bytes(turn2));
+		expect(countBlocks(turn3)).toBe(2);
+		const tail = content(turn3.at(-1));
+		expect(tail).toContain("Answer in French.");
+		expect(tail).toContain("Use metric units.");
+		expect(tail).toMatch(/question 3$/);
+	});
+
+	it("re-emits an unchanged block on the newest message when its carrier is about to fall out of the window", async () => {
+		const { user, convId } = await world();
+		const { rememberForConversation } = await import("$lib/server/memory/service");
+		await rememberForConversation({
+			conversationId: convId,
+			text: "Use metric units.",
+			source: "model",
+		});
+		const turn2 = await runTurn(user, convId, ["u1", "a1", "u2"]);
+		// A long answer puts a lot of history between the carrier and the newest message.
+		await growBy(convId, 2, 120_000);
+		const turn3 = await runTurn(user, convId, ["u1", "a1", "u2", "a2", "u3"]);
+		expect(bytes(turn3.slice(0, turn2.length))).toBe(bytes(turn2));
+		expect(countBlocks(turn3)).toBe(2);
+		expect(content(turn3.at(-1))).toContain("Use metric units.");
+		// Deterministic: it is stored with the message, so the same turn gives the same request.
+		const again = await runTurn(user, convId, ["u1", "a1", "u2", "a2", "u3"]);
+		expect(bytes(again)).toBe(bytes(turn3));
+		// And the next, short turn goes back to carrying none.
+		await growBy(convId, 3);
+		const turn4 = await runTurn(user, convId, ["u1", "a1", "u2", "a2", "u3", "a3", "u4"]);
+		expect(countBlocks(turn4)).toBe(2);
 	});
 
 	it("a personal-memory write mid-chat reaches the tail only; the system prompt and history do not move", async () => {
@@ -2692,5 +2755,25 @@ describe("textGeneration: memory and the prompt cache", () => {
 		const newest = sent.filter((m) => m.from === "user").at(-1);
 		expect(newest?.content).toContain("Fallback note.");
 		expect(newest?.content).toMatch(/second question$/);
+	});
+
+	it("editing a personal fact takes effect on the next turn like a delete does", async () => {
+		const { user, convId } = await world();
+		const { rememberFact, updateMemory } = await import("$lib/server/memory/service");
+		const { memory } = await rememberFact({
+			userId: user._id,
+			text: "Lives in Rome.",
+			source: "user",
+		});
+		expect(content((await runTurn(user, convId, ["u1", "a1", "u2"]))[0])).toContain(
+			"Lives in Rome."
+		);
+		await updateMemory(user._id, memory._id, "Lives in Turin.");
+		const after = await runTurn(user, convId, ["u1", "a1", "u2"]);
+		expect(bytes(after)).not.toContain("Rome");
+		expect(content(after[0])).toContain("Lives in Turin.");
+		expect(JSON.stringify(await collections.conversations.findOne({ _id: convId }))).not.toContain(
+			"Rome"
+		);
 	});
 });
