@@ -184,6 +184,45 @@
 	-webkit-mask-repeat: no-repeat;
 	mask-repeat: no-repeat;
 }
+/* Phones: the top bar floats over the page and the scroller starts right under
+   it, so scrolled content (answer boxes with rounded corners) was cut off hard
+   at the bar's edge. Once scrolled (data-top-fade, set by ChatMessageColumn;
+   never at the very top, so the first line stays whole) the first 1.25rem
+   dissolves instead. A mask rather than a colour overlay: it works on any
+   theme and background pattern. Desktop has no such bar and is unchanged. */
+@media (max-width: 767.98px) {
+	.chat-scroller[data-top-fade] {
+		-webkit-mask-image: linear-gradient(to bottom, transparent, #000 1.25rem);
+		mask-image: linear-gradient(to bottom, transparent, #000 1.25rem);
+	}
+	/* With a page background the scroller already carries the composer fade:
+	   the top fade joins its gradient, and the edge strips start below it. */
+	:root[data-background] .chat-scroller[data-top-fade] {
+		--_fade: linear-gradient(
+			to bottom,
+			transparent,
+			#000 1.25rem,
+			#000 calc(100% - var(--composer-h, 6rem) - 2rem),
+			transparent calc(100% - var(--composer-h, 6rem) + 0.5rem)
+		);
+		-webkit-mask-size:
+			100% 100%,
+			1.25rem calc(100% - 1.25rem),
+			1.25rem calc(100% - 1.25rem);
+		mask-size:
+			100% 100%,
+			1.25rem calc(100% - 1.25rem),
+			1.25rem calc(100% - 1.25rem);
+		-webkit-mask-position:
+			0 0,
+			left bottom,
+			right bottom;
+		mask-position:
+			0 0,
+			left bottom,
+			right bottom;
+	}
+}
 :root[data-background] .chats-sticky {
 	background-color: color-mix(in srgb, var(--colour-bg) 80%, transparent);
 	backdrop-filter: blur(6px);
@@ -206,5 +245,15 @@
 	:root[data-background] .chat-scroller {
 		-webkit-mask-image: none;
 		mask-image: none;
+	}
+	@media (max-width: 767.98px) {
+		:root[data-background] .chat-scroller[data-top-fade] {
+			-webkit-mask-image: linear-gradient(to bottom, transparent, #000 1.25rem);
+			mask-image: linear-gradient(to bottom, transparent, #000 1.25rem);
+			-webkit-mask-size: 100% 100%;
+			mask-size: 100% 100%;
+			-webkit-mask-position: 0 0;
+			mask-position: 0 0;
+		}
 	}
 }

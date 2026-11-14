@@ -20,6 +20,7 @@
 	lands where the action put them.
 -->
 <script lang="ts">
+	import { agentDisplayTitle } from "$lib/utils/codeAgentTitle";
 	import * as s from "$lib/components/overlay/styles";
 	import { m } from "$lib/paraglide/messages";
 	import { onMount, untrack } from "svelte";
@@ -1001,9 +1002,11 @@
 													class="min-w-0 {row(agentActive)} {kind === 'subtask'
 														? 'text-[0.8rem]'
 														: ''}"
-													title={agent.title}
+													title={agentDisplayTitle(agent.title, ws, m["code.nav.new_session"]())}
 												>
-													<span class="min-w-0 flex-1 truncate">{agent.title}</span>
+													<span class="min-w-0 flex-1 truncate"
+														>{agentDisplayTitle(agent.title, ws, m["code.nav.new_session"]())}</span
+													>
 													{#if isScheduledTitle(agent.title)}
 														<IconTime
 															class="size-3 shrink-0 text-gray-400"

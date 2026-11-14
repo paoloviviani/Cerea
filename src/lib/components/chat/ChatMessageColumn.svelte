@@ -283,9 +283,17 @@
 	 * agent panel's cue to page the previous history page in. Fires on every
 	 * scroll event up there; the caller guards (one fetch at a time, only
 	 * while older pages exist). */
+	// True once the reader has scrolled off the very top. On a phone the scroller's
+	// top edge sits right under the floating top bar, so scrolled content would be
+	// cut off hard there; appearance.css then fades its first 1.25rem. At the very
+	// top nothing is faded, so the first line stays fully visible.
+	let scrolledOffTop = $state(false);
+
 	function handleScroll() {
 		const container = scrollContainerEl;
-		if (!container || !onScrollNearTop) return;
+		if (!container) return;
+		scrolledOffTop = container.scrollTop > 0;
+		if (!onScrollNearTop) return;
 		if (container.scrollTop <= container.clientHeight) onScrollNearTop();
 	}
 
@@ -406,6 +414,7 @@
 	<div
 		class="chat-scroller scrollbar-custom h-full [scrollbar-gutter:stable_both-edges] overflow-y-auto overscroll-contain focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue-500/60 dark:focus-visible:outline-blue-400/60"
 		tabindex="0"
+		data-top-fade={scrolledOffTop ? "" : undefined}
 		style:--composer-h={composerHeight ? `${composerHeight}px` : undefined}
 		aria-label={m["chat.column.label"]()}
 		bind:this={scrollContainerEl}

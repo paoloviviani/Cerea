@@ -85,6 +85,37 @@ async function settled(): Promise<void> {
 	await new Promise((resolve) => setTimeout(resolve, 50));
 }
 
+describe("the scroller's top fade (phones, under the top bar)", () => {
+	it("is off at the very top, so the first line stays whole, and on once scrolled", async () => {
+		const view = renderWithApp(ChatMessageColumnTestHost, {
+			initial: [user("u1", long("first prompt")), assistant("a1", long("first answer"))],
+			page: [],
+			onNearTop: vi.fn(),
+		});
+		const el = scroller(view.container);
+		await settled();
+		// a conversation opens scrolled to its end: already past the top
+		expect(el.hasAttribute("data-top-fade")).toBe(true);
+
+		// the reader scrolls up (a wheel first, so the column stops following the end)
+		el.dispatchEvent(new WheelEvent("wheel", { deltaY: -500, bubbles: true, cancelable: true }));
+		el.scrollTop = 0;
+		el.dispatchEvent(new Event("scroll"));
+		await settled();
+		expect(el.hasAttribute("data-top-fade")).toBe(false);
+
+		el.scrollTop = 120;
+		el.dispatchEvent(new Event("scroll"));
+		await settled();
+		expect(el.hasAttribute("data-top-fade")).toBe(true);
+
+		el.scrollTop = 0;
+		el.dispatchEvent(new Event("scroll"));
+		await settled();
+		expect(el.hasAttribute("data-top-fade")).toBe(false);
+	});
+});
+
 describe("the column's history-paging surface", () => {
 	it("fires onScrollNearTop when the reader reaches the top, and not halfway down", async () => {
 		const onNearTop = vi.fn();

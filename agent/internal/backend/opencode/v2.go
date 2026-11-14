@@ -353,7 +353,7 @@ func subagentTitle(title, parentID, agent string) string {
 	if parentID == "" || agent == "" || strings.HasSuffix(title, " subagent)") {
 		return title
 	}
-	return title + " (@" + agent + " subagent)"
+	return strings.TrimSpace(title + " (@" + agent + " subagent)")
 }
 
 // sessionInfo is the 1.x session info of a 2.x session object.
