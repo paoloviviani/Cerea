@@ -34,7 +34,7 @@ are galopin now; nothing on the wire changed.
 
 ## 2. Why this backend interface, and not ACP as the interface
 
-**opencode 2 (pin 2.2.7).** The server API changed completely (`/api/...`, an event-sourced stream, `permissions` arrays, forms for questions, plugin tools); `internal/backend/opencode/v2.go` adapts it to the shapes below, so this protocol is unchanged. The wire facts that moved: tool names stay `bash`/`task` (opencode 2 says `shell`/`subagent`), a part id is `<messageId>:<index>` for text and reasoning and `<messageId>:<callId>` for tools, `session.command` cannot scan a template (opencode 2 does not list it: every command reads as `project` with `shell` unknown), and `session.compact` runs on the session's own model. See `reports/2026-11-14-opencode-2-migration.md` in ai-stack for the full table.
+**opencode 2 (pin 2.3.0).** The server API changed completely (`/api/...`, an event-sourced stream, `permissions` arrays, forms for questions, plugin tools); `internal/backend/opencode/v2.go` adapts it to the shapes below, so this protocol is unchanged. The wire facts that moved: tool names stay `bash`/`task` (opencode 2 says `shell`/`subagent`), a part id is `<messageId>:<index>` for text and reasoning and `<messageId>:<callId>` for tools, `session.command` cannot scan a template (opencode 2 does not list it: every command reads as `project` with `shell` unknown), and `session.compact` runs on the session's own model. See `reports/2026-11-14-opencode-2-migration.md` in ai-stack for the full table.
 
 We checked `opencode serve` (1.18.31, OpenAPI at `GET /doc`) against ACP (Agent Client Protocol).
 

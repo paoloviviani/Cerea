@@ -40,7 +40,7 @@ opencode 2 (`@opencode/cli` on npm; `opencode-ai` is the 1.x line): its server
 API, plugin API and permission rules are all different from 1.x, and
 `internal/backend/opencode/v2.go` is the one file that adapts them to what the
 rest of galopin speaks. The migration, its breaking-change table and the choice
-of 2.2.7 over 2.3.0 (2.3.0 makes every subagent a background one) are written up
+of 2.3.0 over 2.3.0 (2.3.0 makes every subagent a background one) are written up
 in ai-stack `reports/2026-11-14-opencode-2-migration.md`. The release galopin is
 built and tested against is written once, in `packaging/opencode-version`; the
 binary embeds it (`Backend.Version()`), CI installs it, and the panel's
