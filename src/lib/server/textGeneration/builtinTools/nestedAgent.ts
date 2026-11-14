@@ -21,6 +21,7 @@ import { isRateLimitError, withUpstreamRetry } from "../utils/upstreamRetry";
 import type { BuiltinTool, BuiltinToolContext, BuiltinToolResult } from "./types";
 import { LOAD_TOOLS_TOOL_NAME } from "./loadToolsTool";
 import { toPrimitive } from "../mcp/toolParams";
+import { readCallReport, type CallReport } from "$lib/server/turnStats";
 
 /**
  * The loop behind a sub-agent tool: a complete nested agent run on a fresh
@@ -60,6 +61,11 @@ export interface NestedAgentDeps {
 	 */
 	completionBase: NestedCompletionBase;
 	requestHeaders: Record<string, string>;
+	/**
+	 * Called with what each of the sub-agent's model calls reported (tokens, in-stream cost),
+	 * so the turn's details count it. Every sub-agent completion path calls it.
+	 */
+	reportUsage?: (report: CallReport) => void;
 	servers: McpServerConfig[];
 	/**
 	 * The turn's connectors, when some are loaded on demand (ADR 0104). `version` goes up when
@@ -337,11 +343,13 @@ export async function runNestedAgent(
 			// absent tool list is a constraint it can't.
 			...(withTools ? { tools: nestedTools, tool_choice: "auto" as const } : {}),
 		};
-		return deps.openai.chat.completions.create(request, {
+		const response = await deps.openai.chat.completions.create(request, {
 			signal,
 			headers: deps.requestHeaders,
 			timeout: NESTED_CALL_TIMEOUT_MS,
 		});
+		deps.reportUsage?.(readCallReport(response));
+		return response;
 	};
 
 	const emitProgress = (iteration: number, message: string) => {

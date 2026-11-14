@@ -39,6 +39,7 @@ import {
 } from "$lib/server/browser/loop";
 import type { Ceiling } from "$lib/server/browser/policy";
 import { browserSettings, type BrowserSettings } from "$lib/server/browser/settings";
+import { readCallReport } from "$lib/server/turnStats";
 import type { NestedAgentBuiltinTool, NestedAgentDeps } from "./nestedAgent";
 
 /**
@@ -123,6 +124,7 @@ export function openAiComplete(
 			headers: deps.requestHeaders,
 			timeout: MODEL_CALL_TIMEOUT_MS,
 		});
+		deps.reportUsage?.(readCallReport(response));
 		const choice = response.choices[0];
 		return {
 			content: choice?.message?.content ?? null,

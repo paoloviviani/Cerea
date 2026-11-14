@@ -7,6 +7,10 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **Turn details count helpers.** The tokens and cost of a turn now include the calls of the
+  helpers it started (the browser agent and delegated tasks), with a "Helpers" row for their
+  share. When a turn ends, Cerea stores the gateway's settled cost for it, so the cost no
+  longer drops the helpers' calls; the stream's sum is only provisional until then.
 - **Upgrade an existing galopin in one step.** `curl -fsSL <origin>/galopin/install.sh | sh -s -- --upgrade`
   (or `galopin upgrade`) stops galopin, backs up its state and opencode's database to
   `<config>/galopin/backups/pre-upgrade-<date>/`, installs the new galopin (the old one stays

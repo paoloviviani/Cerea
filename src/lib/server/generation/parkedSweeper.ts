@@ -22,6 +22,7 @@ import {
 } from "$lib/types/MessageUpdate";
 import type { ParkedCall } from "$lib/types/ParkedCall";
 import type { TextGenerationContext } from "$lib/server/textGeneration/types";
+import { settleTurnCost, turnGatewayToken } from "$lib/server/turnCostSettle";
 import { createGenerationWriter } from "./writer";
 import { applyUpdateToMessage } from "./applyUpdate";
 import { turnAbandoned, turnEnded, turnRunning } from "./turnState";
@@ -392,6 +393,11 @@ async function resumeParkedCallInner(park: ParkedCall): Promise<void> {
 	} finally {
 		await persist();
 		await writer.finish({ status: hasError ? "error" : "completed" });
+		settleTurnCost({
+			conversationId: conv._id,
+			messageId: message.id,
+			token: turnGatewayToken(locals),
+		});
 		await collections.parkedCalls.updateOne(
 			{ _id: park._id },
 			{ $set: { status: "resumed", resumedAt: new Date(), updatedAt: new Date() } }

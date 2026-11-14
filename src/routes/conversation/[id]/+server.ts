@@ -42,6 +42,7 @@ import { logger } from "$lib/server/logger.js";
 import { compressUpdatesForStorage } from "$lib/server/generation/compressUpdates";
 import { applyUpdateToMessage } from "$lib/server/generation/applyUpdate";
 import { AbortRegistry } from "$lib/server/abortRegistry";
+import { settleTurnCost, turnGatewayToken } from "$lib/server/turnCostSettle";
 import { createGenerationWriter, type GenerationWriter } from "$lib/server/generation/writer";
 import { turnEnded, turnRunning } from "$lib/server/generation/turnState";
 import { armTurnCap, classifyTurnAbort, untilCapped } from "$lib/server/generation/turnCap";
@@ -896,6 +897,12 @@ export async function POST({ request, locals, params, getClientAddress }) {
 
 			await writer.finish({
 				status: hasError ? "error" : abortedByUser ? "interrupted" : "completed",
+			});
+			// The gateway's settled cost covers sub-agents too; the stream's sum does not.
+			settleTurnCost({
+				conversationId: convId,
+				messageId: messageToWriteTo.id,
+				token: turnGatewayToken(locals),
 			});
 			clearInterval(abortMarkerWatcher);
 			clearTimeout(turnCapTimer);
