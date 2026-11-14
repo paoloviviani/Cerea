@@ -31,8 +31,8 @@ func TestSubagentKeepsItsToolsAfterTheParentWasOnDeny(t *testing.T) {
 	r.script(map[string]any{
 		"toolCalls": []map[string]any{{
 			"id":        fmt.Sprintf("call_sv%d", r.next()),
-			"name":      "task",
-			"arguments": mustJSON2(map[string]any{"description": "child", "prompt": marker + ": say done", "subagent_type": "general"}),
+			"name":      "subagent",
+			"arguments": mustJSON2(map[string]any{"description": "child", "prompt": marker + ": say done", "agent": "general"}),
 		}},
 		// The child's own requests carry the marker: answer them with text,
 		// so the child finishes after its first step either way.
@@ -80,7 +80,7 @@ func TestSubagentKeepsItsToolsAfterTheParentWasOnDeny(t *testing.T) {
 	for _, name := range first {
 		has[name] = true
 	}
-	for _, want := range []string{"bash", "read", "glob", "grep"} {
+	for _, want := range []string{"shell", "read", "glob", "grep"} {
 		if !has[want] {
 			t.Errorf("the subagent's first request offered no %q (tools: %v)", want, first)
 		}
@@ -214,9 +214,9 @@ func TestChildUnderDenyRootIsRefusedWithoutACard(t *testing.T) {
 func TestStaleDenyReportedForOldStyleBlock(t *testing.T) {
 	r := newPermRig(t, permRigOpts{})
 	s := r.session("stale", "")
-	r.raw(http.MethodPatch, "/session/"+s.ID, map[string]any{"permission": []map[string]any{
-		{"permission": "*", "pattern": "*", "action": "deny"},
-		{"permission": "bash", "pattern": "*", "action": "deny"},
+	r.raw(http.MethodPatch, "/api/session/"+s.ID, map[string]any{"permissions": []map[string]any{
+		{"action": "*", "resource": "*", "effect": "deny"},
+		{"action": "shell", "resource": "*", "effect": "deny"},
 	}})
 	r.oc.PrepareSession(r.ctx, r.work, s.ID)
 	raw, _ := json.Marshal(map[string]any{"sessionId": s.ID})

@@ -25,8 +25,8 @@ func backgroundScenario() map[string]any {
 	return map[string]any{
 		"toolCalls": []map[string]any{{
 			"id":        "call_task_bg",
-			"name":      "task",
-			"arguments": `{"description":"Survey the repo","prompt":"List what is in the repo.","subagent_type":"general","background":true}`,
+			"name":      "subagent",
+			"arguments": `{"description":"Survey the repo","prompt":"List what is in the repo.","agent":"general","background":true}`,
 		}},
 		"content":      []string{"Parent launched background work."},
 		"chunkDelayMs": 10,
@@ -45,7 +45,7 @@ func backgroundScenario() map[string]any {
 // backgroundHarness starts a real opencode against the mock LLM,
 // returning the backend, materializer, work dir and a cancelable context.
 // backgroundAllowed decides whether the child gets
-// OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=1 (the enrolled policy).
+// GALOPIN_BACKGROUND_SUBAGENTS=1 (the enrolled policy, read by the tools plugin; or, with no tools, a subagent deny).
 func backgroundHarness(t *testing.T, backgroundAllowed bool) (context.Context, *backendopencode.Backend, *sessions.Materializer, string) {
 	t.Helper()
 	// The experimental flag this exercises is opencode's own, so a release
@@ -110,7 +110,7 @@ func backgroundHarness(t *testing.T, backgroundAllowed bool) (context.Context, *
 		"PATH=" + os.Getenv("PATH"),
 		// An inherited flag must never decide: the backend strips it and
 		// sets it only from BackgroundSubagents (fail-closed).
-		"OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=1",
+		"GALOPIN_BACKGROUND_SUBAGENTS=1",
 	}
 
 	ocBackend := backendopencode.New(backendopencode.Config{
@@ -168,7 +168,7 @@ func TestBackgroundSubagentsIntegration(t *testing.T) {
 		}
 
 		// The running half: the task tool completes immediately with the
-		// <task state="running"> output while the child keeps working.
+		// "working in the background" output while the child keeps working.
 		var childID string
 		drainEvents(t, mat, sess.ID, 60*time.Second, func(ev backend.Event) bool {
 			if ev.Kind != backend.EventPart || ev.Part == nil {
@@ -178,7 +178,7 @@ func TestBackgroundSubagentsIntegration(t *testing.T) {
 			if p.Type != backend.PartTool || p.Tool != "task" || p.ToolStatus != backend.ToolCompleted {
 				return false
 			}
-			if !strings.Contains(p.Output, `state="running"`) || !strings.Contains(p.Output, "Background task started") {
+			if !strings.Contains(p.Output, "working in the background") {
 				return false
 			}
 			childID = p.SubtaskSessionID
@@ -202,7 +202,7 @@ func TestBackgroundSubagentsIntegration(t *testing.T) {
 			}
 			p := ev.Part
 			return p.Type == backend.PartText && p.Synthetic &&
-				strings.Contains(p.Text, "Background task completed") &&
+				strings.Contains(p.Text, "<subagent") && strings.Contains(p.Text, `state="completed"`) &&
 				strings.Contains(p.Text, childID)
 		})
 	})
@@ -226,7 +226,8 @@ func TestBackgroundSubagentsIntegration(t *testing.T) {
 			if p.Type != backend.PartTool || p.Tool != "task" || p.ToolStatus != backend.ToolFailed {
 				return false
 			}
-			return strings.Contains(p.ToolError, "OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS")
+			// refused by the permission rule (no tools plugin in this harness)
+			return p.ToolError != ""
 		})
 	})
 }

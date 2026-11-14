@@ -100,8 +100,9 @@ func TestLaunchPassesArgsEnvAndExitCode(t *testing.T) {
 	}
 	rec := r.recorded(t)
 	for _, want := range []string{
-		// default policy loads no project config: --pure first, then the user's args untouched
-		"ARGS:--pure run --model x y -c",
+		// default policy loads no project config (OPENCODE_DISABLE_PROJECT_CONFIG; 2.x has
+		// no --pure): the user's args reach opencode untouched
+		"ARGS:run --model x y -c",
 		"ANTHROPIC_API_KEY=<unset>", "OPENAI_API_KEY=<unset>", "OPENROUTER_API_KEY=<unset>",
 		"OPENCODE_SERVER_PASSWORD=<unset>",
 		"OPENCODE_CONFIG=" + r.creds_.OpencodeConfig,
@@ -114,7 +115,7 @@ func TestLaunchPassesArgsEnvAndExitCode(t *testing.T) {
 	if strings.Contains(rec, "evil/x") {
 		t.Errorf("an inherited OPENCODE_CONFIG_CONTENT reached opencode:\n%s", rec)
 	}
-	if !strings.Contains(rec, `"permission"`) || !strings.Contains(rec, `"ask"`) {
+	if !strings.Contains(rec, `"permissions"`) || !strings.Contains(rec, `"ask"`) {
 		t.Errorf("OPENCODE_CONFIG_CONTENT lacks the ask floor:\n%s", rec)
 	}
 	for _, line := range strings.Split(rec, "\n") {

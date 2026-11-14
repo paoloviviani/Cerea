@@ -17,7 +17,7 @@ import (
 // Part A3: a background subagent's result wakes its parent.
 //
 // opencode injects a finished background child's result as a synthetic
-// <task> message and starts a new parent turn for it — but the injected
+// <subagent> report and starts a new parent turn for it — but the injected
 // prompt carries no model, so it resolves the agent's own, and a global
 // agent file pinning a model outside Pystino breaks (or bypasses) it. The
 // first half pins galopin's side of that contract: an isolated
@@ -29,7 +29,7 @@ import (
 // mock's request log proves.
 //
 // GALOPIN_OPENCODE_IT=1 (spawns real opencode + a mock LLM). galopin sets
-// OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=1 in production; the rig does
+// GALOPIN_BACKGROUND_SUBAGENTS=1 in production; the rig does
 // the same through permRigOpts.background.
 func TestBackgroundResultStartsAParentTurnOnTheSessionsModel(t *testing.T) {
 	// --- The pin is reported. ---
@@ -68,10 +68,10 @@ func TestBackgroundResultStartsAParentTurnOnTheSessionsModel(t *testing.T) {
 	r.script(map[string]any{
 		"toolCalls": []map[string]any{{
 			"id":   fmt.Sprintf("call_bg%d", r.next()),
-			"name": "task",
+			"name": "subagent",
 			"arguments": mustJSON2(map[string]any{
 				"description": "background child", "prompt": marker + ": say done",
-				"subagent_type": "general", "background": true,
+				"agent": "general", "background": true,
 			}),
 		}},
 		"routes": []map[string]any{{
@@ -95,7 +95,7 @@ func TestBackgroundResultStartsAParentTurnOnTheSessionsModel(t *testing.T) {
 	//
 	// The child can finish before the parent's own turn settles (the mock
 	// answers in milliseconds), in which case opencode folds the injected
-	// <task> message into the turn already running and the parent goes idle
+	// <subagent> report into the turn already running and the parent goes idle
 	// only once, after the notification. Even when it does come after the
 	// idle, it lands within a millisecond of it (opencode starts the turn
 	// the moment the parent settles), while the idle is only noticed on the
@@ -105,25 +105,25 @@ func TestBackgroundResultStartsAParentTurnOnTheSessionsModel(t *testing.T) {
 	// itself, then on the assistant reply to it, then on idle; none of
 	// those depend on where the parent's own idle falls.
 	var taskAt int
-	r.hub.wait(t, mark, 240*time.Second, "the injected <task> message in the parent", func(e sessions.Envelope) bool {
+	r.hub.wait(t, mark, 240*time.Second, "the injected <subagent> report in the parent", func(e sessions.Envelope) bool {
 		p := e.Event.Part
 		return e.SessionID == s.ID && e.Event.Kind == backend.EventPart && p != nil && p.Role == "user" &&
-			strings.Contains(p.Text, "<task")
+			strings.Contains(p.Text, "<subagent")
 	})
 	for i, e := range r.hub.since(mark) {
-		if p := e.Event.Part; e.SessionID == s.ID && e.Event.Kind == backend.EventPart && p != nil && p.Role == "user" && strings.Contains(p.Text, "<task") {
+		if p := e.Event.Part; e.SessionID == s.ID && e.Event.Kind == backend.EventPart && p != nil && p.Role == "user" && strings.Contains(p.Text, "<subagent") {
 			taskAt = mark + i
 			break
 		}
 	}
 	r.hub.wait(t, taskAt, 240*time.Second, "the notification turn's assistant reply in the parent", func(e sessions.Envelope) bool {
 		p := e.Event.Part
-		return e.SessionID == s.ID && e.Event.Kind == backend.EventPart && p != nil && p.Role == "assistant" && p.Type == "step-finish"
+		return e.SessionID == s.ID && e.Event.Kind == backend.EventPart && p != nil && p.Role == "assistant" && p.Type == backend.PartText
 	})
 	r.idle(s, taskAt)
 
 	// The mock's request log proves the turn ran on the session's model:
-	// the request carrying the injected <task> message used the same model
+	// the request carrying the injected <subagent> report used the same model
 	// as the parent's own requests.
 	resp, err := http.Get(r.mock + "/__control/request-log")
 	if err != nil {
@@ -146,7 +146,7 @@ func TestBackgroundResultStartsAParentTurnOnTheSessionsModel(t *testing.T) {
 		if strings.Contains(joined, "delegate it") && parentModel == "" {
 			parentModel = req.Model
 		}
-		if strings.Contains(joined, "<task") {
+		if strings.Contains(joined, "<subagent") {
 			notifyModel = req.Model
 		}
 	}
@@ -154,7 +154,7 @@ func TestBackgroundResultStartsAParentTurnOnTheSessionsModel(t *testing.T) {
 		t.Fatalf("the parent's own request never reached the model (%d requests seen)", len(log.Requests))
 	}
 	if notifyModel == "" {
-		t.Fatalf("no request carried the injected <task> message (%d requests seen)", len(log.Requests))
+		t.Fatalf("no request carried the injected <subagent> report (%d requests seen)", len(log.Requests))
 	}
 	if notifyModel != parentModel {
 		t.Errorf("notification turn ran on %q, want the session's model %q", notifyModel, parentModel)

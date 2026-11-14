@@ -28,15 +28,15 @@ func TestDelegationSkillShipsWithTools(t *testing.T) {
 		t.Errorf("frontmatter wrong:\n%.200s", s)
 	}
 	for _, want := range []string{"task", "session_spawn", "session_send", "session_list", "approval", "Report from",
-		"background: true",                 // the async path, so the model stops calling plain task "the only sync option"
-		"closed: do not retry",             // policy-gated, not a bug to route around
-		"## When you run on a schedule",    // the unattended-run section
-		"[Scheduled run",                   // and the header that tells the model it is on one
-		"Needs-you inbox",                  // pending approvals do not block a run
-		"Trust the report; do not poll",    // spawn reports back by itself
-		"final message",                    // a subagent reports in its final message
-		"never tell a task subagent",       // the delegating side never routes the report through session_send
-		"## Brief it so it can start cold", // the briefing template
+		"every subagent runs in the background", // the async path, so the model stops calling plain task "the only sync option"
+		"has no `task` tool at all",             // policy-gated, not a bug to route around
+		"## When you run on a schedule",         // the unattended-run section
+		"[Scheduled run",                        // and the header that tells the model it is on one
+		"Needs-you inbox",                       // pending approvals do not block a run
+		"Trust the report; do not poll",         // spawn reports back by itself
+		"final message",                         // a subagent reports in its final message
+		"never tell a task subagent",            // the delegating side never routes the report through session_send
+		"## Brief it so it can start cold",      // the briefing template
 		"**Acceptance**",
 		"report: false",                  // fire-and-forget opt-out
 		"## Safety",                      // the safety rules, in one block
@@ -64,11 +64,19 @@ func TestDelegationSkillShipsWithTools(t *testing.T) {
 	if n := strings.Count(s, "\n"); n > 110 {
 		t.Errorf("skill is %d lines; keep it short", n)
 	}
+	// 2.x loads tools from a plugin: one file that registers every tool
+	plugin, err := os.ReadFile(filepath.Join(dir, "plugins", "galopin-tools", "index.js"))
+	if err != nil {
+		t.Fatalf("tools plugin: %v", err)
+	}
 	for _, name := range []string{"session_list", "session_spawn", "session_send", "session_profiles", "session_committee",
 		"schedule_list", "schedule_create", "schedule_update", "schedule_delete"} {
-		if _, err := os.Stat(filepath.Join(dir, "tools", name+".js")); err != nil {
-			t.Errorf("tool %s: %v", name, err)
+		if !strings.Contains(string(plugin), `name: "`+name+`"`) {
+			t.Errorf("tool %s is not registered by the plugin", name)
 		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "tools")); err == nil {
+		t.Error("the 1.x tools/ folder must not be left behind")
 	}
 }
 

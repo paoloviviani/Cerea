@@ -183,7 +183,7 @@ func toolImagesIT(t *testing.T, sseLimit int) {
 		setMockScenario(t, mockOrigin, map[string]any{
 			"toolCalls": []map[string]any{{
 				"id": "call_" + name, "name": "read",
-				"arguments": `{"filePath":"` + filepath.Join(workDir, name) + `"}`,
+				"arguments": `{"path":"` + filepath.Join(workDir, name) + `"}`,
 			}},
 			"content": []string{"Looked."}, "finishReason": "stop",
 		})

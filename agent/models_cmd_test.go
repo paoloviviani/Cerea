@@ -122,7 +122,7 @@ func TestRefreshModelsAddsRemovesAndKeepsOtherKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(diff.Added, ",") != "new" || strings.Join(diff.Removed, ",") != "old" || diff.Unchanged != 1 {
+	if strings.Join(diff.Added, ",") != "new" || strings.Join(diff.Removed, ",") != "old" || diff.Unchanged+diff.Updated != 1 {
 		t.Fatalf("diff = %+v", diff)
 	}
 	ids := modelIDs(t, configPath)

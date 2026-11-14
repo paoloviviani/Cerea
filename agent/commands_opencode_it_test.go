@@ -318,33 +318,38 @@ func TestCommandsIntegration(t *testing.T) {
 				}
 			}
 		}
-		for _, name := range []string{"init", "review"} {
+		// opencode 2 gives no template or source, so nothing proves a command is
+		// the builtin or the machine's: every one reads as the project's, shell
+		// unknown (the confirmation sheet; refused under a denied shell policy).
+		for _, name := range []string{"init", "review", "hi", "shelly", "envref"} {
 			cmd, ok := byName[name]
 			if !ok {
-				t.Fatalf("%s is not listed; the builtin set is part of the contract", name)
+				var have []string
+				for n := range byName {
+					have = append(have, n)
+				}
+				t.Fatalf("%s is not listed (listed: %v)", name, have)
 			}
-			if cmd.Origin != backend.OriginBuiltin {
-				t.Errorf("%s origin = %q, want builtin", name, cmd.Origin)
+			if cmd.Origin != backend.OriginProject {
+				t.Errorf("%s origin = %q, want project (nothing proves otherwise)", name, cmd.Origin)
 			}
-		}
-		for name, want := range map[string]backend.Origin{
-			"hi": backend.OriginProject, "shelly": backend.OriginProject, "envref": backend.OriginProject,
-		} {
-			cmd, ok := byName[name]
-			if !ok {
-				t.Fatalf("%s is not listed; the project commands did not come through", name)
+			if cmd.Shell != nil {
+				t.Errorf("%s shell = %v, want unknown (nil)", name, *cmd.Shell)
 			}
-			if cmd.Origin != want {
-				t.Errorf("%s origin = %q, want %q", name, cmd.Origin, want)
-			}
-		}
-		if shelly := byName["shelly"]; shelly.Shell == nil || !*shelly.Shell || len(shelly.ShellSnippets) == 0 {
-			t.Errorf("shelly shell facts = %+v, want shell true with its snippet", shelly.Shell)
-		}
-		if envref := byName["envref"]; len(envref.FileRefs) == 0 || envref.FileRefs[0] != ".env" {
-			t.Errorf("envref fileRefs = %v, want [.env]", envref.FileRefs)
 		}
 	})
+
+	t.Run("with command shell denied a command whose template is unknown is refused", func(t *testing.T) {
+		_, errShape := runCommand(t, map[string]any{"name": "hi", "arguments": "gamma"})
+		if errShape == nil || errShape.Code != "forbidden" {
+			t.Fatalf("hi under a denied shell policy = %+v, want forbidden: opencode 2 does not list the template, so the gate cannot know it has no shell", errShape)
+		}
+	})
+
+	// The rest runs on a machine that allows commands to run shell (the
+	// product default; the IT's policy starts denied).
+	machine.pol.CommandShell = policy.TerminalAllowed
+	defer func() { machine.pol.CommandShell = policy.TerminalDenied }()
 
 	t.Run("a run with arguments reaches the mock with the expanded text", func(t *testing.T) {
 		setMockScenario(t, mockOrigin, map[string]any{"content": []string{"Hi."}, "chunkDelayMs": 5, "finishReason": "stop"})
@@ -374,6 +379,7 @@ func TestCommandsIntegration(t *testing.T) {
 	})
 
 	t.Run("a stale templateHash conflicts and the re-list retry runs", func(t *testing.T) {
+		t.Skip("opencode 2 lists a command by name and description only (GET /api/command), never its template or source: the gates that read the template have nothing to read, and every command is treated as a project command with shell unknown (fail closed). The unit tests in internal/backend/opencode pin that.")
 		// The IT3 acceptance: the caller's templateHash gate is live — a
 		// stale hash refuses with the review wording, the fresh hash from
 		// a re-list runs, and nothing else about the run changes.
@@ -406,7 +412,8 @@ func TestCommandsIntegration(t *testing.T) {
 	t.Run("a shell template runs only with commandShell allowed", func(t *testing.T) {
 		setMockScenario(t, mockOrigin, map[string]any{"content": []string{"Ran."}, "chunkDelayMs": 5, "finishReason": "stop"})
 
-		// Denied (the default): refused before anything runs.
+		// Denied: refused before anything runs.
+		machine.pol.CommandShell = policy.TerminalDenied
 		_, errShape := runCommand(t, map[string]any{"name": "shelly"})
 		if errShape == nil || errShape.Code != "forbidden" {
 			t.Fatalf("shelly under a denied policy = %+v, want forbidden", errShape)
@@ -415,7 +422,6 @@ func TestCommandsIntegration(t *testing.T) {
 		// Allowed: the snippet runs inside opencode and its output lands in
 		// the prompt the mock sees.
 		machine.pol.CommandShell = policy.TerminalAllowed
-		defer func() { machine.pol.CommandShell = policy.TerminalDenied }()
 		if _, err := http.Post(mockOrigin+"/__control/reset-requests", "application/json", nil); err != nil {
 			t.Fatal(err)
 		}
@@ -427,6 +433,7 @@ func TestCommandsIntegration(t *testing.T) {
 	})
 
 	t.Run("an @.env ref is refused by the machine's fileDeny", func(t *testing.T) {
+		t.Skip("opencode 2 lists a command by name and description only (GET /api/command), never its template or source: the gates that read the template have nothing to read, and every command is treated as a project command with shell unknown (fail closed). The unit tests in internal/backend/opencode pin that.")
 		machine.pol.CommandShell = policy.TerminalAllowed
 		defer func() { machine.pol.CommandShell = policy.TerminalDenied }()
 		_, errShape := runCommand(t, map[string]any{"name": "envref"})
@@ -560,6 +567,7 @@ func TestCommandsIntegration(t *testing.T) {
 	})
 
 	t.Run("the gates read the substituted text, not the bare template", func(t *testing.T) {
+		t.Skip("opencode 2 lists a command by name and description only (GET /api/command), never its template or source: the gates that read the template have nothing to read, and every command is treated as a project command with shell unknown (fail closed). The unit tests in internal/backend/opencode pin that.")
 		// M1's three paths, all under the default deny: the bare templates
 		// are clean, so only the expanded text can refuse.
 		_, errShape := runCommand(t, map[string]any{"name": "argtest", "arguments": "clean words"})
@@ -589,6 +597,7 @@ func TestCommandsIntegration(t *testing.T) {
 	})
 
 	t.Run("M4 live: $' reconstructs the construct from the review-shaped template", func(t *testing.T) {
+		t.Skip("opencode 2 lists a command by name and description only (GET /api/command), never its template or source: the gates that read the template have nothing to read, and every command is treated as a project command with shell unknown (fail closed). The unit tests in internal/backend/opencode pin that.")
 		// The exact bypass the advisor demonstrated, end to end: the
 		// template is scan-clean raw, opencode's $' substitution pulls the
 		// text after the placeholder (the closing backtick of the review
@@ -607,6 +616,7 @@ func TestCommandsIntegration(t *testing.T) {
 	})
 
 	t.Run("M4 live: $` pulls the template text before the placeholder", func(t *testing.T) {
+		t.Skip("opencode 2 lists a command by name and description only (GET /api/command), never its template or source: the gates that read the template have nothing to read, and every command is treated as a project command with shell unknown (fail closed). The unit tests in internal/backend/opencode pin that.")
 		// Same shape, the other JS pattern: $` inserts the text BEFORE the
 		// match (the opening backtick), so the argument's "!" lands next
 		// to template text instead of a literal backtick.
@@ -622,6 +632,7 @@ func TestCommandsIntegration(t *testing.T) {
 	})
 
 	t.Run("M4 live: $0 resolves the last argument", func(t *testing.T) {
+		t.Skip("opencode 2 lists a command by name and description only (GET /api/command), never its template or source: the gates that read the template have nothing to read, and every command is treated as a project command with shell unknown (fail closed). The unit tests in internal/backend/opencode pin that.")
 		// The Q.slice(-1) path: $0 takes the LAST argument, so a shell
 		// snippet smuggled in as the final argument reaches the expanded
 		// text and the gate refuses. The positive control proves the
@@ -644,6 +655,7 @@ func TestCommandsIntegration(t *testing.T) {
 	})
 
 	t.Run("M5 live: a@:@.env resolves past the decoy @", func(t *testing.T) {
+		t.Skip("opencode 2 lists a command by name and description only (GET /api/command), never its template or source: the gates that read the template have nothing to read, and every command is treated as a project command with shell unknown (fail closed). The unit tests in internal/backend/opencode pin that.")
 		// The reject-and-retry live: the listing scan itself must resolve
 		// ".env" from "a@:@.env" (the first @ is rejected for the word
 		// char before it, the scan resumes and finds the second), and the
@@ -668,6 +680,7 @@ func TestCommandsIntegration(t *testing.T) {
 	})
 
 	t.Run("M6 live: $` from the second occurrence rebuilds the construct", func(t *testing.T) {
+		t.Skip("opencode 2 lists a command by name and description only (GET /api/command), never its template or source: the gates that read the template have nothing to read, and every command is treated as a project command with shell unknown (fail closed). The unit tests in internal/backend/opencode pin that.")
 		// The advisor's bypass end to end: the template has two
 		// $ARGUMENTS occurrences and is scan-clean raw; args "$`" make the
 		// SECOND substitution pull the original's prefix — which carries
@@ -687,6 +700,7 @@ func TestCommandsIntegration(t *testing.T) {
 	})
 
 	t.Run("M7 live: an NBSP ends the @ref where JavaScript's whitespace does", func(t *testing.T) {
+		t.Skip("opencode 2 lists a command by name and description only (GET /api/command), never its template or source: the gates that read the template have nothing to read, and every command is treated as a project command with shell unknown (fail closed). The unit tests in internal/backend/opencode pin that.")
 		// The fileDeny bypass end to end: the real server's template
 		// carries "@.env<NBSP>x"; the listing scan must resolve ".env"
 		// (the glued token would miss the deny list), and the run refuses
@@ -711,6 +725,7 @@ func TestCommandsIntegration(t *testing.T) {
 	})
 
 	t.Run("a plan session refuses a build-naming command", func(t *testing.T) {
+		t.Skip("opencode 2 lists a command by name and description only (GET /api/command), never its template or source: the gates that read the template have nothing to read, and every command is treated as a project command with shell unknown (fail closed). The unit tests in internal/backend/opencode pin that.")
 		// L (2026-09-28 follow-up): this subtest flips the session's
 		// overlay mode mid-run — a t.Fatal partway through (M8's own
 		// failure did exactly this, live) would otherwise leave it on
@@ -787,6 +802,7 @@ func TestCommandsIntegration(t *testing.T) {
 	})
 
 	t.Run("a repo review.md cannot displace the builtin here", func(t *testing.T) {
+		t.Skip("opencode 2 lists a command by name and description only (GET /api/command), never its template or source: the gates that read the template have nothing to read, and every command is treated as a project command with shell unknown (fail closed). The unit tests in internal/backend/opencode pin that.")
 		// M3's probe: does a project review.md displace the builtin on
 		// 1.18.32? Either way the origin rule must be safe — the probe
 		// records which world this version lives in.
@@ -819,6 +835,7 @@ func TestCommandsIntegration(t *testing.T) {
 	})
 
 	t.Run("the MCP server's prompt lists as a source:mcp command", func(t *testing.T) {
+		t.Skip("opencode 2 lists a command by name and description only (GET /api/command), never its template or source: the gates that read the template have nothing to read, and every command is treated as a project command with shell unknown (fail closed). The unit tests in internal/backend/opencode pin that.")
 		// The MCP connect is asynchronous (a 5s default timeout); the
 		// prompt's listing is the acceptance signal, so poll for it.
 		var res any
@@ -864,6 +881,7 @@ func TestCommandsIntegration(t *testing.T) {
 	})
 
 	t.Run("the MCP prompt is refused under the default commandShell policy", func(t *testing.T) {
+		machine.pol.CommandShell = policy.TerminalDenied
 		_, errShape := runCommand(t, map[string]any{"name": "itmcp:itprompt"})
 		if errShape == nil || errShape.Code != "forbidden" {
 			t.Fatalf("itprompt under a denied policy = %+v, want forbidden (shell unknown)", errShape)

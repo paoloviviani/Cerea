@@ -373,22 +373,31 @@ func TestAcpCommandsIntegration(t *testing.T) {
 	// What reached the LLM: opencode's ACP may expand the command itself or
 	// pass the invocation through as text — either is recorded, neither is
 	// assumed.
-	body, err := http.Get(mockOrigin + "/__control/requests")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer body.Body.Close()
-	raw, err := io.ReadAll(body.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var parsed struct {
-		Requests [][]string `json:"requests"`
-	}
-	_ = json.Unmarshal(raw, &parsed)
-	joined := ""
-	for _, req := range parsed.Requests {
-		joined += strings.Join(req, "\n") + "\n"
+	// opencode 2.x's ACP answers the prompt when it has queued the command; the
+	// model request follows, so wait for it instead of reading right at idle.
+	var joined string
+	for waited := time.Duration(0); ; waited += 250 * time.Millisecond {
+		body, err := http.Get(mockOrigin + "/__control/requests")
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err := io.ReadAll(body.Body)
+		body.Body.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var parsed struct {
+			Requests [][]string `json:"requests"`
+		}
+		_ = json.Unmarshal(raw, &parsed)
+		joined = ""
+		for _, req := range parsed.Requests {
+			joined += strings.Join(req, "\n") + "\n"
+		}
+		if joined != "" || waited >= 15*time.Second {
+			break
+		}
+		time.Sleep(250 * time.Millisecond)
 	}
 	switch {
 	case strings.Contains(joined, "Say hi to gamma"):

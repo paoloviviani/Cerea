@@ -24,7 +24,7 @@ func dataURL(mime string, b []byte) string {
 
 func toolPartWith(atts ...any) map[string]any {
 	return map[string]any{
-		"id": "prt1", "messageID": "msg1", "sessionID": "ses1", "type": "tool",
+		"id": "msg1:c1", "messageID": "msg1", "sessionID": "ses1", "type": "tool",
 		"callID": "call1", "tool": "playwright_screenshot",
 		"state": map[string]any{"status": "completed", "output": "ok", "attachments": atts},
 	}
@@ -93,18 +93,22 @@ func TestAttachmentServesOnlyTheOwningSession(t *testing.T) {
 func TestAttachmentRereadsAfterEviction(t *testing.T) {
 	msgHits := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/session/ses1/message/msg1" {
+		if r.URL.Path != "/api/session/ses1/message/msg1" {
 			http.NotFound(w, r)
 			return
 		}
 		msgHits++
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"info": map[string]any{"id": "msg1"},
-			"parts": []any{
-				map[string]any{"id": "other", "type": "text"},
-				toolPartWith(map[string]any{"mime": "image/png", "url": dataURL("image/png", tinyPNG)}),
+		// the 2.x message: an assistant turn whose tool call returned the image
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+			"id": "msg1", "type": "assistant", "agent": "build", "time": map[string]any{"created": 1},
+			"model": map[string]any{"id": "m", "providerID": "p"},
+			"content": []any{
+				map[string]any{"type": "text", "text": "x"},
+				map[string]any{"type": "tool", "id": "c1", "name": "read", "time": map[string]any{"created": 1},
+					"state": map[string]any{"status": "completed", "input": map[string]any{},
+						"content": []any{map[string]any{"type": "file", "mime": "image/png", "uri": dataURL("image/png", tinyPNG)}}}},
 			},
-		})
+		}})
 	}))
 	defer srv.Close()
 	b := fakeServerBackend(t, srv)

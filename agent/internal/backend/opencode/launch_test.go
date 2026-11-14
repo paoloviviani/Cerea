@@ -80,7 +80,7 @@ func TestLaunchEnvIsTheSupervisedEnvMinusTheStripped(t *testing.T) {
 		if _, off := b["OPENCODE_DISABLE_PROJECT_CONFIG"]; off == project {
 			t.Errorf("project=%v but OPENCODE_DISABLE_PROJECT_CONFIG present=%v", project, off)
 		}
-		if !strings.Contains(b["OPENCODE_CONFIG_CONTENT"], `"permission"`) {
+		if !strings.Contains(b["OPENCODE_CONFIG_CONTENT"], `"permissions"`) {
 			t.Errorf("no permission floor: %q", b["OPENCODE_CONFIG_CONTENT"])
 		}
 		if project && !strings.Contains(b["OPENCODE_CONFIG_CONTENT"], `"model":"pystino/m"`) {
@@ -90,7 +90,8 @@ func TestLaunchEnvIsTheSupervisedEnvMinusTheStripped(t *testing.T) {
 }
 
 func TestLaunchArgs(t *testing.T) {
-	if got := strings.Join(LaunchArgs(Config{}, []string{"run", "hi"}), " "); got != "--pure run hi" {
+	// 2.x has no --pure: the switch is OPENCODE_DISABLE_PROJECT_CONFIG (LaunchEnv)
+	if got := strings.Join(LaunchArgs(Config{}, []string{"run", "hi"}), " "); got != "run hi" {
 		t.Errorf("got %q", got)
 	}
 	if got := strings.Join(LaunchArgs(Config{ProjectConfig: true}, []string{"-c"}), " "); got != "-c" {

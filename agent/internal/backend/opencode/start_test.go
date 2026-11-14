@@ -84,14 +84,14 @@ func TestStartFallsBackToOpencodeInstallDir(t *testing.T) {
 func TestStripChildSwitchesDropsInheritedBackgroundFlag(t *testing.T) {
 	env := []string{
 		"PATH=/usr/bin",
-		"OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=1",
+		"GALOPIN_BACKGROUND_SUBAGENTS=1",
 		"OPENCODE_DISABLE_PROJECT_CONFIG=1",
 		"OPENCODE_CONFIG_CONTENT={}",
 		"HOME=/root",
 	}
 	got := stripChildSwitches(append([]string{}, env...))
 	for _, kv := range got {
-		if strings.HasPrefix(kv, "OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=") ||
+		if strings.HasPrefix(kv, "GALOPIN_BACKGROUND_SUBAGENTS=") ||
 			strings.HasPrefix(kv, "OPENCODE_DISABLE_PROJECT_CONFIG=") ||
 			strings.HasPrefix(kv, "OPENCODE_CONFIG_CONTENT=") {
 			t.Errorf("inherited switch survived stripping: %q", kv)

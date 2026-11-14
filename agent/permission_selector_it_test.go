@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"galopin/internal/backend"
-	"galopin/internal/permrules"
 	"galopin/internal/sessions"
 )
 
@@ -49,7 +48,7 @@ func TestSelectorS1Allow(t *testing.T) {
 	r.idle(s, mark)
 
 	outside := filepath.Join(r.root, "s1-outside.txt")
-	ask, part, mark = r.tryCall(s, "write", map[string]any{"filePath": outside, "content": "x"})
+	ask, part, mark = r.tryCall(s, "write", map[string]any{"path": outside, "content": "x"})
 	if ask != nil || part.ToolStatus != backend.ToolCompleted {
 		t.Fatalf("a write outside the workspace under Allow: ask=%v part=%+v, want it to run", ask, part)
 	}
@@ -61,7 +60,7 @@ func TestSelectorS1Allow(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(r.work, ".env"), []byte("SECRET=1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ask, _, mark = r.tryCall(s, "read", map[string]any{"filePath": filepath.Join(r.work, ".env")})
+	ask, _, mark = r.tryCall(s, "read", map[string]any{"path": filepath.Join(r.work, ".env")})
 	if ask == nil || ask.Tool != "read" {
 		t.Fatalf("reading .env under Allow: ask=%v, want a read ask", ask)
 	}
@@ -88,7 +87,7 @@ func TestSelectorS2Ask(t *testing.T) {
 	r.reply(s, ask.ID, "reject")
 	r.idle(s, mark)
 
-	ask, part, mark := r.tryCall(s, "read", map[string]any{"filePath": filepath.Join(r.work, "s2.txt")})
+	ask, part, mark := r.tryCall(s, "read", map[string]any{"path": filepath.Join(r.work, "s2.txt")})
 	if ask != nil || part.ToolStatus != backend.ToolCompleted {
 		t.Errorf("read under Ask: ask=%v part=%+v, want it to run", ask, part)
 	}
@@ -130,7 +129,7 @@ func TestSelectorS3Deny(t *testing.T) {
 		tool string
 		args map[string]any
 	}{
-		{"write", map[string]any{"filePath": filepath.Join(r.work, "s3-edit.txt"), "content": "x"}},
+		{"write", map[string]any{"path": filepath.Join(r.work, "s3-edit.txt"), "content": "x"}},
 		{"bash", bashArgs("echo hi > s3-bash.txt")},
 	} {
 		ask, part, mark := r.tryCall(s, c.tool, c.args)
@@ -145,7 +144,7 @@ func TestSelectorS3Deny(t *testing.T) {
 	if r.exists("s3-edit.txt") || r.exists("s3-bash.txt") {
 		t.Error("a refused tool still wrote")
 	}
-	ask, part, _ := r.tryCall(s, "read", map[string]any{"filePath": filepath.Join(r.work, "s3.txt")})
+	ask, part, _ := r.tryCall(s, "read", map[string]any{"path": filepath.Join(r.work, "s3.txt")})
 	if ask != nil || part.ToolStatus != backend.ToolCompleted {
 		t.Errorf("read under Deny: ask=%v part=%+v, want it to run", ask, part)
 	}
@@ -394,67 +393,63 @@ func TestSelectorS11RetiredOpsAndRemovableExceptions(t *testing.T) {
 	}
 }
 
-// S12 canary: every permission name opencode 1.18.32 knows is classified by
-// galopin as either untouched by the selector's blanket or following it. A name
-// that is in neither fails here, so a release that adds one cannot silently
-// land on the wrong side (an untouched name a blanket Allow would flip, or a
-// blanket name left unrestated). Names are read from the binary itself: the
-// permission config schema, every rule of every built-in agent, and the tool
-// registry (a tool's permission is its id, except write and apply_patch, which
-// ask `edit`).
+// S12 canary: every permission name opencode knows is classified by galopin as
+// either untouched by the selector's blanket or following it. A name that is in
+// neither fails here, so a release that adds one cannot silently land on the
+// wrong side (an untouched name a blanket Allow would flip, or a blanket name
+// left unrestated). opencode 2 serves no schema for its permission vocabulary,
+// so the names are read from the binary where it reports them (every rule of
+// every agent) and from the action table of its Permissions guide
+// (services/site/src/docs/content/permissions.mdx), kept here by hand: a release
+// that adds a row is a change to this list. Names are compared under the 1.x
+// spellings galopin keys on (shell is bash, subagent is task).
 func TestSelectorS12EveryPermissionNameIsClassified(t *testing.T) {
 	r := newPermRig(t, permRigOpts{})
 	names := map[string]string{} // name -> where it was seen
-
-	var doc struct {
-		Components struct {
-			Schemas map[string]struct {
-				AnyOf []struct {
-					Properties map[string]json.RawMessage `json:"properties"`
-				} `json:"anyOf"`
-			} `json:"schemas"`
-		} `json:"components"`
-	}
-	if err := json.Unmarshal(r.raw(http.MethodGet, "/doc", nil), &doc); err != nil {
-		t.Fatal(err)
-	}
-	cfg, ok := doc.Components.Schemas["PermissionConfig"]
-	if !ok {
-		t.Fatal("GET /doc has no PermissionConfig schema: the permission vocabulary can no longer be read from the binary; revisit this canary")
-	}
-	for _, alt := range cfg.AnyOf {
-		for name := range alt.Properties {
-			names[name] = "the permission config schema"
+	v1 := func(n string) string {
+		switch n {
+		case "shell":
+			return "bash"
+		case "subagent":
+			return "task"
 		}
+		return n
 	}
 
-	var agents []struct {
-		Name       string           `json:"name"`
-		Permission []permrules.Rule `json:"permission"`
+	for _, n := range []string{"read", "edit", "glob", "grep", "shell", "subagent", "skill", "question", "webfetch", "websearch",
+		"external_directory", "execute", "browser"} {
+		names[v1(n)] = "the documented action table"
 	}
-	if err := json.Unmarshal(r.raw(http.MethodGet, "/agent?directory="+r.work, nil), &agents); err != nil {
-		t.Fatal(err)
-	}
-	for _, a := range agents {
-		for _, rule := range a.Permission {
+	for _, a := range []string{"build", "plan", "general", "explore", "compaction", "title", "summary"} {
+		for _, rule := range r.agentRules(a) {
 			if rule.Permission != "*" {
-				names[rule.Permission] = "agent " + a.Name
+				names[rule.Permission] = "agent " + a
 			}
 		}
 	}
-
-	var tools []string
-	if err := json.Unmarshal(r.raw(http.MethodGet, "/experimental/tool/ids", nil), &tools); err != nil {
+	// The tools a model is offered, as the mock saw them on a turn: a tool's
+	// permission is its own name, except write, which asks edit.
+	r.script(map[string]any{"content": []string{"ok"}})
+	s := r.session("s12", "")
+	mark := r.hub.mark()
+	if err := r.promptSession(s, "hello"); err != nil {
 		t.Fatal(err)
 	}
-	for _, tool := range tools {
-		switch tool {
-		case "invalid":
-			continue // the stand-in a withdrawn tool's call lands on; no permission of its own
-		case "write", "apply_patch":
+	r.idle(s, mark)
+	resp, err := http.Get(r.mock + "/__control/tools")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var offered struct {
+		Tools map[string]string `json:"tools"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&offered)
+	resp.Body.Close()
+	for tool := range offered.Tools {
+		if tool == "write" {
 			tool = "edit"
 		}
-		names[tool] = "the tool registry"
+		names[v1(tool)] = "the tools the model is offered"
 	}
 
 	if len(names) < 10 {
@@ -491,13 +486,13 @@ func TestSelectorS13SafeDirs(t *testing.T) {
 		if err := os.WriteFile(target, []byte("written by the rig\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		ask, part, mark := r.tryCall(s, "read", map[string]any{"filePath": target})
+		ask, part, mark := r.tryCall(s, "read", map[string]any{"path": target})
 		if ask != nil || part.ToolStatus != backend.ToolCompleted {
 			t.Fatalf("a read from /tmp on a fresh Ask session: ask=%v part=%+v, want it to run with no card (the safe directories)", ask, part)
 		}
 		r.idle(s, mark)
 
-		ask, _, mark = r.tryCall(s, "write", map[string]any{"filePath": target, "content": "x"})
+		ask, _, mark = r.tryCall(s, "write", map[string]any{"path": target, "content": "x"})
 		if ask == nil {
 			t.Fatalf("a write into /tmp under Ask raised no card at all")
 		}
@@ -513,7 +508,7 @@ func TestSelectorS13SafeDirs(t *testing.T) {
 		}
 
 		// The rule is one allow per directory, not a pass for everywhere.
-		ask, _, mark = r.tryCall(s, "read", map[string]any{"filePath": "/etc/hostname"})
+		ask, _, mark = r.tryCall(s, "read", map[string]any{"path": "/etc/hostname"})
 		if ask == nil || ask.Tool != "external_directory" {
 			t.Fatalf("a read of /etc/hostname under Ask: ask=%v, want an external_directory ask", ask)
 		}
@@ -522,7 +517,7 @@ func TestSelectorS13SafeDirs(t *testing.T) {
 
 		// Under Allow the safe directories are the whole story: no card.
 		r.setMode(s, "allow")
-		ask, part, mark = r.tryCall(s, "write", map[string]any{"filePath": target, "content": "y"})
+		ask, part, mark = r.tryCall(s, "write", map[string]any{"path": target, "content": "y"})
 		if ask != nil || part.ToolStatus != backend.ToolCompleted {
 			t.Errorf("a write into /tmp under Allow: ask=%v part=%+v, want it to run with no card", ask, part)
 		}
@@ -535,13 +530,13 @@ func TestSelectorS13SafeDirs(t *testing.T) {
 		r := newPermRig(t, permRigOpts{})
 		s := r.session("s13-capped", "")
 		r.setMode(s, "allow")
-		ask, part, mark := r.tryCall(s, "write", map[string]any{"filePath": filepath.Join(r.safeTmp(), "s13-capped.txt"), "content": "x"})
+		ask, part, mark := r.tryCall(s, "write", map[string]any{"path": filepath.Join(r.safeTmp(), "s13-capped.txt"), "content": "x"})
 		if ask != nil || part.ToolStatus != backend.ToolCompleted {
 			t.Fatalf("a write into /tmp on Allow: ask=%v part=%+v, want it to run with no card", ask, part)
 		}
 		r.idle(s, mark)
 		r.setMode(s, "ask")
-		ask, _, mark = r.tryCall(s, "read", map[string]any{"filePath": "/etc/hostname"})
+		ask, _, mark = r.tryCall(s, "read", map[string]any{"path": "/etc/hostname"})
 		if ask == nil || ask.Tool != "external_directory" {
 			t.Fatalf("a read of /etc/hostname on Ask: ask=%v, want an external_directory ask", ask)
 		}
@@ -556,12 +551,14 @@ func TestSelectorS13SafeDirs(t *testing.T) {
 // subtests; a root on Deny cannot delegate, its task tool being withdrawn).
 func (r *permRig) rawChild(parent backend.Session) backend.Session {
 	r.t.Helper()
-	out := r.raw(http.MethodPost, "/session?directory="+r.work, map[string]any{"title": "child", "parentID": parent.ID})
+	out := r.raw(http.MethodPost, "/api/session", map[string]any{"title": "child", "parentID": parent.ID, "location": map[string]any{"directory": r.work}})
 	var m struct {
-		ID string `json:"id"`
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
 	}
 	_ = json.Unmarshal(out, &m)
-	child := backend.Session{ID: m.ID, Title: "child", ParentID: parent.ID}
+	child := backend.Session{ID: m.Data.ID, Title: "child", ParentID: parent.ID}
 	r.mc.trackSession(r.ws, child)
 	for deadline := time.Now().Add(10 * time.Second); r.oc.RootOf(child.ID) != parent.ID; time.Sleep(50 * time.Millisecond) {
 		if time.Now().After(deadline) {
