@@ -50,7 +50,7 @@ option, and the list of computers waiting for confirmation, work the same.
 | Control                                        | What it adds to the printed command                                                                                                                                                                                                                                                                 | Default | Use it when                                                                                                                |
 | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------- |
 | **Use a project's own opencode setup** (amber) | `--allow-project-config`                                                                                                                                                                                                                                                                            | off     | the computer opens repositories you trust, and you want their own opencode setup to load                                   |
-| **Install opencode**                           | the served installer fetches the opencode release galopin is tested against (1.19.3) from opencode's GitHub releases and checks its sha256 against the one recorded in the Cerea repository before installing it into `~/.opencode/bin` (`install.sh \| sh -s -- --with-opencode`), before `enroll` | off     | the computer is fresh and does not have opencode (the agent runs it as its coding engine); leave it off if it is installed |
+| **Install opencode**                           | the served installer fetches the opencode release galopin is tested against (2.2.7) from opencode's GitHub releases and checks its sha256 against the one recorded in the Cerea repository before installing it into `~/.opencode/bin` (`install.sh \| sh -s -- --with-opencode`), before `enroll` | off     | the computer is fresh and does not have opencode (the agent runs it as its coding engine); leave it off if it is installed |
 
 **The computer has no limits of its own** (ADR 0109). What a session may do is its Plan · Ask · Allow · Auto word in the composer (and, for Auto, the rows in Workspace → Agents), plus a fixed floor in galopin. The dialog prints no limit flag; `enroll` still accepts the retired `--limit`, `--permission-max` and `--permission-rule` for one more release, ignores them and warns.
 
@@ -229,20 +229,22 @@ Loaded blindly, an `opencode.json` can point the gateway provider at another
 endpoint, so **every prompt, and every file the prompt pulls in with `@`,
 goes to a stranger's server instead of your gateway**; and its `{env:...}` and
 `{file:...}` settings can read your environment and files into that request.
-Both were reproduced against opencode 1.18.32.
+Both were reproduced against opencode 1.18.32 (and the switch below re-checked on 2.2.7).
 
 So by default the computer **ignores** it: `run` starts opencode with
 `OPENCODE_DISABLE_PROJECT_CONFIG=1`. That skips the repo's `opencode.json`,
-its project commands, agents and MCP servers, and its `AGENTS.md`/`CLAUDE.md`;
+its project commands, agents, plugins and MCP servers, and its `AGENTS.md` (opencode 2 no longer reads `CLAUDE.md` as a fallback);
 your own global config, your user-level commands and galopin's agent tools
 still load. The cost is real: a repo's own commands and agents do not show up,
 and the panel says so on such a workspace ("this repo's opencode config is
 ignored on this computer") so a missing command does not look like a bug.
 
-**Known gap:** on opencode 1.18.32 neither that switch nor `--pure` stops a
-repo's `.opencode/plugin/` scripts from being executed when opencode opens
-the directory. Do not open a repository you do not trust in an agent, whatever
-this setting says.
+**The old gap is closed on opencode 2.** On 1.18.32 neither that switch nor
+`--pure` stopped a repo's `.opencode/plugin/` scripts from running when opencode
+opened the directory. On 2.2.7 the switch does stop them (a repo plugin that
+writes a file on start was run without it and not run with it, verified for
+this release); opencode 2 has no `--pure`. A computer that allows project
+config (`--allow-project-config`) still runs the repo's plugins as you.
 
 **Skills installed on the computer are offered to every session.** opencode
 discovers skills from the user's own folders as well as galopin's:
@@ -1187,8 +1189,8 @@ in `agent/`.
 ### Installing on a computer (Linux or macOS)
 
 **Prerequisite:** `opencode` on the PATH, at the release galopin is tested
-against (currently 1.19.3; the one place it is written is
-`agent/packaging/opencode-version`): `npm i -g opencode-ai@1.19.3`, or the pairing dialog's **Install opencode**
+against (currently 2.2.7; the one place it is written is
+`agent/packaging/opencode-version`): `npm i -g @opencode/cli@2.2.7` (the opencode 2 package: `opencode-ai` is the 1.x line), or the pairing dialog's **Install opencode**
 option, which has the served installer download that release and verify its
 sha256 (recorded in `agent/packaging/opencode-sha256`) before installing it. A newer
 opencode usually works, but it can change something galopin relies on; a daily

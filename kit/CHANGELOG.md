@@ -5,6 +5,10 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **opencode 2 on computers (action needed on each computer).** galopin now drives opencode **2.2.7** (it was 1.19.3): opencode 2 replaced the server API, the plugin API and the permission rule format, and galopin is ported to all three. **On each computer running galopin, update opencode before updating galopin:** `npm i -g @opencode/cli@2.2.7`, or re-run the pairing dialog's install line with **Install opencode** ticked. (`opencode-ai` on npm is the 1.x line; opencode 2 is `@opencode/cli`.) A galopin that finds opencode 1.x says so and does not start. Nothing else changes: the generated `opencode.json` is read as is by opencode 2, your sessions are imported by opencode on its first start (take a copy of `~/.local/share/opencode/opencode.db` first if you may roll back; opencode 1 cannot read it afterwards), and the container image already carries 2.2.7. Behaviour that differs: slash commands are all treated as repository commands (they ask for confirmation, and are refused if slash commands that run shell are off), because opencode 2 no longer lists a command's text; subagent results read `<subagent ...>` instead of `<task_result>`; the todo list stays empty (opencode 2 turns it off); and `CLAUDE.md` is no longer read as an instructions fallback (use `AGENTS.md`). A repository's `.opencode/plugins` is now also ignored when project config is off, which opencode 1 did not do. 2.3.0 is not adopted yet: it makes every subagent a background one; see backlog G15.
+
 ## v0.52.2 — 2026-11-13
 
 Pins: Cerea `0.52.2` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.2`.

@@ -299,7 +299,7 @@ jobs:
           want=$(cat agent/packaging/opencode-version)
           docker run --rm -e WANT="$want" galopin:smoke bash -ec '
             galopin help >/dev/null
-            [ "$(opencode --version)" = "$WANT" ]
+            [ "$(opencode --version | sed "s/^opencode //; s/^v//")" = "$WANT" ]
             node -v; python3 --version; gcc --version | head -1; git --version; gh --version | head -1
             pnpm -v; uv --version; rg --version | head -1; jq --version
             [ "$(id -u)" = 1000 ]'

@@ -35,7 +35,13 @@ writes `REVISION` (the Cerea commit built from), `SHA256SUMS`, and copies in
 ## opencode releases
 
 galopin drives opencode's HTTP and ACP surfaces, so an opencode release can
-break it (a renamed permission, a changed event). The release galopin is
+break it (a renamed permission, a changed event). Since 2026-11-14 that means
+opencode 2 (`@opencode/cli` on npm; `opencode-ai` is the 1.x line): its server
+API, plugin API and permission rules are all different from 1.x, and
+`internal/backend/opencode/v2.go` is the one file that adapts them to what the
+rest of galopin speaks. The migration, its breaking-change table and the choice
+of 2.2.7 over 2.3.0 (2.3.0 makes every subagent a background one) are written up
+in ai-stack `reports/2026-11-14-opencode-2-migration.md`. The release galopin is
 built and tested against is written once, in `packaging/opencode-version`; the
 binary embeds it (`Backend.Version()`), CI installs it, and the panel's
 install line (`OPENCODE_VERSION` in `src/lib/codeEnrollCommand.ts`) is
@@ -47,8 +53,8 @@ checked equal to it by a spec.
 
 - **`pinned`**: the pinned release. On a push to main that touches `agent/`,
   weekly, and on demand.
-- **`latest`**: opencode's newest release, daily (or `version` on a manual
-  run, to try a specific release). Does nothing when that is the pin, or
+- **`latest`**: opencode's newest release (`npm view @opencode/cli version`),
+  daily (or `version` on a manual run, to try a specific release). Does nothing when that is the pin, or
   when the release already passed against this `agent/` tree (cached). Each
   job's summary lists the version, counts and failing tests.
 

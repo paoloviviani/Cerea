@@ -205,7 +205,7 @@ that matters for releases drives a **real opencode** and is off unless you set
 both gates; the opencode release must be the pinned one:
 
 ```sh
-npm i -g opencode-ai@$(cat agent/packaging/opencode-version)
+npm i -g @opencode/cli@$(cat agent/packaging/opencode-version)
 cd agent && GALOPIN_OPENCODE_IT=1 GALOPIN_ACP_IT=1 go test -count=1 -v -timeout 25m ./...
 ```
 
@@ -214,7 +214,7 @@ cd agent && GALOPIN_OPENCODE_IT=1 GALOPIN_ACP_IT=1 go test -count=1 -v -timeout 
 passed.
 
 **The opencode pin pipeline.** The opencode release galopin is built and tested
-against is written once, in `agent/packaging/opencode-version` (1.19.3 today).
+against is written once, in `agent/packaging/opencode-version` (2.2.7 today).
 galopin embeds it, CI installs it, and the pairing dialog's install line
 (`OPENCODE_VERSION` in `src/lib/codeEnrollCommand.ts`) must equal it:
 `codeEnrollCommand.spec.ts` fails if not. The `opencode` workflow runs the whole
@@ -223,7 +223,7 @@ opens or updates one issue labelled `opencode-pipeline` ("opencode X breaks
 galopin", or "ready to bump the pin"). To move the pin:
 
 ```sh
-agent/packaging/bump-opencode.sh 1.18.35     # rewrites both places and prints the commands to run
+agent/packaging/bump-opencode.sh 2.2.7      # rewrites both places and prints the commands to run
 ```
 
 Run the printed commands (the full suite under that opencode, then the TypeScript
