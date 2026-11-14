@@ -79,6 +79,8 @@
 	import CopyToClipBoardBtn from "$lib/components/CopyToClipBoardBtn.svelte";
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 	import { buildEnrollCommand } from "$lib/codeEnrollCommand";
+	import { buildUpgradeCommand, galopinNeedsUpgrade } from "$lib/galopinUpgrade";
+	import { APP_VERSION } from "$lib/utils/appVersion";
 	import PairDeviceDialog from "./PairDeviceDialog.svelte";
 	import PermissionsDialog from "./PermissionsDialog.svelte";
 	import { stepOf } from "$lib/types/machineProtocol";
@@ -157,6 +159,10 @@
 			clientId: page.data.codeOidcClientId,
 		})
 	);
+
+	// A paired computer whose galopin is older than this Cerea shows the one-line upgrade
+	// (it keeps its pairing and settings; nothing to enroll again).
+	const upgradeCommand = $derived(buildUpgradeCommand(publicConfig.origin));
 
 	// Collapsed devices and device+workspace groups (1b), remembered in
 	// localStorage across reloads. Only what is actually collapsed is
@@ -798,6 +804,24 @@
 							<CopyToClipBoardBtn
 								classNames="flex size-7 shrink-0 items-center justify-center rounded-lg border border-line bg-surface text-ink-muted hover:bg-sunken"
 								value={reenrollCommand}
+							/>
+						</div>
+					</div>
+				{/if}
+				{#if device.status === "paired" && !isDead && galopinNeedsUpgrade(device.agentVersion, APP_VERSION)}
+					<div
+						class="mb-1.5 ml-7 rounded-lg border border-line bg-sunken p-2 text-xs text-ink-muted"
+						data-testid="device-upgrade"
+					>
+						<p class="mb-1.5 font-medium text-ink">
+							{m["code.nav.upgrade_galopin"]({ version: device.agentVersion ?? "" })}
+						</p>
+						<div class="flex items-center gap-2 rounded-md border border-line bg-surface p-2">
+							<pre
+								class="min-w-0 flex-1 overflow-x-auto font-mono text-[.65rem] whitespace-pre text-ink">{upgradeCommand}</pre>
+							<CopyToClipBoardBtn
+								classNames="flex size-7 shrink-0 items-center justify-center rounded-lg border border-line bg-surface text-ink-muted hover:bg-sunken"
+								value={upgradeCommand}
 							/>
 						</div>
 					</div>

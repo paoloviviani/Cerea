@@ -41,6 +41,7 @@
 		DEFAULT_CONTAINER_NAME,
 	} from "$lib/codeEnrollCommand";
 	import { APP_VERSION } from "$lib/utils/appVersion";
+	import { buildUpgradeCommand, galopinNeedsUpgrade } from "$lib/galopinUpgrade";
 	import SegmentedGroup from "$lib/components/settings/SegmentedGroup.svelte";
 	import { defaultPolicyChoices } from "$lib/codeEnrollPolicy";
 	import EnrollPolicyControls from "./EnrollPolicyControls.svelte";
@@ -120,6 +121,14 @@
 	let busy = $state<string | null>(null);
 	let failure = $state<string | null>(null);
 
+	// A paired computer whose galopin is older than this Cerea: it needs no new pairing, only this line.
+	const upgradable = $derived(
+		codeDeviceList.devices.filter(
+			(device) =>
+				device.status === "paired" && galopinNeedsUpgrade(device.agentVersion, APP_VERSION)
+		)
+	);
+	const upgradeCommand = $derived(buildUpgradeCommand(origin));
 	const pending = $derived(codeDeviceList.devices.filter((device) => device.status === "pending"));
 
 	onMount(() => useCodeDevicePoll());
@@ -279,6 +288,24 @@
 		{/if}
 
 		<EnrollPolicyControls bind:choices={policyChoices} bind:installOpencode {docker} />
+
+		{#if !docker && upgradable.length > 0}
+			<div class="mt-4 text-xs text-ink-muted" data-testid="pair-upgrade">
+				<p class="mb-1 font-medium text-ink">{m["code.pair.upgrade_label"]()}</p>
+				<p class="mb-2">
+					{m["code.pair.upgrade_note"]({ names: upgradable.map((d) => d.name).join(", ") })}
+				</p>
+				<div class="flex items-center gap-2 rounded-lg border border-line bg-surface p-3">
+					<pre
+						class="min-w-0 flex-1 font-mono text-xs break-all whitespace-pre-wrap text-ink"
+						data-testid="galopin-upgrade-command">{upgradeCommand}</pre>
+					<CopyToClipBoardBtn
+						classNames="flex size-8 shrink-0 items-center justify-center rounded-lg border border-line bg-surface text-ink-muted hover:bg-sunken"
+						value={upgradeCommand}
+					/>
+				</div>
+			</div>
+		{/if}
 
 		<p class="{s.LABEL} mt-6">{m["code.pair.waiting"]()}</p>
 		{#if pending.length === 0}

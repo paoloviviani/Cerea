@@ -5,6 +5,16 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Upgrade an existing galopin in one step.** `curl -fsSL <origin>/galopin/install.sh | sh -s -- --upgrade`
+  (or `galopin upgrade`) stops galopin, backs up its state and opencode's database to
+  `<config>/galopin/backups/pre-upgrade-<date>/`, installs the new galopin (the old one stays
+  as `galopin.prev`) and the pinned opencode or goose, refreshes the browser runtime, and
+  restarts the systemd unit. Enrollment and settings are kept. The Pair dialog and the code
+  panel show the line for a computer whose galopin is older (galopin now reports the Cerea
+  release it was built from; `galopin version`). See `docs/agent-machines.md`, "Upgrading galopin".
+
 ## v0.52.2 — 2026-11-13
 
 Pins: Cerea `0.52.2` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.2`.

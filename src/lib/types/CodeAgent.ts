@@ -357,6 +357,9 @@ export interface CodeDevice {
 	iss: string;
 	/** The backends `hello` reported (opencode, later others). */
 	backends: Backend[];
+	/** galopin's own version (`hello.agent.version`): the Cerea release it was built from, or
+	 * "0.1.0" for a build from before that. Absent until the machine's next hello. */
+	agentVersion?: string;
 	/** What this galopin build implements (`hello.machine`: files, terminal…);
 	 * absent for a machine that predates it. */
 	machine?: Machine;

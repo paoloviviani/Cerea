@@ -12,9 +12,12 @@ mkdir -p "$out"; out=$(cd "$out" && pwd)
 rev=$(git -C "$here" rev-parse --short HEAD)
 if [ -n "$(git -C "$here" status --porcelain --untracked-files=no -- .)" ]; then rev="$rev-dirty"; fi
 cd "$here"
+# galopin's own version is the Cerea release it is built from (package.json one level up).
+ver=$(sed -n 's/^[[:space:]]*"version": "\([^"]*\)".*/\1/p' "$here/../package.json" 2>/dev/null | head -n 1)
+ver=${ver:-0.1.0}
 for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
     os=${target%/*}; arch=${target#*/}
-    CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags='-s -w' \
+    CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags="-s -w -X main.agentVersion=$ver" \
         -o "$out/galopin-$os-$arch" .
 done
 cp packaging/galopin.service packaging/org.cerea.galopin.plist "$out/"

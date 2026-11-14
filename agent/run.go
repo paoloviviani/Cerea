@@ -29,9 +29,12 @@ import (
 	"galopin/internal/workspaces"
 )
 
-// agentVersion is galopin's own version. Bumped by hand until a
-// release process assigns it from a tag.
-const agentVersion = "0.1.0"
+// agentVersion is galopin's own version. The Cerea build sets it to the Cerea
+// release it was built from (-ldflags "-X main.agentVersion=X.Y.Z", see
+// packaging/build-dist.sh and the Dockerfile); a build without the flag, and
+// every galopin from before it existed, reports "0.1.0", which the panel reads
+// as older than any release and offers the upgrade for.
+var agentVersion = "0.1.0"
 
 const runUsage = `galopin run — supervise opencode and dial out to Cerea.
 

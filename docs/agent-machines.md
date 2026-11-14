@@ -234,6 +234,50 @@ that computer"). Details, including macOS, are in
 To keep galopin running when the terminal closes, see
 [Keeping it running](agent-machines-reference.md#keeping-it-running).
 
+## Upgrading galopin
+
+An existing galopin (and the coding engine it runs) upgrades in one step that
+stops it cleanly, backs up its state, installs the build and engine version your
+Cerea pins, and starts it again. Enrollment and settings are kept: nothing is
+paired or enrolled again. The **Pair a computer** dialog and the computer's card in the
+Agents panel show the line when that computer's galopin is older than your Cerea:
+
+```sh
+curl -fsSL "$CEREA_BASE_URL/galopin/install.sh" | sh -s -- --upgrade
+```
+
+or, from a galopin new enough to have it, `galopin upgrade` (it downloads that
+installer from the Cerea the computer is enrolled with, shows what it will do and asks
+first; `--yes` skips the question; it only fetches over https, or http on the
+computer itself). In order, `--upgrade`:
+
+1. **Checks** that the computer is enrolled (galopin's `credentials.json` in its
+   configuration directory, `~/.config/galopin` on Linux). Without one it stops with
+   "nothing to upgrade, run the normal install".
+2. **Stops** galopin: the `galopin` systemd user unit if it is running. A `galopin run`
+   you started by hand is not stopped for you unless you add `--stop`, which sends
+   SIGTERM to your own `galopin run` (and nothing else). On a Mac the Cerea connector
+   app owns galopin: upgrade through its installer, and the script says so. Inside a
+   Docker container it prints the `docker pull` and recreate steps instead.
+3. **Backs up** galopin's configuration and state (not the browser's profile and
+   downloads) and, for the opencode engine, opencode's database
+   (`~/.local/share/opencode/opencode.db` with its `-wal` and `-shm` files), into
+   `<galopin config dir>/backups/pre-upgrade-<date>/`, and prints the path. opencode 2
+   migrates a 1.x database in place, so keep this until you are sure of the new engine.
+4. **Installs** the new galopin (verified against `SHA256SUMS`; the previous binary is
+   kept as `galopin.prev`) and, for the opencode engine, the opencode version your
+   Cerea pins when galopin's own copy in `~/.opencode/bin` differs or is missing (goose
+   the same way for the goose engine). An opencode you installed elsewhere, such as with
+   npm, is left alone, with a note on how to update it.
+5. **Refreshes** the browser runtime when you set it up (`galopin browser setup`) and
+   checks the credential (`galopin auth status`).
+6. **Restarts** the systemd unit if it was running, and prints the old and new versions.
+
+If a step fails after galopin was stopped, the installer prints how to roll back: put
+`galopin.prev` back over `galopin`, restore the opencode database from the backup, and
+only then start galopin. A failure before the new binary is in place starts the old one
+again by itself. Running it again is safe.
+
 ## Removing galopin
 
 To take galopin off a computer (revoke it in Cerea, stop the service, remove the

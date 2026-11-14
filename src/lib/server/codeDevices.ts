@@ -50,6 +50,8 @@ export interface CodeDeviceView {
 	status: CodeDevice["status"];
 	backends: CodeDevice["backends"];
 	machine?: CodeDevice["machine"];
+	/** galopin's own version, as its last hello said (undefined until it has sent one). */
+	agentVersion?: string;
 	policy: CodeDevice["policy"];
 	credentialState: CodeDevice["credentialState"];
 	online: boolean;
@@ -82,6 +84,7 @@ export function deviceView(device: CodeDevice, online: boolean): CodeDeviceView 
 		status: device.status,
 		backends: device.backends,
 		...(device.machine ? { machine: device.machine } : {}),
+		...(device.agentVersion ? { agentVersion: device.agentVersion } : {}),
 		policy: device.policy,
 		credentialState: device.credentialState,
 		online,
