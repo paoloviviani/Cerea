@@ -828,8 +828,15 @@ test.describe("owned machine agent: parity", () => {
 		// The card's title gains the roster's "(@general subagent)" a moment after the child
 		// appears, and the card remounts collapsed when it does: expanding before that is undone.
 		// So wait for the settled title, then expand.
-		await page.getByRole("button", { name: "Expand Inspect the repo (@general subagent)" }).click();
-		await expect(page.getByText("List what is in the repo.")).toBeVisible({ timeout: 30_000 });
+		// The child runs in the background (opencode 2), so its own events can remount the card
+		// collapsed while the page settles: expand again until the child's prompt shows.
+		await expect(async () => {
+			const expand = page.getByRole("button", {
+				name: "Expand Inspect the repo (@general subagent)",
+			});
+			if (await expand.count()) await expand.click();
+			await expect(page.getByText("List what is in the repo.")).toBeVisible({ timeout: 4_000 });
+		}).toPass({ timeout: 45_000 });
 	});
 
 	test("questions: opencode's own question tool becomes the SAME card as chat's ask_user_question, and the turn resumes once answered", async ({
