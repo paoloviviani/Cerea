@@ -48,7 +48,7 @@ echo "  agent/packaging/opencode-sha256, src/lib/opencodeVersion.ts (archive che
 cat <<MSG
 
 Before committing, prove it locally (real opencode, one at a time on a shared box):
-  npm i -g opencode-ai@$version && opencode --version
+  npm i -g @opencode/cli@$version && opencode --version
   cd agent && GALOPIN_OPENCODE_IT=1 GALOPIN_ACP_IT=1 go test -count=1 -v -timeout 25m ./...
   cd .. && npx vitest run --project=server src/lib/codeEnrollCommand.spec.ts
 

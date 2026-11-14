@@ -7,18 +7,13 @@
  * `agent/packaging/bump-opencode.sh <version>`.
  */
 export const OPENCODE_SHA256: Record<string, string> = {
-	"opencode-linux-x64.tar.gz": "13a8fb2978302071b86f9d7e00da9c8895f9cd846978379c3bdc6a5333536c9b",
-	"opencode-linux-x64-baseline.tar.gz":
-		"531cff2441129c30f0edd5878af494108ad07f5feb46d7ee29a2a5b830a5765d",
-	"opencode-linux-x64-musl.tar.gz":
-		"6c84c607077057cf5c8c63704e373d0053684bf29b397979f661d7fe68925487",
-	"opencode-linux-x64-baseline-musl.tar.gz":
-		"738506562666cc67e3512f04ecac50c0bae833c5bf44e1a59c99e5827a851778",
-	"opencode-linux-arm64.tar.gz": "7900818a6a98881edbbadab4b7525940eff3b9750040c200481f9f56cacee405",
-	"opencode-linux-arm64-musl.tar.gz":
-		"39c9ff1ea47fd59752613079f97bef40a2d14c30bc6bb5772a91d9d708e2d0b3",
-	"opencode-darwin-x64.zip": "4e29dbe2f61ace728370523c88027d0742b3a79edcdd2c70e404f616d4ef8f36",
-	"opencode-darwin-x64-baseline.zip":
-		"03f8c32f81a2c35429afedfb8f63978af32329febcebf800d52486f6ba568151",
-	"opencode-darwin-arm64.zip": "c2d0fecd27acf6e08be02c1f5d384614d07495587766bcc4a6bff3971749bb64",
+	"opencode-linux-x64.tar.gz": "89a6cee227b54bc011179c528a5e63176032462b1a5e21723b616801cddc2ca7",
+	"opencode-linux-x64-baseline.tar.gz": "89a6cee227b54bc011179c528a5e63176032462b1a5e21723b616801cddc2ca7",
+	"opencode-linux-x64-musl.tar.gz": "c1801a36bf61e03eafac8d7f4521a200e4d3cd76cf43b36621cb78b460b851ee",
+	"opencode-linux-x64-baseline-musl.tar.gz": "c1801a36bf61e03eafac8d7f4521a200e4d3cd76cf43b36621cb78b460b851ee",
+	"opencode-linux-arm64.tar.gz": "c1682057f0815cb2abdd6e00305f1146ebaf1c167f0335cdb74ddc80008120e7",
+	"opencode-linux-arm64-musl.tar.gz": "a03405f94ae02db7acb0870cf32030bab86460dc7faf524780e9cae305526b96",
+	"opencode-darwin-x64.zip": "3e4ea96ece041218cc74bc7c7d5cd202ff1f7983e32fc7ab6c58d532445e7961",
+	"opencode-darwin-x64-baseline.zip": "7830c9ce3945ad9fee792f603d4c9abcbb041b5cabafb51ce3c40da1dad5b435",
+	"opencode-darwin-arm64.zip": "811c42be9cad489ea8c411ead49e06f691deee4957ba9a0a56a159a7d6c1abdc",
 };
