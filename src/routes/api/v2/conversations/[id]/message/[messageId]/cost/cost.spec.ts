@@ -89,6 +89,7 @@ describe("GET .../message/:messageId/cost", () => {
 			inputTokens: 5,
 			cost: "0.0042",
 			costCurrency: "EUR",
+			costSource: "gateway",
 		});
 	});
 
@@ -105,14 +106,53 @@ describe("GET .../message/:messageId/cost", () => {
 		const { owner, chat } = await setup();
 		turnGatewayCost.mockResolvedValue({ status: "ok", cost: "1.2", currency: null, requests: 1 });
 		await ask(chat, { ...owner.locals, token: "tok" });
-		expect(await stored(chat)).toEqual({ cost: "1.2" });
+		expect(await stored(chat)).toEqual({ cost: "1.2", costSource: "gateway" });
 	});
 
-	it("does not ask the gateway when a cost is already stored", async () => {
-		const { owner, chat } = await setup({ cost: "0.5", costCurrency: "USD" });
+	it("does not ask the gateway when the settled cost is already stored", async () => {
+		const { owner, chat } = await setup({
+			cost: "0.5",
+			costCurrency: "USD",
+			costSource: "gateway",
+		});
 		const { body } = await ask(chat, { ...owner.locals, token: "tok" });
 		expect(body).toEqual({ available: true, cost: "0.5", currency: "USD" });
 		expect(turnGatewayCost).not.toHaveBeenCalled();
+	});
+
+	it("replaces a provisional in-stream cost with the gateway's settled one", async () => {
+		const { owner, chat } = await setup({ cost: "0.0010 USD", inputTokens: 5 });
+		turnGatewayCost.mockResolvedValue({
+			status: "ok",
+			cost: "0.0042",
+			currency: "USD",
+			requests: 3,
+		});
+		const { body } = await ask(chat, { ...owner.locals, token: "tok" });
+		expect(body).toEqual({ available: true, cost: "0.0042", currency: "USD" });
+		expect(await stored(chat)).toMatchObject({
+			inputTokens: 5,
+			cost: "0.0042",
+			costCurrency: "USD",
+			costSource: "gateway",
+		});
+	});
+
+	it("keeps the in-stream cost when the gateway has no tags, no gateway, or has not settled", async () => {
+		const { owner, chat } = await setup({ cost: "0.0010 USD" });
+		for (const result of [{ status: "unavailable" }, { status: "pending" }]) {
+			turnGatewayCost.mockResolvedValue(result);
+			expect((await ask(chat, { ...owner.locals, token: "tok" })).body).toEqual({
+				available: true,
+				cost: "0.0010 USD",
+				currency: null,
+			});
+		}
+		// No token at all (a gateway that is not configured): the same.
+		expect((await ask(chat, { ...owner.locals, token: undefined })).body).toMatchObject({
+			cost: "0.0010 USD",
+		});
+		expect(await stored(chat)).toEqual({ cost: "0.0010 USD" });
 	});
 
 	it("says unavailable, and stores nothing, with no gateway or no token", async () => {

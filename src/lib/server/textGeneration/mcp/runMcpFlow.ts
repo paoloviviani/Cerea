@@ -70,6 +70,7 @@ import { billToHeader } from "$lib/server/billTo";
 import { turnTagHeader } from "$lib/server/turnCost";
 import {
 	TurnStatsCollector,
+	type CallReport,
 	redactionFromError,
 	redactionRequestHeaders,
 } from "$lib/server/turnStats";
@@ -867,6 +868,8 @@ export async function* runMcpFlow({
 		const nestedAgentDeps = {
 			openai,
 			completionBase,
+			// Every sub-agent model call reports here, so the turn's tokens count them.
+			reportUsage: (report: CallReport) => turnStats.reportSubAgent(report),
 			requestHeaders: {
 				"ChatUI-Conversation-ID": conv._id.toString(),
 				// Like the main model's calls: a sub-agent's spend belongs to this turn and to the
@@ -1544,6 +1547,7 @@ export async function* runMcpFlow({
 				});
 				let toolMsgCount = 0;
 				let toolRunCount = 0;
+				let subAgentCallsSeen = turnStats.subAgentCallCount;
 				// Stop is noticed by polling the abort record, and the loop only polls
 				// as events arrive. A sub-agent can sit in one model call for a long
 				// time, so while one runs the poll also runs on a timer, which is
@@ -1555,6 +1559,12 @@ export async function* runMcpFlow({
 					: undefined;
 				try {
 					for await (const event of exec) {
+						// Sub-agent usage lands while a tool runs (a browse task can run for
+						// minutes): send the cumulative stats as it grows, not only after the round.
+						if (turnStats.subAgentCallCount !== subAgentCallsSeen) {
+							subAgentCallsSeen = turnStats.subAgentCallCount;
+							yield { type: MessageUpdateType.TurnStats, stats: turnStats.snapshot() };
+						}
 						if (event.type === "update") {
 							producedOutput = true;
 							yield event.update;
@@ -1589,6 +1599,9 @@ export async function* runMcpFlow({
 					}
 				} finally {
 					if (stopWatch) clearInterval(stopWatch);
+				}
+				if (turnStats.subAgentCallCount !== subAgentCallsSeen) {
+					yield { type: MessageUpdateType.TurnStats, stats: turnStats.snapshot() };
 				}
 
 				roundsWithTools += 1;

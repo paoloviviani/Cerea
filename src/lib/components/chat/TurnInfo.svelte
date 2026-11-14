@@ -4,9 +4,13 @@
 	redaction hid. A popover on desktop, a sheet on a phone. The dot is grey,
 	yellow when values were hidden, red when the request was refused; the state
 	is always named in words too (aria-label, title, and a word in the overlay).
-	Everything comes from `message.stats`; a gap shows as "—". The cost is the
-	one exception: when the message has none, it is read from the gateway the
-	first time the overlay opens ("…" meanwhile).
+	Everything comes from `message.stats`; a gap shows as "—". The token counts
+	are totals over the main model and the helpers (sub-agents); a "Helpers" row
+	gives the helpers' share when there was any. The cost is the one exception:
+	the server stores the gateway's settled cost when the turn ends
+	(`costSource: "gateway"`); until then the stored one is provisional, and it
+	is read from the gateway the first time the overlay opens ("…" meanwhile
+	when there is none).
 -->
 <script lang="ts">
 	import { m } from "$lib/paraglide/messages";
@@ -73,12 +77,15 @@
 	}
 
 	const stats = $derived(message.stats);
+	// The settled cost read now wins over a provisional one (the stream's sum, main model only).
 	const costText = $derived(
-		stats?.cost
-			? formatTurnCost(stats.cost, stats.costCurrency)
-			: costLoading
-				? "…"
-				: formatTurnCost(fetched?.cost, fetched?.currency)
+		fetched
+			? formatTurnCost(fetched.cost, fetched.currency)
+			: stats?.cost
+				? formatTurnCost(stats.cost, stats.costCurrency)
+				: costLoading
+					? "…"
+					: formatTurnCost(undefined, undefined)
 	);
 	const dot = $derived(dotState(stats));
 	const redaction = $derived(stats?.redaction);
@@ -116,7 +123,8 @@
 		}
 		open = !open;
 		const conversationId = conversationIdProp ?? page.params.id;
-		if (open && !costAsked && !stats?.cost && conversationId) void loadCost(conversationId);
+		if (open && !costAsked && stats?.costSource !== "gateway" && conversationId)
+			void loadCost(conversationId);
 	}
 	let button: HTMLButtonElement | undefined = $state();
 	const blank = (v: string | undefined) => (v && v !== "" ? v : "—");
@@ -218,6 +226,15 @@
 					{#if stats?.reasoningTokens != null}
 						<dt class="text-ink-muted">{m["chat.turn_details.reasoning"]()}</dt>
 						<dd class="text-right">{formatCount(stats.reasoningTokens)}</dd>
+					{/if}
+					{#if stats?.subAgentCalls}
+						<dt class="text-ink-muted">{m["chat.turn_details.sub_agents"]()}</dt>
+						<dd class="text-right" data-testid="turn-info-sub-agents">
+							{m["chat.turn_details.sub_agents_value"]({
+								input: formatCount(stats.subAgentInputTokens),
+								output: formatCount(stats.subAgentOutputTokens),
+							})}
+						</dd>
 					{/if}
 					<dt class="text-ink-muted">{m["chat.turn_details.first_token"]()}</dt>
 					<dd class="text-right">{formatDuration(stats?.firstTokenMs)}</dd>

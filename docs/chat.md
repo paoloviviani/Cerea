@@ -544,15 +544,21 @@ token, the speed (output tokens per second, from the first token to the end),
 the cost, and the time of the turn. Anything not known shows "—". The numbers
 are measured where Cerea reads the answer and are kept with it, so they are
 there after a reload. In a turn with tools, the tokens add up over the model's
-calls.
+calls, and over the calls of any helper (a delegated task or the browser agent)
+the turn started. When a helper made calls, a **Helpers** row gives its share,
+for example "41,200 in · 3,100 out"; the token rows above it are the totals.
+The time to the first token and the speed are the chat model's only.
 
 The **cost** is not known while the answer streams: the gateway settles it a
-moment afterwards. So Cerea reads it the first time you open the details of an
-answer, showing "…" meanwhile, in the deployment's currency, and keeps it with
-the answer, so it is asked for once. Every request of the turn is labelled
+moment afterwards. So when the turn ends, Cerea reads it in the background and
+keeps it with the answer, in the deployment's currency. Until then the details
+show the cost the stream reported (the chat model's calls only), which the
+settled figure replaces. If the background read found nothing, Cerea reads it
+the first time you open the details of the answer (once), showing "…" when it
+has nothing to show meanwhile. Every request of the turn is labelled
 `turn:<answer id>` for the gateway (`x-pystino-tag`), and the cost is the
 gateway's total for that label, the figure that counts toward your quota. It
-adds up the model's calls of the answer, every round of a tool turn included,
+adds up the model's calls of the answer, helpers' calls included, every round of a tool turn included,
 and images the model generated during it. It does not include the conversation's
 title (made beside the answer), a coding agent's work, or anything not metered
 by the gateway (your own provider keys). If nothing has settled yet, Cerea
