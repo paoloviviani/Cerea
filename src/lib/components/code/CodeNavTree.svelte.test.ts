@@ -392,15 +392,16 @@ describe("CodeNavTree machine rows", () => {
 			a.getAttribute("title")
 		);
 
-	it("puts a computer icon before the name and the status dot at the row's right end", async () => {
+	it("puts the status dot before the name, with no computer icon", async () => {
 		go("");
 		const screen = mount([device("d1")]);
 		await expect.element(screen.getByText("Box d1")).toBeVisible();
 		const link = screen.baseElement.querySelector('[data-testid="device-row"] a') as HTMLElement;
 		const kids = [...link.children];
-		expect(kids[0]?.tagName.toLowerCase()).toBe("svg");
-		expect(kids[kids.length - 1]?.getAttribute("data-testid")).toBe("device-status");
-		expect(kids[kids.length - 1]?.getAttribute("title")).toBe("Connected");
+		expect(kids[0]?.getAttribute("data-testid")).toBe("device-status");
+		expect(kids[0]?.getAttribute("title")).toBe("Connected");
+		expect(kids[1]?.textContent).toContain("Box d1");
+		expect(link.querySelector("svg")).toBeNull();
 	});
 
 	it("shows a dot, not an 'online' pill: filled when connected, hollow when not", async () => {

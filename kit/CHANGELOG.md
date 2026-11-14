@@ -7,6 +7,8 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **Agents sidebar: the status dot is back on the left.** Each computer row shows its green (connected) or hollow (not connected) dot before the name again, instead of a computer icon.
+
 - **Settings: the PyPI option is hidden with server sandboxes.** "Let code install extra Python packages" only concerns code run in the browser; when the model's code runs in the server sandbox (`CHAT_CODE_EXECUTION=server`), which never installs packages, the option is no longer shown.
 
 - **Turn details count helpers.** The tokens and cost of a turn now include the calls of the
