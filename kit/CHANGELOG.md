@@ -5,9 +5,12 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## v0.52.2 — 2026-11-13
+## Unreleased
 
 - **Chat notes, and notes for coding agents.** A chat can keep its own notes ("remember this for this chat"): they are sent with every message of that chat only, deleted with it, and listed (edit, delete, undo, add) under **Notes** in the chat's side panel, whose button shows the count. The assistant's `remember` and `forget` now say where a note goes (this chat, the project, or your memory for every chat), default to the narrowest, and keep your memory for what you clearly mean as always or about yourself. Coding agents get `memory_list`, `memory_save` and `memory_forget` for **session** and **workspace** notes (kept across context compaction, shown under **Notes** in the agent's header, deleted with the session or workspace); agents have no access to your memory, projects or chats, enforced by Cerea. For prompt caching, your memory and the project's notes are now taken once when a chat starts and stay identical for the chat; later changes and the chat's notes ride next to the newest message. New collections `conversationMemories` and `agentMemories`; the machine link advertises a `memory` family, so **on computers** re-run the install line to get the tools.
+
+## v0.52.2 — 2026-11-13
+
 Pins: Cerea `0.52.2` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.2`.
 **To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
 `docker compose pull && docker compose up -d`. Fixes a security issue in the sandbox Docker proxy shipped in v0.52.1 (update if you run sandboxes). New optional shared sandbox budget; see `docs/sandboxes.md`. **On computers**, re-run the install line from the **Pair a computer** dialog; on a Mac, install the Cerea connector from this release's page.
