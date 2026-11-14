@@ -131,6 +131,8 @@ describe("GET /api/v2/feature-flags", () => {
 		const res = await testRequest(featureFlagsGET, { path: "/api/v2/feature-flags", locals });
 		const data = await parseResponse<FeatureFlags>(res);
 		expect(data.pyodidePyPiInstallAllowed).toBe(true);
+		// Code runs in the browser unless the deployment chose the server sandbox.
+		expect(data.modelCodeOnServer).toBe(false);
 	});
 
 	it("reports the setting unavailable when the admin kill-switch is set", async () => {

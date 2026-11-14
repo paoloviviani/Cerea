@@ -1,6 +1,6 @@
 import ChatInput from "./ChatInput.svelte";
 import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
-import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
+import { describe, expect, it, beforeEach, afterEach, afterAll, vi } from "vitest";
 import { tick } from "svelte";
 import { page } from "@vitest/browser/context";
 import { writable } from "svelte/store";
@@ -17,6 +17,29 @@ const waitSlow = <T>(check: () => T | Promise<T>) => vi.waitFor(check, { timeout
 vi.mock("$env/dynamic/public", () => ({
 	env: { PUBLIC_APP_ASSETS: "chatui", PUBLIC_APP_NAME: "chat-ui" },
 }));
+
+/**
+ * Resize the browser page and wait until the page itself reports it. `page.viewport` resolves
+ * when Playwright has issued the resize, but the iframe's `innerWidth` and the composer's
+ * `(max-width: 767px)` MediaQuery catch up a frame later. A test that renders in that gap (or
+ * restores from a stale `innerWidth`) gets the wrong side for its submenus, and the viewport a
+ * file leaves behind is what the next file in the shard starts with. So every test here starts
+ * from one known desktop size, and each resize waits for the media query to settle.
+ */
+const DESKTOP = { width: 1280, height: 800 };
+const setViewport = async (width: number, height: number) => {
+	await page.viewport(width, height);
+	await vi.waitFor(
+		() => {
+			expect(window.innerWidth).toBe(width);
+			expect(window.innerHeight).toBe(height);
+			expect(window.matchMedia("(max-width: 767px)").matches).toBe(width <= 767);
+		},
+		{ timeout: 5000 }
+	);
+};
+
+let originalViewport: { width: number; height: number } | undefined;
 
 const find = (root: ParentNode, selector: string): HTMLElement => {
 	const el = root.querySelector<HTMLElement>(selector);
@@ -114,7 +137,9 @@ async function renderComposer(
 	return { ...mounted, container: host };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+	originalViewport ??= { width: window.innerWidth, height: window.innerHeight };
+	await setViewport(DESKTOP.width, DESKTOP.height);
 	document.getElementById("app")?.remove();
 	// Connector and base-server stores persist across tests in this file;
 	// reset them so each submenu test starts from what it seeds.
@@ -127,6 +152,11 @@ beforeEach(() => {
 		const key = localStorage.key(i);
 		if (key?.includes(":mcp:")) localStorage.removeItem(key);
 	}
+});
+
+afterAll(async () => {
+	// Leave the page as this file found it, for the next file in the shard.
+	if (originalViewport) await page.viewport(originalViewport.width, originalViewport.height);
 });
 
 afterEach(() => {
@@ -445,9 +475,7 @@ describe("ChatInput: composer toolbar order and attach-menu cascade", () => {
 	});
 
 	it("at phone width, the root menu and every submenu stay inside the viewport", async () => {
-		const restoreWidth = window.innerWidth;
-		const restoreHeight = window.innerHeight;
-		await page.viewport(390, 844);
+		await setViewport(390, 844);
 		try {
 			stubFetch();
 			const { container } = await renderComposer({ id: CONV_ID });
@@ -461,7 +489,7 @@ describe("ChatInput: composer toolbar order and attach-menu cascade", () => {
 			await openSubmenu("Add file", "Upload from this device");
 			expectPanelsInViewport();
 		} finally {
-			await page.viewport(restoreWidth, restoreHeight);
+			await setViewport(DESKTOP.width, DESKTOP.height);
 		}
 	});
 
@@ -566,9 +594,7 @@ describe("ChatInput: composer toolbar order and attach-menu cascade", () => {
 	});
 
 	it("on desktop the submenus still cascade to the right of the root menu", async () => {
-		const restoreWidth = window.innerWidth;
-		const restoreHeight = window.innerHeight;
-		await page.viewport(1280, 800);
+		await setViewport(1280, 800);
 		try {
 			stubFetch();
 			const { container } = await renderComposer({ id: CONV_ID });
@@ -582,7 +608,7 @@ describe("ChatInput: composer toolbar order and attach-menu cascade", () => {
 			expect(submenu.getAttribute("data-align")).toBe("center");
 			expectPanelsInViewport();
 		} finally {
-			await page.viewport(restoreWidth, restoreHeight);
+			await setViewport(DESKTOP.width, DESKTOP.height);
 		}
 	});
 });
@@ -744,9 +770,7 @@ describe("ChatInput: taking a photo", () => {
 describe("ChatInput: the composer's height", () => {
 	it("a 40-line draft on a 400x700 phone caps at 40% of the height, past 4 lines", async () => {
 		stubFetch();
-		const restoreWidth = window.innerWidth;
-		const restoreHeight = window.innerHeight;
-		await page.viewport(400, 700);
+		await setViewport(400, 700);
 		document.documentElement.style.setProperty("--app-dvh", "700px");
 		try {
 			const { container } = await renderComposer({ id: CONV_ID });
@@ -767,7 +791,7 @@ describe("ChatInput: the composer's height", () => {
 			expect(box.scrollHeight).toBeGreaterThan(box.clientHeight);
 		} finally {
 			document.documentElement.style.removeProperty("--app-dvh");
-			await page.viewport(restoreWidth, restoreHeight);
+			await setViewport(DESKTOP.width, DESKTOP.height);
 		}
 	});
 });

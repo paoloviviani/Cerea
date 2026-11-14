@@ -115,6 +115,13 @@ describe("Settings > Application, the PyPI install option", () => {
 		expect(row()).toBeNull();
 		expect(document.body.textContent).not.toContain("Let code install extra Python packages");
 	});
+
+	it("hides the row when the model's code runs in the server sandbox", async () => {
+		page.data = { pyodidePyPiInstallAllowed: true, modelCodeOnServer: true };
+		const screen = renderWithApp(ApplicationPage, {}, { context: stores(), page });
+		await expect.element(screen.getByText("Appearance")).toBeVisible();
+		expect(row()).toBeNull();
+	});
 });
 
 describe("Settings > Application, About this server", () => {

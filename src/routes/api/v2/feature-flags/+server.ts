@@ -13,7 +13,7 @@ import { machineClientId, machineFlow } from "$lib/server/code/machineAuth";
 import type { FeatureFlags } from "$lib/server/api/types";
 import { dictationMode, dictationOffersFor } from "$lib/server/dictation";
 import { codeRunTimeoutMs } from "$lib/server/codeRunLimit";
-import { executionBackend } from "$lib/server/codeExecution/backend";
+import { executionBackend, serverExecutionConfigured } from "$lib/server/codeExecution/backend";
 
 export const GET: RequestHandler = async ({ locals }) => {
 	// Mirror the title-generation resolution (generateFromDefaultEndpoint): the
@@ -58,6 +58,9 @@ export const GET: RequestHandler = async ({ locals }) => {
 		taskModelId,
 		pyodidePyPiInstallAllowed: config.CHAT_PYODIDE_PYPI_DISABLED !== "true",
 		codeRunTimeoutSeconds: Math.round(codeRunTimeoutMs() / 1000),
+		// The model's code runs in the server sandbox, which never installs packages: the PyPI setting
+		// only concerns the browser runner, so the settings page hides it.
+		modelCodeOnServer: serverExecutionConfigured(),
 		// The page's own execution (Run buttons, fences) is the browser's whenever code is on at all:
 		// the server backend only changes where the model's `execute_code` tool runs.
 		codeExecution: executionBackend().kind === "off" ? "off" : "browser",
