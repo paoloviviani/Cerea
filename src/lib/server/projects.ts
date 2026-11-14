@@ -311,6 +311,12 @@ export async function projectContext(options: {
 	token: string | undefined;
 	/** The generation's locals: who is asking, for the store's reach checks. */
 	locals: App.Locals | undefined;
+	/**
+	 * The project memory block frozen when the chat started (`memory/snapshot`),
+	 * when the caller has one: used as is, with no live read, so the prompt
+	 * prefix does not change when a note does.
+	 */
+	projectMemory?: { block: string | undefined };
 }): Promise<string | undefined> {
 	const { project, question, token, locals } = options;
 	const parts: string[] = [];
@@ -331,11 +337,15 @@ export async function projectContext(options: {
 
 		// 3. Project memory (its own deployment flag, and its own try/catch).
 		try {
-			const member = await projectForMemory(project._id, locals);
-			if (member) {
-				const { projectMemoryContext } = await import("$lib/server/memory/service");
-				const block = await projectMemoryContext(member._id);
-				if (block) parts.push(block);
+			if (options.projectMemory) {
+				if (options.projectMemory.block) parts.push(options.projectMemory.block);
+			} else {
+				const member = await projectForMemory(project._id, locals);
+				if (member) {
+					const { projectMemoryContext } = await import("$lib/server/memory/service");
+					const block = await projectMemoryContext(member._id);
+					if (block) parts.push(block);
+				}
 			}
 		} catch (err) {
 			logger.warn({ err: String(err) }, "[memory] project memory failed; continuing without it");

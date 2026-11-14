@@ -231,6 +231,14 @@ export async function sweepKnowledgeOrphans(now = new Date()): Promise<SweepCoun
 				counts.orphanShares = swept.shares;
 			},
 		],
+		[
+			"chat notes",
+			async () => {
+				const { sweepOrphanConversationNotes } = await import("$lib/server/memory/service");
+				const removed = await sweepOrphanConversationNotes();
+				if (removed > 0) logger.info({ removed }, "orphan_conversation_notes_swept");
+			},
+		],
 	];
 	for (const [name, run] of parts) {
 		try {

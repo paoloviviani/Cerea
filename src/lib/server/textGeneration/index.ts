@@ -127,35 +127,59 @@ async function* textGenerationWithoutTitle(
 			ctx.locals?.scheduledRun === undefined || executionBackend().supportsUnattended,
 	});
 
-	// Standing facts about this person, carried in from earlier conversations
-	// (see `$lib/types/Memory`). Appended after `resolvePreprompt` for the
-	// reason the project block below is, and *before* it: the conversation's
-	// own prompt keeps precedence over both, and a fact about the person is
-	// more general than passages retrieved for this one question, so it reads
-	// in the order a person would write it.
+	// Personal and project memory, as a snapshot taken when the chat started (see
+	// `memory/snapshot`). The blocks below are rendered from it, so this part of the
+	// system prompt is byte-identical on every turn and stays in the provider's
+	// prompt cache; writes made later reach the model in the tail of the request
+	// (runMcpFlow), never here. Retaken only when what is available changes shape
+	// (the chat moves into or out of a project, or personal memory is switched).
 	//
-	// Gated twice, exactly like the `remember`/`forget` tools: the operator's
-	// deployment flag and this person's own opt-in, which defaults off. An
-	// anonymous turn has no memory at all — there is nowhere durable to keep
-	// a fact without a user. The whole block is a try/catch that logs and
-	// continues, the same posture as the skills assembly above and
-	// `projectContext` below: a store that cannot be read is a reason for a
-	// worse answer, never for none.
+	// Personal memory is gated twice, as the `remember` tool's global scope is: the
+	// operator's deployment flag and this person's own opt-in, which defaults off.
+	// Project memory needs the flag and current membership. An anonymous turn has
+	// no memory. The whole block is a try/catch that logs and continues: a store
+	// that cannot be read is a reason for a worse answer, never for none.
+	let projectMemoryBlock: { block: string | undefined } | undefined;
+	// What the tail of the request needs (see `memory/blocks.ts`), settled with the snapshot.
+	let memoryState:
+		| {
+				userId: NonNullable<typeof conv.userId>;
+				globalOn: boolean;
+				projectId: typeof conv.projectId;
+		  }
+		| undefined;
 	try {
 		const memoryUserId = ctx.locals?.user?._id;
 		if (memoryUserId) {
 			const { memoryEnabled } = await import("$lib/server/memoryEnabled");
 			if (memoryEnabled()) {
 				const settings = await collections.settings.findOne({ userId: memoryUserId as never });
-				if (settings?.memoryEnabled === true) {
-					const { memoryContext } = await import("$lib/server/memory/service");
-					const block = await memoryContext(memoryUserId);
-					if (block) preprompt = preprompt ? `${preprompt}\n\n${block}` : block;
+				const globalOn = settings?.memoryEnabled === true;
+				const { projectForMemory } = await import("$lib/server/projects");
+				const member = conv.projectId ? await projectForMemory(conv.projectId, ctx.locals) : null;
+				const available = { userId: memoryUserId, globalOn, projectId: member?._id };
+				if (globalOn || member) {
+					const { snapshotApplies, snapshotBlocks, takeMemorySnapshot } =
+						await import("$lib/server/memory/snapshot");
+					let snapshot = conv.memorySnapshot;
+					if (!snapshotApplies(snapshot, available)) {
+						snapshot = await takeMemorySnapshot(available);
+						conv.memorySnapshot = snapshot;
+						await collections.conversations.updateOne(
+							{ _id: conv._id },
+							{ $set: { memorySnapshot: snapshot } }
+						);
+					}
+					memoryState = { userId: memoryUserId, globalOn, projectId: member?._id };
+					const blocks = snapshotBlocks(snapshot);
+					if (blocks.global)
+						preprompt = preprompt ? `${preprompt}\n\n${blocks.global}` : blocks.global;
+					projectMemoryBlock = { block: blocks.project };
 				}
 			}
 		}
 	} catch (err) {
-		logger.warn({ err: String(err) }, "[memory] memory context failed; continuing without it");
+		logger.warn({ err: String(err) }, "[memory] memory snapshot failed; continuing without it");
 	}
 
 	// A project's context, in its five levels (see `projectContext`: instructions,
@@ -186,6 +210,7 @@ async function* textGenerationWithoutTitle(
 				question: lastUser?.content ?? "",
 				token: ctx.locals?.token,
 				locals: ctx.locals,
+				...(projectMemoryBlock ? { projectMemory: projectMemoryBlock } : {}),
 			});
 			if (context) {
 				preprompt = preprompt ? `${preprompt}\n\n${context}` : context;
@@ -200,6 +225,32 @@ async function* textGenerationWithoutTitle(
 		conv.messages
 	);
 
+	// The memory block for each user message, computed once for both paths below: the
+	// chat's notes and any memory changed since the chat started ride the tail of the
+	// request, replayed unchanged on earlier messages so the cached prefix never moves.
+	let memoryBlocks = new Map<string, string>();
+	if (ctx.locals?.user) {
+		const { memoryEnabled } = await import("$lib/server/memoryEnabled");
+		if (memoryEnabled()) {
+			const { prepareMemoryBlocks } = await import("$lib/server/memory/blocks");
+			memoryBlocks = await prepareMemoryBlocks({
+				conversationId: convId,
+				messages,
+				conversationMessages: conv.messages,
+				snapshot: conv.memorySnapshot,
+				userId: ctx.locals.user._id,
+				globalOn: memoryState?.globalOn ?? false,
+				projectId: memoryState?.projectId,
+				contextLengthTokens: ctx.model.contextLength,
+			});
+		}
+	}
+	const { applyMemoryBlocks, blocksByPosition } = await import("$lib/server/memory/blocks");
+	const promptMessages = applyMemoryBlocks(
+		processedMessages,
+		blocksByPosition(messages, processedMessages.length, memoryBlocks)
+	);
+
 	let mcpProducedOutput = false;
 
 	// Try MCP tool flow first; fall back to default generation if not selected/available
@@ -208,6 +259,9 @@ async function* textGenerationWithoutTitle(
 			model: ctx.model,
 			conv,
 			messages: processedMessages,
+			// The same messages with their memory blocks in front, for the request only: the
+			// notes are not the user's words, so URLs and hints are still read from `messages`.
+			promptMessages,
 			forceMultimodal: ctx.forceMultimodal,
 			forceTools: ctx.forceTools,
 			reasoningEffort: ctx.reasoningEffort,
@@ -238,7 +292,7 @@ async function* textGenerationWithoutTitle(
 		// throw, and re-running would discard whatever the user has already been shown.
 		if (mcpResult === "not_applicable" && !mcpProducedOutput) {
 			// fallback to normal text generation
-			yield* generate({ ...ctx, messages: processedMessages }, preprompt);
+			yield* generate({ ...ctx, messages: promptMessages }, preprompt);
 		}
 		// Every other result already emitted a final answer; falling back would replace it.
 	} catch (err) {
@@ -256,7 +310,7 @@ async function* textGenerationWithoutTitle(
 			throw err;
 		} else {
 			// Nothing was shown yet, so a clean tool-free retry is a real recovery.
-			yield* generate({ ...ctx, messages: processedMessages }, preprompt);
+			yield* generate({ ...ctx, messages: promptMessages }, preprompt);
 		}
 	}
 	done.abort();

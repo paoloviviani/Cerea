@@ -406,6 +406,13 @@ The **Agents** option of the sidebar's Chats | Recent | Agents switch carries a 
 badge while asks are pending (that badge is all: there is no separate "Needs you"
 line in the sidebar). Push notifications (below) are unchanged.
 
+## Memory and notes
+
+Agents have no Cerea memory tools: an agent cannot read or write your personal
+memory, a project's memory or a chat's notes, and there is no Notes view in the
+agent screen. Project context for agents is planned (ADR 0118); it is not built
+yet. Memory and notes belong to chats, see [Chat](chat.md).
+
 ## Notifications for agents
 
 With Web Push set up ([Notifications](notifications.md#for-operators): the

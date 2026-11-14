@@ -95,7 +95,10 @@ export const GET: RequestHandler = async ({ locals, params }) => {
 	}
 
 	// A code block's and an artifact cell's stored files, on their messages.
-	const messages = await withRunFiles(conversation._id, conversation.messages);
+	// The memory block a message was sent with is server-side state: it stays out of the payload.
+	const messages = (await withRunFiles(conversation._id, conversation.messages)).map(
+		({ memoryBlock: _memoryBlock, ...message }) => message
+	);
 
 	return superjsonResponse({
 		messages,

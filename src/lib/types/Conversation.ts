@@ -14,6 +14,14 @@ export interface Conversation extends Timestamps {
 	model: string;
 
 	/**
+	 * Personal and project memory as they stood when this chat started (see
+	 * `$lib/server/memory/snapshot`). Rendered once into the system prompt so
+	 * that prefix is the same on every turn and stays in the provider's prompt
+	 * cache; writes made later in the chat travel in the tail of the request.
+	 */
+	memorySnapshot?: import("$lib/server/memory/snapshot").MemorySnapshot;
+
+	/**
 	 * The connectors whose tools the assistant has loaded in this conversation
 	 * (`load_tools`, ADR 0104), as connector keys, in the order they were
 	 * loaded. They stay loaded on later turns, and a later load is appended, so

@@ -145,9 +145,10 @@ you.
   owner and everyone it is shared with. That is wider than the project's
   instructions, which only the owner changes. Each note shows who wrote it, its
   date and, if the assistant wrote it, the chat it came from.
-- **The assistant can write them too.** In a project chat it is offered
-  `remember_for_project` and `forget_for_project` as well as `remember` and
-  `forget`, and the change shows in the transcript with an undo.
+- **The assistant can write them too.** In a project chat `remember` and
+  `forget` can take `scope: project`, and the change shows in the transcript
+  with an undo and says it went to the project's notes. The assistant uses it
+  when you say "for this project", never for facts about you.
 - **Limits.** A note is at most 2,000 characters and a project keeps 100. The
   prompt block has a budget of 8,000 characters; past it the **oldest** notes
   stop being sent, and the Memory section of the project page marks which.

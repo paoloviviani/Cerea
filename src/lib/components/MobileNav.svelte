@@ -23,6 +23,7 @@
 	import IconBurger from "$lib/components/icons/IconBurger.svelte";
 	import { Spring } from "svelte/motion";
 	import { exportConversation } from "$lib/stores/exportConversation";
+	import { chatNotes } from "$lib/stores/chatNotes.svelte";
 	import { sidePane } from "$lib/stores/sidePane.svelte";
 	import { requireAuthUser } from "$lib/utils/auth";
 	import { tap } from "$lib/utils/haptics";
@@ -265,12 +266,20 @@
 			     at the other end of this same bar opens the nav drawer. -->
 			<button
 				type="button"
-				class="flex h-12 w-6 shrink-0 items-center justify-center text-lg"
+				class="relative flex h-12 w-6 shrink-0 items-center justify-center text-lg"
 				onclick={() => sidePane.toggleLibrary()}
-				aria-label={m["app.mobile_nav.open_files"]()}
+				aria-label={chatNotes.count > 0
+					? m["chat.notes.entry_label"]({ count: chatNotes.count })
+					: m["app.mobile_nav.open_files"]()}
 				title={m["app.mobile_nav.files_title"]()}
 			>
 				<CarbonSidePanelOpen />
+				{#if chatNotes.count > 0}
+					<span
+						class="absolute top-1.5 -right-0.5 min-w-3.5 rounded-full bg-accent px-0.5 text-center font-mono text-xxs leading-3.5 text-white"
+						>{chatNotes.count}</span
+					>
+				{/if}
 			</button>
 		{/if}
 		<a

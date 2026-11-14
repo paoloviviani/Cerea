@@ -612,6 +612,14 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		erase: (userId) => eraseByField(collections.memories, "userId", userId),
 	},
 	{
+		name: "conversationMemories",
+		owner: "conversationId (the chat's own notes; deleted with the chat)",
+		mergeRule: "follows-conversation",
+		eraseRule: "by-conversation",
+		merge: async () => 0,
+		erase: (_userId, ctx) => eraseByConversation(collections.conversationMemories, ctx),
+	},
+	{
 		name: "mcpConnectors",
 		owner: "userId",
 		mergeRule: "reassign",

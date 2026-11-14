@@ -488,12 +488,14 @@ export interface MessageMemoryUpdate {
 	/** The stored row, present only for `remembered`. */
 	memoryId?: string;
 	/**
-	 * Present when the write was to a project's shared notes
-	 * (`remember_for_project` / `forget_for_project`) rather than the person's
-	 * own: names the list so the card's undo calls the project's route.
+	 * Where the write went (`remember` / `forget` take a scope): names the list so
+	 * the card's undo calls that list's route. Absent on cards saved before scopes
+	 * existed, which were personal memory (`global`) or, with `projectId`, a project's.
 	 */
-	scope?: "project";
+	scope?: "conversation" | "project" | "global";
 	projectId?: string;
+	/** The chat, for a `conversation` write. */
+	conversationId?: string;
 }
 
 /**

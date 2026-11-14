@@ -50,9 +50,11 @@
 			// A project note undoes through the project's own routes; the rest of
 			// this is identical, which is why the card does not fork.
 			const root =
-				update.scope === "project" && update.projectId
-					? `${base}/api/v2/projects/${update.projectId}/memory`
-					: `${base}/api/v2/memory`;
+				update.scope === "conversation" && update.conversationId
+					? `${base}/api/v2/conversations/${update.conversationId}/memory`
+					: (update.scope === "project" || !update.scope) && update.projectId
+						? `${base}/api/v2/projects/${update.projectId}/memory`
+						: `${base}/api/v2/memory`;
 			const response =
 				update.action === "remembered"
 					? await fetch(`${root}/${update.memoryId}`, { method: "DELETE" })
@@ -85,6 +87,19 @@
 	<div class="flex max-w-full min-w-0 items-center gap-1.5 text-sm">
 		<LucideBrain class="size-3.5 shrink-0 text-gray-400 dark:text-gray-500" />
 		<span class="shrink-0 font-medium text-gray-600 dark:text-gray-300">{label}</span>
+		{#if update.scope === "conversation"}
+			<span class="shrink-0 text-xs text-gray-400 dark:text-gray-500"
+				>{m["chat.memory.scope_conversation"]()}</span
+			>
+		{:else if update.scope === "project"}
+			<span class="shrink-0 text-xs text-gray-400 dark:text-gray-500"
+				>{m["chat.memory.scope_project"]()}</span
+			>
+		{:else if update.scope === "global"}
+			<span class="shrink-0 text-xs text-gray-400 dark:text-gray-500"
+				>{m["chat.memory.scope_global"]()}</span
+			>
+		{/if}
 		<span
 			class="min-w-0 truncate text-gray-500 dark:text-gray-400 {undone
 				? 'line-through opacity-60'

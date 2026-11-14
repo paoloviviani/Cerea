@@ -18,6 +18,7 @@
 	import { runFiles } from "$lib/stores/runFiles.svelte";
 	import { collectPaneItems } from "$lib/utils/paneItems";
 	import { sidePane } from "$lib/stores/sidePane.svelte";
+	import { chatNotes } from "$lib/stores/chatNotes.svelte";
 
 	import IconArrowUp from "~icons/lucide/arrow-up";
 	import IconMic from "~icons/lucide/mic";
@@ -243,6 +244,30 @@
 			loading,
 			run: exportConversation,
 		});
+	});
+
+	// The notes count on the side panel's entry button: read when a chat opens and
+	// again after each answer (the assistant may have written one). Best effort.
+	$effect(() => {
+		const id = page.params?.id;
+		const settled = !loading;
+		const data = page.data as { user?: unknown; memoryEnabled?: boolean };
+		if (!id || !settled || !data.user || data.memoryEnabled === false) {
+			if (!id) chatNotes.set(0);
+			return;
+		}
+		let stale = false;
+		fetch(`${base}/api/v2/conversations/${id}/memory`)
+			.then((response) => (response.ok ? response.json() : null))
+			.then((body) => {
+				if (!stale) chatNotes.set(body?.data?.notes?.length ?? 0);
+			})
+			.catch(() => {
+				if (!stale) chatNotes.set(0);
+			});
+		return () => {
+			stale = true;
+		};
 	});
 
 	// Feature announcement toast: home screen only, gone as soon as a chat starts.
@@ -787,12 +812,21 @@
 					{#if canExport}
 						<button
 							type="button"
-							class="flex size-8 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white/90 text-sm font-medium text-gray-700 shadow-xs hover:bg-white/60 hover:text-gray-500 dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-200 dark:hover:bg-gray-700"
+							class="relative flex size-8 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white/90 text-sm font-medium text-gray-700 shadow-xs hover:bg-white/60 hover:text-gray-500 dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-200 dark:hover:bg-gray-700"
 							onclick={() => sidePane.toggleLibrary()}
-							aria-label={m["app.mobile_nav.open_files"]()}
+							aria-label={chatNotes.count > 0
+								? m["chat.notes.entry_label"]({ count: chatNotes.count })
+								: m["app.mobile_nav.open_files"]()}
 							title={m["app.mobile_nav.files_title"]()}
 						>
 							<CarbonSidePanelOpen />
+							{#if chatNotes.count > 0}
+								<span
+									data-testid="notes-count"
+									class="absolute -top-1.5 -right-1.5 min-w-4 rounded-full bg-accent px-1 text-center font-mono text-xxs leading-4 text-white"
+									>{chatNotes.count}</span
+								>
+							{/if}
 						</button>
 					{/if}
 				</div>

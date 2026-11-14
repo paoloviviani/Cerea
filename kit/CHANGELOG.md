@@ -5,6 +5,10 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Chat notes.** A chat can keep its own notes ("remember this for this chat"): they are sent with every message of that chat only, deleted with it, and listed (edit, delete, undo, add) under **Notes** in the chat's side panel, whose button shows the count. The assistant's `remember` and `forget` now say where a note goes (this chat, the project, or your memory for every chat), default to the narrowest, and keep your memory for what you clearly mean as always or about yourself. For prompt caching, your memory and the project's notes are now taken once when a chat starts and stay identical for the chat; later changes and the chat's notes ride next to the newest message. New collection `conversationMemories`. Coding agents have no Cerea memory tools; project context for agents is planned.
+
 ## v0.52.2 — 2026-11-13
 
 Pins: Cerea `0.52.2` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.2`.

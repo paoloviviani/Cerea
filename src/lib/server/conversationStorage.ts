@@ -14,6 +14,7 @@
 
 import { deleteConversationDeliverables } from "$lib/server/execution/deliverables";
 import { deleteConversationAttachments } from "$lib/server/files/deleteConversationAttachments";
+import { deleteConversationMemories } from "$lib/server/memory/service";
 import { deleteDerived } from "$lib/server/knowledge/deleteDerived";
 import { legacyShares } from "$lib/server/legacyShares";
 import { logger } from "$lib/server/logger";
@@ -88,6 +89,7 @@ export async function deleteConversationStorage(
 		deleteConversationWebFetchCache(conversationId),
 		deleteConversationBrowserScopes(conversationId),
 		releaseSandboxes(conversationId),
+		deleteConversationMemories(conversationId),
 	]);
 	// The first two log their own failures. These do not, and they are the
 	// privacy ones; the daily orphan sweep retries what they leave.
@@ -111,6 +113,13 @@ export async function deleteConversationStorage(
 		logger.error(
 			{ err: scopes.reason },
 			"conversation_browser_scopes_delete_failed: they lapse on their own within hours"
+		);
+	}
+	const notes = results[7];
+	if (notes.status === "rejected") {
+		logger.error(
+			{ err: notes.reason },
+			"conversation_notes_delete_failed: the notes outlive the chat until the orphan sweep"
 		);
 	}
 	if (derived.status === "rejected") {

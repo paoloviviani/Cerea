@@ -63,6 +63,7 @@ import type { Schedule, ScheduleCount, ScheduleGrant, ScheduleRun } from "$lib/t
 import type { PushSubscriptionRow } from "$lib/types/PushSubscription";
 import type { CustomModel } from "$lib/types/CustomModel";
 import type { ProjectMemory } from "$lib/types/ProjectMemory";
+import type { ConversationMemory } from "$lib/types/ScopedMemory";
 import type { CodeSessionConnectorsRow } from "$lib/types/CodeSessionConnectors";
 import type { ProjectAgentProfileRow } from "$lib/types/ProjectAgentProfileRow";
 import type { ProjectDocument } from "$lib/types/ProjectDocument";
@@ -279,6 +280,8 @@ export class Database {
 		// every turn in that project's chats; primary for the same reason as
 		// `memories` (see `ProjectMemory`).
 		const projectMemories = db.collection<ProjectMemory>("projectMemories");
+		// Notes that belong to one chat (see `$lib/types/ScopedMemory`).
+		const conversationMemories = db.collection<ConversationMemory>("conversationMemories");
 		// The index of a project's context documents; the bytes and the text are
 		// in the bucket under `project:<id>` (see `ProjectDocument`).
 		const projectDocuments = db.collection<ProjectDocument>("projectDocuments");
@@ -353,6 +356,7 @@ export class Database {
 			memories,
 			customModels,
 			projectMemories,
+			conversationMemories,
 			projectDocuments,
 			projectAgentProfiles,
 			vectorStores,
@@ -414,6 +418,7 @@ export class Database {
 			memories,
 			customModels,
 			projectMemories,
+			conversationMemories,
 			projectDocuments,
 			projectAgentProfiles,
 			mcpConnectors,
@@ -613,6 +618,18 @@ export class Database {
 		projectMemories
 			.createIndex({ projectId: 1, createdAt: 1 })
 			.catch((e) => logger.error(e, "Error creating index for projectMemories by projectId"));
+		// A deleted personal fact or project note drops the snapshots that hold it (memory/service):
+		// found by the id the snapshot lists, so those two paths are indexed (only chats with one).
+		conversations
+			.createIndex({ "memorySnapshot.global.id": 1 }, { sparse: true })
+			.catch((e) => logger.error(e, "Error creating index for conversations by memory snapshot"));
+		conversations
+			.createIndex({ "memorySnapshot.project.id": 1 }, { sparse: true })
+			.catch((e) => logger.error(e, "Error creating index for conversations by memory snapshot"));
+		// A chat's own notes.
+		conversationMemories
+			.createIndex({ conversationId: 1, createdAt: 1 })
+			.catch((e) => logger.error(e, "Error creating index for conversationMemories"));
 		// A project's documents, read whole on every turn in its chats and listed
 		// on its page: both by project, oldest first.
 		projectDocuments

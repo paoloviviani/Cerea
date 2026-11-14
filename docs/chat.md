@@ -592,20 +592,56 @@ Notifications**; see [Notifications](notifications.md).
 
 ## Memory
 
-Memory keeps a few short **standing facts about you** and carries them into
-every chat, so you need not repeat "reply in Italian". It is **off
-until you turn it on** in your settings, because it writes things you said
-into a store that outlives the chat.
+Cerea keeps short **notes** in three places, from narrowest to widest, and the
+assistant says which one it used ("Saved to this chat's notes"):
 
-- It is a **list, injected whole** on every turn, not a search: what the
-  **Memory** tab of the Workspace page shows is exactly what the model sees.
+| Where                    | Who reads it                                                                              | When it is deleted                             |
+| ------------------------ | ----------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| **This chat's notes**    | This chat only, on every message                                                          | With the chat                                  |
+| **Project memory**       | Every member of the project, in every chat in it ([details](knowledge.md#project-memory)) | When a member deletes the note, or the project |
+| **Your memory** (global) | You, in every chat                                                                        | When you delete it on the **Memory** tab       |
+
+Say "remember this for this chat" and it goes to the chat's notes, never to
+your memory. The assistant uses **your memory** only when you clearly mean
+always or about yourself ("always reply in Italian", "remember that I work
+in London"), and asks when it is unclear. It never writes a note you cannot
+see: every write appears in the chat with an **Undo**.
+
+**This chat's notes** need no opt-in (they disappear with the chat). Open the
+side panel (the button at the top right of a chat) and look for **Notes**: the
+button shows how many there are. There you can read, edit and delete each note,
+add your own, and undo your last change. A note is at most 1,000 characters and
+a chat keeps 50. Never keep a password or key in one.
+
+**Your memory** is a few short **standing facts about you**. It is **off until
+you turn it on** in your settings, because it writes things you said into a
+store that outlives the chat.
+
+- It is a **list, injected whole**, not a search: what the **Memory** tab of the
+  Workspace page shows is exactly what the model sees.
 - A fact is at most 400 characters and you can keep 200. The prompt block has
   a character budget (1,500), and past it the **oldest** facts stop being
   sent, which the tab says.
-- With memory on, you can just say it: "remember that I reply in Italian", "forget where I work". The assistant saves and removes facts itself, and you can add, edit and delete them on the tab, which shows who wrote each fact and in which chat.
+- You can add, edit and delete facts on the tab, which shows who wrote each
+  fact and in which chat.
 - Turning memory off stops it being used and written, but does not delete the
   facts. Deleting happens on the tab.
-- If your deployment has switched memory off, the tab is not there.
+- If your deployment has switched memory off, the tab and the notes are not there.
+
+### Coding agents
+
+Coding agents (the **Agents** area) have no Cerea memory tools: they never read
+or write your memory, a project's memory or a chat's notes. Project context for
+agents is planned (ADR 0118).
+
+### Memory and speed
+
+Changing a note does not make the assistant re-read the whole conversation.
+Your memory and the project's notes are taken as they stand **when a chat
+starts** and stay the same for the whole chat; anything added or changed
+afterwards, and the chat's own notes, is sent next to your newest message as
+"updated in this conversation" until you start a new chat. That keeps answers
+fast and cheap in long chats.
 
 For memory that scales beyond a list, use a knowledge base
 ([Knowledge and projects](knowledge.md)); a project can also keep its own

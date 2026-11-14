@@ -27,6 +27,17 @@ export type Message = Partial<Timestamps> & {
 	content: string;
 	updates?: MessageUpdate[];
 
+	/**
+	 * The memory block that rode in front of this user message when it was sent
+	 * (the chat's notes and any personal or project memory changed since the chat
+	 * started; see `$lib/server/memory/tail`). Stored so later turns replay it
+	 * unchanged: the provider's prompt cache needs every byte before the newest
+	 * message to be the same as last turn. Server-side only; never sent to a
+	 * client, an export or the conversation API. Present only when it differed from
+	 * the last block on the path. Dropped when a row it quotes is deleted or edited.
+	 */
+	memoryBlock?: string;
+
 	// Optional server or client-side reasoning content (inside the think tag)
 	reasoning?: string;
 	score?: -1 | 0 | 1;
