@@ -3,7 +3,8 @@
 #   pinned  the release agent/packaging/opencode-version names, with the WHOLE
 #           real-opencode suite (every IT in agent/, permission tests and
 #           upgrade canaries included). Runs on a push to main that touches
-#           agent/, weekly, and on demand.
+#           agent/, on a pull request that touches agent/, weekly, and on
+#           demand.
 #   latest  opencode's newest release (or `version`, on demand), same suite,
 #           daily. Skipped when it is the pin, or when that version already
 #           passed against this agent code (a cache entry remembers the green).
@@ -18,6 +19,14 @@ name: opencode
 on:
   push:
     branches: [main]
+    paths:
+      - "agent/**"
+      - ".github/workflows/opencode.yml"
+      - ".github/actions/opencode-suite/**"
+      - ".github/scripts/gotest_report.py"
+  # A change to galopin's opencode backend is proved against the pinned release
+  # before it merges, not after (the `pinned` job only; `latest` never runs here).
+  pull_request:
     paths:
       - "agent/**"
       - ".github/workflows/opencode.yml"
@@ -56,7 +65,7 @@ jobs:
 
   latest:
     # not on a push (the pinned job's), only the daily schedule among schedules
-    if: github.event_name != 'push' && (github.event_name != 'schedule' || github.event.schedule == '43 5 * * *')
+    if: github.event_name != 'push' && github.event_name != 'pull_request' && (github.event_name != 'schedule' || github.event.schedule == '43 5 * * *')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
