@@ -54,6 +54,7 @@
 	import { codeDeviceList } from "$lib/stores/codeDeviceList.svelte";
 	import type { Message } from "$lib/types/Message";
 	import { isConversationGenerationActive } from "$lib/utils/generationState";
+	import { agentDisplayTitle } from "$lib/utils/codeAgentTitle";
 	import { forkableMessageIds } from "$lib/utils/codeFork";
 	import { shouldShowPendingPlaceholder } from "$lib/utils/pendingPlaceholder";
 	import { consumeAgentUpdates } from "$lib/utils/consumeAgentUpdates";
@@ -394,7 +395,9 @@
 	// from the conversations store, and an agent is not one — it reports
 	// itself here, and clears the slot when the screen goes away.
 	$effect(() => {
-		codeNav.agentTitle = agent?.title ?? "";
+		codeNav.agentTitle = agent
+			? agentDisplayTitle(agent.title, workspace, m["code.nav.new_session"]())
+			: "";
 		return () => (codeNav.agentTitle = "");
 	});
 

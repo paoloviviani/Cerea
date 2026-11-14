@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -410,7 +411,11 @@ func (mc *machine) opWorkspaceCreate(ctx context.Context, args json.RawMessage) 
 	}
 	title := a.Title
 	if title == "" {
-		title = a.Path
+		// the folder's own name, not the whole path
+		title = filepath.Base(filepath.Clean(a.Path))
+		if title == "." || title == string(filepath.Separator) {
+			title = a.Path
+		}
 	}
 	w, err := mc.workspaces.Create(title, a.Path, mc.pol.WorkspaceRoots)
 	if err != nil {

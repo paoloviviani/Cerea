@@ -249,6 +249,7 @@ func (b *Backend) ListSessions(ctx context.Context, workspaceDir string) ([]back
 			info := sessionInfoV1(m)
 			b.noteDir(getStr(info, "directory"))
 			s := sessionFromMap(info)
+			b.nameUntitled(&s)
 			b.noteSession(s)
 			out = append(out, b.withUsage(s))
 		}
@@ -269,6 +270,7 @@ func (b *Backend) GetSession(ctx context.Context, _ string, sessionID string) (b
 		return backend.Session{}, err
 	}
 	s := sessionFromMap(sessionInfoV1(m))
+	b.nameUntitled(&s)
 	b.noteSession(s)
 	ov := b.getOverlay(sessionID)
 	s.ModeID, s.ModelID, s.Effort = ov.ModeID, ov.ModelID, ov.Effort
@@ -337,6 +339,7 @@ func (b *Backend) RenameSession(ctx context.Context, _ string, sessionID, title 
 		return backend.Session{}, err
 	}
 	s := sessionFromMap(sessionInfoV1(m))
+	b.nameUntitled(&s)
 	ov := b.getOverlay(sessionID)
 	s.ModeID, s.ModelID = ov.ModeID, ov.ModelID
 	return b.withUsage(s), nil
@@ -492,7 +495,11 @@ func (b *Backend) Prompt(ctx context.Context, workspaceDir string, sessionID str
 		b.recordExactClientMessageID(messageID, prompt.ClientMessageID)
 		b.claimPendingClientMessageID(sessionID, messageID, prompt.ClientMessageID)
 	}
-	return b.doJSON(ctx, http.MethodPost, "/api/session/"+url.PathEscape(sessionID)+"/prompt", body, nil)
+	if err := b.doJSON(ctx, http.MethodPost, "/api/session/"+url.PathEscape(sessionID)+"/prompt", body, nil); err != nil {
+		return err
+	}
+	b.nameFromFirstPrompt(ctx, workspaceDir, sessionID, prompt.Text)
+	return nil
 }
 
 func (b *Backend) Cancel(ctx context.Context, _ string, sessionID string) error {

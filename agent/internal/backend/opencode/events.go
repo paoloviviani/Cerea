@@ -253,6 +253,7 @@ func (b *Backend) translateEvent(directory, typ string, props map[string]any) []
 			return nil
 		}
 		sess.SpawnedBy = b.spawnedByFor(sess.ID)
+		b.nameUntitled(&sess)
 		b.noteSession(sess)
 		return []backend.BackendEvent{wrap(sess.ID, backend.Event{Kind: backend.EventSession, Session: &sess})}
 

@@ -240,6 +240,10 @@ type Backend struct {
 type appliedSel struct{ agent, model, effort string }
 
 type sessionOverlay struct {
+	// Name is the stand-in title of a session opencode has not named yet: the
+	// first words of its first prompt (see promptName). Never shown once
+	// opencode's own title exists.
+	Name    string `json:"name,omitempty"`
 	ModeID  string `json:"modeId,omitempty"`
 	ModelID string `json:"modelId,omitempty"`
 	// SpawnedBy marks a session_spawn session (PROTOCOL.md §7).

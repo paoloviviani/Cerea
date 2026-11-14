@@ -376,6 +376,9 @@ func TestOpWorkspaceCreateWorktree(t *testing.T) {
 	if !from.IsGitRepo {
 		t.Fatal("repo workspace must report isGitRepo: true")
 	}
+	if from.Name != "proj" {
+		t.Fatalf("an unnamed workspace is named by its folder, got %q", from.Name)
+	}
 
 	wtArgs, _ := json.Marshal(map[string]any{
 		"worktree": map[string]string{"from": from.ID, "branch": "feature/x"},
