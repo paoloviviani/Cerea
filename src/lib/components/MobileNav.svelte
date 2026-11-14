@@ -26,6 +26,7 @@
 	import { sidePane } from "$lib/stores/sidePane.svelte";
 	import { requireAuthUser } from "$lib/utils/auth";
 	import { tap } from "$lib/utils/haptics";
+	import { mobileHeader } from "$lib/stores/mobileHeader.svelte";
 
 	interface Props {
 		title: string | undefined;
@@ -246,8 +247,16 @@
 		aria-label={m["app.mobile_nav.open_menu"]()}
 		bind:this={openEl}><IconBurger /></button
 	>
-	<div class="flex h-full items-center justify-center overflow-hidden">
-		{#if page.params?.id}
+	<div
+		class="flex h-full items-center overflow-hidden {mobileHeader.content
+			? 'min-w-0 flex-1 px-2'
+			: 'justify-center'}"
+	>
+		{#if mobileHeader.content}
+			<!-- A page's own header (the agent screen: name, status, Panels) in
+			     place of the chat title, so a phone shows one bar. -->
+			{@render mobileHeader.content()}
+		{:else if page.params?.id}
 			<span class="max-w-full truncate px-4 first-letter:uppercase" data-testid="chat-title"
 				>{title}</span
 			>

@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { page as browserPage } from "@vitest/browser/context";
 import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
+import { render } from "vitest-browser-svelte";
+import MobileNav from "$lib/components/MobileNav.svelte";
 import AgentView from "./AgentView.svelte";
 import { sidePane } from "$lib/stores/sidePane.svelte";
 import { codeDeviceList } from "$lib/stores/codeDeviceList.svelte";
@@ -233,7 +235,11 @@ describe("AgentView Tasks pane", () => {
 	it("never opens on a narrow viewport", async () => {
 		await browserPage.viewport(400, 800);
 		const screen = mount();
+		render(MobileNav, { title: "" });
 		await arrive([ACTIVE]);
+		// On a phone the header lives in the one top bar, not in a row of its own.
+		const header = screen.getByTestId("agent-header").element() as HTMLElement;
+		expect(header.closest("nav")).not.toBeNull();
 		// A phone folds the panels behind one button; the sheet lists them with
 		// their words and the task progress.
 		await expect.element(screen.getByRole("button", { name: "Tasks 0/2" })).not.toBeInTheDocument();

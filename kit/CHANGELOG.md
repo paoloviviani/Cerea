@@ -7,6 +7,8 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **Agents on a phone: one top bar.** The session name with its status dot, and the side-panel button, now sit in the app's top bar between the menu and new-chat buttons instead of in a second row below it. The side-panel button now uses the same icon and look as the chat's. The name truncates to fit; the desktop layout is unchanged.
+
 - **Agents sidebar: the status dot is back on the left.** Each computer row shows its green (connected) or hollow (not connected) dot before the name again, instead of a computer icon.
 
 - **Settings: the PyPI option is hidden with server sandboxes.** "Let code install extra Python packages" only concerns code run in the browser; when the model's code runs in the server sandbox (`CHAT_CODE_EXECUTION=server`), which never installs packages, the option is no longer shown.
