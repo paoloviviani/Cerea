@@ -100,12 +100,13 @@ func (b *Backend) Attachment(ctx context.Context, _ string, sessionID, sha strin
 	if ref.MessageID == "" {
 		return "", nil, backend.ErrAttachmentGone
 	}
-	var msg map[string]any
-	path := "/session/" + url.PathEscape(sessionID) + "/message/" + url.PathEscape(ref.MessageID)
-	if err := b.doJSONLimit(ctx, http.MethodGet, path, nil, &msg, maxTranscriptBytes); err != nil {
+	var raw map[string]any
+	path := "/api/session/" + url.PathEscape(sessionID) + "/message/" + url.PathEscape(ref.MessageID)
+	if err := b.doDataLimit(ctx, http.MethodGet, path, nil, &raw, maxTranscriptBytes); err != nil {
 		return "", nil, backend.ErrAttachmentGone
 	}
-	for _, pm := range asMaps(getSlice(msg, "parts")) {
+	entry, _ := v1Entry(sessionID, raw)
+	for _, pm := range asMaps(getSlice(entry, "parts")) {
 		if strings.EqualFold(getStr(pm, "type"), "tool") && getStr(pm, "id") == ref.PartID {
 			b.mapPart(sessionID, pm)
 		}

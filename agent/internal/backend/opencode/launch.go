@@ -58,14 +58,9 @@ func LaunchEnv(cfg Config) ([]string, error) {
 	return kept, nil
 }
 
-// LaunchArgs is the argument vector for the interactive opencode: --pure
-// when the machine does not load project config (the same switch the
-// supervised serve passes; OPENCODE_DISABLE_PROJECT_CONFIG alone leaves a
-// repo's plugins running), then the user's own arguments untouched.
+// LaunchArgs is the argument vector for the interactive opencode: the user's
+// own arguments untouched (2.x needs no --pure; OPENCODE_DISABLE_PROJECT_CONFIG,
+// set by LaunchEnv, is the switch).
 func LaunchArgs(cfg Config, user []string) []string {
-	var args []string
-	if !cfg.ProjectConfig {
-		args = append(args, "--pure")
-	}
-	return append(args, user...)
+	return append([]string(nil), user...)
 }

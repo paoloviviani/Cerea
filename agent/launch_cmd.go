@@ -249,7 +249,10 @@ func opencodeVersion(bin string) string {
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(out))
+	// 1.x prints "1.19.3", 2.x "opencode v2.3.0": the bare release number.
+	v := strings.TrimSpace(string(out))
+	v = strings.TrimPrefix(v, "opencode ")
+	return strings.TrimPrefix(v, "v")
 }
 
 // ensureProxy makes sure a galopin shim answers on 127.0.0.1:port. A free

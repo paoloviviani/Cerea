@@ -1,13 +1,10 @@
 package opencode
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -466,9 +463,48 @@ func commandFromRaw(raw map[string]any) backend.Command {
 // alongside.
 func (b *Backend) listRawCommands(ctx context.Context, directory string) ([]listedCommand, error) {
 	var raw []any
-	if err := b.doJSON(ctx, http.MethodGet, "/command"+directoryQuery(directory), nil, &raw); err != nil {
-		return nil, err
+	// A location opencode has not finished loading answers an empty list, then
+	// the builtin commands alone, then the project's too: read until two
+	// answers in a row agree and are not empty.
+	b.perm.agentMu.Lock()
+	warm := b.perm.cmdWarm[directory]
+	b.perm.agentMu.Unlock()
+	need := 1
+	if !warm {
+		need = 4 // the project's own commands arrive after the builtins
 	}
+	prev, same := "", 0
+	for attempt := 0; attempt < 20; attempt++ {
+		raw = nil
+		if err := b.doData(ctx, http.MethodGet, withLoc("/api/command", directory), nil, &raw); err != nil {
+			return nil, err
+		}
+		names := make([]string, 0, len(raw))
+		for _, e := range asMaps(raw) {
+			names = append(names, getStr(e, "name"))
+		}
+		cur := strings.Join(names, "\x00")
+		if len(raw) > 0 && cur == prev {
+			same++
+		} else {
+			same = 0
+		}
+		prev = cur
+		if len(raw) > 0 && (warm || same+1 >= need) {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(300 * time.Millisecond):
+		}
+	}
+	b.perm.agentMu.Lock()
+	if b.perm.cmdWarm == nil {
+		b.perm.cmdWarm = map[string]bool{}
+	}
+	b.perm.cmdWarm[directory] = len(raw) > 0
+	b.perm.agentMu.Unlock()
 	out := make([]listedCommand, 0, len(raw))
 	for _, entry := range asMaps(raw) {
 		cmd := commandFromRaw(entry)
@@ -604,60 +640,21 @@ func (b *Backend) ResolveCommand(ctx context.Context, workspaceDir, _ string, na
 		}
 		cmd := entry.cmd
 		assignOrigin(&cmd, entry.template, state, b.cfg.StateDir, workspaceDir)
-		return backend.ResolvedCommand{Command: cmd, Expanded: ExpandArguments(entry.template, arguments)}, nil
+		expanded := ""
+		if entry.template != "" {
+			expanded = ExpandArguments(entry.template, arguments)
+		}
+		return backend.ResolvedCommand{Command: cmd, Expanded: expanded}, nil
 	}
 	return backend.ResolvedCommand{}, backend.ErrCommandNotFound
 }
 
-// commandsSupported reports whether the opencode server's own GET /doc
-// lists the session.command operation — the /doc probe the capability is
-// advertised from, cached per process generation and re-probed after a
-// supervised restart. A probe that fails answers false: a server that
-// cannot describe itself does not get the capability claimed for it.
-func (b *Backend) commandsSupported() bool {
-	b.commandsMu.Lock()
-	defer b.commandsMu.Unlock()
-	if b.commandsGen == b.backendGen && b.commandsPtr != nil {
-		return *b.commandsPtr
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
-	defer cancel()
-	var doc map[string]any
-	if err := b.doJSON(ctx, http.MethodGet, "/doc", nil, &doc); err != nil {
-		b.cfg.Logf("opencode: probing GET /doc for session.command: %v", err)
-		supported := false
-		b.commandsPtr = &supported
-		b.commandsGen = b.backendGen
-		return false
-	}
-	supported := docListsSessionCommand(doc)
-	b.commandsPtr = &supported
-	b.commandsGen = b.backendGen
-	return supported
-}
-
-// docListsSessionCommand walks GET /doc's paths looking for any operation
-// whose operationId is session.command — shape-tolerant on purpose, so a
-// path rename between versions does not silently drop the capability.
-func docListsSessionCommand(doc map[string]any) bool {
-	paths, _ := doc["paths"].(map[string]any)
-	for _, pathItem := range paths {
-		methods, ok := pathItem.(map[string]any)
-		if !ok {
-			continue
-		}
-		for _, method := range methods {
-			operation, ok := method.(map[string]any)
-			if !ok {
-				continue
-			}
-			if getStr(operation, "operationId") == "session.command" {
-				return true
-			}
-		}
-	}
-	return false
-}
+// commandsSupported: 2.x always serves commands (GET /api/command, POST
+// /api/session/:id/command). The list carries only name and description, never
+// the template, so a command's shell and file references cannot be scanned
+// ahead of the run: they read as unknown (Shell nil), which the policy gates
+// refuse when shell is denied.
+func (b *Backend) commandsSupported() bool { return true }
 
 // RunCommand implements backend.Commander's run half: the exact
 // client-message mapping and the transcript marker are recorded BEFORE the
@@ -705,56 +702,37 @@ func (b *Backend) RunCommand(ctx context.Context, workspaceDir, sessionID string
 	return nil
 }
 
-// postCommand is the blocking half of session.command: one long call that
-// answers only after the whole turn has run (the 2026-09-26 plan §1.2).
+// postCommand runs a command: 2.x expands the template itself and answers at
+// once with the prompt it queued; the turn streams over the event stream. The
+// queued message's id is the one the clientMessageId and the transcript marker
+// belong to, so they are recorded from the answer.
 func (b *Backend) postCommand(ctx context.Context, workspaceDir, sessionID string, run backend.CommandRun, messageID string) error {
-	body := map[string]any{
-		"command":   run.Name,
-		"arguments": run.Arguments,
-		"messageID": messageID,
+	if err := b.applySelection(ctx, sessionID); err != nil {
+		return err
 	}
-	if run.Agent != "" {
-		body["agent"] = run.Agent
-	}
-	ov := b.getOverlay(sessionID)
-	if ov.ModelID != "" {
-		// session.command takes the model as one "provider/model" string,
-		// unlike prompt_async's object (plan §1.2).
-		body["model"] = ov.ModelID
-	}
-	if ov.Effort != "" {
-		body["variant"] = ov.Effort
-	}
+	body := map[string]any{"name": run.Name, "text": run.Arguments, "delivery": "steer"}
 	if len(run.Attachments) > 0 {
-		parts := make([]map[string]any, 0, len(run.Attachments))
+		files := make([]map[string]any, 0, len(run.Attachments))
 		for _, a := range run.Attachments {
-			parts = append(parts, map[string]any{
-				"type": "file", "mime": a.Mime, "filename": a.Filename, "url": a.URL,
-			})
+			f := map[string]any{"uri": a.URL}
+			if a.Filename != "" {
+				f["name"] = a.Filename
+			}
+			files = append(files, f)
 		}
-		body["parts"] = parts
+		body["files"] = files
 	}
-
-	buf, err := json.Marshal(body)
-	if err != nil {
+	// The answer is 204 with no message id (2.3.0): the marker is claimed by the
+	// session's next user message (claimCommandMarker). The pending entry is set
+	// before the POST so the event cannot beat it.
+	b.pendingMu.Lock()
+	b.pendingCmd[sessionID] = pendingCommand{marker: backend.MessageCommand{Name: run.Name, Arguments: run.Arguments}, at: time.Now()}
+	b.pendingMu.Unlock()
+	if err := b.doJSON(ctx, http.MethodPost, "/api/session/"+url.PathEscape(sessionID)+"/command", body, nil); err != nil {
+		b.pendingMu.Lock()
+		delete(b.pendingCmd, sessionID)
+		b.pendingMu.Unlock()
 		return err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		b.baseURL()+"/session/"+url.PathEscape(sessionID)+"/command"+directoryQuery(workspaceDir), bytes.NewReader(buf))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.SetBasicAuth("opencode", b.cfg.Password)
-
-	resp, err := b.longClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
-	if resp.StatusCode >= 300 {
-		return fmt.Errorf("status %d: %s", resp.StatusCode, string(respBody))
 	}
 	return nil
 }

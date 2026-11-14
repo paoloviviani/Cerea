@@ -1,7 +1,10 @@
 package opencode
 
 import (
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"galopin/internal/backend"
@@ -333,16 +336,20 @@ func questionItemFromMap(m map[string]any) backend.QuestionItem {
 // anything that is not a user-facing primary mode (PROTOCOL.md §2's
 // "modes = entries with mode 'primary', hide compaction/summary/title").
 func modeFromAgentMap(m map[string]any) (backend.Mode, bool) {
-	name := getStr(m, "name")
+	// 2.x: id is the agent's identifier ("build"), name its display name ("Build").
+	id := getStr(m, "id", "name")
 	mode := getStr(m, "mode")
 	if mode != "primary" {
 		return backend.Mode{}, false
 	}
-	switch name {
+	if getBool(m, "hidden") {
+		return backend.Mode{}, false
+	}
+	switch id {
 	case "compaction", "summary", "title":
 		return backend.Mode{}, false
 	}
-	return backend.Mode{ID: name, Label: name, Description: getStr(m, "description"), Model: getStr(m, "model")}, true
+	return backend.Mode{ID: id, Label: id, Description: getStr(m, "description"), Model: modelRefString(getMap(m, "model"))}, true
 }
 
 func fileDiffFromMap(m map[string]any) backend.FileDiff {
@@ -434,4 +441,109 @@ func (b *Backend) withUsage(s backend.Session) backend.Session {
 	b.usageMu.Unlock()
 	s.SpawnedBy = b.spawnedByFor(s.ID)
 	return s
+}
+
+// fileDiffFromPatch builds a FileDiff from a 2.x diff entry ({file, patch,
+// additions, deletions, status}). 2.x reports a unified patch, not the two
+// sides, so After is the file as it is now (read from the workspace) and Before
+// is that with the patch undone; either is empty where the patch cannot be
+// applied (the galopin tracker's own record fills in, see mergeOwnDiffs).
+func fileDiffFromPatch(workspaceDir string, m map[string]any) backend.FileDiff {
+	d := backend.FileDiff{
+		Path:      getStr(m, "file", "path"),
+		Status:    backend.FileDiffStatus(getStr(m, "status")),
+		Additions: getInt(m, "additions"),
+		Deletions: getInt(m, "deletions"),
+	}
+	patch := getStr(m, "patch")
+	abs := d.Path
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(workspaceDir, d.Path)
+	}
+	if d.Status != backend.FileDeleted {
+		if body, err := os.ReadFile(abs); err == nil {
+			d.After = string(body)
+		}
+	}
+	switch d.Status {
+	case backend.FileAdded:
+		d.Before = ""
+	default:
+		d.Before = unapplyPatch(d.After, patch)
+	}
+	return d
+}
+
+// unapplyPatch reverses a unified diff against after, returning the original
+// text; when the hunks do not line up with after it returns "".
+func unapplyPatch(after, patch string) string {
+	if patch == "" {
+		return after
+	}
+	afterLines := strings.Split(after, "\n")
+	var out []string
+	pos := 0 // next unconsumed line of afterLines
+	lines := strings.Split(patch, "\n")
+	for i := 0; i < len(lines); i++ {
+		l := lines[i]
+		if !strings.HasPrefix(l, "@@") {
+			continue
+		}
+		// @@ -a,b +c,d @@
+		var oa, ob, na, nb int
+		rest := strings.TrimPrefix(l, "@@ ")
+		if end := strings.Index(rest, " @@"); end >= 0 {
+			rest = rest[:end]
+		}
+		fields := strings.Fields(rest)
+		if len(fields) != 2 {
+			return ""
+		}
+		parseRange := func(s string) (int, int) {
+			s = strings.TrimLeft(s, "+-")
+			start, count := 0, 1
+			if c := strings.Index(s, ","); c >= 0 {
+				start, _ = strconv.Atoi(s[:c])
+				count, _ = strconv.Atoi(s[c+1:])
+			} else {
+				start, _ = strconv.Atoi(s)
+			}
+			return start, count
+		}
+		oa, ob = parseRange(fields[0])
+		na, nb = parseRange(fields[1])
+		_, _ = oa, ob
+		_ = nb
+		start := na - 1
+		if nb == 0 {
+			start = na
+		}
+		if start < pos || start > len(afterLines) {
+			return ""
+		}
+		out = append(out, afterLines[pos:start]...)
+		pos = start
+		for i++; i < len(lines) && !strings.HasPrefix(lines[i], "@@"); i++ {
+			h := lines[i]
+			switch {
+			case strings.HasPrefix(h, "\\"):
+			case strings.HasPrefix(h, "+"):
+				if pos >= len(afterLines) {
+					return ""
+				}
+				pos++ // present now, absent before
+			case strings.HasPrefix(h, "-"):
+				out = append(out, h[1:])
+			default:
+				if pos >= len(afterLines) {
+					return ""
+				}
+				out = append(out, afterLines[pos])
+				pos++
+			}
+		}
+		i--
+	}
+	out = append(out, afterLines[pos:]...)
+	return strings.Join(out, "\n")
 }

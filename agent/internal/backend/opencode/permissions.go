@@ -58,6 +58,11 @@ type permState struct {
 
 	agentMu    sync.Mutex
 	agentCache map[string]agentRulesEntry // by workspace directory
+	// agentsWarm: directories whose agent list opencode has finished loading
+	// in this process (agentEntries); a restart forgets them.
+	agentsWarm map[string]bool
+	// cmdWarm: the same for the command list.
+	cmdWarm map[string]bool
 
 	// staleMu guards stale, separately from mu: detection runs under mu (it
 	// does I/O like the PATCH beside it) while StaleDeny reads the cache
@@ -116,16 +121,13 @@ func (b *Backend) agentRuleset(ctx context.Context, dir, agent string) ([]permru
 	}
 	b.perm.agentMu.Unlock()
 
-	var raw []struct {
-		Name       string           `json:"name"`
-		Permission []permrules.Rule `json:"permission"`
-	}
-	if err := b.doJSON(ctx, http.MethodGet, "/agent"+directoryQuery(dir), nil, &raw); err != nil {
+	entries, err := b.agentEntries(ctx, dir)
+	if err != nil {
 		return nil, err
 	}
-	all := make(map[string][]permrules.Rule, len(raw))
-	for _, a := range raw {
-		all[a.Name] = a.Permission
+	all := make(map[string][]permrules.Rule, len(entries))
+	for _, a := range entries {
+		all[getStr(a, "id", "name")] = rulesFromV2(getSlice(a, "permissions"))
 	}
 	b.perm.agentMu.Lock()
 	if b.perm.agentCache == nil {
@@ -144,6 +146,8 @@ func (b *Backend) agentRuleset(ctx context.Context, dir, agent string) ([]permru
 func (b *Backend) forgetAgentRules() {
 	b.perm.agentMu.Lock()
 	b.perm.agentCache = nil
+	b.perm.agentsWarm = nil
+	b.perm.cmdWarm = nil
 	b.perm.agentMu.Unlock()
 }
 
@@ -182,7 +186,12 @@ func (b *Backend) noteSession(s backend.Session) {
 		b.perm.childAgent[s.ID] = ""
 	}
 	if b.perm.childAgent[s.ID] == "" {
-		b.perm.childAgent[s.ID] = agentFromTitle(s.Title)
+		// 2.x records the agent on the session; 1.x only in the title's suffix.
+		if s.Agent != "" {
+			b.perm.childAgent[s.ID] = s.Agent
+		} else {
+			b.perm.childAgent[s.ID] = agentFromTitle(s.Title)
+		}
 	}
 }
 
@@ -264,13 +273,11 @@ func (b *Backend) selectorOf(sessionID string) permrules.Selector {
 // the whole history of composed blocks, including ones from before a
 // deny-as-ask-style change.
 func (b *Backend) StoredRules(ctx context.Context, sessionID string) ([]permrules.Rule, error) {
-	var m struct {
-		Permission []permrules.Rule `json:"permission"`
-	}
-	if err := b.doJSON(ctx, http.MethodGet, "/session/"+url.PathEscape(sessionID), nil, &m); err != nil {
+	var m map[string]any
+	if err := b.doData(ctx, http.MethodGet, "/api/session/"+url.PathEscape(sessionID), nil, &m); err != nil {
 		return nil, err
 	}
-	return m.Permission, nil
+	return rulesFromV2(getSlice(m, "permissions")), nil
 }
 
 // StaleDeny implements backend.RuleHost: the cached verdict for sessionID's
@@ -536,7 +543,7 @@ func (b *Backend) prepareSession(ctx context.Context, dir, sessionID string) {
 		return
 	}
 	rule := []permrules.Rule{{Permission: "*", Pattern: "*", Action: permrules.Ask}}
-	if err := b.doJSON(ctx, http.MethodPatch, "/session/"+url.PathEscape(root), map[string]any{"permission": rule}, nil); err != nil {
+	if err := b.doJSON(ctx, http.MethodPatch, "/api/session/"+url.PathEscape(root), map[string]any{"permissions": rulesToV2(rule)}, nil); err != nil {
 		b.cfg.Logf("opencode: could not neutralise the stored rules of %s (it still asks through the floor, but an old allow may let a call through): %v", root, err)
 		return
 	}
@@ -569,39 +576,56 @@ func denyOnlyRules(c permrules.Ceiling) []permrules.Rule {
 // pending (opencode waits for a reply with no timeout) and is decided by the
 // same function as a live one.
 func (b *Backend) PendingAsks(ctx context.Context) ([]backend.PermissionRequest, error) {
-	var raw []any
-	if err := b.doJSON(ctx, http.MethodGet, "/permission", nil, &raw); err != nil {
-		return nil, err
-	}
 	var out []backend.PermissionRequest
-	for _, m := range asMaps(raw) {
-		out = append(out, permissionFromMap(m))
+	seen := map[string]bool{}
+	var firstErr error
+	// 2.x lists asks per location: the directories sessions were seen in, and
+	// the server's own (no directory). A galopin that has just started has seen
+	// none yet: the session list teaches it the directories.
+	if len(b.asm.seenDirs()) == 0 {
+		_, _ = b.ListSessions(ctx, "")
+	}
+	for _, dir := range append([]string{""}, b.asm.seenDirs()...) {
+		var raw []any
+		if err := b.doData(ctx, http.MethodGet, withLoc("/api/permission/request", dir), nil, &raw); err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		for _, m := range asMaps(raw) {
+			vp := v1Permission(m)
+			b.enrichAsk(ctx, vp)
+			req := permissionFromMap(vp)
+			if req.ID == "" || seen[req.ID] {
+				continue
+			}
+			seen[req.ID] = true
+			out = append(out, req)
+		}
+	}
+	if len(out) == 0 && firstErr != nil {
+		return nil, firstErr
 	}
 	return out, nil
 }
 
 // PlanDirs is where opencode's plan agent keeps its plans outside the project.
+// 2.x keeps them under ~/.opencode/plan; 1.x under the data directory.
 func (b *Backend) PlanDirs() []string {
-	data := ""
 	home := ""
 	for _, kv := range b.cfg.Env {
-		switch {
-		case strings.HasPrefix(kv, "XDG_DATA_HOME="):
-			data = strings.TrimPrefix(kv, "XDG_DATA_HOME=")
-		case strings.HasPrefix(kv, "HOME="):
+		if strings.HasPrefix(kv, "HOME=") {
 			home = strings.TrimPrefix(kv, "HOME=")
 		}
 	}
 	if b.cfg.Env == nil {
-		data, home = os.Getenv("XDG_DATA_HOME"), os.Getenv("HOME")
+		home = os.Getenv("HOME")
 	}
-	if data == "" && home != "" {
-		data = home + "/.local/share"
-	}
-	if data == "" {
+	if home == "" {
 		return nil
 	}
-	return []string{data + "/opencode/plans"}
+	return []string{home + "/.opencode/plan"}
 }
 
 // AgentRules is the session's agent and its rules as opencode reports them

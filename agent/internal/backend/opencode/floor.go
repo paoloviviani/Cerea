@@ -20,46 +20,22 @@ package opencode
 // todowrite denies when the agent has no rule literally named so.
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"net/http"
 	"os"
 	"reflect"
 	"sort"
 	"strings"
+	"time"
 
 	"galopin/internal/permrules"
 )
 
-// kv is one entry of an ordered JSON object: opencode reads a permission
-// object's keys in order (last match wins), which a Go map would lose.
-type kv struct {
-	K string
-	V any
-}
+// rule is one entry of 2.x's ordered `permissions` array (last match wins).
+type rule = map[string]string
 
-// ordered is a JSON object that keeps its entries' order.
-type ordered []kv
-
-func (o ordered) MarshalJSON() ([]byte, error) {
-	var b bytes.Buffer
-	b.WriteByte('{')
-	for i, e := range o {
-		if i > 0 {
-			b.WriteByte(',')
-		}
-		k, _ := json.Marshal(e.K)
-		v, err := json.Marshal(e.V)
-		if err != nil {
-			return nil, err
-		}
-		b.Write(k)
-		b.WriteByte(':')
-		b.Write(v)
-	}
-	b.WriteByte('}')
-	return b.Bytes(), nil
+func mk(action, resource, effect string) rule {
+	return rule{"action": v2Action(action), "resource": resource, "effect": effect}
 }
 
 // floorKeys are the opencode permission keys the floor names at the top level
@@ -74,53 +50,58 @@ var floorKeys = []string{
 // keys, galopin-visible internals and a made-up MCP tool key.
 var probeKeys = append(append([]string(nil), floorKeys...), "task", "todowrite", "doom_loop", "galopin_probe_tool")
 
-// builtinAgents are the agents whose own denies the floor restates, by the
-// shape their rules have in 1.18.34.
-func builtinAgentFloor(denies map[string]bool) map[string]any {
-	ask := func(k string) any {
+// builtinAgentFloor restates the denies of the built-in agents, by the shape
+// their rules have in 2.3.0 (GET /api/agent; floor_it_test.go compares the two).
+// A global `*: ask` is appended AFTER an agent's own default rules, so without
+// this block it would turn plan's edit deny, explore's `*` deny and the hidden
+// agents' denies into asks. Agent blocks come last.
+func (b *Backend) builtinAgentFloor(denies map[string]bool) map[string]any {
+	ask := func(k string) string {
 		if denies[k] {
 			return "deny"
 		}
 		return "ask"
 	}
-	hidden := map[string]any{"permission": ordered{{"*", "deny"}}}
+	hidden := map[string]any{"permissions": []rule{mk("*", "*", "deny")}}
 	// The owner's own file denies are restated in every agent block too: the
-	// global `*: ask` is appended after a key a lower source already named
-	// (mergeDeep keeps first positions), and would otherwise beat its deny.
-	var denyBlock ordered
+	// global `*: ask` would otherwise beat a lower layer's deny.
+	var denyBlock []rule
 	for _, k := range floorKeys {
 		if denies[k] {
-			denyBlock = append(denyBlock, kv{k, "deny"})
+			denyBlock = append(denyBlock, mk(k, "*", "deny"))
 		}
 	}
+	planRules := []rule{mk("edit", "*", "deny")}
+	for _, d := range b.PlanDirs() {
+		// galopin lets the plan file through on Plan (it asks).
+		planRules = append(planRules, mk("edit", d+"/*", "ask"))
+	}
 	out := map[string]any{
-		"plan": map[string]any{"permission": ordered{
-			// plan's own edit rule, with the plan file asking (galopin lets
-			// it through on Plan), and its general-subagent deny.
-			{"edit", ordered{{"*", "deny"}, {".opencode/plans/*.md", "ask"}}},
-			{"task", ordered{{"*", "ask"}, {"general", "deny"}}},
+		"plan": map[string]any{"permissions": planRules},
+		"explore": map[string]any{"permissions": []rule{
+			mk("*", "*", "deny"),
+			mk("bash", "*", ask("bash")), mk("glob", "*", ask("glob")), mk("grep", "*", ask("grep")),
+			mk("read", "*", ask("read")), mk("webfetch", "*", ask("webfetch")), mk("websearch", "*", ask("websearch")),
+			mk("external_directory", "*", "ask"),
 		}},
-		"explore": map[string]any{"permission": ordered{
-			{"*", "deny"},
-			{"bash", ask("bash")}, {"glob", ask("glob")}, {"grep", ask("grep")}, {"list", ask("list")},
-			{"read", ask("read")}, {"webfetch", ask("webfetch")}, {"websearch", ask("websearch")},
-			{"external_directory", ordered{{"*", "ask"}}},
-		}},
+		// a general-purpose subagent neither asks the person questions nor
+		// starts subagents of its own
+		"general":    map[string]any{"permissions": []rule{mk("question", "*", "deny"), mk("task", "*", "deny")}},
 		"compaction": hidden,
 		"title":      hidden,
 		"summary":    hidden,
 	}
 	if len(denyBlock) > 0 {
-		out["build"] = map[string]any{"permission": denyBlock}
-		out["general"] = map[string]any{"permission": denyBlock}
-		for _, name := range []string{"plan"} {
-			blk := out[name].(map[string]any)["permission"].(ordered)
-			for _, e := range denyBlock {
-				if e.K != "edit" {
-					blk = append(blk, e)
+		out["build"] = map[string]any{"permissions": denyBlock}
+		for _, name := range []string{"plan", "explore", "general"} {
+			blk := out[name].(map[string]any)["permissions"].([]rule)
+			for _, d := range denyBlock {
+				if name == "plan" && d["action"] == "edit" {
+					continue
 				}
+				blk = append(blk, d)
 			}
-			out[name] = map[string]any{"permission": blk}
+			out[name] = map[string]any{"permissions": blk}
 		}
 	}
 	return out
@@ -129,22 +110,31 @@ func builtinAgentFloor(denies map[string]bool) map[string]any {
 // floorContent is the OPENCODE_CONFIG_CONTENT permission part: the constant
 // floor plus patch, the per-agent entries for agents that are not built in
 // (see customAgentPatch).
-func floorContent(patch map[string]any, denies map[string]bool) map[string]any {
-	top := ordered{{"*", "ask"}}
+func (b *Backend) floorContent(patch map[string]any, denies map[string]bool) map[string]any {
+	top := []rule{mk("*", "*", "ask")}
 	for _, k := range floorKeys {
 		if denies[k] {
-			top = append(top, kv{k, "deny"})
+			top = append(top, mk(k, "*", "deny"))
 		} else {
-			top = append(top, kv{k, "ask"})
+			top = append(top, mk(k, "*", "ask"))
 		}
 	}
-	agents := builtinAgentFloor(denies)
+	// Code Mode (`execute`) would run the other tools from a script behind one
+	// card; denying it lists them directly, so every call is its own ask.
+	top = append(top, mk("execute", "*", "deny"))
+	// opencode 2.3 runs every subagent in the background and has no switch for
+	// it: a machine that does not allow background subagents gets no subagents
+	// at all (fail closed).
+	if !b.cfg.BackgroundSubagents {
+		top = append(top, mk("task", "*", "deny"))
+	}
+	agents := b.builtinAgentFloor(denies)
 	for name, v := range patch {
 		if _, builtin := agents[name]; !builtin {
 			agents[name] = v
 		}
 	}
-	return map[string]any{"permission": top, "agent": agents}
+	return map[string]any{"permissions": top, "agents": agents}
 }
 
 var builtinNames = map[string]bool{
@@ -152,11 +142,11 @@ var builtinNames = map[string]bool{
 	"compaction": true, "title": true, "summary": true,
 }
 
-// agentInfo is one agent as GET /agent reports it.
+// agentInfo is one agent as GET /api/agent reports it, rules in 1.x key names.
 type agentInfo struct {
-	Name       string           `json:"name"`
-	Native     bool             `json:"native"`
-	Permission []permrules.Rule `json:"permission"`
+	Name       string
+	Native     bool
+	Permission []permrules.Rule
 }
 
 // evalExact is opencode's evaluation for one key and pattern "*": the last rule
@@ -235,19 +225,20 @@ func customAgentPatch(agents []agentInfo) map[string]any {
 		sort.Strings(names)
 		// `*` first so a named key restated after it wins, as in the agent.
 		sort.SliceStable(names, func(i, j int) bool { return names[i] == "*" && names[j] != "*" })
-		var block ordered
+		var block []rule
 		for _, k := range names {
-			block = append(block, kv{k, restate(a.Permission, k)})
+			block = append(block, restate(a.Permission, k)...)
 		}
-		patch[a.Name] = map[string]any{"permission": block}
+		patch[a.Name] = map[string]any{"permissions": block}
 	}
 	return patch
 }
 
-// restate is the agent's rules for exactly key, allow taken to ask. A key the
-// agent does not mention asks.
-func restate(rules []permrules.Rule, key string) any {
-	var o ordered
+// restate is the agent's rules for exactly key, allow taken to ask, led by a
+// catch-all ask so "no rule matched" stays an ask. A key the agent does not
+// mention is just that ask.
+func restate(rules []permrules.Rule, key string) []rule {
+	out := []rule{mk(key, "*", "ask")}
 	for _, r := range rules {
 		if r.Permission != key {
 			continue
@@ -256,39 +247,70 @@ func restate(rules []permrules.Rule, key string) any {
 		if act == permrules.Allow {
 			act = permrules.Ask
 		}
-		// A later rule for the same pattern replaces an earlier one (last match
-		// wins), and a JSON object cannot repeat a key.
-		for i := range o {
-			if o[i].K == r.Pattern {
-				o = append(o[:i:i], o[i+1:]...)
-				break
-			}
-		}
-		o = append(o, kv{r.Pattern, string(act)})
+		out = append(out, mk(key, r.Pattern, string(act)))
 	}
-	if len(o) == 0 {
-		return "ask"
-	}
-	if len(o) == 1 && o[0].K == "*" {
-		return o[0].V
-	}
-	// opencode reads the object in order and the last match wins; a catch-all
-	// ask first keeps "no rule matched" at ask.
-	if o[0].K != "*" {
-		o = append(ordered{{"*", "ask"}}, o...)
-	}
-	return o
+	return out
 }
 
 // floorConfig is OPENCODE_CONFIG_CONTENT: the floor merged over base (the
 // pinned project-config content, or nothing), plus the per-agent patch.
-func floorConfig(base map[string]any, patch map[string]any, denies map[string]bool) (string, error) {
+//
+// A 1.x `permission` object in base (the static block enroll wrote) is turned
+// into 2.x rules and put BEFORE the floor's: the two spellings in one layer
+// would otherwise leave their relative order to opencode's normaliser, and the
+// floor must be the last word.
+func (b *Backend) floorConfig(base map[string]any, patch map[string]any, denies map[string]bool) (string, error) {
 	if base == nil {
 		base = map[string]any{}
 	}
-	out := mergeConfig(base, floorContent(patch, denies))
+	floor := b.floorContent(patch, denies)
+	var before []rule
+	if p, ok := base["permission"].(map[string]any); ok {
+		before = append(before, rulesFromV1Object(p)...)
+		cp := make(map[string]any, len(base))
+		for k, v := range base {
+			if k != "permission" {
+				cp[k] = v
+			}
+		}
+		base = cp
+	}
+	if len(before) > 0 {
+		floor["permissions"] = append(before, floor["permissions"].([]rule)...)
+	}
+	out := mergeConfig(base, floor)
 	body, err := json.Marshal(out)
 	return string(body), err
+}
+
+// rulesFromV1Object reads a 1.x permission object ({tool: "allow"} or
+// {tool: {pattern: "allow"}}, keys in file order lost: sorted, with a tool's
+// own `*` first) as 2.x rules.
+func rulesFromV1Object(p map[string]any) []rule {
+	keys := make([]string, 0, len(p))
+	for k := range p {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var out []rule
+	for _, k := range keys {
+		switch v := p[k].(type) {
+		case string:
+			out = append(out, mk(k, "*", v))
+		case map[string]any:
+			pats := make([]string, 0, len(v))
+			for pat := range v {
+				pats = append(pats, pat)
+			}
+			sort.SliceStable(pats, func(i, j int) bool { return pats[i] == "*" && pats[j] != "*" })
+			for _, pat := range pats {
+				if eff, ok := v[pat].(string); ok {
+					out = append(out, mk(k, pat, eff))
+				}
+			}
+		}
+	}
+	return out
 }
 
 // checkFloor reads every agent opencode reports and looks for a call that
@@ -297,10 +319,29 @@ func floorConfig(base map[string]any, patch map[string]any, denies map[string]bo
 // something (a release that changed one) is only reported, because the floor
 // table is what the live test compares against the binary.
 func (b *Backend) checkFloor(ctx context.Context) {
-	var agents []agentInfo
-	if err := b.doJSON(ctx, http.MethodGet, "/agent", nil, &agents); err != nil {
+	// The agents list is partial while the location loads: read until the floor's own
+	// marker (Code Mode denied, written only by floorContent) shows on the build agent.
+	var entries []map[string]any
+	var err error
+	for attempt := 0; attempt < 40; attempt++ {
+		entries, err = b.agentEntries(ctx, "")
+		if err != nil || hasFloorMarker(entries) {
+			break
+		}
+		b.forgetAgentRules()
+		select {
+		case <-ctx.Done():
+			attempt = 40
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+	if err != nil {
 		b.cfg.Logf("opencode: could not read the agents to check the permission floor: %v", err)
 		return
+	}
+	var agents []agentInfo
+	for _, e := range entries {
+		agents = append(agents, agentInfo{Name: getStr(e, "id", "name"), Permission: rulesFromV2(getSlice(e, "permissions"))})
 	}
 	breaches := findBreaches(agents)
 	names := make([]string, 0, len(breaches))
@@ -360,7 +401,8 @@ func fileDenies(path string) map[string]bool {
 		return out
 	}
 	var cfg struct {
-		Permission map[string]any `json:"permission"`
+		Permission  map[string]any   `json:"permission"`
+		Permissions []map[string]any `json:"permissions"`
 	}
 	if json.Unmarshal(raw, &cfg) != nil {
 		return out
@@ -370,5 +412,33 @@ func fileDenies(path string) map[string]bool {
 			out[k] = true
 		}
 	}
+	for _, r := range cfg.Permissions {
+		if getStr(r, "effect") == "deny" && getStr(r, "resource") == "*" {
+			if k := v1Name(getStr(r, "action")); k != "*" {
+				out[k] = true
+			}
+		}
+	}
 	return out
+}
+
+// floorConfigFor is floorConfig for a Config without a running Backend
+// (childEnv also serves `galopin launch opencode`).
+func floorConfigFor(cfg Config, base map[string]any, patch map[string]any, denies map[string]bool) (string, error) {
+	return (&Backend{cfg: cfg}).floorConfig(base, patch, denies)
+}
+
+// hasFloorMarker reports whether the build agent carries the floor's execute deny.
+func hasFloorMarker(entries []map[string]any) bool {
+	for _, e := range entries {
+		if getStr(e, "id", "name") != "build" {
+			continue
+		}
+		for _, r := range asMaps(getSlice(e, "permissions")) {
+			if getStr(r, "action") == "execute" && getStr(r, "effect") == "deny" {
+				return true
+			}
+		}
+	}
+	return false
 }

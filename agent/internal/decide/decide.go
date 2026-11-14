@@ -172,6 +172,14 @@ func Classify(p Policy, r Request) (cat Category, sensitive bool) {
 // effectful tool). The live canary fails when opencode adds a name that is not
 // known here, so each new name is decided by a person.
 func Known(key string) bool {
+	// opencode 2's own tools beyond the file/shell set: `execute` (Code Mode, denied
+	// by the floor) and `browser` (denied by default) are decided on purpose to
+	// get the cautious default, and its `opencode_*` utility tools (session
+	// rename/move, worktrees, MCP resource and model lists) likewise ask like any
+	// effectful tool, because session_move and worktree_* can leave the workspace.
+	if key == "execute" || key == "browser" || strings.HasPrefix(key, "opencode_") {
+		return true
+	}
 	switch key {
 	case "read", "glob", "grep", "list", "lsp", "skill", "edit", "bash", "webfetch", "websearch",
 		"codesearch", "external_directory", "task", "todowrite", "todoread", "question", "plan_enter",
@@ -277,7 +285,12 @@ func excepted(exs []permrules.Exception, r Request, overAskOnly ...bool) bool {
 		pats = []string{"*"}
 	}
 	for _, e := range exs {
-		if e.Permission != r.Key || (overAsk && !e.OverAsk) {
+		// opencode 2 raises two asks for a file outside the workspace: external_directory,
+		// then the read or edit itself. An exception for the directory covers both
+		// (1.x asked only the first), so one "always allow" is still one decision.
+		sameKey := e.Permission == r.Key ||
+			(e.Permission == "external_directory" && (r.Key == "read" || r.Key == "edit"))
+		if !sameKey || (overAsk && !e.OverAsk) {
 			continue
 		}
 		covered := true
