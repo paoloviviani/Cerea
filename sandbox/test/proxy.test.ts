@@ -8,13 +8,20 @@ import net from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, afterEach, before, describe, it } from "node:test";
+import { DEFAULT_EXEC_IMAGE } from "../src/manager/config.ts";
+import { execContainerSpec } from "../src/manager/spec.ts";
+import { testConfig } from "./fakes.ts";
 import type { PolicyConfig } from "../src/socket-proxy/policy.ts";
 import { createProxy } from "../src/socket-proxy/server.ts";
 
 const FULL = (c: string) => c.repeat(64);
 const EXEC = FULL("e");
 const managed = { "cerea.sandbox": "1", "cerea.sandbox.instance": "unit" };
-const cfg: PolicyConfig = { instance: "unit", runtimes: ["runc"], images: ["img"] };
+const cfg: PolicyConfig = {
+	instance: "unit",
+	runtimes: ["runc"],
+	images: ["img", DEFAULT_EXEC_IMAGE],
+};
 
 /** A fake Docker on a unix socket. It records every byte it receives, per connection. */
 function fakeDocker(socketPath: string, startReply: "101" | "200") {
@@ -215,5 +222,130 @@ describe("socket proxy: request smuggling", () => {
 			assert.equal((r.match(/HTTP\/1\.1\r\n/g) ?? []).length, 1);
 			assert.match(r, /connection: close/i);
 		}
+	});
+
+	describe("duplicate keys and the forwarded bytes", () => {
+		const post = (path: string, payload: string) =>
+			`POST ${path} HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: ${payload.length}\r\nConnection: close\r\n\r\n${payload}`;
+		const valid =
+			'"HostConfig":{"Runtime":"runc","Memory":1048576,"MemorySwap":1048576,"PidsLimit":10,"NanoCpus":1000000000}';
+		const reached = (received: string[], what: string) => received.some((r) => r.includes(what));
+
+		it("refuses a repeated HostConfig (Go would merge the two), forwarding nothing", async () => {
+			const { port, fake } = await setup("101");
+			const dup = `{"Image":"img",${valid.replace(/^/, "")},"HostConfig":{"Privileged":true,"Binds":["/:/host"]}}`;
+			const out = await rawExchange(port, post("/containers/create?name=cerea-sbx-x", dup));
+			assert.match(out, /^HTTP\/1\.1 400/);
+			assert.match(out, /repeats a key/);
+			assert.equal(reached(fake.received, "POST /containers/create"), false);
+		});
+
+		describe("numbers that would not survive re-serialisation", () => {
+			const spec = () => {
+				const c = testConfig();
+				return JSON.stringify(
+					execContainerSpec(c, { id: "a".repeat(24), owner: "u", kind: "exec" }, c.defaults)
+				);
+			};
+			const create = (payload: string) =>
+				post(`/containers/create?name=cerea-sbx-${"a".repeat(24)}`, payload);
+
+			it("forwards a valid create (the control)", async () => {
+				const { port, fake } = await setup("101");
+				const out = await rawExchange(port, create(spec()));
+				assert.doesNotMatch(out, /^HTTP\/1\.1 400|^HTTP\/1\.1 403/);
+				assert.equal(reached(fake.received, "POST /containers/create"), true);
+			});
+
+			it("refuses Infinity-valued limits, whichever way they are written, forwarding nothing", async () => {
+				const { port, fake } = await setup("101");
+				const valid = spec();
+				for (const token of ["1e400", "-1e400", "1e309", "1E999", "123456789e400"]) {
+					for (const field of ["Memory", "MemorySwap", "NanoCpus", "PidsLimit", "StopTimeout"]) {
+						const swapped = valid.replace(new RegExp(`"${field}":\\d+`), `"${field}":${token}`);
+						assert.notEqual(swapped, valid, field);
+						const out = await rawExchange(port, create(swapped));
+						assert.match(out, /^HTTP\/1\.1 400/, `${field}=${token}`);
+					}
+				}
+				// Memory and MemorySwap both Infinity: equal, positive, and null once re-serialised
+				const both = valid
+					.replace(/"Memory":\d+/, '"Memory":1e400')
+					.replace(/"MemorySwap":\d+/, '"MemorySwap":1e400');
+				assert.match(await rawExchange(port, create(both)), /^HTTP\/1\.1 400/);
+				assert.equal(reached(fake.received, "POST /containers/create"), false);
+			});
+
+			it("refuses integers above 2^53 in those fields", async () => {
+				const { port, fake } = await setup("101");
+				const valid = spec();
+				for (const field of ["NanoCpus", "PidsLimit", "StopTimeout"]) {
+					const swapped = valid.replace(
+						new RegExp(`"${field}":\\d+`),
+						`"${field}":9007199254740993`
+					);
+					assert.match(await rawExchange(port, create(swapped)), /^HTTP\/1\.1 (400|403)/, field);
+				}
+				assert.equal(reached(fake.received, "POST /containers/create"), false);
+			});
+
+			it("also refuses a non-finite number on the upgrade path", async () => {
+				const { port, fake } = await setup("101");
+				const out = await rawExchange(
+					port,
+					startRequest(EXEC, '{"Detach":false,"Tty":false,"x":1e400}')
+				);
+				assert.match(out, /^HTTP\/1\.1 400/);
+				assert.equal(reached(fake.received, "POST /exec/"), false);
+			});
+		});
+
+		it("refuses a repeated key at depth, and an escaped spelling of a repeated key", async () => {
+			const { port, fake } = await setup("101");
+			const nested = '{"Cmd":["id"],"Env":[],"Cmd":["sh"]}';
+			assert.match(
+				await rawExchange(port, post("/containers/mine/exec", nested)),
+				/^HTTP\/1\.1 400/
+			);
+			const escaped = '{"Cmd":["id"],"C\\u006dd":["sh"]}';
+			assert.match(
+				await rawExchange(port, post("/containers/mine/exec", escaped)),
+				/^HTTP\/1\.1 400/
+			);
+			const deep = '{"Cmd":["id"],"User":"65534","x":{"a":{"b":1,"b":2}}}';
+			assert.match(await rawExchange(port, post("/containers/mine/exec", deep)), /^HTTP\/1\.1 400/);
+			assert.equal(reached(fake.received, "POST /containers/mine/exec"), false);
+		});
+
+		it("refuses a repeated key on the upgrade path too", async () => {
+			const { port, fake } = await setup("101");
+			const out = await rawExchange(
+				port,
+				startRequest(EXEC, '{"Detach":true,"Detach":false,"Tty":false}')
+			);
+			assert.match(out, /^HTTP\/1\.1 400/);
+			assert.equal(reached(fake.received, "POST /exec/"), false);
+		});
+
+		it("forwards the canonical JSON of what it checked, with its own Content-Length", async () => {
+			const { port, fake } = await setup("101");
+			await rawExchange(
+				port,
+				post("/containers/mine/exec", '{ "Cmd" : [ "id" ] ,\n "Tty" : false }')
+			);
+			const sent =
+				fake.received.find((r) => r.startsWith(`POST /containers/${FULL("a")}/exec`)) ?? "";
+			const canonical = '{"Cmd":["id"],"Tty":false}';
+			assert.ok(sent.endsWith(`\r\n\r\n${canonical}`), JSON.stringify(sent));
+			assert.match(sent, new RegExp(`content-length: ${canonical.length}\\r\\n`, "i"));
+			// and on the upgrade path
+			await rawExchange(port, startRequest(EXEC, '{ "Detach" : false,  "Tty" : false }'), (s) =>
+				setTimeout(() => s.end(), 50)
+			);
+			const start = fake.received.find((r) => r.includes(`POST /exec/${EXEC}/start`)) ?? "";
+			const c2 = '{"Detach":false,"Tty":false}';
+			assert.ok(start.includes(`Content-Length: ${c2.length}\r\n`));
+			assert.ok(start.includes(`\r\n\r\n${c2}`));
+		});
 	});
 });

@@ -1,3 +1,4 @@
+import { isSliceName } from "../shared/slice.ts";
 import { LABEL_INSTANCE, LABEL_MANAGED, NAME_PREFIX, isManaged } from "../shared/labels.ts";
 
 /**
@@ -12,6 +13,16 @@ export interface PolicyConfig {
 	runtimes: string[];
 	/** The images a sandbox may use (and the only ones that may be pulled). */
 	images: string[];
+	/**
+	 * The one systemd slice a sandbox may be placed under (`SANDBOX_CGROUP_PARENT`), or unset.
+	 * When set, every sandbox must name exactly it; when unset, none may name any.
+	 */
+	cgroupParent?: string;
+	/** The most CPUs a sandbox may be given (`SANDBOX_EXEC_MAX_CPUS`): CpuShares stay within 1024 each. Default 2. */
+	maxCpus?: number;
+	/** The most memory (MB) and pids a sandbox may be given (`SANDBOX_EXEC_MAX_MEMORY_MB`, `_PIDS`). Defaults 2048 and 1024. */
+	maxMemoryMb?: number;
+	maxPids?: number;
 }
 
 export interface PolicyDeps {
@@ -100,6 +111,9 @@ const CREATE_HOST = new Set([
 	"IpcMode",
 	"Memory",
 	"MemorySwap",
+	"MemoryReservation",
+	"CpuShares",
+	"CgroupParent",
 	"NanoCpus",
 	"PidsLimit",
 	"Tmpfs",
@@ -141,10 +155,42 @@ export function validateCreate(body: unknown, cfg: PolicyConfig): string | null 
 		return "SecurityOpt may only be no-new-privileges";
 	}
 	if (h.IpcMode !== undefined && h.IpcMode !== "private") return "IpcMode must be private";
-	for (const k of ["Memory", "NanoCpus", "PidsLimit"]) {
-		if (typeof h[k] !== "number" || (h[k] as number) <= 0) return `${k} must be a positive limit`;
+	// Whole, safe integers within the configured maxima: a limit that is not finite would be
+	// re-serialised as null, which Docker reads as "unset".
+	const caps: Record<string, number> = {
+		Memory: (cfg.maxMemoryMb ?? 2048) * 1024 * 1024,
+		NanoCpus: Math.round((cfg.maxCpus ?? 2) * 1e9),
+		PidsLimit: cfg.maxPids ?? 1024,
+	};
+	for (const [k, cap] of Object.entries(caps)) {
+		const v = h[k];
+		if (typeof v !== "number" || !Number.isSafeInteger(v) || v <= 0 || v > cap) {
+			return `${k} must be a positive whole number of at most ${cap}`;
+		}
+	}
+	const stop = b.StopTimeout;
+	if (
+		stop !== undefined &&
+		(!Number.isSafeInteger(stop) || (stop as number) < 0 || (stop as number) > 60)
+	) {
+		return "StopTimeout must be a whole number of seconds, at most 60";
 	}
 	if (h.MemorySwap !== h.Memory) return "swap must equal memory (none)";
+	if (h.MemoryReservation !== undefined) {
+		const r = h.MemoryReservation;
+		if (!Number.isInteger(r) || (r as number) <= 0 || (r as number) > (h.Memory as number)) {
+			return "MemoryReservation must be a positive whole number of bytes, at most Memory";
+		}
+	}
+	if (h.CpuShares !== undefined) {
+		const c = h.CpuShares;
+		const cap = Math.ceil(1024 * (cfg.maxCpus ?? 2));
+		if (!Number.isInteger(c) || (c as number) < 2 || (c as number) > cap) {
+			return `CpuShares must be a whole number from 2 to ${cap} (1024 per CPU of the maximum)`;
+		}
+	}
+	const parent = cgroupParentProblem(h.CgroupParent, cfg.cgroupParent);
+	if (parent) return parent;
 	const tmpfs = h.Tmpfs;
 	if (typeof tmpfs !== "object" || tmpfs === null) return "a tmpfs workspace is required";
 	for (const [k, opts] of Object.entries(tmpfs)) {
@@ -168,6 +214,24 @@ export function validateCreate(body: unknown, cfg: PolicyConfig): string | null 
 			if (!ok) return `only a nofile ulimit up to ${NOFILE_CAP} is allowed`;
 		}
 	}
+	return null;
+}
+
+/**
+ * The cgroup parent is the shared hard cap: a sandbox that names another (or none, when the
+ * operator configured one) would escape it, or land in a cgroup the operator never chose.
+ */
+function cgroupParentProblem(asked: unknown, allowed: string | undefined): string | null {
+	if (allowed !== undefined && !isSliceName(allowed)) {
+		return "the proxy's own cgroup parent is not a valid slice name";
+	}
+	if (asked === undefined) {
+		return allowed === undefined ? null : `CgroupParent must be ${allowed}`;
+	}
+	if (typeof asked !== "string" || !isSliceName(asked)) {
+		return "CgroupParent must be a systemd slice name";
+	}
+	if (allowed === undefined || asked !== allowed) return "that CgroupParent is not allowed";
 	return null;
 }
 

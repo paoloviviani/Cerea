@@ -32,13 +32,13 @@ x-redaction-image: &redaction-image ${REDACTION_IMAGE:-${PYSTINO_REGISTRY:-ghcr.
 # (-ocr: scans read with RapidOCR; -docling: layout and tables too), which the
 # redaction service has no use for and so does not share.
 x-extractor-image: &extractor-image ${EXTRACTOR_IMAGE:-${REDACTION_IMAGE:-${PYSTINO_REGISTRY:-ghcr.io/paoloviviani}/pystino-redaction:${PYSTINO_VERSION:-0.33.2}-pattern}}
-x-cerea-image: &cerea-image ${CEREA_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea:${CEREA_VERSION:-0.52.1}}
-x-documents-image: &documents-image ${DOCUMENTS_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea-documents:${CEREA_VERSION:-0.52.1}}
+x-cerea-image: &cerea-image ${CEREA_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea:${CEREA_VERSION:-0.52.2}}
+x-documents-image: &documents-image ${DOCUMENTS_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea-documents:${CEREA_VERSION:-0.52.2}}
 # The sandbox manager and its Docker socket proxy (ADR 0115): one small image, two commands.
-x-sandbox-image: &sandbox-image ${SANDBOX_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea-sandbox:${CEREA_VERSION:-0.52.1}}
+x-sandbox-image: &sandbox-image ${SANDBOX_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea-sandbox:${CEREA_VERSION:-0.52.2}}
 # The image a sandbox runs: Python 3.13 with the scientific and office stack and the exec daemon
 # (sandbox/exec-image), versioned with the chat. The manager and the socket proxy must agree on it.
-x-sandbox-exec-image: &sandbox-exec-image ${SANDBOX_EXEC_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea-sandbox-python:${CEREA_VERSION:-0.52.1}}
+x-sandbox-exec-image: &sandbox-exec-image ${SANDBOX_EXEC_IMAGE:-${CEREA_REGISTRY:-ghcr.io/paoloviviani}/cerea-sandbox-python:${CEREA_VERSION:-0.52.2}}
 
 # `docker compose pull` fails on an image that exists only on this host. dev/build.sh
 # writes <NAME>_PULL_POLICY=never next to each local/ image it points .env at, so
@@ -932,6 +932,10 @@ services:
       SANDBOX_RUNTIME: ${SANDBOX_RUNTIME:-runsc}
       SANDBOX_ALLOW_RUNC: ${SANDBOX_ALLOW_RUNC:-}
       SANDBOX_ALLOWED_IMAGES: *sandbox-exec-image
+      SANDBOX_CGROUP_PARENT: ${SANDBOX_CGROUP_PARENT:-}
+      SANDBOX_EXEC_MAX_CPUS: ${SANDBOX_EXEC_MAX_CPUS:-}
+      SANDBOX_EXEC_MAX_MEMORY_MB: ${SANDBOX_EXEC_MAX_MEMORY_MB:-}
+      SANDBOX_EXEC_MAX_PIDS: ${SANDBOX_EXEC_MAX_PIDS:-}
       SANDBOX_DOCKER_SOCKET: /var/run/docker.sock
     volumes:
       - ${SANDBOX_DOCKER_SOCKET_HOST:-/var/run/docker.sock}:/var/run/docker.sock
@@ -966,6 +970,9 @@ services:
       SANDBOX_ALLOW_RUNC: ${SANDBOX_ALLOW_RUNC:-}
       SANDBOX_MACHINES_ENABLED: ${SANDBOX_MACHINES_ENABLED:-}
       SANDBOX_EXEC_IMAGE: *sandbox-exec-image
+      SANDBOX_CGROUP_PARENT: ${SANDBOX_CGROUP_PARENT:-}
+      SANDBOX_TOTAL_MEMORY_MB: ${SANDBOX_TOTAL_MEMORY_MB:-}
+      SANDBOX_TOTAL_CPUS: ${SANDBOX_TOTAL_CPUS:-}
       SANDBOX_MAX_LEASES: ${SANDBOX_MAX_LEASES:-}
       SANDBOX_MAX_LEASES_PER_OWNER: ${SANDBOX_MAX_LEASES_PER_OWNER:-}
       SANDBOX_WARM_POOL_SIZE: ${SANDBOX_WARM_POOL_SIZE:-}
@@ -974,6 +981,8 @@ services:
       SANDBOX_MAX_LIFETIME_SECONDS: ${SANDBOX_MAX_LIFETIME_SECONDS:-}
       SANDBOX_EXEC_MEMORY_MB: ${SANDBOX_EXEC_MEMORY_MB:-}
       SANDBOX_EXEC_MAX_MEMORY_MB: ${SANDBOX_EXEC_MAX_MEMORY_MB:-}
+      SANDBOX_EXEC_MEMORY_RESERVATION_MB: ${SANDBOX_EXEC_MEMORY_RESERVATION_MB:-}
+      SANDBOX_EXEC_CPU_RESERVATION: ${SANDBOX_EXEC_CPU_RESERVATION:-}
       SANDBOX_EXEC_CPUS: ${SANDBOX_EXEC_CPUS:-}
       SANDBOX_EXEC_MAX_CPUS: ${SANDBOX_EXEC_MAX_CPUS:-}
       SANDBOX_EXEC_PIDS: ${SANDBOX_EXEC_PIDS:-}

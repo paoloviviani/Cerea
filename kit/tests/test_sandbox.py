@@ -213,6 +213,87 @@ class Runtime(Deploy):
         self.assertNotIn("sandbox", values["COMPOSE_PROFILES"].split(","))
 
 
+def completed(out: str, code: int = 0):
+    return mock.Mock(returncode=code, stdout=out, stderr="")
+
+
+class SharedSlice(unittest.TestCase):
+    VALUES = {"SANDBOX": "local", "SANDBOX_CGROUP_PARENT": "cerea-sandbox.slice"}
+
+    def warnings(self, systemctl: str, driver: str = "systemd", code: int = 0, version: str = "2") -> list:
+        def run(cmd, timeout=30, cwd=None):
+            if cmd[0] == "docker":
+                return completed((version if "CgroupVersion" in cmd[-1] else driver) + "\n")
+            return completed(systemctl, code)
+
+        with mock.patch.object(cfg, "_run", side_effect=run):
+            return cfg.sandbox_slice_warnings(self.VALUES)
+
+    def test_nothing_to_say_without_a_slice_name(self):
+        self.assertEqual(cfg.sandbox_slice_warnings({"SANDBOX": "local"}), [])
+
+    def test_a_defined_slice_with_caps_is_quiet(self):
+        out = "FragmentPath=/etc/systemd/system/cerea-sandbox.slice\nDropInPaths=\nMemoryMax=1610612736\nCPUQuotaPerSecUSec=1.5s\n"
+        self.assertEqual(self.warnings(out), [])
+
+    def test_a_slice_nobody_defined_is_a_warning(self):
+        out = "FragmentPath=\nDropInPaths=\nMemoryMax=infinity\nCPUQuotaPerSecUSec=infinity\n"
+        (warning,) = self.warnings(out)
+        self.assertIn("not defined", warning)
+
+    def test_a_slice_without_caps_is_a_warning(self):
+        out = "FragmentPath=/etc/systemd/system/cerea-sandbox.slice\nDropInPaths=\nMemoryMax=infinity\nCPUQuotaPerSecUSec=infinity\n"
+        (warning,) = self.warnings(out)
+        self.assertIn("caps nothing", warning)
+
+    def test_the_cgroupfs_driver_is_explained(self):
+        (warning,) = self.warnings("", driver="cgroupfs")
+        self.assertIn("cgroupfs", warning)
+
+    def test_cgroup_v1_is_explained(self):
+        (warning,) = self.warnings("", version="1")
+        self.assertIn("cgroup v2", warning)
+
+    def test_an_unaskable_systemd_is_a_note_not_a_failure(self):
+        (warning,) = self.warnings("", code=1)
+        self.assertIn("not checked", warning)
+
+    def test_check_warns_and_never_fails_on_it(self):
+        report = cfg.Report()
+        with mock.patch.object(cfg, "sandbox_slice_warnings", return_value=["slice problem"]), mock.patch.object(
+            cfg, "sandbox_runtime_problem", return_value=None
+        ):
+            cfg.check_host({"SANDBOX": "local"}, report, root=ROOT, network=False)
+        self.assertIn("slice problem", report.warnings)
+        self.assertNotIn("slice problem", " ".join(report.errors))
+
+    def test_a_malformed_slice_name_is_an_error(self):
+        for bad in (
+            "cerea", "../x.slice", "a/b.slice", "-.slice", "system.slice", "user.slice", "machine.slice",
+            "user-1000.slice", "-a.slice", "a-.slice", "a--b.slice",
+        ):
+            report = check({**build(sandbox="local").values, "SANDBOX_CGROUP_PARENT": bad})
+            self.assertTrue([e for e in report.errors if "SANDBOX_CGROUP_PARENT" in e], bad)
+        good = check({**build(sandbox="local").values, "SANDBOX_CGROUP_PARENT": "cerea-sandbox.slice"})
+        self.assertEqual([e for e in good.errors if "SANDBOX_CGROUP_PARENT" in e], [])
+
+    def test_the_compose_files_pass_the_budget_to_the_manager_and_the_slice_to_the_proxy(self):
+        for text in (COMPOSE, STANDALONE):
+            proxy = service(text, "sandbox-socket-proxy")
+            manager = service(text, "sandbox-manager")
+            self.assertIn("SANDBOX_CGROUP_PARENT: ${SANDBOX_CGROUP_PARENT:-}", proxy)
+            for var in ("SANDBOX_EXEC_MAX_CPUS", "SANDBOX_EXEC_MAX_MEMORY_MB", "SANDBOX_EXEC_MAX_PIDS"):
+                self.assertIn(f"{var}: ${{{var}:-}}", proxy)
+            for var in (
+                "SANDBOX_CGROUP_PARENT",
+                "SANDBOX_TOTAL_MEMORY_MB",
+                "SANDBOX_TOTAL_CPUS",
+                "SANDBOX_EXEC_MEMORY_RESERVATION_MB",
+                "SANDBOX_EXEC_CPU_RESERVATION",
+            ):
+                self.assertIn(f"{var}: ${{{var}:-}}", manager)
+
+
 class ComposeRules(unittest.TestCase):
     def test_the_socket_is_mounted_by_the_proxy_alone(self):
         for text in (COMPOSE, STANDALONE):

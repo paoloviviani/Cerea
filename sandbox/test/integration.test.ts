@@ -16,6 +16,24 @@ import { createProxy } from "../src/socket-proxy/server.ts";
 const enabled = process.env.SANDBOX_INTEGRATION === "1";
 const runtime = process.env.SANDBOX_RUNTIME || "runsc";
 const instance = `it-${process.pid}`;
+/**
+ * A systemd slice to put the sandboxes under (SANDBOX_TEST_CGROUP_PARENT), used only when it
+ * exists on this host: CI creates one; a developer's box is never given one by this test.
+ */
+function existingSlice(): string | undefined {
+	const name = process.env.SANDBOX_TEST_CGROUP_PARENT;
+	if (!name) return undefined;
+	try {
+		// systemd answers "loaded" for any slice name; one the operator defined has a unit file.
+		const path = execFileSync("systemctl", ["show", "-p", "FragmentPath", "--value", name], {
+			encoding: "utf8",
+		}).trim();
+		return path ? name : undefined;
+	} catch {
+		return undefined;
+	}
+}
+const slice = enabled ? existingSlice() : undefined;
 const TOKEN = "integration-token-0123456789";
 
 describe("sandbox manager against Docker", { skip: !enabled }, () => {
@@ -54,7 +72,7 @@ describe("sandbox manager against Docker", { skip: !enabled }, () => {
 	before(async () => {
 		proxy = createProxy(
 			{ socketPath: "/var/run/docker.sock" },
-			{ instance, runtimes: [runtime], images: [DEFAULT_EXEC_IMAGE] }
+			{ instance, runtimes: [runtime], images: [DEFAULT_EXEC_IMAGE], cgroupParent: slice }
 		);
 		await new Promise<void>((r) => proxy.listen(0, "127.0.0.1", r));
 		const proxyPort = (proxy.address() as AddressInfo).port;
@@ -65,6 +83,9 @@ describe("sandbox manager against Docker", { skip: !enabled }, () => {
 			SANDBOX_INSTANCE: instance,
 			SANDBOX_DOCKER_URL: `http://127.0.0.1:${proxyPort}`,
 			SANDBOX_AUDIT_LOG: "",
+			SANDBOX_EXEC_MEMORY_RESERVATION_MB: "256",
+			SANDBOX_EXEC_CPU_RESERVATION: "0.5",
+			SANDBOX_CGROUP_PARENT: slice,
 			SANDBOX_MAX_FILE_BYTES: "65536",
 			SANDBOX_EXEC_MAX_OUTPUT_BYTES: "4096",
 			SANDBOX_EXEC_MAX_OUTPUT_BYTES_CAP: "8192",
@@ -144,6 +165,12 @@ describe("sandbox manager against Docker", { skip: !enabled }, () => {
 				["nofile"]
 			);
 			assert.ok(h.Memory > 0 && h.PidsLimit > 0 && h.NanoCpus > 0);
+			// the budget: a soft reservation, CPU shares, and the shared slice when the host has one
+			assert.equal(h.MemoryReservation, 256 * 1024 * 1024);
+			assert.equal(h.CpuShares, 512);
+			if (slice) assert.equal(h.CgroupParent, slice);
+			else
+				console.log("no SANDBOX_TEST_CGROUP_PARENT slice on this host: CgroupParent not asserted");
 			assert.equal(h.Binds ?? null, null);
 			assert.deepEqual(inspect.Mounts, []);
 			assert.equal(inspect.Config.User, "65534:65534");
@@ -217,6 +244,49 @@ describe("sandbox manager against Docker", { skip: !enabled }, () => {
 
 			await call("DELETE", `/v1/leases/${a}`);
 			await call("DELETE", `/v1/leases/${b}`);
+		}
+	);
+
+	it(
+		"a call that allocates past the memory limit fails plainly and frees its share",
+		{ timeout: 300_000 },
+		async () => {
+			const created = await call("POST", "/v1/leases", {
+				kind: "exec",
+				owner: "user-oom",
+				limits: { memory_mb: 128 },
+			});
+			assert.equal(created.status, 201, await created.clone().text());
+			const lease = (await created.json()) as { id: string };
+			owners.set(lease.id, "user-oom");
+			const ran = await call("POST", `/v1/leases/${lease.id}/exec`, {
+				cmd: [
+					"python",
+					"-c",
+					"b = bytearray(1024 * 1024 * 1024)\nfor i in range(0, len(b), 4096): b[i] = 1\nprint('survived')",
+				],
+				timeout_seconds: 8,
+			});
+			const text = await ran.text();
+			assert.ok(!text.includes("survived"), "the allocation must not succeed");
+			if (ran.status === 200) {
+				// The kernel killed the process only: the call reports a non-zero exit.
+				assert.notEqual((JSON.parse(text) as { exit_code: number }).exit_code, 0);
+			} else {
+				// The sandbox died with it: the manager says so, and has released it.
+				assert.equal(ran.status, 410, text);
+				assert.match(text, /oom_killed|sandbox_gone/);
+				const again = await call("GET", `/v1/leases/${lease.id}`);
+				assert.equal(again.status, 404);
+			}
+			await call("DELETE", `/v1/leases/${lease.id}`); // 204, or 404 when already released
+			// whatever happened, a fresh sandbox is available and works
+			const next = await call("POST", "/v1/leases", { kind: "exec", owner: "user-oom" });
+			assert.equal(next.status, 201, await next.clone().text());
+			const n = (await next.json()) as { id: string };
+			owners.set(n.id, "user-oom");
+			const ok = await call("POST", `/v1/leases/${n.id}/exec`, { cmd: ["echo", "fresh"] });
+			assert.equal(((await ok.json()) as { stdout: string }).stdout.trim(), "fresh");
 		}
 	);
 

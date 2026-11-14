@@ -1,4 +1,4 @@
-import type { ManagerConfig, LeaseLimits } from "./config.ts";
+import type { ManagerConfig, LeaseLimits, Reservation } from "./config.ts";
 import {
 	LABEL_INSTANCE,
 	LABEL_KIND,
@@ -9,6 +9,25 @@ import {
 } from "../shared/labels.ts";
 import { WORKSPACE } from "./paths.ts";
 
+/** What a lease reserves: the configured reservation, never more than the lease's own limit. */
+export function leaseReservation(config: ManagerConfig, limits: LeaseLimits): Reservation {
+	return {
+		memoryMb: Math.min(config.reservation.memoryMb, limits.memoryMb),
+		cpus: Math.min(config.reservation.cpus, limits.cpus),
+	};
+}
+
+/** Docker's relative CPU weight: 1024 is one CPU's worth (its minimum is 2). */
+export function cpuShares(cpus: number): number {
+	return Math.max(2, Math.round(cpus * 1024));
+}
+
+/** The soft memory limit in whole MB (rounded down), never above the hard one and never below 1 MB. */
+export function reservationBytes(reservationMb: number, limitMb: number): number {
+	const mb = Math.max(1, Math.min(Math.floor(reservationMb), Math.floor(limitMb)));
+	return Math.min(mb * 1024 * 1024, Math.floor(limitMb * 1024 * 1024));
+}
+
 export function containerName(leaseId: string): string {
 	return `${NAME_PREFIX}${leaseId}`;
 }
@@ -18,13 +37,15 @@ export function containerName(leaseId: string): string {
  * re-checks it (a manager that is compromised or has a bug still cannot ask for less):
  * - the runtime (gVisor `runsc` by default), a non-root user, a read-only root file system;
  * - a small tmpfs workspace and /tmp, no volumes, no bind mounts, nothing from the host;
- * - every capability dropped, no-new-privileges, no swap, memory, CPU and pid limits;
+ * - every capability dropped, no-new-privileges, no swap, memory, CPU and pid limits, a soft
+ *   reservation (memory and CPU shares), and the operator's shared cgroup slice when one is set;
  * - no network at all.
  */
 export function execContainerSpec(
 	config: ManagerConfig,
 	lease: { id: string; owner: string; kind: string },
-	limits: LeaseLimits
+	limits: LeaseLimits,
+	reservation: Reservation = leaseReservation(config, limits)
 ): Record<string, unknown> {
 	const [uid, gid] = config.user.split(":");
 	const tmpOpts = (mb: number, mode: string, exec: boolean) =>
@@ -59,8 +80,11 @@ export function execContainerSpec(
 			Privileged: false,
 			Init: true,
 			IpcMode: "private",
-			Memory: limits.memoryMb * 1024 * 1024,
-			MemorySwap: limits.memoryMb * 1024 * 1024,
+			Memory: Math.floor(limits.memoryMb * 1024 * 1024),
+			MemorySwap: Math.floor(limits.memoryMb * 1024 * 1024),
+			MemoryReservation: reservationBytes(reservation.memoryMb, limits.memoryMb),
+			CpuShares: cpuShares(reservation.cpus),
+			...(config.cgroupParent ? { CgroupParent: config.cgroupParent } : {}),
 			NanoCpus: Math.round(limits.cpus * 1e9),
 			PidsLimit: limits.pids,
 			Tmpfs: {
