@@ -103,7 +103,7 @@ test.describe("owned machine agent: parity", () => {
 			{
 				id: "call_w",
 				name: "write",
-				arguments: JSON.stringify({ filePath: "out.txt", content: "parity\n" }),
+				arguments: JSON.stringify({ path: "out.txt", content: "parity\n" }),
 			},
 		],
 		content: ["Wrote", " it", "."],
@@ -410,11 +410,11 @@ test.describe("owned machine agent: parity", () => {
 		toolCalls: [
 			{
 				id: "call_task",
-				name: "task",
+				name: "subagent",
 				arguments: JSON.stringify({
 					description: "Inspect the repo",
 					prompt: "List what is in the repo.",
-					subagent_type: "general",
+					agent: "general",
 				}),
 			},
 		],
@@ -806,7 +806,7 @@ test.describe("owned machine agent: parity", () => {
 					arguments: JSON.stringify({
 						description: "Inspect the repo",
 						prompt: "List what is in the repo.",
-						subagent_type: "general",
+						agent: "general",
 					}),
 				},
 			],
