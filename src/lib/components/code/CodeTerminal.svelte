@@ -16,6 +16,7 @@
 	import { MediaQuery } from "svelte/reactivity";
 	import IconWarning from "~icons/carbon/warning-filled";
 	import IconRenew from "~icons/carbon/renew";
+	import ScrollToBottomBtn from "$lib/components/ScrollToBottomBtn.svelte";
 	import { subscribeToTheme } from "$lib/switchTheme";
 	import { mintTerminalTicket, terminalSocketUrl, TerminalReauthRequired } from "$lib/codeApi";
 	import { terminalKeyAction } from "$lib/utils/terminalKeys";
@@ -44,6 +45,10 @@
 		"connecting"
 	);
 	let failure = $state<string | null>(null);
+	/** True while the viewport sits above the live bottom of the scrollback:
+	 * drives the jump-to-bottom button (a phone has no scroll wheel or keys to
+	 * get back down with). */
+	let scrolledUp = $state(false);
 
 	let term: XTerm | null = null;
 	let fitAddon: FitAddon | null = null;
@@ -243,6 +248,152 @@
 		}
 	}
 
+	function updateScrolledUp(): void {
+		const buf = term?.buffer.active;
+		scrolledUp = !!buf && buf.type === "normal" && buf.viewportY < buf.baseY;
+	}
+
+	/**
+	 * Touch scrolling. xterm.js has none: a vertical swipe on a phone does
+	 * nothing, or is taken by the page. A swipe becomes `scrollLines` on the
+	 * normal buffer (finger delta over row height, with momentum after the
+	 * finger lifts) and, on the alternate screen (vim, less, tmux), synthetic
+	 * wheel events on xterm's own element, which xterm turns into mouse-wheel
+	 * reports when the app asked for mouse tracking and into arrow keys when it
+	 * did not — exactly what a real wheel does there. Taps are untouched: we
+	 * only take over (preventDefault) once the finger has moved past a slop.
+	 */
+	let stopTouchMomentum: () => void = () => {};
+
+	function attachTouchScroll(el: HTMLElement): () => void {
+		const SLOP = 6;
+		let startY = 0;
+		let startX = 0;
+		let lastY = 0;
+		let lastT = 0;
+		let velocity = 0; // px per ms, positive = finger moving down
+		let scrolling = false;
+		let tracking = false;
+		let remainder = 0; // fractional rows not yet applied
+		let raf = 0;
+
+		const rowHeight = (): number => {
+			const screen = el.querySelector(".xterm-screen");
+			const h = screen?.getBoundingClientRect().height ?? 0;
+			return term && term.rows > 0 && h > 0 ? h / term.rows : 16;
+		};
+
+		/** Positive px = finger moved down = content moves down = history. */
+		const apply = (px: number): void => {
+			if (!term) return;
+			remainder += px / rowHeight();
+			const rows = Math.trunc(remainder);
+			if (rows === 0) return;
+			remainder -= rows;
+			if (term.buffer.active.type === "alternate") {
+				const screen = el.querySelector(".xterm-screen") ?? el;
+				const rect = screen.getBoundingClientRect();
+				for (let i = 0; i < Math.abs(rows); i++) {
+					screen.dispatchEvent(
+						new WheelEvent("wheel", {
+							deltaY: rows > 0 ? -rowHeight() : rowHeight(),
+							deltaMode: 0,
+							clientX: rect.left + rect.width / 2,
+							clientY: rect.top + rect.height / 2,
+							bubbles: true,
+							cancelable: true,
+						})
+					);
+				}
+			} else {
+				term.scrollLines(-rows);
+			}
+		};
+
+		const stopMomentum = (): void => {
+			if (raf) cancelAnimationFrame(raf);
+			raf = 0;
+		};
+
+		stopTouchMomentum = stopMomentum;
+
+		const onStart = (e: TouchEvent): void => {
+			stopMomentum();
+			if (e.touches.length !== 1) {
+				tracking = false;
+				return;
+			}
+			tracking = true;
+			scrolling = false;
+			remainder = 0;
+			velocity = 0;
+			startY = lastY = e.touches[0].clientY;
+			startX = e.touches[0].clientX;
+			lastT = e.timeStamp;
+		};
+
+		const onMove = (e: TouchEvent): void => {
+			if (!tracking || e.touches.length !== 1) return;
+			const t = e.touches[0];
+			if (!scrolling) {
+				const dy = Math.abs(t.clientY - startY);
+				const dx = Math.abs(t.clientX - startX);
+				// A mostly-horizontal gesture stays the page's (touch-action: pan-x).
+				if (dy < SLOP || dx > dy) return;
+				scrolling = true;
+				lastY = t.clientY;
+			}
+			e.preventDefault();
+			const dy = t.clientY - lastY;
+			const dt = Math.max(1, e.timeStamp - lastT);
+			velocity = 0.8 * (dy / dt) + 0.2 * velocity;
+			lastY = t.clientY;
+			lastT = e.timeStamp;
+			apply(dy);
+		};
+
+		const onEnd = (e: TouchEvent): void => {
+			if (!tracking) return;
+			tracking = false;
+			if (!scrolling) return;
+			// Swallow the click a finished swipe would otherwise synthesise.
+			e.preventDefault();
+			if (e.timeStamp - lastT > 100 || Math.abs(velocity) < 0.15) return;
+			let prev = performance.now();
+			const step = (now: number): void => {
+				const dt = now - prev;
+				prev = now;
+				apply(velocity * dt);
+				velocity *= Math.pow(0.995, dt);
+				raf = Math.abs(velocity) > 0.02 ? requestAnimationFrame(step) : 0;
+			};
+			raf = requestAnimationFrame(step);
+		};
+
+		const onCancel = (): void => {
+			tracking = false;
+			stopMomentum();
+		};
+
+		el.addEventListener("touchstart", onStart, { passive: true });
+		el.addEventListener("touchmove", onMove, { passive: false });
+		el.addEventListener("touchend", onEnd, { passive: false });
+		el.addEventListener("touchcancel", onCancel, { passive: true });
+		return () => {
+			stopMomentum();
+			el.removeEventListener("touchstart", onStart);
+			el.removeEventListener("touchmove", onMove);
+			el.removeEventListener("touchend", onEnd);
+			el.removeEventListener("touchcancel", onCancel);
+		};
+	}
+
+	function scrollToBottom(): void {
+		stopTouchMomentum();
+		term?.scrollToBottom();
+		updateScrolledUp();
+	}
+
 	function sendInputBytes(bytes: Uint8Array): void {
 		if (ws?.readyState !== WebSocket.OPEN) return;
 		ws.send(
@@ -369,6 +520,7 @@
 		destroyed = false;
 		parent.addEventListener("pointerdown", blockFocusInViewMode, true);
 		let textareaEl: HTMLTextAreaElement | null = null;
+		const detachTouchScroll = attachTouchScroll(parent);
 		const onTextareaBlur = () => {
 			typingMode = false;
 		};
@@ -401,6 +553,9 @@
 
 			term.onData(handleTerminalData);
 			term.onResize(({ cols, rows }) => sendResize(cols, rows));
+			term.onScroll(updateScrolledUp);
+			term.onWriteParsed(updateScrolledUp);
+			term.buffer.onBufferChange(updateScrolledUp);
 			term.attachCustomKeyEventHandler(customKeyEventHandler);
 
 			textareaEl = term.textarea ?? null;
@@ -420,6 +575,7 @@
 			sendAckIfDue(true);
 			destroyed = true;
 			parent.removeEventListener("pointerdown", blockFocusInViewMode, true);
+			detachTouchScroll();
 			textareaEl?.removeEventListener("blur", onTextareaBlur);
 			textareaEl?.removeEventListener("focus", onTextareaFocus);
 			if (reconnectTimer) clearTimeout(reconnectTimer);
@@ -460,7 +616,19 @@
 			{failure}
 		</div>
 	{/if}
-	<div bind:this={host} class="min-h-0 flex-1 bg-white p-1 dark:bg-gray-900"></div>
+	<div class="relative min-h-0 flex-1">
+		<!-- touch-action: pan-x — vertical swipes are ours (attachTouchScroll),
+		     horizontal ones stay the page's. -->
+		<div
+			bind:this={host}
+			class="h-full touch-pan-x overscroll-contain bg-white p-1 dark:bg-gray-900"
+		></div>
+		<ScrollToBottomBtn
+			class="right-3 bottom-3 z-10"
+			visible={scrolledUp}
+			onclick={scrollToBottom}
+		/>
+	</div>
 	{#if narrowViewport.current}
 		<div
 			role="toolbar"

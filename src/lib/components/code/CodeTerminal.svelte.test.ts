@@ -1,7 +1,12 @@
 import CodeTerminal from "./CodeTerminal.svelte";
 import { render } from "vitest-browser-svelte";
 import { beforeAll, beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import { BIN_TERM_INPUT, decodeTerminalFrame } from "$lib/utils/terminalBinary";
+import {
+	BIN_TERM_INPUT,
+	BIN_TERM_OUTPUT,
+	decodeTerminalFrame,
+	encodeTerminalFrame,
+} from "$lib/utils/terminalBinary";
 
 /**
  * The terminal's clipboard wiring, driven through a real xterm in Chromium.
@@ -30,14 +35,22 @@ class FakeWebSocket {
 	 * (which every send guards on) after the async ticket mint, so a test must
 	 * wait for the socket, not just for xterm's DOM, before typing. */
 	static constructed = 0;
+	/** The latest socket's message listeners, so a test can deliver output. */
+	static messageListeners: Array<(event: { data: unknown }) => void> = [];
 	constructor() {
 		FakeWebSocket.constructed += 1;
+		FakeWebSocket.messageListeners = [];
 	}
 	readyState = FakeWebSocket.OPEN;
 	binaryType = "arraybuffer";
-	addEventListener(_type: string, _listener: EventListenerOrEventListenerObject): void {
-		/* handlers are recorded nowhere and never fire: no open, no close, no
-		 * message — the component cannot be knocked into a reconnect here */
+	addEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
+		/* open and close never fire, so the component cannot be knocked into a
+		 * reconnect here; only message listeners are kept, for `deliverOutput` */
+		if (type === "message") {
+			FakeWebSocket.messageListeners.push(
+				listener as unknown as (event: { data: unknown }) => void
+			);
+		}
 	}
 	send(data: string | Uint8Array): void {
 		FakeWebSocket.sent.push(data);
@@ -207,5 +220,88 @@ describe("CodeTerminal clipboard wiring", () => {
 		// shell as terminal input.
 		await vi.waitFor(() => expect(inputTextsSince(before)).toEqual(["pasted text"]));
 		expect(clipboard.readText).toHaveBeenCalled();
+	});
+});
+
+/** Feeds bytes to the terminal as the machine's output frame would. */
+let outputOffset = 0;
+function deliverOutput(text: string): void {
+	const payload = new TextEncoder().encode(text);
+	const frame = encodeTerminalFrame({
+		kind: BIN_TERM_OUTPUT,
+		channel: "b",
+		offset: outputOffset,
+		payload,
+	});
+	outputOffset += payload.length;
+	for (const l of FakeWebSocket.messageListeners) l({ data: frame.slice().buffer });
+}
+
+function touchSwipe(target: Element, fromY: number, toY: number, steps = 8): void {
+	const rect = target.getBoundingClientRect();
+	const x = rect.left + rect.width / 2;
+	const fire = (type: string, y: number, ended = false) => {
+		const touch = new Touch({ identifier: 1, target, clientX: x, clientY: y });
+		target.dispatchEvent(
+			new TouchEvent(type, {
+				touches: ended ? [] : [touch],
+				changedTouches: [touch],
+				bubbles: true,
+				cancelable: true,
+			})
+		);
+	};
+	fire("touchstart", fromY);
+	for (let i = 1; i <= steps; i++) fire("touchmove", fromY + ((toY - fromY) * i) / steps);
+	fire("touchend", toY, true);
+}
+
+function viewport(base: HTMLElement): HTMLElement {
+	const el = base.querySelector(".xterm-screen");
+	if (!(el instanceof HTMLElement)) throw new Error("xterm screen not found");
+	return el;
+}
+
+describe("CodeTerminal touch scrolling", () => {
+	const lines = Array.from({ length: 300 }, (_, i) => `line ${i}\r\n`).join("");
+
+	it("a downward swipe scrolls into the scrollback and shows jump-to-bottom, which returns", async () => {
+		const screen = await mountTerminal();
+		deliverOutput(lines);
+		// Following the live bottom: no button yet.
+		await new Promise((r) => setTimeout(r, 100));
+		expect(screen.baseElement.querySelector('button[aria-label="Scroll to bottom"]')).toBeNull();
+		const el = viewport(screen.baseElement);
+		const rect = el.getBoundingClientRect();
+		touchSwipe(el, rect.top + 20, rect.top + 200);
+		await vi.waitFor(() =>
+			expect(
+				screen.baseElement.querySelector('button[aria-label="Scroll to bottom"]')
+			).not.toBeNull()
+		);
+		const btn = screen.baseElement.querySelector('button[aria-label="Scroll to bottom"]');
+		(btn as HTMLButtonElement).click();
+		await vi.waitFor(() =>
+			expect(screen.baseElement.querySelector('button[aria-label="Scroll to bottom"]')).toBeNull()
+		);
+	});
+
+	it("a swipe on the alternate screen sends wheel input to the app instead", async () => {
+		const screen = await mountTerminal();
+		// Alternate screen with SGR mouse tracking, as vim or tmux request it.
+		deliverOutput("\x1b[?1049h\x1b[?1000h\x1b[?1006h");
+		await new Promise((r) => setTimeout(r, 100));
+		const before = FakeWebSocket.sent.length;
+		const el = viewport(screen.baseElement);
+		const rect = el.getBoundingClientRect();
+		touchSwipe(el, rect.top + 20, rect.top + 200);
+		await vi.waitFor(() => {
+			const texts = inputTextsSince(before);
+			expect(texts.length).toBeGreaterThan(0);
+			// Finger down = content down = wheel up (button 64).
+			expect(texts.every((t) => t.startsWith("\x1b[<64;"))).toBe(true);
+		});
+		// And the page-level scrollback button never appears on the alt screen.
+		expect(screen.baseElement.querySelector('button[aria-label="Scroll to bottom"]')).toBeNull();
 	});
 });

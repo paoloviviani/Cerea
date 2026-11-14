@@ -11,6 +11,7 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
   helpers it started (the browser agent and delegated tasks), with a "Helpers" row for their
   share. When a turn ends, Cerea stores the gateway's settled cost for it, so the cost no
   longer drops the helpers' calls; the stream's sum is only provisional until then.
+- **Scroll the terminal on a phone.** A vertical swipe in the code panel's terminal now scrolls the scrollback, with momentum, and on the alternate screen (vim, less, tmux) it scrolls the app like a mouse wheel. A jump-to-bottom button appears while scrolled up. Taps, horizontal page swipes and desktop wheel scrolling are unchanged.
 - **Upgrade an existing galopin in one step.** `curl -fsSL <origin>/galopin/install.sh | sh -s -- --upgrade`
   (or `galopin upgrade`) stops galopin, backs up its state and opencode's database to
   `<config>/galopin/backups/pre-upgrade-<date>/`, installs the new galopin (the old one stays
