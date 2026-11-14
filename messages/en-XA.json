@@ -374,6 +374,7 @@
 	"code.nav.state_error": "[Ƒáíľéď]",
 	"code.nav.state_running": "[Ŕúńńíńǧ]",
 	"code.nav.sub_waiting_title": "[Á śúƀáǧéńť íś ŵáíťíńǧ ƒóŕ ýóúŕ áþþŕóǚáľ]",
+	"code.nav.upgrade_galopin": "[Ťȟíś ćóḿþúťéŕ ŕúńś áń óľďéŕ ǧáľóþíń ({version}). Úþǧŕáďé íť, ķééþíńǧ íťś þáíŕíńǧ áńď śéťťíńǧś:]",
 	"code.nav.waiting_title": "[Ŵáíťíńǧ ƒóŕ ýóúŕ áþþŕóǚáľ]",
 	"code.nav.workspace_actions": "[Ŵóŕķśþáćé áćťíóńś]",
 	"code.nav.workspace_count": [
@@ -421,6 +422,8 @@
 	"code.pair.reject": "[Ŕéĵéćť]",
 	"code.pair.subtitle": "[Ŕúń ťȟéśé óń ťȟé ćóḿþúťéŕ ýóúŕ ćóďíńǧ áǧéńťś ŕúń óń, ťȟéń ćóńƒíŕḿ íť ƀéľóŵ.]",
 	"code.pair.title": "[Þáíŕ á ćóḿþúťéŕ]",
+	"code.pair.upgrade_label": "[Úþǧŕáďé ǧáľóþíń]",
+	"code.pair.upgrade_note": "[Óń á þáíŕéď ćóḿþúťéŕ ŵíťȟ áń óľďéŕ ǧáľóþíń ({names}), ŕúń ťȟíś íńśťéáď; íť ķééþś ťȟé þáíŕíńǧ áńď śéťťíńǧś.]",
 	"code.pair.waiting": "[Ŵáíťíńǧ ƒóŕ ćóńƒíŕḿáťíóń]",
 	"code.panel.disabled_detail": "[Ťȟíś ďéþľóýḿéńť ȟáś ńó ćóḿþúťéŕ ľíńķ ćóńƒíǧúŕéď.]",
 	"code.panel.disabled_title": "[Ćóďíńǧ áǧéńťś áŕé ńóť éńáƀľéď]",

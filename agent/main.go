@@ -48,6 +48,9 @@ Commands:
   policy    Show, or locally tighten, this machine's policy.json.
   reset     Return this machine's policy to the defaults (keeps credentials
             and the pairing with Cerea).
+  version   Print galopin's version.
+  upgrade   Upgrade this galopin (and its engine) from the Cerea it is enrolled
+            with, keeping enrollment and settings.
   licenses  Print the third-party licence notices compiled into this binary.
 
 Run 'galopin <command> -h' for that command's options.
@@ -82,6 +85,11 @@ func main() {
 		err = runConnectors(os.Args[2:])
 	case "browser":
 		err = runBrowser(os.Args[2:])
+	case "version", "-v", "--version":
+		fmt.Println(agentVersion)
+		return
+	case "upgrade":
+		err = runUpgrade(os.Args[2:])
 	case "licenses":
 		fmt.Print(thirdPartyLicenses)
 		return

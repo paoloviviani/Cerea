@@ -29,9 +29,12 @@ import (
 	"galopin/internal/workspaces"
 )
 
-// agentVersion is galopin's own version. Bumped by hand until a
-// release process assigns it from a tag.
-const agentVersion = "0.1.0"
+// agentVersion is galopin's own version. The Cerea build sets it to the Cerea
+// release it was built from (-ldflags "-X main.agentVersion=X.Y.Z", see
+// packaging/build-dist.sh and the Dockerfile); a build without the flag, and
+// every galopin from before it existed, reports "0.1.0", which the panel reads
+// as older than any release and offers the upgrade for.
+var agentVersion = "0.1.0"
 
 const runUsage = `galopin run — supervise opencode and dial out to Cerea.
 
@@ -604,10 +607,11 @@ func buildHelloBase(pol policy.Policy) link.Hello {
 	}
 	return link.Hello{
 		Agent: link.AgentInfo{
-			Version:  agentVersion,
-			OS:       runtime.GOOS,
-			Arch:     runtime.GOARCH,
-			Hostname: hostname,
+			Version:   agentVersion,
+			OS:        runtime.GOOS,
+			Arch:      runtime.GOARCH,
+			Hostname:  hostname,
+			Container: inContainer(),
 		},
 		Policy: link.PolicyInfo{
 			AutoAccept:          autoAcceptRetired,
@@ -987,4 +991,14 @@ func diffProtect(pr decide.Protected) filediff.Protect {
 		_, sensitive := decide.Classify(decide.Policy{Protected: pr}, rq)
 		return sensitive
 	}
+}
+
+// inContainer reports whether galopin runs inside a Docker or Podman container.
+func inContainer() bool {
+	for _, marker := range []string{"/.dockerenv", "/run/.containerenv"} {
+		if _, err := os.Stat(marker); err == nil {
+			return true
+		}
+	}
+	return false
 }

@@ -428,15 +428,7 @@ func fillFromCerea(client *http.Client, opts *enrollOptions, set map[string]bool
 		return nil
 	}
 	c := *client
-	c.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if req.URL.Scheme != base.Scheme || req.URL.Host != base.Host {
-			return fmt.Errorf("refusing a redirect to another origin (%s)", req.URL.Host)
-		}
-		if len(via) >= 5 {
-			return errors.New("too many redirects")
-		}
-		return nil
-	}
+	c.CheckRedirect = sameOriginRedirects(base)
 	resp, err := c.Get(base.String() + "/galopin/enroll.json")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "note: could not ask %s for its sign-in settings (%v); you will be asked for what is missing.\n", base, err)
@@ -1327,4 +1319,18 @@ func sameCereaOrigin(a, b string) bool {
 		return strings.EqualFold(strings.TrimRight(a, "/"), strings.TrimRight(b, "/"))
 	}
 	return strings.EqualFold(pa.Scheme, pb.Scheme) && strings.EqualFold(pa.Host, pb.Host)
+}
+
+// sameOriginRedirects is the redirect rule for everything galopin asks of the Cerea it was
+// pointed at: same scheme and host (so never https to http, never another site), at most five hops.
+func sameOriginRedirects(base *url.URL) func(*http.Request, []*http.Request) error {
+	return func(req *http.Request, via []*http.Request) error {
+		if req.URL.Scheme != base.Scheme || req.URL.Host != base.Host {
+			return fmt.Errorf("refusing a redirect to another origin (%s)", req.URL.Host)
+		}
+		if len(via) >= 5 {
+			return errors.New("too many redirects")
+		}
+		return nil
+	}
 }

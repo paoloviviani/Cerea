@@ -26,8 +26,10 @@ COPY third_party/ ./third_party/
 RUN go mod download
 COPY . .
 # The same flags as packaging/build-dist.sh: static (no libc dependency), stripped.
+# GALOPIN_VERSION is the Cerea release (what `galopin version` prints); unset, it stays 0.1.0.
+ARG GALOPIN_VERSION=0.1.0
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -trimpath -ldflags='-s -w' -o /out/galopin .
+    go build -trimpath -ldflags="-s -w -X main.agentVersion=${GALOPIN_VERSION}" -o /out/galopin .
 
 # --- uv: the python package manager, copied from its own image -------------
 FROM ghcr.io/astral-sh/uv:0.13.7 AS uv

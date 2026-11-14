@@ -91,12 +91,15 @@ COPY --link agent/go.mod agent/go.sum ./
 COPY --link agent/third_party/ ./third_party/
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY --link agent/ ./
+# galopin reports the Cerea release it is built from (`galopin version`, the panel's upgrade hint).
+COPY --link package.json /src/package.json
 ARG PUBLIC_COMMIT_SHA=
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     set -eu; mkdir -p /out; \
+    ver=$(sed -n 's/^[[:space:]]*"version": "\([^"]*\)".*/\1/p' /src/package.json | head -n 1); \
     for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do \
         os=${target%/*}; arch=${target#*/}; \
-        CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags='-s -w' -o /out/galopin-$os-$arch .; \
+        CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags="-s -w -X main.agentVersion=${ver:-0.1.0}" -o /out/galopin-$os-$arch .; \
     done; \
     echo "built from Cerea ${PUBLIC_COMMIT_SHA:-unknown}" > /out/REVISION; \
     cd /out && sha256sum galopin-* > SHA256SUMS
