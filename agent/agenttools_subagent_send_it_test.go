@@ -81,10 +81,6 @@ func TestSubagentSendToAnotherSessionGetsACardIntegration(t *testing.T) {
 			(p.ToolStatus == backend.ToolCompleted || p.ToolStatus == backend.ToolFailed)
 	})
 	r.idle(parent, mark)
-	// Taken as soon as the parent settles: opencode 2 finishes the child within
-	// milliseconds of its tool result, so the parent's wake can land before the
-	// reads below are done.
-	afterList := r.hub.mark()
 	childID := waitForChild(t, r.ctx, r.oc, r.work, parent.ID, 60*time.Second)
 	listPart := r.hub.toolDone(t, mark, childID, "session_list")
 
@@ -113,12 +109,11 @@ func TestSubagentSendToAnotherSessionGetsACardIntegration(t *testing.T) {
 	// new turn in the parent — the report channel the fix keeps intact.
 	// Anchored on the injected report itself, not on a busy edge: the wake lands
 	// within milliseconds of the parent's idle, before a 100ms poll could see it.
-	r.hub.wait(t, afterList, 240*time.Second, "the child's report in the parent", func(e sessions.Envelope) bool {
+	r.hub.wait(t, mark, 240*time.Second, "the child's report in the parent", func(e sessions.Envelope) bool {
 		p := e.Event.Part
 		return e.SessionID == parent.ID && e.Event.Kind == backend.EventPart && p != nil && p.Type == backend.PartText &&
 			p.Synthetic && strings.Contains(p.Text, "<subagent")
 	})
-	r.idle(parent, afterList)
 
 	// Phase two: the child's next prompt sends to the bystander, the turn
 	// after the send answers plainly.
