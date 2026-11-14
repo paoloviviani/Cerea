@@ -36,9 +36,9 @@ func TestReadBoundedLine(t *testing.T) {
 // One event line past the limit must not end the stream: it is skipped, its
 // session asked to resync, and the events around it still arrive.
 func TestOversizedSSELineSkipsAndResyncsWithoutDroppingTheStream(t *testing.T) {
-	huge := fmt.Sprintf(`{"directory":"/work dir","payload":{"type":"message.part.updated","properties":{"part":{"id":"prt1","sessionID":"ses_big","messageID":"m","type":"tool","state":{"attachments":[{"url":"data:image/png;base64,%s"}]}}}}}`, strings.Repeat("A", 5000))
+	huge := fmt.Sprintf(`{"type":"session.tool.success","location":{"directory":"/work dir"},"data":{"sessionID":"ses_big","assistantMessageID":"m","id":"c1","content":[{"type":"file","mime":"image/png","uri":"data:image/png;base64,%s"}]}}`, strings.Repeat("A", 5000))
 	small := func(text string) string {
-		return fmt.Sprintf(`{"directory":"/w","payload":{"type":"message.part.delta","properties":{"sessionID":"ses_a","messageID":"m","partID":"p","field":"text","delta":%q}}}`, text)
+		return fmt.Sprintf(`{"type":"session.text.delta","location":{"directory":"/w"},"data":{"sessionID":"ses_a","assistantMessageID":"m","ordinal":0,"delta":%q}}`, text)
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")

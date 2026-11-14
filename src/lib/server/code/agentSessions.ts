@@ -66,6 +66,10 @@ export async function workspaceNameOn(
 export function busyReason(session: Session): string | null {
 	if (visiblePendingPermissions(session) > 0) return "is waiting for an approval";
 	if (session.status === "busy" || session.status === "retry") return "is still working";
+	// opencode 2 subagents run in the background: an idle parent can have children at work
+	// (or waiting for an approval), and a scheduled run is not finished until they are.
+	if ((session.childSummary?.waiting ?? 0) > 0) return "has a subagent waiting for an approval";
+	if ((session.childSummary?.running ?? 0) > 0) return "has subagents still working";
 	return null;
 }
 
@@ -75,6 +79,8 @@ export type AgentSessionState = "idle" | "working" | "needs-you" | "error" | "of
 export function sessionState(session: Session, openQuestions = 0): AgentSessionState {
 	if (visiblePendingPermissions(session) > 0 || openQuestions > 0) return "needs-you";
 	if (session.status === "busy" || session.status === "retry") return "working";
+	if ((session.childSummary?.waiting ?? 0) > 0) return "needs-you";
+	if ((session.childSummary?.running ?? 0) > 0) return "working";
 	if (session.status === "error") return "error";
 	return "idle";
 }

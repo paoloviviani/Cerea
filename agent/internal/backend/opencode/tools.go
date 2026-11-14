@@ -147,25 +147,46 @@ var galopinTools = []toolDef{
 	},
 }
 
-const toolJSTemplate = `// Written by galopin at every start; do not edit. Relays this call to galopin.
+// toolPluginJS is the plugin galopin writes at every start (2.x plugins
+// replaced 1.x's tools/*.js files). It registers every tool directly (not
+// behind Code Mode), each execute relaying to the loopback server with the
+// call's session, call and message ids.
+const toolPluginJS = `// Written by galopin at every start; do not edit. Relays tool calls to galopin.
+const defs = [
+%s];
+
+async function relay(def, input, context) {
+  const url = process.env.GALOPIN_TOOL_URL;
+  const token = process.env.GALOPIN_TOOL_TOKEN;
+  if (!url || !token) throw new Error("galopin's tool relay is not available");
+  const res = await fetch(url, {
+    method: "POST",
+    signal: context.signal,
+    headers: { authorization: "Bearer " + token, "content-type": "application/json" },
+    body: JSON.stringify({ tool: def.name, sessionID: context.sessionID, callID: context.id, messageID: context.messageID, args: input }),
+  });
+  const lines = (await res.text()).split("\n").map((l) => l.trim()).filter(Boolean);
+  let last;
+  try { last = JSON.parse(lines[lines.length - 1]); } catch { throw new Error("galopin's tool relay answered nothing usable (status " + res.status + ")"); }
+  if (!last.ok) throw new Error(last.error || "refused");
+  return { content: last.output || "" };
+}
+
 export default {
-  description: %s,
-  args: %s,
-  async execute(args, ctx) {
-    const url = process.env.GALOPIN_TOOL_URL;
-    const token = process.env.GALOPIN_TOOL_TOKEN;
-    if (!url || !token) throw new Error("galopin's tool relay is not available");
-    const res = await fetch(url, {
-      method: "POST",
-      signal: ctx.abort,
-      headers: { authorization: "Bearer " + token, "content-type": "application/json" },
-      body: JSON.stringify({ tool: %s, sessionID: ctx.sessionID, callID: ctx.callID, messageID: ctx.messageID, args }),
+  id: "galopin-tools",
+  async setup(ctx) {
+    await ctx.tool.transform((editor) => {
+      for (const def of defs) {
+        editor.add({
+          name: def.name,
+          description: def.description,
+          // unknown keys are passed through: galopin refuses them by name
+          input: { type: "object", properties: def.args, additionalProperties: true },
+          options: { codemode: false },
+          execute: (input, context) => relay(def, input, context),
+        });
+      }
     });
-    const lines = (await res.text()).split("\n").map((l) => l.trim()).filter(Boolean);
-    let last;
-    try { last = JSON.parse(lines[lines.length - 1]); } catch { throw new Error("galopin's tool relay answered nothing usable (status " + res.status + ")"); }
-    if (!last.ok) throw new Error(last.error || "refused");
-    return last.output || "";
   },
 };
 `
@@ -210,17 +231,22 @@ func (b *Backend) startTools() error {
 	if err != nil {
 		return fmt.Errorf("opencode: minting the tool relay token: %w", err)
 	}
-	dir := filepath.Join(b.cfg.ToolsDir, "tools")
+	// 1.x read tool files from tools/; 2.x ignores that folder and loads
+	// plugins from plugins/. Remove the old files so a machine upgraded from
+	// 1.x carries no stale copy.
+	_ = os.RemoveAll(filepath.Join(b.cfg.ToolsDir, "tools"))
+	dir := filepath.Join(b.cfg.ToolsDir, "plugins", "galopin-tools")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("opencode: creating the tools directory: %w", err)
 	}
+	var defs strings.Builder
 	for _, t := range galopinTools {
 		desc, _ := json.Marshal(t.description)
 		name, _ := json.Marshal(t.name)
-		src := fmt.Sprintf(toolJSTemplate, desc, t.args, name)
-		if err := fsutil.WriteFileAtomic(filepath.Join(dir, t.name+".js"), []byte(src), 0o600); err != nil {
-			return fmt.Errorf("opencode: writing tool %s: %w", t.name, err)
-		}
+		fmt.Fprintf(&defs, "  { name: %s, description: %s, args: %s },\n", name, desc, t.args)
+	}
+	if err := fsutil.WriteFileAtomic(filepath.Join(dir, "index.js"), []byte(fmt.Sprintf(toolPluginJS, defs.String())), 0o600); err != nil {
+		return fmt.Errorf("opencode: writing the tools plugin: %w", err)
 	}
 	if err := b.installSkill(); err != nil {
 		return err

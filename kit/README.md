@@ -1167,7 +1167,7 @@ curl -fsSL '<origin>/chat/galopin/install.sh' | sh -s -- --with-opencode &&
 
 The opencode line is there when the dialog's **Install opencode** checkbox is
 ticked. It installs the opencode release galopin is tested against
-(`agent/packaging/opencode-version` in the Cerea repository, 1.18.34 in this
+(`agent/packaging/opencode-version` in the Cerea repository, 2.3.0 in this
 release) and not the newest one. A machine keeps whatever opencode it has until
 that line is run again. Checkboxes for the machine's policy add flags to
 `enroll`: terminals, slash commands that run shell and background subagents are
@@ -1237,7 +1237,7 @@ command line), adds one `pystino` provider to opencode's global config with
 the models that key may use, keeps everything else in that file and writes a
 backup first. `--key-in-env` keeps the key out of the file, and
 `--install-opencode` installs the opencode release the kit was tested with
-(1.18.34).
+(2.3.0).
 
 ## Backup and restore
 

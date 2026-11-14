@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -132,7 +133,7 @@ func newPermRig(t *testing.T, o permRigOpts) *permRig {
 	cfgOC := backendopencode.Config{
 		ConfigPath: configPath, Env: env, StateDir: r.stateDir, Port: r.port, Password: r.password,
 		OverlayPath: filepath.Join(r.stateDir, "opencode-overlay.json"), TmpDir: filepath.Join(itTmpDir(t), "oc-tmp"),
-		Permissions: permLayers(o, r.live), BackgroundSubagents: o.background, StartupTimeout: 90 * time.Second, Logf: t.Logf,
+		Permissions: permLayers(o, r.live), BackgroundSubagents: true, StartupTimeout: 90 * time.Second, Logf: t.Logf,
 	}
 	if o.tools {
 		cfgOC.ToolsDir = filepath.Join(r.stateDir, "opencode-tools")
@@ -201,7 +202,7 @@ func (r *permRig) next() int { r.seq++; return r.seq }
 func (r *permRig) writeTool(name string) map[string]any {
 	return map[string]any{
 		"id": fmt.Sprintf("call_w%d", r.next()), "name": "write",
-		"arguments": mustJSON2(map[string]any{"filePath": filepath.Join(r.work, name), "content": "x"}),
+		"arguments": mustJSON2(map[string]any{"path": filepath.Join(r.work, name), "content": "x"}),
 	}
 }
 
@@ -209,7 +210,7 @@ func (r *permRig) writeTool(name string) map[string]any {
 // (pending, returned), or the tool finishing (part returned). Exactly one is non-nil.
 func (r *permRig) try(s backend.Session, name string) (*backend.PermissionRequest, *backend.Part, int) {
 	r.t.Helper()
-	return r.tryCall(s, "write", map[string]any{"filePath": filepath.Join(r.work, name), "content": "x"})
+	return r.tryCall(s, "write", map[string]any{"path": filepath.Join(r.work, name), "content": "x"})
 }
 
 // tryCall is try for any one tool call: it scripts the model to make the call
@@ -247,11 +248,11 @@ func (r *permRig) promptSession(s backend.Session, text string) error {
 	if !r.bypass {
 		return r.oc.Prompt(r.ctx, r.work, s.ID, backend.Prompt{Text: text})
 	}
-	body := map[string]any{"parts": []map[string]any{{"type": "text", "text": text}}}
+	// opencode 2 keeps the agent on the session, not on the prompt
 	if a := r.agents[s.ID]; a != "" {
-		body["agent"] = a
+		r.raw(http.MethodPost, "/api/session/"+s.ID+"/agent", map[string]any{"agent": a})
 	}
-	r.raw(http.MethodPost, "/session/"+s.ID+"/prompt_async?directory="+r.work, body)
+	r.raw(http.MethodPost, "/api/session/"+s.ID+"/prompt", map[string]any{"text": text})
 	return nil
 }
 
@@ -369,33 +370,47 @@ func (r *permRig) raw(method, path string, body any) []byte {
 // tracked so the hub sees its events.
 func (r *permRig) rawSession(rules []permrules.Rule) backend.Session {
 	r.t.Helper()
-	body := map[string]any{"title": "raw"}
+	body := map[string]any{"title": "raw", "location": map[string]any{"directory": r.work}}
 	if rules != nil {
-		body["permission"] = rules
+		body["permissions"] = rulesV2(rules)
 	}
-	out := r.raw(http.MethodPost, "/session?directory="+r.work, body)
+	out := r.raw(http.MethodPost, "/api/session", body)
 	var m struct {
-		ID string `json:"id"`
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
 	}
 	_ = json.Unmarshal(out, &m)
-	s := backend.Session{ID: m.ID, Title: "raw"}
+	s := backend.Session{ID: m.Data.ID, Title: "raw"}
 	r.mc.trackSession(r.ws, s)
 	return s
 }
 
 func (r *permRig) agentRules(agent string) []permrules.Rule {
 	r.t.Helper()
-	var all []struct {
-		Name       string           `json:"name"`
-		Permission []permrules.Rule `json:"permission"`
-	}
-	if err := json.Unmarshal(r.raw(http.MethodGet, "/agent?directory="+r.work, nil), &all); err != nil {
-		r.t.Fatal(err)
-	}
-	for _, a := range all {
-		if a.Name == agent {
-			return a.Permission
+	// opencode 2 answers GET /api/agent with the agents loaded so far while a
+	// location is still opening: read until the same answer comes twice.
+	var last string
+	for attempt := 0; attempt < 20; attempt++ {
+		raw := r.raw(http.MethodGet, "/api/agent?location[directory]="+url.QueryEscape(r.work), nil)
+		var all struct {
+			Data []struct {
+				ID          string              `json:"id"`
+				Permissions []map[string]string `json:"permissions"`
+			} `json:"data"`
 		}
+		if err := json.Unmarshal(raw, &all); err != nil {
+			r.t.Fatal(err)
+		}
+		if string(raw) == last {
+			for _, a := range all.Data {
+				if a.ID == agent {
+					return rulesFromV2Maps(a.Permissions)
+				}
+			}
+		}
+		last = string(raw)
+		time.Sleep(250 * time.Millisecond)
 	}
 	r.t.Fatalf("no agent %q", agent)
 	return nil
@@ -457,8 +472,8 @@ func (r *permRig) taskScriptCall(marker string, call map[string]any) {
 	r.t.Helper()
 	r.script(map[string]any{
 		"toolCalls": []map[string]any{{
-			"id": fmt.Sprintf("call_task%d", r.next()), "name": "task",
-			"arguments": mustJSON2(map[string]any{"description": "write a file", "prompt": marker, "subagent_type": "general"}),
+			"id": fmt.Sprintf("call_task%d", r.next()), "name": "subagent",
+			"arguments": mustJSON2(map[string]any{"description": "write a file", "prompt": marker, "agent": "general"}),
 		}},
 		"routes": []map[string]any{{
 			"contains": marker,
@@ -538,12 +553,14 @@ func (r *permRig) childOutcomeOf(tool, child string, mark int) (*backend.Permiss
 func (r *permRig) sessionRules(id string) []permrules.Rule {
 	r.t.Helper()
 	var s struct {
-		Permission []permrules.Rule `json:"permission"`
+		Data struct {
+			Permissions []map[string]string `json:"permissions"`
+		} `json:"data"`
 	}
-	if err := json.Unmarshal(r.raw(http.MethodGet, "/session/"+id, nil), &s); err != nil {
+	if err := json.Unmarshal(r.raw(http.MethodGet, "/api/session/"+id, nil), &s); err != nil {
 		r.t.Fatal(err)
 	}
-	return s.Permission
+	return rulesFromV2Maps(s.Data.Permissions)
 }
 
 func permLayers(o permRigOpts, live *policy.Live) func() permrules.Layers {
@@ -551,4 +568,37 @@ func permLayers(o permRigOpts, live *policy.Live) func() permrules.Layers {
 		return nil
 	}
 	return live.Layers
+}
+
+// rulesV2 renders rules the way opencode 2 takes them (ordered array, shell and
+// subagent for the 1.x names bash and task).
+func rulesV2(rules []permrules.Rule) []map[string]string {
+	out := make([]map[string]string, 0, len(rules))
+	for _, r := range rules {
+		action := r.Permission
+		switch action {
+		case "bash":
+			action = "shell"
+		case "task":
+			action = "subagent"
+		}
+		out = append(out, map[string]string{"action": action, "resource": r.Pattern, "effect": string(r.Action)})
+	}
+	return out
+}
+
+// rulesFromV2Maps reads opencode 2's rules back under the 1.x key names.
+func rulesFromV2Maps(in []map[string]string) []permrules.Rule {
+	out := make([]permrules.Rule, 0, len(in))
+	for _, m := range in {
+		key := m["action"]
+		switch key {
+		case "shell":
+			key = "bash"
+		case "subagent":
+			key = "task"
+		}
+		out = append(out, permrules.Rule{Permission: key, Pattern: m["resource"], Action: permrules.Action(m["effect"])})
+	}
+	return out
 }

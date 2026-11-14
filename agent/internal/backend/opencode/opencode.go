@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -203,8 +204,19 @@ type Backend struct {
 	clientMessageIDs map[string]string
 	pendingMu        sync.Mutex
 	pendingClientMsg map[string]pendingClaim
+	pendingCmd       map[string]pendingCommand
 
-	// modelsMu/modelLimits caches GET /config/providers's context-window
+	// asm is the 2.x event adapter's state (v2.go); selMu guards the
+	// per-session record of the agent/model/variant last written to opencode
+	// and of the plan note's presence.
+	asm        *asmState
+	prefaceMu  sync.Mutex
+	prefaces   map[string]bool
+	selMu      sync.Mutex
+	selApplied map[string]appliedSel
+	planNoteOn map[string]bool
+
+	// modelsMu/modelLimits caches GET /api/model's context-window
 	// hints per model id, so Usage events (which only carry token counts)
 	// can fill in ContextMax without a request per event.
 	modelsMu   sync.Mutex
@@ -224,6 +236,9 @@ type Backend struct {
 	// session.get can learn what it actually runs on.
 	sessionModel map[string]string
 }
+
+// appliedSel is the agent, model and variant last written to a session.
+type appliedSel struct{ agent, model, effort string }
 
 type sessionOverlay struct {
 	ModeID  string `json:"modeId,omitempty"`
@@ -255,7 +270,7 @@ func New(cfg Config) *Backend {
 	if cfg.Logf == nil {
 		cfg.Logf = func(string, ...any) {}
 	}
-	return &Backend{
+	b := &Backend{
 		cfg:              cfg,
 		att:              attach.New(cfg.AttachmentCacheBytes),
 		diffs:            filediff.New(cfg.Protect),
@@ -264,11 +279,17 @@ func New(cfg Config) *Backend {
 		overlay:          map[string]sessionOverlay{},
 		clientMessageIDs: map[string]string{},
 		pendingClientMsg: map[string]pendingClaim{},
+		pendingCmd:       map[string]pendingCommand{},
 		modelLimit:       map[string]int{},
+		asm:              newAsmState(),
+		selApplied:       map[string]appliedSel{},
+		planNoteOn:       map[string]bool{},
 		sessionUsage:     map[string]*backend.Usage{},
 		sessionModel:     map[string]string{},
 		commandMarkers:   map[string]backend.MessageCommand{},
 	}
+	b.asm.isPreface = b.isPreface
+	return b
 }
 
 // ID/Version implement backend.Backend. Version is the opencode release
@@ -351,6 +372,9 @@ func (b *Backend) Start(ctx context.Context) error {
 		return err
 	}
 	b.cfg.Bin = bin
+	if err := requireMajor2(bin); err != nil {
+		return err
+	}
 	if b.cfg.Port == 0 {
 		port, err := pickFreePort()
 		if err != nil {
@@ -493,9 +517,8 @@ func childEnv(cfg Config, patch map[string]any) ([]string, error) {
 	// The project-config and background-subagent switches are galopin's
 	// alone: an inherited value (a repo's .envrc, say) never decides them.
 	env = stripChildSwitches(env)
-	if cfg.BackgroundSubagents {
-		env = append(env, "OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=1")
-	}
+	// 2.3 has no switch for background subagents: a machine that does not
+	// allow them denies the subagent tool in the floor (floor.go).
 	// OPENCODE_CONFIG_CONTENT is the layer above every file, a project's
 	// included. It carries the pinned gateway config when the machine loads
 	// project config, and always the permission floor: the ceiling restated as
@@ -503,6 +526,10 @@ func childEnv(cfg Config, patch map[string]any) ([]string, error) {
 	// permrules.Floor for why it is agent-level and why only some agents get
 	// an entry).
 	var content map[string]any
+	// A models map written under 1.x states no input modalities, and opencode 2
+	// then assumes the model takes images: say text only for those, in the
+	// content layer, so a machine enrolled before the upgrade needs no re-enroll.
+	fix := textOnlyModalities(cfg.ConfigPath)
 	if !cfg.ProjectConfig {
 		env = append(env, "OPENCODE_DISABLE_PROJECT_CONFIG=1")
 	} else if cfg.ConfigPath != "" {
@@ -510,28 +537,42 @@ func childEnv(cfg Config, patch map[string]any) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("pinning the gateway config: %w", err)
 		}
-		if err := json.Unmarshal([]byte(pinned), &content); err != nil {
+		var pinnedMap map[string]any
+		if err := json.Unmarshal([]byte(pinned), &pinnedMap); err != nil {
 			return nil, fmt.Errorf("pinning the gateway config: %w", err)
 		}
+		content = pinnedMap
 	}
 	if cfg.Permissions != nil || content != nil {
-		body, err := floorConfig(content, patch, fileDenies(cfg.ConfigPath))
+		if fix != nil {
+			content = mergeConfig(fix, content)
+		}
+		body, err := floorConfigFor(cfg, content, patch, fileDenies(cfg.ConfigPath))
 		if err != nil {
 			return nil, fmt.Errorf("building the permission floor: %w", err)
 		}
 		env = append(env, "OPENCODE_CONFIG_CONTENT="+body)
+	} else if fix != nil || !cfg.BackgroundSubagents {
+		// No floor, but still facts opencode needs: the modalities fix, and for a
+		// machine that does not allow background subagents (opencode 2.3 has no
+		// foreground form) no subagent tool at all.
+		extra := map[string]any{}
+		if fix != nil {
+			extra = fix
+		}
+		if !cfg.BackgroundSubagents {
+			extra["permissions"] = []map[string]string{{"action": "subagent", "resource": "*", "effect": "deny"}}
+		}
+		body, _ := json.Marshal(extra)
+		env = append(env, "OPENCODE_CONFIG_CONTENT="+string(body))
 	}
 	return env, nil
 }
 
 func (b *Backend) runOnce(ctx context.Context) error {
+	// 2.x has no --pure: OPENCODE_DISABLE_PROJECT_CONFIG (set by childEnv) is
+	// the one switch, and it also keeps a repo's .opencode/plugins from loading.
 	args := []string{"serve", "--hostname", b.cfg.Hostname, "--port", fmt.Sprint(b.cfg.Port)}
-	if !b.cfg.ProjectConfig {
-		// OPENCODE_DISABLE_PROJECT_CONFIG skips a repo's config, commands and
-		// MCP servers but NOT its .opencode/plugin(s) (probed live on
-		// 1.18.32: the plugin still ran); --pure is what stops those.
-		args = append(args, "--pure")
-	}
 	cmd := exec.Command(b.cfg.Bin, args...)
 	b.perm.floorMu.Lock()
 	patch := b.perm.floorPatch
@@ -578,7 +619,7 @@ func (b *Backend) runOnce(ctx context.Context) error {
 func stripChildSwitches(env []string) []string {
 	kept := env[:0]
 	for _, kv := range env {
-		if !strings.HasPrefix(kv, "OPENCODE_DISABLE_PROJECT_CONFIG=") && !strings.HasPrefix(kv, "OPENCODE_CONFIG_CONTENT=") && !strings.HasPrefix(kv, "OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=") {
+		if !strings.HasPrefix(kv, "OPENCODE_DISABLE_PROJECT_CONFIG=") && !strings.HasPrefix(kv, "OPENCODE_CONFIG_CONTENT=") && !strings.HasPrefix(kv, "GALOPIN_BACKGROUND_SUBAGENTS=") {
 			kept = append(kept, kv)
 		}
 	}
@@ -587,7 +628,7 @@ func stripChildSwitches(env []string) []string {
 
 func (b *Backend) waitHealthy(ctx context.Context, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
-	url := b.baseURL() + "/global/health"
+	url := b.baseURL() + "/api/info"
 	for {
 		// Each attempt gets its own short deadline, not the caller's whole
 		// timeout: a single hung connection attempt (found live — a request
@@ -651,4 +692,57 @@ func (b *Backend) Stop() error {
 	}
 	b.stopTools()
 	return b.saveOverlay()
+}
+
+// requireMajor2 refuses an opencode older than 2.0: this galopin speaks the
+// 2.x server API, which a 1.x server does not serve, so starting one would only
+// end in "did not become healthy" 30 seconds later. A binary whose version
+// cannot be read (a test double) is let through.
+func requireMajor2(bin string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, bin, "--version").Output()
+	if err != nil {
+		return nil
+	}
+	v := strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(string(out)), "opencode "), "v")
+	major, _, _ := strings.Cut(v, ".")
+	if n, err := strconv.Atoi(major); err == nil && n < 2 {
+		return fmt.Errorf("opencode %s is installed, but this galopin needs opencode %s (the 2.x server API): "+
+			"run `npm i -g @opencode/cli@%[2]s`, or re-run the installer with --with-opencode (agent/README.md, \"opencode releases\")",
+			v, packaging.OpencodeVersion())
+	}
+	return nil
+}
+
+// textOnlyModalities is a config fragment giving every gateway model of the
+// machine's opencode.json that states no input modalities `["text"]`, nil when
+// there is nothing to say.
+func textOnlyModalities(path string) map[string]any {
+	if path == "" {
+		return nil
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var cfg map[string]any
+	if json.Unmarshal(raw, &cfg) != nil {
+		return nil
+	}
+	providers, _ := cfg["provider"].(map[string]any)
+	gw, _ := providers[gatewayProviderID].(map[string]any)
+	models, _ := gw["models"].(map[string]any)
+	fix := map[string]any{}
+	for id, m := range models {
+		mm, _ := m.(map[string]any)
+		if _, has := mm["modalities"]; has {
+			continue
+		}
+		fix[id] = map[string]any{"modalities": map[string]any{"input": []string{"text"}}}
+	}
+	if len(fix) == 0 {
+		return nil
+	}
+	return map[string]any{"provider": map[string]any{gatewayProviderID: map[string]any{"models": fix}}}
 }

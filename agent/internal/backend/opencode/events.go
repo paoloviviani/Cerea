@@ -18,8 +18,8 @@ const (
 	eventStreamMaxBackoff = 30 * time.Second
 )
 
-// Subscribe streams every session's events from GET /global/event (SSE,
-// all directories). It reconnects on its own with backoff whenever the
+// Subscribe streams every session's events from GET /api/event (SSE, all
+// directories; 2.x events, adapted by v2.go). It reconnects on its own with backoff whenever the
 // stream ends — including every time opencode itself restarts underneath
 // it — for as long as ctx lives; the returned channel only closes when ctx
 // is done.
@@ -96,7 +96,7 @@ func (b *Backend) subscribeLoop(ctx context.Context, out chan<- backend.BackendE
 }
 
 func (b *Backend) streamOnce(ctx context.Context, out chan<- backend.BackendEvent) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, b.baseURL()+"/global/event", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, b.baseURL()+"/api/event", nil)
 	if err != nil {
 		return err
 	}
@@ -157,25 +157,61 @@ func (b *Backend) streamOnce(ctx context.Context, out chan<- backend.BackendEven
 	}
 }
 
-// sseFrame is GET /global/event's per-message envelope: {directory,
-// payload:{id,type,properties}}.
+// sseFrame is GET /api/event's per-message envelope: {id, type, created,
+// location?:{directory}, data}.
 type sseFrame struct {
-	Directory string         `json:"directory"`
-	Payload   map[string]any `json:"payload"`
+	Type     string  `json:"type"`
+	Created  float64 `json:"created"`
+	Location struct {
+		Directory string `json:"directory"`
+	} `json:"location"`
+	Data map[string]any `json:"data"`
 }
 
 func (b *Backend) handleSSEData(raw string, out chan<- backend.BackendEvent) {
 	var frame sseFrame
-	if json.Unmarshal([]byte(raw), &frame) != nil || frame.Payload == nil {
+	if json.Unmarshal([]byte(raw), &frame) != nil || frame.Type == "" {
 		return
 	}
-	typ, _ := frame.Payload["type"].(string)
-	props, _ := frame.Payload["properties"].(map[string]any)
-	if props == nil {
-		props = map[string]any{}
+	d := frame.Data
+	if d == nil {
+		d = map[string]any{}
 	}
-	for _, be := range b.translateEvent(frame.Directory, typ, props) {
-		out <- be
+	sid := getStr(d, "sessionID")
+	if sid == "" {
+		if f := getMap(d, "form"); f != nil {
+			sid = getStr(f, "sessionID")
+		}
+	}
+	dir := frame.Location.Directory
+	if loc := getMap(d, "location"); dir == "" && loc != nil {
+		dir = getStr(loc, "directory")
+	}
+	if sid != "" {
+		if dir != "" {
+			b.asm.mu.Lock()
+			b.asm.dirs[sid] = dir
+			b.asm.mu.Unlock()
+		} else {
+			dir = b.sessionDir(sid)
+		}
+	}
+	if frame.Type == "session.created" || frame.Type == "session.renamed" {
+		b.noteDir(dir)
+	}
+	if frame.Type == "session.renamed" && sid != "" {
+		// the 1.x session.updated carried the whole session: read it
+		if info := b.fetchSessionInfo(sid); info != nil {
+			for _, be := range b.translateEvent(dir, "session.updated", map[string]any{"info": info}) {
+				out <- be
+			}
+		}
+		return
+	}
+	for _, f := range b.asm.adapt(frame.Type, frame.Created, d) {
+		for _, be := range b.translateEvent(dir, f.typ, f.props) {
+			out <- be
+		}
 	}
 }
 
@@ -359,6 +395,10 @@ func (b *Backend) translateEvent(directory, typ string, props map[string]any) []
 			todos = append(todos, todoFromMap(tm))
 		}
 		return []backend.BackendEvent{wrap(sessionID, backend.Event{Kind: backend.EventTodo, Todos: todos})}
+
+	case "session.compacted":
+		// compaction and revert change the stored transcript: re-read it
+		return []backend.BackendEvent{wrap(sessionID, backend.Event{Kind: backend.EventResync})}
 
 	case "server.heartbeat":
 		return nil

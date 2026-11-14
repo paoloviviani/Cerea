@@ -3,7 +3,8 @@
 #   pinned  the release agent/packaging/opencode-version names, with the WHOLE
 #           real-opencode suite (every IT in agent/, permission tests and
 #           upgrade canaries included). Runs on a push to main that touches
-#           agent/, weekly, and on demand.
+#           agent/, on a pull request that touches agent/, weekly, and on
+#           demand.
 #   latest  opencode's newest release (or `version`, on demand), same suite,
 #           daily. Skipped when it is the pin, or when that version already
 #           passed against this agent code (a cache entry remembers the green).
@@ -23,13 +24,21 @@ on:
       - ".github/workflows/opencode.yml"
       - ".github/actions/opencode-suite/**"
       - ".github/scripts/gotest_report.py"
+  # A change to galopin's opencode backend is proved against the pinned release
+  # before it merges, not after (the `pinned` job only; `latest` never runs here).
+  pull_request:
+    paths:
+      - "agent/**"
+      - ".github/workflows/opencode.yml"
+      - ".github/actions/opencode-suite/**"
+      - ".github/scripts/gotest_report.py"
   schedule:
     - cron: "17 4 * * 1" # weekly: pinned
     - cron: "43 5 * * *" # daily: latest
   workflow_dispatch:
     inputs:
       version:
-        description: "opencode release for the `latest` job (default: npm's latest)"
+        description: "opencode release for the `latest` job (default: npm's latest @opencode/cli)"
         required: false
         type: string
 
@@ -56,7 +65,7 @@ jobs:
 
   latest:
     # not on a push (the pinned job's), only the daily schedule among schedules
-    if: github.event_name != 'push' && (github.event_name != 'schedule' || github.event.schedule == '43 5 * * *')
+    if: github.event_name != 'push' && github.event_name != 'pull_request' && (github.event_name != 'schedule' || github.event.schedule == '43 5 * * *')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -72,7 +81,7 @@ jobs:
         id: v
         run: |
           pinned=$(cat agent/packaging/opencode-version)
-          version=${REQUESTED:-$(npm view opencode-ai version)}
+          version=${REQUESTED:-$(npm view @opencode/cli version)}
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::not a release number: '$version'"; exit 1; }
           echo "pinned=$pinned" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -157,7 +166,7 @@ jobs:
           for n in r["failing"]:
               print(f"- `{n}`")
           print("\nFirst failure:\n```\n" + r["first_failure"][:3000] + "\n```")
-          print("\nReproduce: `npm i -g opencode-ai@" + version + " && cd agent && GALOPIN_OPENCODE_IT=1 GALOPIN_ACP_IT=1 go test -count=1 -v -timeout 25m ./...`")
+          print("\nReproduce: `npm i -g @opencode/cli@" + version + " && cd agent && GALOPIN_OPENCODE_IT=1 GALOPIN_ACP_IT=1 go test -count=1 -v -timeout 25m ./...`")
           print("\n_Updated by the daily `latest` job; the pin stays at " + pinned + " until someone bumps it._")
           PY
             upsert "$title" "$dir/issue.md"

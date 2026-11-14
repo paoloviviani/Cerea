@@ -34,10 +34,10 @@ func TestSubagentSendToAnotherSessionGetsACardIntegration(t *testing.T) {
 
 	taskCall := map[string]any{
 		"id":   "call_bg_send",
-		"name": "task",
+		"name": "subagent",
 		"arguments": mustJSON2(map[string]any{
 			"description": "background child", "prompt": marker + ": report what you find",
-			"subagent_type": "general", "background": true,
+			"agent": "general", "background": true,
 		}),
 	}
 	listCall := map[string]any{
@@ -81,6 +81,10 @@ func TestSubagentSendToAnotherSessionGetsACardIntegration(t *testing.T) {
 			(p.ToolStatus == backend.ToolCompleted || p.ToolStatus == backend.ToolFailed)
 	})
 	r.idle(parent, mark)
+	// Taken as soon as the parent settles: opencode 2 finishes the child within
+	// milliseconds of its tool result, so the parent's wake can land before the
+	// reads below are done.
+	afterList := r.hub.mark()
 	childID := waitForChild(t, r.ctx, r.oc, r.work, parent.ID, 60*time.Second)
 	listPart := r.hub.toolDone(t, mark, childID, "session_list")
 
@@ -107,7 +111,6 @@ func TestSubagentSendToAnotherSessionGetsACardIntegration(t *testing.T) {
 
 	// The background child's first turn ends its task, and its result wakes a
 	// new turn in the parent — the report channel the fix keeps intact.
-	afterList := r.hub.mark()
 	r.hub.wait(t, afterList, 240*time.Second, "the notification turn to start in the parent", func(e sessions.Envelope) bool {
 		return e.SessionID == parent.ID && e.Event.Kind == backend.EventStatus && e.Event.Status == backend.StatusBusy
 	})

@@ -213,7 +213,8 @@ func TestAgentToolsIntegration(t *testing.T) {
 		rulesMu.Unlock()
 	}
 	oc := backendopencode.New(backendopencode.Config{
-		ConfigPath: configPath, Env: env, StateDir: dirs["state"],
+		BackgroundSubagents: true,
+		ConfigPath:          configPath, Env: env, StateDir: dirs["state"],
 		OverlayPath:    filepath.Join(dirs["state"], "opencode-overlay.json"),
 		ToolsDir:       filepath.Join(dirs["state"], "opencode-tools"),
 		StartupTimeout: 90 * time.Second, Logf: t.Logf,
@@ -401,9 +402,13 @@ func TestAgentToolsIntegration(t *testing.T) {
 		if !caps.AgentTools || !caps.Steer {
 			t.Fatalf("capabilities = %+v, want agentTools and steer", caps)
 		}
+		plugin, err := os.ReadFile(filepath.Join(dirs["state"], "opencode-tools", "plugins", "galopin-tools", "index.js"))
+		if err != nil {
+			t.Fatalf("tools plugin: %v", err)
+		}
 		for _, name := range []string{"session_list", "session_read", "session_spawn", "session_send"} {
-			if _, err := os.Stat(filepath.Join(dirs["state"], "opencode-tools", "tools", name+".js")); err != nil {
-				t.Errorf("tool file %s: %v", name, err)
+			if !strings.Contains(string(plugin), `name: "`+name+`"`) {
+				t.Errorf("tool %s is not registered by the plugin", name)
 			}
 		}
 		if _, err := os.Stat(filepath.Join(dirs["state"], "opencode-tools", "skills", "delegation", "SKILL.md")); err != nil {
@@ -549,8 +554,8 @@ func TestAgentToolsIntegration(t *testing.T) {
 		// route is registered FIRST: routes are prepended, and the exc turn
 		// must match its own route before the older trigger still sitting
 		// in the child's history matches the control one.
-		route("trigger-child-ctl", "read", `{"filePath":"/etc/hostname"}`)
-		route("trigger-child-exc", "read", fmt.Sprintf(`{"filePath":%q}`, secret))
+		route("trigger-child-ctl", "read", `{"path":"/etc/hostname"}`)
+		route("trigger-child-exc", "read", fmt.Sprintf(`{"path":%q}`, secret))
 		route("trigger-spawn-exc", "session_spawn", spawnArgs("it-child-exc", "child-exc first prompt", "inherit"))
 		publish()
 		mark := hub.mark()

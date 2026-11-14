@@ -209,8 +209,9 @@ func (s *Server) complete(w http.ResponseWriter, r *http.Request) {
 	// only the synthetic message's own marker text is skipped.
 	lastUser := -1
 	for i, m := range req.Messages {
+		// opencode 1.x marks that message with text; opencode 2 sends the image alone.
 		if m["role"] == "user" && !(i > 0 && req.Messages[i-1]["role"] == "tool" &&
-			strings.HasPrefix(contentText(m["content"]), "Attached media from tool result:")) {
+			(strings.HasPrefix(contentText(m["content"]), "Attached media from tool result:") || contentText(m["content"]) == "")) {
 			lastUser = i
 		}
 	}
