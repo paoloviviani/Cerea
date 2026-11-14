@@ -70,7 +70,7 @@ describe("agent/packaging/bump-opencode.sh", () => {
 			'export const OPENCODE_VERSION = "9.9.9";'
 		);
 		const ts = readFileSync(join(root, "src/lib/opencodeVersion.ts"), "utf8");
-		for (const [name, sum] of Object.entries(sums)) expect(ts).toContain(sum);
+		for (const sum of Object.values(sums)) expect(ts).toContain(sum);
 		for (const name of archives) expect(ts).toContain(`"${name}"`);
 		// a second run over the formatted file still works, and prettier has nothing to change
 		execFileSync("sh", [join(root, "agent/packaging/bump-opencode.sh"), "9.9.9"], {
