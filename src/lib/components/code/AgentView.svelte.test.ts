@@ -682,3 +682,34 @@ describe("AgentView transcript cache", () => {
 		expect(getTranscript("d1:a1")).toBeUndefined();
 	});
 });
+
+describe("AgentView header block on a phone", () => {
+	it("takes no space when there is no forked-from or spawned-by line", async () => {
+		await browserPage.viewport(400, 800);
+		const screen = mount();
+		render(MobileNav, { title: "" });
+		await arrive([ACTIVE]);
+		const block = screen.getByTestId("agent-header-block").element() as HTMLElement;
+		expect(block.getBoundingClientRect().height).toBe(0);
+		expect(getComputedStyle(block).paddingTop).toBe("0px");
+	});
+
+	it("still shows the block when a line is present", async () => {
+		await browserPage.viewport(400, 800);
+		fake.parentId = "root-1";
+		const screen = mount();
+		render(MobileNav, { title: "" });
+		await arrive([ACTIVE]);
+		const block = screen.getByTestId("agent-header-block").element() as HTMLElement;
+		await vi.waitFor(() => expect(block.getBoundingClientRect().height).toBeGreaterThan(0));
+		expect(getComputedStyle(block).paddingTop).not.toBe("0px");
+	});
+
+	it("keeps its padding on desktop", async () => {
+		await browserPage.viewport(1200, 800);
+		const screen = mount();
+		await arrive([ACTIVE]);
+		const block = screen.getByTestId("agent-header-block").element() as HTMLElement;
+		expect(getComputedStyle(block).paddingTop).not.toBe("0px");
+	});
+});

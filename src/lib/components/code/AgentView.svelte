@@ -1332,6 +1332,16 @@
 	// start the same way) is the one false positive this accepts; the spec
 	// calls that an acceptable "keep it simple" tradeoff.
 	let handedOffFromTitle = $derived(forkedFromTitle(agent?.title));
+	/** Any line under (or above) the header row; the row itself is in the phone top bar. */
+	let headerHasLines = $derived(
+		!!(
+			agent?.parentId ||
+			agent?.spawnedBy ||
+			handedOffFromTitle ||
+			backgroundRunning ||
+			(shownState === "running" && liveTurn?.retry)
+		)
+	);
 
 	/** The message "Fork from here" was clicked on — open state for the dialog. */
 	let handoffFor = $state<Message | null>(null);
@@ -1367,7 +1377,14 @@
      locked while the rest stayed responsive. The column, the strip, the
      failure banner and the side pane re-enable pointer events themselves. -->
 <div class="pointer-events-none flex h-full min-h-0 flex-1 flex-col">
-	<div class="pointer-events-auto flex flex-col gap-0.5 px-4 pt-3 pb-2">
+	<!-- On a phone the name, dot and Panels button live in the top bar, so this
+	     block holds only the extra lines below; with none it takes no space. -->
+	<div
+		class="pointer-events-auto flex flex-col gap-0.5 px-4 pt-3 pb-2 {headerHasLines
+			? ''
+			: 'max-md:py-0'}"
+		data-testid="agent-header-block"
+	>
 		{#if agent?.parentId}
 			<a
 				class="flex min-w-0 items-center gap-1 text-xs text-ink-muted hover:text-ink"
