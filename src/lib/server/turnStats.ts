@@ -254,6 +254,8 @@ export function sumCosts(costs: string[]): string | undefined {
  */
 export class TurnStatsCollector {
 	private readonly calls: CallTimer[] = [];
+	/** What the sub-agents' model calls reported (browse, delegates): a bucket of their own. */
+	private readonly subAgentReports: CallReport[] = [];
 	private readonly startedAt: number;
 	constructor(private readonly opts: { model?: string; now?: () => number } = {}) {
 		this.startedAt = this.now();
@@ -264,6 +266,20 @@ export class TurnStatsCollector {
 		const call = new CallTimer(() => this.now(), this.now());
 		this.calls.push(call);
 		return call;
+	}
+
+	/**
+	 * A model call made by a sub-agent of this turn. Synchronous and safe to call
+	 * from parallel tool runs; the usage joins the turn's totals and its own
+	 * breakdown, and never the speed or first-token figures.
+	 */
+	reportSubAgent(report: CallReport): void {
+		this.subAgentReports.push(report);
+	}
+
+	/** How many sub-agent calls have reported: a cheap "did anything change" for the caller. */
+	get subAgentCallCount(): number {
+		return this.subAgentReports.length;
 	}
 
 	snapshot(): TurnStats {
@@ -283,12 +299,35 @@ export class TurnStatsCollector {
 		const redaction = aggregateRedaction(
 			this.calls.map((c) => c.report.redaction).filter((r): r is TurnRedaction => r !== undefined)
 		);
-		const cost = sumCosts(this.calls.map((c) => c.report.cost).filter((c): c is string => !!c));
+		const sub = this.subAgentReports;
+		// The in-stream cost is provisional: the gateway's settled total for the turn tag
+		// replaces it (turnCostSettle.ts) and includes every tagged call anyway.
+		const cost = sumCosts(
+			[...this.calls.map((c) => c.report), ...sub]
+				.map((r) => r.cost)
+				.filter((c): c is string => !!c)
+		);
+		const subIn = sumOf(sub.map((r) => r.inputTokens));
+		const subOut = sumOf(sub.map((r) => r.outputTokens));
+		const subReasoning = sumOf(sub.map((r) => r.reasoningTokens));
+		// Totals are the main model plus the sub-agents. Speed and first-token time above
+		// stay main-model only: a sub-agent's calls are not what the user waited on streaming.
 		const stats: TurnStats = {
 			model: this.opts.model,
-			inputTokens: sumOf(this.calls.map((c) => c.report.inputTokens)),
-			outputTokens: outTokens,
-			reasoningTokens: sumOf(this.calls.map((c) => c.report.reasoningTokens)),
+			inputTokens: sumOf([sumOf(this.calls.map((c) => c.report.inputTokens)), subIn]),
+			outputTokens: sumOf([outTokens, subOut]),
+			reasoningTokens: sumOf([
+				sumOf(this.calls.map((c) => c.report.reasoningTokens)),
+				subReasoning,
+			]),
+			...(sub.length > 0
+				? {
+						subAgentCalls: sub.length,
+						subAgentInputTokens: subIn,
+						subAgentOutputTokens: subOut,
+						subAgentReasoningTokens: subReasoning,
+					}
+				: {}),
 			firstTokenMs: first?.firstTokenMs,
 			tokensPerSecond,
 			cost,

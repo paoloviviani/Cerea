@@ -188,6 +188,49 @@ describe("the overlay", () => {
 	});
 });
 
+describe("the helpers' share", () => {
+	const WITH_HELPERS: TurnStats = {
+		...STATS,
+		inputTokens: 42_400,
+		outputTokens: 3_440,
+		subAgentCalls: 3,
+		subAgentInputTokens: 41_200,
+		subAgentOutputTokens: 3_100,
+	};
+
+	it("shows the totals and a breakdown line when a helper made calls", async () => {
+		const screen = renderWithApp(TurnInfo, { message: msg(WITH_HELPERS) });
+		await screen.getByTestId("turn-info-dot").click();
+		const panel = screen.getByTestId("turn-info-panel");
+		await expect.element(panel).toHaveTextContent("42,400");
+		await expect
+			.element(screen.getByTestId("turn-info-sub-agents"))
+			.toHaveTextContent("41,200 in · 3,100 out");
+		await expect.element(panel).toHaveTextContent("Helpers");
+	});
+
+	it("shows no breakdown line when there were no helper calls", async () => {
+		const screen = renderWithApp(TurnInfo, { message: msg(STATS) });
+		await screen.getByTestId("turn-info-dot").click();
+		await expect.element(screen.getByTestId("turn-info-panel")).toBeInTheDocument();
+		await expect.element(screen.getByTestId("turn-info-sub-agents")).not.toBeInTheDocument();
+	});
+
+	it("shows dashes, not null, for helper fields the database gave back as null", async () => {
+		const nulls = {
+			...STATS,
+			subAgentCalls: 1,
+			subAgentInputTokens: null,
+			subAgentOutputTokens: null,
+		};
+		const screen = renderWithApp(TurnInfo, { message: msg(nulls as unknown as TurnStats) });
+		await screen.getByTestId("turn-info-dot").click();
+		const text = screen.getByTestId("turn-info-sub-agents").element().textContent ?? "";
+		expect(text).toContain("— in · — out");
+		expect(text).not.toContain("null");
+	});
+});
+
 describe("under an answer", () => {
 	it("sits in ChatMessage's action row for an assistant answer", async () => {
 		const screen = renderWithApp(ChatMessage, { message: msg(STATS) });
@@ -246,11 +289,37 @@ describe("the cost, read lazily", () => {
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 	});
 
-	it("does not ask when the message already has a cost", async () => {
+	it("shows the provisional cost at once, then replaces it with the settled one", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => answer({ available: true, cost: "0.0123", currency: "USD" }))
+		);
+		const screen = renderWithApp(TurnInfo, {
+			message: msg({ ...STATS, cost: "0.0042 USD" }),
+			conversationId: CONV,
+		});
+		await screen.getByTestId("turn-info-dot").click();
+		await expect.element(screen.getByTestId("turn-info-cost")).toHaveTextContent("$0.0123");
+	});
+
+	it("keeps the provisional cost when the read has nothing better", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => answer({ available: false }))
+		);
+		const screen = renderWithApp(TurnInfo, {
+			message: msg({ ...STATS, cost: "0.0042 USD" }),
+			conversationId: CONV,
+		});
+		await screen.getByTestId("turn-info-dot").click();
+		await expect.element(screen.getByTestId("turn-info-cost")).toHaveTextContent("0.0042 USD");
+	});
+
+	it("does not ask when the message already has the settled cost", async () => {
 		const fetchMock = vi.fn(async () => answer({ available: false }));
 		vi.stubGlobal("fetch", fetchMock);
 		const screen = renderWithApp(TurnInfo, {
-			message: msg({ ...STATS, cost: "0.0042", costCurrency: "USD" }),
+			message: msg({ ...STATS, cost: "0.0042", costCurrency: "USD", costSource: "gateway" }),
 			conversationId: CONV,
 		});
 		await screen.getByTestId("turn-info-dot").click();

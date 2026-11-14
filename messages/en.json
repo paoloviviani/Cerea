@@ -3644,6 +3644,8 @@
 	"chat.turn_details.input": "Input tokens",
 	"chat.turn_details.output": "Output tokens",
 	"chat.turn_details.reasoning": "Reasoning tokens",
+	"chat.turn_details.sub_agents": "Helpers",
+	"chat.turn_details.sub_agents_value": "{input} in · {output} out",
 	"chat.turn_details.first_token": "Time to first token",
 	"chat.turn_details.speed": "Speed",
 	"chat.turn_details.cost": "Cost",

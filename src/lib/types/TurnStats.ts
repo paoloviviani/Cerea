@@ -48,6 +48,15 @@ export type TurnStats = {
 	inputTokens?: number;
 	outputTokens?: number;
 	reasoningTokens?: number;
+	/**
+	 * `inputTokens`, `outputTokens` and `reasoningTokens` above are totals: the
+	 * main model plus the sub-agents (browse, delegates). These are the
+	 * sub-agents' share, present only when a sub-agent made a model call.
+	 */
+	subAgentCalls?: number;
+	subAgentInputTokens?: number;
+	subAgentOutputTokens?: number;
+	subAgentReasoningTokens?: number;
 	/** Milliseconds from sending the request to the first token. */
 	firstTokenMs?: number;
 	/** Output tokens per second, from the first token to the end. */
@@ -58,6 +67,12 @@ export type TurnStats = {
 	 * from the gateway's usage by tag, with its currency in `costCurrency`.
 	 */
 	cost?: string;
+	/**
+	 * Where `cost` came from. "gateway": the gateway's settled total for the turn's tag, which
+	 * includes every call (sub-agents too). Absent: the sum of what the stream reported, which is
+	 * provisional until the settled one is read.
+	 */
+	costSource?: "gateway";
 	/** The ISO currency of `cost` when it is a plain decimal. */
 	costCurrency?: string;
 	/** Epoch milliseconds when the turn started. */

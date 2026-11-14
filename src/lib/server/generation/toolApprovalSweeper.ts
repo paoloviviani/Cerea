@@ -16,6 +16,7 @@ import {
 } from "$lib/types/MessageUpdate";
 import type { McpElicitation } from "$lib/types/McpElicitation";
 import type { TextGenerationContext } from "$lib/server/textGeneration/types";
+import { settleTurnCost, turnGatewayToken } from "$lib/server/turnCostSettle";
 import { createGenerationWriter } from "./writer";
 import { applyUpdateToMessage } from "./applyUpdate";
 import { turnEnded, turnRunning } from "./turnState";
@@ -223,6 +224,11 @@ async function denyAndResume(row: McpElicitation): Promise<void> {
 	} finally {
 		await persist();
 		await writer.finish({ status: hasError ? "error" : "completed" });
+		settleTurnCost({
+			conversationId: conv._id,
+			messageId: message.id,
+			token: turnGatewayToken(locals),
+		});
 	}
 }
 

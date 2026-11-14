@@ -3950,6 +3950,8 @@
 	"chat.turn_details.input": "[Íńþúť ťóķéńś]",
 	"chat.turn_details.output": "[Óúťþúť ťóķéńś]",
 	"chat.turn_details.reasoning": "[Ŕéáśóńíńǧ ťóķéńś]",
+	"chat.turn_details.sub_agents": "[Ȟéľþéŕś]",
+	"chat.turn_details.sub_agents_value": "[{input} íń · {output} óúť]",
 	"chat.turn_details.first_token": "[Ťíḿé ťó ƒíŕśť ťóķéń]",
 	"chat.turn_details.speed": "[Śþééď]",
 	"chat.turn_details.cost": "[Ćóśť]",
