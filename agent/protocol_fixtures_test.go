@@ -205,7 +205,6 @@ func callOps(t *testing.T) map[string]bool {
 	for file, helper := range map[string][2]string{
 		"agenttools_schedule.go":   {"cereaCall", "schedule."},
 		"agenttools_connectors.go": {"connectorCerea", "connector."},
-		"agenttools_memory.go":     {"memoryCerea", "memory."},
 		"browser_key.go":           {"browserCall", ""},
 	} {
 		ast.Inspect(fxParseGo(t, file), func(n ast.Node) bool {

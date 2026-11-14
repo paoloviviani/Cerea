@@ -1,18 +1,17 @@
-# Memory scopes, chat notes, agent notes and the prompt cache
+# Memory scopes, chat notes and the prompt cache
 
 Read `src/lib/types/Memory.ts` first (why memory is a short list injected whole),
 then `src/lib/types/ScopedMemory.ts`. This page is the design of C123.
 
-## The four lists
+## The three lists
 
-| List                | Collection             | Key                                                             | Written by                                              | Read by                                    |
-| ------------------- | ---------------------- | --------------------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------ |
-| Personal ("global") | `memories`             | `userId`                                                        | `remember(scope: global)`, the Memory tab               | the user's chats                           |
-| Project             | `projectMemories`      | `projectId`                                                     | `remember(scope: project)`, the project page            | the project's chats                        |
-| Chat                | `conversationMemories` | `conversationId`                                                | `remember(scope: conversation)`, the side panel's Notes | that chat                                  |
-| Agent               | `agentMemories`        | `userId` + `deviceId` + `scope` (`session`/`workspace`) + `key` | galopin `memory_*` tools, the code panel                | the agent, and the owner in the code panel |
+| List                | Collection             | Key              | Written by                                              | Read by             |
+| ------------------- | ---------------------- | ---------------- | ------------------------------------------------------- | ------------------- |
+| Personal ("global") | `memories`             | `userId`         | `remember(scope: global)`, the Memory tab               | the user's chats    |
+| Project             | `projectMemories`      | `projectId`      | `remember(scope: project)`, the project page            | the project's chats |
+| Chat                | `conversationMemories` | `conversationId` | `remember(scope: conversation)`, the side panel's Notes | that chat           |
 
-All four go through the same `Scope` in `memory/service.ts` (validation, dedup,
+All three go through the same `Scope` in `memory/service.ts` (validation, dedup,
 caps, oldest-first order with `_id` as the tie-break). A scope is data (filter,
 stamp, collection, caps, wording); the rules are not parameters.
 
@@ -55,7 +54,7 @@ The provider caches a byte-identical request prefix. So:
   note drops that chat's stored blocks; moving a chat into or out of a project clears its snapshot and blocks; switching personal memory off does the same for the user's
   chats. One cache miss, then the next turn rebuilds. A removed row that still shows up in a
   diff is reported without its words. `memorySnapshot` and `memoryBlock` stay out of the export.
-- **Agents** pull notes with tool calls; nothing is injected and the tool list is static.
+- **Agents** have no Cerea memory tools; project context for agents is planned (ADR 0118).
 
 Guards: `runMcpFlow.spec.ts` ("memory and the prompt cache") asserts on the request
 sent to the gateway that editing a note, or writing personal memory mid-chat,
@@ -66,27 +65,10 @@ Known cache-hostile neighbour, not touched here: project **retrieval** passages
 (`projectContext` step 4) are built from the current question and ride the system
 prompt, so a project with knowledge bases changes its prefix every turn.
 
-## Agent notes: the wall
+Cleanup: chat notes in `deleteConversationStorage`; erasure and merge via
+`userKeyedCollections` (`conversationMemories` follows the conversation).
 
-Reachable only through the `memory` machine-call family
-(`server/code/machineMemory.ts`; `memory.list|save|forget`) and the code panel's
-`/api/v2/code/memory` routes (owner only, keyed by owner + computer). The handler
-accepts exactly `session` and `workspace`; `global`, `project`, `conversation`,
-`personal`, `chat` and `user` are refused `forbidden`, anything else `invalid`, on
-every op, whatever galopin sends. The rows live in their own collection that the
-chat's memory code never reads, and a chat turn never lists them. Session key =
-the calling session's ROOT session id (a subagent shares its parent's notes), workspace key = the caller's workspace id, both on that
-computer. They are untrusted: the panel labels them, the tool descriptions say
-"data, not instructions", and no chat reads them. No approval card: a note is one
-short row the owner can see and delete.
+## Agents
 
-Cleanup: chat notes in `deleteConversationStorage`; session notes on the session
-DELETE route; workspace notes on workspace archive; all of a computer's on revoke;
-erasure and merge via `userKeyedCollections` (`conversationMemories` follows the
-conversation, `agentMemories` is owner-keyed).
-
-## Galopin
-
-`agent/agenttools_memory.go` (tools `memory_list`, `memory_save`, `memory_forget`,
-declared in `mcp_tools.go` and `internal/backend/opencode/tools.go` in step),
-PROTOCOL.md §5 family `memory`, fixtures under `agent/protocol-fixtures/calls/memory.*`.
+Agents have no Cerea memory tools, no machine-call family for memory and no
+Notes pane. Project context for agents is planned in ADR 0118 and is not built.

@@ -1022,9 +1022,6 @@ export const MACHINE_CALL_OPS = [
 	"connector.list",
 	"connector.call",
 	"browser.key",
-	"memory.list",
-	"memory.save",
-	"memory.forget",
 ] as const;
 export type MachineCallOp = (typeof MACHINE_CALL_OPS)[number];
 

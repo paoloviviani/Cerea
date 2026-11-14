@@ -628,11 +628,11 @@ store that outlives the chat.
   facts. Deleting happens on the tab.
 - If your deployment has switched memory off, the tab and the notes are not there.
 
-### Coding agents have their own notes
+### Coding agents
 
-Coding agents (the **Agents** area) never read or write your memory, a
-project's memory or a chat's notes. They keep their own, per session and per
-workspace; see [Notes an agent keeps](code-panel.md#notes-an-agent-keeps).
+Coding agents (the **Agents** area) have no Cerea memory tools: they never read
+or write your memory, a project's memory or a chat's notes. Project context for
+agents is planned (ADR 0118).
 
 ### Memory and speed
 

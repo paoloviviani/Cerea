@@ -25,7 +25,6 @@ import { getOwnedDevice, listDevices, requireCodeAgents } from "$lib/server/code
 import { deleteCodeDeviceAttachments } from "$lib/server/codeAttachments";
 import { disableSchedulesForDevice } from "$lib/server/code/scheduleAgentExecutor";
 import { logger } from "$lib/server/logger";
-import { deleteAgentDeviceNotes } from "$lib/server/memory/service";
 
 export const GET: RequestHandler = async ({ locals }) => {
 	await requireCodeAgents(locals);
@@ -113,12 +112,6 @@ export const DELETE: RequestHandler = async ({ locals, url }) => {
 	void deleteCodeDeviceAttachments(objectId.toHexString()).catch((err) =>
 		logger.error({ err, deviceId: id.data }, "failed to delete a revoked device's attachments")
 	);
-	// Its agents' notes (session and workspace) go with it, for the same reason.
-	if (locals.user) {
-		void deleteAgentDeviceNotes(locals.user._id, id.data).catch((err) =>
-			logger.error({ err, deviceId: id.data }, "failed to delete a revoked device's agent notes")
-		);
-	}
 	// A schedule pointed at it would only fail at its next run: switch it off now.
 	void disableSchedulesForDevice(locals.user?._id, id.data).catch((err) =>
 		logger.error({ err, deviceId: id.data }, "failed to switch off a revoked device's schedules")

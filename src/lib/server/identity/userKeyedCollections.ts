@@ -620,15 +620,6 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		erase: (_userId, ctx) => eraseByConversation(collections.conversationMemories, ctx),
 	},
 	{
-		name: "agentMemories",
-		owner: "userId (the paired computer's owner)",
-		mergeRule: "reassign",
-		eraseRule: "by-owner",
-		ownerField: "userId",
-		merge: (stray, target) => reassignSimple(collections.agentMemories, "userId", stray, target),
-		erase: (userId) => eraseByField(collections.agentMemories, "userId", userId),
-	},
-	{
 		name: "mcpConnectors",
 		owner: "userId",
 		mergeRule: "reassign",

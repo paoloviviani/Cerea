@@ -413,10 +413,10 @@ Full reference: [docs/dev/schedules.md](docs/dev/schedules.md).
 ### Memory: scopes, notes and the prompt cache
 
 One `Scope` abstraction (`src/lib/server/memory/service.ts`) serves personal,
-project, **chat** (`conversationMemories`) and **agent** (`agentMemories`) notes.
+project and **chat** (`conversationMemories`) notes.
 `remember`/`forget` take `scope: conversation | project | global`; global needs the
-user's words. Agents get only `session` and `workspace` through the `memory` machine
-call, and are refused every chat scope server-side. **Prompt-cache rule:** nothing
+user's words. Agents have no Cerea memory tools; project context for agents is planned
+(ADR 0118). **Prompt-cache rule:** nothing
 that changes mid-chat may sit before the newest user message: personal and project
 memory are a per-chat snapshot in the system prompt, and chat notes plus later
 writes go in the tail (`memory/tail.ts`, `injectConversationNotes`).

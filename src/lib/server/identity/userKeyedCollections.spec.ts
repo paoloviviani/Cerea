@@ -30,7 +30,6 @@ const ALL_COLLECTIONS: Record<string, boolean> = {
 	memories: true,
 	projectMemories: true, // authored by a user; erased with the owning project
 	conversationMemories: true, // a chat's own notes; erased with the chat (by conversation)
-	agentMemories: true, // notes an agent keeps per session or workspace; owner-keyed, erased with the owner
 	projectDocuments: true, // added by a user; erased (rows and stored files) with the owning project
 	projectAgentProfiles: true, // one user's default coding-agent target per project; merged by owner, erased with the owner and with the owning project
 	vectorStores: true,

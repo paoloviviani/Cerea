@@ -19,14 +19,13 @@
 	import * as s from "$lib/components/overlay/styles";
 	import IconCode from "~icons/carbon/code";
 	import IconTaskComplete from "~icons/carbon/task-complete";
-	import IconNotes from "~icons/lucide/notebook-pen";
 	import IconFolder from "~icons/carbon/folder";
 	import IconTerminal from "~icons/carbon/terminal";
 	import IconDiff from "~icons/lucide/diff";
 	import IconPanels from "~icons/lucide/panel-right";
 	import type { CodeTurnState } from "$lib/types/CodeAgent";
 
-	export type PaneId = "tasks" | "notes" | "diff" | "files" | "terminal";
+	export type PaneId = "tasks" | "diff" | "files" | "terminal";
 	export interface PaneItem {
 		id: PaneId;
 		/** The word in the sheet ("Tasks"). */
@@ -104,7 +103,6 @@
 	}
 	const ICONS = {
 		tasks: IconTaskComplete,
-		notes: IconNotes,
 		diff: IconDiff,
 		files: IconFolder,
 		terminal: IconTerminal,

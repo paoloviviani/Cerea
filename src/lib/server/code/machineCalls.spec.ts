@@ -175,10 +175,8 @@ afterEach(async () => {
 });
 
 describe("the link", () => {
-	it("advertises schedule, connector, browser and memory calls in the welcome", () => {
-		expect(machine.features).toEqual({
-			machineCalls: ["schedule", "connector", "browser", "memory"],
-		});
+	it("advertises schedule, connector and browser calls in the welcome", () => {
+		expect(machine.features).toEqual({ machineCalls: ["schedule", "connector", "browser"] });
 	});
 
 	it("keeps the scheduleTools capability from the hello", async () => {

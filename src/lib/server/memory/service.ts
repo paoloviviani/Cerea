@@ -26,14 +26,9 @@ import {
 } from "$lib/types/Memory";
 import type { ProjectMemory, ProjectMemoryView } from "$lib/types/ProjectMemory";
 import {
-	AGENT_MEMORY_BLOCK_MAX_CHARS,
-	AGENT_MEMORY_MAX_NOTES,
-	AGENT_MEMORY_TEXT_MAX_CHARS,
 	CONVERSATION_MEMORY_BLOCK_MAX_CHARS,
 	CONVERSATION_MEMORY_MAX_NOTES,
 	CONVERSATION_MEMORY_TEXT_MAX_CHARS,
-	type AgentMemory,
-	type AgentMemoryScope,
 	type ConversationMemory,
 } from "$lib/types/ScopedMemory";
 import type { User } from "$lib/types/User";
@@ -160,37 +155,6 @@ function conversationScope(conversationId: ObjectId, ownerUserId?: User["_id"]):
 		plural: "notes",
 		where: "this chat's notes",
 		afterRemove: () => invalidateConversationBlocks(conversationId),
-	};
-}
-
-/**
- * An agent's session or workspace list. The filter names the owner, the
- * computer and the scope together, so a key that exists on another computer or
- * under another user is simply not in the list: there is no way to ask for it.
- */
-function agentScope(options: {
-	userId: User["_id"];
-	deviceId: string;
-	scope: AgentMemoryScope;
-	key: string;
-}): Scope {
-	const where = {
-		userId: options.userId,
-		deviceId: options.deviceId,
-		scope: options.scope,
-		key: options.key,
-	};
-	return {
-		filter: where,
-		stamp: where,
-		collection: collections.agentMemories as unknown as Collection<Row>,
-		textMaxChars: AGENT_MEMORY_TEXT_MAX_CHARS,
-		maxItems: AGENT_MEMORY_MAX_NOTES,
-		blockMaxChars: AGENT_MEMORY_BLOCK_MAX_CHARS,
-		noun: "note",
-		store: options.scope === "session" ? "This session's notes" : "This workspace's notes",
-		plural: "notes",
-		where: options.scope === "session" ? "this session's notes" : "this workspace's notes",
 	};
 }
 
@@ -818,92 +782,4 @@ export async function conversationMemoryContext(
 		logger.warn({ err: String(err) }, "conversation_memory_context_degraded: answering without it");
 		return undefined;
 	}
-}
-
-// ---------------------------------------------------------------------------
-// Agent notes (galopin's memory tools)
-//
-// Only the machine-call handler and the code panel's routes call these, each
-// having resolved the device to its owner first. They never touch the three
-// chat scopes, and nothing on the chat's path touches them: separate
-// collection, separate functions. The key is a session or a workspace id from
-// that one computer.
-// ---------------------------------------------------------------------------
-
-export interface AgentNoteKey {
-	userId: User["_id"];
-	deviceId: string;
-	scope: AgentMemoryScope;
-	key: string;
-}
-
-export async function listAgentNotes(key: AgentNoteKey): Promise<AgentMemory[]> {
-	return (await listRows(agentScope(key))) as AgentMemory[];
-}
-
-export async function agentNoteViews(key: AgentNoteKey) {
-	return (await listRows(agentScope(key))).map(viewOf);
-}
-
-export async function rememberAgentNote(
-	key: AgentNoteKey,
-	options: { text: string; source: AgentMemory["source"] }
-): Promise<{ memory: AgentMemory; created: boolean }> {
-	const { row, created } = await rememberIn(agentScope(key), options);
-	return { memory: row as AgentMemory, created };
-}
-
-export async function updateAgentNote(
-	key: AgentNoteKey,
-	id: ObjectId,
-	rawText: string
-): Promise<AgentMemory> {
-	return (await updateIn(agentScope(key), id, rawText)) as AgentMemory;
-}
-
-export async function deleteAgentNote(key: AgentNoteKey, id: ObjectId): Promise<boolean> {
-	return deleteIn(agentScope(key), id);
-}
-
-export async function forgetAgentNote(key: AgentNoteKey, text: string): Promise<AgentMemory> {
-	return (await forgetIn(agentScope(key), text)) as AgentMemory;
-}
-
-/** A session's notes go with it. */
-export async function deleteAgentSessionNotes(
-	userId: User["_id"],
-	deviceId: string,
-	sessionId: string
-): Promise<number> {
-	const { deletedCount } = await collections.agentMemories.deleteMany({
-		userId,
-		deviceId,
-		scope: "session",
-		key: sessionId,
-	});
-	return deletedCount;
-}
-
-/** A workspace's notes go when the workspace is removed. */
-export async function deleteAgentWorkspaceNotes(
-	userId: User["_id"],
-	deviceId: string,
-	workspaceId: string
-): Promise<number> {
-	const { deletedCount } = await collections.agentMemories.deleteMany({
-		userId,
-		deviceId,
-		scope: "workspace",
-		key: workspaceId,
-	});
-	return deletedCount;
-}
-
-/** Every note of a computer that is no longer paired. */
-export async function deleteAgentDeviceNotes(
-	userId: User["_id"],
-	deviceId: string
-): Promise<number> {
-	const { deletedCount } = await collections.agentMemories.deleteMany({ userId, deviceId });
-	return deletedCount;
 }
