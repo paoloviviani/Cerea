@@ -37,6 +37,7 @@ vi.mock("$lib/server/code/machineAuth", () => ({
 vi.mock("$lib/server/codeRunLimit", () => ({ codeRunTimeoutMs: () => 60000 }));
 vi.mock("$lib/server/codeExecution/backend", () => ({
 	executionBackend: () => ({ kind: "browser" }),
+	serverExecutionConfigured: () => false,
 }));
 
 import { GET } from "./+server";
