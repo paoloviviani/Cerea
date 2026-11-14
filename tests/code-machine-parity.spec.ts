@@ -714,7 +714,11 @@ test.describe("owned machine agent: parity", () => {
 		await expect(
 			page.locator('[data-message-role="assistant"]').getByText("Child done.").first()
 		).toBeVisible({ timeout: 60_000 });
-		expect(existsSync(join(m.workspace, "child.txt"))).toBe(true);
+		// The child runs in the background, so its file lands a moment after the parent's
+		// view shows text: poll for it.
+		await expect
+			.poll(() => existsSync(join(m.workspace, "child.txt")), { timeout: 30_000 })
+			.toBe(true);
 	});
 
 	test("sidebar: a subagent is nested under its parent, and its wait shows on both rows", async ({

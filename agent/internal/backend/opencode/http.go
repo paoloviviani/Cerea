@@ -535,7 +535,15 @@ func (b *Backend) ReplyPermission(ctx context.Context, workspaceDir string, sess
 	if message != "" {
 		body["message"] = message
 	}
-	err := b.doJSON(ctx, http.MethodPost, "/api/session/"+url.PathEscape(sessionID)+"/permission/"+url.PathEscape(requestID)+"/reply", body, nil)
+	// The request is answered through the route of the session it was raised in,
+	// which for a subagent's ask is the child, not the root the card sits under.
+	owner := b.asm.sessionOfAsk(requestID, sessionID)
+	err := b.doJSON(ctx, http.MethodPost, "/api/session/"+url.PathEscape(owner)+"/permission/"+url.PathEscape(requestID)+"/reply", body, nil)
+	if err == nil {
+		b.asm.mu.Lock()
+		delete(b.asm.askSession, requestID)
+		b.asm.mu.Unlock()
+	}
 	if err != nil && strings.Contains(err.Error(), "status 404") && strings.Contains(err.Error(), "PermissionNotFoundError") {
 		// opencode no longer holds the ask: something else answered it (the
 		// machine's own auto-answer for a subagent its root allows, another

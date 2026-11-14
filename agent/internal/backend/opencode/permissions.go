@@ -597,6 +597,11 @@ func (b *Backend) PendingAsks(ctx context.Context) ([]backend.PermissionRequest,
 			vp := v1Permission(m)
 			b.enrichAsk(ctx, vp)
 			req := permissionFromMap(vp)
+			if req.ID != "" && req.SessionID != "" {
+				b.asm.mu.Lock()
+				b.asm.askSession[req.ID] = req.SessionID
+				b.asm.mu.Unlock()
+			}
 			if req.ID == "" || seen[req.ID] {
 				continue
 			}

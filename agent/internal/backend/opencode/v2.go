@@ -493,6 +493,9 @@ type asmState struct {
 	synthetic map[string][]string
 	// tools: the 1.x tool name of each in-flight call, keyed message:call.
 	tools map[string]string
+	// askSession: the session each pending permission request belongs to (2.x
+	// answers a request through ITS session's route; a card may name the root).
+	askSession map[string]string
 	// inputs: the arguments of each call (a permission ask for a shell call
 	// carries only its split subcommands; the whole command line is here).
 	inputs map[string]map[string]any
@@ -518,7 +521,7 @@ type inboxItem struct {
 
 func newAsmState() *asmState {
 	return &asmState{
-		inbox: map[string]inboxItem{}, synthetic: map[string][]string{}, tools: map[string]string{}, inputs: map[string]map[string]any{},
+		inbox: map[string]inboxItem{}, synthetic: map[string][]string{}, tools: map[string]string{}, inputs: map[string]map[string]any{}, askSession: map[string]string{},
 		dirs: map[string]string{}, started: map[string]map[string]any{},
 	}
 }
@@ -747,6 +750,9 @@ func (st *asmState) adapt(typ string, created float64, d map[string]any) []frame
 		})}
 
 	case "permission.asked":
+		st.mu.Lock()
+		st.askSession[getStr(d, "id")] = sid
+		st.mu.Unlock()
 		p := v1Permission(d)
 		if src := getMap(d, "source"); src != nil {
 			st.mu.Lock()
@@ -865,4 +871,14 @@ func addAskMetadata(p map[string]any, in map[string]any) {
 		md["filepath"] = path
 	}
 	p["metadata"] = md
+}
+
+// sessionOfAsk is the session a permission request was raised in, or fallback.
+func (st *asmState) sessionOfAsk(requestID, fallback string) string {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if sid := st.askSession[requestID]; sid != "" {
+		return sid
+	}
+	return fallback
 }

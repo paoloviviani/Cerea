@@ -73,6 +73,9 @@ type Server struct {
 	// background notification that bypassed the session's model shows up
 	// here).
 	requestModels []string
+	// requestHeaders is, per entry of requests, the request's headers (one value each, names
+	// lower-cased): which headers a client sends (a session id, say) is a fact only the mock sees.
+	requestHeaders []map[string]string
 	// tools is the tool descriptions (name -> description) of the most recent
 	// chat-completion request: what the model was told it can call, which only
 	// the mock can see (the task tool's list of agent types is in its description).
@@ -117,6 +120,25 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		s.mu.Unlock()
 		writeJSON(w, map[string]any{"requests": out})
+	case r.URL.Path == "/__control/request-headers":
+		s.mu.Lock()
+		type entry struct {
+			Model   string            `json:"model"`
+			Prompts []string          `json:"prompts"`
+			Headers map[string]string `json:"headers"`
+		}
+		out := make([]entry, len(s.requests))
+		for i := range s.requests {
+			out[i] = entry{Prompts: s.requests[i]}
+			if i < len(s.requestModels) {
+				out[i].Model = s.requestModels[i]
+			}
+			if i < len(s.requestHeaders) {
+				out[i].Headers = s.requestHeaders[i]
+			}
+		}
+		s.mu.Unlock()
+		writeJSON(w, map[string]any{"requests": out})
 	case r.URL.Path == "/__control/tools":
 		s.mu.Lock()
 		out := s.tools
@@ -130,6 +152,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.requests = nil
 		s.requestTools = nil
 		s.requestModels = nil
+		s.requestHeaders = nil
 		s.mu.Unlock()
 		writeJSON(w, map[string]bool{"ok": true})
 	case r.URL.Path == "/__control/health":
@@ -232,6 +255,13 @@ func (s *Server) complete(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	s.requests = append(s.requests, prompts)
 	s.requestModels = append(s.requestModels, req.Model)
+	hdr := map[string]string{}
+	for k, v := range r.Header {
+		if len(v) > 0 {
+			hdr[strings.ToLower(k)] = v[0]
+		}
+	}
+	s.requestHeaders = append(s.requestHeaders, hdr)
 	names := []string{}
 	for _, t := range req.Tools {
 		names = append(names, t.Function.Name)

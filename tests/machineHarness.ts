@@ -288,6 +288,8 @@ export async function startMachine(input: {
 			},
 			allowFreeModels: policy.allowFreeModels ?? false,
 			workspaceRoots: policy.workspaceRoots ?? [],
+			// a fresh enroll allows background subagents, and opencode 2 has only that kind
+			backgroundSubagents: "allowed",
 			...(policy.terminal ? { terminal: policy.terminal } : {}),
 			...(policy.maxTerminals ? { maxTerminals: policy.maxTerminals } : {}),
 			...(policy.fileWrite ? { fileWrite: policy.fileWrite } : {}),

@@ -78,3 +78,14 @@ func TestModeReminderIsNotThePersonsText(t *testing.T) {
 		t.Errorf("parts = %v", parts)
 	}
 }
+
+func TestAnAskIsAnsweredThroughItsOwnSession(t *testing.T) {
+	st := newAsmState()
+	st.adapt("permission.asked", 1, map[string]any{"id": "per_1", "sessionID": "ses_child", "action": "shell", "resources": []any{"ls"}})
+	if got := st.sessionOfAsk("per_1", "ses_root"); got != "ses_child" {
+		t.Errorf("answered through %q, want the child that raised it", got)
+	}
+	if got := st.sessionOfAsk("per_unknown", "ses_root"); got != "ses_root" {
+		t.Errorf("an unknown request falls back to the caller's session, got %q", got)
+	}
+}
