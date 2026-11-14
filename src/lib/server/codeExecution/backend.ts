@@ -179,6 +179,15 @@ export function executionBackend(): ExecutionBackend {
 	return browserBackend;
 }
 
+/**
+ * Whether this deployment is set to run the model's `execute_code` on the server sandbox. It reads
+ * the setting, not the moment's health: a short manager outage (when calls fall back to the
+ * browser) should not make settings that only apply to the browser runner appear and disappear.
+ */
+export function serverExecutionConfigured(): boolean {
+	return parseExecutionSetting(config.CHAT_CODE_EXECUTION) === "server";
+}
+
 /** Logged at boot so a misconfiguration shows once at start, not on someone's first turn. */
 export function logExecutionBackendAtBoot(): void {
 	const backend = executionBackend();

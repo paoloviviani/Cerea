@@ -67,6 +67,12 @@ export interface FeatureFlags {
 	 */
 	pyodidePyPiInstallAllowed: boolean;
 	/**
+	 * Whether the deployment runs the model's `execute_code` in the server sandbox
+	 * (`CHAT_CODE_EXECUTION=server`). The sandbox has no network and no package installs, so
+	 * the PyPI setting is hidden then.
+	 */
+	modelCodeOnServer: boolean;
+	/**
 	 * Seconds one sandbox code run may take before the browser stops it and
 	 * restarts the sandbox (`CHAT_CODE_RUN_TIMEOUT_SECONDS`; default 60, hard
 	 * ceiling 300).
