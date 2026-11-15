@@ -35,6 +35,16 @@ export interface PastedAttachments {
 }
 
 /**
+ * The chip's name: "Pasted Content", with a `.json` extension when the text
+ * starts like JSON (its first non-space character), which the sandbox file
+ * takes its extension from.
+ */
+function pastedFileName(text: string): string {
+	const first = text.trimStart()[0];
+	return first === "{" || first === "[" ? "Pasted Content.json" : "Pasted Content";
+}
+
+/**
  * What one paste adds to the composer: a long text paste becomes a
  * clipboard chip, and pasted files are kept when the allowlist admits them
  * (wildcards included) and silently dropped otherwise.
@@ -49,7 +59,9 @@ export function pastedAttachments(
 	if (!options.directPaste && textContent && textContent.length >= LONG_PASTE_CHARS) {
 		result.preventDefault = true;
 		result.longText = true;
-		result.files.push(new File([textContent], "Pasted Content", { type: CLIPBOARD_MIME }));
+		result.files.push(
+			new File([textContent], pastedFileName(textContent), { type: CLIPBOARD_MIME })
+		);
 	}
 
 	if (!clipboard) return result;

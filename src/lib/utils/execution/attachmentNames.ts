@@ -18,7 +18,7 @@ export const MAX_ATTACHMENT_FILE_BYTES = 30 * 1024 * 1024;
 /** A conversation mounts at most this much in total (originals plus text). */
 export const MAX_ATTACHMENTS_TOTAL_BYTES = 100 * 1024 * 1024;
 
-/** Pasted text is inlined into the prompt and has no bytes to mount. */
+/** Pasted text: mounted as a text file, so code can read what is too large to inline. */
 const CLIPBOARD_MIME = "application/vnd.chatui.clipboard";
 
 /** The worker clips a mount name to this many characters (safeMountName). */
@@ -81,6 +81,15 @@ function allocate(used: Set<string>, wanted: string): string {
 }
 
 /**
+ * A paste's file name: `pasted-<n>.txt`, or `.json` when the composer named it
+ * so (it does when the text starts like JSON). `n` counts the conversation's
+ * pastes in order.
+ */
+function pastedName(name: string, n: number): string {
+	return `pasted-${n}${name.toLowerCase().endsWith(".json") ? ".json" : ".txt"}`;
+}
+
+/**
  * Plan the mount of every attachment in a conversation, given its files in
  * message order. Files carry their original name; one that the sandbox cannot
  * hold as written is cleaned the way the worker would clean it, and a name
@@ -88,15 +97,16 @@ function allocate(used: Set<string>, wanted: string): string {
  * beside its file as `<name>.md`.
  *
  * The same file attached twice (same stored hash, or the same inline bytes)
- * is one mount; a different file with a name already taken is suffixed. Pasted text
- * and page images of scanned PDFs (never top-level files) are not planned.
+ * is one mount; a different file with a name already taken is suffixed. A paste is a
+ * text file named `pasted-<n>`; page images of scanned PDFs (never top-level files)
+ * are not planned.
  */
 export function planAttachments(files: readonly AttachmentSource[]): PlannedAttachment[] {
 	const used = new Set<string>();
 	const seen = new Map<string, PlannedAttachment | undefined>();
 	const plan: PlannedAttachment[] = [];
+	let pastes = 0;
 	for (const file of files) {
-		if (file.mime === CLIPBOARD_MIME) continue;
 		if (file.withheld) continue;
 		// The same content attached again is one mount under its first name; a
 		// different file with the same name gets the next free " (n)" name below.
@@ -108,7 +118,12 @@ export function planAttachments(files: readonly AttachmentSource[]): PlannedAtta
 			}
 			continue;
 		}
-		const name = allocate(used, safeMountName(file.name) ?? "attachment");
+		const isPaste = file.mime === CLIPBOARD_MIME;
+		if (isPaste) pastes += 1;
+		const name = allocate(
+			used,
+			isPaste ? pastedName(file.name, pastes) : (safeMountName(file.name) ?? "attachment")
+		);
 		let textName: string | undefined;
 		if (file.extracted) {
 			const wanted =
@@ -140,10 +155,22 @@ export function mountNamesByHash(
 	files: readonly AttachmentSource[],
 	sizes?: ReadonlyMap<string, number>
 ): Map<string, string> {
-	const names = new Map<string, string>();
+	return new Map([...mountPlanByHash(files, sizes)].map(([hash, mount]) => [hash, mount.name]));
+}
+
+/**
+ * `mountNamesByHash` with the extracted text's name too, when that text is
+ * mounted beside the original (`<name>.md`).
+ */
+export function mountPlanByHash(
+	files: readonly AttachmentSource[],
+	sizes?: ReadonlyMap<string, number>
+): Map<string, { name: string; textName?: string }> {
+	const names = new Map<string, { name: string; textName?: string }>();
 	let mounted = 0;
 	for (const planned of planAttachments(files)) {
 		if (planned.file.type !== "hash") continue;
+		let textName: string | undefined;
 		if (sizes) {
 			const size = sizes.get(planned.file.value);
 			if (size === undefined || checkAttachmentCaps(mounted, size) !== "ok") continue;
@@ -152,9 +179,12 @@ export function mountNamesByHash(
 			const textSize = textHash ? sizes.get(textHash) : undefined;
 			if (textSize !== undefined && checkAttachmentCaps(mounted, textSize) === "ok") {
 				mounted += textSize;
+				textName = planned.textName;
 			}
+		} else {
+			textName = planned.textName;
 		}
-		names.set(planned.file.value, planned.name);
+		names.set(planned.file.value, { name: planned.name, ...(textName ? { textName } : {}) });
 	}
 	return names;
 }

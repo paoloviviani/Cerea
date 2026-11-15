@@ -197,7 +197,8 @@ async function* textGenerationWithoutTitle(
 		messages,
 		convId,
 		modelReadsImages(ctx.model, ctx.forceMultimodal),
-		conv.messages
+		conv.messages,
+		ctx.model.contextLength
 	);
 
 	let mcpProducedOutput = false;

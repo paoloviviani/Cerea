@@ -58,6 +58,7 @@ import { ARTIFACT_TOOL_NAME } from "../builtinTools/artifactTool";
 import { artifactsEnabledForTurn, artifactsModeForTurn, type ArtifactsMode } from "../artifacts";
 import { extractArtifactDraft } from "./artifactDraft";
 import { EXECUTE_CODE_TOOL_NAME } from "../builtinTools/executeCodeTool";
+import { DELEGATE_TOOL_NAME } from "../builtinTools/delegateTool";
 import { resolveWebSearchFor } from "$lib/server/webSearch/config";
 import {
 	MAX_RECOVERED_EXECUTE_CODE_CALLS,
@@ -759,6 +760,7 @@ export async function* runMcpFlow({
 				maxOutputTokens: maxTokens,
 				timezone: userTimezone,
 				codeToolOffered: oaTools.some((tool) => tool.function.name === EXECUTE_CODE_TOOL_NAME),
+				delegateToolOffered: oaTools.some((tool) => tool.function.name === DELEGATE_TOOL_NAME),
 			}
 		);
 		const toolPreprompt = buildToolPreprompt(oaTools, userTimezone, builtinTools, {

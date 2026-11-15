@@ -117,6 +117,17 @@ export type MessageFile = {
 	 */
 	mountName?: string;
 	/**
+	 * Set with `mountName` on a document: the name of its extracted text beside
+	 * it (`<name>.md`), when that text is mounted too.
+	 */
+	mountTextName?: string;
+	/**
+	 * Set only on the per-turn copy, like `mountName`: the text is too large to
+	 * inline, so the prompt carries a sample and a pointer instead
+	 * (`textGeneration/utils/largeContent.ts`).
+	 */
+	largeAsFile?: boolean;
+	/**
 	 * For an attached document — a PDF, a `.docx` — the text the gateway's
 	 * extractor read out of it, stored as its own GridFS entry and named here
 	 * by hash.

@@ -4,7 +4,7 @@ import { attachmentMountNotice } from "$lib/utils/execution/attachmentNames";
 import type { MessageFile } from "$lib/types/Message";
 import type { EndpointMessage } from "$lib/server/endpoints/endpoints";
 import type { OpenAI } from "openai";
-import { TEXT_MIME_ALLOWLIST } from "$lib/constants/mime";
+import { CLIPBOARD_MIME, isTextFile, largeContentBlock } from "./largeContent";
 import { stripThink } from "$lib/utils/stripThink";
 import { isExternalToolName, markUntrustedResult } from "../untrusted";
 import { stripLoneSurrogates } from "./loneSurrogates";
@@ -439,6 +439,8 @@ export async function prepareMessagesWithFiles(
 		 * Without code there is no sandbox to point at, so the line is left out.
 		 */
 		codeToolOffered?: boolean;
+		/** The delegate tool is offered this turn: a chunked read can use sub-agents. */
+		delegateToolOffered?: boolean;
 	}
 ): Promise<OpenAI.Chat.Completions.ChatCompletionMessageParam[]> {
 	type ReplayCandidate = { replay: AssistantReplayMessage[]; flat: ChatMessageParam };
@@ -459,7 +461,8 @@ export async function prepareMessagesWithFiles(
 					imageProcessor,
 					message.files,
 					isMultimodal,
-					options?.codeToolOffered === true
+					options?.codeToolOffered === true,
+					options?.delegateToolOffered === true
 				);
 
 				let messageText = message.content;
@@ -591,22 +594,14 @@ async function prepareFiles(
 	imageProcessor: ReturnType<typeof makeImageProcessor>,
 	files: MessageFile[],
 	isMultimodal: boolean,
-	codeToolOffered: boolean
+	codeToolOffered: boolean,
+	delegateToolOffered = false
 ): Promise<{
 	imageParts: OpenAI.Chat.Completions.ChatCompletionContentPartImage[];
 	textContent: string;
 }> {
 	const imageFiles = files.filter((file) => file.mime.startsWith("image/"));
-	const textFiles = files.filter((file) => {
-		const mime = (file.mime || "").toLowerCase();
-		const [fileType, fileSubtype] = mime.split("/");
-		return TEXT_MIME_ALLOWLIST.some((allowed) => {
-			const [type, subtype] = allowed.toLowerCase().split("/");
-			const typeOk = type === "*" || type === fileType;
-			const subOk = subtype === "*" || subtype === fileSubtype;
-			return typeOk && subOk;
-		});
-	});
+	const textFiles = files.filter(isTextFile);
 
 	let imageParts: OpenAI.Chat.Completions.ChatCompletionContentPartImage[] = [];
 	if (isMultimodal && imageFiles.length > 0) {
@@ -625,6 +620,17 @@ async function prepareFiles(
 		const textParts = await Promise.all(
 			textFiles.map(async (file) => {
 				const content = Buffer.from(file.value, "base64").toString("utf-8");
+				if (file.largeAsFile) {
+					return largeContentBlock({
+						name: file.mountName ?? file.name,
+						mime: file.mime === CLIPBOARD_MIME ? "text/plain" : file.mime,
+						text: content,
+						mountName: file.mountName,
+						mountTextName: file.mountTextName,
+						codeToolOffered,
+						delegateToolOffered,
+					});
+				}
 				const where =
 					codeToolOffered && file.mountName ? `${attachmentMountNotice(file.mountName)}\n` : "";
 				return `<document name="${file.name}" type="${file.mime}">\n${where}${content}\n</document>`;

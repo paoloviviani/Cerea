@@ -5,7 +5,12 @@ import { documentMime, isExtractableDocument } from "../files/extractDocument";
 import { missingTextNotice, withheldNotice } from "../files/missingTextNotice";
 import { scanNotice, wordScanMarkers } from "../files/scanNotice";
 import { isAudioFile, labelledTranscript, missingTranscriptNotice } from "../files/audioAttachment";
-import { mountNamesByHash } from "$lib/utils/execution/attachmentNames";
+import { mountPlanByHash } from "$lib/utils/execution/attachmentNames";
+import {
+	isTextFile,
+	largeContentThresholdChars,
+	pickLargest,
+} from "../textGeneration/utils/largeContent";
 import type { ObjectId } from "mongodb";
 
 export async function preprocessMessages(
@@ -18,12 +23,15 @@ export async function preprocessMessages(
 	 * attachment is mounted in the sandbox is decided over all of them
 	 * (`planAttachments`), the same list the browser mounts from.
 	 */
-	conversationMessages: Message[] = messages
+	conversationMessages: Message[] = messages,
+	/** The turn's model window in tokens, when known: what "too large to inline" is judged against. */
+	contextLengthTokens?: number
 ): Promise<EndpointMessage[]> {
 	return Promise.resolve(messages)
 		.then(async (msgs) =>
 			downloadFiles(msgs, convId, canReadImages, await mountNamesFor(conversationMessages, convId))
 		)
+		.then((msgs) => markLargeContent(msgs, largeContentThresholdChars(contextLengthTokens)))
 		.then((msgs) => injectClipboardFiles(msgs))
 		.then(stripEmptyInitialSystemMessage);
 }
@@ -33,12 +41,15 @@ export async function preprocessMessages(
  * ones the browser will actually mount: the stored sizes decide, against the
  * same caps the mounter applies.
  */
-async function mountNamesFor(messages: Message[], convId: ObjectId): Promise<Map<string, string>> {
+async function mountNamesFor(
+	messages: Message[],
+	convId: ObjectId
+): Promise<Map<string, { name: string; textName?: string }>> {
 	const files = messages.flatMap((message) => message.files ?? []);
 	const hashes = files.flatMap((file) =>
 		file.type === "hash" ? [file.value, ...(file.extracted ? [file.extracted.value] : [])] : []
 	);
-	return mountNamesByHash(files, await storedSizes([...new Set(hashes)], convId));
+	return mountPlanByHash(files, await storedSizes([...new Set(hashes)], convId));
 }
 
 /**
@@ -157,7 +168,7 @@ async function downloadFiles(
 	messages: Message[],
 	convId: ObjectId,
 	canReadImages: boolean,
-	mountNames: Map<string, string>
+	mountNames: Map<string, { name: string; textName?: string }>
 ): Promise<EndpointMessage[]> {
 	return Promise.all(
 		messages.map<Promise<EndpointMessage>>((message) =>
@@ -166,9 +177,16 @@ async function downloadFiles(
 					const resolved = await resolveFile(file, convId, canReadImages);
 					// The text the model reads is first; whether it is told where the
 					// original lives is decided later, by whether code is on offer.
-					const mountName = file.type === "hash" ? mountNames.get(file.value) : undefined;
-					return mountName && resolved.length > 0
-						? [{ ...resolved[0], mountName }, ...resolved.slice(1)]
+					const mount = file.type === "hash" ? mountNames.get(file.value) : undefined;
+					return mount && resolved.length > 0
+						? [
+								{
+									...resolved[0],
+									mountName: mount.name,
+									...(mount.textName ? { mountTextName: mount.textName } : {}),
+								},
+								...resolved.slice(1),
+							]
 						: resolved;
 				})
 			).then((files) => ({ ...message, files: files.flat() }))
@@ -176,11 +194,43 @@ async function downloadFiles(
 	);
 }
 
+/**
+ * In each message, the text contents (attachments, extracted documents, pastes)
+ * that together pass the threshold: the largest are marked `largeAsFile`, and
+ * `prepareFiles` gives the model a sample and the sandbox path instead of the
+ * whole text. Earlier turns are judged the same way, each by its own content.
+ */
+function markLargeContent(messages: EndpointMessage[], thresholdChars: number): EndpointMessage[] {
+	return messages.map((message) => {
+		if (message.from !== "user" || !message.files?.length) return message;
+		const texts = message.files.flatMap((file, index) =>
+			isTextFile(file) ? [{ index, length: textLength(file.value) }] : []
+		);
+		const picked = pickLargest(
+			texts.map((text) => text.length),
+			thresholdChars
+		);
+		if (picked.size === 0) return message;
+		const large = new Set([...picked].map((at) => texts[at].index));
+		return {
+			...message,
+			files: message.files.map((file, index) =>
+				large.has(index) ? { ...file, largeAsFile: true } : file
+			),
+		};
+	});
+}
+
+/** Characters in a base64 text, without decoding the whole of it twice over. */
+function textLength(base64: string): number {
+	return Buffer.from(base64, "base64").toString("utf-8").length;
+}
+
 async function injectClipboardFiles(messages: EndpointMessage[]) {
 	return Promise.all(
 		messages.map((message) => {
 			const plaintextFiles = message.files
-				?.filter((file) => file.mime === "application/vnd.chatui.clipboard")
+				?.filter((file) => file.mime === "application/vnd.chatui.clipboard" && !file.largeAsFile)
 				.map((file) => Buffer.from(file.value, "base64").toString("utf-8"));
 
 			if (!plaintextFiles || plaintextFiles.length === 0) return message;
@@ -188,7 +238,9 @@ async function injectClipboardFiles(messages: EndpointMessage[]) {
 			return {
 				...message,
 				content: `${plaintextFiles.join("\n\n")}\n\n${message.content}`,
-				files: message.files?.filter((file) => file.mime !== "application/vnd.chatui.clipboard"),
+				files: message.files?.filter(
+					(file) => file.mime !== "application/vnd.chatui.clipboard" || file.largeAsFile
+				),
 			};
 		})
 	);
