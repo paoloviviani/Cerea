@@ -95,7 +95,7 @@ describe("attachmentsToStage", () => {
 		state.messages = [msg([file("a.csv", "h1"), file("huge.bin", "h2"), file("gone.csv", "h3")])];
 		state.sizes = new Map([
 			["h1", 1],
-			["h2", 21 * 1024 * 1024],
+			["h2", 31 * 1024 * 1024],
 		]);
 		expect((await attachmentsToStage(id)).map((s) => s.name)).toEqual(["a.csv"]);
 	});
