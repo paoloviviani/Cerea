@@ -38,6 +38,14 @@ export interface Conversation extends Timestamps {
 	 */
 	lastActivityAt?: Date;
 
+	/**
+	 * When the owner archived the chat (hidden from the sidebar, the chats list
+	 * and project lists, shown under /chats?tab=archived). Null or absent when
+	 * not archived. Cleared by Unarchive and by sending a message in the chat.
+	 * Archiving a project chat also clears `projectId`.
+	 */
+	archivedAt?: Date | null;
+
 	title: string;
 	/**
 	 * Where `title` came from. `fallback`: the model could not name the chat

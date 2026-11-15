@@ -89,6 +89,30 @@ describe.sequential("GET /api/v2/conversations?q=&content=1", () => {
 		}
 	);
 
+	it(
+		"searches message text of live chats on Chats and of archived ones on Archived",
+		{
+			timeout: 30000,
+		},
+		async () => {
+			const { locals } = await createTestUser();
+			await createTestConversation(locals, {
+				title: "Live",
+				messages: [msg("m1", "user", "the kestrel sighting")],
+			});
+			await createTestConversation(locals, {
+				title: "Old",
+				archivedAt: new Date(),
+				messages: [msg("m2", "user", "another kestrel note")],
+			});
+
+			const live = await search(locals, "kestrel", withContent);
+			expect(live.conversations.map((c) => c.title)).toEqual(["Live"]);
+			const archived = await search(locals, "kestrel", { ...withContent, archived: "1" });
+			expect(archived.conversations.map((c) => c.title)).toEqual(["Old"]);
+		}
+	);
+
 	it("never returns another user's conversations", { timeout: 30000 }, async () => {
 		const { locals } = await createTestUser();
 		const { locals: other } = await createTestUser();

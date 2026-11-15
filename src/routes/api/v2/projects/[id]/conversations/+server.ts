@@ -19,7 +19,8 @@ export const GET: RequestHandler = async ({ locals, params }) => {
 	const access = await projectAccess(params.id as string, locals.user._id, principals);
 	if (!access) error(404, "No such project.");
 
-	const own = { projectId: access.project._id, userId: locals.user._id };
+	// Archived chats are in no project; the filter keeps one moved in by hand out of sight too.
+	const own = { projectId: access.project._id, userId: locals.user._id, archivedAt: null };
 	const [conversations, totalCount] = await Promise.all([
 		collections.conversations
 			.find(own)

@@ -3,6 +3,7 @@ import { page as browserPage } from "@vitest/browser/context";
 import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
 import NavConversationItem from "./NavConversationItem.svelte";
 import { ACTIVE_GENERATIONS_CONTEXT_KEY } from "$lib/stores/activeGenerations.svelte";
+import { CONVERSATIONS_CONTEXT_KEY, newConversationsStore } from "$lib/stores/conversations.svelte";
 
 const context = new Map<unknown, unknown>([[ACTIVE_GENERATIONS_CONTEXT_KEY, { has: () => false }]]);
 const conv = { id: "c1", title: "Weekly notes", updatedAt: new Date() };
@@ -62,6 +63,35 @@ describe("NavConversationItem Regenerate title", () => {
 		const screen = await openMenu({});
 		await expect.element(screen.getByRole("menuitem", { name: "Rename" })).toBeVisible();
 		expect(screen.getByRole("menuitem", { name: "Regenerate title" }).elements()).toHaveLength(0);
+	});
+});
+
+describe("NavConversationItem Archive", () => {
+	it("is in the menu, archives at once and takes the chat out of the sidebar's list", async () => {
+		const calls: { url: string; body: string }[] = [];
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+				calls.push({ url: String(input), body: String(init?.body) });
+				return new Response(JSON.stringify({ json: { success: true, leftProject: false } }));
+			})
+		);
+		const store = newConversationsStore();
+		store.init([conv]);
+		const screen = renderWithApp(NavConversationItem, { conv } as never, {
+			page: { params: { id: "other" }, data: {} },
+			context: new Map<unknown, unknown>([
+				[ACTIVE_GENERATIONS_CONTEXT_KEY, { has: () => false }],
+				[CONVERSATIONS_CONTEXT_KEY, store],
+			]),
+		});
+		await screen.getByRole("button", { name: "Chat actions" }).click();
+		await screen.getByRole("menuitem", { name: "Archive" }).click();
+		await vi.waitFor(() => expect(calls).toHaveLength(1));
+		expect(calls[0].url).toMatch(/\/api\/v2\/conversations\/c1$/);
+		expect(JSON.parse(calls[0].body)).toEqual({ archived: true });
+		await vi.waitFor(() => expect(store.list).toHaveLength(0));
+		vi.unstubAllGlobals();
 	});
 });
 

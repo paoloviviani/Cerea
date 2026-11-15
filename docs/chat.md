@@ -117,6 +117,8 @@ hour's silence, that message reaches the model with a short prefix such as
 up a week later does not read as one sitting. The prefix is added for the model
 only: it is never saved and never shown in the transcript.
 
+**Archiving.** To tidy your lists without deleting a chat, open its `⋯` menu (in the sidebar, or on a row of the **Chats** page) and choose **Archive**. It takes effect at once: the chat leaves the sidebar's Chats and Recent lists, the **Chats** page and any project list, and nothing is deleted. Archived chats are under **Chats → Archived** (`/chats?tab=archived`), newest archived first, with the same search and paging as the Chats tab; each row has **Unarchive** and **Delete**. Search on the Chats tab leaves archived chats out, and search on the Archived tab looks only in them. An archived chat still opens from its address, and sending a message in it unarchives it. Archiving is for your own chats only, in a shared project too. **Archiving a chat that is in a project takes it out of the project**, the way **Remove from project** does (its files, knowledge and memory stay as that does), and **Unarchive does not put it back**: it returns as a normal chat, and you can move it into a project again. Archived chats still count toward retention and appear in your export (as `archivedAt`). Their artifacts stay in the **Artifacts** tab, and a schedule that targets an archived chat keeps running (and posting to the chat does not unarchive it).
+
 **Deleting.** Deleting a chat removes everything it stored: attachments
 and the text read from them, code-run files, its indexed transcript, and
 anything a long-retired version copied for sharing it. **Delete all

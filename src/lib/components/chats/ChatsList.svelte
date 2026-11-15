@@ -20,7 +20,7 @@
 -->
 <script lang="ts">
 	import { m } from "$lib/paraglide/messages";
-	import { onMount, tick } from "svelte";
+	import { onMount, tick, untrack } from "svelte";
 	import { base } from "$app/paths";
 	import { page } from "$app/state";
 	import { handleResponse, useAPIClient } from "$lib/APIClient";
@@ -32,6 +32,7 @@
 	import ChatSnippet from "./ChatSnippet.svelte";
 	import ArtifactsList from "$lib/components/artifacts/ArtifactsList.svelte";
 	import LucideShapes from "~icons/lucide/shapes";
+	import LucideArchive from "~icons/lucide/archive";
 	import InfiniteScroll from "$lib/components/InfiniteScroll.svelte";
 	import * as s from "$lib/components/overlay/styles";
 	import IconAddLarge from "~icons/carbon/add-large";
@@ -43,6 +44,7 @@
 	import MoveToProjectModal from "$lib/components/MoveToProjectModal.svelte";
 	import DeleteConversationModal from "$lib/components/DeleteConversationModal.svelte";
 	import { useMoveConversation } from "$lib/utils/useMoveConversation";
+	import { useArchiveConversation } from "$lib/utils/useArchiveConversation";
 	import { useConversationsStore } from "$lib/stores/conversations.svelte";
 	import { useNotificationsStore } from "$lib/stores/notifications.svelte";
 	import { projectsChanged } from "$lib/stores/projectsRevision";
@@ -61,6 +63,7 @@
 
 	const client = useAPIClient();
 	const moveConversation = useMoveConversation();
+	const archiver = useArchiveConversation();
 	const convsStore = useConversationsStore();
 	const toasts = useNotificationsStore();
 	let moving = $state<ChatRow | null>(null);
@@ -72,6 +75,20 @@
 			String(entry.id) === String(row.id) ? { ...entry, projectId: to?.id } : entry
 		);
 		if (to) projectNames = { ...projectNames, [to.id]: to.name };
+	}
+
+	/** Archive the row's chat: it leaves this list at once. */
+	async function archiveChat(row: ChatRow) {
+		if (await archiver.archive(String(row.id))) {
+			rows = rows.filter((entry) => String(entry.id) !== String(row.id));
+		}
+	}
+
+	/** Unarchive the row's chat: it leaves the Archived tab and rejoins the sidebar. */
+	async function unarchiveChat(row: ChatRow) {
+		if (await archiver.unarchive(String(row.id))) {
+			rows = rows.filter((entry) => String(entry.id) !== String(row.id));
+		}
 	}
 
 	/**
@@ -126,13 +143,19 @@
 	/**
 	 * The tab and the address are one thing, as on the project page:
 	 * `?tab=artifacts` shows the artifacts of the chats that are in no
-	 * project; anything else is the list of chats.
+	 * project (those of archived chats included); `?tab=archived` lists the
+	 * archived chats; anything else is the list of chats.
 	 */
 	const TABS = [
 		{ key: "chats", label: m["chat.list.tab.chats"] },
 		{ key: "artifacts", label: m["chat.list.tab.artifacts"] },
+		{ key: "archived", label: m["chat.list.tab.archived"] },
 	] as const;
-	const tab = $derived(page.url.searchParams.get("tab") === "artifacts" ? "artifacts" : "chats");
+	const tab = $derived(
+		(["artifacts", "archived"] as const).find((key) => page.url.searchParams.get("tab") === key) ??
+			"chats"
+	);
+	const archivedTab = $derived(tab === "archived");
 
 	const searching = $derived(query.trim() !== "");
 
@@ -149,6 +172,7 @@
 				.get({
 					query: {
 						p: asked,
+						...(archivedTab ? { archived: 1 } : {}),
 						...(query.trim() ? { q: query.trim() } : {}),
 						...(query.trim() && withContent ? { content: 1 } : {}),
 					},
@@ -206,6 +230,23 @@
 		searchEl?.focus();
 	}
 
+	// Chats and Archived share the list and the search box; switching between
+	// them starts a fresh, empty search (the first run is `onMount`'s).
+	let listedTab = untrack(() => tab);
+	$effect(() => {
+		const current = tab;
+		// The Artifacts tab keeps the list as it was: coming back is not a change.
+		if (current === "artifacts" || current === listedTab) return;
+		listedTab = current;
+		clearTimeout(debounce);
+		clearTimeout(idle);
+		input = "";
+		query = "";
+		withContent = false;
+		rows = [];
+		void load(true);
+	});
+
 	onMount(() => {
 		searchEl?.focus();
 		void load(true);
@@ -255,7 +296,9 @@
 <div class="mx-auto flex h-full min-h-0 w-full max-w-4xl flex-col gap-4 p-4 sm:p-6">
 	<header>
 		<h1 class="text-xl font-semibold text-ink">{m["chat.list.title"]()}</h1>
-		<p class={s.SUBTITLE}>{m["chat.list.subtitle"]()}</p>
+		<p class={s.SUBTITLE}>
+			{archivedTab ? m["chat.list.archived_subtitle"]() : m["chat.list.subtitle"]()}
+		</p>
 	</header>
 
 	<nav
@@ -273,6 +316,8 @@
 			>
 				{#if t.key === "chats"}
 					<IconChat class="size-3.5 sm:size-4" />
+				{:else if t.key === "archived"}
+					<LucideArchive class="size-3.5 sm:size-4" />
 				{:else}
 					<LucideShapes class="size-3.5 sm:size-4" />
 				{/if}
@@ -294,7 +339,9 @@
 					</div>
 					<div>
 						<p class={s.STRIP_HEADLINE}>
-							{#if searching}{m["chat.list.matching"]({ query: query.trim() })}{:else}{m[
+							{#if searching}{m["chat.list.matching"]({
+									query: query.trim(),
+								})}{:else if archivedTab}{m["chat.list.archived"]()}{:else}{m[
 									"chat.list.all"
 								]()}{/if}
 						</p>
@@ -303,6 +350,8 @@
 								{m["chat.list.loading"]()}
 							{:else if searching}
 								{m["chat.list.count_found"]({ count: rows.length, more: hasMore ? "+" : "" })}
+							{:else if archivedTab}
+								{m["chat.list.archived_count"]({ count: rows.length, more: hasMore ? "+" : "" })}
 							{:else}
 								{m["chat.list.count"]({ count: rows.length, more: hasMore ? "+" : "" })}
 							{/if}
@@ -409,8 +458,10 @@
 							<div class="absolute top-2 right-2">
 								<MoveMenu
 									label={row.title}
-									onmove={() => (moving = row)}
-									onremove={row.projectId
+									onarchive={archivedTab ? undefined : () => void archiveChat(row)}
+									onunarchive={archivedTab ? () => void unarchiveChat(row) : undefined}
+									onmove={archivedTab ? undefined : () => (moving = row)}
+									onremove={row.projectId && !archivedTab
 										? () =>
 												moveConversation(
 													{
@@ -446,6 +497,9 @@
 						<button type="button" onclick={clear} class={s.SECONDARY}
 							>{m["chat.list.show_all"]()}</button
 						>
+					{:else if archivedTab}
+						<p class={s.EMPTY_TITLE}>{m["chat.list.archived_empty"]()}</p>
+						<p class={s.EMPTY_DETAIL}>{m["chat.list.archived_empty_detail"]()}</p>
 					{:else}
 						<p class={s.EMPTY_TITLE}>{m["chat.list.empty"]()}</p>
 						<p class={s.EMPTY_DETAIL}>{m["chat.list.empty_detail"]()}</p>

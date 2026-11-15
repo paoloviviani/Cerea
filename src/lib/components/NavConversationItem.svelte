@@ -11,6 +11,7 @@
 	import LucideEllipsis from "~icons/lucide/ellipsis";
 	import LucideRefreshCw from "~icons/lucide/refresh-cw";
 	import LucideFolderInput from "~icons/lucide/folder-input";
+	import LucideArchive from "~icons/lucide/archive";
 	import CarbonTime from "~icons/carbon/time";
 	import type { ConvSidebar } from "$lib/types/ConvSidebar";
 
@@ -19,9 +20,11 @@
 	import MoveToProjectModal from "$lib/components/MoveToProjectModal.svelte";
 	import { CHAT_DRAG_TYPE, chatDrag } from "$lib/stores/chatDrag.svelte";
 	import { requireAuthUser } from "$lib/utils/auth";
+	import { useArchiveConversation } from "$lib/utils/useArchiveConversation";
 	import { useActiveGenerationsStore } from "$lib/stores/activeGenerations.svelte";
 
 	const activeGenerations = useActiveGenerationsStore();
+	const archiver = useArchiveConversation();
 
 	interface Props {
 		conv: ConvSidebar;
@@ -234,6 +237,17 @@
 						>
 							<LucideFolderInput class="size-4 opacity-90 dark:opacity-80" />
 							{m["app.nav_item.move"]()}
+						</DropdownMenu.Item>
+						<DropdownMenu.Item
+							class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10"
+							onSelect={() => {
+								if (!target) captureTarget();
+								if (target) void archiver.archive(target.id);
+							}}
+							data-testid="conv-archive"
+						>
+							<LucideArchive class="size-4 opacity-90 dark:opacity-80" />
+							{m["chat.archive.archive"]()}
 						</DropdownMenu.Item>
 						<DropdownMenu.Item
 							class="flex h-9 items-center gap-2 rounded-md px-2 text-sm text-red-500 select-none focus-visible:outline-hidden data-highlighted:bg-red-50 data-highlighted:text-red-600 sm:h-8 dark:text-red-400 dark:data-highlighted:bg-red-500/10 dark:data-highlighted:text-red-400"

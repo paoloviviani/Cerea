@@ -1,8 +1,8 @@
 <!--
 	The `⋯` on a chat row outside the sidebar (the Chats list, a project's
 	chats): "Move to project…", "Remove from project" where the chat is in one
-	and the caller may take it out, and "Delete" where the caller may delete
-	the chat. Always drawn, for the same reason the sidebar's own `⋯` is on
+	and the caller may take it out, and "Archive" and "Unarchive" where the caller owns the chat, and "Delete" where
+	the caller may delete the chat. Always drawn, for the same reason the sidebar's own `⋯` is on
 	touch screens: there is no hover there.
 -->
 <script lang="ts">
@@ -11,6 +11,8 @@
 	import LucideEllipsis from "~icons/lucide/ellipsis";
 	import LucideFolderInput from "~icons/lucide/folder-input";
 	import LucideFolderMinus from "~icons/lucide/folder-minus";
+	import LucideArchive from "~icons/lucide/archive";
+	import LucideArchiveRestore from "~icons/lucide/archive-restore";
 	import CarbonTrashCan from "~icons/carbon/trash-can";
 
 	interface Props {
@@ -20,11 +22,15 @@
 		onmove?: () => void;
 		/** Given, "Remove from project" is offered and calls this. */
 		onremove?: () => void;
+		/** Given, "Archive" is offered and calls this. It takes effect at once. */
+		onarchive?: () => void;
+		/** Given, "Unarchive" is offered and calls this (the Archived tab's rows). */
+		onunarchive?: () => void;
 		/** Given, "Delete" is offered and calls this. The caller confirms. */
 		ondelete?: () => void;
 	}
 
-	let { label, onmove, onremove, ondelete }: Props = $props();
+	let { label, onmove, onremove, onarchive, onunarchive, ondelete }: Props = $props();
 
 	const ITEM =
 		"flex h-9 items-center gap-2 rounded-md px-2 text-sm text-gray-700 select-none focus-visible:outline-hidden data-highlighted:bg-gray-100 sm:h-8 dark:text-gray-200 dark:data-highlighted:bg-white/10";
@@ -60,6 +66,18 @@
 				<DropdownMenu.Item class={ITEM} onSelect={onremove}>
 					<LucideFolderMinus class="size-4 opacity-90 dark:opacity-80" />
 					{m["app.move_menu.remove"]()}
+				</DropdownMenu.Item>
+			{/if}
+			{#if onarchive}
+				<DropdownMenu.Item class={ITEM} onSelect={onarchive} data-testid="menu-archive">
+					<LucideArchive class="size-4 opacity-90 dark:opacity-80" />
+					{m["chat.archive.archive"]()}
+				</DropdownMenu.Item>
+			{/if}
+			{#if onunarchive}
+				<DropdownMenu.Item class={ITEM} onSelect={onunarchive} data-testid="menu-unarchive">
+					<LucideArchiveRestore class="size-4 opacity-90 dark:opacity-80" />
+					{m["chat.archive.unarchive"]()}
 				</DropdownMenu.Item>
 			{/if}
 			{#if ondelete}
