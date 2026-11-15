@@ -183,17 +183,22 @@ test.describe("the terminal on a real machine", () => {
 		const jump = page.getByRole("button", { name: "Scroll to bottom" });
 		await expect(jump).toHaveCount(0);
 
-		// The viewport change reflows the pane (and the sheet it opens in): measure the
-		// screen once its box has stopped moving, not on the tick after the resize.
+		// Below the breakpoint the terminal opens in a sheet: a new terminal view that connects
+		// and replays the session's scrollback ("reset" plus prelude) some time after it mounts.
+		// A swipe sent before the replay lands scrolls an empty buffer, and the replay then ends
+		// at the bottom, so wait for the scrollback to be there, then for the box to stop moving.
 		const screen = page.locator(".xterm-screen");
+		await expect(term).toContainText("400", { timeout: 15_000 });
 		let box = await screen.boundingBox();
+		let steady = 0;
 		await expect(async () => {
 			const next = await screen.boundingBox();
 			const same =
 				!!box && !!next && next.x === box.x && next.y === box.y && next.height === box.height;
 			box = next;
-			expect(same).toBe(true);
-		}).toPass({ timeout: 10_000 });
+			steady = same ? steady + 1 : 0;
+			expect(steady).toBeGreaterThanOrEqual(5);
+		}).toPass({ timeout: 10_000, intervals: [100] });
 		if (!box) throw new Error("no terminal screen");
 		const x = box.x + box.width / 2;
 		const touch = (type: "touchStart" | "touchMove" | "touchEnd", y: number) =>
