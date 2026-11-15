@@ -5,11 +5,26 @@ import (
 	"encoding/json"
 )
 
-// MaxMessageBytes is the largest message that crosses the link (PROTOCOL.md
-// §10.3, the 1 MiB frame cap). A transport reads up to maxReadBytes so that a
-// message over the cap can still be recognised and answered.
+// marshalRaw is json.Marshal without HTML escaping. A message passes through
+// galopin as raw JSON; the default encoder would write every <, > and & of a
+// page as a six-byte \u003c, which makes a message bigger than the server sent
+// and can push it over MaxMessageBytes.
+func marshalRaw(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimRight(buf.Bytes(), "\n"), nil
+}
+
+// MaxMessageBytes is the largest MCP message that crosses the link (PROTOCOL.md
+// §10.3, 8 MiB: inside the link's frame limit, which is 160 MiB). A transport
+// reads up to maxReadBytes so that a message over the cap can still be
+// recognised and answered.
 const (
-	MaxMessageBytes = 1 << 20
+	MaxMessageBytes = 8 << 20
 	maxReadBytes    = 16 << 20
 )
 

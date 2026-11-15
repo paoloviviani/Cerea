@@ -257,15 +257,52 @@ func TestMessageForAnUnknownChannelIsAnsweredWithClosed(t *testing.T) {
 	r.hub.Close("ch_nope") // no panic, no frame
 }
 
-func TestOversizeResponseIsAnsweredWithAnError(t *testing.T) {
+func TestMessageCapIsEightMiB(t *testing.T) {
+	if MaxMessageBytes != 8<<20 {
+		t.Fatalf("MaxMessageBytes = %d", MaxMessageBytes)
+	}
+}
+
+// A tool result over the cap is answered as a tool error (isError), not as a
+// JSON-RPC error, so a client treats it as the tool's failure and the run goes on.
+func TestOversizeToolResultIsAnsweredWithAToolError(t *testing.T) {
 	r := newRig(t, fakeConfig("big", ""), nil)
 	ch := r.open("fake")
 	resp := r.call(ch, 1, "tools/call", `{"name":"read_file"}`)
-	if !strings.Contains(string(resp["error"]), "too large") {
-		t.Errorf("response = %v", resp)
+	if len(resp["error"]) != 0 {
+		t.Errorf("a JSON-RPC error: %s", resp["error"])
+	}
+	if !strings.Contains(string(resp["result"]), `"isError":true`) || !strings.Contains(string(resp["result"]), "too large") {
+		t.Errorf("response = %s", resp["result"])
 	}
 	// And the channel still works.
 	r.call(ch, 2, "ping", `{}`)
+}
+
+// A kept server's responses are re-encoded to give them their client ids. That
+// must not HTML-escape the page: 3 MiB of '<' is under the cap as the server
+// sent it, and would be 18 MiB as \u003c.
+func TestKeptServerResultIsNotGrownByEscaping(t *testing.T) {
+	r := newRig(t, fakeConfig("html", ""), keepTweak(0, time.Minute))
+	ch := r.open("fake")
+	r.hub.Message(ch, []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"read_file"}}`))
+	f := r.next()
+	if !strings.Contains(string(f.message), `"result"`) || strings.Contains(string(f.message), "too large") {
+		t.Fatalf("the result did not cross: %.200s", f.message)
+	}
+	if strings.Contains(string(f.message), `\u003c`) {
+		t.Error("the message was HTML-escaped")
+	}
+	if !strings.Contains(string(f.message), `"id":1`) {
+		t.Errorf("id lost: %.200s", f.message)
+	}
+}
+
+func TestMarshalRawDoesNotEscapeHTML(t *testing.T) {
+	b, err := marshalRaw(map[string]any{"t": "<a href=\"x?a=1&b=2\">"})
+	if err != nil || strings.Contains(string(b), `\u00`) || strings.HasSuffix(string(b), "\n") {
+		t.Errorf("%s %v", b, err)
+	}
 }
 
 func TestOversizeRequestFromCereaIsAnsweredWithAnError(t *testing.T) {

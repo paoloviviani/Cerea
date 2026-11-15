@@ -1,4 +1,4 @@
-// cerea-browser runtime 0.1.0; source-hash: a22361b33e1a5490aa13fb6c44cd6bea87c0d945f753ff790cf5bba5589aa25e
+// cerea-browser runtime 0.1.0; source-hash: c030b82bbe226893ba7f56a8f8bef8d56ec539bb8a37a1d23de8ad8579d0fc10
 // inlined: @hono/node-server@2.1.8 @modelcontextprotocol/sdk@1.32.2 ajv@8.20.0 ajv-formats@3.0.1 content-type@1.0.5 fast-deep-equal@3.1.3 fast-uri@3.1.9 hono@4.13.18 json-schema-traverse@1.0.0 tldts@7.4.26 zod@3.25.76 zod-to-json-schema@3.25.2
 import { createRequire as __cr } from "node:module";
 const require = __cr(import.meta.url);
@@ -21480,9 +21480,9 @@ function safeFileName(name) {
 }
 
 // src/budget.ts
-var RESULT_LIMIT = 9e5;
-var WIRE_BUDGET = 7e5;
-var DOWNLOAD_WIRE_BUDGET = 88e4;
+var RESULT_LIMIT = 75e5;
+var WIRE_BUDGET = 6e6;
+var DOWNLOAD_WIRE_BUDGET = 74e5;
 var SCREENSHOT_LIMIT = 7e5;
 var bytesOf = (value) => Buffer.byteLength(JSON.stringify(value));
 var wire = (value) => bytesOf({ content: [{ type: "text", text: JSON.stringify(value) }], structuredContent: value });

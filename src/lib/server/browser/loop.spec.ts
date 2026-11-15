@@ -726,6 +726,24 @@ describe("runBrowseLoop: failures", () => {
 		expect(result.result).toContain("crashed, or the computer went offline");
 	});
 
+	it("an oversize result is an error the model reads and works around, not a stop", async () => {
+		const { deps, runtime, model } = setup({
+			script: [
+				callTurn("extract", { mode: "tables" }),
+				callTurn("extract", { mode: "tables" }),
+				answerTurn("Used a smaller read."),
+			],
+		});
+		runtime.failNext.extract = new BrowserRuntimeError(
+			"The result of extract was too large to cross the link to that computer. Scroll to the part you need.",
+			"tool"
+		);
+		const result = await runBrowseLoop({ goal: "read the table" }, deps);
+		expect(result.stopped_reason).toBeUndefined();
+		expect(result.result).toBe("Used a smaller read.");
+		expect(toolTexts(model.requests[1].messages).join("\n")).toContain("too large to cross");
+	});
+
 	it("stops when the browser disappears mid-task, keeping what it knew", async () => {
 		const { deps, runtime } = setup({
 			script: [callTurn("act", { actions: [{ type: "click", ref: "e3" }] }), answerTurn("never")],
