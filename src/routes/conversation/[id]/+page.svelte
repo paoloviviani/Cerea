@@ -247,8 +247,10 @@
 			activeGenerationId = v4();
 			const base64Files = await Promise.all(
 				(files ?? []).map((file) =>
-					// Audio travels as binary form data: base64 would add a third, and
-					// a 25 MB recording would no longer fit the request.
+					// Every file travels as binary form data: base64 would add a third, and
+					// a 30 MB file would be copied as a 40 MB string on each side. Audio
+					// carries no base64 at all; the rest keep it only for the message on
+					// screen (its preview and download before the page reloads).
 					isAudioAttachmentMime(file.type)
 						? Promise.resolve({
 								type: "base64" as const,
@@ -262,6 +264,7 @@
 								value,
 								mime: file.type,
 								name: file.name,
+								binary: file,
 							}))
 				)
 			);

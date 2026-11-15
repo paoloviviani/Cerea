@@ -1,9 +1,12 @@
 import { error } from "@sveltejs/kit";
+import { MAX_ATTACHMENT_BYTES } from "$lib/constants/mime";
 import { logger } from "$lib/server/logger.js";
 import { contentFetch, isValidUrl } from "$lib/server/urlSafety";
 import { configuredBackend, fetchPage } from "$lib/server/fetching";
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+// The attachment limit: this endpoint fetches a URL into the composer as an attachment.
+const MAX_FILE_SIZE = MAX_ATTACHMENT_BYTES;
+const MAX_FILE_MB = MAX_ATTACHMENT_BYTES / 1024 / 1024;
 const FETCH_TIMEOUT = 30000; // 30 seconds
 const MAX_REDIRECTS = 5;
 const SECURITY_HEADERS: HeadersInit = {
@@ -87,7 +90,7 @@ export async function GET({ url }) {
 	// Check content length if available
 	const contentLength = response.headers.get("content-length");
 	if (contentLength && parseInt(contentLength) > MAX_FILE_SIZE) {
-		throw error(413, "File too large (max 10MB)");
+		throw error(413, `File too large (max ${MAX_FILE_MB}MB)`);
 	}
 
 	// Stream the response back
@@ -136,7 +139,7 @@ export async function GET({ url }) {
 	const arrayBuffer = await response.arrayBuffer();
 
 	if (arrayBuffer.byteLength > MAX_FILE_SIZE) {
-		throw error(413, "File too large (max 10MB)");
+		throw error(413, `File too large (max ${MAX_FILE_MB}MB)`);
 	}
 
 	return new Response(arrayBuffer, { headers });

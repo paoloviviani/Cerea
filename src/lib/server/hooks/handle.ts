@@ -84,12 +84,13 @@ const INTERNAL_SERVICE_ROUTES = new Set(["/internal/erasure", "/internal/erasure
  * handled below, not listed.
  */
 /**
- * What a request body may weigh. The server's `BODY_SIZE_LIMIT` is 40 MB so a
- * 25 MB recording (binary multipart) fits, but only the routes that take
- * audio need that: every other upload route (agent attachments, project
- * documents, skills, code-execution outputs, the gateway proxy, JSON) keeps
- * the old 15 MB. A request without a Content-Length is left to
- * `BODY_SIZE_LIMIT`, which stops it at 40 MB.
+ * What a request body may weigh. The server's `BODY_SIZE_LIMIT` is 100 MB so a
+ * 30 MB attachment (binary multipart, plus its overhead) fits with room for
+ * several files in one request, but only the routes that take attachments
+ * need that: the conversation POST, dictation, the /code attachment upload and
+ * a project's documents. Every other route (skills, code-execution outputs,
+ * the gateway proxy, JSON) keeps the old 15 MB. A request without a
+ * Content-Length is left to `BODY_SIZE_LIMIT`, which stops it at 100 MB.
  */
 export const DEFAULT_BODY_LIMIT_BYTES = 15 * 1024 * 1024;
 
@@ -106,10 +107,22 @@ export function bodyTooLarge(options: {
 	const base = options.base ?? "";
 	const rest = options.pathname.startsWith(base) ? options.pathname.slice(base.length) : "";
 	const parts = rest.split("/").filter(Boolean);
-	const audioRoute =
+	const uploadRoute =
 		(options.method === "POST" && parts.length === 2 && parts[0] === "conversation") ||
-		rest === "/api/transcribe";
-	return !audioRoute;
+		rest === "/api/transcribe" ||
+		(options.method === "POST" &&
+			parts.length === 5 &&
+			parts[0] === "api" &&
+			parts[1] === "v2" &&
+			parts[2] === "code" &&
+			parts[3] === "attachments") ||
+		(options.method === "POST" &&
+			parts.length === 5 &&
+			parts[0] === "api" &&
+			parts[1] === "v2" &&
+			parts[2] === "projects" &&
+			parts[4] === "documents");
+	return !uploadRoute;
 }
 
 export const SIGNED_OUT_GET_ROUTES: ReadonlyMap<string, string> = new Map([

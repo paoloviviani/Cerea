@@ -88,7 +88,7 @@ describe("AttachmentMounter", () => {
 		expect(new TextDecoder().decode(loaded[0].data as ArrayBuffer)).toBe("a,b\n1,2\n");
 	});
 
-	it("skips a file over 20 MB by its declared size and says so", async () => {
+	it("skips a file over 30 MB by its declared size and says so", async () => {
 		const { mounter, loaded, skipped } = setup({
 			"/conversation/conv1/output/h1": new Response("x", {
 				headers: { "Content-Length": String(MAX_ATTACHMENT_FILE_BYTES + 1) },
@@ -99,7 +99,7 @@ describe("AttachmentMounter", () => {
 		expect(loaded.map((f) => f.name)).toEqual(["small.txt"]);
 		expect(skipped).toHaveLength(1);
 		expect(skipped[0].name).toBe("huge.bin");
-		expect(skipped[0].reason).toContain("20 MB");
+		expect(skipped[0].reason).toContain("30 MB");
 		// Not retried every run.
 		expect(mounter.needsSync([pdf("h1", "huge.bin"), pdf("h2", "small.txt")])).toBe(false);
 	});

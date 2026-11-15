@@ -232,7 +232,7 @@ describe("converting a file of the conversation", () => {
 		};
 		stored.attachments.set("p", Buffer.from("%PDF"));
 		stored.attachments.set("z", Buffer.from("zip"));
-		stored.attachments.set("big", Buffer.alloc(20 * 1024 * 1024 + 1));
+		stored.attachments.set("big", Buffer.alloc(30 * 1024 * 1024 + 1));
 		expect(await tool().execute({ file: "a.pdf" }, ctx())).toMatchObject({
 			error: expect.stringContaining("already a PDF"),
 		});

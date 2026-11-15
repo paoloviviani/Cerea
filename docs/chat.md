@@ -262,7 +262,7 @@ chat-only: the Agents panel ignores them.
 ## Attachments
 
 Attach a file with the composer's **+** (on a phone, it opens the file and photo picker), by dragging it onto the window, or by pasting: a long paste becomes a chip rather than flooding the box. Files are
-limited to **10 MB** each, except audio (up to **25 MB**).
+limited to **30 MB** each, except audio (up to **25 MB**).
 
 - **Images** go to a model that can see them.
 - **PDFs and Office documents** are bytes no model reads, so the gateway's

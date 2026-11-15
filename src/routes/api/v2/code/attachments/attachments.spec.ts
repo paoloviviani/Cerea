@@ -192,6 +192,17 @@ describe("limits", () => {
 		);
 	});
 
+	it("takes a 29 MB file and refuses a 31 MB one", async () => {
+		const device = await pairedDevice(alice);
+		const key = `code:${device}:s`;
+		const mb = 1024 * 1024;
+		const file = (size: number) =>
+			new File([Buffer.alloc(size * mb, "a")], "notes.txt", { type: "text/plain" });
+		expect(await status(upload(uploadEvent(alice, key, formWith("m", file(31)))))).toBe(413);
+		const [stored] = await uploadOk(alice, key, formWith("m", file(29)));
+		expect(stored.name).toBe("notes.txt");
+	});
+
 	it("refuses a type outside the allowlist, a missing message id, and an empty upload", async () => {
 		const device = await pairedDevice(alice);
 		const key = `code:${device}:s`;

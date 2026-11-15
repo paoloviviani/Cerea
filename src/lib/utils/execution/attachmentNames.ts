@@ -13,7 +13,7 @@ import { MOUNT_ROOT, safeMountName } from "./protocol";
  */
 
 /** One attachment is never mounted above this size; it is skipped and noted. */
-export const MAX_ATTACHMENT_FILE_BYTES = 20 * 1024 * 1024;
+export const MAX_ATTACHMENT_FILE_BYTES = 30 * 1024 * 1024;
 
 /** A conversation mounts at most this much in total (originals plus text). */
 export const MAX_ATTACHMENTS_TOTAL_BYTES = 100 * 1024 * 1024;

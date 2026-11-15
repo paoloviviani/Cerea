@@ -291,7 +291,7 @@ export async function POST({ request, locals, params, getClientAddress }) {
 
 	// check sizes
 	// todo: make configurable
-	// 10 MB for every type but audio, which may be what the gateway transcribes (25 MB).
+	// 30 MB for every type but audio, which may be what the gateway transcribes (25 MB).
 	for (const file of b64Files) {
 		const refusal = attachmentSizeRefusal(file);
 		if (refusal) error(413, refusal);

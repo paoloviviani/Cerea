@@ -196,13 +196,13 @@ describe("/api/v2/projects/[id]/documents", () => {
 		expect(extractMock).not.toHaveBeenCalled();
 	});
 
-	it("refuses a file over 10 MB, and a project over its document count", async () => {
+	it("refuses a file over 30 MB, and a project over its document count", async () => {
 		const { ownerLocals, projectId } = await setup();
 		const big = await upload(
 			projectId,
 			ownerLocals,
 			"big.txt",
-			new Uint8Array(10 * 1024 * 1024 + 1)
+			new Uint8Array(30 * 1024 * 1024 + 1)
 		);
 		expect(big.status).toBe(413);
 		const now = new Date();

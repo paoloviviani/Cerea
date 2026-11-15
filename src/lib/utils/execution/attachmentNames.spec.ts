@@ -113,8 +113,8 @@ describe("mount names under the caps", () => {
 	it("leaves out what the mounter would skip, and counts in its order", () => {
 		const ids = ["a", "b", "c", "d", "e", "f"];
 		const files = [hash("big", "big.bin"), ...ids.map((id) => hash(id, `${id}.bin`))];
-		const sizes = new Map([["big", 21 * mb], ...ids.map((id) => [id, 20 * mb] as const)]);
-		// big: over 20 MB per file. Then five 20 MB files fill 100 MB; the sixth is over.
+		const sizes = new Map([["big", 31 * mb], ...ids.map((id) => [id, 20 * mb] as const)]);
+		// big: over 30 MB per file. Then five 20 MB files fill 100 MB; the sixth is over.
 		expect([...mountNamesByHash(files, sizes).values()]).toEqual([
 			"a.bin",
 			"b.bin",
@@ -134,7 +134,7 @@ describe("mount names under the caps", () => {
 });
 
 describe("attachment caps", () => {
-	it("takes a file up to 20 MB and refuses one over", () => {
+	it("takes a file up to 30 MB and refuses one over", () => {
 		expect(checkAttachmentCaps(0, MAX_ATTACHMENT_FILE_BYTES)).toBe("ok");
 		expect(checkAttachmentCaps(0, MAX_ATTACHMENT_FILE_BYTES + 1)).toBe("file");
 	});
