@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { m } from "$lib/paraglide/messages";
 	import { requireAuthUser } from "$lib/utils/auth";
-	import { mimeMatchesAllowlist } from "$lib/utils/mimeMatch";
+	import { fileMatchesAllowlist } from "$lib/utils/mimeMatch";
 	import { isAudioAttachmentMime, maxAttachmentBytesFor } from "$lib/constants/mime";
 	import CarbonImage from "~icons/carbon/image";
 
@@ -38,7 +38,7 @@
 					if (file) {
 						// check if the file matches the mimeTypes
 						// else abort
-						if (!mimeMatchesAllowlist(file.type, mimeTypes)) {
+						if (!fileMatchesAllowlist(file, mimeTypes)) {
 							setErrorMsg(
 								m["chat.dropzone.bad_type"]({ allowed: mimeTypes.join(", "), type: file.type })
 							);

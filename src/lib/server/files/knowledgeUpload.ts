@@ -27,6 +27,8 @@ const TEXT_EXTENSION_MIME: Record<string, string> = {
 	csv: "text/csv",
 	tsv: "text/tab-separated-values",
 	json: "application/json",
+	jsonl: "text/plain",
+	ndjson: "text/plain",
 	xml: "application/xml",
 	html: "text/html",
 	htm: "text/html",

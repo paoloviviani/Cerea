@@ -84,6 +84,28 @@ function fileOf(bytes: Uint8Array, name: string, type: string): File {
 const OK = { ok: true, text: "# Menu", pages: 1 };
 
 describe("uploadFile: which type decides", () => {
+	it.each(["", "application/octet-stream", "application/jsonl", "application/x-ndjson"])(
+		"a .jsonl file declared as %j is stored as text, not extracted",
+		async (declared) => {
+			const bytes = Buffer.from('{"a":1}\n{"a":2}\n');
+			const stored = await uploadFile(fileOf(bytes, "rows.jsonl", declared), conversation(), "tok");
+			expect(stored).toMatchObject({ mime: "text/plain", name: "rows.jsonl" });
+			expect(extractMock).not.toHaveBeenCalled();
+		}
+	);
+
+	it("a .ndjson file is text too, and a .bin file keeps its declared type", async () => {
+		const bytes = Buffer.from('{"a":1}\n');
+		const nd = await uploadFile(fileOf(bytes, "rows.NDJSON", ""), conversation(), "tok");
+		expect(nd.mime).toBe("text/plain");
+		const bin = await uploadFile(
+			fileOf(bytes, "rows.bin", "application/octet-stream"),
+			conversation(),
+			"tok"
+		);
+		expect(bin.mime).toBe("application/octet-stream");
+	});
+
 	it("a real .docx is sniffed as docx and extracted under that type", async () => {
 		extractMock.mockResolvedValue(OK);
 		const bytes = realDocx();
