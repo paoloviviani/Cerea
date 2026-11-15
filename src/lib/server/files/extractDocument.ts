@@ -153,13 +153,12 @@ const DIRECT_OCR_MIME_ALLOWLIST = ["application/pdf"] as const;
  * OpenWebUI avoids the question by uploading the file first, which this
  * deployment deliberately does not implement (a much bigger job: Mistral's
  * `/v1/files` plus signed URLs, not part of the shared `/ocr` shape). Chat
- * attachments are already capped at 10 MB before reaching here
- * (`routes/conversation/[id]/+server.ts`), but a knowledge-base upload allows
- * up to `MAX_UPLOAD_BYTES` (20 MB) — base64 inflates that to a ~27 MB JSON
- * body, well past what many API gateways and load balancers accept without
- * special configuration. Capping direct mode at the same 10 MB this app
- * already treats as its safe raw-attachment ceiling keeps the encoded body
- * under ~13.3 MB, comfortably inside the common range, and turns an
+ * attachments are capped at 30 MB before reaching here
+ * (`MAX_ATTACHMENT_BYTES`) and a knowledge-base upload at 20 MB —
+ * base64 inflates that to a 40 MB JSON body, well past what many API gateways
+ * and load balancers accept without special configuration. Direct mode keeps
+ * its own, lower 10 MB cap (an encoded body under ~13.3 MB, comfortably inside
+ * the common range), though attachments may be larger; this turns an
  * oversized document into this module's own actionable message instead of an
  * opaque 413 from a third party.
  */

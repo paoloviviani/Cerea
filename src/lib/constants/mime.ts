@@ -100,7 +100,7 @@ export const KNOWLEDGE_ACCEPT = [
  * (`conversation/[id]`), its drop zone, and the owner-keyed store's upload
  * route. One number, so an agent surface cannot drift from chat's limit.
  */
-export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+export const MAX_ATTACHMENT_BYTES = 30 * 1024 * 1024;
 
 /** The gateway's own cap on one transcription: what an audio attachment may be. */
 export const MAX_AUDIO_ATTACHMENT_BYTES = 25 * 1024 * 1024;
@@ -122,10 +122,10 @@ export function attachmentSizeRefusal(file: {
 	if (file.size <= maxAttachmentBytesFor(file.type)) return null;
 	return isAudioAttachmentMime(file.type)
 		? `${file.name} is ${AUDIO_TOO_LONG_TEXT}.`
-		: `${file.name} is too large: files are limited to 10 MB.`;
+		: `${file.name} is too large: files are limited to ${MAX_ATTACHMENT_BYTES / 1024 / 1024} MB.`;
 }
 
-/** The size limit of one attachment: 25 MB for audio, 10 MB for everything else. */
+/** The size limit of one attachment: 25 MB for audio (the gateway's transcription cap), 30 MB for everything else. */
 export function maxAttachmentBytesFor(mime: string): number {
 	return isAudioAttachmentMime(mime) ? MAX_AUDIO_ATTACHMENT_BYTES : MAX_ATTACHMENT_BYTES;
 }

@@ -114,7 +114,7 @@ always have in front of it: a call text, a style guide, a contract.
   dropped folder is refused, because whole documents go into every prompt and a
   folder is how a project ends up with a thousand of them. Text files (`.txt`,
   `.md`, `.csv`, `.json`…) and documents (PDF, Word, Excel, PowerPoint,
-  OpenDocument, EPUB), up to 10 MB each.
+  OpenDocument, EPUB), up to 30 MB each.
 - **Read once, at upload**, by the same reader as chat attachments, with the
   same failure reasons. A file that cannot be read **stays listed with its
   reason** and adds nothing to the prompt.

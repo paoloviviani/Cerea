@@ -70,7 +70,7 @@ under the chat, like knowledge files.
   file again, under the same names, before the next run starts. The
   assistant is told so, with the list of files. Variables and files the code
   wrote itself are lost with the restart.
-- **Size caps**: a file over 20 MB is not mounted, and once 100 MB is mounted
+- **Size caps**: a file over 30 MB is not mounted, and once 100 MB is mounted
   the rest are not. A chip says which file was left out and why, and the
   assistant is not told a path for it.
 - **Not mounted**: page images of scanned PDFs, pasted text, and anything in
@@ -122,7 +122,7 @@ version of the same artifact, not a new one.
 | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Time      | 60 seconds per run by default (operators can change it, up to 300). A longer run is stopped and the sandbox restarts; ask for the work in smaller steps, or on a sample of the data |
 | Output    | 8,000 characters per stream (stdout, stderr)                                                                                                                                        |
-| Files     | 50 MB per file loaded into a run; chat attachments 20 MB each and 100 MB together                                                                                                   |
+| Files     | 50 MB per file loaded into a run; chat attachments 30 MB each and 100 MB together                                                                                                   |
 | Memory    | the WebAssembly heap; running out raises `MemoryError`                                                                                                                              |
 | Network   | none: no `fetch`, sockets, WebSockets or storage APIs, including through `pyfetch`, `micropip` or the `js` bridge                                                                   |
 | First run | loads the runtime (about 12 MB) once; later runs start immediately                                                                                                                  |

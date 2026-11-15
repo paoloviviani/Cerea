@@ -170,9 +170,9 @@ describe("uploadFile: audio", () => {
 		expect(stored.extractionError?.kind).toBe("empty");
 	});
 
-	it("caps by what the bytes are: a 12 MB PDF declared audio/mpeg is refused", async () => {
+	it("caps by what the bytes are: a 31 MB PDF declared audio/mpeg is refused", async () => {
 		get.mockResolvedValue(models);
-		const pdf = Buffer.concat([Buffer.from("%PDF-1.4\n"), Buffer.alloc(12 * 1024 * 1024)]);
+		const pdf = Buffer.concat([Buffer.from("%PDF-1.4\n"), Buffer.alloc(31 * 1024 * 1024)]);
 		await expect(
 			uploadFile(audioFile("scan.mp3", "audio/mpeg", pdf), conversation(), "tok")
 		).rejects.toBeInstanceOf(AttachmentTooLargeError);

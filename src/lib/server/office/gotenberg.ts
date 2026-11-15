@@ -32,7 +32,7 @@ export const CONVERTER_VERSION = "gotenberg8.38-lo1";
 export const CONVERT_TIMEOUT_MS = 75_000;
 
 /** The largest source file sent for conversion; larger ones are refused up front. */
-export const MAX_SOURCE_BYTES = 20 * 1024 * 1024;
+export const MAX_SOURCE_BYTES = 30 * 1024 * 1024;
 
 /** The largest PDF read back; Gotenberg's output is otherwise unbounded. */
 export const MAX_PDF_BYTES = 64 * 1024 * 1024;

@@ -642,7 +642,7 @@ multipart/form-data: messageId=<id>, files=<File> (repeat, at most 10)
 
 The rules:
 
-- **Limits.** 10 MB per file (`MAX_ATTACHMENT_BYTES`, chat's limit), which
+- **Limits.** 30 MB per file (`MAX_ATTACHMENT_BYTES`, chat's limit), which
   answers 413. The declared type must match `AGENT_ATTACHMENT_MIME_ALLOWLIST`
   (chat's text and document lists, png/jpeg/gif/webp, and chat's long-paste
   type `application/vnd.chatui.clipboard`, which a transport should treat as

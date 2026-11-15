@@ -194,7 +194,7 @@ export interface TranscribeOptions {
 	/** `billTo` header value passthrough (the group that pays, when chosen). */
 	billHeaders?: Record<string, string>;
 	language?: string;
-	/** A cap below the gateway's: what the caller itself accepts (an attachment is 10 MB). */
+	/** A cap below the gateway's: what the caller itself accepts (an attachment is 30 MB). */
 	maxBytes?: number;
 }
 
