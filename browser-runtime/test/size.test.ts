@@ -72,7 +72,7 @@ describe("result size", () => {
 	});
 
 	it("the final guard turns any oversize result into a structured error", async () => {
-		const big = "x".repeat(1_000_000);
+		const big = "x".repeat(8_000_000);
 		const fake = {
 			serial: <T>(w: () => Promise<T>) => w(),
 			download: async () => ({ files: [{ name: "a", size: 1, base64: big }] }),
@@ -85,13 +85,31 @@ describe("result size", () => {
 		assert.match(text, /narrow the request/);
 	});
 
+	it("a page between the old 1 MiB cap and the new bound is sent whole", () => {
+		const fence = (t: string) => `<page-content untrusted="true">\n${t}</page-content>`;
+		const snap = {
+			url: "http://x/",
+			title: "t",
+			text: fence('[e1] link "y"\n'.repeat(150_000)),
+			elements: [],
+		} as never;
+		assert.ok(wire(snap) > 1 << 20, "the fixture is over the old cap");
+		const out = boundSnapshot(snap, wire) as { truncated?: boolean };
+		assert.equal(out.truncated, undefined);
+		assert.ok(wire(out) <= WIRE_BUDGET);
+		assert.ok(
+			WIRE_BUDGET < RESULT_LIMIT && RESULT_LIMIT < 8 << 20,
+			"a margin under the 8 MiB link cap"
+		);
+	});
+
 	it("boundSnapshot and boundDiff cut an oversize tree and point to scroll and extract", () => {
 		const line = '[e1] link "' + "y".repeat(200) + '"\n';
 		const fence = (t: string) => `<page-content untrusted="true">\n${t}</page-content>`;
 		const snap = {
 			url: "http://x/",
 			title: "t",
-			text: fence(line.repeat(8000)),
+			text: fence(line.repeat(40_000)),
 			elements: Array.from({ length: 2000 }, (_, i) => ({
 				ref: `e${i}`,
 				role: "link",
@@ -112,7 +130,7 @@ describe("result size", () => {
 				added: [],
 				changed: [],
 				removed: [],
-				text: line.repeat(8000),
+				text: line.repeat(40_000),
 				snapshot: snap,
 			} as never,
 			wire
@@ -156,25 +174,32 @@ describe("result size", () => {
 	});
 
 	it("a diff that cannot be cut part by part comes back as a bounded full snapshot", async () => {
-		await r.goto("/form");
-		await r.snapshot();
-		// The page changes a lot at once, past what one result can carry.
-		await r.session
-			.act([{ type: "navigate", url: `${r.fx.base}/form` }] as never, undefined)
-			.catch(() => undefined);
-		await r.snapshot();
-		const page = (
-			r.session as unknown as { livePage(): { evaluate(f: string): Promise<void> } }
-		).livePage();
-		await page.evaluate(
-			`document.body.innerHTML = Array.from({length: 4000}, (_, i) => '<p><a href="/z' + i + '">' + 'w'.repeat(300) + i + '</a></p>').join('')`
-		);
-		const res = await r.call("diff", {});
+		// The page changes more than one result can carry (the session is faked: no page is
+		// big enough for this under the model-facing text limit).
+		const added = Array.from({ length: 2000 }, (_, i) => ({
+			ref: `e${i}`,
+			role: "link",
+			name: "w".repeat(4000),
+		}));
+		const fake = {
+			serial: <T>(w: () => Promise<T>) => w(),
+			diff: async () => ({
+				url: "http://x/",
+				title: "t",
+				navigated: false,
+				added,
+				changed: [],
+				removed: [],
+				text: "",
+			}),
+			snapshot: async () => ({ url: "http://x/", title: "t", text: "page", elements: [] }),
+		};
+		const res = await createToolHandler(fake as never)("diff", {});
 		assert.notEqual(res.isError, true);
 		assert.ok(bytesOf(res) <= RESULT_LIMIT);
-		const d = res.structuredContent as { navigated: boolean; snapshot?: { truncated?: boolean } };
+		const d = res.structuredContent as { navigated: boolean; snapshot?: { text: string } };
 		assert.equal(d.navigated, true);
-		assert.equal(d.snapshot?.truncated, true);
+		assert.equal(d.snapshot?.text, "page");
 	});
 
 	it("download returns what fits, keeps the rest for the next call and lets go of what never fits", async () => {
@@ -186,9 +211,9 @@ describe("result size", () => {
 			return { name, mime: "application/octet-stream", size, path, actionIndex: 0, grantId: "g" };
 		};
 		const files = [
-			await mk("a.bin", 200_000),
-			await mk("b.bin", 200_000),
-			await mk("c.bin", 600_000),
+			await mk("a.bin", 1_500_000),
+			await mk("b.bin", 1_500_000),
+			await mk("c.bin", 4_000_000),
 		];
 		(r.session as unknown as { downloads: unknown[] }).downloads = files;
 		const res = await r.call("download", {});
@@ -220,7 +245,7 @@ describe("result size", () => {
 	it("an oversize download-shaped result gets an error that does not say to scroll", async () => {
 		const fake = {
 			serial: <T>(w: () => Promise<T>) => w(),
-			download: async () => ({ files: [{ name: "a", size: 1, base64: "x".repeat(1_000_000) }] }),
+			download: async () => ({ files: [{ name: "a", size: 1, base64: "x".repeat(8_000_000) }] }),
 		};
 		const res = await createToolHandler(fake as never)("download", {});
 		const text = (res.content[0] as { text: string }).text;
@@ -277,13 +302,13 @@ describe("result size", () => {
 		await server.close();
 	});
 
-	it("a file of 320 KB comes back whole, and one that can never fit is refused cleanly", async () => {
+	it("a file of 2.5 MB comes back whole, and one that can never fit is refused cleanly", async () => {
 		const dir = join(r.profile, "dl2");
 		await mkdir(dir, { recursive: true });
 		const path = join(dir, "big.bin");
-		await writeFile(path, Buffer.alloc(320_000, 3));
+		await writeFile(path, Buffer.alloc(2_500_000, 3));
 		(r.session as unknown as { downloads: unknown[] }).downloads = [
-			{ name: "big.bin", mime: "application/octet-stream", size: 320_000, path, actionIndex: 0 },
+			{ name: "big.bin", mime: "application/octet-stream", size: 2_500_000, path, actionIndex: 0 },
 		];
 		const res = await r.call("download", {});
 		const got = (res.structuredContent as { files: Array<{ base64?: string }> }).files;
@@ -291,12 +316,12 @@ describe("result size", () => {
 		assert.ok(got[0].base64);
 		assert.ok(bytesOf(res) <= RESULT_LIMIT);
 		const huge = join(dir, "huge.bin");
-		await writeFile(huge, Buffer.alloc(400_000, 3));
+		await writeFile(huge, Buffer.alloc(3_200_000, 3));
 		(r.session as unknown as { downloads: unknown[] }).downloads = [
 			{
 				name: "huge.bin",
 				mime: "application/octet-stream",
-				size: 400_000,
+				size: 3_200_000,
 				path: huge,
 				actionIndex: 0,
 			},

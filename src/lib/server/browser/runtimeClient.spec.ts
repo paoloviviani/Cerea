@@ -267,4 +267,24 @@ describe("McpBrowserRuntime failures", () => {
 			BrowserRuntimeError
 		);
 	});
+
+	it("a result too large for the link is the tool's failure, not the browser's", async () => {
+		const tooLarge: RuntimeCall = async () => {
+			throw new Error(
+				"MCP error -32603: message too large for the link (2000000 bytes, limit 1048576)"
+			);
+		};
+		const client = new McpBrowserRuntime(tooLarge);
+		for (const call of [() => client.snapshot(), () => client.screenshot()]) {
+			const err = await call().catch((e: unknown) => e);
+			expect(err).toBeInstanceOf(BrowserRuntimeError);
+			expect((err as BrowserRuntimeError).kind).toBe("tool");
+			expect((err as BrowserRuntimeError).message).toMatch(/too large to cross the link/);
+		}
+		const gone: RuntimeCall = async () => {
+			throw new Error("socket hang up");
+		};
+		const err = await new McpBrowserRuntime(gone).snapshot().catch((e: unknown) => e);
+		expect((err as BrowserRuntimeError).kind).toBe("unavailable");
+	});
 });

@@ -5,7 +5,8 @@
 // Tools: read_file, write_file and boom (its result is an error). MCPFAKE_MODE
 // changes its behaviour: "crash" (exit 3 on a tools/call, "kaboom" on
 // stderr), "exit-at-once" (exit 1 with an ENOENT line at start) and "big" (a
-// 2 MiB tools/call result). The text of a tools/call result ends with
+// 9 MiB tools/call result) and "html" (a 3 MiB result of '<' characters, which
+// a HTML-escaping encoder would grow six-fold). The text of a tools/call result ends with
 // $FAKE_VALUE.
 package mcpfake
 
@@ -30,8 +31,10 @@ func Run() {
 	in := bufio.NewReaderSize(os.Stdin, 1<<20)
 	out := os.Stdout
 	reply := func(id json.RawMessage, result any) {
-		b, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "result": result})
-		fmt.Fprintf(out, "%s\n", b)
+		// Like Node's JSON.stringify, which the real servers use: no HTML escaping.
+		enc := json.NewEncoder(out)
+		enc.SetEscapeHTML(false)
+		_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": id, "result": result})
 	}
 	for {
 		line, err := in.ReadBytes('\n')
@@ -65,7 +68,9 @@ func Run() {
 					fmt.Fprintln(os.Stderr, "kaboom")
 					os.Exit(3)
 				case mode == "big":
-					reply(r.ID, map[string]any{"content": []map[string]any{{"type": "text", "text": strings.Repeat("x", 2<<20)}}})
+					reply(r.ID, map[string]any{"content": []map[string]any{{"type": "text", "text": strings.Repeat("x", 9<<20)}}})
+				case mode == "html":
+					reply(r.ID, map[string]any{"content": []map[string]any{{"type": "text", "text": strings.Repeat("<", 3<<20)}}})
 				case r.Params.Name == "boom":
 					reply(r.ID, map[string]any{"content": []any{}, "isError": true})
 				default:

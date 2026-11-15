@@ -87,6 +87,25 @@ export function mcpRuntimeCall(target: { userId: string; deviceId: string }): Ru
 		});
 }
 
+/**
+ * What a failed call to the runtime becomes. A result that did not fit the computer's link
+ * (an older galopin answers a JSON-RPC error, a newer one a tool error that never gets here) is
+ * the tool's failure, not the browser's: the model reads it and asks for less, the run goes on.
+ */
+export function callFailure(tool: RuntimeToolName, err: unknown): BrowserRuntimeError {
+	const detail = err instanceof Error ? err.message : String(err);
+	if (/message too large for the link/i.test(detail)) {
+		return new BrowserRuntimeError(
+			`The result of ${tool} was too large to cross the link to that computer. Scroll to the part you need, use extract for tables and lists, or ask for less.`,
+			"tool"
+		);
+	}
+	return new BrowserRuntimeError(
+		`The browser on that machine did not answer (${tool}): ${detail}`,
+		"unavailable"
+	);
+}
+
 function parseBody<T>(
 	tool: RuntimeToolName,
 	response: Awaited<ReturnType<RuntimeCall>>,
@@ -189,10 +208,7 @@ export class McpBrowserRuntime implements BrowserRuntime {
 			response = await this.call(tool, args, signal);
 		} catch (err) {
 			if (signal?.aborted) throw err;
-			throw new BrowserRuntimeError(
-				`The browser on that machine did not answer (${tool}): ${err instanceof Error ? err.message : String(err)}`,
-				"unavailable"
-			);
+			throw callFailure(tool, err);
 		}
 		return parseBody(tool, response, schema);
 	}
@@ -228,10 +244,7 @@ export class McpBrowserRuntime implements BrowserRuntime {
 			response = await this.call("screenshot", ref ? { ref } : {}, signal);
 		} catch (err) {
 			if (signal?.aborted) throw err;
-			throw new BrowserRuntimeError(
-				`The browser on that machine did not answer (screenshot): ${err instanceof Error ? err.message : String(err)}`,
-				"unavailable"
-			);
+			throw callFailure("screenshot", err);
 		}
 		if (response.isError) {
 			throw new BrowserRuntimeError(

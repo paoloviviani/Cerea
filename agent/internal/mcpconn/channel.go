@@ -355,7 +355,7 @@ func (c *channel) fromClient(raw []byte) {
 	out := raw
 	if len(keep) != len(parts) || remapped {
 		if isBatch {
-			out, _ = json.Marshal(keep)
+			out, _ = marshalRaw(keep)
 		} else {
 			out = keep[0]
 		}
@@ -386,6 +386,21 @@ func (c *channel) oversizeFromClient(parts []json.RawMessage) {
 	}
 }
 
+// toolTooLarge answers a tools/call whose result does not fit the link with a
+// tool result that is an error (isError), not a JSON-RPC error: a client reads
+// it as the tool's own failure, so one oversize page does not end a run.
+func toolTooLarge(id json.RawMessage, n int) []byte {
+	b, _ := marshalRaw(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"result": map[string]any{
+			"isError": true,
+			"content": []map[string]any{{"type": "text", "text": tooLargeText(n) + "; ask for less (scroll, or extract a smaller part)"}},
+		},
+	})
+	return b
+}
+
 func tooLargeText(n int) string {
 	return fmt.Sprintf("message too large for the link (%d bytes, limit %d)", n, MaxMessageBytes)
 }
@@ -411,6 +426,7 @@ func (c *channel) fromServer(raw []byte) {
 		}
 	}
 	changed := false
+	calls := map[string]bool{} // ids of the tools/call responses in this message
 	for i, m := range parts {
 		var h struct {
 			msgHeader
@@ -429,6 +445,7 @@ func (c *channel) fromServer(raw []byte) {
 		delete(c.reqIDs, key)
 		c.mu.Unlock()
 		if isCall {
+			calls[key] = true
 			c.hub.cfg.Audit(c.entry.Name, tool, callOutcome(h.Result, h.Error))
 		}
 		if isList && c.entry.AllowedTools != nil && len(h.Result) > 0 {
@@ -441,7 +458,7 @@ func (c *channel) fromServer(raw []byte) {
 	out := raw
 	if changed {
 		if raw[0] == '[' {
-			out, _ = json.Marshal(parts)
+			out, _ = marshalRaw(parts)
 		} else {
 			out = parts[0]
 		}
@@ -461,7 +478,9 @@ func (c *channel) fromServer(raw []byte) {
 		if !h.hasID() {
 			continue
 		}
-		if h.Method == "" { // a response: Cerea is waiting for it
+		if h.Method == "" && calls[string(h.ID)] { // a tool's result: the model can read the refusal and ask for less
+			c.toCerea(toolTooLarge(h.ID, len(m)))
+		} else if h.Method == "" { // another response: Cerea is waiting for it
 			c.toCerea(rpcError(h.ID, codeResponseLarge, tooLargeText(len(m))))
 		} else { // a request from the server: it gets the answer
 			c.toServer(rpcError(h.ID, codeResponseLarge, tooLargeText(len(m))))
@@ -506,9 +525,9 @@ func filterTools(msg json.RawMessage, allowed []string) (json.RawMessage, bool) 
 			kept = append(kept, t)
 		}
 	}
-	result["tools"], _ = json.Marshal(kept)
-	top["result"], _ = json.Marshal(result)
-	out, err := json.Marshal(top)
+	result["tools"], _ = marshalRaw(kept)
+	top["result"], _ = marshalRaw(result)
+	out, err := marshalRaw(top)
 	return out, err == nil
 }
 
@@ -535,7 +554,7 @@ func setID(msg, id json.RawMessage) json.RawMessage {
 		return msg
 	}
 	top["id"] = id
-	out, err := json.Marshal(top)
+	out, err := marshalRaw(top)
 	if err != nil {
 		return msg
 	}
@@ -597,7 +616,7 @@ func (c *channel) unwrapResponses(raw []byte, parts []json.RawMessage) ([]byte, 
 		return nil, nil, false
 	}
 	if raw[0] == '[' {
-		b, _ := json.Marshal(out)
+		b, _ := marshalRaw(out)
 		return b, out, true
 	}
 	return out[0], out, true
@@ -624,8 +643,8 @@ func setRequestID(msg, id json.RawMessage) json.RawMessage {
 		return msg
 	}
 	params["requestId"] = id
-	top["params"], _ = json.Marshal(params)
-	out, err := json.Marshal(top)
+	top["params"], _ = marshalRaw(params)
+	out, err := marshalRaw(top)
 	if err != nil {
 		return msg
 	}

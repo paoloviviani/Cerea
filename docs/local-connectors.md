@@ -192,9 +192,10 @@ takes effect without a restart.
   last line of it is in the message when the server fails to start or crashes.
 - Each open is a new process (or a new HTTP session): at most **4 channels per
   server** at a time.
-- A message over **1 MiB** does not cross the link: a request that cannot be
-  forwarded is answered with a JSON-RPC error, anything else is dropped and
-  logged.
+- A message over **8 MiB** (1 MiB before) does not cross the link: a
+  tool result that is too large is answered as a tool error the model can read,
+  another request that cannot be forwarded is answered with a JSON-RPC error,
+  anything else is dropped and logged.
 - Nothing else on the computer is offered: the chat sees the servers of
   `mcp.json` and nothing it did not list.
 

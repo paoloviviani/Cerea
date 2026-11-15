@@ -281,6 +281,13 @@ leaves for another site.
 
 ### Limits of this release
 
+- One browser result (a page read, a table, a screenshot) can be up to about 7.5 MB
+  on the way from the computer to Cerea; the link carries up to 8 MiB per message
+  (1 MiB on a galopin from before the larger cap, so update galopin on each
+  computer). What the model reads of a page is shorter still (a token budget, not
+  a link limit). A result that does not fit reaches the model as an error asking it
+  to scroll or read a smaller part; the task goes on.
+
 - An approval waits inside the running turn. If the chat restarts while one is
   open, the task ends and the card shows it as expired.
 - Live view and taking over the browser, and replaying known tasks, are not part

@@ -5,6 +5,10 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Browser use: long pages no longer stop a run with "the page was too large to read".** A page heavy in `<`, `>` and `&` (any HTML-like or markup-rich text) was counted by galopin six times larger than the browser runtime had measured, so a result well under the old limit hit the 1 MiB link cap and ended the task. galopin now passes messages through as written, and the link's message cap is **8 MiB** (was 1 MiB); the browser runtime's result bounds scale with it (one result up to 7.5 MB, was 900 KB). What the model reads of a page is unchanged (the snapshot and tool-text limits are a token budget, not raised). A result that still does not fit now reaches the model as an error it can act on (scroll, extract a part) instead of ending the run; this holds against an older galopin too. **On computers:** update galopin to get the larger cap (`curl -fsSL <your-cerea>/galopin/install.sh | sh -s -- --upgrade`); an older galopin keeps its 1 MiB cap and the older runtime it carries (results limited to 900 KB, long markup-heavy pages can still overshoot), but with this Cerea that overshoot is now an error the model reads rather than a stop.
+
 ## v0.53.1 — 2026-11-14
 
 Pins: Cerea `0.53.1` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.2`, opencode `2.3.0`.

@@ -1,7 +1,7 @@
 /**
- * Size bounds for tool results. galopin cannot carry a message over 1 MiB to Cerea (it answers
- * "response too large" and the run ends), so no result leaves the runtime above RESULT_LIMIT
- * bytes. Every bound below is measured on the real wire size: the whole tool result as the server
+ * Size bounds for tool results. galopin cannot carry an MCP message over 8 MiB to Cerea (it
+ * answers a tool result that is an error, or an old galopin with 1 MiB a JSON-RPC error that ends
+ * the run), so no result leaves the runtime above RESULT_LIMIT bytes, a margin under the cap. Every bound below is measured on the real wire size: the whole tool result as the server
  * sends it (a JSON result travels twice, as `structuredContent` and as an escaped text block),
  * which the caller supplies as `measure`.
  */
@@ -10,11 +10,11 @@ import type { Diff, ExtractResult, Snapshot } from "./contract.ts";
 import { CONTENT_TAG } from "./sanitize.ts";
 
 /** The most bytes of one whole tool result (all content blocks, as JSON). */
-export const RESULT_LIMIT = 900_000;
+export const RESULT_LIMIT = 7_500_000;
 /** What the per-tool bounds aim for on the wire: a margin under RESULT_LIMIT. */
-export const WIRE_BUDGET = 700_000;
+export const WIRE_BUDGET = 6_000_000;
 /** A download result carries nothing but files: its own budget, just under RESULT_LIMIT. */
-export const DOWNLOAD_WIRE_BUDGET = 880_000;
+export const DOWNLOAD_WIRE_BUDGET = 7_400_000;
 /** The most base64 characters of one screenshot. */
 export const SCREENSHOT_LIMIT = 700_000;
 

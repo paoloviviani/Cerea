@@ -433,10 +433,7 @@ either direction, so tools, resources, prompts, progress, cancellation, logging,
 protocol change. A `closed` frame ends the channel; Cerea fails the channel's pending
 requests with it and opens a new channel on the next use. A message frame for an unknown
 channel is answered with a `closed` frame (`reason: "closed"`), so Cerea can fail what it
-has pending. A message larger than the frame cap (§9.2's 1 MiB), in either direction, is
-not sent: galopin answers a request it cannot forward with a JSON-RPC error (`-32603`,
-"message too large for the link …": to Cerea for a response or Cerea's own request, to the
-server for a server request) and drops anything else, logging it.
+has pending. A message larger than the MCP message cap (8 MiB, inside the link's 160 MiB frame limit; it was 1 MiB before galopin 0.54), in either direction, is not sent. The cap counts the message as it goes over the link, and galopin passes messages through as the server wrote them (it never HTML-escapes them, which would grow a page's `<`, `>` and `&` six-fold). A `tools/call` result over the cap is answered to Cerea as a tool result with `isError: true` and a text "message too large for the link …", so a client treats it as the tool's failure and a single oversize page does not end a run; any other response Cerea waits for, or Cerea's own request, is answered with a JSON-RPC error (`-32603`, the same text), and a server request is answered the same way to the server. Anything else is dropped, logging it. An older galopin (1 MiB cap) answers every oversize response with the JSON-RPC error; Cerea reads that text on a browser call as the tool's failure too.
 
 When galopin itself must answer a request, because the HTTP server cannot be reached or
 answers an error status, it does so with a JSON-RPC error on that request's id: `-32000`
