@@ -284,11 +284,11 @@ func TestEnrollDefaultsComeFromExistingCredentials(t *testing.T) {
 // the gateway offers exactly one, taken silently); an explicit one still fails.
 func TestPickGroupStaleRecordedGroupFallsBack(t *testing.T) {
 	srv := fakeEnrollServer(t)
-	got, err := pickGroup(context.Background(), srv.URL+"/v1", "at", "gone", true)
+	got, err := pickGroup(context.Background(), srv.URL+"/v1", "at", "gone", true, groupChoice{})
 	if err != nil || got != "team" {
 		t.Fatalf("recorded stale group: %q, %v", got, err)
 	}
-	if _, err := pickGroup(context.Background(), srv.URL+"/v1", "at", "gone", false); err == nil {
+	if _, err := pickGroup(context.Background(), srv.URL+"/v1", "at", "gone", false, groupChoice{}); err == nil {
 		t.Fatal("explicit stale group must fail")
 	}
 }
