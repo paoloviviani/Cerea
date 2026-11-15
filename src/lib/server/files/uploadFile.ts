@@ -12,6 +12,8 @@ import {
 	MAX_ATTACHMENT_BYTES,
 	MAX_AUDIO_ATTACHMENT_BYTES,
 	maxAttachmentBytesFor,
+	isLineJsonName,
+	LINE_JSON_MIME,
 } from "$lib/constants/mime";
 import {
 	documentMime,
@@ -142,8 +144,17 @@ export async function writeAttachment(
 	// A claim of `audio/*` the bytes do not bear out is not stored as audio, so
 	// nothing downstream (the prompt, the player) takes the file for sound.
 	const spoofedAudio = !audio && sniffed.startsWith("audio/");
+	// `.jsonl` / `.ndjson` have no type browsers agree on (empty, octet-stream,
+	// `application/jsonl`...): by name, when the bytes carry no signature of
+	// their own, they are text, like `.json`.
+	const lineJson = !audio && !sniffedOnly && isLineJsonName(file.name);
 	const mime =
-		audio ?? (spoofedAudio ? "application/octet-stream" : documentMime(sniffed, file.name));
+		audio ??
+		(lineJson
+			? LINE_JSON_MIME
+			: spoofedAudio
+				? "application/octet-stream"
+				: documentMime(sniffed, file.name));
 
 	// The size limit follows what the bytes are, not what the client declared:
 	// a 24 MB PDF sent as `audio/mpeg` is a PDF, and a PDF is capped at 10 MB.

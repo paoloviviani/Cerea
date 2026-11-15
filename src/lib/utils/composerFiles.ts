@@ -14,7 +14,7 @@ import { m } from "$lib/paraglide/messages";
 import superjson from "superjson";
 
 import type { MessageFile } from "$lib/types/Message";
-import { mimeMatchesAllowlist } from "$lib/utils/mimeMatch";
+import { fileMatchesAllowlist } from "$lib/utils/mimeMatch";
 
 /**
  * Pasted text at least this long becomes an attachment chip rather than
@@ -58,7 +58,7 @@ export function pastedAttachments(
 	if (pastedFiles.length !== 0) {
 		result.preventDefault = true;
 		result.files.push(
-			...pastedFiles.filter((file) => mimeMatchesAllowlist(file.type, options.mimeTypes))
+			...pastedFiles.filter((file) => fileMatchesAllowlist(file, options.mimeTypes))
 		);
 	}
 	return result;

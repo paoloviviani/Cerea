@@ -70,6 +70,8 @@ const TEXT_EXTENSIONS = new Set([
 	"csv",
 	"tsv",
 	"json",
+	"jsonl",
+	"ndjson",
 	"xml",
 	"yaml",
 	"yml",
@@ -166,7 +168,7 @@ export async function addProjectDocument(options: {
 	const asText = isExtractableDocument(documentType) ? null : textMime(file);
 	if (!isExtractableDocument(documentType) && !asText) {
 		throw new ProjectDocumentError(
-			`${file.name} is not a type a project can read. Add a text file (.txt, .md, .csv, .json…) ` +
+			`${file.name} is not a type a project can read. Add a text file (.txt, .md, .csv, .json, .jsonl…) ` +
 				"or a document (PDF, Word, Excel, PowerPoint, OpenDocument, EPUB).",
 			415
 		);

@@ -15,7 +15,7 @@
 	import { cubicInOut } from "svelte/easing";
 	import type { MessageFile } from "$lib/types/Message";
 	import file2base64 from "$lib/utils/file2base64";
-	import { isAudioAttachmentMime } from "$lib/constants/mime";
+	import { attachmentMimeFor, isAudioAttachmentMime } from "$lib/constants/mime";
 	import UploadedFile from "./UploadedFile.svelte";
 	import IconClose from "~icons/carbon/close";
 
@@ -36,7 +36,7 @@
 				(value) => ({
 					type: "base64",
 					value,
-					mime: file.type,
+					mime: attachmentMimeFor(file.name, file.type),
 					name: file.name,
 				})
 			)

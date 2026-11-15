@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mimeMatchesAllowlist } from "./mimeMatch";
+import { fileMatchesAllowlist, mimeMatchesAllowlist } from "./mimeMatch";
 
 describe("mimeMatchesAllowlist", () => {
 	it("matches exact types", () => {
@@ -24,5 +24,28 @@ describe("mimeMatchesAllowlist", () => {
 
 	it("rejects everything on an empty allowlist", () => {
 		expect(mimeMatchesAllowlist("image/png", [])).toBe(false);
+	});
+});
+
+describe("fileMatchesAllowlist", () => {
+	const accept = ["text/*", ".jsonl", ".ndjson"];
+
+	it("accepts .jsonl and .ndjson by extension whatever type the browser declared", () => {
+		for (const type of [
+			"",
+			"application/octet-stream",
+			"application/jsonl",
+			"application/x-ndjson",
+		]) {
+			expect(fileMatchesAllowlist({ name: "rows.jsonl", type }, accept)).toBe(true);
+			expect(fileMatchesAllowlist({ name: "Rows.NDJSON", type }, accept)).toBe(true);
+		}
+	});
+
+	it("still judges other files by their type", () => {
+		expect(fileMatchesAllowlist({ name: "a.txt", type: "text/plain" }, accept)).toBe(true);
+		expect(fileMatchesAllowlist({ name: "a.bin", type: "application/octet-stream" }, accept)).toBe(
+			false
+		);
 	});
 });

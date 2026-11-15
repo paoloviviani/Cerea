@@ -14,3 +14,19 @@ export function mimeMatchesAllowlist(mime: string, allowlist: readonly string[])
 		);
 	});
 }
+
+/**
+ * Like `mimeMatchesAllowlist`, for a whole file: an allowlist entry that starts
+ * with a dot (".jsonl") matches by extension, so a file the browser gives no
+ * useful type is still judged by its name.
+ */
+export function fileMatchesAllowlist(
+	file: { name: string; type: string },
+	allowlist: readonly string[]
+): boolean {
+	const name = file.name.toLowerCase();
+	if (allowlist.some((entry) => entry.startsWith(".") && name.endsWith(entry.toLowerCase()))) {
+		return true;
+	}
+	return mimeMatchesAllowlist(file.type, allowlist);
+}

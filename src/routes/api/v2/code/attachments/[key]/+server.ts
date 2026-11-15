@@ -21,7 +21,7 @@ import { authorizeCodeAttachmentKey } from "$lib/server/codeAttachments";
 import { requireCodeAgents } from "$lib/server/codeDevices";
 import { findAttachments, storeAttachment } from "$lib/server/files/attachmentStore";
 import { AGENT_ATTACHMENT_MIME_ALLOWLIST, MAX_ATTACHMENT_BYTES } from "$lib/constants/mime";
-import { mimeMatchesAllowlist } from "$lib/utils/mimeMatch";
+import { fileMatchesAllowlist } from "$lib/utils/mimeMatch";
 
 /** Per request, not per message: a surface that sends more uploads twice. */
 const MAX_FILES_PER_UPLOAD = 10;
@@ -40,7 +40,7 @@ const uploadSchema = z.object({
 				// is download-only, so a mislabelled file cannot render as
 				// something else either way.
 				.refine(
-					(file) => mimeMatchesAllowlist(file.type, AGENT_ATTACHMENT_MIME_ALLOWLIST),
+					(file) => fileMatchesAllowlist(file, AGENT_ATTACHMENT_MIME_ALLOWLIST),
 					"That file type cannot be attached."
 				)
 		)
