@@ -297,16 +297,16 @@ describe("the original is only announced when the browser will mount it", () => 
 
 	beforeEach(() => sizes.clear());
 
-	it("gives no name to a file over 20 MB, and keeps the next one's name", async () => {
-		sizes.set("big", 20 * MB + 1);
+	it("gives no name to a file over 30 MB, and keeps the next one's name", async () => {
+		sizes.set("big", 30 * MB + 1);
 		expect(await mountNames([doc("big", "big.pdf", "t1"), doc("ok", "ok.pdf", "t2")])).toEqual([
 			undefined,
 			"ok.pdf",
 		]);
 	});
 
-	it("takes a file of exactly 20 MB", async () => {
-		sizes.set("edge", 20 * MB);
+	it("takes a file of exactly 30 MB", async () => {
+		sizes.set("edge", 30 * MB);
 		expect(await mountNames([doc("edge", "edge.pdf", "t1")])).toEqual(["edge.pdf"]);
 	});
 
