@@ -163,6 +163,46 @@ class TestRefusals(unittest.TestCase):
         with self.assertRaisesRegex(cfg.ConfigError, "https"):
             build(origin="http://chat.example.org")
 
+    def test_http_origin_suggests_https_and_sslip(self):
+        with self.assertRaises(cfg.ConfigError) as cm:
+            build(origin="http://130.192.100.139:433")
+        msg = str(cm.exception)
+        self.assertIn("https://130.192.100.139 or https://130-192-100-139.sslip.io", msg)
+
+    def test_http_origin_for_a_name_suggests_only_https(self):
+        self.assertEqual(cfg.origin_suggestions("http://chat.example.org:8443"),
+                         ["https://chat.example.org:8443"])
+
+    def test_sslip_origin_works_end_to_end(self):
+        v = build(origin="https://130-192-100-139.sslip.io", tls="acme").values
+        self.assertEqual(v["PUBLIC_ORIGIN"], "https://130-192-100-139.sslip.io")
+        self.assertEqual(v["TLS_MODE"], "acme")
+        self.assertEqual(v["AUTHELIA_COOKIE_DOMAIN"], "130-192-100-139.sslip.io")
+        cfg.refuse_authelia("130-192-100-139.sslip.io")
+
+    def test_interview_guides_an_http_origin_and_a_suspicious_port(self):
+        printed = []
+        replies = iter(["", "http://130.192.100.139:433", "", "https://130.192.100.139:433", "no", ""])
+        prompts = []
+
+        def fake_input(prompt):
+            prompts.append(prompt)
+            return next(replies)
+
+        with mock.patch("builtins.input", side_effect=fake_input), \
+                mock.patch("builtins.print", side_effect=lambda *x, **k: printed.append(" ".join(map(str, x)))):
+            # empty (help again), http (suggest), Enter (accept first),
+            # then a typed :433 refused by "no", Enter takes the corrected default
+            first = cfg.ask_origin()
+            self.assertEqual(first, "https://130.192.100.139")
+            second = cfg.ask_origin()
+        text = "\n".join(printed)
+        self.assertIn("https://203-0-113-7.sslip.io", text)
+        self.assertIn("an answer is needed", text)
+        self.assertIn("https://130-192-100-139.sslip.io", text)
+        self.assertIn("did you mean 443", text)
+        self.assertEqual(second, "https://130.192.100.139")
+
     def test_origin_with_a_path(self):
         with self.assertRaises(cfg.ConfigError):
             build(origin="https://example.org/chat")

@@ -751,14 +751,56 @@ def is_ip(host: str) -> bool:
     return True
 
 
+# Ports that are nearly always a typo for 443 (or a plain-HTTP port) in an https origin.
+SUSPICIOUS_HTTPS_PORTS = (80, 433, 4433)
+
+ORIGIN_HELP = (
+    "  An origin is the address users type, always starting with https://\n"
+    "    a DNS name        https://cerea.example.org   (TLS acme: a real certificate)\n"
+    "    an IP address     https://203.0.113.7         (TLS internal: browsers warn)\n"
+    "    no domain, but a public IP\n"
+    "                      https://203-0-113-7.sslip.io   (sslip.io is a free DNS name that\n"
+    "                      resolves to the IP, so TLS acme gives a real certificate when\n"
+    "                      ports 80 and 443 are reachable)"
+)
+
+
+def origin_suggestions(origin: str) -> list:
+    """https:// forms of an http:// origin: the same host, then the sslip.io name for an IPv4 host."""
+    parts = urlsplit(origin.strip())
+    try:
+        host, port = parts.hostname, parts.port
+    except ValueError:
+        return []
+    if not host:
+        return []
+    if port in SUSPICIOUS_HTTPS_PORTS:
+        port = None  # http://host:80 and typos such as :433 mean the default https port
+    suffix = f":{port}" if port else ""
+    shown = f"[{host}]" if ":" in host else host
+    found = [f"https://{shown}{suffix}"]
+    try:
+        v4 = isinstance(ipaddress.ip_address(host), ipaddress.IPv4Address)
+    except ValueError:
+        v4 = False
+    if v4:
+        found.append(f"https://{host.replace('.', '-')}.sslip.io{suffix}")
+    return found
+
+
 def split_origin(origin: str) -> tuple:
     """(normalised origin, host, port or None). Refuses what cannot work."""
     parts = urlsplit(origin.strip())
     if parts.scheme != "https":
-        raise ConfigError(
+        message = (
             f"the public origin must be https:// (got {origin!r}); browsers reach the stack "
             "over TLS in every mode, upstream included"
         )
+        if parts.scheme == "http":
+            found = origin_suggestions(origin)
+            if found:
+                message += "; did you mean " + " or ".join(found) + "?"
+        raise ConfigError(message)
     if not parts.hostname or parts.path not in ("", "/") or parts.query or parts.fragment:
         raise ConfigError(f"the public origin must be https://host[:port], got {origin!r}")
     try:
@@ -2349,7 +2391,7 @@ def check(root: Path, *, network: bool = True, probe_host: bool = True) -> Repor
 # --- the interactive part -----------------------------------------------------------
 
 
-def ask(prompt: str, default: str = "", *, secret: bool = False, validate=None) -> str:
+def ask(prompt: str, default: str = "", *, secret: bool = False, validate=None, empty_hint: str = "") -> str:
     suffix = f" [{default}]" if default and not secret else (" [keep]" if default else "")
     while True:
         try:
@@ -2359,12 +2401,45 @@ def ask(prompt: str, default: str = "", *, secret: bool = False, validate=None) 
         value = raw.strip() or default
         if not value:
             print("  an answer is needed")
+            if empty_hint:
+                print(empty_hint)
             continue
         if validate:
             try:
                 validate(value)
             except ConfigError as exc:
                 print(f"  {exc}")
+                continue
+        return value
+
+
+def ask_origin(default: str = "") -> str:
+    """Ask for the public origin, guiding the user towards one that works."""
+    print(ORIGIN_HELP)
+    while True:
+        value = ask("Public origin, https://host[:port]", default,
+                    validate=lambda v: None, empty_hint=ORIGIN_HELP)
+        if urlsplit(value).scheme == "http":
+            found = origin_suggestions(value)
+            print("  the origin must be https://, browsers reach the stack over TLS in every mode")
+            if found:
+                print("  did you mean:")
+                for f in found:
+                    print(f"    {f}")
+                default = found[0]  # Enter accepts the first suggestion
+                print("  (press Enter to accept the first)")
+            continue
+        try:
+            _, host, port = split_origin(value)
+        except ConfigError as exc:
+            print(f"  {exc}")
+            continue
+        if port in SUSPICIOUS_HTTPS_PORTS:
+            print(f"  port {port} is unusual for https; did you mean 443 (leave the port out)?")
+            if choose(
+                f"Use port {port} as typed?", {"yes": f"keep {value}", "no": "type the origin again"}, "no"
+            ) != "yes":
+                default = value.replace(f":{port}", "", 1)
                 continue
         return value
 
@@ -2385,11 +2460,7 @@ def interview(answers: Answers, given: set, existing: dict) -> Answers:
     if existing:
         print("Editing the existing .env: Enter keeps each current answer.\n")
     if "origin" not in given:
-        answers.origin = ask(
-            "Public origin, https://host[:port]",
-            answers.origin,
-            validate=lambda v: split_origin(v),
-        )
+        answers.origin = ask_origin(answers.origin)
     if "admin_email" not in given:
         answers.admin_email = ask(
             "Administrator's email (their first sign-in becomes an administrator)",

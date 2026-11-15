@@ -794,6 +794,21 @@ The proxy trusts `X-Forwarded-For` only from `TRUSTED_PROXIES` (default
 as a VPN's `100.64.0.0/10`, set `TRUSTED_PROXIES` to that range. Otherwise the
 logs show the front's address instead of the client's.
 
+### No domain name
+
+With only a public IP address there are two ways to set the origin:
+
+- **An IP with `internal` TLS.** `--origin https://203.0.113.7 --tls internal`.
+  No DNS is needed, but browsers warn about the certificate until you trust
+  Caddy's CA (see below).
+- **A sslip.io name with `acme`.** `--origin https://203-0-113-7.sslip.io --tls acme`
+  (the IP with dashes). sslip.io is a free DNS service that resolves such a name
+  to the IP, so Caddy gets a real Let's Encrypt certificate and browsers do not
+  warn, provided ports 80 and 443 are reachable from the internet.
+
+The origin always starts with `https://`. If you type `http://…` or a port such
+as `:433`, `./configure` suggests the corrected form.
+
 ### Certificate trust with internal TLS
 
 Caddy signs the certificate with its own CA, so every browser shows a warning
