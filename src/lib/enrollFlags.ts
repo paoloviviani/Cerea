@@ -40,6 +40,7 @@ export const ENROLL_FLAGS: readonly EnrollFlag[] = [
 	{ flag: "discover", kind: "bool", default: true, exposed: false },
 	{ flag: "gateway", kind: "string", default: "", exposed: false },
 	{ flag: "group", kind: "string", default: "", exposed: false },
+	{ flag: "group-choice-cmd", kind: "list", default: [], exposed: false },
 	{ flag: "issuer", kind: "string", default: "", exposed: false },
 	{ flag: "loopback", kind: "bool", default: false, exposed: false },
 	{ flag: "no-discover", kind: "bool", default: false, exposed: false },
