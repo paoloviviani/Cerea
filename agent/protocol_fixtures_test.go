@@ -638,10 +638,24 @@ func resultTarget(op string) any {
 		return &profileSet{}
 	case "files.list":
 		return &files.ListResult{}
-	case "files.stat", "files.write", "files.upload":
+	case "files.stat", "files.write", "files.upload.commit":
 		return &struct {
 			Entry files.Entry `json:"entry"`
 		}{}
+	case "files.upload.begin":
+		return &struct {
+			UploadID string `json:"uploadId"`
+		}{}
+	case "files.upload.chunk":
+		return &struct {
+			Received int64 `json:"received"`
+		}{}
+	case "files.upload.abort", "files.zip.abort":
+		return &struct{}{}
+	case "files.zip.begin":
+		return &files.ZipInfo{}
+	case "files.zip.read":
+		return &files.ZipChunk{}
 	case "files.read", "files.download":
 		return &files.ReadResult{}
 	case "files.status":

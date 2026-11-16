@@ -657,7 +657,7 @@ export class MachineLink {
 	}
 	/** The file browser's download (§9.3): up to 1 MiB of raw bytes of any file
 	 * from `offset`, as base64 in `content`; `size` is the whole file (refused
-	 * over 100 MiB) and `eof` ends the loop. */
+	 * over 500 MiB) and `eof` ends the loop. */
 	filesDownload(args: {
 		workspaceId: string;
 		path: string;
@@ -666,17 +666,52 @@ export class MachineLink {
 	}): Promise<FilesReadResult> {
 		return this.call("files.download", args);
 	}
-	/** The file browser's upload (§9.3): any bytes (base64) as `name` in the
-	 * workspace folder `dir`, at most 30 MiB. An existing file is replaced only
-	 * with `overwrite`, else `conflict` (details.revision). */
-	filesUpload(args: {
+	/** The chunked upload (§9.3): begin names the file under `dir` (`path` may hold
+	 * "/", the folders made when `mkdirs`) and its size (up to 200 MiB); chunks
+	 * follow in order; commit renames the temp file into place. An existing
+	 * file is a `conflict` unless `overwrite`. */
+	filesUploadBegin(args: {
 		workspaceId: string;
 		dir: string;
-		name: string;
-		content: string;
+		path: string;
+		size: number;
 		overwrite: boolean;
-	}): Promise<{ entry: FileEntry }> {
-		return this.call("files.upload", args);
+		mkdirs: boolean;
+	}): Promise<{ uploadId: string }> {
+		return this.call("files.upload.begin", args);
+	}
+	filesUploadChunk(args: {
+		uploadId: string;
+		offset: number;
+		content: string;
+	}): Promise<{ received: number }> {
+		return this.call("files.upload.chunk", args);
+	}
+	filesUploadCommit(args: { uploadId: string }): Promise<{ entry: FileEntry }> {
+		return this.call("files.upload.commit", args);
+	}
+	filesUploadAbort(args: { uploadId: string }): Promise<Record<string, never>> {
+		return this.call("files.upload.abort", args);
+	}
+	/** The folder download (§9.3): begin pre-walks the folder against the caps and
+	 * starts the zip; read answers its next bytes in order; abort drops it. */
+	filesZipBegin(args: { workspaceId: string; path: string }): Promise<{
+		zipId: string;
+		name: string;
+		files: number;
+		bytes: number;
+		skipped: number;
+	}> {
+		return this.call("files.zip.begin", args);
+	}
+	filesZipRead(args: {
+		zipId: string;
+		length?: number;
+	}): Promise<{ length: number; eof: boolean; content: string }> {
+		return this.call("files.zip.read", args);
+	}
+	filesZipAbort(args: { zipId: string }): Promise<Record<string, never>> {
+		return this.call("files.zip.abort", args);
 	}
 	/** The terminal's machine ops (§9.3); like files.*, forbidden outright
 	 * when the machine's own policy denies terminals (checked machine-side

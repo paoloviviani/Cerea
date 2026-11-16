@@ -48,6 +48,7 @@
 				"fileWrite": true,
 				"fileUpload": true,
 				"fileDownload": true,
+				"folderDownload": true,
 				"terminal": true,
 				"delegateProfiles": true,
 				"mcp": true

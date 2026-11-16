@@ -2,18 +2,19 @@
 	"_meta": {
 		"spec": "§9.3",
 		"direction": "C→M",
-		"op": "files.upload"
+		"op": "files.upload.begin"
 	},
 	"frame": {
 		"type": "req",
 		"id": "r1",
-		"op": "files.upload",
+		"op": "files.upload.begin",
 		"args": {
 			"workspaceId": "ws_01",
 			"dir": "agent",
-			"name": "logo.bin",
-			"content": "AAH/",
-			"overwrite": false
+			"path": "assets/logo.bin",
+			"size": 3,
+			"overwrite": false,
+			"mkdirs": true
 		}
 	}
 }

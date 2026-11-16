@@ -1557,7 +1557,7 @@ describe("the slash commands' forwarder rows", () => {
 	});
 });
 
-describe("uploading a file (files.upload)", () => {
+describe("uploading a file in chunks (files.upload.*)", () => {
 	const POLICY = { workspaceRoots: [], allowFreeModels: false };
 	const UPLOADER = {
 		machine: { capabilities: { files: true, fileWrite: true, fileUpload: true } },
@@ -1565,9 +1565,9 @@ describe("uploading a file (files.upload)", () => {
 	};
 	const ENTRY = {
 		name: "pic.bin",
-		path: "pic.bin",
+		path: "docs/pic.bin",
 		type: "file",
-		size: 3,
+		size: 6,
 		mtime: "2026-11-16T09:00:00Z",
 		revision: "1:2:3:4",
 		hidden: false,
@@ -1575,91 +1575,163 @@ describe("uploading a file (files.upload)", () => {
 		redacted: false,
 	};
 
-	function upload(
+	function post(
 		deviceId: string,
 		workspaceId: string,
-		fields: { name?: string; dir?: string; overwrite?: boolean; bytes?: Uint8Array },
+		phase: string,
+		body: unknown,
+		query = "",
 		locals: App.Locals = user.locals
 	) {
-		const form = new FormData();
-		form.set(
-			"file",
-			new File([(fields.bytes ?? new Uint8Array([0, 255, 7])) as BlobPart], "x.bin")
-		);
-		if (fields.name !== undefined) form.set("name", fields.name);
-		if (fields.dir !== undefined) form.set("dir", fields.dir);
-		if (fields.overwrite) form.set("overwrite", "true");
+		const raw = body instanceof Uint8Array;
 		return forwarder(
 			forwarderPOST,
-			`/api/v2/code/v1/workspaces/${workspaceId}/files/upload?device=${deviceId}`,
-			{ method: "POST", body: form as unknown as string, json: false, locals }
+			`/api/v2/code/v1/workspaces/${workspaceId}/files/upload/${phase}?device=${deviceId}${query}`,
+			{
+				method: "POST",
+				body: (raw ? body : JSON.stringify(body)) as unknown as string,
+				json: !raw,
+				locals,
+			}
 		);
 	}
 
-	it("forwards the bytes as base64 with the folder, name and overwrite flag, and audits no content", async () => {
+	it("forwards begin, ordered chunks as base64, and commit, and audits path and size without content", async () => {
 		const machine = await connectAndPair(UPLOADER);
 		const deviceId = machine.deviceId as string;
 		const { workspace } = await createWorkspace(machine, deviceId);
-		const calls: unknown[] = [];
-		machine.onOp("files.upload", (args: unknown) => {
-			calls.push(args);
-			return { entry: ENTRY };
+		const calls: Array<[string, unknown]> = [];
+		machine.onOp(
+			"files.upload.begin",
+			(a: unknown) => (calls.push(["begin", a]), { uploadId: "u1" })
+		);
+		machine.onOp("files.upload.chunk", (a: { offset: number; content: string }) => {
+			calls.push(["chunk", a]);
+			return { received: a.offset + Buffer.from(a.content, "base64").length };
 		});
-		const res = await upload(deviceId, workspace.id, {
-			name: "pic.bin",
+		machine.onOp(
+			"files.upload.commit",
+			(a: unknown) => (calls.push(["commit", a]), { entry: ENTRY })
+		);
+		const begin = await post(deviceId, workspace.id, "begin", {
 			dir: "docs",
+			path: "sub/pic.bin",
+			size: 6,
 			overwrite: true,
+			mkdirs: true,
 		});
-		expect(res.status).toBe(200);
+		expect(begin.status).toBe(200);
+		expect(
+			(
+				await post(
+					deviceId,
+					workspace.id,
+					"chunk",
+					new Uint8Array([0, 255, 7]),
+					"&uploadId=u1&offset=0"
+				)
+			).status
+		).toBe(200);
+		const second = await post(
+			deviceId,
+			workspace.id,
+			"chunk",
+			new Uint8Array([1, 2, 3]),
+			"&uploadId=u1&offset=3"
+		);
+		expect((await parse<{ received: number }>(second)).received).toBe(6);
+		const commit = await post(deviceId, workspace.id, "commit", {
+			uploadId: "u1",
+			path: "docs/sub/pic.bin",
+		});
+		expect(commit.status).toBe(200);
 		expect(calls).toEqual([
-			{
-				workspaceId: workspace.id,
-				dir: "docs",
-				name: "pic.bin",
-				content: Buffer.from([0, 255, 7]).toString("base64"),
-				overwrite: true,
-			},
+			[
+				"begin",
+				{
+					workspaceId: workspace.id,
+					dir: "docs",
+					path: "sub/pic.bin",
+					size: 6,
+					overwrite: true,
+					mkdirs: true,
+				},
+			],
+			[
+				"chunk",
+				{ uploadId: "u1", offset: 0, content: Buffer.from([0, 255, 7]).toString("base64") },
+			],
+			["chunk", { uploadId: "u1", offset: 3, content: Buffer.from([1, 2, 3]).toString("base64") }],
+			["commit", { uploadId: "u1" }],
 		]);
 		const audited = await collections.codeAudit
 			.find({ deviceId: new ObjectId(deviceId) })
 			.toArray();
 		expect(audited.map((a) => [a.action, a.path, a.bytes, a.outcome])).toEqual([
-			["files.upload", "docs/pic.bin", 3, "ok"],
+			["files.upload", "docs/sub/pic.bin", 6, "ok"],
 		]);
 		machine.close();
 	});
 
-	it("answers an existing file 409 conflict, and passes the machine's other refusals through", async () => {
+	it("answers an existing file 409 conflict at begin, and passes the machine's other refusals through", async () => {
 		const machine = await connectAndPair(UPLOADER);
 		const deviceId = machine.deviceId as string;
 		const { workspace } = await createWorkspace(machine, deviceId);
 		let mode = "conflict";
-		machine.onOp("files.upload", () => {
+		machine.onOp("files.upload.begin", () => {
 			throw mode === "conflict"
 				? new OpError("conflict", "pic.bin exists", { revision: "1:2:3:4" })
 				: new OpError("forbidden", "hidden by this machine's policy");
 		});
-		expect((await upload(deviceId, workspace.id, { name: "pic.bin" })).status).toBe(409);
+		const body = { dir: ".", path: "pic.bin", size: 1 };
+		expect((await post(deviceId, workspace.id, "begin", body)).status).toBe(409);
 		mode = "forbidden";
-		expect((await upload(deviceId, workspace.id, { name: "id_rsa" })).status).toBe(403);
+		expect((await post(deviceId, workspace.id, "begin", { ...body, path: "id_rsa" })).status).toBe(
+			403
+		);
 		machine.close();
 	});
 
-	it("refuses over 30 MB before it reaches the machine", async () => {
+	it("refuses over 200 MiB at begin and a chunk over 16 MiB, before the machine", async () => {
 		const machine = await connectAndPair(UPLOADER);
 		const deviceId = machine.deviceId as string;
 		const { workspace } = await createWorkspace(machine, deviceId);
 		let forwarded = 0;
-		machine.onOp("files.upload", () => {
-			forwarded += 1;
-			return { entry: ENTRY };
+		machine.onOp("files.upload.begin", () => (forwarded++, { uploadId: "u" }));
+		machine.onOp("files.upload.chunk", () => (forwarded++, { received: 0 }));
+		const big = await post(deviceId, workspace.id, "begin", {
+			dir: ".",
+			path: "big.iso",
+			size: 200 * 1024 * 1024 + 1,
 		});
-		const res = await upload(deviceId, workspace.id, {
-			name: "big.bin",
-			bytes: new Uint8Array(30 * 1024 * 1024 + 1),
-		});
-		expect(res.status).toBe(413);
+		expect(big.status).toBe(413);
+		const chunk = await post(
+			deviceId,
+			workspace.id,
+			"chunk",
+			new Uint8Array(16 * 1024 * 1024 + 1),
+			"&uploadId=u&offset=0"
+		);
+		expect(chunk.status).toBe(413);
 		expect(forwarded).toBe(0);
+		machine.close();
+	});
+
+	it("takes exactly 200 MiB declared, and abort reaches the machine", async () => {
+		const machine = await connectAndPair(UPLOADER);
+		const deviceId = machine.deviceId as string;
+		const { workspace } = await createWorkspace(machine, deviceId);
+		const aborted: unknown[] = [];
+		machine.onOp("files.upload.begin", () => ({ uploadId: "u9" }));
+		machine.onOp("files.upload.abort", (a: unknown) => (aborted.push(a), {}));
+		const ok = await post(deviceId, workspace.id, "begin", {
+			dir: ".",
+			path: "max.bin",
+			size: 200 * 1024 * 1024,
+		});
+		expect(ok.status).toBe(200);
+		expect((await post(deviceId, workspace.id, "abort", { uploadId: "u9" })).status).toBe(200);
+		expect(aborted).toEqual([{ uploadId: "u9" }]);
 		machine.close();
 	});
 
@@ -1680,11 +1752,8 @@ describe("uploading a file (files.upload)", () => {
 			const deviceId = machine.deviceId as string;
 			const { workspace } = await createWorkspace(machine, deviceId);
 			let forwarded = false;
-			machine.onOp("files.upload", () => {
-				forwarded = true;
-				return { entry: ENTRY };
-			});
-			const res = await upload(deviceId, workspace.id, { name: "a.bin" });
+			machine.onOp("files.upload.begin", () => ((forwarded = true), { uploadId: "u" }));
+			const res = await post(deviceId, workspace.id, "begin", { dir: ".", path: "a.bin", size: 1 });
 			expect(res.status).toBe(403);
 			expect(forwarded).toBe(false);
 			machine.close();
@@ -1696,13 +1765,115 @@ describe("uploading a file (files.upload)", () => {
 		const deviceId = machine.deviceId as string;
 		const { workspace } = await createWorkspace(machine, deviceId);
 		let forwarded = false;
-		machine.onOp("files.upload", () => {
-			forwarded = true;
-			return { entry: ENTRY };
-		});
+		machine.onOp("files.upload.begin", () => ((forwarded = true), { uploadId: "u" }));
 		const other = await createTestUser();
-		const res = await upload(deviceId, workspace.id, { name: "a.bin" }, other.locals);
+		const res = await post(
+			deviceId,
+			workspace.id,
+			"begin",
+			{ dir: ".", path: "a.bin", size: 1 },
+			"",
+			other.locals
+		);
 		expect(res.status).toBe(404);
+		expect(forwarded).toBe(false);
+		machine.close();
+	});
+});
+
+describe("downloading a folder as a zip (files.zip.*)", () => {
+	const POLICY = { workspaceRoots: [], allowFreeModels: false };
+	const READER = {
+		machine: { capabilities: { files: true, folderDownload: true } },
+		policy: { ...POLICY, files: "read" as const, fileWrite: "denied" as const },
+	};
+	function zip(deviceId: string, workspaceId: string, path: string, locals = user.locals) {
+		return forwarder(
+			forwarderGET,
+			`/api/v2/code/v1/workspaces/${workspaceId}/files/zip?device=${deviceId}&path=${encodeURIComponent(path)}`,
+			{ locals }
+		);
+	}
+
+	it("streams the zip sequentially as an attachment named after the folder, with safe headers", async () => {
+		const machine = await connectAndPair(READER);
+		const deviceId = machine.deviceId as string;
+		const { workspace } = await createWorkspace(machine, deviceId);
+		machine.onOp("files.zip.begin", () => ({
+			zipId: "z1",
+			name: "my proj",
+			files: 2,
+			bytes: 9,
+			skipped: 0,
+		}));
+		const parts = [Buffer.from("PK\x03"), Buffer.from("tail")];
+		let i = 0;
+		machine.onOp("files.zip.read", () => {
+			const p = parts[i++];
+			return { length: p.length, eof: i === parts.length, content: p.toString("base64") };
+		});
+		const res = await zip(deviceId, workspace.id, "my proj");
+		expect(res.status).toBe(200);
+		expect(Buffer.from(await res.arrayBuffer())).toEqual(Buffer.concat(parts));
+		expect(res.headers.get("content-type")).toBe("application/zip");
+		expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+		expect(res.headers.get("content-security-policy")).toContain("sandbox");
+		expect(res.headers.get("content-disposition")).toContain("filename*=UTF-8''my%20proj.zip");
+		const audited = await collections.codeAudit
+			.find({ deviceId: new ObjectId(deviceId) })
+			.toArray();
+		expect(audited.map((a) => [a.action, a.path, a.bytes])).toEqual([["files.zip", "my proj", 9]]);
+		machine.close();
+	});
+
+	it("maps the caps and refusals from galopin", async () => {
+		const machine = await connectAndPair(READER);
+		const deviceId = machine.deviceId as string;
+		const { workspace } = await createWorkspace(machine, deviceId);
+		let code: "too_large" | "forbidden" = "too_large";
+		machine.onOp("files.zip.begin", () => {
+			throw new OpError(code, "a folder is downloaded up to 20000 files");
+		});
+		expect((await zip(deviceId, workspace.id, "big")).status).toBe(413);
+		code = "forbidden";
+		expect((await zip(deviceId, workspace.id, "secrets")).status).toBe(403);
+		machine.close();
+	});
+
+	const REFUSED: Array<[string, typeof READER]> = [
+		["files are off", { ...READER, policy: { ...READER.policy, files: "off" as never } }],
+		[
+			"galopin has no folderDownload capability",
+			{ ...READER, machine: { capabilities: { files: true } } as never },
+		],
+	];
+	for (const [label, options] of REFUSED) {
+		it(`is refused, and never reaches the machine, when ${label}`, async () => {
+			const machine = await connectAndPair(options);
+			const deviceId = machine.deviceId as string;
+			const { workspace } = await createWorkspace(machine, deviceId);
+			let forwarded = false;
+			machine.onOp(
+				"files.zip.begin",
+				() => ((forwarded = true), { zipId: "z", name: "x", files: 0, bytes: 0, skipped: 0 })
+			);
+			expect((await zip(deviceId, workspace.id, ".")).status).toBe(403);
+			expect(forwarded).toBe(false);
+			machine.close();
+		});
+	}
+
+	it("refuses a device that belongs to a different user", async () => {
+		const machine = await connectAndPair(READER);
+		const deviceId = machine.deviceId as string;
+		const { workspace } = await createWorkspace(machine, deviceId);
+		let forwarded = false;
+		machine.onOp(
+			"files.zip.begin",
+			() => ((forwarded = true), { zipId: "z", name: "x", files: 0, bytes: 0, skipped: 0 })
+		);
+		const other = await createTestUser();
+		expect((await zip(deviceId, workspace.id, ".", other.locals)).status).toBe(404);
 		expect(forwarded).toBe(false);
 		machine.close();
 	});

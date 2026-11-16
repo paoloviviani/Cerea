@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"galopin/internal/files"
+	"galopin/internal/link"
 	"galopin/internal/policy"
 )
 
@@ -147,36 +148,45 @@ func TestFilesWriteSavesAndAuditsWithoutContent(t *testing.T) {
 	}
 }
 
-func uploadArgs(wsID, dir, name string, content []byte, overwrite bool) json.RawMessage {
-	body, _ := json.Marshal(map[string]any{
-		"workspaceId": wsID, "dir": dir, "name": name,
-		"content": base64.StdEncoding.EncodeToString(content), "overwrite": overwrite,
-	})
-	return body
+func callOp(t *testing.T, mc *machine, op string, args map[string]any) (any, *link.OpError) {
+	t.Helper()
+	raw, _ := json.Marshal(args)
+	return mc.Handle(context.Background(), op, raw)
 }
 
-func TestFilesUploadOp(t *testing.T) {
+func TestFilesUploadOps(t *testing.T) {
 	mc, wsID, dir, auditPath := writeMachine(t, freshEnrollPolicy())
-	data := []byte{0, 1, 2, 255, 254}
-	if _, operr := mc.Handle(context.Background(), "files.upload", uploadArgs(wsID, ".", "pic.bin", data, false)); operr != nil {
-		t.Fatalf("upload: %+v", operr)
+	data := []byte{0, 1, 2, 255, 254, 7}
+	res, operr := callOp(t, mc, "files.upload.begin", map[string]any{"workspaceId": wsID, "dir": ".", "path": "sub/pic.bin", "size": len(data), "mkdirs": true})
+	if operr != nil {
+		t.Fatalf("begin: %+v", operr)
 	}
-	if got, _ := os.ReadFile(filepath.Join(dir, "pic.bin")); !bytes.Equal(got, data) {
+	id := res.(map[string]any)["uploadId"].(string)
+	for off := 0; off < len(data); off += 4 {
+		end := off + 4
+		if end > len(data) {
+			end = len(data)
+		}
+		if _, operr := callOp(t, mc, "files.upload.chunk", map[string]any{"uploadId": id, "offset": off, "content": base64.StdEncoding.EncodeToString(data[off:end])}); operr != nil {
+			t.Fatalf("chunk at %d: %+v", off, operr)
+		}
+	}
+	if _, operr := callOp(t, mc, "files.upload.commit", map[string]any{"uploadId": id}); operr != nil {
+		t.Fatalf("commit: %+v", operr)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dir, "sub", "pic.bin")); !bytes.Equal(got, data) {
 		t.Errorf("bytes = %v", got)
 	}
-	_, operr := mc.Handle(context.Background(), "files.upload", uploadArgs(wsID, ".", "pic.bin", []byte("n"), false))
+	_, operr = callOp(t, mc, "files.upload.begin", map[string]any{"workspaceId": wsID, "dir": ".", "path": "sub/pic.bin", "size": 1})
 	if operr == nil || operr.Code != "conflict" {
 		t.Fatalf("existing = %+v, want conflict", operr)
 	}
-	if _, operr := mc.Handle(context.Background(), "files.upload", uploadArgs(wsID, ".", "pic.bin", []byte("n"), true)); operr != nil {
-		t.Fatalf("overwrite: %+v", operr)
-	}
-	_, operr = mc.Handle(context.Background(), "files.upload", uploadArgs(wsID, "../x", "a", []byte("n"), true))
+	_, operr = callOp(t, mc, "files.upload.begin", map[string]any{"workspaceId": wsID, "dir": "../x", "path": "a", "size": 1})
 	if operr == nil || operr.Code != "invalid" {
 		t.Errorf("escape = %+v, want invalid", operr)
 	}
 	log, _ := os.ReadFile(auditPath)
-	if !strings.Contains(string(log), `"action":"files.upload"`) || strings.Contains(string(log), "AQID") {
+	if !strings.Contains(string(log), `"action":"files.upload"`) || !strings.Contains(string(log), `"outcome":"conflict"`) {
 		t.Errorf("audit = %s", log)
 	}
 }
@@ -185,18 +195,46 @@ func TestFilesUploadIsRefusedWithoutFileWrite(t *testing.T) {
 	denied := freshEnrollPolicy()
 	denied.FileWrite = policy.FileWriteDenied
 	mc, wsID, dir, _ := writeMachine(t, denied)
-	_, operr := mc.Handle(context.Background(), "files.upload", uploadArgs(wsID, ".", "x.bin", []byte("x"), false))
+	_, operr := callOp(t, mc, "files.upload.begin", map[string]any{"workspaceId": wsID, "dir": ".", "path": "x.bin", "size": 1})
 	if operr == nil || operr.Code != "forbidden" {
 		t.Fatalf("upload with fileWrite denied = %+v, want forbidden", operr)
 	}
 	off := freshEnrollPolicy()
 	off.Files = policy.FilesOff
 	mc2, ws2, _, _ := writeMachine(t, off)
-	if _, operr := mc2.Handle(context.Background(), "files.upload", uploadArgs(ws2, ".", "x.bin", []byte("x"), false)); operr == nil || operr.Code != "forbidden" {
+	if _, operr := callOp(t, mc2, "files.upload.begin", map[string]any{"workspaceId": ws2, "dir": ".", "path": "x.bin", "size": 1}); operr == nil || operr.Code != "forbidden" {
 		t.Fatalf("upload with files off = %+v", operr)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "x.bin")); err == nil {
-		t.Error("a refused upload wrote a file")
+	if entries, _ := os.ReadDir(dir); len(entries) > 0 {
+		for _, e := range entries {
+			if strings.Contains(e.Name(), "x.bin") {
+				t.Errorf("a refused upload left %s", e.Name())
+			}
+		}
+	}
+}
+
+func TestFilesZipOpsNeedFilesOnly(t *testing.T) {
+	ro := freshEnrollPolicy()
+	ro.FileWrite = policy.FileWriteDenied
+	mc, wsID, dir, _ := writeMachine(t, ro)
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, operr := callOp(t, mc, "files.zip.begin", map[string]any{"workspaceId": wsID, "path": "."})
+	if operr != nil {
+		t.Fatalf("zip begin with fileWrite off: %+v", operr)
+	}
+	info := res.(files.ZipInfo)
+	chunk, operr := callOp(t, mc, "files.zip.read", map[string]any{"zipId": info.ID})
+	if operr != nil || !chunk.(files.ZipChunk).EOF {
+		t.Fatalf("zip read: %+v %+v", chunk, operr)
+	}
+	off := freshEnrollPolicy()
+	off.Files = policy.FilesOff
+	mc2, ws2, _, _ := writeMachine(t, off)
+	if _, operr := callOp(t, mc2, "files.zip.begin", map[string]any{"workspaceId": ws2, "path": "."}); operr == nil || operr.Code != "forbidden" {
+		t.Errorf("zip with files off = %+v", operr)
 	}
 }
 

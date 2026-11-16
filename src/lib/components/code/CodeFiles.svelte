@@ -23,7 +23,19 @@
 	import IconRenew from "~icons/carbon/renew";
 	import IconUpload from "~icons/carbon/upload";
 	import IconDownload from "~icons/carbon/download";
-	import { MAX_ATTACHMENT_BYTES } from "$lib/constants/mime";
+	import IconFolderAdd from "~icons/carbon/folder-add";
+	import IconZip from "~icons/carbon/zip";
+	import { UPLOAD_MAX_FILE_BYTES } from "$lib/constants/transfer";
+	import { formatNumber } from "$lib/i18n/format";
+	import {
+		batchProblem,
+		dirOf,
+		itemsFromDrop,
+		itemsFromFiles,
+		joinPath,
+		overFileLimit,
+		type UploadItem,
+	} from "$lib/utils/codeUpload";
 	import IconArrowLeft from "~icons/carbon/arrow-left";
 	import IconLocked from "~icons/carbon/locked";
 	import CodeFileTree from "./CodeFileTree.svelte";
@@ -31,11 +43,13 @@
 	import {
 		CodeApiError,
 		FileConflictError,
+		listWorkspaceFiles,
 		readWorkspaceFile,
 		workspaceFileRawUrl,
 		workspaceFileStatus,
 		uploadWorkspaceFile,
 		workspaceFileDownloadUrl,
+		workspaceFileZipUrl,
 		writeWorkspaceFile,
 	} from "$lib/codeApi";
 	import type { FileEntry, FilesReadResult } from "$lib/types/machineProtocol";
@@ -58,6 +72,8 @@
 		uploadable?: boolean;
 		/** Files may be downloaded: this galopin implements `files.download`. */
 		downloadable?: boolean;
+		/** Folders may be downloaded as a zip: the galopin has `folderDownload`. */
+		folderDownloadable?: boolean;
 	}
 
 	let {
@@ -68,6 +84,7 @@
 		saveBlocked = null,
 		uploadable = false,
 		downloadable = false,
+		folderDownloadable = false,
 	}: Props = $props();
 
 	const SAVE_BLOCKED: Record<FileSaveBlock, () => string> = {
@@ -98,15 +115,26 @@
 	let uploadDir = $state(".");
 	let dragging = $state(false);
 	let fileInput = $state<HTMLInputElement>();
-	interface UploadRow {
+	let folderInput = $state<HTMLInputElement>();
+
+	/** One pick or drop: its files go up one at a time, and it shows as one row. */
+	interface UploadBatch {
 		id: number;
-		name: string;
-		state: "uploading" | "done" | "error";
+		state: "working" | "done" | "error";
 		text: string;
+		/** Why files failed, by name (the first few are shown). */
+		failures: string[];
+		cancel: () => void;
 	}
-	let uploads = $state<UploadRow[]>([]);
+	let uploads = $state<UploadBatch[]>([]);
 	let uploadSeq = 0;
 	let uploadChain: Promise<void> = Promise.resolve();
+	/** The batch conflict dialog: how many files already exist, and the answer. */
+	let conflictAsk = $state<{
+		count: number;
+		name: string;
+		answer: (choice: "replace" | "skip" | "cancel") => void;
+	} | null>(null);
 	const uploadFolder = $derived(uploadDir === "." ? m["code.files.upload_root"]() : uploadDir);
 
 	function parentOf(path: string): string {
@@ -114,62 +142,167 @@
 		return i < 0 ? "." : path.slice(0, i);
 	}
 
-	/** Queue files for upload into the folder shown, one at a time. */
-	function startUploads(list: FileList | File[] | null) {
-		if (!uploadable || !list) return;
-		const dir = uploadDir;
-		for (const file of Array.from(list)) {
-			const row: UploadRow = {
-				id: ++uploadSeq,
-				name: file.name,
-				state: "uploading",
-				text: m["code.files.uploading"]({ name: file.name }),
-			};
-			uploads.push(row);
-			const live = uploads[uploads.length - 1];
-			uploadChain = uploadChain.then(() => uploadOne(live, dir, file));
+	/** The files already in the folders a batch targets, by full path. A folder
+	 * that does not exist yet has none; a listing that fails or is cut short
+	 * leaves its files to the conflict galopin answers at the start of each. */
+	async function existingPaths(dir: string, items: UploadItem[]): Promise<Set<string>> {
+		const folders = new Set(items.map((item) => dirOf(joinPath(dir, item.rel))));
+		const found = new Set<string>();
+		for (const folder of folders) {
+			try {
+				const res = await listWorkspaceFiles(deviceId, workspaceId, folder);
+				for (const entry of res.entries) if (entry.type !== "dir") found.add(entry.path);
+			} catch {
+				/* a folder that is not there has nothing in it */
+			}
 		}
+		return found;
 	}
 
-	async function uploadOne(row: UploadRow, dir: string, file: File) {
-		const fail = (reason: string) => {
-			row.state = "error";
-			row.text = m["code.files.upload_failed"]({ name: file.name, reason });
+	function askConflicts(count: number, name: string): Promise<"replace" | "skip" | "cancel"> {
+		return new Promise((resolve) => {
+			conflictAsk = {
+				count,
+				name,
+				answer: (choice) => {
+					conflictAsk = null;
+					resolve(choice);
+				},
+			};
+		});
+	}
+
+	/** Queue a pick or drop for upload into the folder shown. */
+	function startUploads(items: UploadItem[]) {
+		if (!uploadable || items.length === 0) return;
+		const dir = uploadDir;
+		const abort = new AbortController();
+		const batch: UploadBatch = {
+			id: ++uploadSeq,
+			state: "working",
+			text: "",
+			failures: [],
+			cancel: () => abort.abort(),
 		};
-		if (file.size > MAX_ATTACHMENT_BYTES) {
+		uploads.push(batch);
+		const live = uploads[uploads.length - 1];
+		uploadChain = uploadChain.then(() => runBatch(live, dir, items, abort.signal));
+	}
+
+	async function runBatch(row: UploadBatch, dir: string, items: UploadItem[], signal: AbortSignal) {
+		const problem = batchProblem(items);
+		if (problem) {
 			row.state = "error";
-			row.text = m["code.files.upload_too_large"]({
-				name: file.name,
-				limit: MAX_ATTACHMENT_BYTES / 1024 / 1024,
-			});
+			row.text =
+				problem.kind === "too_many"
+					? m["code.files.upload_too_many"]({
+							count: formatNumber(problem.count),
+							limit: formatNumber(problem.limit),
+						})
+					: m["code.files.upload_too_big_total"]({
+							size: humanSize(problem.bytes),
+							limit: humanSize(problem.limit),
+						});
 			return;
 		}
-		try {
-			try {
-				await uploadWorkspaceFile(deviceId, workspaceId, dir, file, false);
-			} catch (err) {
-				if (!(err instanceof FileConflictError)) throw err;
-				if (!confirm(m["code.files.replace_confirm"]({ name: file.name }))) {
-					row.state = "error";
-					row.text = m["code.files.upload_not_replaced"]({ name: file.name });
-					return;
-				}
-				await uploadWorkspaceFile(deviceId, workspaceId, dir, file, true);
+		const sendable: UploadItem[] = [];
+		for (const item of items) {
+			if (overFileLimit(item)) {
+				row.failures.push(
+					m["code.files.upload_too_large"]({
+						name: item.rel,
+						limit: UPLOAD_MAX_FILE_BYTES / 1024 / 1024,
+					})
+				);
+			} else sendable.push(item);
+		}
+		row.text = m["code.files.checking"]();
+		const existing = await existingPaths(dir, sendable);
+		const clashes = sendable.filter((item) => existing.has(joinPath(dir, item.rel)));
+		let replace = false;
+		let skipClashes = false;
+		if (clashes.length > 0) {
+			const choice = await askConflicts(clashes.length, clashes[0].rel);
+			if (choice === "cancel") {
+				row.state = "error";
+				row.text = m["code.files.upload_cancelled"]({ done: 0, total: items.length });
+				return;
 			}
+			replace = choice === "replace";
+			skipClashes = choice === "skip";
+		}
+		const clashSet = new Set(clashes);
+		let done = 0;
+		let skipped = 0;
+		const bytesTotal = sendable.reduce((n, item) => n + item.file.size, 0);
+		let bytesDone = 0;
+		const percent = (current: number) =>
+			bytesTotal === 0 ? 100 : Math.floor(((bytesDone + current) / bytesTotal) * 100);
+		const label = (current: number) =>
+			sendable.length === 1
+				? m["code.files.uploading_one"]({ name: sendable[0].rel, percent: percent(current) })
+				: m["code.files.uploading_many"]({
+						done: done + skipped,
+						total: sendable.length,
+						percent: percent(current),
+					});
+		for (const item of sendable) {
+			if (signal.aborted) break;
+			if (skipClashes && clashSet.has(item)) {
+				skipped += 1;
+				continue;
+			}
+			row.text = label(0);
+			try {
+				await uploadWorkspaceFile(deviceId, workspaceId, dir, item.rel, item.file, {
+					overwrite: replace && clashSet.has(item),
+					mkdirs: true,
+					signal,
+					onProgress: (sent) => (row.text = label(sent)),
+				});
+				done += 1;
+			} catch (err) {
+				if (signal.aborted) break;
+				row.failures.push(
+					err instanceof FileConflictError
+						? m["code.files.upload_exists"]({ name: item.rel })
+						: m["code.files.upload_failed"]({
+								name: item.rel,
+								reason: err instanceof Error ? err.message : "",
+							})
+				);
+			}
+			bytesDone += item.file.size;
+		}
+		refreshKey += 1;
+		void loadStatus();
+		const failed = row.failures.length;
+		if (signal.aborted) {
+			row.state = "error";
+			row.text = m["code.files.upload_cancelled"]({ done, total: items.length });
+		} else if (failed === 0 && skipped === 0) {
 			row.state = "done";
-			row.text = m["code.files.uploaded"]({ name: file.name });
-			refreshKey += 1;
-			void loadStatus();
-		} catch (err) {
-			fail(err instanceof Error ? err.message : "");
+			row.text =
+				done === 1
+					? m["code.files.uploaded"]({ name: sendable[0].rel })
+					: m["code.files.uploaded_many"]({ count: formatNumber(done) });
+		} else {
+			row.state = failed > 0 ? "error" : "done";
+			row.text = m["code.files.upload_summary"]({
+				done: formatNumber(done),
+				total: formatNumber(items.length),
+				failed: formatNumber(failed),
+				skipped: formatNumber(skipped),
+			});
 		}
 	}
 
-	function onDrop(event: DragEvent) {
+	async function onDrop(event: DragEvent) {
 		if (!uploadable) return;
 		event.preventDefault();
 		dragging = false;
-		startUploads(event.dataTransfer?.files ?? null);
+		if (!event.dataTransfer) return;
+		startUploads(await itemsFromDrop(event.dataTransfer));
 	}
 	function onDragOver(event: DragEvent) {
 		if (!uploadable || !event.dataTransfer?.types.includes("Files")) return;
@@ -355,6 +488,18 @@
 				{branch ? m["code.files.on_branch"]({ branch }) : m["code.files.workspace_files"]()}
 			</span>
 		{/if}
+		{#if folderDownloadable && !open}
+			<a
+				href={workspaceFileZipUrl(deviceId, workspaceId, uploadDir)}
+				download
+				class="flex size-6 items-center justify-center rounded-md text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+				title={m["code.files.zip_title"]({ folder: uploadFolder })}
+				aria-label={m["code.files.zip_title"]({ folder: uploadFolder })}
+				data-testid="folder-zip"
+			>
+				<IconZip class="size-3.5" />
+			</a>
+		{/if}
 		{#if uploadable}
 			<input
 				bind:this={fileInput}
@@ -364,7 +509,20 @@
 				aria-label={m["code.files.upload_input_label"]()}
 				data-testid="file-upload-input"
 				onchange={(event) => {
-					startUploads(event.currentTarget.files);
+					startUploads(itemsFromFiles(event.currentTarget.files ?? []));
+					event.currentTarget.value = "";
+				}}
+			/>
+			<input
+				bind:this={folderInput}
+				type="file"
+				multiple
+				webkitdirectory
+				class="hidden"
+				aria-label={m["code.files.upload_folder"]()}
+				data-testid="folder-upload-input"
+				onchange={(event) => {
+					startUploads(itemsFromFiles(event.currentTarget.files ?? []));
 					event.currentTarget.value = "";
 				}}
 			/>
@@ -378,6 +536,16 @@
 				<IconUpload class="size-3.5" />
 				{m["code.files.upload"]()}
 			</button>
+			<button
+				type="button"
+				class="flex size-6 items-center justify-center rounded-md text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+				title={m["code.files.upload_folder_title"]({ folder: uploadFolder })}
+				aria-label={m["code.files.upload_folder"]()}
+				data-testid="folder-upload"
+				onclick={() => folderInput?.click()}
+			>
+				<IconFolderAdd class="size-3.5" />
+			</button>
 		{/if}
 		<button
 			type="button"
@@ -390,6 +558,43 @@
 		</button>
 	</div>
 
+	{#if conflictAsk}
+		<div
+			class="shrink-0 border-b border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-100"
+			role="alertdialog"
+			aria-label={m["code.files.conflict_label"]()}
+			data-testid="upload-conflicts"
+		>
+			<p class="mb-2 font-medium">
+				{conflictAsk.count === 1
+					? m["code.files.conflict_one"]({ name: conflictAsk.name })
+					: m["code.files.conflict_many"]({ count: formatNumber(conflictAsk.count) })}
+			</p>
+			<div class="flex flex-wrap gap-2">
+				<button
+					type="button"
+					class="rounded-md border border-amber-400 px-2 py-0.5 font-medium hover:bg-amber-100 dark:hover:bg-amber-900/40"
+					data-testid="conflict-replace"
+					onclick={() => conflictAsk?.answer("replace")}
+					>{conflictAsk.count === 1
+						? m["code.files.conflict_replace"]()
+						: m["code.files.conflict_replace_all"]()}</button
+				>
+				<button
+					type="button"
+					class="rounded-md border border-amber-400 px-2 py-0.5 hover:bg-amber-100 dark:hover:bg-amber-900/40"
+					data-testid="conflict-skip"
+					onclick={() => conflictAsk?.answer("skip")}>{m["code.files.conflict_skip"]()}</button
+				>
+				<button
+					type="button"
+					class="rounded-md border border-amber-400 px-2 py-0.5 hover:bg-amber-100 dark:hover:bg-amber-900/40"
+					data-testid="conflict-cancel"
+					onclick={() => conflictAsk?.answer("cancel")}>{m["code.files.conflict_cancel"]()}</button
+				>
+			</div>
+		</div>
+	{/if}
 	{#if uploads.length > 0}
 		<ul
 			class="shrink-0 border-b border-gray-200 text-xs dark:border-gray-700"
@@ -397,19 +602,33 @@
 		>
 			{#each uploads as row (row.id)}
 				<li
-					class="flex items-center gap-2 px-3 py-1 {row.state === 'error'
+					class="px-3 py-1 {row.state === 'error'
 						? 'text-red-600 dark:text-red-400'
 						: 'text-gray-500'}"
 					data-state={row.state}
 				>
-					<span class="min-w-0 flex-1 truncate" title={row.text}>{row.text}</span>
-					{#if row.state !== "uploading"}
-						<button
-							type="button"
-							class="shrink-0 hover:underline"
-							onclick={() => (uploads = uploads.filter((u) => u.id !== row.id))}
-							>{m["code.files.upload_dismiss"]()}</button
-						>
+					<div class="flex items-center gap-2">
+						<span class="min-w-0 flex-1 truncate" title={row.text}>{row.text}</span>
+						{#if row.state === "working"}
+							<button type="button" class="shrink-0 hover:underline" onclick={row.cancel}
+								>{m["code.files.conflict_cancel"]()}</button
+							>
+						{:else}
+							<button
+								type="button"
+								class="shrink-0 hover:underline"
+								onclick={() => (uploads = uploads.filter((u) => u.id !== row.id))}
+								>{m["code.files.upload_dismiss"]()}</button
+							>
+						{/if}
+					</div>
+					{#each row.failures.slice(0, 5) as failure (failure)}
+						<p class="truncate text-red-600 dark:text-red-400" title={failure}>{failure}</p>
+					{/each}
+					{#if row.failures.length > 5}
+						<p class="text-gray-500">
+							{m["code.files.upload_more_failures"]({ count: row.failures.length - 5 })}
+						</p>
 					{/if}
 				</li>
 			{/each}
@@ -444,6 +663,7 @@
 				onselect={select}
 				ondir={(dir) => (uploadDir = dir)}
 				{downloadable}
+				{folderDownloadable}
 			/>
 		</div>
 		{#if open}

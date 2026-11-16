@@ -1,0 +1,15 @@
+{
+	"_meta": {
+		"spec": "§9.3",
+		"direction": "C→M",
+		"op": "files.upload.commit"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "files.upload.commit",
+		"args": {
+			"uploadId": "u_8f3a"
+		}
+	}
+}

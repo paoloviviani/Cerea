@@ -118,6 +118,9 @@ type Service struct {
 
 	mu          sync.Mutex
 	statusCache map[string]cachedStatus
+
+	up   uploads
+	zips zipSessions
 }
 
 type cachedStatus struct {

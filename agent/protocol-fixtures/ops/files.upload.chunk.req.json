@@ -1,0 +1,17 @@
+{
+	"_meta": {
+		"spec": "§9.3",
+		"direction": "C→M",
+		"op": "files.upload.chunk"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "files.upload.chunk",
+		"args": {
+			"uploadId": "u_8f3a",
+			"offset": 0,
+			"content": "AAH/"
+		}
+	}
+}

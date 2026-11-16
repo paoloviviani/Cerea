@@ -2,7 +2,7 @@
 	"_meta": {
 		"spec": "§9.3",
 		"direction": "M→C",
-		"op": "files.upload"
+		"op": "files.upload.commit"
 	},
 	"frame": {
 		"type": "res",
@@ -11,11 +11,11 @@
 		"result": {
 			"entry": {
 				"name": "logo.bin",
-				"path": "agent/logo.bin",
+				"path": "agent/assets/logo.bin",
 				"type": "file",
 				"size": 3,
-				"mtime": "2026-11-03T09:00:00Z",
-				"revision": "801:57:13:1793696400000000000",
+				"mtime": "2026-11-16T09:00:00Z",
+				"revision": "801:57:3:1793696400000000000",
 				"hidden": false,
 				"ignored": false,
 				"redacted": false

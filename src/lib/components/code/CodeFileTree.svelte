@@ -14,7 +14,8 @@
 	import IconLink from "~icons/carbon/link";
 	import IconLocked from "~icons/carbon/locked";
 	import IconDownload from "~icons/carbon/download";
-	import { listWorkspaceFiles, workspaceFileDownloadUrl } from "$lib/codeApi";
+	import IconZip from "~icons/carbon/zip";
+	import { listWorkspaceFiles, workspaceFileDownloadUrl, workspaceFileZipUrl } from "$lib/codeApi";
 	import type { FileEntry } from "$lib/types/machineProtocol";
 	import type { GitBadge } from "$lib/utils/codeFiles";
 
@@ -33,6 +34,8 @@
 		ondir?: (path: string) => void;
 		/** Each file has a Download link (the galopin has `fileDownload`). */
 		downloadable?: boolean;
+		/** Each folder has a Download as zip link (the galopin has `folderDownload`). */
+		folderDownloadable?: boolean;
 	}
 
 	let {
@@ -46,6 +49,7 @@
 		onselect,
 		ondir,
 		downloadable = false,
+		folderDownloadable = false,
 	}: Props = $props();
 
 	let entries = $state<FileEntry[] | null>(null);
@@ -107,8 +111,9 @@
 				<div class="group relative">
 					<button
 						type="button"
-						class="flex h-6 w-full items-center gap-1.5 rounded-md pr-2 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700/60 {downloadable &&
-						entry.type === 'file' &&
+						class="flex h-6 w-full items-center gap-1.5 rounded-md pr-2 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700/60 {((downloadable &&
+							entry.type === 'file') ||
+							(folderDownloadable && isDir)) &&
 						!entry.redacted
 							? 'pr-7'
 							: ''} {selected === entry.path
@@ -147,6 +152,18 @@
 							>
 						{/if}
 					</button>
+					{#if folderDownloadable && isDir && !entry.redacted}
+						<a
+							href={workspaceFileZipUrl(deviceId, workspaceId, entry.path)}
+							download
+							class="absolute top-0.5 right-1 flex size-5 items-center justify-center rounded-md text-gray-500 hover:bg-gray-200 hover:text-gray-800 focus:opacity-100 max-sm:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 dark:hover:bg-gray-600"
+							title={m["code.files.zip_title"]({ folder: entry.name })}
+							aria-label={m["code.files.zip_title"]({ folder: entry.name })}
+							data-testid="folder-zip-row"
+						>
+							<IconZip class="size-3.5" />
+						</a>
+					{/if}
 					{#if downloadable && entry.type === "file" && !entry.redacted}
 						<a
 							href={workspaceFileDownloadUrl(deviceId, workspaceId, entry.path)}
@@ -172,6 +189,7 @@
 						{onselect}
 						{ondir}
 						{downloadable}
+						{folderDownloadable}
 					/>
 				{/if}
 			</li>

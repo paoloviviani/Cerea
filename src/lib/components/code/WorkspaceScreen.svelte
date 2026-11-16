@@ -31,7 +31,12 @@
 	import type { CodeAgentSession, CodeTurnState, CodeWorkspace } from "$lib/types/CodeAgent";
 	import { agentDisplayTitle } from "$lib/utils/codeAgentTitle";
 	import { workspaceLabel } from "$lib/utils/codeSubagents";
-	import { fileDownloadAllowed, fileSaveBlock, fileUploadAllowed } from "$lib/utils/codeFiles";
+	import {
+		fileDownloadAllowed,
+		folderDownloadAllowed,
+		fileSaveBlock,
+		fileUploadAllowed,
+	} from "$lib/utils/codeFiles";
 	import { formatCompactAge } from "$lib/utils/relativeTime";
 	import * as s from "$lib/components/overlay/styles";
 
@@ -254,6 +259,7 @@
 					writable={saveBlocked === null}
 					{saveBlocked}
 					downloadable={fileDownloadAllowed(device)}
+					folderDownloadable={folderDownloadAllowed(device)}
 					uploadable={fileUploadAllowed(saveBlocked, device)}
 				/>
 			</SidePane>
