@@ -5,7 +5,11 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.54.2 — 2026-11-16
+
+Pins: Cerea `0.54.2` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.4`, opencode `2.3.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. **On computers:** `curl -fsSL <your-cerea>/galopin/install.sh | sh -s -- --upgrade` for the ACP improvements (Claude Code and other ACP agents).
 
 - **The ACP backend covers the current Agent Client Protocol, so Claude Code (`claude-agent-acp`) works end to end.** Sessions started outside Cerea, such as in the Claude Code terminal, are listed (paged) and open with their history; opening a very large session no longer floods the link or breaks the view (the replay is quiet, tool calls are always named, and the history is served in pages, newest first). Mode and model selectors follow the agent's config options; the context meter and cost read the agent's usage updates; attachments follow the agent's prompt capabilities (images, embedded files); deleting a session also removes it from the agent's list; a cancelled turn ends quietly and a turn stopped by a token or request limit says so. docs/agent-machines-reference.md has a "Running Claude Code over ACP" section.
 
