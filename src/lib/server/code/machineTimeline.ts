@@ -96,7 +96,12 @@ function toolCallUpdate(
 		type: MessageUpdateType.Tool,
 		subtype: MessageToolUpdateType.Call,
 		uuid: callId,
-		call: { name: tool, parameters: (input ?? {}) as Record<string, string | number | boolean> },
+		// A tool part can arrive with no name (an ACP agent's call, an old transcript): name it,
+		// as the live path does, rather than hand the view an undefined name.
+		call: {
+			name: typeof tool === "string" && tool ? tool : "unknown",
+			parameters: (input ?? {}) as Record<string, string | number | boolean>,
+		},
 	};
 }
 
