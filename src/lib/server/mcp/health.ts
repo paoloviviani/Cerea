@@ -104,8 +104,8 @@ export async function listTools(
 				"[mcp] health listing"
 			);
 			// What the server says about itself: its instructions, else its serverInfo description.
-			const info = client.getServerVersion() as { description?: unknown } | undefined;
-			const about = [client.getInstructions(), info?.description].find(
+			const info = client.getServerVersion?.() as { description?: unknown } | undefined;
+			const about = [client.getInstructions?.(), info?.description].find(
 				(v): v is string => typeof v === "string" && v.trim().length > 0
 			);
 			return { ok: true, tools, ...(about ? { about: about.trim().slice(0, 2000) } : {}) };
