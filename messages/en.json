@@ -3455,7 +3455,7 @@
 	"code.auto.class.web": "web",
 	"code.auto.class.outside": "outside access",
 	"code.auto.class.secrets": "secrets",
-	"code.auto.class.agents": "agents",
+	"code.auto.class.agents": "agents (coordination)",
 	"code.auto.class.tools": "tools",
 	"code.auto.class.loop": "loops",
 	"code.auto.line.head_auto": "Auto on {machine}:",
