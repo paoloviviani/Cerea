@@ -135,6 +135,9 @@ const listSchema = z
 			z.object({
 				id: z.string(),
 				description: z.string().nullish(),
+				// The gateway's own window for the model (an alias carries it
+				// too). The HF router reports per-provider `context_length` instead.
+				context_window: z.number().nullish(),
 				// Pystino reports what surface a model serves. Absent on a
 				// generic OpenAI-compatible endpoint, which is why the filter
 				// below treats missing as chat rather than as unusable.
@@ -144,7 +147,8 @@ const listSchema = z
 						z
 							.object({
 								supports_tools: z.boolean().nullish(),
-								context_length: z.number().int().positive().nullish(),
+								// Any number: a 0 must not fail the whole listing; it is ignored below.
+								context_length: z.number().nullish(),
 							})
 							.passthrough()
 					)
@@ -306,9 +310,10 @@ const toModelConfig = (
 	// Smallest window any provider offers, not the largest: with
 	// `provider: "auto"` the router picks, so a request sized for the
 	// roomiest provider would overflow whichever one actually serves it.
-	const reportedContexts = (m.providers ?? [])
-		.map((p) => p?.context_length)
-		.filter((n): n is number => typeof n === "number" && n > 0);
+	const reportedContexts = [
+		m.context_window,
+		...(m.providers ?? []).map((p) => p?.context_length),
+	].filter((n): n is number => typeof n === "number" && n > 0);
 	const contextLength = reportedContexts.length ? Math.min(...reportedContexts) : undefined;
 	return {
 		id: m.id,
