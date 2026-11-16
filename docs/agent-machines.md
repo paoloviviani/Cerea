@@ -103,6 +103,47 @@ container can also enroll by itself from environment variables, and keep its
 pairing in a volume you name: see
 [Running galopin in a container](agent-machines-reference.md#running-galopin-in-a-container).
 
+### On a Mac, without Docker
+
+On an Apple-silicon Mac (M1 or later) with macOS 26, Apple's own
+[`container`](https://github.com/apple/container) tool runs the same image natively,
+with no Docker Desktop. The image is multi-arch since Cerea 0.54.1.
+
+1. Install `container` from its [releases page](https://github.com/apple/container/releases)
+   (the signed `.pkg`), then start its service once:
+
+   ```sh
+   container system start
+   ```
+
+2. Create a volume so the pairing survives restarts (once):
+
+   ```sh
+   container volume create galopin-home
+   ```
+
+3. In **Pair a computer**, turn on **In a Docker container** and copy the command. Replace
+   `docker` with `container`, `--hostname` with `--name`, and add the volume. Run it from
+   the folder you want the agent to work in:
+
+   ```sh
+   container run -it --rm --name my-mac-sandbox \
+     -v galopin-home:/home/galopin \
+     -v "$PWD":/workspace \
+     ghcr.io/paoloviviani/galopin:<version> \
+     start --issuer ... --gateway ... --cerea ... --default-group
+   ```
+
+   It prints a link and a code: open the link on any device and sign in. Then confirm the
+   computer in the **Agents** panel and add `/workspace` as a workspace.
+
+4. To start it again later, run the same command **without `start` and the flags after
+   it**: the paired volume starts the agent by itself. To forget the pairing:
+   `container volume rm galopin-home`.
+
+The flags of `container` can change between its releases; `container run --help` shows
+yours. Details: [Running galopin in a container](agent-machines-reference.md#running-galopin-in-a-container).
+
 ## macOS app (menu bar)
 
 **Cerea connector** is a small menu-bar app for a Mac, for someone who just wants Cerea to reach their own files and a browser and would rather not use a terminal. It pairs the Mac as a _connectors-only_ computer (no coding agent), sets up the browser, and keeps galopin running. Everything it needs, including Node for the browser, is inside the app.
