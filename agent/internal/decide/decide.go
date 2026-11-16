@@ -559,8 +559,9 @@ var askCallersAreFree = false
 // spawn (a child is never looser than its spawner) and a schedule; "" when
 // there is no target. A call is free when the target's word is the same or more
 // cautious than the caller's on Allow; otherwise the caller's word applies. An
-// Auto caller is on Ask here, except that its agents class running makes a
-// call free the way Allow does.
+// Auto caller is on Ask here, and a session tool is free only by its
+// Coordination grant (the agents row does not free it); its agents class
+// running frees the schedule tools the way Allow does.
 func CoordinationFor(p Policy, s State, key string, delegate bool, target permrules.Action) (permrules.Action, string) {
 	if p.Deny[ClassAgents] {
 		return permrules.Deny, denyReason(ClassAgents)
@@ -580,7 +581,12 @@ func CoordinationFor(p Policy, s State, key string, delegate bool, target permru
 		answer = permrules.Allow
 	case key == "session_list":
 		answer = permrules.Allow
-	case autoRuns && key != "session_read":
+	case autoRuns && !permrules.IsCoordinationKey(key):
+		// The session tools are not here: the Coordination switch is the more
+		// specific statement, so with it off an Auto session's read,
+		// send and spawn are a card (the reviewer's or the user's by
+		// Cerea's row) whatever the agents row says. What is left is the
+		// schedule tools.
 		answer = permrules.Allow
 	case target.Valid() && wordRank(target) <= wordRank(s.Mode) && (s.Mode == permrules.Allow || askCallersAreFree):
 		answer = permrules.Allow

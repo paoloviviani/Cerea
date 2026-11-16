@@ -362,6 +362,20 @@ describe("Permissions dialog coordination", () => {
 		});
 	}
 
+	it("says for each step whether the switches matter", async () => {
+		const note = (screen: ReturnType<typeof mount>) => screen.getByTestId("coordination-note");
+		for (const [mode, text] of [
+			["ask", "Only matters in Ask and Auto."],
+			["auto", "Only matters in Ask and Auto."],
+			["allow", "Not needed in Allow: these already run without asking."],
+			["deny", "In Plan these are refused, switch or not."],
+		] as const) {
+			document.body.innerHTML = "";
+			const screen = mountGrant([], { device: device(), mode } as never);
+			await expect.element(note(screen)).toHaveTextContent(text);
+		}
+	});
+
 	it("reads the initial switches from the session's own grant", async () => {
 		const screen = mountGrant(MESSAGE, { device: device() });
 		await expect.element(screen.getByTestId("coordination-options")).toBeVisible();

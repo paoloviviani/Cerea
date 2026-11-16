@@ -227,3 +227,78 @@ func TestPermissionRulesAndHelloShowTheGrant(t *testing.T) {
 		t.Error("hello must advertise coordinationGrant")
 	}
 }
+
+// The Coordination switch per word (the owner's report that models coordinate
+// "without it being enabled"): with the switch off, Ask and Auto (even with the
+// agents row on run) raise a card for read, send and spawn; Allow runs them
+// without one, so the switch is moot there; Plan refuses. With it on, no card.
+// session_list never asks.
+func TestCoordinationSwitchPerWord(t *testing.T) {
+	type word struct {
+		name string
+		set  func(r *coordRig)
+		// wantCard is whether the switch-off call raises a card; refused is Plan.
+		wantCard, refused bool
+	}
+	words := []word{
+		{"ask", func(r *coordRig) {}, true, false},
+		{"auto agents run", func(r *coordRig) {
+			sel := r.cb.sel["caller"]
+			sel.Auto, sel.AutoClasses = true, map[string]string{"agents": "run"}
+			r.cb.sel["caller"] = sel
+		}, true, false},
+		{"allow", func(r *coordRig) {
+			sel := r.cb.sel["caller"]
+			sel.Mode = "allow"
+			r.cb.sel["caller"] = sel
+		}, false, false},
+		{"plan", func(r *coordRig) {
+			sel := r.cb.sel["caller"]
+			sel.Mode = "deny"
+			r.cb.sel["caller"] = sel
+		}, false, true},
+	}
+	calls := map[string]map[string]any{
+		"session_read":  {"target": "peer"},
+		"session_send":  {"target": "peer", "text": "hi"},
+		"session_spawn": {"title": "t", "prompt": "p", "mode": "inherit"},
+	}
+	for _, w := range words {
+		for tool, args := range calls {
+			for _, on := range []bool{false, true} {
+				r := newCoordRig(t, nil)
+				r.say("peer", "assistant", "x", t0)
+				w.set(r)
+				if on {
+					mustGrant(t, r, "caller", []string{tool})
+				}
+				_, err := r.call("caller", tool, args)
+				n := len(r.asks())
+				name := w.name + "/" + tool + "/switch"
+				switch {
+				case w.refused:
+					if err == nil || n != 0 {
+						t.Errorf("%s: Plan must refuse with no card (err %v, asks %d)", name, err, n)
+					}
+				case on:
+					if n != 0 {
+						t.Errorf("%s on: raised %d cards", name, n)
+					}
+				case w.wantCard:
+					if n != 1 || r.asks()[0].Tool != tool {
+						t.Errorf("%s off: asks = %+v, want one %s card", name, r.asks(), tool)
+					}
+				default:
+					if n != 0 {
+						t.Errorf("%s off: %d cards, want none (Allow runs it)", name, n)
+					}
+				}
+			}
+		}
+	}
+	// Finding sessions never asks, switch or not.
+	r := newCoordRig(t, nil)
+	if _, err := r.call("caller", "session_list", map[string]any{"note": "x"}); err != nil || len(r.asks()) != 0 {
+		t.Errorf("session_list: %v, %d cards", err, len(r.asks()))
+	}
+}

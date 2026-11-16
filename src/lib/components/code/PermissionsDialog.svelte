@@ -354,8 +354,12 @@
 								<span>{m["code.permissions.can_spawn"]()}</span>
 							</label>
 						</div>
-						<p class="mt-1 text-ink-faint">
-							{m["code.permissions.grant_note"]()}
+						<p class="mt-1 text-ink-faint" data-testid="coordination-note">
+							{mode === "allow"
+								? m["code.permissions.grant_note_allow"]()
+								: mode === "deny"
+									? m["code.permissions.grant_note_plan"]()
+									: m["code.permissions.grant_note"]()}
 						</p>
 						{#if ceilingWarning}
 							<p class="mt-1 text-ink-faint">{ceilingWarning}</p>

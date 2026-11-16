@@ -358,7 +358,7 @@ PATH` may only remove from it.
   `session_read`, `session_send` and `session_spawn`, so a session's model can
   find, **read** (the other session's user and assistant text only, never its
   tool output, truncated at 4 KB a message and 32 KB an answer), message and
-  start other sessions on this machine. What happens is the **agents** class (above): a call from a session on Allow (or on Auto when its map runs `agents`) to a session whose word is the same or more cautious needs no card, a call from a session on Ask still asks unless the session was **granted** it (`session.grantCoordination {sessionId, keys}`, only those four keys; `[]` clears); with `--deny agents` none works. A spawned session
+  start other sessions on this machine. What happens is the **agents** class (above): a call from a session on Allow to a session whose word is the same or more cautious needs no card, a call from a session on Ask or Auto still asks (on Auto even when its map runs `agents`) unless the session was **granted** it (`session.grantCoordination {sessionId, keys}`, only those four keys; `[]` clears); with `--deny agents` none works. A spawned session
   inherits its spawner's exceptions and grant, and its word only as Allow (an
   Allow spawner starts an Allow child, any other starts on Ask), never more;
   Cerea's scheduled runs orchestrate other sessions

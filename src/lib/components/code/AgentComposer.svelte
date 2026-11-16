@@ -792,6 +792,17 @@
 	let isSubagent = $derived(Boolean(agent?.parentId));
 	/** The step the machine reports: `allow` with its per-class map is Auto, without one Allow. */
 	let permissionMode = $derived(stepOf(agent?.permissionMode, agent?.autoClasses));
+	/** The Auto line under the composer: no decision model wins over reviewer unavailable;
+	 * nothing when the reviewer is healthy or the step is not Auto. */
+	let autoLine = $derived(
+		permissionMode !== "auto" || !autoSetup
+			? null
+			: autoSetup.noDecisionModel
+				? { testid: "permission-no-model-line", text: m["code.auto.no_model"]() }
+				: autoSetup.degraded
+					? { testid: "permission-degraded-line", text: m["code.auto.degraded"]() }
+					: null
+	);
 	let showPermissionSelector = $derived(permissionMode !== null && !codeReauth.required);
 
 	/** build and plan are driven by the selector (Plan runs plan, Ask and Allow
@@ -1199,6 +1210,17 @@
 			</div>
 		{/if}
 	</div>
+	{#if autoLine}
+		<!-- Why Auto is not what it seems, where the user looks: nobody opens the shield's
+		     sheet (which carries the same line). One muted line that truncates. -->
+		<p
+			class="min-w-0 truncate px-3 pb-1.5 text-xs text-ink-muted"
+			title={autoLine.text}
+			data-testid={autoLine.testid}
+		>
+			{autoLine.text}
+		</p>
+	{/if}
 </form>
 
 <!-- The mode/model/effort row, BELOW the composer like the regular chat's

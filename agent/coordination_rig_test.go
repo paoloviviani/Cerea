@@ -201,6 +201,17 @@ func (c *coordBackend) AddException(_ context.Context, _, id string, e permrules
 func (c *coordBackend) RemoveException(context.Context, string, string, string) (bool, error) {
 	panic("not used")
 }
+
+// AutoClasses is the root's Auto map (backend.AutoHost, the part the decision reads).
+func (c *coordBackend) AutoClasses(id string) (map[string]string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	sel := c.sel[c.rootOf(id)]
+	if !sel.Auto || sel.Effective() != permrules.Ask {
+		return nil, false
+	}
+	return sel.AutoClasses, true
+}
 func (c *coordBackend) Coordination(id string) []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()

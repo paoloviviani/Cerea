@@ -347,7 +347,7 @@ There are no computer limits (ADR 0109): the user who uses Cerea is the user who
 
 Auto's rules are guardrails against a careless agent, not a security boundary; see ADR 0107 and ADR 0109.
 
-**What you see.** An action the reviewer allowed shows _Auto-allowed by reviewer model_ on its card; a plain read allowed by rule shows _Auto-allowed: read-only_. An ask it sent to you says why, above the buttons and in the notification: _The reviewer wasn't sure enough (51%; it allows at 90%)_, _This kind of request always comes to you: ⟨reason⟩_, or _The reviewer couldn't be reached, so this comes to you_. In the shield's sheet, a line on Auto says **Auto: reviewer unavailable** while the reviewer keeps failing, and **Auto: no reviewer decision model defined, falling back to Ask** when you have no decision model at all (the gateway lists none for you, or there is no gateway); the second wins over the first. `GET /api/v2/code/auto-approval` carries `noDecisionModel` for this (true for an empty catalogue or no gateway, never for one that is merely unreachable). In Workspace → Agents the **Reviewer** choice is then disabled with the same sentence; a kind already saved as Reviewer stays shown as such, with a note that it currently asks you, and nothing saved is rewritten. Every decision is in your review log (Settings → Review log; administrators also see all users' under Administration → Agents), and galopin's own local audit records the action as answered by a review model rather than by you.
+**What you see.** An action the reviewer allowed shows _Auto-allowed by reviewer model_ on its card; a plain read allowed by rule shows _Auto-allowed: read-only_. An ask it sent to you says why, above the buttons and in the notification: _The reviewer wasn't sure enough (51%; it allows at 90%)_, _This kind of request always comes to you: ⟨reason⟩_, or _The reviewer couldn't be reached, so this comes to you_. On Auto, the same line also sits under the composer, in muted small type on one line that truncates on a phone (nobody opens the sheet to look for it), and stays in the shield's sheet too; it shows nothing when the reviewer is healthy or the step is not Auto. The line says **Auto: reviewer unavailable** while the reviewer keeps failing, and **Auto: no reviewer decision model defined, falling back to Ask** when you have no decision model at all (the gateway lists none for you, or there is no gateway); the second wins over the first. `GET /api/v2/code/auto-approval` carries `noDecisionModel` for this (true for an empty catalogue or no gateway, never for one that is merely unreachable). In Workspace → Agents the **Reviewer** choice is then disabled with the same sentence; a kind already saved as Reviewer stays shown as such, with a note that it currently asks you, and nothing saved is rewritten. Every decision is in your review log (Settings → Review log; administrators also see all users' under Administration → Agents), and galopin's own local audit records the action as answered by a review model rather than by you.
 
 The reviewer calls the model with **your own sign-in access**, the background access that scheduled chats use, so reviews count against your own quota. If you have none (sign in again to get it), or you have turned background access off, your asks come to you and the log says why. This works on deployments behind a gateway; elsewhere the third step reads Allow.
 
@@ -497,6 +497,17 @@ row says "this computer's galopin is too old to grant coordination; update it"
 enrolled with `--no-agent-tools` says so instead). A schedule pinned to one
 session sends the grant each run, and when its options are turned off the next
 run takes the grant back (`keys: []`).
+
+**The same switches in a session's permissions sheet.** The shield's sheet has a
+**Coordination** section with the same two switches. They only matter in Ask and
+Auto. With a switch off, reading, messaging and starting sessions come to you (on
+Auto, to the reviewer or to you by the Agents row), even when Auto's Agents row
+says Runs: the switch is the more specific statement. Listing sessions never
+asks. In Allow these already run without asking and in Plan they are refused;
+the sheet says so for each step and keeps the switches. A session an agent
+starts begins with the same grant. The reviewer sees the tool, the card's title
+(the target session's or new session's title), the session and the workspace; it
+does not see the message text or the new session's prompt.
 
 **Schedules made by agents.** A coding session can list, create, update, pause
 and delete schedules on its own computer through galopin's schedule tools (see
