@@ -88,6 +88,9 @@
 		<p class="text-xs text-gray-500 dark:text-gray-400">
 			{m["admin.web_search.description"]()}
 		</p>
+		<p class="text-xs text-gray-500 dark:text-gray-400">
+			{m["admin.web_search.description_users"]()}
+		</p>
 	</div>
 
 	{#if failure}

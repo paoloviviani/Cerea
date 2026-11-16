@@ -75,6 +75,8 @@
 		disabled?: boolean;
 		// tools removed
 		modelIsMultimodal?: boolean;
+		// False when the model cannot call tools: web search is only offered as a tool call.
+		modelSupportsTools?: boolean;
 		// Knowledge bases attached to THIS conversation, as {id, name} pairs.
 		// Bindable: the toggle updates it optimistically, and on the home page —
 		// where no conversation exists to PATCH — the list rides into the
@@ -129,6 +131,7 @@
 		disabled = false,
 
 		modelIsMultimodal = false,
+		modelSupportsTools = true,
 		knowledgeBases = $bindable([]),
 		webSearch = $bindable(false),
 		chatTools = true,
@@ -146,9 +149,10 @@
 	// Per caller, from the root layout: no granted search backend means the
 	// switch could only ever do nothing, so it is shown disabled with why.
 	const webSearchUnavailable = $derived(
-		webSearchUnavailableReason(
-			page.data as { webSearchAvailable?: boolean; gatewayIsAdmin?: boolean }
-		)
+		webSearchUnavailableReason({
+			...(page.data as { webSearchAvailable?: boolean; gatewayIsAdmin?: boolean }),
+			modelSupportsTools,
+		})
 	);
 
 	async function toggleWebSearch() {

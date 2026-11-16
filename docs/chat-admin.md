@@ -75,7 +75,10 @@ billing-group search policy in the gateway decides. `WEB_SEARCH_MODEL` in the
 environment overrides the screen and shows as "set in the environment". The
 choice only applies to users granted that backend; everyone else falls back to
 their group's policy. Anyone with no usable backend sees the composer's Web
-search pill disabled rather than a switch that does nothing.
+search pill disabled rather than a switch that does nothing. The screen only
+picks the backend: it does not turn search on for users. Users turn it on with
+the pill in their chats or the default in Settings, and a project can set its
+own default.
 
 **Fetching** distinguishes fetching from searching: given a plain URL you do
 not search for it, you fetch it, and the only question is what does the
