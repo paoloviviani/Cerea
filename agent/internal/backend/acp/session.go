@@ -52,7 +52,16 @@ type sessionState struct {
 	title        string
 	modeID       string
 	modelID      string
-	usage        *backend.Usage
+	// modeConfigID/modelConfigID are the session config option ids behind the
+	// mode and model selectors ("" when the agent only has the legacy
+	// session/set_mode|set_model form).
+	modeConfigID  string
+	modelConfigID string
+	// active is set once this process's agent holds the session in memory
+	// (created, loaded or resumed since the agent last started); a listed or
+	// restart-orphaned session must be reopened before it can be prompted.
+	active bool
+	usage  *backend.Usage
 	// reasserting is non-nil while a hidden mode is being put back (modeguard.go);
 	// closed when it is done. Permission answers wait on it.
 	reasserting chan struct{}
@@ -99,6 +108,9 @@ type sessionState struct {
 	// loaded is set once the session's history is known: created here, or
 	// replayed by session/load. A session only listed by the agent is not.
 	loaded bool
+	// replayed is set when the transcript came from a session/load replay
+	// (and so can be dropped and replayed again, history.go trimReplays).
+	replayed bool
 	// replaying is set while session/load's replay arrives (ops.go
 	// Transcript): chunks then build the transcript from the agent's own
 	// history. replaySeq/replayRole group an agent's id-less chunks into
@@ -106,6 +118,8 @@ type sessionState struct {
 	replaying  bool
 	replaySeq  int
 	replayRole string
+	// replayMsgID is the assistant message the replay is currently filling.
+	replayMsgID string
 }
 
 func newSessionState(id, workspaceDir string) *sessionState {
@@ -183,6 +197,9 @@ func (s *sessionState) toTranscript() backend.Transcript {
 type registry struct {
 	sessionMu sync.Mutex
 	sessions  map[string]*sessionState
+	// gone holds ids deleted through galopin: an agent without session/delete
+	// would otherwise list them again.
+	gone map[string]bool
 
 	capsMu sync.Mutex
 	caps   map[string]workspaceCaps
@@ -194,7 +211,7 @@ type workspaceCaps struct {
 }
 
 func newRegistry() *registry {
-	return &registry{sessions: map[string]*sessionState{}, caps: map[string]workspaceCaps{}}
+	return &registry{sessions: map[string]*sessionState{}, gone: map[string]bool{}, caps: map[string]workspaceCaps{}}
 }
 
 func (r *registry) get(id string) (*sessionState, bool) {
@@ -232,9 +249,16 @@ func (r *registry) put(st *sessionState) {
 	r.sessionMu.Unlock()
 }
 
+func (r *registry) isGone(id string) bool {
+	r.sessionMu.Lock()
+	defer r.sessionMu.Unlock()
+	return r.gone[id]
+}
+
 func (r *registry) delete(id string) {
 	r.sessionMu.Lock()
 	delete(r.sessions, id)
+	r.gone[id] = true
 	r.sessionMu.Unlock()
 }
 
@@ -263,4 +287,13 @@ func (r *registry) getCaps(workspaceDir string) workspaceCaps {
 	r.capsMu.Lock()
 	defer r.capsMu.Unlock()
 	return r.caps[workspaceDir]
+}
+
+// deactivateAll marks every session as not held by the (new) agent process.
+func (r *registry) deactivateAll() {
+	for _, st := range r.all() {
+		st.mu.Lock()
+		st.active = false
+		st.mu.Unlock()
+	}
 }

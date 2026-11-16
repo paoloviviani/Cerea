@@ -7,9 +7,10 @@ import (
 	"galopin/internal/backend"
 )
 
-func TestUsageAndCompactAreOffOnlyWhenConfigured(t *testing.T) {
+func TestCompactIsOffOnlyWhenConfigured(t *testing.T) {
 	plain := New(Config{Logf: func(string, ...any) {}})
-	if c := plain.Capabilities(); c.Usage || c.Compact {
+	if c := plain.Capabilities(); !c.Usage || c.Compact {
+		// usage is on for every ACP agent: the stable usage_update is read when sent
 		t.Errorf("a plain ACP agent advertises usage=%v compact=%v", c.Usage, c.Compact)
 	}
 	if err := plain.Compact(context.Background(), "/w", "s"); err == nil {
@@ -35,5 +36,16 @@ func TestRecordUsageEmitsAndKeepsTheLatest(t *testing.T) {
 	st, _ := b.reg.get("s1")
 	if s := st.toSession("acp"); s.Usage == nil || s.Usage.Input != 5 {
 		t.Errorf("session usage = %+v", s.Usage)
+	}
+}
+
+func TestAgentUsageIsIgnoredWhenTheCallerFeedsUsage(t *testing.T) {
+	b := New(Config{Usage: true, Logf: func(string, ...any) {}})
+	st := b.reg.getOrCreate("s1", "/w")
+	b.RecordUsage("s1", backend.Usage{Input: 80, Output: 7})
+	b.handleUsageUpdate(st, map[string]any{"used": float64(0), "size": float64(10)})
+	b.applyTurnUsage("/w", st, map[string]any{"inputTokens": float64(0)})
+	if st.usage.Input != 80 || st.usage.Output != 7 || st.usage.ContextMax != nil {
+		t.Errorf("usage = %+v", st.usage)
 	}
 }

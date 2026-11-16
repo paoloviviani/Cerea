@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 	"testing"
 	"time"
 
@@ -46,6 +47,31 @@ type fakeAgent struct {
 	// setModeHold, when set, delays every session/set_mode answer until it is closed.
 	setModeHold chan struct{}
 	noResume    bool
+
+	// hook, when set, sees every request first and returns true when it
+	// answered; capsFn edits initialize's agentCapabilities; calls records
+	// every request's method and params in order.
+	hook   func(fa *fakeAgent, id json.RawMessage, method string, params map[string]any) bool
+	capsFn func(agentCaps map[string]any)
+	cmu    sync.Mutex
+	calls  []fakeCall
+}
+
+type fakeCall struct {
+	method string
+	params map[string]any
+}
+
+func (fa *fakeAgent) called(method string) []map[string]any {
+	fa.cmu.Lock()
+	defer fa.cmu.Unlock()
+	var out []map[string]any
+	for _, c := range fa.calls {
+		if c.method == method {
+			out = append(out, c.params)
+		}
+	}
+	return out
 }
 
 type fakePromptReq struct {
@@ -67,21 +93,33 @@ func newFakeAgent(t *testing.T, w io.Writer) *fakeAgent {
 }
 
 func (fa *fakeAgent) handleRequest(id json.RawMessage, method string, params json.RawMessage) {
+	var pm map[string]any
+	_ = json.Unmarshal(params, &pm)
+	fa.cmu.Lock()
+	fa.calls = append(fa.calls, fakeCall{method, pm})
+	fa.cmu.Unlock()
+	if fa.hook != nil && fa.hook(fa, id, method, pm) {
+		return
+	}
 	switch method {
 	case "initialize":
 		sessCaps := map[string]any{"list": map[string]any{}, "close": map[string]any{}, "resume": map[string]any{}}
 		if fa.noResume {
 			delete(sessCaps, "resume")
 		}
+		agentCaps := map[string]any{
+			"loadSession":         true,
+			"promptCapabilities":  map[string]any{"image": true},
+			"sessionCapabilities": sessCaps,
+			"mcpCapabilities":     map[string]any{"http": fa.mcpHTTP},
+		}
+		if fa.capsFn != nil {
+			fa.capsFn(agentCaps)
+		}
 		fa.respond(id, map[string]any{
-			"protocolVersion": 1,
-			"agentCapabilities": map[string]any{
-				"loadSession":         true,
-				"promptCapabilities":  map[string]any{"image": true},
-				"sessionCapabilities": sessCaps,
-				"mcpCapabilities":     map[string]any{"http": fa.mcpHTTP},
-			},
-			"agentInfo": map[string]any{"name": "FakeAgent", "version": "0.0.1-test"},
+			"protocolVersion":   1,
+			"agentCapabilities": agentCaps,
+			"agentInfo":         map[string]any{"name": "FakeAgent", "version": "0.0.1-test"},
 		})
 	case "session/load":
 		var np map[string]any
@@ -198,7 +236,7 @@ func newTestBackendWith(t *testing.T, tools, mcpHTTP bool) (*Backend, *fakeAgent
 }
 
 // newTestBackendCfg is newTestBackendWith with the Config open to the test.
-func newTestBackendCfg(t *testing.T, mcpHTTP bool, mutate func(*Config)) (*Backend, *fakeAgent) {
+func newTestBackendCfg(t *testing.T, mcpHTTP bool, mutate func(*Config), setup ...func(*fakeAgent)) (*Backend, *fakeAgent) {
 	t.Helper()
 	agentReads, backendWrites := io.Pipe() // client(backend) -> agent
 	backendReads, agentWrites := io.Pipe() // agent -> client(backend)
@@ -208,6 +246,9 @@ func newTestBackendCfg(t *testing.T, mcpHTTP bool, mutate func(*Config)) (*Backe
 	b := New(cfg)
 	fa := newFakeAgent(t, agentWrites)
 	fa.mcpHTTP = mcpHTTP
+	for _, f := range setup {
+		f(fa)
+	}
 	go fa.conn.readLoop(agentReads)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -245,8 +286,8 @@ func TestHandshake(t *testing.T) {
 	if !caps.Diff {
 		t.Error("Capabilities().Diff = false, want true (galopin's own diffs)")
 	}
-	if caps.Children || caps.Usage || caps.Compact || caps.Worktrees {
-		t.Errorf("Capabilities() = %+v, want Children/Usage/Compact/Worktrees all false", caps)
+	if caps.Children || caps.Compact || caps.Worktrees || caps.Revert || caps.Steer {
+		t.Errorf("Capabilities() = %+v, want Children/Compact/Worktrees/Revert/Steer all false", caps)
 	}
 }
 

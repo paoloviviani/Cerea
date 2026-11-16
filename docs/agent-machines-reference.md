@@ -127,9 +127,46 @@ opencode config goes (default `<config-dir>/galopin/opencode.json`), and `--yes`
 `run` drives opencode by default (it supervises `opencode serve`). `run
 --backend acp --acp-command "<agent>"` drives any ACP agent instead:
 `opencode acp`, Gemini CLI, Claude Code or Codex through their ACP adapters,
-Pi through `pi-acp`. An ACP backend reports fewer capabilities (no usage,
-compaction or subagents), and the chat panel hides those controls. The
-Changes pane works for either backend, because the agent reads it from git.
+Pi through `pi-acp`. An ACP backend reports fewer capabilities (no subagents,
+revert or steering), and the chat panel hides those controls. The Changes pane
+works for either backend, because the agent reads it from git.
+
+#### Running Claude Code over ACP
+
+Claude Code speaks ACP through Zed's adapter, `claude-agent-acp` (npm
+`@agentclientprotocol/claude-agent-acp`). Install it on the computer, sign in to
+Claude Code there the usual way, and run:
+
+```
+galopin run --backend acp --acp-command "claude-agent-acp"
+```
+
+The agent starts with galopin's own environment (galopin passes it through
+unchanged), so to run it against a gateway instead of a Claude login set these
+for the galopin process (a service unit's `Environment=`, or your shell):
+
+```
+ANTHROPIC_BASE_URL=https://your-gateway.example/v1
+ANTHROPIC_AUTH_TOKEN=<token for that gateway>
+ANTHROPIC_MODEL=<model id the gateway serves>
+```
+
+What the panel shows, each only when the agent advertises it in `initialize`:
+
+- **Existing sessions.** Sessions already in that workspace, including ones
+  started in the Claude Code terminal, are listed (`session/list`, paged) and
+  open with their history (`session/load`; `session/resume` when only that is
+  offered, which opens with no history). A large session is read once and served
+  to the panel in pages, newest first, older pages loading as you scroll. Deleting
+  one removes it from the agent's list when the agent supports `session/delete`.
+- **Mode and model** selectors, from the agent's session config options.
+- **Context meter and cost**, from the agent's usage updates; **plans** as the
+  todo list; **tool calls** with their file locations and edits.
+- **Attachments:** images when the agent takes images, other files when it
+  accepts embedded context; anything else is named in a note to the agent.
+- **"Always allow"** is galopin's own exception on the session, as with opencode;
+  the agent is answered once, so nothing is remembered in Claude Code's own
+  settings.
 
 ### The goose engine
 

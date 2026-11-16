@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"galopin/internal/backend"
@@ -72,7 +73,7 @@ func (b *Backend) handleRequest(id json.RawMessage, method string, params json.R
 	req := backend.PermissionRequest{
 		ID:        localID,
 		SessionID: p.SessionID,
-		Tool:      getStr(p.ToolCall, "kind", "title"),
+		Tool:      toolName(p.ToolCall),
 		Title:     getStr(p.ToolCall, "title"),
 		CallID:    getStr(p.ToolCall, "toolCallId"),
 		Metadata:  askMetadata(p.ToolCall),
@@ -131,10 +132,20 @@ func (b *Backend) handleNotify(method string, params json.RawMessage) {
 		b.handleModeUpdate(st, upd)
 	case "available_commands_update":
 		b.handleAvailableCommands(st, upd)
+	case "session_info_update":
+		b.handleSessionInfo(st, upd)
+	case "usage_update":
+		b.handleUsageUpdate(st, upd)
+	case "config_option_update":
+		b.applyConfig(st.workspaceDir, st, parseSessionConfig(upd))
+		st.mu.Lock()
+		sess := st.toSession(b.ID())
+		workspaceDir := st.workspaceDir
+		st.mu.Unlock()
+		b.emit(workspaceDir, st.id, backend.Event{Kind: backend.EventSession, Session: &sess})
 	default:
-		// usage_update (no Usage capability), config_option_update:
-		// unmapped, dropped per PROTOCOL.md §5's forward-compatibility rule
-		// (unknown kinds are ignored).
+		// Anything else (cursor_update, notice, ...) is unmapped, dropped per
+		// PROTOCOL.md §5's forward-compatibility rule (unknown kinds are ignored).
 	}
 }
 
@@ -196,6 +207,7 @@ func (b *Backend) handleTextChunk(st *sessionState, role string, upd map[string]
 	acpMsgID := getStr(upd, "messageId", "messageID")
 
 	st.mu.Lock()
+	replaying := st.replaying
 	if st.replaying {
 		// A replayed history: an agent that sends no message ids (goose) is
 		// grouped one message per run of the same role.
@@ -253,6 +265,12 @@ func (b *Backend) handleTextChunk(st *sessionState, role string, upd map[string]
 	workspaceDir := st.workspaceDir
 	st.mu.Unlock()
 
+	if replaying {
+		// A replay is history, not news: the transcript is served whole by
+		// Transcript/History, so no per-chunk event goes out (thousands of them
+		// would flood the link and the viewer while the load is still running).
+		return
+	}
 	if firstChunk {
 		b.emit(workspaceDir, st.id, backend.Event{Kind: backend.EventPart, Part: &part})
 	} else {
@@ -270,12 +288,21 @@ func (b *Backend) handleToolCall(st *sessionState, upd map[string]any) {
 	partID := "tool:" + callID
 
 	st.mu.Lock()
-	if st.replaying {
-		st.replayRole = "" // text after a tool call is a new message
-	}
+	replaying := st.replaying
 	msgID := ""
 	if _, ok := st.partIndex[partID]; ok {
 		msgID = st.messages[st.partOwner[partID]].Message.ID
+	} else if replaying {
+		// A run of consecutive tool calls shares one message instead of a
+		// message each (a long session has thousands of calls); text before
+		// or after the run is a message of its own.
+		if st.replayRole != "tool" || st.replayMsgID == "" {
+			st.replaySeq++
+			st.replayRole = "tool"
+			st.replayMsgID = fmt.Sprintf("%s:replay:%d", st.id, st.replaySeq)
+			st.upsertMessage(backend.Message{ID: st.replayMsgID, Role: "assistant", CreatedAt: time.Now()})
+		}
+		msgID = st.replayMsgID
 	} else if st.busy {
 		msgID = st.assistantMsgID
 	} else {
@@ -283,34 +310,59 @@ func (b *Backend) handleToolCall(st *sessionState, upd map[string]any) {
 		st.upsertMessage(backend.Message{ID: msgID, Role: "assistant", CreatedAt: time.Now()})
 	}
 
-	part := backend.Part{
-		ID: partID, MessageID: msgID, Role: "assistant", Type: backend.PartTool,
-		CallID:     callID,
-		Tool:       getStr(upd, "kind", "title"),
-		ToolStatus: mapToolStatus(getStr(upd, "status")),
-		Title:      getStr(upd, "title"),
+	// An update names only what changed (tool-calls.md: every field but
+	// toolCallId is optional), so it is merged onto the call as it stands: a
+	// bare {toolCallId, status} must not blank the call's name, title or input.
+	var prev backend.Part
+	idx, hasPrev := st.partIndex[partID]
+	if hasPrev {
+		prev = st.messages[st.partOwner[partID]].Parts[idx]
+	}
+	part := prev
+	if !hasPrev {
+		part = backend.Part{ID: partID, MessageID: msgID, Role: "assistant", Type: backend.PartTool, CallID: callID, ToolStatus: backend.ToolPending}
+	}
+	if name := toolName(upd); name != "" && (!hasPrev || getStr(upd, "kind", "name") != "") {
+		part.Tool = name
+	}
+	if part.Tool == "" {
+		part.Tool = "tool" // never nameless: a call with no kind, name or title
+	}
+	if t := getStr(upd, "title"); t != "" {
+		part.Title = t
+	}
+	if status := getStr(upd, "status"); status != "" {
+		part.ToolStatus = mapToolStatus(status)
 	}
 	if in := getMap(upd, "rawInput"); in != nil {
 		part.Input = in
+	} else if part.Input == nil {
+		part.Input = locationInput(upd)
 	}
-	if part.ToolStatus == backend.ToolCompleted {
-		part.Output = toolCallText(upd)
-	} else if part.ToolStatus == backend.ToolFailed {
-		part.ToolError = toolCallText(upd)
+	switch part.ToolStatus {
+	case backend.ToolCompleted:
+		if out := toolCallText(upd); out != "" {
+			part.Output = out
+		}
+	case backend.ToolFailed:
+		if out := toolCallText(upd); out != "" {
+			part.ToolError = out
+		}
 	}
-	part.Attachments, part.AttachmentsOmitted = b.toolImages(st.id, upd)
-	if len(part.Attachments) == 0 && part.AttachmentsOmitted == 0 {
+	if atts, omitted := b.toolImages(st.id, upd); len(atts) > 0 || omitted > 0 {
 		// An update that repeats the call without its content must not
 		// erase images an earlier one delivered.
-		if idx, ok := st.partIndex[partID]; ok {
-			prev := st.messages[st.partOwner[partID]].Parts[idx]
-			part.Attachments, part.AttachmentsOmitted = prev.Attachments, prev.AttachmentsOmitted
-		}
+		part.Attachments, part.AttachmentsOmitted = atts, omitted
 	}
 	st.upsertPart(part)
 	workspaceDir := st.workspaceDir
 	st.mu.Unlock()
 
+	if replaying {
+		// No edit snapshots (they read files off the disk, once per historic
+		// edit) and no event for a call that already happened.
+		return
+	}
 	b.trackEdit(st.id, workspaceDir, upd)
 	b.emit(workspaceDir, st.id, backend.Event{Kind: backend.EventPart, Part: &part})
 }
@@ -328,7 +380,11 @@ func (b *Backend) handlePlan(st *sessionState, upd map[string]any) {
 	st.mu.Lock()
 	st.todos = todos
 	workspaceDir := st.workspaceDir
+	replaying := st.replaying
 	st.mu.Unlock()
+	if replaying {
+		return
+	}
 	b.emit(workspaceDir, st.id, backend.Event{Kind: backend.EventTodo, Todos: todos})
 }
 
@@ -405,4 +461,132 @@ func (b *Backend) Compact(ctx context.Context, workspaceDir, sessionID string) e
 		return fmt.Errorf("acp: this agent has no compaction command")
 	}
 	return b.Prompt(ctx, workspaceDir, sessionID, backend.Prompt{Text: b.cfg.CompactCommand})
+}
+
+// toolName is the name a tool call is shown and judged under: its kind (a
+// coarse category Cerea already knows how to draw: read, edit, execute...),
+// unless that is the catch-all "other" or absent, then the programmatic name
+// (stable tool-call names), then the title. "" when the update carries none of
+// them (an update that only moves the status).
+func toolName(call map[string]any) string {
+	kind := getStr(call, "kind")
+	if kind != "" && kind != "other" {
+		return kind
+	}
+	for _, v := range []string{getStr(call, "name"), getStr(call, "title"), kind} {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// locationInput gives a call with no rawInput the file it works on, from its
+// locations (tool-calls.md "Following the Agent") or a diff item's path, in the
+// filePath/line keys the tool card reads from an input.
+func locationInput(call map[string]any) map[string]any {
+	for _, l := range asMaps(getSlice(call, "locations")) {
+		if p := getStr(l, "path"); p != "" {
+			in := map[string]any{"filePath": p}
+			if line, ok := l["line"].(float64); ok {
+				in["line"] = int(line)
+			}
+			return in
+		}
+	}
+	for _, c := range asMaps(getSlice(call, "content")) {
+		if getStr(c, "type") == "diff" {
+			if p := getStr(c, "path"); p != "" {
+				return map[string]any{"filePath": p}
+			}
+		}
+	}
+	return nil
+}
+
+// handleSessionInfo applies session_info_update: the agent's own title (an
+// agent that generates one, or a rename made in its own UI) and last-activity
+// time. A title the user set here wins over the agent's until the agent sends
+// a new one; null clears.
+func (b *Backend) handleSessionInfo(st *sessionState, upd map[string]any) {
+	st.mu.Lock()
+	changed := false
+	if v, ok := upd["title"]; ok {
+		t, _ := v.(string)
+		if st.title != t {
+			st.title, changed = t, true
+		}
+	}
+	if t, err := time.Parse(time.RFC3339, getStr(upd, "updatedAt")); err == nil {
+		st.updatedAt = t
+		changed = true
+	}
+	sess := st.toSession(b.ID())
+	workspaceDir := st.workspaceDir
+	st.mu.Unlock()
+	if changed {
+		b.emit(workspaceDir, st.id, backend.Event{Kind: backend.EventSession, Session: &sess})
+	}
+}
+
+// handleUsageUpdate maps usage_update (prompt-turn.md "Session usage
+// updates"): used/size are the context window's tokens in use and its size,
+// cost the cumulative session cost (counted when in USD, the unit Usage.Cost
+// is in).
+func (b *Backend) handleUsageUpdate(st *sessionState, upd map[string]any) {
+	if b.cfg.Usage {
+		return // the caller feeds usage from its own proxy (RecordUsage); the agent's would overwrite it
+	}
+	used, okUsed := upd["used"].(float64)
+	size, okSize := upd["size"].(float64)
+	if !okUsed && !okSize {
+		return
+	}
+	st.mu.Lock()
+	u := backend.Usage{}
+	if st.usage != nil {
+		u = *st.usage
+	}
+	if okUsed {
+		u.ContextUsed = int(used)
+	}
+	if okSize && size > 0 {
+		n := int(size)
+		u.ContextMax = &n
+	}
+	if cost := getMap(upd, "cost"); cost != nil && getStr(cost, "currency") == "USD" {
+		if amount, ok := cost["amount"].(float64); ok {
+			u.Cost = amount
+		}
+	}
+	st.usage = &u
+	workspaceDir := st.workspaceDir
+	st.mu.Unlock()
+	b.emit(workspaceDir, st.id, backend.Event{Kind: backend.EventUsage, Usage: &u})
+}
+
+// applyTurnUsage reads the draft end-of-turn usage object (totalTokens,
+// inputTokens, outputTokens, thoughtTokens, cachedReadTokens,
+// cachedWriteTokens) into the session's usage, next to the context figures
+// usage_update gave.
+func (b *Backend) applyTurnUsage(workspaceDir string, st *sessionState, turn map[string]any) {
+	if b.cfg.Usage {
+		return
+	}
+	num := func(k string) int {
+		if f, ok := turn[k].(float64); ok {
+			return int(f)
+		}
+		return 0
+	}
+	st.mu.Lock()
+	u := backend.Usage{}
+	if st.usage != nil {
+		u = *st.usage
+	}
+	u.Input, u.Output, u.Reasoning = num("inputTokens"), num("outputTokens"), num("thoughtTokens")
+	u.CacheRead, u.CacheWrite = num("cachedReadTokens"), num("cachedWriteTokens")
+	st.usage = &u
+	st.mu.Unlock()
+	b.emit(workspaceDir, st.id, backend.Event{Kind: backend.EventUsage, Usage: &u})
 }

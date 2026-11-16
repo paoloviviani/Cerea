@@ -176,6 +176,7 @@ func (b *Backend) processStarted() {
 	b.sels.mu.Lock()
 	fn := b.sels.fn
 	b.sels.mu.Unlock()
+	b.reg.deactivateAll()
 	if fn != nil {
 		fn()
 	}
