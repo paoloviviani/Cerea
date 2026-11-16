@@ -7,6 +7,7 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **A large markdown or text file is read, not parsed.** A long chat export or document that became a pointer was parsed with code and the turn stopped. The assistant now classes the content from its name and sample: prose is read (answered from its start and a longer end, asking what to pick up when it resumes an earlier conversation), and only data is queried with code. For prose with no reported context window, the inline limit is raised to 200,000 characters. The chat now reads the gateway's `context_window` (it only read the HF router's per-provider `context_length`, so every gateway model fell back to the default window), and an attachment whose text is inlined says so and tells the assistant not to re-read it with code.
 - **Web search with a model that cannot use tools no longer confuses users.** Search is only offered as a tool call, so a model without tools could not search while the switch looked on. The composer now shows the Web search switch as unavailable for such a model, with the reason, and the assistant says plainly that it cannot search instead of "I can't search the web". When search is off but a backend is granted, the assistant tells users to turn on the switch.
 
 ## v0.54.0 — 2026-11-16

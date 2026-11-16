@@ -111,7 +111,7 @@ describe("attachment mount names", () => {
 		expect(names.get("h1")).toBe("a.pdf");
 		expect(names.get("h2")).toBe("a (2).pdf");
 		expect(attachmentMountNotice(names.get("h2") as string)).toBe(
-			"The file is available to code at /mnt/data/a (2).pdf (its current version, if it has been edited)."
+			"Its full text is below, already read. The file is also available to code at /mnt/data/a (2).pdf (its current version, if it has been edited), for computation such as counting, searching at scale or transforming, not to read it again."
 		);
 	});
 });

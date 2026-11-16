@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
 	FALLBACK_LARGE_CONTENT_CHARS,
+	FALLBACK_LARGE_PROSE_CHARS,
+	PROSE_SAMPLE_TAIL_CHARS,
+	classifyContent,
 	SAMPLE_HEAD_CHARS,
 	SAMPLE_TAIL_CHARS,
 	countLines,
@@ -27,6 +30,77 @@ describe("the threshold", () => {
 		expect(largeContentThresholdChars(undefined)).toBe(FALLBACK_LARGE_CONTENT_CHARS);
 		expect(largeContentThresholdChars(0)).toBe(FALLBACK_LARGE_CONTENT_CHARS);
 		expect(FALLBACK_LARGE_CONTENT_CHARS).toBe(400_000 * 0.25);
+	});
+});
+
+describe("the prose threshold", () => {
+	it("is higher than the data one when the window is unknown", () => {
+		expect(largeContentThresholdChars(undefined, "prose")).toBe(FALLBACK_LARGE_PROSE_CHARS);
+		expect(FALLBACK_LARGE_PROSE_CHARS).toBe(200_000);
+		expect(largeContentThresholdChars(undefined, "data")).toBe(FALLBACK_LARGE_CONTENT_CHARS);
+		expect(largeContentThresholdChars(undefined, "unknown")).toBe(FALLBACK_LARGE_CONTENT_CHARS);
+	});
+
+	it("is the same for every class when the window is known", () => {
+		expect(largeContentThresholdChars(100_000, "prose")).toBe(100_000);
+	});
+});
+
+const transcript = Array.from(
+	{ length: 600 },
+	(_, i) =>
+		`## ${i % 2 ? "Assistant" : "User"}\n\nThis is message number ${i}. It talks about presets and LUTs for a grade.\n`
+).join("\n");
+
+describe("classifying a content", () => {
+	const kind = (name: string, text: string, mime = "text/plain") =>
+		classifyContent({ name, mime, text });
+
+	it("calls a markdown chat export prose", () => {
+		expect(transcript.length).toBeGreaterThan(100_000 / 2);
+		expect(kind("lightroom-presets-luts-dc7db3.md", transcript, "text/markdown")).toBe("prose");
+		expect(kind("export", transcript)).toBe("prose");
+	});
+
+	it("calls extracted document text prose", () => {
+		const text =
+			"Quarterly review.\nThe team shipped three features this quarter.\nNext we plan more.";
+		expect(kind("report.docx", text, "text/markdown")).toBe("prose");
+		expect(kind("deck.pdf", text)).toBe("prose");
+		expect(kind("notes.txt", text)).toBe("prose");
+	});
+
+	it("calls data by extension", () => {
+		for (const name of [
+			"a.json",
+			"a.jsonl",
+			"a.ndjson",
+			"a.csv",
+			"a.tsv",
+			"a.log",
+			"a.xml",
+			"a.yaml",
+			"a.sql",
+		])
+			expect(kind(name, "whatever")).toBe("data");
+	});
+
+	it("calls delimited lines data", () => {
+		expect(kind("table.txt", "a,b,c\n1,2,3\n4,5,6\n7,8,9")).toBe("data");
+	});
+
+	it("calls a log data", () => {
+		expect(kind("server.log", "2026-01-01 INFO started\n2026-01-01 WARN slow")).toBe("data");
+	});
+
+	it("calls a paste that starts with { or [ data", () => {
+		expect(kind("pasted-1.txt", '  {"a": 1}', "application/vnd.chatui.clipboard")).toBe("data");
+		expect(kind("pasted-2.txt", "[1, 2, 3]", "application/vnd.chatui.clipboard")).toBe("data");
+	});
+
+	it("calls the rest unknown", () => {
+		expect(kind("main.rs", "fn main() {}", "text/x-rust")).toBe("unknown");
+		expect(kind("notes.txt", "xkcd qwerty\nasdf")).toBe("unknown");
 	});
 });
 
@@ -123,6 +197,62 @@ describe("the note", () => {
 		expect(out).toContain(
 			"The full extracted text is at /mnt/data/r.pdf.md (the original file is at /mnt/data/r.pdf)."
 		);
+	});
+
+	it("tells data to be queried with code, in the unchanged note", () => {
+		const out = block();
+		expect(out).toContain(
+			"Read it with code (execute_code) only as far as you need. Structured data (JSON, CSV, logs)"
+		);
+		expect(out).not.toContain("not data to parse");
+	});
+
+	it("tells prose to be read, not parsed, with the resume path", () => {
+		const out = block({
+			name: "chat.md",
+			mime: "text/markdown",
+			mountName: "chat.md",
+			text: transcript,
+		});
+		expect(out).toContain("a document or text to read, not data to parse");
+		expect(out).toContain("Do not run code on it unless the user asks for something computational");
+		expect(out).toContain("answer from the sample above");
+		expect(out).toContain("ask the user what they want to pick up");
+		expect(out).toContain("ask the user first whether to read it in chunks");
+		expect(out).not.toContain("Structured data");
+		expect(out).not.toContain("sub-agent");
+		const withDelegate = block({
+			name: "chat.md",
+			mime: "text/markdown",
+			mountName: "chat.md",
+			text: transcript,
+			delegateToolOffered: true,
+		});
+		expect(withDelegate).toContain("one sub-agent per chunk");
+	});
+
+	it("shows prose a longer end than data", () => {
+		const prose = block({
+			name: "chat.md",
+			mime: "text/markdown",
+			mountName: "chat.md",
+			text: transcript,
+		});
+		const end = prose.split("End:\n")[1].split("\nThe full")[0];
+		expect(end.length).toBeGreaterThan(1_000);
+		expect(end.length).toBeLessThanOrEqual(PROSE_SAMPLE_TAIL_CHARS);
+		expect(sampleOf(big).tail.length).toBeLessThanOrEqual(SAMPLE_TAIL_CHARS);
+	});
+
+	it("gives an unknown content a neutral note", () => {
+		const out = block({
+			name: "main.rs",
+			mime: "text/x-rust",
+			mountName: "main.rs",
+			text: "fn x() {}\n".repeat(5000),
+		});
+		expect(out).toContain("Look at the sample and decide how to read it");
+		expect(out).toContain("read prose as text, and use code (execute_code) only for data");
 	});
 
 	it("says plainly that code is not available, and never shows the whole text", () => {

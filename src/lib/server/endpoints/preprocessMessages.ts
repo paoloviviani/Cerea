@@ -8,6 +8,7 @@ import { isAudioFile, labelledTranscript, missingTranscriptNotice } from "../fil
 import { mountPlanByHash } from "$lib/utils/execution/attachmentNames";
 import {
 	isTextFile,
+	classifyContent,
 	largeContentThresholdChars,
 	pickLargest,
 } from "../textGeneration/utils/largeContent";
@@ -31,7 +32,7 @@ export async function preprocessMessages(
 		.then(async (msgs) =>
 			downloadFiles(msgs, convId, canReadImages, await mountNamesFor(conversationMessages, convId))
 		)
-		.then((msgs) => markLargeContent(msgs, largeContentThresholdChars(contextLengthTokens)))
+		.then((msgs) => markLargeContent(msgs, contextLengthTokens))
 		.then((msgs) => injectClipboardFiles(msgs))
 		.then(stripEmptyInitialSystemMessage);
 }
@@ -200,15 +201,20 @@ async function downloadFiles(
  * `prepareFiles` gives the model a sample and the sandbox path instead of the
  * whole text. Earlier turns are judged the same way, each by its own content.
  */
-function markLargeContent(messages: EndpointMessage[], thresholdChars: number): EndpointMessage[] {
+function markLargeContent(
+	messages: EndpointMessage[],
+	contextLengthTokens?: number
+): EndpointMessage[] {
 	return messages.map((message) => {
 		if (message.from !== "user" || !message.files?.length) return message;
 		const texts = message.files.flatMap((file, index) =>
-			isTextFile(file) ? [{ index, length: textLength(file.value) }] : []
+			isTextFile(file) ? [{ index, ...classified(file) }] : []
 		);
+		// Without a window, a message of prose only gets the higher fallback.
+		const kind = texts.every((text) => text.kind === "prose") ? "prose" : "data";
 		const picked = pickLargest(
 			texts.map((text) => text.length),
-			thresholdChars
+			largeContentThresholdChars(contextLengthTokens, kind)
 		);
 		if (picked.size === 0) return message;
 		const large = new Set([...picked].map((at) => texts[at].index));
@@ -221,9 +227,10 @@ function markLargeContent(messages: EndpointMessage[], thresholdChars: number): 
 	});
 }
 
-/** Characters in a base64 text, without decoding the whole of it twice over. */
-function textLength(base64: string): number {
-	return Buffer.from(base64, "base64").toString("utf-8").length;
+/** A text file's length in characters, and what kind of content it is. */
+function classified(file: { name: string; mime: string; value: string }) {
+	const text = Buffer.from(file.value, "base64").toString("utf-8");
+	return { length: text.length, kind: classifyContent({ name: file.name, mime: file.mime, text }) };
 }
 
 async function injectClipboardFiles(messages: EndpointMessage[]) {

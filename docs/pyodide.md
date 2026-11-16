@@ -44,9 +44,11 @@ assistant could not read the file's text. When the app extracted text from it
 under the chat, like knowledge files.
 
 - **When the assistant can run code**, the text it sees for an attachment starts
-  with one line saying where the file is: "The file is available to code at
-  `/mnt/data/<name>` (its latest version, if it has been edited)." Without the
-  code tool the line is left out.
+  with one line saying the full text is below, already read, and where the file
+  is for computation: "The file is also available to code at `/mnt/data/<name>`
+  (its current version, if it has been edited), for computation such as counting,
+  searching at scale or transforming, not to read it again." Without the code
+  tool the line is left out.
 - **Files made in the chat are there too.** What the document tools
   saved (a Word file it made, a filled PDF) and what earlier runs saved to
   `/mnt/output` are mounted at `/mnt/data/<name>`, the latest version of each

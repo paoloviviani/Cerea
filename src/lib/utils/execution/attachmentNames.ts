@@ -191,7 +191,7 @@ export function mountPlanByHash(
 
 /** The one line the model reads, when the code tool is on offer. */
 export function attachmentMountNotice(name: string): string {
-	return `The file is available to code at ${MOUNT_ROOT}/${name} (its current version, if it has been edited).`;
+	return `Its full text is below, already read. The file is also available to code at ${MOUNT_ROOT}/${name} (its current version, if it has been edited), for computation such as counting, searching at scale or transforming, not to read it again.`;
 }
 
 export type CapVerdict = "ok" | "file" | "total";
