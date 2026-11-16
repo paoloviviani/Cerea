@@ -2137,7 +2137,6 @@
 	"admin.web_search.backend.not_offered": "(not offered to you)",
 	"admin.web_search.backend.policy_option": "Billing group's search policy (gateway default)",
 	"admin.web_search.description": "Which search backend the “Web search” switch in chats uses. Backends are added in the gateway's console (Providers); each search is metered to the user who asked.",
-	"admin.web_search.description_users": "This screen only picks the backend; it does not turn search on for users. Users turn it on with the switch in their chats or in Settings, and a project can set its own default.",
 	"admin.web_search.hint.env": "Set with {#code}{name}{/code} in the environment; this service's operator decided, not this screen.",
 	"admin.web_search.hint.none": "No search backend in the gateway. Add one in the gateway console (Providers), then choose it here.",
 	"admin.web_search.hint.shared": "Used by everyone who is granted it; everyone else follows their billing group's policy.",
