@@ -302,7 +302,29 @@ limited to **30 MB** each, except audio (up to **25 MB**).
 - **A document with no readable text** (a scan the reader could not make sense of) is not skipped silently. The assistant is told the file had no readable text, and why when the reader said, so it says so rather than answering as if nothing were attached.
 - **Code the assistant runs** finds the chat's attachments at
   `/mnt/data/<name>`, with the text read from each beside it as `<name>.md`
-  ([Python in the browser](pyodide.md#files-you-attach)).
+  ([Python in the browser](pyodide.md#files-you-attach)). A long paste is a
+  file there too, named `pasted-1.txt` (`pasted-1.json` when it starts like
+  JSON), numbered in the order of the chat's pastes.
+
+**Large attachments and pastes.** Text that would take too much of the model's
+context window is not put into the prompt whole. When a message's text
+attachments, extracted documents and pastes together pass **25% of the model's
+window** (counted at four characters a token; a quarter of the default history
+budget when the model reports no window), the largest ones are handed to the
+model as a file: its name, size and line count, the first 3,000 and last 500
+characters cut at line ends, and where the whole content is under `/mnt/data`
+(for a document, its extracted text `<name>.md` and the original). The assistant
+reads it with code, only as far as it needs: it filters, queries or summarises
+structured data (JSON, CSV, logs) instead of printing it. For prose that has to
+be read in full (to summarise or review it), it **asks you first** whether to
+read it in chunks, and if you agree it reads chunk by chunk, using sub-agents
+when the delegate tool is available. Earlier turns are judged the same way when
+they are sent again. There is no setting for this. Where code cannot run (the
+tool is off for you, the model or the deployment, or the file is over the
+mount limits) the model gets the sample and is told plainly that the content is
+too large for it and cannot be read here; it then suggests a model with a
+larger window or shortening the content. Nothing is cut silently. Redaction
+rules and what the transcript shows are unchanged.
 
 **Previews and converted files.** Click a file in the chat to open it in
 the side pane. A deployment with the document converter ([Office

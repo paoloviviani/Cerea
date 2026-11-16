@@ -339,3 +339,78 @@ describe("the original is only announced when the browser will mount it", () => 
 		expect(await mountNames([doc("gone", "gone.pdf")])).toEqual([undefined]);
 	});
 });
+
+describe("large content becomes a file pointer", () => {
+	const text = (n: number) => Buffer.from("x".repeat(n)).toString("base64");
+	const paste = (value: string, name = "Pasted Content") => ({
+		type: "hash" as const,
+		value,
+		mime: "application/vnd.chatui.clipboard",
+		name,
+	});
+
+	beforeEach(() => sizes.clear());
+
+	it("keeps a small paste inlined into the message, as before", async () => {
+		const { downloadFile } = await import("../files/downloadFile");
+		vi.mocked(downloadFile).mockResolvedValueOnce({
+			type: "base64",
+			name: "raw",
+			mime: "application/vnd.chatui.clipboard",
+			value: text(10),
+		});
+		const [out] = await preprocessMessages(
+			[message([paste("small")])],
+			new ObjectId(),
+			false,
+			undefined,
+			100_000
+		);
+		expect(out.content).toBe(`${"x".repeat(10)}\n\nread this`);
+		expect(out.files).toEqual([]);
+	});
+
+	it("marks a paste over the threshold, leaves it out of the content, and names its file", async () => {
+		const { downloadFile } = await import("../files/downloadFile");
+		vi.mocked(downloadFile).mockResolvedValueOnce({
+			type: "base64",
+			name: "raw",
+			mime: "application/vnd.chatui.clipboard",
+			value: text(20_000),
+		});
+		const [out] = await preprocessMessages(
+			[message([paste("big", "Pasted Content.json")])],
+			new ObjectId(),
+			false,
+			undefined,
+			8_000
+		);
+		expect(out.content).toBe("read this");
+		expect(out.files?.[0]).toMatchObject({ largeAsFile: true, mountName: "pasted-1.json" });
+	});
+
+	it("points the largest of several attachments first and keeps the rest whole", async () => {
+		const { downloadFile } = await import("../files/downloadFile");
+		const bodies: Record<string, number> = { a: 6_000, b: 30_000, c: 6_000 };
+		vi.mocked(downloadFile).mockImplementation(async (sha: string) => ({
+			type: "base64",
+			name: `raw-${sha}`,
+			mime: "text/plain",
+			value: text(bodies[sha]),
+		}));
+		const doc = (value: string) => ({
+			type: "hash" as const,
+			value,
+			mime: "text/plain",
+			name: `${value}.txt`,
+		});
+		const [out] = await preprocessMessages(
+			[message([doc("a"), doc("b"), doc("c")])],
+			new ObjectId(),
+			false,
+			undefined,
+			40_000
+		);
+		expect(out.files?.map((file) => Boolean(file.largeAsFile))).toEqual([false, true, false]);
+	});
+});

@@ -37,6 +37,12 @@ describe("pastedAttachments", () => {
 		expect(direct).toEqual({ files: [], preventDefault: false, longText: false });
 	});
 
+	it("names a paste that starts like JSON with a .json extension", () => {
+		const json = `  \n{"a": "${"x".repeat(LONG_PASTE_CHARS)}"}`;
+		const chip = pastedAttachments(clipboard(json), { mimeTypes: [] });
+		expect(chip.files[0]).toMatchObject({ name: "Pasted Content.json", type: CLIPBOARD_MIME });
+	});
+
 	it("keeps pasted files the allowlist admits, wildcards included, and drops the rest", () => {
 		const pasted = pastedAttachments(clipboard("", [png, exe]), { mimeTypes: ["image/*"] });
 		expect(pasted.files).toEqual([png]);

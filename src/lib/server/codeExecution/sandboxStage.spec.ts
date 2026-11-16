@@ -114,11 +114,11 @@ describe("attachmentsToStage", () => {
 		]);
 	});
 
-	it("is empty for a conversation with no attachments, and skips pasted text", async () => {
+	it("is empty for a conversation with no attachments, and stages pasted text as pasted-<n>.txt", async () => {
 		expect(await attachmentsToStage(id)).toEqual([]);
 		state.messages = [msg([file("note", "h1", { mime: "application/vnd.chatui.clipboard" })])];
 		state.sizes = new Map([["h1", 1]]);
-		expect(await attachmentsToStage(id)).toEqual([]);
+		expect((await attachmentsToStage(id)).map((s) => s.name)).toEqual(["pasted-1.txt"]);
 	});
 
 	it("names two different files of one name apart, and mounts the same bytes once", async () => {

@@ -89,12 +89,21 @@ describe("attachment mount names", () => {
 		expect(new Set(names.flatMap((n) => [n.name, n.textName]).filter(Boolean)).size).toBe(3);
 	});
 
-	it("skips pasted text, which has no bytes to mount", () => {
+	it("mounts pasted text as pasted-<n>.txt, or .json when the composer named it so", () => {
+		const paste = (value: string, name: string) => ({
+			type: "base64" as const,
+			value,
+			name,
+			mime: "application/vnd.chatui.clipboard",
+		});
 		expect(
 			planAttachments([
-				{ type: "base64", value: "aGk=", name: "paste", mime: "application/vnd.chatui.clipboard" },
-			])
-		).toEqual([]);
+				paste("aGk=", "Pasted Content"),
+				paste("aGk2", "Pasted Content.json"),
+				paste("aGk=", "Pasted Content"),
+				paste("aGk3", "Pasted Content"),
+			]).map((entry) => entry.name)
+		).toEqual(["pasted-1.txt", "pasted-2.json", "pasted-3.txt"]);
 	});
 
 	it("is what the prompt and the mounter both read: hash to mount name", () => {
