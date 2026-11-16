@@ -26,6 +26,23 @@ server:
   # The stylesheet cannot be replaced this way: caddy/Caddyfile appends
   # caddy/authelia-brand.css to it.
   asset_path: '/etc/authelia/assets'
+  endpoints:
+    rate_limits:
+      # The token endpoint serves every code exchange, every refresh and every
+      # device-code poll (RFC 8628 polls every 5 s). Authelia's default of
+      # 30/min, 40/2 min, 50/10 min and 100/h is exhausted by one slow device
+      # sign-in, and by a few machines behind one address refreshing at once;
+      # every client then gets `temporarily_unavailable: Too many requests`.
+      # Authelia 4.39 has no limit key for the device-authorization endpoint.
+      openid_connect_token:
+        enable: true
+        buckets:
+          - period: '1 minute'
+            requests: 120
+          - period: '10 minutes'
+            requests: 600
+          - period: '1 hour'
+            requests: 2000
 
 # Light or dark by the browser's own setting, like the chat.
 theme: 'auto'

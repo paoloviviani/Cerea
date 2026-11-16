@@ -259,8 +259,9 @@ func TestHandlerPermanentRefusalRespondsAndCaches(t *testing.T) {
 
 // TestHandlerTransientRefusalStays502 pins the other half of the split: a
 // refresh failure that is not invalid_grant must still answer the old,
-// retryable 502, and must keep re-attempting the IdP on later requests
-// rather than latching into the cached-dead path.
+// retryable 502 and must not latch into the cached-dead path. It no longer
+// re-attempts the IdP on every request: the first failure starts a backoff
+// (refresh_backoff.go), and requests inside it are answered without a call.
 func TestHandlerTransientRefusalStays502(t *testing.T) {
 	var calls int32
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -290,8 +291,20 @@ func TestHandlerTransientRefusalStays502(t *testing.T) {
 		t.Fatalf("second request status = %d, want 502", rec2.Code)
 	}
 
-	if got := atomic.LoadInt32(&calls); got != 2 {
-		t.Errorf("token endpoint hit %d times across two requests, want 2 (transient failures keep retrying)", got)
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Errorf("token endpoint hit %d times across two requests, want 1 (the second waits out the backoff)", got)
+	}
+	if rec2.Header().Get("Retry-After") == "" {
+		t.Error("a request answered from the backoff should say when to retry")
+	}
+	// Once the wait is over the IdP is asked again.
+	s.mu.Lock()
+	s.backoff.until = time.Now().Add(-time.Second)
+	s.mu.Unlock()
+	rec3 := httptest.NewRecorder()
+	s.handler(rec3, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{}`)))
+	if got := atomic.LoadInt32(&calls); got != 2 || rec3.Code != http.StatusBadGateway {
+		t.Errorf("after the wait: %d IdP calls, status %d; want 2 and 502", got, rec3.Code)
 	}
 }
 

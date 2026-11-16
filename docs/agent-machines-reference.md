@@ -1851,6 +1851,60 @@ a long hang:
   its next request or 15-minute tick: it adopts the new tokens, clears the
   verdict and serves again, with no restart.
 
+### "Too many requests" from the sign-in server
+
+**What you see.** `galopin: link: disconnected (getting access token: refresh
+rejected (temporarily_unavailable): Too many requests. The endpoint is
+temporarily unavailable. Try again later.)`, or a device-code sign-in that ends
+with `token endpoint refused: temporarily_unavailable`. The agent is not
+revoked and the credential is not dead: the sign-in server (the bundled
+Authelia) is rate-limiting its token endpoint, and it answers every client
+until the limit's window passes.
+
+**Why.** Authelia limits each server endpoint (its
+[server endpoint rate limits](https://www.authelia.com/configuration/miscellaneous/server-endpoint-rate-limits/)),
+and the token endpoint's defaults are low: 30 requests a minute, 50 in 10
+minutes, 100 an hour, counted for all clients together. A device-code sign-in
+polls every 5 seconds, so one that takes a few minutes uses up the 10-minute
+allowance; several computers behind one address refreshing together do the
+same. Two galopin processes sharing one pairing make it worse, because they
+rotate the refresh token against each other.
+
+**What galopin does.** It waits instead of retrying every 30 seconds: the
+server's `Retry-After` when it sends one, else 30 seconds growing to 10 minutes
+with some jitter, and it says so in its log ("the sign-in server is
+rate-limiting; retrying in 4m"). The device-code sign-in slows its polling the
+same way (up to a minute between polls) and keeps the code alive. Only one
+galopin can run per pairing: a second one stops with "another galopin is
+already running with this pairing (PID n)". Stop the first (`systemctl --user
+stop galopin`, or quit the Mac app) before running another, or before
+`galopin enroll`.
+
+**Wait or raise the limit.** Waiting works: the limit clears within the hour,
+and a running agent reconnects by itself. To stop it happening, raise the
+limit. The kit's `authelia/configuration.yml` does this from the next kit release on:
+
+```yaml
+server:
+  endpoints:
+    rate_limits:
+      openid_connect_token:
+        enable: true
+        buckets:
+          - period: '1 minute'
+            requests: 120
+          - period: '10 minutes'
+            requests: 600
+          - period: '1 hour'
+            requests: 2000
+```
+
+A deployment that edited that file keeps its own copy through a kit update: add
+the block above by hand, then `docker compose up -d --force-recreate
+authelia`. Authelia has no limit key for the device-authorization endpoint
+(4.39), so only the token endpoint needs it. With an external IdP, look for
+that IdP's own rate limit.
+
 ### The device flow prints the code-bearing URL
 
 Both bundled IdPs issue `verification_uri_complete`, which carries the user

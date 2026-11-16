@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -70,6 +71,8 @@ type shim struct {
 	// rotated gets a signal each time the access token changes (see Rotated).
 	// One pending signal is enough; guarded by s.mu only for the send.
 	rotated chan struct{}
+	// backoff is the wait after a "try later" refresh answer (refresh_backoff.go).
+	backoff refreshBackoff
 }
 
 func newShim(creds *credentials, credsPath, statusPath string, port int) *shim {
@@ -266,9 +269,16 @@ func (s *shim) adoptWarnings(warnings []string) {
 // Caller holds s.mu.
 func (s *shim) refreshLocked() error {
 	now := time.Now()
+	// Waiting out a rate limit: every caller (the proxy, the link, the timed
+	// refresh) lands here, so none of them reaches the IdP before the wait is
+	// over. The lock makes a concurrent burst one refresh, not one each.
+	if wait := s.backoff.waiting(now); wait > 0 {
+		return &refreshWaitError{wait: wait, cause: s.backoff.last}
+	}
 	before := s.creds.AccessToken
 	err := refreshCredential(s.credsPath, s.creds)
 	if err == nil {
+		s.backoff.reset()
 		s.deadErr = nil
 		s.transitionLocked(stateOK, now, "token refreshed")
 		if s.creds.AccessToken != before {
@@ -281,6 +291,14 @@ func (s *shim) refreshLocked() error {
 		s.deadErr = err
 		s.transitionLocked(stateExpired, now, err.Error())
 		return err
+	}
+	var retry *retryRefreshError
+	if errors.As(err, &retry) {
+		wait := s.backoff.fail(now, retry.retryAfter, retry.msg)
+		werr := &refreshWaitError{wait: wait, cause: retry.msg}
+		fmt.Fprintf(os.Stderr, "galopin shim: the sign-in server is rate-limiting; retrying in %s (%s)\n", humanWait(wait), retry.msg)
+		s.transitionLocked(stateUnreachable, now, werr.Error())
+		return werr
 	}
 	s.transitionLocked(stateUnreachable, now, err.Error())
 	return err
@@ -309,6 +327,7 @@ func (s *shim) recoverExpiredLocked() {
 	}
 	before := s.creds.AccessToken
 	*s.creds = *onDisk
+	s.backoff.reset() // a new sign-in is a new credential: its refresh is not rate-limited yet
 	if s.creds.AccessToken != before {
 		s.signalRotatedLocked()
 	}
@@ -420,6 +439,12 @@ func (s *shim) tokenLocked() (string, error) {
 		return s.creds.AccessToken, nil
 	}
 	if err := s.refreshLocked(); err != nil {
+		// A refresh we are waiting to retry must not fail a request the
+		// current token can still serve: the skew refreshes early on purpose.
+		var wait *refreshWaitError
+		if errors.As(err, &wait) && s.creds.accessExpiry().After(time.Now()) {
+			return s.creds.AccessToken, nil
+		}
 		return "", err
 	}
 	return s.creds.AccessToken, nil
@@ -495,7 +520,14 @@ func refreshCredential(credsPath string, creds *credentials) error {
 			if oauthErr.permanent() {
 				return &permanentRefreshError{code: oauthErr.Code}
 			}
-			return fmt.Errorf("refresh rejected (%s): %s", oauthErr.Code, oauthErr.Description)
+			msg := err.Error()
+			if oauthErr.Code != "" {
+				msg = fmt.Sprintf("refresh rejected (%s): %s", oauthErr.Code, oauthErr.Description)
+			}
+			if oauthErr.retryable() {
+				return &retryRefreshError{msg: msg, retryAfter: oauthErr.RetryAfter}
+			}
+			return errors.New(msg)
 		}
 		return err
 	}
@@ -542,6 +574,10 @@ func writeTokenError(w http.ResponseWriter, err error) {
 	if errors.As(err, &perr) {
 		writeOpenAIError(w, http.StatusUnauthorized, err.Error(), "invalid_request_error", "enrollment_expired")
 		return
+	}
+	var wait *refreshWaitError
+	if errors.As(err, &wait) {
+		w.Header().Set("Retry-After", strconv.Itoa(int(wait.wait.Seconds())+1))
 	}
 	http.Error(w, err.Error(), http.StatusBadGateway)
 }
@@ -726,6 +762,11 @@ func runServe(args []string) error {
 		}
 		credsPath = path
 	}
+	unlockInstance, err := lockInstanceFor(credsPath, "")
+	if err != nil {
+		return err
+	}
+	defer unlockInstance()
 	creds, err := loadCredentials(credsPath)
 	if err != nil {
 		return err
