@@ -170,6 +170,7 @@ upgrade_precheck() {
 			if [ -e "$HOME/Library/LaunchAgents/$label.plist" ] || launchctl list "$label" >/dev/null 2>&1; then
 				say "galopin runs under launchd here ($label)."
 				say "If the Cerea connector app installed it, upgrade through the app: install the new connector from this deployment's release page and open it."
+				say "If 'galopin service install' set it up: galopin service uninstall, run this again, then galopin service install (add the flags you gave it after --)."
 				say "If you set the launch agent up yourself: launchctl bootout gui/$(id -u)/org.cerea.galopin, run this again, then launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/org.cerea.galopin.plist."
 				exit 0
 			fi

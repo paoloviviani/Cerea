@@ -507,7 +507,9 @@ describe("the Docker switch", () => {
 		await expect
 			.element(screen.getByRole("radiogroup", { name: "Where the agent runs" }))
 			.toBeVisible();
-		expect(screen.getByRole("radio").elements()).toHaveLength(2);
+		expect(
+			screen.getByRole("radiogroup", { name: "Where the agent runs" }).getByRole("radio").elements()
+		).toHaveLength(2);
 		await expect.element(radio(screen, NATIVE)).toBeChecked();
 		await expect.element(radio(screen, DOCKER)).not.toBeChecked();
 		expect(command(screen)).toBe(PLAIN);
@@ -722,5 +724,65 @@ describe("the Docker switch", () => {
 		await chooseDocker(screen);
 		await expect.element(screen.getByText("Waiting for confirmation")).toBeVisible();
 		await expect.element(screen.getByText("No computer has checked in yet.")).toBeVisible();
+	});
+});
+
+/**
+ * Step 3, "Keep it running": `galopin service install` for the computer, with the Linux linger
+ * hint or the macOS log, and the detached `docker run -d --restart unless-stopped` for Docker
+ * (only once the pairing is kept in a volume). The connectors-only pairing (the Mac app, and the
+ * connectors panel) keeps itself running and never mounts this dialog, so it shows no such step.
+ */
+describe("keep it running", () => {
+	const INSTALL = "~/.local/bin/galopin service install";
+	const text = (screen: Screen, id: string) =>
+		screen.getByTestId(id).element().textContent?.trim() ?? "";
+
+	it("on a computer prints the service command, what it does and how to undo it", async () => {
+		const screen = mount();
+		await expect.element(screen.getByText("Keep it running")).toBeVisible();
+		expect(text(screen, "galopin-keep-command")).toBe(INSTALL);
+		await expect
+			.element(screen.getByText(/starts galopin when you log in and restarts it if it stops/))
+			.toBeVisible();
+		expect(text(screen, "galopin-keep-undo")).toBe("~/.local/bin/galopin service uninstall");
+		// The third step comes after the pending list.
+		const all = document.body.textContent ?? "";
+		expect(all.indexOf("Waiting for confirmation")).toBeLessThan(all.indexOf("Keep it running"));
+	});
+
+	it("Linux adds the linger hint for servers, macOS names the log instead", async () => {
+		const screen = mount();
+		await screen.getByRole("radio", { name: "Linux" }).click();
+		expect(text(screen, "galopin-keep-linger")).toBe('loginctl enable-linger "$USER"');
+		expect(screen.getByTestId("pair-keep-macos").elements()).toHaveLength(0);
+		await screen.getByRole("radio", { name: "macOS" }).click();
+		expect(screen.getByTestId("pair-keep-linger").elements()).toHaveLength(0);
+		await expect.element(screen.getByTestId("pair-keep-macos")).toHaveTextContent("galopin.log");
+		// The command itself is the same on both.
+		expect(text(screen, "galopin-keep-command")).toBe(INSTALL);
+	});
+
+	it("in Docker asks for the kept pairing, then prints the detached command", async () => {
+		const screen = mount();
+		await screen.getByRole("radio", { name: "In a Docker container" }).click();
+		expect(screen.getByTestId("galopin-keep-command").elements()).toHaveLength(0);
+		await expect.element(screen.getByTestId("pair-keep-docker-volume")).toBeVisible();
+		// The interactive first run stays as it was.
+		expect(command(screen).startsWith("docker run -it --rm")).toBe(true);
+
+		await screen.getByTestId("pair-docker-keep").click();
+		const detached = text(screen, "galopin-keep-command");
+		expect(detached).toContain("docker run -d --restart unless-stopped");
+		expect(detached).toContain("-v galopin-sandbox:/home/galopin");
+		expect(detached).toContain(`${GALOPIN_IMAGE}:${APP_VERSION}`);
+		expect(detached).not.toContain("--rm");
+		expect(detached).not.toContain("-it");
+		expect(detached).not.toContain("--cerea");
+		expect(text(screen, "galopin-keep-undo")).toBe("docker rm -f galopin-sandbox");
+
+		await screen.getByTestId("pair-docker-name").fill("build-box");
+		expect(text(screen, "galopin-keep-command")).toContain("--name galopin-build-box");
+		expect(screen.getByTestId("galopin-keep-linger").elements()).toHaveLength(0);
 	});
 });
