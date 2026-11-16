@@ -10,5 +10,5 @@ import { autoApprovalAvailability } from "$lib/server/agentReview";
 export const GET: RequestHandler = async ({ locals }) => {
 	await requireCodeAgents(locals);
 	if (!locals.user) error(401, "Login required");
-	return superjsonResponse(await autoApprovalAvailability(locals.user._id));
+	return superjsonResponse(await autoApprovalAvailability(locals.user._id, locals.token));
 };

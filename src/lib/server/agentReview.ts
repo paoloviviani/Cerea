@@ -26,6 +26,7 @@ import {
 	type ReviewOutcome,
 } from "$lib/types/AgentReview";
 import type { AutoClasses } from "$lib/types/machineProtocol";
+import { probeDecisionModels } from "$lib/server/agentReviewModels";
 import { reviewerDegraded } from "$lib/server/review/health";
 import { PERMISSION_CLASSES, type PermissionClass } from "$lib/types/machineProtocol";
 
@@ -322,16 +323,24 @@ export function reviewTester(): ReviewTester | null {
 
 /** What the composer needs to compute its line (ADR 0109): whether Auto has a reviewer behind it
  * for this user, and the user's own per-class rows. No instructions, no model name. */
-export async function autoApprovalAvailability(userId: ObjectId): Promise<{
+export async function autoApprovalAvailability(
+	userId: ObjectId,
+	token?: string
+): Promise<{
 	available: boolean;
 	perClass: AgentReviewSettings["perClass"];
 	/** The reviewer keeps failing: Auto's cards come to the user until it answers again. */
 	degraded: boolean;
+	/** The catalogue has no `kind: decision` model for this user, so Auto falls back to Ask. */
+	noDecisionModel: boolean;
 }> {
 	const s = await effectiveReviewSettings(userId);
+	const probe = await probeDecisionModels(token);
 	return {
 		available: autoPermissionsEnabled() && s.enabled && s.decisionModelId !== null,
 		perClass: s.perClass,
 		degraded: reviewerDegraded(),
+		// An unreachable catalogue is unknown, not empty: only a reachable empty list, or no gateway, says none.
+		noDecisionModel: probe.models.length === 0 && (probe.reachable || !probe.configured),
 	};
 }
