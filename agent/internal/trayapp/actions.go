@@ -197,11 +197,20 @@ func (a *App) Pair(ctx context.Context, address string, agent bool, showCode fun
 			showCode(s)
 		}
 	}
+	// galopin allows one agent per pairing and enroll refuses to run under a
+	// live one, so the service is stopped for the pairing. A failed pairing
+	// puts back the service that was running, with its old credential.
+	_, printErr := a.Run(ctx, "launchctl", LaunchctlPrint(a.UID), nil, nil)
+	wasRunning := printErr == nil
+	_, _ = a.Run(ctx, "launchctl", LaunchctlBootout(a.UID), nil, nil)
 	out, err := a.Run(ctx, a.Layout.CLI(), PairArgs(address, agent), a.env(), onLine)
 	if err != nil {
+		if wasRunning {
+			_ = a.StartService(ctx)
+		}
 		return errors.New(FriendlyError("Pairing", out))
 	}
-	return a.RestartService(ctx)
+	return a.StartService(ctx)
 }
 
 // SetupBrowser sets the browser runtime up and offers it to Cerea, with the

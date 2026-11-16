@@ -167,6 +167,13 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 		fmt.Fprint(os.Stderr, revokedHelp)
 		return nil
 	}
+	// One galopin per pairing: a second one would rotate the refresh token
+	// against this one and hammer the sign-in server with the fallout.
+	unlockInstance, err := lockInstanceFor(credsPath, "", instanceLockGrace)
+	if err != nil {
+		return err
+	}
+	defer unlockInstance()
 	creds, err := loadCredentials(credsPath)
 	if err != nil {
 		return err

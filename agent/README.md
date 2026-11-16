@@ -249,6 +249,23 @@ whether the refresh credential is present, whether the shim last saw the
 credential permanently refused (its `status.json` verdict), and whether the
 machine is revoked.
 
+- **The sign-in server answers "Too many requests"** (`temporarily_unavailable`,
+  HTTP 429 or 5xx): the credential is fine, the server is rate-limiting. The
+  shim does not retry every 30 seconds: it honours `Retry-After`, else backs
+  off from 30 seconds to 10 minutes (with jitter, reset by the first success),
+  logs "the sign-in server is rate-limiting; retrying in 4m", and the one
+  refresh is shared by the proxy, the link and the timer, so nothing retries on
+  its own. A device-code sign-in slows its polling the same way (doubling the
+  interval up to a minute, `slow_down` still adding 5 s) until the code
+  expires. The kit's Authelia raises the token endpoint's limits; see
+  `docs/agent-machines-reference.md`, "Too many requests".
+- **One galopin per pairing.** `run` and `serve` (and so the systemd unit, the
+  LaunchAgent, the Mac app and the container's `start`) take an exclusive lock
+  on `credentials.json.running`, next to the credentials; the kernel releases
+  it however the process ends. `enroll` takes it too, so it does not re-pair
+  under a running agent: stop the agent first. `auth status`, `auth login` and
+  `launch` do not take it. `galopin service install` restarts the service, so the old process has released the lock before the new one starts.
+
 To keep `run` up (start at login, restart if it stops), let galopin install it:
 
 ```sh

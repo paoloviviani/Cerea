@@ -139,7 +139,12 @@ func TestPairShowsCodeOnceAndRestarts(t *testing.T) {
 	if len(got) != 1 || got[0].Code != "ABCD-1234" || got[0].URL != "https://idp/d?c=X" {
 		t.Fatalf("%+v", got)
 	}
-	enroll := f.calls[0]
+	var enroll call
+	for _, c := range f.calls {
+		if c.name == a.Layout.CLI() {
+			enroll = c
+		}
+	}
 	if enroll.name != a.Layout.CLI() || !strings.Contains(strings.Join(enroll.args, " "), "--connectors-only") {
 		t.Fatalf("%+v", enroll)
 	}
@@ -148,6 +153,20 @@ func TestPairShowsCodeOnceAndRestarts(t *testing.T) {
 	}
 	if !f.loaded {
 		t.Fatal("service not restarted")
+	}
+	// The service is unloaded before enroll runs: galopin refuses to enroll
+	// under a running agent.
+	stopped, enrolled := -1, -1
+	for i, c := range f.calls {
+		if c.name == "launchctl" && len(c.args) > 0 && c.args[0] == "bootout" && stopped < 0 {
+			stopped = i
+		}
+		if c.name == a.Layout.CLI() {
+			enrolled = i
+		}
+	}
+	if stopped < 0 || stopped > enrolled {
+		t.Fatalf("service not stopped before enroll: %+v", f.calls)
 	}
 }
 
