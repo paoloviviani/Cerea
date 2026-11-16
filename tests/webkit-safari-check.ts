@@ -109,7 +109,7 @@ async function stubCodePanel(page: Page, opts: { createBehavior: "success" | "fa
 }
 
 async function openAgentDialog(page: Page) {
-	await page.goto(`${APP_BASE_URL}/code?device=${DEVICE}&ws=${WS}`);
+	await page.goto(`${APP_BASE_URL}/code?device=${DEVICE}`);
 	await page.getByRole("button", { name: "Open Agents panel" }).click();
 	await page.locator("button[title='Start a coding session in this folder']:visible").click();
 	const dialog = page.getByRole("dialog");

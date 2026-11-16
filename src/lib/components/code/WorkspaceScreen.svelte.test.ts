@@ -93,7 +93,7 @@ afterEach(() => {
 describe("WorkspaceScreen", () => {
 	it("names the workspace, lists its sessions as links, and has a New session button", async () => {
 		const screen = mount();
-		await expect.element(screen.getByTestId("workspace-name")).toHaveTextContent("cloud_sync");
+		await expect.element(screen.getByTestId("agent-header")).toHaveTextContent("cloud_sync");
 		await expect
 			.element(screen.getByTestId("workspace-path"))
 			.toHaveTextContent("/home/me/cloud_sync");
@@ -114,7 +114,7 @@ describe("WorkspaceScreen", () => {
 
 	it("offers Terminal and Files at the top right, and each opens its panel on this workspace", async () => {
 		const screen = mount();
-		await expect.element(screen.getByTestId("workspace-name")).toBeVisible();
+		await expect.element(screen.getByTestId("workspace-path")).toBeVisible();
 		await screen.getByRole("button", { name: "Files" }).click();
 		const panel = screen.getByTestId("panel-stub");
 		await expect.element(panel).toHaveTextContent("d1 w1");
@@ -127,7 +127,7 @@ describe("WorkspaceScreen", () => {
 		const screen = mount({
 			device: { policy: { files: "off", fileWrite: "denied", terminal: "denied" } },
 		});
-		await expect.element(screen.getByTestId("workspace-name")).toBeVisible();
+		await expect.element(screen.getByTestId("workspace-path")).toBeVisible();
 		expect(screen.getByRole("button", { name: "Files" }).elements()).toHaveLength(0);
 		expect(screen.getByRole("button", { name: "Terminal" }).elements()).toHaveLength(0);
 	});
@@ -149,7 +149,7 @@ describe("WorkspaceScreen", () => {
 	it("keeps the panels behind one Panels button on a phone, like a session", async () => {
 		await browserPage.viewport(390, 800);
 		const screen = mount();
-		await expect.element(screen.getByTestId("workspace-name")).toBeVisible();
+		await expect.element(screen.getByTestId("workspace-path")).toBeVisible();
 		expect(screen.getByRole("button", { name: "Files" }).elements()).toHaveLength(0);
 	});
 });

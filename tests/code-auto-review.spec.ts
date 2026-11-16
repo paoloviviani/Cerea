@@ -214,7 +214,7 @@ test.describe("Auto with a reviewer", () => {
 		await page.getByLabel("Directory on the computer").fill(machine.workspace);
 		await page.getByLabel("Title (optional)").fill("repo");
 		await page.getByRole("dialog").getByRole("button", { name: "Add workspace" }).click();
-		await expect(page.getByText("repo", { exact: true })).toBeVisible();
+		await expect(page.getByRole("link", { name: /^repo/ })).toBeVisible();
 		await page.getByRole("button", { name: "Start a session in this workspace" }).click();
 		await page.getByRole("button", { name: "Ask", exact: true }).click();
 		await page.getByRole("button", { name: "Start session" }).click();
