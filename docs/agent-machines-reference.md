@@ -1300,7 +1300,9 @@ install packages and run builds without touching your own machine. It is the
 same galopin, so nothing changes in the chat or the gateway. The image is built
 from `agent/Dockerfile` and published with each Cerea release, with the same
 version as the chat (`cerea:X.Y.Z` goes with `galopin:X.Y.Z`); `edge` follows
-`main`. It is `linux/amd64` only for now.
+`main`. It is a multi-arch image: `linux/amd64` and `linux/arm64`, so it runs natively
+on Intel and AMD machines and on ARM ones (Apple-silicon Macs, Raspberry Pi, Graviton);
+your container tool pulls the right one.
 
 It holds, besides galopin and opencode: Python 3 (`pip`, `venv`, `uv`), Node
 (`npm`, `pnpm`), `gcc`, `g++` and `make`, `git`, `gh`, `ssh`, `rg` and `jq`. It runs
@@ -1336,6 +1338,25 @@ restarts** ticked the dialog adds `-v galopin-<name>:/home/galopin`, described
 below. `start` with no flags keeps its older behaviour, in the next paragraphs.
 `start ARGS` on a home that is already enrolled asks before `enroll` replaces the
 pairing.
+
+**macOS with Apple's `container` CLI.** On an Apple-silicon Mac the image runs natively
+(arm64) in Docker Desktop or in Apple's [`container`](https://github.com/apple/container)
+tool, which needs no Docker. Start its service once, then use the same `run` with
+`container` in place of `docker`:
+
+```sh
+container system start
+container run -it --rm --name sandbox \
+  -v "$PWD":/workspace \
+  ghcr.io/paoloviviani/galopin:<version> \
+  start --issuer ... --gateway ... --cerea ... --default-group
+```
+
+Use the flags the dialog printed. `container` has no `--hostname` flag; `--name` sets the
+computer's name (the container's name is its hostname). To keep the pairing, create a
+named volume once (`container volume create galopin-home`) and add
+`-v galopin-home:/home/galopin`; the container is the same one, so everything under
+"Keep the pairing across restarts" applies, with `container volume rm` to forget it.
 
 **Enroll inside.** With nothing else set (a plain `docker run ... galopin:<version>`) you get a shell. The container has no
 browser, so `galopin enroll` signs in with the device code: it prints a link and

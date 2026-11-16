@@ -82,6 +82,15 @@ for image in cerea cerea-documents cerea-sandbox cerea-sandbox-python; do
 	DOCKER_CONFIG=$anon docker manifest inspect "ghcr.io/${owner,,}/$image:$V" >/dev/null ||
 		stop "$image:$V not pullable anonymously"
 done
+# galopin is multi-arch: the manifest list must carry both platforms (Apple-silicon Macs
+# run it natively).
+for image in galopin; do
+	out=$(DOCKER_CONFIG=$anon docker buildx imagetools inspect "ghcr.io/${owner,,}/$image:$V") ||
+		stop "$image:$V not pullable anonymously"
+	for plat in linux/amd64 linux/arm64; do
+		grep -Eq "Platform: +$plat\$" <<<"$out" || stop "$image:$V has no $plat image"
+	done
+done
 rm -rf "$anon"
 echo "anonymous pull OK"
 
