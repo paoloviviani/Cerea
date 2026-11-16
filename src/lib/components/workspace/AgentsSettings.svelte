@@ -63,6 +63,8 @@
 	const thresholdBad = $derived(
 		!Number.isFinite(threshold) || threshold < THRESHOLD_MIN || threshold > THRESHOLD_MAX
 	);
+	/** No decision model to choose: Reviewer cannot be picked, and a saved Reviewer asks the user. */
+	const noDecisionModel = $derived(decisionModels.length === 0 && catalogue !== "unreachable");
 	const noModel = $derived(enabled && !modelId);
 	const invalid = $derived(Boolean(marker) || tooLong || thresholdBad || noModel);
 
@@ -315,6 +317,14 @@
 				<p class="text-sm text-gray-600 dark:text-gray-400">
 					{m["workspace.agents.rows_detail"]()}
 				</p>
+				{#if noDecisionModel}
+					<p
+						class="text-sm text-amber-700 dark:text-amber-400"
+						data-testid="agents-reviewer-disabled"
+					>
+						{m["code.auto.no_model"]()}
+					</p>
+				{/if}
 				<div class="overflow-x-auto">
 					<table class="w-full max-w-xl text-sm">
 						<tbody>
@@ -331,11 +341,17 @@
 										{:else}
 											<div role="radiogroup" aria-label={className(c)} class="flex flex-wrap gap-3">
 												{#each offered(c) as who (who)}
-													<label class="flex items-center gap-1">
+													<label
+														class="flex items-center gap-1"
+														title={who === "reviewer" && noDecisionModel
+															? m["code.auto.no_model"]()
+															: undefined}
+													>
 														<input
 															type="radio"
 															name="row-{c}"
 															value={who}
+															disabled={who === "reviewer" && noDecisionModel}
 															checked={perClass[c] === who}
 															onchange={() => (perClass[c] = who)}
 															data-testid="agents-row-{c}-{who}"
@@ -344,6 +360,14 @@
 													</label>
 												{/each}
 											</div>
+											{#if noDecisionModel && perClass[c] === "reviewer"}
+												<p
+													class="mt-1 text-xs text-amber-700 dark:text-amber-400"
+													data-testid="agents-row-{c}-asks"
+												>
+													{m["workspace.agents.row.reviewer_asks"]()}
+												</p>
+											{/if}
 										{/if}
 									</td>
 								</tr>

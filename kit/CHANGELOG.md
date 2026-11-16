@@ -5,6 +5,10 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Auto says when it has no reviewer decision model.** With no decision model, the shield's sheet on Auto reads "Auto: no reviewer decision model defined, falling back to Ask", and in Workspace → Agents the Reviewer choice is disabled with the same reason; a kind already saved as Reviewer stays as saved and is marked as currently asking.
+
 ## v0.54.2 — 2026-11-16
 
 Pins: Cerea `0.54.2` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.4`, opencode `2.3.0`.
