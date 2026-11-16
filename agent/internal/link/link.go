@@ -427,11 +427,19 @@ func (l *Link) Run(ctx context.Context) error {
 		}
 		// The close code and reason are the one clue to a rejected handshake
 		// or hello (4000/4401/4403), so they are always worth the line.
-		l.cfg.Logf("link: disconnected (%v), reconnecting in %s", err, backoff)
+		wait := jitter(backoff)
+		// A credential that is waiting out the sign-in server's rate limit
+		// says how long: asking again sooner only gets the same answer (and
+		// would be one more call at the server if it were not held back).
+		var ra interface{ RetryAfter() time.Duration }
+		if errors.As(err, &ra) && ra.RetryAfter() > wait {
+			wait = ra.RetryAfter()
+		}
+		l.cfg.Logf("link: disconnected (%v), reconnecting in %s", err, roundWait(wait))
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(jitter(backoff)):
+		case <-time.After(wait):
 		}
 		backoff *= 2
 		if backoff > l.cfg.MaxBackoff {
@@ -1092,4 +1100,13 @@ func (l *Link) handleBinaryFrame(raw []byte) {
 		return
 	}
 	l.cfg.Binary.HandleBinary(frame.Kind, frame.Channel, frame.Offset, frame.Payload)
+}
+
+// roundWait prints a wait without noise: whole seconds from a second up,
+// milliseconds below.
+func roundWait(d time.Duration) time.Duration {
+	if d >= time.Second {
+		return d.Round(time.Second)
+	}
+	return d.Round(time.Millisecond)
 }

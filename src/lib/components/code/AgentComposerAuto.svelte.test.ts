@@ -15,6 +15,7 @@ vi.mock("$env/dynamic/public", () => ({
 vi.mock("$lib/codeApi", async (importOriginal) => ({
 	...(await importOriginal<typeof import("$lib/codeApi")>()),
 	listAgentCommands: async () => ({ commands: [] }),
+	getPermissionRules: async () => ({ mode: "ask", rules: [], savedApprovals: [] }),
 	setPermissionMode: vi.fn(async () => ({ ok: true })),
 }));
 
@@ -54,6 +55,7 @@ function mount(
 			available: boolean;
 			perClass: typeof PER_CLASS_DEFAULTS;
 			degraded?: boolean;
+			noDecisionModel?: boolean;
 		} | null;
 		agent?: CodeAgentSession;
 	} = {}
@@ -164,5 +166,45 @@ describe("below the composer", () => {
 		await expect
 			.element(ask.getByTestId("permission-details"))
 			.toHaveAttribute("aria-label", "Permissions: Ask");
+	});
+});
+
+describe("the Auto line when there is no decision model", () => {
+	const NO_MODEL = "Auto: no reviewer decision model defined, falling back to Ask";
+	const open = async (autoApproval: NonNullable<Parameters<typeof mount>[0]>["autoApproval"]) => {
+		const screen = mount({ autoApproval });
+		await screen.getByTestId("permission-details").click();
+		await expect.element(screen.getByTestId("permission-step")).toBeVisible();
+		return screen;
+	};
+
+	it("says so, and the no-model line wins over reviewer unavailable", async () => {
+		const screen = await open({
+			available: false,
+			perClass: PER_CLASS_DEFAULTS,
+			degraded: true,
+			noDecisionModel: true,
+		});
+		await expect.element(screen.getByTestId("permission-no-model")).toHaveTextContent(NO_MODEL);
+		expect(document.querySelector('[data-testid="permission-degraded"]')).toBeNull();
+	});
+
+	it("with a model and failures says reviewer unavailable", async () => {
+		const screen = await open({
+			available: true,
+			perClass: PER_CLASS_DEFAULTS,
+			degraded: true,
+			noDecisionModel: false,
+		});
+		await expect
+			.element(screen.getByTestId("permission-degraded"))
+			.toHaveTextContent("Auto: reviewer unavailable");
+		expect(document.querySelector('[data-testid="permission-no-model"]')).toBeNull();
+	});
+
+	it("with a healthy model shows no line", async () => {
+		await open({ available: true, perClass: PER_CLASS_DEFAULTS, noDecisionModel: false });
+		expect(document.querySelector('[data-testid="permission-no-model"]')).toBeNull();
+		expect(document.querySelector('[data-testid="permission-degraded"]')).toBeNull();
 	});
 });

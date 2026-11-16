@@ -67,7 +67,7 @@ func revokeAtIdP(ctx context.Context, creds *credentials) error {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
 	// RFC 7009 §2.2: 200 whether or not the token was still valid.
 	if resp.StatusCode != http.StatusOK {
-		return oauthErrorFromBody("revocation endpoint", body, resp.StatusCode)
+		return oauthErrorFromBody("revocation endpoint", body, resp.StatusCode, resp.Header)
 	}
 	return nil
 }

@@ -434,3 +434,55 @@ func TestConnectedFollowsTheWelcome(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 }
+
+type limitedCred struct {
+	fakeCred
+	mu    sync.Mutex
+	times []time.Time
+	wait  time.Duration
+}
+
+type waitErr struct{ d time.Duration }
+
+func (e waitErr) Error() string             { return "rate-limited" }
+func (e waitErr) RetryAfter() time.Duration { return e.d }
+
+func (c *limitedCred) Token(context.Context) (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.times = append(c.times, time.Now())
+	return "", waitErr{c.wait}
+}
+
+// A credential that is waiting out the sign-in server's rate limit says how
+// long; the link must not ask for a token again before then.
+func TestRunHonoursARetryAfterFromTheCredential(t *testing.T) {
+	cred := &limitedCred{wait: 400 * time.Millisecond}
+	var logs []string
+	var lmu sync.Mutex
+	l := New(Config{
+		CereaOrigin: "http://127.0.0.1:1",
+		Cred:        cred,
+		Hello:       func() Hello { return Hello{} },
+		Handler:     &fakeHandler{calls: make(chan string, 1)},
+		MinBackoff:  10 * time.Millisecond,
+		MaxBackoff:  20 * time.Millisecond,
+		Logf:        func(f string, a ...any) { lmu.Lock(); logs = append(logs, fmt.Sprintf(f, a...)); lmu.Unlock() },
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 1100*time.Millisecond)
+	defer cancel()
+	_ = l.Run(ctx)
+	cred.mu.Lock()
+	defer cred.mu.Unlock()
+	if len(cred.times) < 2 {
+		t.Fatalf("token asked %d times", len(cred.times))
+	}
+	if gap := cred.times[1].Sub(cred.times[0]); gap < 390*time.Millisecond {
+		t.Fatalf("asked again after %v, want at least the 400ms the credential named", gap)
+	}
+	lmu.Lock()
+	defer lmu.Unlock()
+	if len(logs) == 0 || !strings.Contains(logs[0], "reconnecting in 400ms") {
+		t.Fatalf("log: %v", logs)
+	}
+}

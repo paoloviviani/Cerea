@@ -29,6 +29,8 @@ export interface AutoSetup {
 	neverReview?: boolean;
 	/** The reviewer keeps failing: Auto's cards come to the user until it answers again. */
 	degraded?: boolean;
+	/** The user has no decision model: Auto's reviewer rows fall back to asking. */
+	noDecisionModel?: boolean;
 }
 
 /** Whether a reviewer can answer for this machine's Auto cards. */

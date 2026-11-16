@@ -46,7 +46,7 @@ func requestDeviceCode(ctx context.Context, endpoint, clientID, scope string) (*
 		return nil, fmt.Errorf("reading device authorization response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, oauthErrorFromBody("device authorization endpoint", body, resp.StatusCode)
+		return nil, oauthErrorFromBody("device authorization endpoint", body, resp.StatusCode, resp.Header)
 	}
 	var authz deviceAuthorization
 	if err := json.Unmarshal(body, &authz); err != nil {
@@ -134,9 +134,19 @@ func runDeviceFlowWithHooks(ctx context.Context, doc *discovery, clientID string
 		}
 	}
 
+	limited := false // the issuer rate-limited a poll at some point
+	expired := func() error {
+		msg := fmt.Sprintf("the user code %s expired before approval; run 'enroll enroll' again", authz.UserCode)
+		if limited {
+			msg = fmt.Sprintf("the sign-in server kept rate-limiting this sign-in until the code %s expired. "+
+				"Wait a few minutes and run it again; an administrator can raise the token endpoint's rate limit "+
+				"(see \"Too many requests\" in docs/agent-machines-reference.md)", authz.UserCode)
+		}
+		return errors.New(msg)
+	}
 	for {
 		if hooks.now().After(deadline) {
-			return nil, fmt.Errorf("the user code %s expired before approval; run 'enroll enroll' again", authz.UserCode)
+			return nil, expired()
 		}
 		if err := hooks.sleep(ctx, interval); err != nil {
 			return nil, fmt.Errorf("waiting for approval: %w", err)
@@ -164,11 +174,29 @@ func runDeviceFlowWithHooks(ctx context.Context, doc *discovery, clientID string
 			interval += 5 * time.Second
 			continue
 		case "expired_token":
-			return nil, fmt.Errorf("the user code %s expired before approval; run 'enroll enroll' again", authz.UserCode)
+			return nil, expired()
 		case "access_denied":
 			return nil, fmt.Errorf("the sign-in was denied at the identity provider")
-		default:
+		}
+		if !oerr.retryable() {
 			return nil, err
 		}
+		// Rate-limited or briefly unavailable (temporarily_unavailable, 429,
+		// 5xx): the code is still good, so keep polling, but slower. The
+		// server's Retry-After wins; else the interval doubles up to a minute.
+		// Polling every 5 s through a limiter is what keeps it limited.
+		limited = true
+		if oerr.RetryAfter > 0 {
+			interval = oerr.RetryAfter
+		} else {
+			interval = min(interval*2, deviceBackoffMax)
+		}
+		if rem := deadline.Sub(hooks.now()); interval > rem {
+			interval = max(rem, time.Second) // never sleep past the code's life
+		}
+		fmt.Fprintf(os.Stderr, "the sign-in server is rate-limiting; waiting %s before asking again (the code stays valid)\n", humanWait(interval))
 	}
 }
+
+// deviceBackoffMax caps the doubled poll interval after a rate limit.
+const deviceBackoffMax = 60 * time.Second

@@ -122,7 +122,15 @@
 		if (given !== undefined) return;
 		untrack(() => {
 			getAutoApproval()
-				.then((v) => (fetched = { reviewerAvailable: v.available, perClass: v.perClass }))
+				.then(
+					(v) =>
+						(fetched = {
+							reviewerAvailable: v.available,
+							perClass: v.perClass,
+							degraded: v.degraded,
+							noDecisionModel: v.noDecisionModel,
+						})
+				)
 				.catch(() => (fetched = null));
 		});
 	});
@@ -205,7 +213,11 @@
 				{#if stepSentence}
 					<p class="text-ink" data-testid="permission-step">{stepSentence}</p>
 				{/if}
-				{#if setup.degraded && mode === "auto"}
+				{#if setup.noDecisionModel && mode === "auto"}
+					<p class="text-amber-700 dark:text-amber-400" data-testid="permission-no-model">
+						{m["code.auto.no_model"]()}
+					</p>
+				{:else if setup.degraded && mode === "auto"}
 					<p class="text-amber-700 dark:text-amber-400" data-testid="permission-degraded">
 						{m["code.auto.degraded"]()}
 					</p>

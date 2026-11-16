@@ -3,6 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
 	buildConnectorsCommands,
 	buildDockerCommand,
+	buildDockerDetachedCommand,
+	buildDockerDetachedUndo,
+	KEEP_RUNNING_INSTALL,
+	KEEP_RUNNING_LINGER,
+	KEEP_RUNNING_UNINSTALL,
 	buildEnrollCommand,
 	cleanContainerName,
 	GALOPIN_IMAGE,
@@ -377,5 +382,24 @@ describe("cleanContainerName", () => {
 	it("never lets a shell metacharacter through", () => {
 		expect(cleanContainerName("x; rm -rf /")).toBe("x-rm-rf");
 		expect(cleanContainerName("$(id)")).toBe("id");
+	});
+});
+
+describe("keeping it running", () => {
+	it("prints the detached Docker form: -d, a restart policy, the pairing volume, no --rm or -it", () => {
+		const cmd = buildDockerDetachedCommand({ version: "1.2.3", name: "My Box" });
+		expect(cmd).toContain("docker run -d --restart unless-stopped");
+		expect(cmd).toContain("--name galopin-my-box");
+		expect(cmd).toContain("-v galopin-my-box:/home/galopin");
+		expect(cmd).toContain(`${GALOPIN_IMAGE}:1.2.3`);
+		expect(cmd.endsWith("start")).toBe(true);
+		expect(cmd).not.toMatch(/--rm|-it\b|--cerea/);
+		expect(buildDockerDetachedUndo("My Box")).toBe("docker rm -f galopin-my-box");
+	});
+
+	it("names the service commands by the installer's full path", () => {
+		expect(KEEP_RUNNING_INSTALL).toBe("~/.local/bin/galopin service install");
+		expect(KEEP_RUNNING_UNINSTALL).toBe("~/.local/bin/galopin service uninstall");
+		expect(KEEP_RUNNING_LINGER).toBe('loginctl enable-linger "$USER"');
 	});
 });

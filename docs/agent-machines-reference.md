@@ -52,7 +52,7 @@ option, and the list of computers waiting for confirmation, work the same.
 | **Use a project's own opencode setup** (amber) | `--allow-project-config`                                                                                                                                                                                                                                                                           | off     | the computer opens repositories you trust, and you want their own opencode setup to load                                   |
 | **Install opencode**                           | the served installer fetches the opencode release galopin is tested against (2.3.0) from opencode's GitHub releases and checks its sha256 against the one recorded in the Cerea repository before installing it into `~/.opencode/bin` (`install.sh \| sh -s -- --with-opencode`), before `enroll` | off     | the computer is fresh and does not have opencode (the agent runs it as its coding engine); leave it off if it is installed |
 
-**The computer has no limits of its own** (ADR 0109). What a session may do is its Plan · Ask · Allow · Auto word in the composer (and, for Auto, the rows in Workspace → Agents), plus a fixed floor in galopin. The dialog prints no limit flag; `enroll` still accepts the retired `--limit`, `--permission-max` and `--permission-rule` for one more release, ignores them and warns.
+**The computer has no limits of its own** (ADR 0109). What a session may do is its Plan · Ask · Allow · Auto word in the composer (and, for Auto, the rows in Workspace → Agents; with no decision model the Reviewer choice is disabled and the sheet says "Auto: no reviewer decision model defined, falling back to Ask"), plus a fixed floor in galopin. The dialog prints no limit flag; `enroll` still accepts the retired `--limit`, `--permission-max` and `--permission-rule` for one more release, ignores them and warns.
 
 **Advanced**, collapsed until opened (its summary counts what you changed, and
 the printed line carries every changed value whether it is open or not):
@@ -1531,7 +1531,41 @@ The command is `launch <tool>` so other tools can follow; only opencode exists.
 
 ### Keeping it running
 
-**Linux**, as a systemd user service, so galopin starts at boot, restarts if it
+`galopin run` stops when its terminal closes. One command keeps it going: start at
+login, restart if it stops. It is the last step of the **Pair a computer** dialog,
+and you can run it any time after pairing:
+
+```sh
+galopin service install      # write the service, enable it, start it now
+galopin service status       # installed? running? starts at login? where is the log?
+galopin service uninstall    # stop it and remove the service
+```
+
+It runs **this** galopin binary as `galopin run`. To run with other options (an
+ACP engine, a machine name), pass them after `--`:
+`galopin service install -- --backend acp --acp-command "my-agent acp" --machine-name build-box`.
+Running `install` again updates the service and restarts it.
+
+- **Linux**: a systemd user unit, `~/.config/systemd/user/galopin.service`, enabled
+  and started with `systemctl --user`. It does not run while nobody is logged in
+  unless lingering is on; `install` checks and, if it is off, prints the one
+  command to run (`loginctl enable-linger "$USER"`, which may need sudo; galopin
+  never runs sudo). Log: `journalctl --user -u galopin -f`.
+- **macOS**: a LaunchAgent, `~/Library/LaunchAgents/org.cerea.galopin.plist`, loaded
+  with `launchctl`. Log: `~/Library/Logs/galopin.log`. Not for a Mac with the Cerea
+  connector app, which already keeps galopin running.
+- **Windows**: there is no Windows build of galopin; use WSL and run this there.
+- **Containers**: no service. Run the container detached,
+  `docker run -d --restart unless-stopped …` (the dialog prints it).
+- **Updating**: `galopin upgrade` and `install.sh --upgrade` stop the systemd
+  service and start it again on Linux. On macOS, run `galopin service uninstall`,
+  upgrade, then `galopin service install`.
+
+The commands need a galopin from the Cerea that added them: update galopin first on
+an older computer. To set it up by hand, or where `galopin service` does not fit,
+the manual way follows.
+
+**By hand, Linux**, as a systemd user service, so galopin starts at boot, restarts if it
 crashes, and keeps running after you log out. Run these as the user that
 enrolled the computer (not root), once `galopin run` works in a terminal:
 
@@ -1591,7 +1625,7 @@ dialog), restart the service so it runs the new binary:
 session has no user bus. Log in again, or run
 `export XDG_RUNTIME_DIR=/run/user/$(id -u)` first.
 
-**macOS**, as a LaunchAgent:
+**By hand, macOS**, as a LaunchAgent:
 
 ```sh
 sed "s/USER/$USER/g" org.cerea.galopin.plist > ~/Library/LaunchAgents/org.cerea.galopin.plist
@@ -1665,7 +1699,7 @@ Linux (or `$XDG_CONFIG_HOME`), `~/Library/Application Support` on macOS.
    token at the identity provider and clears it (see
    [Removing a computer](#removing-a-computer)). Do this while the computer is
    still on, so it can clean up its own credential.
-2. **Stop and remove the service.**
+2. **Stop and remove the service.** `galopin service uninstall` does it on Linux and macOS; by hand:
    - Linux: `systemctl --user disable --now galopin`, then
      `rm ~/.config/systemd/user/galopin.service` and
      `systemctl --user daemon-reload`. (If you ran `loginctl enable-linger "$USER"`
@@ -1818,6 +1852,63 @@ a long hang:
   same lock the shim refreshes under, and the shim notices the newer file on
   its next request or 15-minute tick: it adopts the new tokens, clears the
   verdict and serves again, with no restart.
+
+### "Too many requests" from the sign-in server
+
+**What you see.** `galopin: link: disconnected (getting access token: refresh
+rejected (temporarily_unavailable): Too many requests. The endpoint is
+temporarily unavailable. Try again later.)`, or a device-code sign-in that ends
+with `token endpoint refused: temporarily_unavailable`. The agent is not
+revoked and the credential is not dead: the sign-in server (the bundled
+Authelia) is rate-limiting its token endpoint, and it answers every client
+until the limit's window passes.
+
+**Why.** Authelia limits each server endpoint (its
+[server endpoint rate limits](https://www.authelia.com/configuration/miscellaneous/server-endpoint-rate-limits/)),
+and the token endpoint's defaults are low: 30 requests a minute, 50 in 10
+minutes, 100 an hour, counted for all clients together. A device-code sign-in
+polls every 5 seconds, so one that takes a few minutes uses up the 10-minute
+allowance; several computers behind one address refreshing together do the
+same. Two galopin processes sharing one pairing make it worse, because they
+rotate the refresh token against each other.
+
+**What galopin does.** It waits instead of retrying every 30 seconds: the
+server's `Retry-After` when it sends one, else 30 seconds growing to 10 minutes
+with some jitter, and it says so in its log ("the sign-in server is
+rate-limiting; retrying in 4m"). The device-code sign-in slows its polling the
+same way (up to a minute between polls) and keeps the code alive. Only one
+galopin can run per pairing: a second one stops with "another galopin is
+already running with this pairing (PID n)". See what runs
+it with `galopin service status`; stop it with Ctrl-C (a terminal),
+`galopin service uninstall` (a service) or by quitting the Mac app, before
+running another or before `galopin enroll`. A service restart (`galopin
+service install` again, `systemctl --user restart galopin`) is fine: the new
+process waits a few seconds for the old one to exit.
+
+**Wait or raise the limit.** Waiting works: the limit clears within the hour,
+and a running agent reconnects by itself. To stop it happening, raise the
+limit. The kit's `authelia/configuration.yml` does this from the next kit release on:
+
+```yaml
+server:
+  endpoints:
+    rate_limits:
+      openid_connect_token:
+        enable: true
+        buckets:
+          - period: "1 minute"
+            requests: 120
+          - period: "10 minutes"
+            requests: 600
+          - period: "1 hour"
+            requests: 2000
+```
+
+A deployment that edited that file keeps its own copy through a kit update: add
+the block above by hand, then `docker compose up -d --force-recreate
+authelia`. Authelia has no limit key for the device-authorization endpoint
+(4.39), so only the token endpoint needs it. With an external IdP, look for
+that IdP's own rate limit.
 
 ### The device flow prints the code-bearing URL
 

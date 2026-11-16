@@ -118,6 +118,7 @@
 			available: boolean;
 			perClass: AutoSetup["perClass"];
 			degraded?: boolean;
+			noDecisionModel?: boolean;
 		} | null;
 		/** The device row this session is on, for the dialog's coordination
 		 * switches (a galopin too old to grant, agent tools off). */
@@ -784,6 +785,7 @@
 					perClass: autoApproval.perClass,
 					neverReview: device?.neverReview === true,
 					degraded: autoApproval.degraded === true,
+					noDecisionModel: autoApproval.noDecisionModel === true,
 				}
 			: null
 	);

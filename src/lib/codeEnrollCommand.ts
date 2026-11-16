@@ -193,6 +193,38 @@ export function buildDockerCommand(opts: DockerCommandOptions): string {
 	return lines.join(CONT);
 }
 
+/**
+ * The detached form of the Docker pairing, for keeping the container running: the same image,
+ * the pairing volume and the project mount as `buildDockerCommand`, but `-d --restart
+ * unless-stopped` instead of `-it --rm`, a fixed container name, and no `start` flags (a
+ * container that is already paired starts the agent by itself). Needs the pairing volume, so it
+ * is only meaningful after the interactive first run kept the pairing.
+ */
+export function buildDockerDetachedCommand(opts: { version: string; name?: string }): string {
+	const name = cleanContainerName(opts.name ?? "");
+	return [
+		"docker run -d --restart unless-stopped",
+		`--name galopin-${name}`,
+		`--hostname ${name}`,
+		`-v galopin-${name}:/home/galopin`,
+		'-v "$PWD":/workspace',
+		`${GALOPIN_IMAGE}:${opts.version}`,
+		"start",
+	].join(CONT);
+}
+
+/** Undo `buildDockerDetachedCommand`: stop and remove the container (the volume keeps the pairing). */
+export function buildDockerDetachedUndo(name?: string): string {
+	return `docker rm -f galopin-${cleanContainerName(name ?? "")}`;
+}
+
+/** `galopin service install`: start at login and restart if it stops (the same on Linux and macOS;
+ * the full path because a fresh install is not on PATH yet). */
+export const KEEP_RUNNING_INSTALL = `${GALOPIN_BIN} service install`;
+export const KEEP_RUNNING_UNINSTALL = `${GALOPIN_BIN} service uninstall`;
+/** Linux only: lets the user service run with nobody logged in (a server). May need sudo. */
+export const KEEP_RUNNING_LINGER = 'loginctl enable-linger "$USER"';
+
 export interface ConnectorsEnrollOptions {
 	/** This deployment's own address, base path included (`PublicConfig`'s `origin`). */
 	origin: string;

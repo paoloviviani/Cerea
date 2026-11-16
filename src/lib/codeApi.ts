@@ -215,6 +215,7 @@ export async function getAutoApproval(): Promise<{
 		import("$lib/types/AgentReview").ReviewAnswerer
 	>;
 	degraded?: boolean;
+	noDecisionModel?: boolean;
 }> {
 	return unwrap(
 		await fetch(`${root()}/auto-approval`, { signal: AbortSignal.timeout(DEVICE_TIMEOUT_MS) })

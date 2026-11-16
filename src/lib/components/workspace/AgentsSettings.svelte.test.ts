@@ -107,6 +107,32 @@ describe("Workspace -> Agents (the user's own auto-approval, ADR 0109)", () => {
 		await expect.element(page.getByTestId("agents-no-models")).toHaveTextContent("grant you one");
 	});
 
+	it("with no decision model, Reviewer is disabled with the reason; a saved Reviewer stays shown and says it asks", async () => {
+		stub(view({ decisionModels: [] }));
+		renderWithApp(AgentsSettings, {});
+		const reason = "Auto: no reviewer decision model defined, falling back to Ask";
+		await expect.element(page.getByTestId("agents-reviewer-disabled")).toHaveTextContent(reason);
+		await expect.element(page.getByTestId("agents-row-edit-reviewer")).toBeDisabled();
+		await expect.element(page.getByTestId("agents-row-edit-run")).toBeEnabled();
+		expect(
+			document.querySelector('[data-testid="agents-row-edit-reviewer"]')?.closest("label")?.title
+		).toBe(reason);
+		// command was saved as Reviewer: still selected, with the note; edit was not: no note.
+		await expect.element(page.getByTestId("agents-row-command-reviewer")).toBeChecked();
+		await expect
+			.element(page.getByTestId("agents-row-command-asks"))
+			.toHaveTextContent("currently asks you");
+		expect(document.querySelector('[data-testid="agents-row-edit-asks"]')).toBeNull();
+	});
+
+	it("with a decision model, Reviewer is selectable and no note shows", async () => {
+		stub(view());
+		renderWithApp(AgentsSettings, {});
+		await expect.element(page.getByTestId("agents-row-edit-reviewer")).toBeEnabled();
+		expect(document.querySelector('[data-testid="agents-reviewer-disabled"]')).toBeNull();
+		expect(document.querySelector('[data-testid="agents-row-command-asks"]')).toBeNull();
+	});
+
 	it("says when the kill switch is off, and when the administrator has not switched reviewers on", async () => {
 		stub(view({ killSwitchOn: true }));
 		renderWithApp(AgentsSettings, {});

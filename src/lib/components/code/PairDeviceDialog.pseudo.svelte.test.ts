@@ -42,7 +42,7 @@ describe("Pair a machine, in the pseudo-locale", () => {
 				/^SHA256SUMS/,
 				/^--/,
 				// The printed commands, and the shared copy button.
-				/^(curl|~\/)/,
+				/^(curl|~\/|loginctl)/,
 				/^Cop(ied|y to clipboard)$/,
 			])
 		).toEqual([]);

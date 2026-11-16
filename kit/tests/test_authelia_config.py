@@ -102,6 +102,26 @@ class AutheliaConfigTests(unittest.TestCase):
                 self.assertEqual(out.count("authorization_policy: 'one_factor'"), 3)
                 self.assertIn("default_policy: 'one_factor'", out)
 
+    @unittest.skipUnless(importlib.util.find_spec("yaml"), "needs PyYAML")
+    def test_token_endpoint_rate_limits_are_raised_and_valid(self) -> None:
+        """Authelia's default token-endpoint limits (50 per 10 minutes, 100 per
+        hour) lock out a slow device sign-in and machines behind one NAT."""
+        import yaml
+
+        proc = self._authelia("template", BASE_ENV)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        rendered = "\n".join(
+            line for line in proc.stdout.splitlines() if not line.startswith(("---", "##"))
+        )
+        limit = yaml.safe_load(rendered)["server"]["endpoints"]["rate_limits"]["openid_connect_token"]
+        self.assertTrue(limit["enable"])
+        got = {b["period"]: b["requests"] for b in limit["buckets"]}
+        self.assertGreaterEqual(got["1 minute"], 120)
+        self.assertGreaterEqual(got["10 minutes"], 600)
+        self.assertGreaterEqual(got["1 hour"], 2000)
+        validate = self._authelia("validate", BASE_ENV)
+        self.assertEqual(validate.returncode, 0, validate.stdout + validate.stderr)
+
     def test_without_smtp_uses_the_filesystem_notifier_and_disables_reset(self) -> None:
         out = self._authelia("template", BASE_ENV).stdout
         self.assertIn("filesystem:", out)

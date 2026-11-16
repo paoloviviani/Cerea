@@ -7,7 +7,11 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import superjson from "superjson";
 import { ObjectId } from "mongodb";
 
-const state = vi.hoisted(() => ({ models: ["judge"] as string[] }));
+const state = vi.hoisted(() => ({
+	models: ["judge"] as string[],
+	reachable: true,
+	configured: true,
+}));
 vi.mock("$lib/server/codeDevices", async (importOriginal) => ({
 	...(await importOriginal<typeof import("$lib/server/codeDevices")>()),
 	requireCodeAgents: vi.fn(async () => {}),
@@ -18,8 +22,8 @@ vi.mock("$lib/server/logger", () => ({
 vi.mock("$lib/server/agentReviewModels", () => ({
 	probeDecisionModels: vi.fn(async () => ({
 		models: state.models,
-		reachable: true,
-		configured: true,
+		reachable: state.reachable,
+		configured: state.configured,
 	})),
 }));
 
@@ -39,6 +43,8 @@ beforeAll(async () => {
 afterEach(async () => {
 	registerReviewTester(null);
 	state.models = ["judge"];
+	state.reachable = true;
+	state.configured = true;
 	await collections.agentReviewConfig.deleteMany({});
 	await collections.agentReviewUserSettings.deleteMany({});
 });
@@ -68,6 +74,19 @@ const mine = {
 };
 
 describe("GET /api/v2/code/auto-approval", () => {
+	it("says noDecisionModel only when the catalogue is empty (or there is no gateway), never when it is merely unreachable", async () => {
+		const flag = async () =>
+			superjson.parse<{ noDecisionModel: boolean }>(await (await GET(as(alice))).text())
+				.noDecisionModel;
+		expect(await flag()).toBe(false);
+		state.models = [];
+		expect(await flag()).toBe(true);
+		state.reachable = false;
+		expect(await flag()).toBe(false);
+		state.configured = false;
+		expect(await flag()).toBe(true);
+	});
+
 	it("says no reviewer until the admin's switch and the user's own are on, then yes with the user's rows", async () => {
 		expect((await read(alice)).available).toBe(false);
 		await saveUserReviewSettings(alice, { enabled: true, decisionModelId: "judge" });

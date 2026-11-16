@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -108,21 +109,61 @@ type oauth2Error struct {
 	Code        string
 	Description string
 	label       string
+	// Status is the HTTP status the error came with (0 when built by hand).
+	Status int
+	// RetryAfter is the server's Retry-After, zero when it sent none.
+	RetryAfter time.Duration
 }
 
 func (e *oauth2Error) Error() string {
+	if e.Code == "" {
+		return fmt.Sprintf("%s answered HTTP %d", e.label, e.Status)
+	}
 	return fmt.Sprintf("%s refused: %s (%s)", e.label, e.Code, e.Description)
 }
 
-func oauthErrorFromBody(label string, body []byte, status int) error {
+// oauthErrorFromBody builds the typed error for a non-200 answer. A body with
+// no OAuth error (a proxy's 429 or 502 page) is still typed, so callers can
+// see its status and Retry-After and back off, not just fail.
+func oauthErrorFromBody(label string, body []byte, status int, header http.Header) error {
 	var parsed struct {
 		Error       string `json:"error"`
 		Description string `json:"error_description"`
 	}
+	e := &oauth2Error{label: label, Status: status, RetryAfter: parseRetryAfter(header.Get("Retry-After"), time.Now())}
 	if json.Unmarshal(body, &parsed) == nil && parsed.Error != "" {
-		return &oauth2Error{Code: parsed.Error, Description: parsed.Description, label: label}
+		e.Code, e.Description = parsed.Error, parsed.Description
 	}
-	return fmt.Errorf("%s answered HTTP %d", label, status)
+	return e
+}
+
+// parseRetryAfter reads a Retry-After value: whole seconds or an HTTP date
+// (RFC 9110 §10.2.3). Zero for none, junk, or a date already past.
+func parseRetryAfter(v string, now time.Time) time.Duration {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0
+	}
+	if secs, err := strconv.ParseInt(v, 10, 64); err == nil {
+		if secs <= 0 {
+			return 0
+		}
+		return time.Duration(secs) * time.Second
+	}
+	if t, err := http.ParseTime(v); err == nil {
+		if d := t.Sub(now); d > 0 {
+			return d
+		}
+	}
+	return 0
+}
+
+// retryable reports a passing condition the caller should wait out: the
+// server is rate-limiting or briefly unable (temporarily_unavailable, 429,
+// 5xx, server_error). Not a verdict on the grant.
+func (e *oauth2Error) retryable() bool {
+	return e.Code == "temporarily_unavailable" || e.Code == "server_error" ||
+		e.Status == http.StatusTooManyRequests || e.Status >= 500
 }
 
 // permanent reports whether this refusal is the token endpoint's final word
@@ -297,7 +338,7 @@ func exchange(ctx context.Context, tokenEndpoint string, form url.Values) (*toke
 		return nil, fmt.Errorf("reading token response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, oauthErrorFromBody("token endpoint", body, resp.StatusCode)
+		return nil, oauthErrorFromBody("token endpoint", body, resp.StatusCode, resp.Header)
 	}
 	var tokens tokenSet
 	if err := json.Unmarshal(body, &tokens); err != nil {

@@ -380,6 +380,13 @@ func runEnroll(args []string) error {
 		}
 		opts.creds = path
 	}
+	// Pairing again under a running agent would swap its credential out from
+	// under it (and leave two galopins refreshing different tokens).
+	unlockInstance, err := lockInstanceFor(opts.creds, "enroll", 0)
+	if err != nil {
+		return fmt.Errorf("%w -- enroll replaces its credential, so stop the agent first, then enroll again", err)
+	}
+	defer unlockInstance()
 	if set["group"] && set["default-group"] {
 		return fmt.Errorf("--group and --default-group conflict: pin one group, or follow your Pystino default")
 	}
