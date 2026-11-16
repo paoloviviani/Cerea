@@ -325,6 +325,7 @@ mount limits) the model gets the sample and is told plainly that the content is
 too large for it and cannot be read here; it then suggests a model with a
 larger window or shortening the content. Nothing is cut silently. Redaction
 rules and what the transcript shows are unchanged.
+The content is classed cheaply from its name, type and sample (data, prose or unknown): data is queried with code, prose (a markdown export, a document's text) is read and not parsed, and answered from its start and end, asking what to pick up when it is an earlier conversation; with no reported window, prose is inlined up to 200,000 characters.
 
 **Previews and converted files.** Click a file in the chat to open it in
 the side pane. A deployment with the document converter ([Office
