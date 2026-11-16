@@ -1891,11 +1891,11 @@ server:
       openid_connect_token:
         enable: true
         buckets:
-          - period: '1 minute'
+          - period: "1 minute"
             requests: 120
-          - period: '10 minutes'
+          - period: "10 minutes"
             requests: 600
-          - period: '1 hour'
+          - period: "1 hour"
             requests: 2000
 ```
 
