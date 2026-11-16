@@ -5,7 +5,11 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.54.3 — 2026-11-17
+
+Pins: Cerea `0.54.3` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.4`, opencode `2.3.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d` (the bundled Authelia gets higher token-endpoint rate limits; if you customised `authelia/configuration.yml`, see the bullet below). **On computers:** `curl -fsSL <your-cerea>/galopin/install.sh | sh -s -- --upgrade` for `galopin service`, file upload/download/zip, the sign-in backoff and the one-galopin-per-pairing lock; on a Mac, also update the Cerea connector app.
 
 - **One list of connectors for your agents.** Workspace → Agents → **Connectors your agents may use** is now the only place you choose them: your Cerea connectors and, under each computer's name, that computer's own servers. A coding session inherits the list and can only turn items off for itself (its Permissions sheet says "from Workspace → Agents"); every call still goes through its Plan, Ask, Allow or Auto word. One switch, **Apps on my computers may use these connectors too (their own approvals apply)**, on by default, lets goose Desktop, Claude Code in a terminal and other apps use the list's Cerea connectors through galopin. A project's connectors now narrow the list for the sessions it starts. **The two earlier lists were merged** on first start: your list is what your local-agents list and all your sessions had on, nobody loses reach, and sessions start with nothing turned off. A connector's line is now its own description (the administrator's, or what its server says about itself), plain and cut at a word, instead of its first tool's description; a server on your computer shows its proper name with its id beside it, and the lists sort by name.
 
@@ -17,6 +21,8 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 - **Upload files and folders from the file browser.** The Files pane (in a session and on a workspace screen) has **Upload** and **Upload folder** buttons and takes files or whole folders dropped on its list: any file type up to 200 MB each, sent in chunks with progress and a Cancel, into the folder you last opened, with a folder keeping its structure (up to 5,000 files and 2 GB at once). If files already exist, one prompt asks "N files already exist: Replace all / Skip existing / Cancel". The deny list, the workspace confinement and the computer's `fileWrite` setting apply as for saving. **Computers need the galopin update**; an older galopin hides the actions.
 - **Download files and folders from the file browser.** A download icon on each file row and a Download button in the open file save any file type up to 500 MB (streamed, never held whole); **Download as zip** on a folder saves it as a zip up to 20,000 files and 2 GB, built while it streams, with symlinks not followed and deny-listed files left out and listed in a `SKIPPED.txt`. Only reading is needed. Cerea serves them as attachments with a safe content type (never rendered). **Computers need the galopin update**; an older galopin hides the actions.
 
+- **The Pair a computer dialog helps keep galopin running.** A third step, **Keep it running**, prints `galopin service install` (a systemd user service on Linux, a LaunchAgent on macOS): galopin starts at login and restarts if it stops. `galopin service status` and `galopin service uninstall` show and undo it; flags for `run` go after `--` to keep an engine or machine name. On Linux the dialog also shows the `loginctl enable-linger` line for servers; for Docker it prints the detached `docker run -d --restart unless-stopped` form after the interactive sign-in run. **On computers:** update galopin first (`curl -fsSL <your-cerea>/galopin/install.sh | sh -s -- --upgrade`), because the command is new in galopin.
+
 ## v0.54.2 — 2026-11-16
 
 Pins: Cerea `0.54.2` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.4`, opencode `2.3.0`.
@@ -24,10 +30,6 @@ Pins: Cerea `0.54.2` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cere
 `docker compose pull && docker compose up -d`. **On computers:** `curl -fsSL <your-cerea>/galopin/install.sh | sh -s -- --upgrade` for the ACP improvements (Claude Code and other ACP agents).
 
 - **The ACP backend covers the current Agent Client Protocol, so Claude Code (`claude-agent-acp`) works end to end.** Sessions started outside Cerea, such as in the Claude Code terminal, are listed (paged) and open with their history; opening a very large session no longer floods the link or breaks the view (the replay is quiet, tool calls are always named, and the history is served in pages, newest first). Mode and model selectors follow the agent's config options; the context meter and cost read the agent's usage updates; attachments follow the agent's prompt capabilities (images, embedded files); deleting a session also removes it from the agent's list; a cancelled turn ends quietly and a turn stopped by a token or request limit says so. docs/agent-machines-reference.md has a "Running Claude Code over ACP" section.
-## Unreleased
-
-- **The Pair a computer dialog helps keep galopin running.** A third step, **Keep it running**, prints `galopin service install` (a systemd user service on Linux, a LaunchAgent on macOS): galopin starts at login and restarts if it stops. `galopin service status` and `galopin service uninstall` show and undo it; flags for `run` go after `--` to keep an engine or machine name. On Linux the dialog also shows the `loginctl enable-linger` line for servers; for Docker it prints the detached `docker run -d --restart unless-stopped` form after the interactive sign-in run. **On computers:** update galopin first (`curl -fsSL <your-cerea>/galopin/install.sh | sh -s -- --upgrade`), because the command is new in galopin.
-
 ## v0.54.1 — 2026-11-16
 
 Pins: Cerea `0.54.1` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.4`, opencode `2.3.0`.
