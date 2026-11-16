@@ -141,11 +141,45 @@ async function alreadyCurrent(filePath, expectedSha256) {
 	return (await sha256Of(filePath)) === expectedSha256;
 }
 
+/**
+ * The CDN answers 5xx and drops connections under load (a jsdelivr outage on
+ * 2026-11-16 failed every CI build on a different file each time). A transient
+ * failure is retried with backoff; a 4xx (a wrong pin) fails at once. The bytes
+ * are still checked against the lock's sha256 afterwards, so a retry can never
+ * vendor something unverified.
+ */
+const FETCH_ATTEMPTS = 6;
+async function fetchWithRetry(url, label) {
+	let lastError;
+	for (let attempt = 1; attempt <= FETCH_ATTEMPTS; attempt++) {
+		let res;
+		try {
+			res = await fetch(url);
+			if (res.ok) return Buffer.from(await res.arrayBuffer());
+		} catch (err) {
+			// A dropped connection or a body cut short: transient.
+			lastError = new Error(
+				`${label}: ${err instanceof Error ? err.message : err} fetching ${url}`
+			);
+		}
+		if (res && !res.ok) {
+			lastError = new Error(`${label}: ${res.status} ${res.statusText} fetching ${url}`);
+			if (res.status < 500 && res.status !== 429) throw lastError;
+		}
+		if (attempt < FETCH_ATTEMPTS) {
+			const delay = Math.min(30_000, 1000 * 2 ** (attempt - 1)) + Math.floor(Math.random() * 500);
+			console.warn(
+				`${label}: ${lastError.message}; retry ${attempt}/${FETCH_ATTEMPTS - 1} in ${delay} ms`
+			);
+			await new Promise((resolve) => setTimeout(resolve, delay));
+		}
+	}
+	throw lastError;
+}
+
 async function fetchAndVerify(url, destPath, expectedSha256, label) {
 	if (await alreadyCurrent(destPath, expectedSha256)) return false;
-	const res = await fetch(url);
-	if (!res.ok) throw new Error(`${label}: ${res.status} ${res.statusText} fetching ${url}`);
-	const buffer = Buffer.from(await res.arrayBuffer());
+	const buffer = await fetchWithRetry(url, label);
 	const actual = createHash("sha256").update(buffer).digest("hex");
 	if (actual !== expectedSha256) {
 		throw new Error(
