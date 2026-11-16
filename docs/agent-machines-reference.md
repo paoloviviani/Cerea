@@ -1876,9 +1876,12 @@ with some jitter, and it says so in its log ("the sign-in server is
 rate-limiting; retrying in 4m"). The device-code sign-in slows its polling the
 same way (up to a minute between polls) and keeps the code alive. Only one
 galopin can run per pairing: a second one stops with "another galopin is
-already running with this pairing (PID n)". Stop the first (`systemctl --user
-stop galopin`, or quit the Mac app) before running another, or before
-`galopin enroll`.
+already running with this pairing (PID n)". See what runs
+it with `galopin service status`; stop it with Ctrl-C (a terminal),
+`galopin service uninstall` (a service) or by quitting the Mac app, before
+running another or before `galopin enroll`. A service restart (`galopin
+service install` again, `systemctl --user restart galopin`) is fine: the new
+process waits a few seconds for the old one to exit.
 
 **Wait or raise the limit.** Waiting works: the limit clears within the hour,
 and a running agent reconnects by itself. To stop it happening, raise the

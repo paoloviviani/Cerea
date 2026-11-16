@@ -382,7 +382,7 @@ func runEnroll(args []string) error {
 	}
 	// Pairing again under a running agent would swap its credential out from
 	// under it (and leave two galopins refreshing different tokens).
-	unlockInstance, err := lockInstanceFor(opts.creds, "enroll")
+	unlockInstance, err := lockInstanceFor(opts.creds, "enroll", 0)
 	if err != nil {
 		return fmt.Errorf("%w -- enroll replaces its credential, so stop the agent first, then enroll again", err)
 	}

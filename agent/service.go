@@ -194,7 +194,7 @@ func (e *serviceEnv) installSystemd(runArgs []string) error {
 	} else {
 		e.say("galopin now starts when you log in and restarts if it stops. Started it.")
 	}
-	e.say("If a 'galopin run' is still open in a terminal, stop it (Ctrl-C): two copies fight over the computer's link.")
+	e.say("If a 'galopin run' is still open in a terminal, stop it (Ctrl-C): only one galopin can run per pairing, so the service stops with 'another galopin is already running' until you do.")
 	e.say("Log: journalctl --user -u galopin -f")
 	e.lingerHint()
 	return nil
@@ -251,7 +251,7 @@ func (e *serviceEnv) installLaunchd(runArgs []string) error {
 	}
 	_, _ = e.ctl("launchctl", "kickstart", "-k", e.launchTarget())
 	e.say("galopin now starts when you log in and restarts if it stops. Started it.")
-	e.say("If a 'galopin run' is still open in a terminal, stop it (Ctrl-C): two copies fight over the computer's link.")
+	e.say("If a 'galopin run' is still open in a terminal, stop it (Ctrl-C): only one galopin can run per pairing, so the service stops with 'another galopin is already running' until you do.")
 	e.say("Log: tail -f %s", e.logPath())
 	return nil
 }

@@ -762,7 +762,7 @@ func runServe(args []string) error {
 		}
 		credsPath = path
 	}
-	unlockInstance, err := lockInstanceFor(credsPath, "")
+	unlockInstance, err := lockInstanceFor(credsPath, "", instanceLockGrace)
 	if err != nil {
 		return err
 	}

@@ -103,3 +103,32 @@ func TestEnrollRefusesUnderARunningAgent(t *testing.T) {
 		t.Fatalf("enroll under a running agent: %v", err)
 	}
 }
+
+// A service restart starts the new process right behind the old one's exit:
+// run waits out a holder that lets go within the grace, and enroll does not wait.
+func TestInstanceLockGraceWaitsForAnExitingHolder(t *testing.T) {
+	creds := filepath.Join(t.TempDir(), "credentials.json")
+	unlock, err := lockInstance(creds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.AfterFunc(300*time.Millisecond, unlock)
+	got, err := lockInstanceFor(creds, "", 3*time.Second)
+	if err != nil {
+		t.Fatalf("did not wait for the old process to exit: %v", err)
+	}
+	start := time.Now()
+	if _, err := lockInstanceFor(creds, "enroll", 0); err == nil || time.Since(start) > time.Second {
+		t.Fatalf("enroll must refuse at once: %v after %v", err, time.Since(start))
+	}
+	got()
+}
+
+func TestInstanceLockMessagePointsAtTheServiceCommand(t *testing.T) {
+	msg := (&alreadyRunningError{pid: 7}).Error()
+	for _, want := range []string{"(PID 7)", "galopin service status", "galopin service uninstall"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("message %q lacks %q", msg, want)
+		}
+	}
+}
