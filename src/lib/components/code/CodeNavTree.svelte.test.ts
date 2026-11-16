@@ -148,7 +148,7 @@ describe("CodeNavTree collapse", () => {
 		expect(link().className).not.toContain("bg-gray-100 font-semibold");
 
 		await screen.getByRole("button", { name: "Collapse alpha" }).click();
-		const wsRow = screen.getByText("alpha").element().closest("span.flex");
+		const wsRow = screen.getByText("alpha").element().closest("a.flex");
 		// Holds the selection, is not the selection: a lighter wash, not the
 		// selected row's tint.
 		expect(wsRow?.className).not.toContain("font-semibold");
@@ -167,7 +167,7 @@ describe("CodeNavTree collapse", () => {
 		go("?device=d1&ws=w1");
 		const screen = mount();
 		await expect.element(screen.getByText("alpha")).toBeVisible();
-		const wsRow = screen.getByText("alpha").element().closest("span.flex");
+		const wsRow = screen.getByText("alpha").element().closest("a.flex");
 		expect(wsRow?.className).toContain("bg-gray-100 font-semibold");
 		expect(wsRow?.hasAttribute("data-holds-selection")).toBe(false);
 	});
@@ -506,6 +506,15 @@ describe("CodeNavTree machine rows", () => {
 });
 
 describe("CodeNavTree workspace rows", () => {
+	it("a workspace row links to its screen, with no session in the address", async () => {
+		go("");
+		const screen = mount([device("d1")]);
+		await expect.element(screen.getByText("alpha")).toBeVisible();
+		const link = screen.getByText("alpha").element().closest("a");
+		expect(link?.getAttribute("href")).toContain("/code?device=d1&ws=w1");
+		expect(link?.getAttribute("href")).not.toContain("agent=");
+	});
+
 	it("shows the folder's name, with the full path as its tooltip and the menu's first line", async () => {
 		WORKSPACES.d1 = [
 			{
@@ -520,7 +529,7 @@ describe("CodeNavTree workspace rows", () => {
 		const screen = mount([device("d1")]);
 		await expect.element(screen.getByText("cloud_sync", { exact: true })).toBeVisible();
 		expect(screen.baseElement.textContent).not.toContain("/home/paolo/repos");
-		const row = screen.getByText("cloud_sync", { exact: true }).element().closest("span.flex");
+		const row = screen.getByText("cloud_sync", { exact: true }).element().closest("a.flex");
 		expect(row?.getAttribute("title")).toBe("/home/paolo/repos/cloud_sync");
 		// A name someone chose is kept.
 		await expect.element(screen.getByText("Home - this deployment")).toBeVisible();

@@ -455,14 +455,14 @@ describe("the forwarder over a live machine link", () => {
 
 			for (const [label, options, flag] of [
 				[
-					"a machine enrolled without --allow-file-write",
+					"a machine enrolled with --no-file-write",
 					{ ...WRITABLE, policy: { ...WRITABLE.policy, fileWrite: "denied" as const } },
-					"--allow-file-write",
+					"policy set --allow-file-write",
 				],
 				[
 					"a machine whose policy predates fileWrite",
 					{ ...WRITABLE, policy: { ...POLICY, files: "read" as const } },
-					"--allow-file-write",
+					"policy set --allow-file-write",
 				],
 				[
 					"a machine enrolled with --no-files",

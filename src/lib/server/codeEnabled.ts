@@ -160,8 +160,8 @@ export function codeFilesEnabled(): boolean {
  * Saving files from the /code editor (`files.write`, PROTOCOL.md §9.3): on
  * with the explorer, unless the deployment switches it off with
  * `CODE_FILE_WRITE_ENABLED=false`. Default on because the machine's own
- * policy is the real gate: `fileWrite` is denied unless the machine was
- * enrolled with `--allow-file-write`, and that is checked wherever a write is
+ * policy is the real gate: `fileWrite` is on by default and off for a
+ * machine enrolled with `--no-file-write`, and that is checked wherever a write is
  * forwarded (and again by galopin).
  */
 export function codeFileWriteEnabled(): boolean {

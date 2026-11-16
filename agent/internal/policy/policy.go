@@ -40,10 +40,11 @@ type Policy struct {
 	// leaving only FileDeny.
 	NoDefaultFileDeny bool `json:"noDefaultFileDeny,omitempty"`
 	// FileWrite gates files.write, the /code editor's save (PROTOCOL.md §9.3):
-	// "allowed" or "denied" (the default; `enroll --allow-file-write` opens
-	// it). A write lands on disk with no model and no permission rule in the
-	// way, so it stays off until the owner opts in. A local `galopin policy
-	// set` can only turn it off (--no-file-write).
+	// "allowed" or "denied". A fresh enroll allows it (ADR 0107; `enroll
+	// --no-file-write` turns it off); a policy.json without the field reads
+	// denied. A write lands on disk with no model and no permission rule in
+	// the way, but only the owner's own enroll or local `galopin policy set
+	// --allow-file-write` / `--no-file-write` can change it.
 	FileWrite string `json:"fileWrite,omitempty"`
 	// Terminal gates every terminal.* op: "allowed" or "denied" (the
 	// default; `enroll --allow-terminal` opens it). ADR 0090: a terminal is
@@ -314,7 +315,7 @@ var DefaultFileDeny = []string{
 func (p Policy) FilesAllowed() bool { return p.Files != FilesOff }
 
 // FileWriteAllowed reports whether the /code editor may save files on this
-// machine. Default denied: an owner opts in with `enroll --allow-file-write`.
+// machine. A policy with no value reads denied; a fresh enroll sets allowed.
 func (p Policy) FileWriteAllowed() bool { return p.FileWrite == FileWriteAllowed }
 
 // TerminalAllowed reports whether this machine permits terminal.* ops at

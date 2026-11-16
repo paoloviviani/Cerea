@@ -63,3 +63,23 @@ export function humanSize(bytes: number): string {
 	const digits = value < 10 ? 1 : 0;
 	return `${formatNumber(value, { minimumFractionDigits: digits, maximumFractionDigits: digits })} ${units[unit]}`;
 }
+
+/** Why the file browser cannot save on a machine, or null when it can. The
+ * three halves of the rule: the deployment's switch, the machine's galopin
+ * implementing `files.write`, and the machine's own `fileWrite` policy. */
+export type FileSaveBlock = "deployment" | "machine" | "policy";
+
+export function fileSaveBlock(
+	deploymentOn: boolean,
+	device:
+		| {
+				machine?: { capabilities: { fileWrite?: boolean } } | null;
+				policy?: { fileWrite?: "allowed" | "denied" } | null;
+		  }
+		| undefined
+): FileSaveBlock | null {
+	if (!deploymentOn) return "deployment";
+	if (device?.machine?.capabilities.fileWrite !== true) return "machine";
+	if (device.policy?.fileWrite !== "allowed") return "policy";
+	return null;
+}

@@ -48,8 +48,8 @@ func TestFilesWriteIsDeniedByDefault(t *testing.T) {
 	mc, wsID, dir, auditPath := writeMachine(t, policy.Default())
 	base := revisionOf(t, mc, wsID, "main.go")
 	_, operr := mc.Handle(context.Background(), "files.write", writeArgs(wsID, "main.go", "package other\n", &base))
-	if operr == nil || operr.Code != "forbidden" || !strings.Contains(operr.Message, "--allow-file-write") {
-		t.Fatalf("files.write = %+v, want forbidden naming --allow-file-write", operr)
+	if operr == nil || operr.Code != "forbidden" || !strings.Contains(operr.Message, "policy set --allow-file-write") {
+		t.Fatalf("files.write = %+v, want forbidden naming policy set --allow-file-write", operr)
 	}
 	if got, _ := os.ReadFile(filepath.Join(dir, "main.go")); string(got) != "package main\n" {
 		t.Errorf("main.go was written: %q", got)

@@ -214,7 +214,6 @@ describe("each control emits exactly its flag", () => {
 		["enroll-allow-free-models", "--allow-free-models", "free models", true],
 		["enroll-allow-opencode-provider", "--allow-opencode-provider", "opencode provider", true],
 		["enroll-no-files", "--no-files", "no files", true],
-		["enroll-allow-file-write", "--allow-file-write", "saving files", true],
 		["enroll-no-default-file-deny", "--no-default-file-deny", "no default deny", true],
 	];
 	for (const [testid, flag, label, advanced] of checkboxes) {
@@ -239,6 +238,19 @@ describe("each control emits exactly its flag", () => {
 		expect(policyPart(screen)).toBe("");
 		expect(command(screen)).toBe(BARE);
 		await screen.getByTestId("enroll-bill-to-default").click();
+		expect(policyPart(screen)).toBe("--default-group");
+		expect(command(screen)).toBe(PLAIN);
+	});
+
+	it("edit files from Cerea: ticked by default and printing nothing; unticking prints --no-file-write alone, ticking again removes it", async () => {
+		const screen = mount();
+		await openAdvanced(screen);
+		await expect.element(screen.getByTestId("enroll-allow-file-write")).toBeChecked();
+		await expect.element(screen.getByText("Edit files from Cerea.")).toBeInTheDocument();
+		expect(policyPart(screen)).toBe("--default-group");
+		await screen.getByTestId("enroll-allow-file-write").click();
+		expect(policyPart(screen)).toBe("--default-group --no-file-write");
+		await screen.getByTestId("enroll-allow-file-write").click();
 		expect(policyPart(screen)).toBe("--default-group");
 		expect(command(screen)).toBe(PLAIN);
 	});
@@ -426,7 +438,7 @@ describe("project config and opencode's own providers", () => {
 });
 
 describe("the risky ones read as risky", () => {
-	it("terminal, trusting repos, the command shell, dropping the secret list and saving files carry the warning tone", async () => {
+	it("terminal, trusting repos, the command shell, and dropping the secret list carry the warning tone", async () => {
 		const screen = mount();
 		await openAdvanced(screen);
 		for (const testid of [
@@ -434,7 +446,6 @@ describe("the risky ones read as risky", () => {
 			"enroll-allow-project-config",
 			"enroll-allow-command-shell",
 			"enroll-no-default-file-deny",
-			"enroll-allow-file-write",
 		]) {
 			const label = screen.getByTestId(testid).element().closest("label");
 			expect(label?.querySelector('[data-risky="true"]'), testid).not.toBeNull();

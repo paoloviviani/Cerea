@@ -449,6 +449,35 @@ test.describe("owned machine agent: parity", () => {
 	// own (decide.go: Spawn is never an effect on the machine), so the first card in a delegated
 	// turn is the child's own ask.
 
+	test("workspace screen: Files opens from a workspace with no session started", async ({
+		page,
+		db,
+		session,
+	}) => {
+		const sub = `e2e-${randomUUID()}`;
+		await seedUser(db, session.sessionId, sub);
+		const started = await startMachine({ sub });
+		machine = started;
+		writeFileSync(join(started.workspace, "hello.txt"), "hi\n");
+		await page.goto(`${E2E_APP_BASE}/code`);
+		await page.getByRole("button", { name: "Agents", exact: true }).click();
+		await expect(page.getByText(started.name)).toBeVisible({ timeout: 60_000 });
+		await page.getByRole("button", { name: "Confirm this computer" }).click();
+		await page.getByRole("button", { name: "Add a workspace to this computer" }).click();
+		await page.getByLabel("Directory on the computer").fill(started.workspace);
+		await page.getByLabel("Title (optional)").fill("repo");
+		await page.getByRole("dialog").getByRole("button", { name: "Add workspace" }).click();
+
+		// Clicking the workspace opens its screen: New session, its sessions, Files.
+		await page.getByRole("link", { name: /^repo/ }).click();
+		const screen = page.getByTestId("workspace-screen");
+		await expect(screen.getByTestId("workspace-new-session")).toBeVisible({ timeout: 30_000 });
+		await screen.getByRole("button", { name: "Files" }).click();
+		const tree = page.getByRole("tree", { name: "Workspace files" });
+		await expect(tree).toBeVisible({ timeout: 30_000 });
+		await expect(tree.getByRole("button", { name: /^hello\.txt/ })).toBeVisible();
+	});
+
 	test("files: the explorer lists the real workspace, badges and redacts, and refreshes after a turn", async ({
 		page,
 		db,
@@ -491,7 +520,7 @@ test.describe("owned machine agent: parity", () => {
 		await expect(page.getByTestId("file-viewer")).toContainText("export const a = 2;", {
 			timeout: 30_000,
 		});
-		// Saving is off unless the machine was enrolled with --allow-file-write.
+		// A machine whose policy has no fileWrite reads read-only (and the pane says why).
 		await expect(page.getByTestId("file-edit")).toHaveCount(0);
 		await page.getByTestId("code-files").getByRole("button", { name: "Back to files" }).click();
 		await row(".env").click();
@@ -540,7 +569,7 @@ test.describe("owned machine agent: parity", () => {
 		await expect(row("made-by-agent.txt")).toBeVisible({ timeout: 30_000 });
 	});
 
-	test("files: with --allow-file-write the editor saves to disk, and a change on disk is a conflict to resolve", async ({
+	test("files: with fileWrite allowed the editor saves to disk, and a change on disk is a conflict to resolve", async ({
 		page,
 		db,
 		session,

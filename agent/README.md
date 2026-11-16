@@ -415,9 +415,10 @@ retired field owes (limits in `policy.json` that are ignored).
 turn files, file writes or the terminal off, lower `--max-terminals`, add a
 local `--deny CLASS` (and `--no-deny CLASS` to lift one), remove a safe
 directory with `--no-safe-dir PATH`, or add a `--file-deny` entry — but never
-loosen the rest back; loosening always requires `enroll` again, since the
+loosen the rest back (the exceptions are `--no-deny CLASS` and
+`--allow-file-write`, which turns the editor back on); loosening always requires `enroll` again, since the
 policy is never writable over the link (§4). The **file editor is on by default**
-(`enroll --no-file-write` turns it off; `--allow-file-write` is accepted and
+(`enroll --no-file-write` turns it off; `enroll --allow-file-write` is accepted and
 restates the default).
 
 ## The browser runtime: `galopin browser`

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { badgeOf, gitBadges, humanSize } from "./codeFiles";
+import { badgeOf, fileSaveBlock, gitBadges, humanSize } from "./codeFiles";
 
 describe("git badges", () => {
 	it("maps porcelain-v2 codes to one letter", () => {
@@ -32,5 +32,22 @@ describe("humanSize", () => {
 		expect(humanSize(512)).toBe("512 B");
 		expect(humanSize(2355)).toBe("2.3 KB");
 		expect(humanSize(2.3 * 1024 * 1024)).toBe("2.3 MB");
+	});
+});
+
+describe("fileSaveBlock", () => {
+	const allowed = {
+		machine: { capabilities: { fileWrite: true } },
+		policy: { fileWrite: "allowed" as const },
+	};
+	it("is null only when the deployment, the galopin and the policy all allow saving", () => {
+		expect(fileSaveBlock(true, allowed)).toBeNull();
+	});
+	it("names the first half that says no", () => {
+		expect(fileSaveBlock(false, allowed)).toBe("deployment");
+		expect(fileSaveBlock(true, { ...allowed, machine: { capabilities: {} } })).toBe("machine");
+		expect(fileSaveBlock(true, { ...allowed, policy: { fileWrite: "denied" } })).toBe("policy");
+		expect(fileSaveBlock(true, { machine: allowed.machine })).toBe("policy");
+		expect(fileSaveBlock(true, undefined)).toBe("machine");
 	});
 });
