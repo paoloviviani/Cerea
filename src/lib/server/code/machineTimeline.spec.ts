@@ -114,6 +114,36 @@ describe("snapshotToUpdates", () => {
 		expect(updates[1]).toEqual({ type: "user", text: "hello there", messageId: "client-msg-1" });
 	});
 
+	it("names a tool part that arrived without a name, so the view never reads undefined", () => {
+		const transcript: Transcript = {
+			messages: [
+				{
+					message: assistantMessage("m9"),
+					parts: [
+						{
+							id: "p9",
+							messageId: "m9",
+							role: "assistant",
+							type: "tool",
+							callId: "call-9",
+							status: "completed",
+							input: {},
+							output: "",
+						} as unknown as Part,
+					],
+				},
+			],
+			permissions: [],
+			status: "idle",
+			usage: null,
+			todos: [],
+		};
+		const call = snapshotToUpdates(transcript).find(
+			(u) => u.type === MessageUpdateType.Tool && u.subtype === "call"
+		);
+		expect(call).toMatchObject({ call: { name: "unknown" } });
+	});
+
 	it("maps an assistant text part to a Stream update, and a tool part to call+result", () => {
 		const transcript: Transcript = {
 			messages: [

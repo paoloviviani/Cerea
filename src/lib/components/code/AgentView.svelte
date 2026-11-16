@@ -1049,7 +1049,7 @@
 			for (const update of message.updates ?? []) {
 				if (update.type !== MessageUpdateType.Tool) continue;
 				if (update.subtype !== MessageToolUpdateType.Call) continue;
-				if (update.call.name.toLowerCase() !== "task") continue;
+				if (update.call?.name?.toLowerCase() !== "task") continue;
 				const description = update.call.parameters?.["description"];
 				calls.set(update.uuid, typeof description === "string" ? description : "");
 			}
