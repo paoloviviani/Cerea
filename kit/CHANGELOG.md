@@ -5,7 +5,11 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.54.0 — 2026-11-16
+
+Pins: Cerea `0.54.0` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.3`, opencode `2.3.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. **On computers:** `curl -fsSL <your-cerea>/galopin/install.sh | sh -s -- --upgrade` (the larger browser page limit, the billing-group pairing fix); on a Mac, also update the Cerea connector app. Existing deployments keep their upstream and their `CODE_AGENTS_ENABLED`; run `./configure --agents` to turn coding agents on.
 
 - **Fresh deployments start with no provider.** `GATEWAY_UPSTREAM__BASE_URL` no longer defaults to Cortecs (`.env.example`, compose and `./configure` all leave it empty): the gateway starts with no provider and you add providers in the Pystino console. `./configure` asks for an upstream base URL as an optional question (empty is fine; the key is asked only with a URL); the `generic` preset still needs its endpoint. Existing deployments keep the provider they have: their `.env` is unchanged.
 - **`./configure` turns coding agents on for a fresh install.** Pystino allows coding agents by default, but `CODE_AGENTS_ENABLED` stayed empty, so users saw agents in the console and no Agents tab in the chat. `./configure` now asks "Coding agents (galopin on users' computers)?" with yes as the default (flag `--agents` / `--no-agents`; a fresh non-interactive run is on too, except when an external IdP offers no device flow), keeps the answer on re-runs, and says access is controlled per group in the Pystino console. **Existing deployments** are not changed: set `CODE_AGENTS_ENABLED='true'` in `.env` yourself (or run `./configure --agents`).
