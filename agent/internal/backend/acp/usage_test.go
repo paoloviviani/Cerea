@@ -38,3 +38,14 @@ func TestRecordUsageEmitsAndKeepsTheLatest(t *testing.T) {
 		t.Errorf("session usage = %+v", s.Usage)
 	}
 }
+
+func TestAgentUsageIsIgnoredWhenTheCallerFeedsUsage(t *testing.T) {
+	b := New(Config{Usage: true, Logf: func(string, ...any) {}})
+	st := b.reg.getOrCreate("s1", "/w")
+	b.RecordUsage("s1", backend.Usage{Input: 80, Output: 7})
+	b.handleUsageUpdate(st, map[string]any{"used": float64(0), "size": float64(10)})
+	b.applyTurnUsage("/w", st, map[string]any{"inputTokens": float64(0)})
+	if st.usage.Input != 80 || st.usage.Output != 7 || st.usage.ContextMax != nil {
+		t.Errorf("usage = %+v", st.usage)
+	}
+}

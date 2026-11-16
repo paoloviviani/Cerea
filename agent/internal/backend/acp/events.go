@@ -534,6 +534,9 @@ func (b *Backend) handleSessionInfo(st *sessionState, upd map[string]any) {
 // cost the cumulative session cost (counted when in USD, the unit Usage.Cost
 // is in).
 func (b *Backend) handleUsageUpdate(st *sessionState, upd map[string]any) {
+	if b.cfg.Usage {
+		return // the caller feeds usage from its own proxy (RecordUsage); the agent's would overwrite it
+	}
 	used, okUsed := upd["used"].(float64)
 	size, okSize := upd["size"].(float64)
 	if !okUsed && !okSize {
@@ -567,6 +570,9 @@ func (b *Backend) handleUsageUpdate(st *sessionState, upd map[string]any) {
 // cachedWriteTokens) into the session's usage, next to the context figures
 // usage_update gave.
 func (b *Backend) applyTurnUsage(workspaceDir string, st *sessionState, turn map[string]any) {
+	if b.cfg.Usage {
+		return
+	}
 	num := func(k string) int {
 		if f, ok := turn[k].(float64); ok {
 			return int(f)
