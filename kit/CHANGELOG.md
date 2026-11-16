@@ -5,6 +5,10 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Connector lists show the connector's own description and a readable name.** In Workspace → Agents and in a coding session's connectors, a connector's line is now its own description (the administrator's, or what its server says about itself), plain and cut at a word; it was the first tool's description. A server on your computer shows its proper name with its id beside it, and both lists sort by name.
+
 ## v0.54.2 — 2026-11-16
 
 Pins: Cerea `0.54.2` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.4`, opencode `2.3.0`.

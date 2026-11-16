@@ -13,6 +13,7 @@
 		key: string;
 		name: string;
 		summary: string;
+		detail?: string;
 		unavailable?: "switched off" | "needs sign-in";
 	}
 
@@ -105,6 +106,9 @@
 						/>
 						<span>
 							<span class="font-medium">{option.name}</span>
+							{#if option.detail}
+								<span class="text-gray-500">({option.detail})</span>
+							{/if}
 							{#if option.unavailable}
 								<span class="text-gray-500">
 									· {option.unavailable === "needs sign-in"

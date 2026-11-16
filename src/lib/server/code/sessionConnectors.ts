@@ -15,6 +15,7 @@ import { resolveConnectors, type TurnConnector } from "$lib/server/mcp/turnConne
 import { localConnectorId, parseLocalConnectorId } from "$lib/server/mcp/localUrl";
 import { serversOf, servesLocalConnectors } from "$lib/server/mcp/local";
 import { policyIn, loadPolicies, isLocalKey } from "$lib/server/mcp/deploymentModes";
+import { compareConnectors, localServerLabel } from "$lib/server/mcp/connectorBlurb";
 import { ownedDevice } from "$lib/server/code/agentSessions";
 
 export const MAX_SESSION_CONNECTORS = 50;
@@ -23,7 +24,10 @@ export interface AgentConnectorOption {
 	key: string;
 	name: string;
 	kind: "base" | "connector" | "local";
+	/** What the connector says about itself (plain, short); never a tool's description. "" when nothing. */
 	summary: string;
+	/** Secondary text after the name: a computer's own server id, when the title is its proper name. */
+	detail?: string;
 	/** Why it cannot be used now, for the switch list ("needs sign-in", "switched off"). */
 	unavailable?: "switched off" | "needs sign-in";
 	/** Offered by the administrator as always on. Still an opt-in for an agent. */
@@ -50,7 +54,7 @@ async function cereaOptions(userId: ObjectId): Promise<AgentConnectorOption[]> {
 			key: c.key,
 			name: c.name,
 			kind: c.kind as "base" | "connector",
-			summary: c.summary,
+			summary: c.blurb,
 			...(policyIn(policies, c.key).mode === "locked" ? { locked: true } : {}),
 		}));
 	for (const b of blocked) {
@@ -79,21 +83,23 @@ export async function connectorOptions(
 			for (const s of servers) {
 				// The browser runtime is `browse`'s, never a connector an agent session can opt in to.
 				if (isBrowserRuntimeServer(s.name)) continue;
+				const label = localServerLabel(s.name, s.description);
 				options.push({
 					key: localConnectorId(deviceId, s.name),
-					name: s.name,
+					name: label.title,
 					kind: "local",
-					summary: s.description ?? "",
+					summary: label.blurb,
+					...(label.detail ? { detail: label.detail } : {}),
 				});
 			}
 		}
 	}
-	return options.sort((a, b) => a.name.localeCompare(b.name));
+	return options.sort(compareConnectors);
 }
 
 /** What the user may switch on for local agents: Cerea's connectors (a machine's own are its own business). */
 export async function localAgentOptions(userId: ObjectId): Promise<AgentConnectorOption[]> {
-	return (await cereaOptions(userId)).sort((a, b) => a.name.localeCompare(b.name));
+	return (await cereaOptions(userId)).sort(compareConnectors);
 }
 
 export async function getLocalAgentKeys(userId: ObjectId): Promise<string[]> {

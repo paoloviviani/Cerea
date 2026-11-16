@@ -31,6 +31,13 @@ const OPTIONS = [
 	{ key: "base:maps", name: "Maps", kind: "base", summary: "", locked: true },
 	{ key: "local:d1:notes", name: "notes", kind: "local", summary: "My notes" },
 	{
+		key: "local:d1:calendar",
+		name: "Infomaniak Calendar",
+		detail: "calendar",
+		kind: "local",
+		summary: "",
+	},
+	{
 		key: "connector:n",
 		name: "Notion",
 		kind: "connector",
@@ -61,7 +68,14 @@ describe("the session's connector switches", () => {
 			await expect.element(checkbox(screen, name)).toBeEnabled();
 		}
 		expect(api.getSessionConnectors).toHaveBeenCalledWith("d1", "s1");
-		await expect.element(screen.getByText("on this computer")).toBeInTheDocument();
+		await expect.element(screen.getByText("on this computer").first()).toBeInTheDocument();
+	});
+
+	it("shows the title with the id beside it and the connector's own description", async () => {
+		const screen = renderWithApp(SessionConnectors, { deviceId: "d1", sessionId: "s1" });
+		await expect.element(checkbox(screen, "Infomaniak Calendar")).toBeInTheDocument();
+		await expect.element(screen.getByTestId("connector-detail")).toHaveTextContent("(calendar)");
+		await expect.element(screen.getByText("Issues and boards")).toBeVisible();
 	});
 
 	it("saves the whole selection on each switch, and shows what Cerea answered", async () => {
