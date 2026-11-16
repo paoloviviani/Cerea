@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"time"
 
 	"galopin/internal/backend"
@@ -15,6 +16,10 @@ import (
 // snapshots); ACP has no wire message for Childrener/Compactor (PROTOCOL.md §2).
 var _ backend.Backend = (*Backend)(nil)
 
+// maxListPages bounds session/list pagination: an agent with a very long
+// history is listed to this depth (newest first, as agents return them).
+const maxListPages = 20
+
 func (b *Backend) ListSessions(ctx context.Context, workspaceDir string) ([]backend.Session, error) {
 	b.infoMu.Lock()
 	canList := b.agentCaps.sessionList
@@ -24,28 +29,50 @@ func (b *Backend) ListSessions(ctx context.Context, workspaceDir string) ([]back
 		if err != nil {
 			return nil, err
 		}
-		callCtx, cancel := context.WithTimeout(ctx, rpcCallTimeout)
-		defer cancel()
-		raw, err := conn.call(callCtx, "session/list", map[string]any{})
-		if err != nil {
-			return nil, fmt.Errorf("acp: session/list: %w", err)
-		}
-		var m map[string]any
-		if err := json.Unmarshal(raw, &m); err != nil {
-			return nil, fmt.Errorf("acp: session/list: parsing response: %w", err)
-		}
-		for _, sm := range asMaps(getSlice(m, "sessions")) {
-			id := getStr(sm, "sessionId", "id")
-			cwd := getStr(sm, "cwd")
-			if id == "" || cwd != workspaceDir {
-				continue
+		// session/list is filtered by cwd by the agent and paged by cursor
+		// (session-list.md). The agent's filter is not trusted alone: a cwd that
+		// differs (a trailing slash, another workspace) is dropped here too.
+		cursor := ""
+		for page := 0; page < maxListPages; page++ {
+			params := map[string]any{"cwd": workspaceDir}
+			if cursor != "" {
+				params["cursor"] = cursor
 			}
-			st := b.reg.getOrCreate(id, workspaceDir)
-			st.mu.Lock()
-			if st.title == "" {
-				st.title = getStr(sm, "title")
+			callCtx, cancel := context.WithTimeout(ctx, rpcCallTimeout)
+			raw, err := conn.call(callCtx, "session/list", params)
+			cancel()
+			if err != nil {
+				if page > 0 {
+					break // a later page failing keeps what was listed
+				}
+				return nil, fmt.Errorf("acp: session/list: %w", err)
 			}
-			st.mu.Unlock()
+			var m map[string]any
+			if err := json.Unmarshal(raw, &m); err != nil {
+				return nil, fmt.Errorf("acp: session/list: parsing response: %w", err)
+			}
+			for _, sm := range asMaps(getSlice(m, "sessions")) {
+				id := getStr(sm, "sessionId", "id")
+				if id == "" || !sameDir(getStr(sm, "cwd"), workspaceDir) || b.reg.isGone(id) {
+					continue
+				}
+				st := b.reg.getOrCreate(id, workspaceDir)
+				st.mu.Lock()
+				if st.title == "" {
+					st.title = getStr(sm, "title")
+				}
+				if t, err := time.Parse(time.RFC3339, getStr(sm, "updatedAt")); err == nil && !st.active && !st.busy {
+					st.updatedAt = t
+					if !st.loaded {
+						st.createdAt = t // the agent gives only the last activity
+					}
+				}
+				st.mu.Unlock()
+			}
+			cursor = getStr(m, "nextCursor")
+			if cursor == "" {
+				break
+			}
 		}
 	}
 	// Whether or not session/list is advertised, the answer is built from
@@ -60,6 +87,10 @@ func (b *Backend) ListSessions(ctx context.Context, workspaceDir string) ([]back
 		st.mu.Unlock()
 	}
 	return out, nil
+}
+
+func sameDir(a, b string) bool {
+	return filepath.Clean(a) == filepath.Clean(b)
 }
 
 func (b *Backend) GetSession(ctx context.Context, workspaceDir, sessionID string) (backend.Session, error) {
@@ -102,16 +133,19 @@ func (b *Backend) CreateSession(ctx context.Context, workspaceDir string, opts b
 		}
 		return backend.Session{}, fmt.Errorf("acp: session/new: response carried no sessionId")
 	}
-	modes, models, curMode, curModel := sessionOptions(m)
+	cfg := parseSessionConfig(m)
+	curMode, curModel := cfg.modeID, cfg.modelID
 	curMode = b.assertMode(ctx, id, curMode)
-	b.reg.setCaps(workspaceDir, workspaceCaps{modes: b.visibleModes(modes), models: models})
+	b.reg.setCaps(workspaceDir, workspaceCaps{modes: b.visibleModes(cfg.modes), models: cfg.models})
 
 	st := b.reg.getOrCreate(id, workspaceDir)
 	st.mu.Lock()
 	st.loaded = true
+	st.active = true
 	st.title = opts.Title
 	st.modeID = curMode
 	st.modelID = curModel
+	st.modeConfigID, st.modelConfigID = cfg.modeConfigID, cfg.modelConfigID
 	st.spawnedBy = opts.SpawnedBy
 	st.mu.Unlock()
 	b.adoptMCP(st, ep)
@@ -149,14 +183,25 @@ func (b *Backend) RenameSession(ctx context.Context, workspaceDir, sessionID, ti
 func (b *Backend) DeleteSession(ctx context.Context, workspaceDir, sessionID string) error {
 	b.infoMu.Lock()
 	canClose := b.agentCaps.sessionClose
+	canDelete := b.agentCaps.sessionDelete
 	b.infoMu.Unlock()
-	if canClose {
-		if conn, err := b.currentConn(); err == nil {
+	// Close frees the agent's live resources; delete removes the session from
+	// its list (session-delete.md), so a session deleted here does not come
+	// back from session/list. -32002 (unknown session) counts as done.
+	if conn, err := b.currentConn(); err == nil {
+		for _, step := range []struct {
+			method string
+			on     bool
+		}{{"session/close", canClose}, {"session/delete", canDelete}} {
+			if !step.on {
+				continue
+			}
 			callCtx, cancel := context.WithTimeout(ctx, rpcCallTimeout)
-			_, callErr := conn.call(callCtx, "session/close", map[string]any{"sessionId": sessionID})
+			_, callErr := conn.call(callCtx, step.method, map[string]any{"sessionId": sessionID})
 			cancel()
-			if callErr != nil {
-				b.cfg.Logf("acp: session/close %s: %v", sessionID, callErr)
+			var re *rpcError
+			if callErr != nil && !(errors.As(callErr, &re) && re.Code == -32002) {
+				b.cfg.Logf("acp: %s %s: %v", step.method, sessionID, callErr)
 			}
 		}
 	}
@@ -192,6 +237,17 @@ func (b *Backend) Prompt(ctx context.Context, workspaceDir, sessionID string, pr
 	st, ok := b.reg.get(sessionID)
 	if !ok {
 		st = b.reg.getOrCreate(sessionID, workspaceDir)
+	}
+
+	// A session found by session/list, or one the agent forgot in a restart,
+	// is reopened (resume where advertised) before it can be prompted.
+	st.mu.Lock()
+	needOpen := !st.active && !st.busy
+	st.mu.Unlock()
+	if needOpen {
+		if err := b.openSession(ctx, workspaceDir, st, false); err != nil {
+			return err
+		}
 	}
 
 	st.mu.Lock()
@@ -253,7 +309,7 @@ func (b *Backend) Prompt(ctx context.Context, workspaceDir, sessionID string, pr
 
 	respCh, err := conn.callAsync("session/prompt", map[string]any{
 		"sessionId": sessionID,
-		"prompt":    promptContentBlocks(prompt),
+		"prompt":    promptContentBlocks(prompt, b.promptCaps()),
 	})
 	if err != nil {
 		st.mu.Lock()
@@ -280,35 +336,65 @@ func (b *Backend) awaitPromptResult(workspaceDir, sessionID string, st *sessionS
 
 	if msg.Error != nil {
 		st.mu.Unlock()
-		b.emit(workspaceDir, sessionID, backend.Event{Kind: backend.EventError, ErrorMessage: msg.Error.Message, ErrorCode: fmt.Sprint(msg.Error.Code)})
+		// -32800 is "request cancelled" (cancellation.md): an agent may answer a
+		// cancelled prompt with it instead of stopReason "cancelled". Either way
+		// a cancel is a quiet end of turn, never an error.
+		if msg.Error.Code != errRequestCancelled {
+			b.emit(workspaceDir, sessionID, backend.Event{Kind: backend.EventError, ErrorMessage: msg.Error.Message, ErrorCode: fmt.Sprint(msg.Error.Code)})
+		}
 		b.emit(workspaceDir, sessionID, backend.Event{Kind: backend.EventStatus, Status: backend.StatusIdle})
 		return
 	}
 
 	var res struct {
-		StopReason string `json:"stopReason"`
+		StopReason string         `json:"stopReason"`
+		Usage      map[string]any `json:"usage"`
+		Meta       map[string]any `json:"_meta"`
 	}
 	_ = json.Unmarshal(msg.Result, &res)
 
 	now := time.Now()
-	errMsg := ""
-	if res.StopReason == "refusal" {
-		errMsg = "the agent refused this prompt"
-	}
+	errMsg := stopReasonError(res.StopReason)
 	if idx, ok := st.msgIndex[assistantMsgID]; ok {
 		st.messages[idx].Message.CompletedAt = &now
 		st.messages[idx].Message.Error = errMsg
 	}
 	st.mu.Unlock()
 
+	// Per-turn token counts: the end-turn usage field is still a draft RFD
+	// (not in the v1 schema), read when an agent sends it, also under _meta.
+	turn := res.Usage
+	if turn == nil {
+		turn = getMap(res.Meta, "usage")
+	}
+	if turn != nil {
+		b.applyTurnUsage(workspaceDir, st, turn)
+	}
 	if errMsg != "" {
 		b.emit(workspaceDir, sessionID, backend.Event{Kind: backend.EventError, ErrorMessage: errMsg})
 	}
-	// cancelled and end_turn/max_tokens/max_turn_requests all just mean
-	// "the turn is over" (PROTOCOL.md/the task: "cancelled → idle, no
-	// error"); only refusal (above) and a JSON-RPC error carry an error
-	// event.
+	// cancelled and end_turn all just mean "the turn is over" (PROTOCOL.md/the
+	// task: "cancelled → idle, no error"); refusal, max_tokens and
+	// max_turn_requests carry a visible error (stopReasonError), as does a
+	// JSON-RPC error (above).
 	b.emit(workspaceDir, sessionID, backend.Event{Kind: backend.EventStatus, Status: backend.StatusIdle})
+}
+
+// errRequestCancelled is ACP's -32800 (error.md).
+const errRequestCancelled = -32800
+
+// stopReasonError is the visible error a stop reason other than a normal end
+// or a cancel carries (prompt-turn.md "Stop reasons").
+func stopReasonError(reason string) string {
+	switch reason {
+	case "refusal":
+		return "the agent refused this prompt"
+	case "max_tokens":
+		return "the agent stopped: the model's output token limit was reached"
+	case "max_turn_requests":
+		return "the agent stopped: the maximum number of model requests in one turn was reached"
+	}
+	return ""
 }
 
 // Cancel sends session/cancel (a notification, not a request — verified
@@ -341,14 +427,32 @@ func (b *Backend) SetMode(ctx context.Context, workspaceDir, sessionID, modeID s
 	if err != nil {
 		return backend.Session{}, err
 	}
-	callCtx, cancel := context.WithTimeout(ctx, rpcCallTimeout)
-	defer cancel()
-	if _, err := conn.call(callCtx, "session/set_mode", map[string]any{"sessionId": sessionID, "modeId": modeID}); err != nil {
-		return backend.Session{}, fmt.Errorf("acp: session/set_mode: %w", err)
-	}
 	st, ok := b.reg.get(sessionID)
 	if !ok {
 		return backend.Session{}, fmt.Errorf("acp: unknown session %q", sessionID)
+	}
+	st.mu.Lock()
+	configID := st.modeConfigID
+	st.mu.Unlock()
+	callCtx, cancel := context.WithTimeout(ctx, rpcCallTimeout)
+	defer cancel()
+	// Config options are the preferred form (session-config-options.md: modes
+	// "will be removed in a future version"); session/set_mode is used when the
+	// agent offers the mode only the old way, or does not know the option method.
+	done := false
+	if configID != "" {
+		raw, err := conn.call(callCtx, "session/set_config_option", map[string]any{"sessionId": sessionID, "configId": configID, "value": modeID})
+		if err == nil {
+			done = true
+			b.applyConfigResult(workspaceDir, st, raw)
+		} else if !isMethodNotFound(err) {
+			return backend.Session{}, fmt.Errorf("acp: session/set_config_option: %w", err)
+		}
+	}
+	if !done {
+		if _, err := conn.call(callCtx, "session/set_mode", map[string]any{"sessionId": sessionID, "modeId": modeID}); err != nil {
+			return backend.Session{}, fmt.Errorf("acp: session/set_mode: %w", err)
+		}
 	}
 	st.mu.Lock()
 	st.modeID = modeID
@@ -359,32 +463,51 @@ func (b *Backend) SetMode(ctx context.Context, workspaceDir, sessionID, modeID s
 	return sess, nil
 }
 
-// SetModel calls ACP's still-unstable session/set_model. An agent that does
-// not implement it answers a plain JSON-RPC "method not found", which this
-// wraps into a message that says so rather than a bare rpc error
-// (PROTOCOL.md/the task: "report unsupported cleanly").
+func isMethodNotFound(err error) bool {
+	var re *rpcError
+	return errors.As(err, &re) && re.Code == -32601
+}
+
+// SetModel sets the model through the model config option when the agent
+// advertised one, else through the still-unstable session/set_model. An agent
+// that has neither answers a plain JSON-RPC "method not found", which this
+// wraps into a message that says so rather than a bare rpc error.
 func (b *Backend) SetModel(ctx context.Context, workspaceDir, sessionID, modelID string) (backend.Session, error) {
 	conn, err := b.currentConn()
 	if err != nil {
 		return backend.Session{}, err
 	}
-	callCtx, cancel := context.WithTimeout(ctx, rpcCallTimeout)
-	defer cancel()
-	if _, err := conn.call(callCtx, "session/set_model", map[string]any{"sessionId": sessionID, "modelId": modelID}); err != nil {
-		// goose and pi-acp advertise the model as a config option and answer
-		// "method not found" to the unstable session/set_model: the stable
-		// way is session/set_config_option on that option.
-		var re *rpcError
-		if !errors.As(err, &re) || re.Code != -32601 {
-			return backend.Session{}, fmt.Errorf("acp: session/set_model failed: %w", err)
-		}
-		if _, err2 := conn.call(callCtx, "session/set_config_option", map[string]any{"sessionId": sessionID, "configId": "model", "value": modelID}); err2 != nil {
-			return backend.Session{}, fmt.Errorf("acp: neither session/set_model nor session/set_config_option is supported by this agent: %w", err2)
-		}
-	}
 	st, ok := b.reg.get(sessionID)
 	if !ok {
 		return backend.Session{}, fmt.Errorf("acp: unknown session %q", sessionID)
+	}
+	st.mu.Lock()
+	configID := st.modelConfigID
+	st.mu.Unlock()
+	callCtx, cancel := context.WithTimeout(ctx, rpcCallTimeout)
+	defer cancel()
+	done := false
+	if configID != "" {
+		raw, err := conn.call(callCtx, "session/set_config_option", map[string]any{"sessionId": sessionID, "configId": configID, "value": modelID})
+		if err == nil {
+			done = true
+			b.applyConfigResult(workspaceDir, st, raw)
+		} else if !isMethodNotFound(err) {
+			return backend.Session{}, fmt.Errorf("acp: session/set_config_option: %w", err)
+		}
+	}
+	if !done {
+		if _, err := conn.call(callCtx, "session/set_model", map[string]any{"sessionId": sessionID, "modelId": modelID}); err != nil {
+			// goose and pi-acp advertise the model as a config option and answer
+			// "method not found" to the unstable session/set_model: the stable
+			// way is session/set_config_option on that option.
+			if !isMethodNotFound(err) {
+				return backend.Session{}, fmt.Errorf("acp: session/set_model failed: %w", err)
+			}
+			if _, err2 := conn.call(callCtx, "session/set_config_option", map[string]any{"sessionId": sessionID, "configId": "model", "value": modelID}); err2 != nil {
+				return backend.Session{}, fmt.Errorf("acp: neither session/set_model nor session/set_config_option is supported by this agent: %w", err2)
+			}
+		}
 	}
 	st.mu.Lock()
 	st.modelID = modelID
@@ -392,6 +515,40 @@ func (b *Backend) SetModel(ctx context.Context, workspaceDir, sessionID, modelID
 	sess := st.toSession(b.ID())
 	st.mu.Unlock()
 	return sess, nil
+}
+
+// applyConfigResult folds a session/set_config_option answer (the complete
+// option list) into the session's selectors.
+func (b *Backend) applyConfigResult(workspaceDir string, st *sessionState, raw json.RawMessage) {
+	var m map[string]any
+	if json.Unmarshal(raw, &m) != nil {
+		return
+	}
+	b.applyConfig(workspaceDir, st, parseSessionConfig(m))
+}
+
+// applyConfig records a session's selectors from a configOptions list (an
+// answer or a config_option_update). Only selectors the list names change.
+func (b *Backend) applyConfig(workspaceDir string, st *sessionState, cfg sessionConfig) {
+	if cfg.modeConfigID == "" && cfg.modelConfigID == "" {
+		return
+	}
+	caps := b.reg.getCaps(workspaceDir)
+	st.mu.Lock()
+	if cfg.modeConfigID != "" {
+		st.modeConfigID = cfg.modeConfigID
+		if !b.modeHidden(cfg.modeID) {
+			st.modeID = cfg.modeID
+		}
+		caps.modes = b.visibleModes(cfg.modes)
+	}
+	if cfg.modelConfigID != "" {
+		st.modelConfigID = cfg.modelConfigID
+		st.modelID = cfg.modelID
+		caps.models = cfg.models
+	}
+	st.mu.Unlock()
+	b.reg.setCaps(workspaceDir, caps)
 }
 
 // ReplyPermission answers a pending session/request_permission with the
@@ -428,6 +585,8 @@ func (b *Backend) ReplyPermission(ctx context.Context, workspaceDir, sessionID, 
 	var optionID string
 	switch decision {
 	case backend.DecisionOnce:
+		// Only allow_once is "once": offering the agent's allow_always for it
+		// would widen what the user approved.
 		optionID = findOptionByKind(pending.options, "allow_once")
 	case backend.DecisionAlways:
 		optionID = findOptionByKind(pending.options, "allow_always", "allow_once")
@@ -449,21 +608,26 @@ func (b *Backend) Modes(ctx context.Context, workspaceDir string) ([]backend.Mod
 }
 
 func (b *Backend) Models(ctx context.Context, workspaceDir string) ([]backend.Model, error) {
-	return b.reg.getCaps(workspaceDir).models, nil
+	// Cerea offers an image attachment only for a model that claims images; an
+	// ACP agent has one prompt capability for all its models.
+	images := b.promptCaps().promptImage
+	models := append([]backend.Model(nil), b.reg.getCaps(workspaceDir).models...)
+	for i := range models {
+		models[i].Images = images
+	}
+	return models, nil
 }
 
 // Transcript returns the session's accumulated state if this process has
-// it (live prompts, created here, or an earlier replay), otherwise loads it
-// with session/load (PROTOCOL.md §7's no-gap guarantee). The agent replays
-// the history as session/update notifications, which fill the registry
-// through the same handleNotify path a live turn uses (events.go); the
-// notifications are lines the connection's reader sees before the load
-// response, so by the time the call returns the registry holds all of it.
+// it (live prompts, created here, or an earlier replay), otherwise opens the
+// session with its history: session/load where the agent advertised
+// loadSession, else session/resume (which replays nothing, so the history is
+// empty but the session is usable). The agent replays the history as
+// session/update notifications, which fill the registry through the same
+// handleNotify path a live turn uses (events.go); the notifications are lines
+// the connection's reader sees before the load response, so by the time the
+// call returns the registry holds all of it (PROTOCOL.md §7's no-gap guarantee).
 func (b *Backend) Transcript(ctx context.Context, workspaceDir, sessionID string) (backend.Transcript, error) {
-	// One replay at a time: a second session.sync for the same session must
-	// find the first one's result, not replay over it.
-	b.loadMu.Lock()
-	defer b.loadMu.Unlock()
 	st, ok := b.reg.get(sessionID)
 	if ok {
 		st.mu.Lock()
@@ -471,61 +635,110 @@ func (b *Backend) Transcript(ctx context.Context, workspaceDir, sessionID string
 		st.mu.Unlock()
 	}
 	if !ok {
-		b.infoMu.Lock()
-		// session/load is the agent's loadSession capability. sessionCapabilities.resume
-		// gates a different method (session/resume, which replays nothing); goose
-		// advertises loadSession alone, and waiting for resume too left every
-		// reloaded transcript empty.
-		canLoad := b.agentCaps.loadSession
-		b.infoMu.Unlock()
-		if !canLoad {
-			return backend.Transcript{Status: backend.StatusIdle}, nil
-		}
-		conn, err := b.currentConn()
-		if err != nil {
+		st = b.reg.getOrCreate(sessionID, workspaceDir)
+		if err := b.openSession(ctx, workspaceDir, st, true); err != nil {
 			return backend.Transcript{}, err
 		}
-		st = b.reg.getOrCreate(sessionID, workspaceDir)
-		st.mu.Lock()
-		st.replaying, st.replayRole, st.replaySeq = true, "", 0
-		st.mu.Unlock()
-		callCtx, cancel := context.WithTimeout(ctx, rpcCallTimeout)
-		servers, ep := b.mcpServers()
-		loadParams := map[string]any{"sessionId": sessionID, "cwd": workspaceDir, "mcpServers": servers}
-		if len(b.cfg.SessionMeta) > 0 {
-			loadParams["_meta"] = b.cfg.SessionMeta
-		}
-		raw, err := conn.call(callCtx, "session/load", loadParams)
-		cancel()
-		st.mu.Lock()
-		st.replaying = false
-		st.mu.Unlock()
-		if err != nil {
-			if ep != nil {
-				ep.Revoke()
-			}
-			return backend.Transcript{}, fmt.Errorf("acp: session/load: %w", err)
-		}
-		var m map[string]any
-		if json.Unmarshal(raw, &m) == nil {
-			modes, models, curMode, curModel := sessionOptions(m)
-			curMode = b.assertMode(ctx, sessionID, curMode)
-			b.reg.setCaps(workspaceDir, workspaceCaps{modes: b.visibleModes(modes), models: models})
-			st.mu.Lock()
-			if st.modeID == "" || b.modeHidden(st.modeID) {
-				st.modeID = curMode
-			}
-			if st.modelID == "" {
-				st.modelID = curModel
-			}
-			st.mu.Unlock()
-		}
-		st.mu.Lock()
-		st.loaded = true
-		st.mu.Unlock()
-		b.adoptMCP(st, ep)
 	}
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	return st.toTranscript(), nil
+}
+
+// openSession makes the agent hold a session this process did not create (one
+// session/list found, or one the agent forgot when it restarted). withHistory
+// asks for the transcript: session/load is then preferred, because only it
+// replays the conversation; without it session/resume is preferred (no replay
+// to rebuild or duplicate) and session/load is the fallback. An agent with
+// neither is left alone, as before. One open at a time: a second caller finds
+// the first one's result.
+func (b *Backend) openSession(ctx context.Context, workspaceDir string, st *sessionState, withHistory bool) error {
+	b.loadMu.Lock()
+	defer b.loadMu.Unlock()
+	st.mu.Lock()
+	done := st.active || (withHistory && st.loaded)
+	st.mu.Unlock()
+	if done {
+		return nil
+	}
+	b.infoMu.Lock()
+	canLoad, canResume := b.agentCaps.loadSession, b.agentCaps.sessionResume
+	b.infoMu.Unlock()
+	// sessionCapabilities.resume gates session/resume; loadSession gates
+	// session/load. They are independent (goose advertises loadSession alone).
+	method := ""
+	switch {
+	case withHistory && canLoad, !withHistory && !canResume && canLoad:
+		method = "session/load"
+	case canResume:
+		method = "session/resume"
+	}
+	if method == "" {
+		st.mu.Lock()
+		st.loaded = true
+		st.mu.Unlock()
+		return nil
+	}
+	conn, err := b.currentConn()
+	if err != nil {
+		return err
+	}
+	sessionID := st.id
+	st.mu.Lock()
+	if method == "session/load" {
+		// The replay rebuilds the transcript, so what is held is dropped first
+		// (a re-open after an agent restart would otherwise double it).
+		st.messages, st.todos = nil, nil
+		st.msgIndex, st.partIndex, st.partOwner = map[string]int{}, map[string]int{}, map[string]int{}
+		st.replaying, st.replayRole, st.replaySeq, st.replayMsgID = true, "", 0, ""
+	}
+	st.mu.Unlock()
+	callCtx, cancel := context.WithTimeout(ctx, rpcCallTimeout)
+	servers, ep := b.mcpServers()
+	params := map[string]any{"sessionId": sessionID, "cwd": workspaceDir, "mcpServers": servers}
+	if len(b.cfg.SessionMeta) > 0 {
+		params["_meta"] = b.cfg.SessionMeta
+	}
+	raw, err := conn.call(callCtx, method, params)
+	cancel()
+	st.mu.Lock()
+	st.replaying = false
+	st.mu.Unlock()
+	if err != nil {
+		if ep != nil {
+			ep.Revoke()
+		}
+		return fmt.Errorf("acp: %s: %w", method, err)
+	}
+	var m map[string]any
+	if json.Unmarshal(raw, &m) == nil {
+		cfg := parseSessionConfig(m)
+		curMode := b.assertMode(ctx, sessionID, cfg.modeID)
+		b.reg.setCaps(workspaceDir, workspaceCaps{modes: b.visibleModes(cfg.modes), models: cfg.models})
+		st.mu.Lock()
+		if st.modeID == "" || b.modeHidden(st.modeID) {
+			st.modeID = curMode
+		}
+		if st.modelID == "" {
+			st.modelID = cfg.modelID
+		}
+		st.modeConfigID, st.modelConfigID = cfg.modeConfigID, cfg.modelConfigID
+		st.mu.Unlock()
+	}
+	st.mu.Lock()
+	st.loaded = true
+	st.active = true
+	st.replayed = method == "session/load"
+	st.mu.Unlock()
+	b.adoptMCP(st, ep)
+	if method == "session/load" {
+		b.trimReplays(sessionID)
+	}
+	return nil
+}
+
+func (b *Backend) promptCaps() acpAgentCapabilities {
+	b.infoMu.Lock()
+	defer b.infoMu.Unlock()
+	return b.agentCaps
 }

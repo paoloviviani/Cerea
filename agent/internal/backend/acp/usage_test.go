@@ -7,9 +7,10 @@ import (
 	"galopin/internal/backend"
 )
 
-func TestUsageAndCompactAreOffOnlyWhenConfigured(t *testing.T) {
+func TestCompactIsOffOnlyWhenConfigured(t *testing.T) {
 	plain := New(Config{Logf: func(string, ...any) {}})
-	if c := plain.Capabilities(); c.Usage || c.Compact {
+	if c := plain.Capabilities(); !c.Usage || c.Compact {
+		// usage is on for every ACP agent: the stable usage_update is read when sent
 		t.Errorf("a plain ACP agent advertises usage=%v compact=%v", c.Usage, c.Compact)
 	}
 	if err := plain.Compact(context.Background(), "/w", "s"); err == nil {

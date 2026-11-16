@@ -2,7 +2,9 @@ package acp
 
 import (
 	"encoding/base64"
+	"net/url"
 	"strings"
+	"unicode/utf8"
 
 	"galopin/internal/backend"
 )
@@ -111,7 +113,8 @@ func mapToolStatus(s string) backend.ToolStatus {
 // reasonable in rawOutput — ACP does not pin rawOutput's shape at all (it
 // is the tool's own arbitrary result), so this is best-effort by design.
 func toolCallText(m map[string]any) string {
-	for _, c := range asMaps(getSlice(m, "content")) {
+	items := asMaps(getSlice(m, "content"))
+	for _, c := range items {
 		inner := getMap(c, "content")
 		if inner == nil {
 			inner = c
@@ -125,7 +128,31 @@ func toolCallText(m map[string]any) string {
 			return t
 		}
 	}
-	return ""
+	// No text: say what the other content was (a diff's file, a linked or
+	// embedded resource), so a finished edit is not an empty card.
+	var lines []string
+	for _, c := range items {
+		switch getStr(c, "type") {
+		case "diff":
+			if p := getStr(c, "path"); p != "" {
+				lines = append(lines, "changed "+p)
+			}
+		case "content":
+			inner := getMap(c, "content")
+			switch getStr(inner, "type") {
+			case "resource_link":
+				lines = append(lines, strings.TrimSpace(getStr(inner, "name")+" "+getStr(inner, "uri")))
+			case "resource":
+				if res := getMap(inner, "resource"); res != nil {
+					if t := getStr(res, "text"); t != "" {
+						return t
+					}
+					lines = append(lines, getStr(res, "uri"))
+				}
+			}
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // dataURLPayload strips a "data:<mime>;base64,<payload>" URL down to its
@@ -142,9 +169,12 @@ func dataURLPayload(url string) string {
 }
 
 // promptContentBlocks turns a normalized Prompt into ACP's prompt content
-// block array (PROTOCOL.md/the task: text plus images as
-// {type:"image",mimeType,data}).
-func promptContentBlocks(p backend.Prompt) []map[string]any {
+// block array, gated by what the agent advertised in promptCapabilities
+// (content.md: text and resource_link are baseline; image, audio and
+// embedded resources are each opt-in). An attachment the agent cannot take
+// is not dropped silently: a short text block tells the agent (and so the
+// user, in its answer) that it was left out.
+func promptContentBlocks(p backend.Prompt, caps acpAgentCapabilities) []map[string]any {
 	blocks := make([]map[string]any, 0, 2+len(p.Attachments))
 	// The preface says who is speaking (another session, galopin): the agent
 	// reads it first, the transcript never shows it as the person's text.
@@ -155,55 +185,111 @@ func promptContentBlocks(p backend.Prompt) []map[string]any {
 		blocks = append(blocks, map[string]any{"type": "text", "text": p.Text})
 	}
 	for _, a := range p.Attachments {
-		if !strings.HasPrefix(a.Mime, "image/") {
-			continue
+		mime := strings.ToLower(strings.TrimSpace(a.Mime))
+		switch {
+		case strings.HasPrefix(mime, "image/") && caps.promptImage:
+			blocks = append(blocks, map[string]any{"type": "image", "mimeType": a.Mime, "data": dataURLPayload(a.URL)})
+		case strings.HasPrefix(mime, "audio/") && caps.promptAudio:
+			blocks = append(blocks, map[string]any{"type": "audio", "mimeType": a.Mime, "data": dataURLPayload(a.URL)})
+		case caps.promptEmbedded && !strings.HasPrefix(mime, "image/") && !strings.HasPrefix(mime, "audio/"):
+			blocks = append(blocks, embeddedResource(a))
+		default:
+			name := a.Filename
+			if name == "" {
+				name = a.Mime
+			}
+			blocks = append(blocks, map[string]any{"type": "text", "text": "[attachment " + name + " not sent: this agent does not accept that kind of content]"})
 		}
-		blocks = append(blocks, map[string]any{
-			"type": "image", "mimeType": a.Mime, "data": dataURLPayload(a.URL),
-		})
 	}
 	return blocks
 }
 
-// sessionOptions extracts session/new's (or session/load's) advertised
-// modes and models. Two shapes are read: the published ACP draft schema
-// (modes.availableModes/models.availableModels, per the task) and
-// opencode 1.18.31's actual live shape (a flat configOptions list with
-// entries id "mode"/"model") — see the file doc for why both are handled.
-func sessionOptions(m map[string]any) (modes []backend.Mode, models []backend.Model, currentModeID, currentModelID string) {
+// embeddedResource is an attachment as an embedded resource block (the
+// preferred way to hand an agent context). Text types travel as text, the
+// rest as a base64 blob. The uri names the attachment only: it is not a path
+// on any machine.
+func embeddedResource(a backend.Attachment) map[string]any {
+	name := a.Filename
+	if name == "" {
+		name = "attachment"
+	}
+	res := map[string]any{"uri": "attachment:///" + url.PathEscape(name)}
+	if a.Mime != "" {
+		res["mimeType"] = a.Mime
+	}
+	payload := dataURLPayload(a.URL)
+	if raw, err := base64.StdEncoding.DecodeString(payload); err == nil && isTextMime(a.Mime) && utf8.Valid(raw) {
+		res["text"] = string(raw)
+	} else {
+		res["blob"] = payload
+	}
+	return map[string]any{"type": "resource", "resource": res}
+}
+
+func isTextMime(m string) bool {
+	m = strings.ToLower(m)
+	return strings.HasPrefix(m, "text/") || strings.Contains(m, "json") || strings.Contains(m, "xml") ||
+		strings.Contains(m, "yaml") || strings.Contains(m, "javascript") || strings.Contains(m, "markdown")
+}
+
+// sessionConfig is what session/new, /load, /resume and /set_config_option
+// say about a session's selectors. The stable form is configOptions (a
+// "select" option per selector, found by category, falling back to the id
+// "mode"/"model"); the deprecated modes/models objects are read when no
+// config option names that selector. modeConfigID/modelConfigID are the
+// option ids to set with session/set_config_option ("" when the selector only
+// exists in the legacy form and session/set_mode|set_model applies).
+type sessionConfig struct {
+	modes                       []backend.Mode
+	models                      []backend.Model
+	modeID, modelID             string
+	modeConfigID, modelConfigID string
+}
+
+func parseSessionConfig(m map[string]any) sessionConfig {
+	var c sessionConfig
 	if modesObj := getMap(m, "modes"); modesObj != nil {
-		currentModeID = getStr(modesObj, "currentModeId")
+		c.modeID = getStr(modesObj, "currentModeId")
 		for _, mm := range asMaps(getSlice(modesObj, "availableModes")) {
-			modes = append(modes, backend.Mode{ID: getStr(mm, "id"), Label: getStr(mm, "name"), Description: getStr(mm, "description")})
+			c.modes = append(c.modes, backend.Mode{ID: getStr(mm, "id"), Label: getStr(mm, "name"), Description: getStr(mm, "description")})
 		}
 	}
 	if modelsObj := getMap(m, "models"); modelsObj != nil {
-		currentModelID = getStr(modelsObj, "currentModelId")
+		c.modelID = getStr(modelsObj, "currentModelId")
 		for _, mm := range asMaps(getSlice(modelsObj, "availableModels")) {
-			models = append(models, backend.Model{ID: getStr(mm, "modelId", "id"), Label: getStr(mm, "name")})
+			c.models = append(c.models, backend.Model{ID: getStr(mm, "modelId", "id"), Label: getStr(mm, "name")})
 		}
 	}
+	var haveMode, haveModel bool
 	for _, opt := range asMaps(getSlice(m, "configOptions")) {
-		switch getStr(opt, "id") {
-		case "mode":
-			if currentModeID == "" {
-				currentModeID = getStr(opt, "currentValue")
+		if t := getStr(opt, "type"); t != "" && t != "select" {
+			continue // boolean options are not offered: the client did not advertise them
+		}
+		id, cat := getStr(opt, "id"), getStr(opt, "category")
+		var values []map[string]any
+		for _, o := range asMaps(getSlice(opt, "options")) {
+			if grouped := asMaps(getSlice(o, "options")); len(grouped) > 0 {
+				values = append(values, grouped...)
+			} else {
+				values = append(values, o)
 			}
-			if len(modes) == 0 {
-				for _, o := range asMaps(getSlice(opt, "options")) {
-					modes = append(modes, backend.Mode{ID: getStr(o, "value"), Label: getStr(o, "name"), Description: getStr(o, "description")})
-				}
+		}
+		switch {
+		case (cat == "mode" || (cat == "" && id == "mode")) && !haveMode:
+			haveMode = true
+			c.modeConfigID, c.modeID = id, getStr(opt, "currentValue")
+			c.modes = nil
+			for _, o := range values {
+				c.modes = append(c.modes, backend.Mode{ID: getStr(o, "value"), Label: getStr(o, "name"), Description: getStr(o, "description")})
 			}
-		case "model":
-			if currentModelID == "" {
-				currentModelID = getStr(opt, "currentValue")
-			}
-			if len(models) == 0 {
-				for _, o := range asMaps(getSlice(opt, "options")) {
-					models = append(models, backend.Model{ID: getStr(o, "value"), Label: getStr(o, "name")})
-				}
+		case (cat == "model" || (cat == "" && id == "model")) && !haveModel:
+			haveModel = true
+			c.modelConfigID, c.modelID = id, getStr(opt, "currentValue")
+			c.models = nil
+			for _, o := range values {
+				c.models = append(c.models, backend.Model{ID: getStr(o, "value"), Label: getStr(o, "name")})
 			}
 		}
 	}
-	return modes, models, currentModeID, currentModelID
+	return c
 }

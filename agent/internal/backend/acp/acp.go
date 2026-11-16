@@ -3,10 +3,11 @@
 // It is the generic *second* backend PROTOCOL.md §2 calls for: any ACP
 // agent can be plugged in behind it (opencode's own `opencode acp`, Gemini
 // CLI, Claude Code via claude-code-acp, Pi via pi-acp), reporting whichever
-// subset of capabilities that agent actually has. It necessarily reports
-// fewer capabilities than internal/backend/opencode (no native diff, children,
-// usage or compact — see Capabilities) because ACP itself has no wire
-// message for any of those (PROTOCOL.md §2's comparison).
+// subset of capabilities that agent actually has. It reports fewer
+// capabilities than internal/backend/opencode (no children, revert, steer or
+// worktrees: ACP has no wire message for them), and each one it does report
+// is read from what the agent advertised in initialize (see Capabilities and
+// PROTOCOL.md §2).
 //
 // Wire shapes below are verified live against `opencode acp` (opencode
 // 1.18.31 on PATH; see acp_it_test.go) except where noted as following the
@@ -90,24 +91,32 @@ const (
 // found live; present() in mapping.go treats "key exists, not false" as
 // advertised).
 type acpAgentCapabilities struct {
-	loadSession   bool
-	promptImage   bool
-	sessionList   bool
-	sessionClose  bool
-	sessionResume bool
-	mcpHTTP       bool
+	loadSession    bool
+	promptImage    bool
+	promptAudio    bool
+	promptEmbedded bool
+	sessionList    bool
+	sessionDelete  bool
+	sessionFork    bool
+	sessionClose   bool
+	sessionResume  bool
+	mcpHTTP        bool
 }
 
 func parseAgentCapabilities(raw map[string]any) acpAgentCapabilities {
 	prompt := getMap(raw, "promptCapabilities")
 	sess := getMap(raw, "sessionCapabilities")
 	return acpAgentCapabilities{
-		loadSession:   getBool(raw, "loadSession"),
-		promptImage:   getBool(prompt, "image"),
-		sessionList:   present(sess, "list"),
-		sessionClose:  present(sess, "close"),
-		sessionResume: present(sess, "resume"),
-		mcpHTTP:       getBool(getMap(raw, "mcpCapabilities"), "http"),
+		loadSession:    getBool(raw, "loadSession"),
+		promptImage:    getBool(prompt, "image"),
+		promptAudio:    getBool(prompt, "audio"),
+		promptEmbedded: getBool(prompt, "embeddedContext"),
+		sessionList:    present(sess, "list"),
+		sessionDelete:  present(sess, "delete"),
+		sessionFork:    present(sess, "fork"),
+		sessionClose:   present(sess, "close"),
+		sessionResume:  present(sess, "resume"),
+		mcpHTTP:        getBool(getMap(raw, "mcpCapabilities"), "http"),
 	}
 }
 
@@ -147,6 +156,9 @@ type Backend struct {
 	diffs *filediff.Tracker
 	// loadMu serializes session/load replays (Transcript).
 	loadMu sync.Mutex
+	// replayOrder lists the sessions holding a replayed transcript, oldest open first (history.go).
+	replayMu    sync.Mutex
+	replayOrder []string
 
 	events   chan backend.BackendEvent
 	eventsMu sync.Mutex
@@ -184,11 +196,15 @@ func (b *Backend) Version() string {
 func (b *Backend) Capabilities() backend.Capabilities {
 	b.infoMu.Lock()
 	images := b.agentCaps.promptImage
+	embedded := b.agentCaps.promptEmbedded
 	b.infoMu.Unlock()
 	tools := b.MCPCapable()
 	// Diff is galopin's own (diffs.go): ACP has no diff message, so the files
 	// an edit tool call names are compared before and after it runs.
-	// Children/Usage/Compact/Worktrees/Questions: ACP has no wire
+	// Usage: the stable usage_update (context used/size, cumulative cost) is
+	// read when the agent sends one; the meter stays empty for an agent that
+	// never does. Files: an embedded-resource prompt block (promptCapabilities).
+	// Children/Compact/Worktrees/Questions/Revert/HistoryPaging/Steer: ACP has no wire
 	// message for any of these (PROTOCOL.md §2) — the user-question tool
 	// design's fallback for a backend without a native question mechanism
 	// is the injected MCP tool the agent-handoff work adds, not this
@@ -196,8 +212,8 @@ func (b *Backend) Capabilities() backend.Capabilities {
 	// session/request_permission asks go through the same decision function as
 	// opencode's (permissions.go), so the Plan/Ask/Allow selector works here too.
 	return backend.Capabilities{
-		Diff: true, Children: false, Usage: b.cfg.Usage, Compact: b.cfg.CompactCommand != "", Permissions: true,
-		Images: images, Files: false, Worktrees: false,
+		Diff: true, Children: false, HistoryPaging: true, Usage: true, Compact: b.cfg.CompactCommand != "", Permissions: true,
+		Images: images, Files: embedded, Worktrees: false,
 		Questions: false,
 		// Commands: always — the agent's available_commands_update carries
 		// the list per session (PROTOCOL.md §6 backend.commands), and before

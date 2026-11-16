@@ -207,6 +207,57 @@ func TestACPIntegration(t *testing.T) {
 			t.Errorf("out.txt = %q, want %q", body, "hi\n")
 		}
 	})
+
+	t.Run("modes and models come from the session's config options", func(t *testing.T) {
+		modes, _ := acpBackend.Modes(ctx, workDir)
+		models, _ := acpBackend.Models(ctx, workDir)
+		t.Logf("opencode acp offers %d modes, %d models", len(modes), len(models))
+		if len(modes) == 0 && len(models) == 0 {
+			t.Error("neither modes nor models were read from session/new")
+		}
+	})
+
+	t.Run("a second agent process lists the session and reopens it", func(t *testing.T) {
+		second := backendacp.New(backendacp.Config{
+			Command: []string{"opencode", "acp"}, Env: isolatedEnv,
+			StartupTimeout: 90 * time.Second, Logf: t.Logf,
+		})
+		if err := second.Start(ctx); err != nil {
+			t.Fatalf("starting the second acp backend: %v", err)
+		}
+		defer func() { _ = second.Stop() }()
+		listed, err := second.ListSessions(ctx, workDir)
+		if err != nil {
+			t.Fatalf("ListSessions: %v", err)
+		}
+		found := false
+		for _, l := range listed {
+			found = found || l.ID == sess.ID
+		}
+		if !found {
+			t.Skipf("opencode acp did not list session %s (listed %d): it has no session/list for it", sess.ID, len(listed))
+		}
+		tr, err := second.Transcript(ctx, workDir, sess.ID)
+		if err != nil {
+			t.Fatalf("Transcript (session/load): %v", err)
+		}
+		var text string
+		for _, m := range tr.Messages {
+			for _, p := range m.Parts {
+				text += p.Text + "\n"
+			}
+		}
+		if !strings.Contains(text, "say hello") || !strings.Contains(text, "Hello") {
+			t.Errorf("the reopened transcript lacks the earlier turn: %d messages, %q", len(tr.Messages), text)
+		}
+		for _, m := range tr.Messages {
+			for _, p := range m.Parts {
+				if p.Type == backend.PartTool && p.Tool == "" {
+					t.Errorf("nameless replayed tool part %+v", p)
+				}
+			}
+		}
+	})
 }
 
 // itFreePort, startMockLLM, setMockScenario, drainEvents and isIdle are
