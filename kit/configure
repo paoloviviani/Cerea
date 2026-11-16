@@ -57,7 +57,8 @@ REDACTION_ENDPOINT = "http://redaction:8080"
 #: internal network, and the bucket it keeps files in.
 RUSTFS_ENDPOINT = "http://rustfs:9000"
 RUSTFS_BUCKET = "cerea"
-DEFAULT_UPSTREAM = "https://api.cortecs.ai/v1"
+#: No provider by default: the gateway starts empty and providers are added in the Pystino console.
+DEFAULT_UPSTREAM = ""
 FIRST_SIGN_IN = "first-sign-in.txt"
 TLS_MODES = ("acme", "internal", "upstream")
 IDPS = ("authelia", "external")
@@ -1476,10 +1477,11 @@ def build(answers: Answers, existing: dict, template: str, discovery: dict | Non
         key = answers.upstream_api_key or values.get("CHAT_OPENAI_API_KEY", "")
         if not key:
             raise ConfigError("the generic preset needs the endpoint's API key (--upstream-api-key)")
+        base_url = answers.upstream_base_url or values.get("CHAT_OPENAI_BASE_URL") or DEFAULT_UPSTREAM
+        if not base_url:
+            raise ConfigError("the generic preset needs the endpoint's URL (--upstream-base-url)")
         values.update(
-            CHAT_OPENAI_BASE_URL=answers.upstream_base_url
-            or values.get("CHAT_OPENAI_BASE_URL")
-            or DEFAULT_UPSTREAM,
+            CHAT_OPENAI_BASE_URL=base_url,
             CHAT_OPENAI_API_KEY=key,
             # Forced: user-token mode would send people's IdP tokens to a third party.
             CHAT_USE_USER_TOKEN="false",
@@ -2391,7 +2393,8 @@ def check(root: Path, *, network: bool = True, probe_host: bool = True) -> Repor
 # --- the interactive part -----------------------------------------------------------
 
 
-def ask(prompt: str, default: str = "", *, secret: bool = False, validate=None, empty_hint: str = "") -> str:
+def ask(prompt: str, default: str = "", *, secret: bool = False, validate=None, empty_hint: str = "",
+        optional: bool = False) -> str:
     suffix = f" [{default}]" if default and not secret else (" [keep]" if default else "")
     while True:
         try:
@@ -2399,6 +2402,8 @@ def ask(prompt: str, default: str = "", *, secret: bool = False, validate=None, 
         except EOFError:
             raise SystemExit("\nconfigure: input ended; nothing written") from None
         value = raw.strip() or default
+        if not value and optional:
+            return ""
         if not value:
             print("  an answer is needed")
             if empty_hint:
@@ -2591,11 +2596,32 @@ def interview(answers: Answers, given: set, existing: dict) -> Answers:
             },
             "yes" if answers.rustfs else "no",
         ) == "yes"
+    if "agents" not in given:
+        print("  Access is then controlled per group in the Pystino console.")
+        answers.agents = choose(
+            "Coding agents (galopin on users' computers)?",
+            {
+                "yes": "on: the Agents tab in the chat, and users pair their own machines",
+                "no": "off: no Agents tab in the chat",
+            },
+            "yes" if answers.agents is not False else "no",
+        ) == "yes"
     if answers.preset == "generic" and "upstream_api_key" not in given:
         answers.upstream_base_url = ask(
             "OpenAI-compatible endpoint", existing.get("CHAT_OPENAI_BASE_URL", DEFAULT_UPSTREAM)
         )
         answers.upstream_api_key = ask("Its API key", existing.get("CHAT_OPENAI_API_KEY", ""), secret=True)
+    elif (answers.preset not in ("generic", "satellite") and not existing
+          and "upstream_base_url" not in given and "upstream_api_key" not in given):
+        url = ask(
+            "Upstream base URL (leave empty to add providers in the console)",
+            "",
+            validate=lambda v: None if v.startswith(("http://", "https://")) else _raise("an http(s):// URL"),
+            optional=True,
+        )
+        if url:
+            answers.upstream_base_url = url
+            answers.upstream_api_key = ask("Its API key (empty: set it in the console)", "", secret=True, optional=True)
     print()
     return answers
 
@@ -2632,6 +2658,9 @@ def cmd_configure(args, root: Path) -> int:
     template = (root / ".env.example").read_text(encoding="utf-8")
     existing = parse_env(env_path.read_text(encoding="utf-8")) if env_path.exists() else {}
     answers = answers_from(existing) if existing else Answers()
+    if not existing:
+        # Pystino allows coding agents by default, so a fresh install turns them on here too.
+        answers.agents = True
     given = set()
     for attr in Answers.__dataclass_fields__:
         value = getattr(args, attr, None)
@@ -2727,6 +2756,9 @@ def cmd_configure(args, root: Path) -> int:
                     answers.agents = False
                     pre_notes.append("agent machines disabled: the issuer offers no device flow")
             else:
+                if "agents" not in given and not existing:
+                    answers.agents = False
+                    pre_notes.append("agent machines left off: the issuer offers no device flow")
                 pre_notes.append(f"the issuer offers no device flow: galopin cannot enroll ({problem})")
     if existing and model_mode_problems(existing):
         # An install from before the two modes were exclusive. build() writes
@@ -2978,7 +3010,7 @@ def parser() -> argparse.ArgumentParser:
 
     o = p.add_argument_group("optional")
     o.add_argument("--agents", action=argparse.BooleanOptionalAction, default=None,
-                   help="agent machines (/chat/code and galopin)")
+                   help="coding agents: /chat/code and galopin (default on for a fresh install; --no-agents turns off)")
     o.add_argument("--terminal", action=argparse.BooleanOptionalAction, default=None,
                    help="the browser terminal on agent machines (a full remote shell; needs --agents)")
     o.add_argument("--fetch", action=argparse.BooleanOptionalAction, default=None,

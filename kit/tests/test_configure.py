@@ -306,7 +306,7 @@ class TestFreshInstall(unittest.TestCase):
         extra = {
             "satellite": dict(central_url="https://central.example.org", oidc_chat_client_secret="c"),
             "generic": dict(idp="external", oidc_issuer="https://id.example.org",
-                            oidc_chat_client_secret="c", upstream_api_key="k"),
+                            oidc_chat_client_secret="c", upstream_api_key="k", upstream_base_url="https://llm.example.org/v1"),
         }
         for name in cfg.PRESETS:
             with self.subTest(preset=name):
@@ -357,7 +357,8 @@ class TestFreshInstall(unittest.TestCase):
         self.assertEqual(v["CHAT_USE_USER_TOKEN"], "true")
         self.assertEqual(v["OIDC_ISSUER"], "https://central.example.org/authelia")
         v = build(preset="generic", idp="external", oidc_issuer="https://id.example.org",
-                  oidc_chat_client_secret="c", upstream_api_key="k").values
+                  oidc_chat_client_secret="c", upstream_api_key="k",
+                  upstream_base_url="https://llm.example.org/v1").values
         self.assertEqual((v["CHAT_OPENAI_API_KEY"], v["CHAT_USE_USER_TOKEN"]), ("k", "false"))
         self.assertEqual(v["GATEWAY_UPSTREAM__API_KEY"], "")
 
@@ -400,6 +401,67 @@ class TestFreshInstall(unittest.TestCase):
     def test_agents_switch(self):
         self.assertEqual(build(agents=True).values["CODE_AGENTS_ENABLED"], "true")
         self.assertEqual(build().values["CODE_AGENTS_ENABLED"], "")
+
+    def test_the_interview_asks_about_coding_agents_defaulting_to_yes(self):
+        printed = []
+        a = answers(agents=True)
+        given = {"origin", "admin_email", "preset", "tls", "idp", "office", "rustfs", "upstream_base_url"}
+        with mock.patch("builtins.input", return_value=""), \
+                mock.patch.object(cfg, "refuse_authelia", return_value=None), \
+                mock.patch("builtins.print", side_effect=lambda *x, **k: printed.append(" ".join(map(str, x)))):
+            result = cfg.interview(a, given, {})
+        self.assertTrue(result.agents)
+        self.assertTrue(any("Coding agents (galopin on users' computers)?" in p for p in printed), printed)
+        self.assertTrue(any("per group in the Pystino console" in p for p in printed), printed)
+
+    def test_the_interview_agents_answer_no_and_a_rerun_default(self):
+        given = {"origin", "admin_email", "preset", "tls", "idp", "office", "rustfs", "upstream_base_url"}
+        with mock.patch("builtins.input", return_value="no"), \
+                mock.patch.object(cfg, "refuse_authelia", return_value=None), \
+                mock.patch("builtins.print"):
+            self.assertFalse(cfg.interview(answers(agents=True), given, {}).agents)
+        # An existing .env that has them off keeps them off on Enter.
+        with mock.patch("builtins.input", return_value=""), \
+                mock.patch.object(cfg, "refuse_authelia", return_value=None), \
+                mock.patch("builtins.print"):
+            self.assertFalse(cfg.interview(answers(agents=False), given, {"X": "1"}).agents)
+
+    def test_the_agents_flag_is_not_asked_and_a_rerun_keeps_the_value(self):
+        printed = []
+        given = {"origin", "admin_email", "preset", "tls", "idp", "office", "rustfs", "agents"}
+        with mock.patch("builtins.input", return_value=""), \
+                mock.patch.object(cfg, "refuse_authelia", return_value=None), \
+                mock.patch("builtins.print", side_effect=lambda *x, **k: printed.append(" ".join(map(str, x)))):
+            cfg.interview(answers(agents=False), given, {})
+        self.assertFalse(any("Coding agents" in p for p in printed))
+        on = dict(build(agents=True).values)
+        self.assertEqual(build(existing=on).values["CODE_AGENTS_ENABLED"], "true")
+        self.assertEqual(build(existing=on, agents=False).values["CODE_AGENTS_ENABLED"], "")
+
+    def test_a_fresh_install_has_no_default_provider(self):
+        self.assertEqual(build().values["GATEWAY_UPSTREAM__BASE_URL"], "")
+        self.assertNotIn("cortecs", (ROOT / "compose.yaml").read_text().lower())
+        with self.assertRaisesRegex(cfg.ConfigError, "endpoint's URL"):
+            build(preset="generic", idp="external", oidc_issuer="https://id.example.org",
+                  upstream_api_key="k")
+        kept = dict(build(upstream_base_url="https://api.example.org/v1").values)
+        self.assertEqual(build(existing=kept).values["GATEWAY_UPSTREAM__BASE_URL"], "https://api.example.org/v1")
+
+    def test_the_upstream_question_is_optional_and_skips_the_key_when_empty(self):
+        prompts = []
+
+        def fake_input(prompt):
+            prompts.append(prompt)
+            return ""
+
+        given = {"origin", "admin_email", "preset", "tls", "idp", "office", "rustfs", "agents"}
+        with mock.patch("builtins.input", side_effect=fake_input), \
+                mock.patch("getpass.getpass", side_effect=AssertionError("key asked")), \
+                mock.patch.object(cfg, "refuse_authelia", return_value=None), \
+                mock.patch("builtins.print"):
+            result = cfg.interview(answers(), given, {})
+        self.assertIsNone(result.upstream_base_url)
+        self.assertTrue(any("leave empty to add providers in the console" in p for p in prompts), prompts)
 
     def test_browser_switch_and_passthrough(self):
         self.assertEqual(build().values["CHAT_BROWSER_ENABLED"], "")
@@ -613,7 +675,7 @@ class TestFreshInstall(unittest.TestCase):
 
         a = answers(**self._EXTERNAL)
         given = {"origin", "admin_email", "preset", "tls", "idp", "oidc_issuer",
-                 "oidc_console_client_secret", "oidc_chat_client_secret", "office", "rustfs"}
+                 "oidc_console_client_secret", "oidc_chat_client_secret", "office", "rustfs", "agents"}
         with mock.patch("builtins.input", side_effect=fake_input), \
                 mock.patch("builtins.print", side_effect=lambda *x, **k: printed.append(" ".join(map(str, x)))):
             result = cfg.interview(a, given, {})
@@ -1419,7 +1481,7 @@ class TestExclusiveModes(Deploy):
     GENERIC = ("--preset", "generic", "--idp", "external", "--oidc-issuer", "https://id.example.org",
                "--oidc-chat-client-secret", "c", "--oidc-console-client-id", "x",
                "--oidc-console-client-secret", "y", "--admin-email", "ops@example.org",
-               "--upstream-api-key", "k")
+               "--upstream-api-key", "k", "--upstream-base-url", "https://llm.example.org/v1")
 
     def configure(self, *extra):
         return self.run_cli("--non-interactive", "--origin", "https://chat.example.org",
@@ -1450,7 +1512,8 @@ class TestExclusiveModes(Deploy):
 
     def test_generic_writes_a_key_with_personal_tokens_off(self):
         v = build(preset="generic", idp="external", oidc_issuer="https://id.example.org",
-                  oidc_chat_client_secret="c", upstream_api_key="k").values
+                  oidc_chat_client_secret="c", upstream_api_key="k",
+                  upstream_base_url="https://llm.example.org/v1").values
         self.assertEqual((v["CHAT_OPENAI_API_KEY"], v["CHAT_USE_USER_TOKEN"]), ("k", "false"))
         self.assertEqual(cfg.model_mode_problems(v), [])
         v["CHAT_USE_USER_TOKEN"] = "true"

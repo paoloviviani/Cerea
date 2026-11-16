@@ -65,7 +65,7 @@ The images are public on the GitHub Container Registry
 pulls the versions this release pins, with no login.
 
 `./configure` asks for your origin (`https://cerea.example.org`), the
-administrator's email, a preset, the TLS mode and the identity provider. It
+administrator's email, a preset, the TLS mode and the identity provider, then whether to turn on coding agents (galopin on users' computers; yes by default, `--no-agents` to refuse; access is then set per group in the Pystino console). It
 generates every secret and writes `.env` at mode 0600. The first sign-in for
 the bundled Authelia goes to `first-sign-in.txt` (mode 0600). Sign in at `https://<your origin>/console` (the console; `https://<your origin>/` opens the chat), then delete that file.
 
