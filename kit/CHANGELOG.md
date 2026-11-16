@@ -5,7 +5,11 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.54.1 — 2026-11-16
+
+Pins: Cerea `0.54.1` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.4`, opencode `2.3.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. Pystino 0.33.4 adds vLLM, SGLang and llama.cpp provider presets, a server probe that proposes a self-hosted model's window and capabilities, and a default reasoning effort per model (migration runs on start). Cerea now reads the gateway's context window for every model.
 
 - **A large markdown or text file is read, not parsed.** A long chat export or document that became a pointer was parsed with code and the turn stopped. The assistant now classes the content from its name and sample: prose is read (answered from its start and a longer end, asking what to pick up when it resumes an earlier conversation), and only data is queried with code. For prose with no reported context window, the inline limit is raised to 200,000 characters. The chat now reads the gateway's `context_window` (it only read the HF router's per-provider `context_length`, so every gateway model fell back to the default window), and an attachment whose text is inlined says so and tells the assistant not to re-read it with code.
 - **The `galopin` container image is now multi-arch (linux/amd64 and linux/arm64).** `ghcr.io/<owner>/galopin:X.Y.Z` and `edge` are one manifest list, so Docker and Apple's `container` CLI on an Apple-silicon Mac run it natively instead of under emulation. Same contents on both (opencode 2.3.0 is checked against its recorded arm64 checksum); the release's anonymous-pull check now verifies both platforms. docs/agent-machines-reference.md has a short macOS `container` note.
