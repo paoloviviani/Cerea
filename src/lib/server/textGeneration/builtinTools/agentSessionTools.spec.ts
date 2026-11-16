@@ -307,7 +307,7 @@ describe("agent_start", () => {
 		expect(ops("session.setPermissionMode")[0].args).toMatchObject({ mode: "allow" });
 	});
 
-	it("switches on the project's connector default for the session it starts, before the prompt", async () => {
+	it("narrows the user's list to the project's connectors for the session it starts, before the prompt", async () => {
 		const { seal } = await import("$lib/server/mcp/secretBox");
 		const connector = {
 			_id: new ObjectId(),
@@ -320,10 +320,14 @@ describe("agent_start", () => {
 			createdAt: new Date(),
 			updatedAt: new Date(),
 		};
-		await collections.mcpConnectors.insertOne(connector);
+		const second = { ...connector, _id: new ObjectId(), name: "Notes" };
+		await collections.mcpConnectors.insertMany([connector, second]);
 		try {
 			const projectId = await projectWithConversation();
 			const key = `connector:${connector._id}`;
+			const secondKey = `connector:${second._id}`;
+			const { setUserList } = await import("$lib/server/code/sessionConnectors");
+			await setUserList(person.user._id, { keys: [key, secondKey] });
 			await saveProjectAgentProfile(projectId, person.user._id, {
 				deviceId,
 				workspaceId: "ws1",
@@ -336,9 +340,10 @@ describe("agent_start", () => {
 				deviceId,
 				sessionId: out.sessionId as string,
 			});
-			expect(row?.keys).toEqual([key]);
+			// The project narrows the list to its connector: the other is off for this session.
+			expect(row?.off).toEqual([secondKey]);
 		} finally {
-			await collections.mcpConnectors.deleteOne({ _id: connector._id });
+			await collections.mcpConnectors.deleteMany({ _id: { $in: [connector._id, second._id] } });
 			await collections.codeSessionConnectors.deleteMany({ userId: person.user._id });
 		}
 	});

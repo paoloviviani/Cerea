@@ -16,7 +16,7 @@ import {
 } from "$lib/server/code/agentSessions";
 import { authTimeFresh, sessionAuthFresh } from "$lib/server/code/stepUp";
 import { getProjectAgentProfile, profileView } from "$lib/server/projectAgentProfiles";
-import { setSessionConnectorKeys } from "$lib/server/code/sessionConnectors";
+import { narrowSessionToProfile } from "$lib/server/code/sessionConnectors";
 import { MessageUpdateType, type MessageAgentSessionUpdate } from "$lib/types/MessageUpdate";
 import { OpError, type Part, type PermissionStep, type Session } from "$lib/types/machineProtocol";
 import { autoClassesFor } from "$lib/server/agentReview";
@@ -299,11 +299,11 @@ async function startSession(
 			permissionMode,
 			...(permissionMode === "auto" ? { autoClasses: await autoClassesFor(userId) } : {}),
 			prompt: input.prompt,
-			// The project's connector default goes with the profile's own target, never another.
+			// The project's connectors narrow the user's list for the sessions it starts (profile's own target only).
 			...(useProfile && profile.connectorKeys?.length
 				? {
 						afterCreate: async (created: Session) => {
-							await setSessionConnectorKeys(
+							await narrowSessionToProfile(
 								userId,
 								deviceId,
 								created.id,

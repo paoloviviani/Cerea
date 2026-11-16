@@ -31,6 +31,7 @@ import {
 	policyIn,
 } from "./deploymentModes";
 import { localConnectorsEnabled } from "$lib/server/codeEnabled";
+import { connectorBlurb } from "./connectorBlurb";
 import { resolveLocalSelection, localConnectorViews } from "./local";
 
 import type { ResolvedServer } from "./selection";
@@ -43,6 +44,8 @@ export interface TurnConnector {
 	alwaysLoaded: boolean;
 	/** One sentence for the assistant: its description, else made from its tool names. */
 	summary: string;
+	/** What the connector says about itself, plain and short, for the connector lists; "" when nothing. */
+	blurb: string;
 	/** Tool names as last seen; empty when it has never been listed. */
 	toolNames: string[];
 	/**
@@ -126,6 +129,7 @@ export async function resolveConnectors(userId: ObjectId | undefined): Promise<R
 			kind: "base",
 			alwaysLoaded: policy.alwaysLoaded,
 			summary: summaryOf(server.description, tools),
+			blurb: connectorBlurb(server.description),
 			toolNames: tools.map((t) => t.name),
 			host: hostOf(server.url),
 			open: async () => ({
@@ -187,6 +191,7 @@ export async function resolveConnectors(userId: ObjectId | undefined): Promise<R
 			kind: "connector",
 			alwaysLoaded: policy?.alwaysLoaded ?? false,
 			summary: summaryOf(row.description, tools),
+			blurb: connectorBlurb(row.description, row.about),
 			toolNames: tools.map((t) => t.name),
 			host: hostOf(row.url),
 			open: async () => {
@@ -220,6 +225,7 @@ export async function resolveConnectors(userId: ObjectId | undefined): Promise<R
 					kind: "local",
 					alwaysLoaded: false,
 					summary: summaryOf(view.local?.description, tools),
+					blurb: connectorBlurb(view.local?.description),
 					toolNames: tools.map((t) => t.name),
 					open: async () => {
 						const local = await resolveLocalSelection({ connectorIds: [view.id], userId });

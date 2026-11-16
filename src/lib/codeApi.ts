@@ -172,6 +172,8 @@ export interface AgentConnectorOption {
 	name: string;
 	kind: "base" | "connector" | "local";
 	summary: string;
+	/** Secondary text after the name (a computer's own server id). */
+	detail?: string;
 	unavailable?: "switched off" | "needs sign-in";
 	locked?: boolean;
 }

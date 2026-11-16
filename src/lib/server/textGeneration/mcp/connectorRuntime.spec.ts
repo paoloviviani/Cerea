@@ -21,6 +21,7 @@ const connector = (name: string, extra: Partial<TurnConnector> = {}): TurnConnec
 	kind: "base",
 	alwaysLoaded: false,
 	summary: `${name} things.`,
+	blurb: "",
 	toolNames: [`${name}_find`],
 	open: async () => ({ server: { name, url: `https://${name}.test/mcp` } }),
 	...extra,

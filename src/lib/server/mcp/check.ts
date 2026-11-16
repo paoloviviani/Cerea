@@ -63,7 +63,10 @@ export async function checkConnectorTools(
 				// tools the last good one found: a server being down for a
 				// minute must not make the assistant forget what it offers.
 				...(result.ok
-					? { tools: result.tools.map(({ name, description }) => ({ name, description })) }
+					? {
+							tools: result.tools.map(({ name, description }) => ({ name, description })),
+							...(result.about ? { about: result.about } : {}),
+						}
 					: { lastError: result.error.slice(0, 500) }),
 			},
 			// `$unset` rather than `$set: undefined`: the driver does not

@@ -1,6 +1,6 @@
 /**
- * `GET | PUT /api/v2/code/connectors` (ADR 0108, item 3): a coding session's connector opt-in,
- * owner only, default none, refusing a connector that is not the caller's.
+ * `GET | PUT /api/v2/code/connectors`: what a coding session inherits from the user's one
+ * connector list, and its per-session narrowing (it only turns items off). Owner only.
  */
 import { ObjectId } from "mongodb";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -8,6 +8,7 @@ import { collections, ready } from "$lib/server/database";
 import { cleanupTestData, createTestUser } from "$lib/server/api/__tests__/testHelpers";
 import { testRequest } from "$lib/server/__tests__/testRequest";
 import { seal } from "$lib/server/mcp/secretBox";
+import { setUserList } from "$lib/server/code/sessionConnectors";
 import { GET, PUT } from "./+server";
 
 vi.mock("$lib/server/codeEnabled", async (original) => ({
@@ -90,29 +91,37 @@ const read = async (res: Response) => {
 };
 
 describe("/api/v2/code/connectors", () => {
-	it("offers the caller's connectors only, with none selected by default", async () => {
+	it("offers a session what it inherits from the user's one list: nothing until they list something", async () => {
+		const empty = await read(await get(owner.locals));
+		expect(empty.options).toEqual([]);
+		expect(empty.selected).toEqual([]);
+		await setUserList(owner.user._id, { keys: [mine] });
 		const res = await get(owner.locals);
 		expect(res.status).toBe(200);
 		const body = await read(res);
 		expect(body.options.map((o) => o.name)).toEqual(["Mine"]);
-		expect(body.selected).toEqual([]);
+		// Everything inherited is on by default.
+		expect(body.selected).toEqual([mine]);
 		expect(JSON.stringify(body)).not.toContain("secret-token");
 	});
 
-	it("saves a selection and reads it back; an empty list clears it", async () => {
-		expect((await put(owner.locals, { deviceId, sessionId: "s1", keys: [mine] })).status).toBe(200);
-		expect((await read(await get(owner.locals))).selected).toEqual([mine]);
-		expect((await read(await get(owner.locals, "s2"))).selected).toEqual([]);
-		await put(owner.locals, { deviceId, sessionId: "s1", keys: [] });
+	it("saves a narrowing per session and reads it back; all on again clears it", async () => {
+		await setUserList(owner.user._id, { keys: [mine] });
+		expect((await put(owner.locals, { deviceId, sessionId: "s1", keys: [] })).status).toBe(200);
 		expect((await read(await get(owner.locals))).selected).toEqual([]);
+		// Another session is untouched.
+		expect((await read(await get(owner.locals, "s2"))).selected).toEqual([mine]);
+		await put(owner.locals, { deviceId, sessionId: "s1", keys: [mine] });
+		expect((await read(await get(owner.locals))).selected).toEqual([mine]);
 	});
 
-	it("refuses another user's connector and leaves the selection as it was", async () => {
-		await put(owner.locals, { deviceId, sessionId: "s1", keys: [mine] });
+	it("never widens: a connector outside the user's list is refused and the narrowing stays", async () => {
+		await setUserList(owner.user._id, { keys: [mine] });
+		await put(owner.locals, { deviceId, sessionId: "s1", keys: [] });
 		expect((await put(owner.locals, { deviceId, sessionId: "s1", keys: [theirs] })).status).toBe(
 			400
 		);
-		expect((await read(await get(owner.locals))).selected).toEqual([mine]);
+		expect((await read(await get(owner.locals))).selected).toEqual([]);
 	});
 
 	it("is a 404 on somebody else's machine, for a read and for a write", async () => {

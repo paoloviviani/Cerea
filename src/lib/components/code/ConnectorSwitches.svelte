@@ -53,6 +53,9 @@
 					/>
 					<span class="min-w-0">
 						<span class="font-medium">{option.name}</span>
+						{#if option.detail}
+							<span class="text-ink-faint" data-testid="connector-detail">({option.detail})</span>
+						{/if}
 						{#if why(option)}
 							<span class="text-ink-faint">· {why(option)}</span>
 						{/if}

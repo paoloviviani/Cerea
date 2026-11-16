@@ -1,7 +1,7 @@
 /**
- * `GET | PUT /api/v2/code/local-agents` (ADR 0110): the connectors a user's own agents may use
- * through galopin's local endpoint. The caller's list only, default none, refusing a connector
- * that is not the caller's.
+ * `GET | PUT /api/v2/code/local-agents`: the user's ONE list of connectors their agents may use
+ * (sessions inherit it; apps on their computers use it while the switch is on), and that switch.
+ * The caller's list only, default none, refusing a connector that is not the caller's.
  */
 import { ObjectId } from "mongodb";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -89,6 +89,19 @@ describe("/api/v2/code/local-agents", () => {
 		expect(((await (await get(owner.locals)).json()) as { selected: string[] }).selected).toEqual(
 			[]
 		);
+	});
+
+	it("has the apps-on-my-computers switch on by default, changes it alone, and keeps the list", async () => {
+		type Body = { selected: string[]; appsToo: boolean };
+		await put(owner.locals, { keys: [mine] });
+		expect(((await (await get(owner.locals)).json()) as Body).appsToo).toBe(true);
+		const off = (await (await put(owner.locals, { appsToo: false })).json()) as Body;
+		expect(off).toEqual({ selected: [mine], appsToo: false });
+		const again = (await (await get(owner.locals)).json()) as Body;
+		expect(again).toMatchObject({ selected: [mine], appsToo: false });
+		// Saving the list does not turn the switch back on.
+		await put(owner.locals, { keys: [] });
+		expect(((await (await get(owner.locals)).json()) as Body).appsToo).toBe(false);
 	});
 
 	it("refuses another user's connector and a malformed body", async () => {

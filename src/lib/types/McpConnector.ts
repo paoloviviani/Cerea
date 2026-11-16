@@ -196,6 +196,8 @@ export interface McpConnector extends Timestamps {
 	 * already knowing and a check is a round trip to somebody else's server.
 	 */
 	tools?: { name: string; description?: string }[];
+	/** What the server said about itself on the last check (its instructions); a fallback for `description`. */
+	about?: string;
 	checkedAt?: Date;
 
 	/**

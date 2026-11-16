@@ -30,7 +30,8 @@ export interface McpToolSummary {
 }
 
 export type ToolListing =
-	{ ok: true; tools: McpToolSummary[] } | { ok: false; error: string; authRequired: boolean };
+	| { ok: true; tools: McpToolSummary[]; about?: string }
+	| { ok: false; error: string; authRequired: boolean };
 
 /** How long to wait before giving up on somebody else's server. */
 const TIMEOUT_MS = 30_000;
@@ -102,7 +103,12 @@ export async function listTools(
 				},
 				"[mcp] health listing"
 			);
-			return { ok: true, tools };
+			// What the server says about itself: its instructions, else its serverInfo description.
+			const info = client.getServerVersion?.() as { description?: unknown } | undefined;
+			const about = [client.getInstructions?.(), info?.description].find(
+				(v): v is string => typeof v === "string" && v.trim().length > 0
+			);
+			return { ok: true, tools, ...(about ? { about: about.trim().slice(0, 2000) } : {}) };
 		} finally {
 			releaseClient(client);
 		}
