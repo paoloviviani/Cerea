@@ -73,10 +73,10 @@ describe("each control emits exactly its flag", () => {
 			["--default-group", "--allow-opencode-provider"],
 		],
 		["no files", { noFiles: true }, ["--default-group", "--no-files"]],
-		["file writes", { allowFileWrite: true }, ["--default-group", "--allow-file-write"]],
+		["file writes unticked", { allowFileWrite: false }, ["--default-group", "--no-file-write"]],
 		[
-			"file writes with files off",
-			{ noFiles: true, allowFileWrite: true },
+			"file writes unticked with files off",
+			{ noFiles: true, allowFileWrite: false },
 			["--default-group", "--no-files"],
 		],
 		[
@@ -269,9 +269,10 @@ describe("the Advanced summary's count", () => {
 				choose({ allowCommandShell: false, workspaceRoots: ["/a", "/b"], noFiles: true })
 			)
 		).toBe(3);
-		// Saving files counts while files are on; with files off it emits nothing.
-		expect(advancedChangedCount(choose({ allowFileWrite: true }))).toBe(1);
-		expect(advancedChangedCount(choose({ allowFileWrite: true, noFiles: true }))).toBe(1);
+		// Unticking saving counts while files are on; with files off it emits nothing.
+		expect(advancedChangedCount(choose({ allowFileWrite: false }))).toBe(1);
+		expect(advancedChangedCount(choose({ allowFileWrite: false, noFiles: true }))).toBe(1);
+		expect(advancedChangedCount(choose({}))).toBe(0);
 		// Terminals, the command shell and background subagents count when turned off.
 		expect(
 			advancedChangedCount(
@@ -299,7 +300,7 @@ describe("the promised policy.json", () => {
 				allowOpencodeProvider: true,
 				workspaceRoots: ["/a b"],
 				noFiles: true,
-				allowFileWrite: true,
+				allowFileWrite: false,
 				fileDeny: ["*.x"],
 				noDefaultFileDeny: true,
 			})

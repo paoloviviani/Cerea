@@ -183,7 +183,7 @@ func TestAgentToolsDirFollowsPolicy(t *testing.T) {
 }
 
 // fileWrite is tighten-only like the terminal: `policy set --no-file-write`
-// turns it off, and no `policy set` flag turns it back on (enroll does).
+// turns it off and `--allow-file-write` turns it back on.
 func TestPolicySetTightensFileWrite(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, policyFileName)
@@ -202,8 +202,15 @@ func TestPolicySetTightensFileWrite(t *testing.T) {
 	if got.FileWriteAllowed() {
 		t.Error("file writes should now be denied")
 	}
-	if err := runPolicySet([]string{"--state-dir", dir, "--allow-file-write"}); err == nil {
-		t.Fatal("policy set must not accept a flag that re-opens file writes")
+	// --allow-file-write is the one loosening policy set accepts (ADR 0107).
+	if err := runPolicySet([]string{"--state-dir", dir, "--allow-file-write"}); err != nil {
+		t.Fatalf("--allow-file-write: %v", err)
+	}
+	if got, _ = policy.Load(path); !got.FileWriteAllowed() {
+		t.Error("--allow-file-write should turn file writes back on")
+	}
+	if err := runPolicySet([]string{"--state-dir", dir, "--allow-file-write", "--no-file-write"}); err == nil {
+		t.Fatal("contradicting flags must be refused")
 	}
 }
 
@@ -249,5 +256,27 @@ func TestEnrollAllowFileWrite(t *testing.T) {
 		if pol.FileWriteAllowed() != tc.want {
 			t.Errorf("enroll %v: fileWrite = %q, want allowed=%v", tc.args, pol.FileWrite, tc.want)
 		}
+	}
+}
+
+// `policy set --allow-file-write` re-enables saving, but never with the
+// explorer off: there is nothing to save from.
+func TestPolicySetAllowFileWriteNeedsFiles(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, policyFileName)
+	pol := policy.Default()
+	pol.Files = policy.FilesOff
+	if err := policy.Save(path, pol); err != nil {
+		t.Fatal(err)
+	}
+	if err := runPolicySet([]string{"--state-dir", dir, "--allow-file-write"}); err == nil {
+		t.Fatal("--allow-file-write with files off must be refused")
+	}
+	got, err := policy.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.FileWriteAllowed() {
+		t.Error("file writes must stay denied")
 	}
 }

@@ -882,7 +882,8 @@
 										</button>
 										<!-- The folder's name, its full path as the tooltip (and
 										     the first line of the menu, for a screen with no hover). -->
-										<span
+										<a
+											href="{base}/code?device={device.id}&ws={ws.id}"
 											class="min-w-0 {row(
 												wsActive && !selectedAgentId,
 												wsActive && !!selectedAgentId && !wsExpanded
@@ -915,7 +916,7 @@
 													{m["code.nav.session_count"]({ count: wsSessionCount })}
 												</span>
 											{/if}
-										</span>
+										</a>
 										<button
 											class="nav-reveal nav-plus flex size-6 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-blue-600 dark:hover:bg-gray-700"
 											title={m["code.nav.start_session_title"]()}

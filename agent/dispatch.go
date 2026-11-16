@@ -1752,18 +1752,18 @@ func (mc *machine) opFiles(ctx context.Context, op string, args json.RawMessage)
 
 // opFilesWrite answers files.write, the /code editor's save (PROTOCOL.md
 // §9.3). The read side's confinement holds (os.Root, the deny list, no
-// symlink followed), behind a second gate: the fileWrite policy, off unless
-// the owner enrolled with --allow-file-write. Every attempt that reaches a
+// symlink followed), behind a second gate: the fileWrite policy, on by
+// default, off with `enroll --no-file-write` or `policy set --no-file-write`. Every attempt that reaches a
 // workspace is one audit line: the path, the size and the outcome, never the
 // content.
 func (mc *machine) opFilesWrite(args json.RawMessage) (any, *link.OpError) {
 	if !mc.pol.FilesAllowed() {
 		mc.audit.refusal("files.write", "files off by machine policy")
-		return nil, opErrf("forbidden", "this machine was enrolled with --no-files: re-enroll without it, and with --allow-file-write, to save files here")
+		return nil, opErrf("forbidden", "this machine was enrolled with --no-files: re-enroll without it to save files here")
 	}
 	if !mc.pol.FileWriteAllowed() {
 		mc.audit.refusal("files.write", "file write denied by machine policy")
-		return nil, opErrf("forbidden", "this machine was enrolled without --allow-file-write: re-enroll with it to save files here")
+		return nil, opErrf("forbidden", "file saving is off on this machine: run `galopin policy set --allow-file-write` (or re-enroll without --no-file-write) to save files here")
 	}
 	var a struct {
 		WorkspaceID  string  `json:"workspaceId"`

@@ -83,7 +83,7 @@ describe("enrollFlags (the TypeScript copy)", () => {
 				engine: "goose" as const,
 				workspaceRoots: ["/a"],
 				noFiles: allowTerminal,
-				allowFileWrite: true,
+				allowFileWrite: false,
 				fileDeny: ["x"],
 				noDefaultFileDeny: true,
 				billToDefault: true,

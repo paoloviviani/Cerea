@@ -5,6 +5,11 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **A workspace opens its own screen, with Terminal and Files, no session needed.** Clicking a workspace in the Agents panel shows its sessions, a **New session** button, and **Terminal** and **Files** buttons at the top right (on a phone, behind the Panels button, as in a session). The terminal starts in the workspace folder and the file browser is rooted there. A button is hidden when the computer, its policy or the deployment does not offer it. Nothing about the permissions changed: the same machine policy (`terminal`, `files`, `fileDeny`, `fileWrite`) and workspace confinement apply.
+- **Editing files from Cerea is clearer.** The pairing dialog's box is now **Edit files from Cerea**, ticked by default (saving was already on by default on every new computer, but the old "Allow saving files" box looked off; unticking now prints `--no-file-write`). When the browser is read-only it now says why and how to turn saving on. `galopin policy set --allow-file-write` turns saving back on for an existing computer (existing computers keep the setting they were enrolled with; `--no-file-write` still turns it off), and `galopin enroll --allow-file-write` stays accepted and does nothing. The kit now passes `CODE_FILES_ENABLED` and `CODE_FILE_WRITE_ENABLED` through (both on unless exactly `false`); before, a kit deployment could not set them.
+
 ## v0.54.2 — 2026-11-16
 
 Pins: Cerea `0.54.2` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.4`, opencode `2.3.0`.

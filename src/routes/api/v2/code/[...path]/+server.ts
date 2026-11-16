@@ -305,14 +305,14 @@ async function requireTerminalAllowed(
 const MAX_FILE_WRITE_BYTES = 1024 * 1024;
 
 const FILE_WRITE_VETO_NOTE =
-	"This machine was enrolled without --allow-file-write: re-enroll it with that flag to save files here.";
+	"Saving files is off on this machine: run `galopin policy set --allow-file-write` on it (or re-enroll without --no-file-write) to save files here.";
 
 /**
  * Saving a file (PROTOCOL.md §9.3 `files.write`) is live only when all three
  * hold: the deployment switch (`CODE_FILE_WRITE_ENABLED`, on with the
  * explorer unless set to `false`: 404 like the explorer's own), this galopin
  * implementing it (`hello.machine.capabilities.fileWrite`), and the machine's
- * policy (`fileWrite`, denied unless enrolled with `--allow-file-write`). The
+ * policy (`fileWrite`, allowed unless `--no-file-write`). The
  * last two answer 403 with the fix and are audited as refusals; galopin
  * checks its policy again on its side.
  */
@@ -328,7 +328,7 @@ async function requireFileWriteAllowed(
 		await recordCodeAudit(event, { action: "files.write.refused", deviceId, workspaceId });
 		error(
 			403,
-			"This machine was enrolled with --no-files: re-enroll it without that flag, and with --allow-file-write, to save files here."
+			"This machine was enrolled with --no-files: re-enroll it without that flag to save files here."
 		);
 	}
 	if (device.machine?.capabilities.fileWrite !== true) {

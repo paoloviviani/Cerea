@@ -67,7 +67,8 @@ export const ENROLL_FLAGS: readonly EnrollFlag[] = [
 	{ flag: "no-command-shell", kind: "bool", default: false, exposed: true },
 	{ flag: "no-default-file-deny", kind: "bool", default: false, exposed: true },
 	{ flag: "no-files", kind: "bool", default: false, exposed: true },
-	{ flag: "allow-file-write", kind: "bool", default: false, exposed: true },
+	// Old spelling of the default (a no-op), kept for scripts and old commands.
+	{ flag: "allow-file-write", kind: "bool", default: false, exposed: false },
 	{ flag: "no-terminal", kind: "bool", default: false, exposed: true },
 	// ADR 0109: machine limits are gone. `--limit` is retired (accepted and ignored with a warning,
 	// listed `retired` by the agent's file, so not here); permission-max and permission-rule stay
@@ -77,8 +78,8 @@ export const ENROLL_FLAGS: readonly EnrollFlag[] = [
 	// ADR 0109: the advanced local refuse-only flag (`--deny CLASS`), by hand, not in the dialog.
 	{ flag: "deny", kind: "list", default: [], exposed: false },
 	// The file editor is on by default; this turns it off (--allow-file-write
-	// only restates the default).
-	{ flag: "no-file-write", kind: "bool", default: false, exposed: false },
+	// only restates the default). The dialog's "Edit files" box prints it.
+	{ flag: "no-file-write", kind: "bool", default: false, exposed: true },
 	// Machine policy the dialog does not offer a control for: the default
 	// safe directories are on without any flag, and re-enrolling with
 	// --safe-dir / --no-safe-dirs is the owner's rarer, by-hand change.

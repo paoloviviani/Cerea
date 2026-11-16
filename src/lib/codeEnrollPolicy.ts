@@ -42,8 +42,9 @@ export interface EnrollPolicyChoices {
 	allowOpencodeProvider: boolean;
 	workspaceRoots: string[];
 	noFiles: boolean;
-	/** `--allow-file-write`: the /code editor may save files. Only emitted
-	 * while files are on: with `--no-files` there is nothing to save from. */
+	/** The /code file browser may save text files (on by default). Unticking
+	 * prints `--no-file-write`, and only while files are on: with `--no-files`
+	 * there is nothing to save from. */
 	allowFileWrite: boolean;
 	fileDeny: string[];
 	noDefaultFileDeny: boolean;
@@ -72,7 +73,7 @@ export function defaultPolicyChoices(): EnrollPolicyChoices {
 		allowOpencodeProvider: false,
 		workspaceRoots: [],
 		noFiles: false,
-		allowFileWrite: false,
+		allowFileWrite: true,
 		fileDeny: [],
 		noDefaultFileDeny: false,
 		billToDefault: true,
@@ -91,7 +92,7 @@ export const FLAG_CONTROLS: Readonly<Record<string, string>> = {
 	"allow-opencode-provider": "enroll-allow-opencode-provider",
 	"workspace-root": "enroll-workspace-roots",
 	"no-files": "enroll-no-files",
-	"allow-file-write": "enroll-allow-file-write",
+	"no-file-write": "enroll-allow-file-write",
 	"file-deny": "enroll-file-deny",
 	"no-default-file-deny": "enroll-no-default-file-deny",
 	"default-group": "enroll-bill-to-default",
@@ -145,7 +146,7 @@ export function policyFlagArgs(choices: EnrollPolicyChoices): string[] {
 		args.push("--workspace-root", quoteShellArg(root));
 	}
 	if (choices.noFiles) args.push("--no-files");
-	else if (choices.allowFileWrite) args.push("--allow-file-write");
+	else if (!choices.allowFileWrite) args.push("--no-file-write");
 	for (const glob of listed(choices.fileDeny)) args.push("--file-deny", quoteShellArg(glob));
 	if (choices.noDefaultFileDeny) args.push("--no-default-file-deny");
 	return args;
@@ -166,7 +167,7 @@ export function advancedChangedCount(choices: EnrollPolicyChoices): number {
 		choices.allowOpencodeProvider,
 		listed(choices.workspaceRoots).length > 0,
 		choices.noFiles,
-		choices.allowFileWrite && !choices.noFiles,
+		!choices.allowFileWrite && !choices.noFiles,
 		listed(choices.fileDeny).length > 0,
 		choices.noDefaultFileDeny,
 		!choices.billToDefault,
@@ -204,8 +205,8 @@ export function promisedPolicy(choices: EnrollPolicyChoices): PromisedPolicy {
 		workspaceRoots: listed(choices.workspaceRoots),
 		allowFreeModels: choices.allowFreeModels,
 		files: choices.noFiles ? "off" : "read",
-		// The file editor is on by default (ADR 0107): off only with files off.
-		fileWrite: allowed(!choices.noFiles),
+		// The file editor is on by default (ADR 0107): off with files off or unticked.
+		fileWrite: allowed(!choices.noFiles && choices.allowFileWrite),
 		fileDeny: listed(choices.fileDeny),
 		noDefaultFileDeny: choices.noDefaultFileDeny,
 		terminal: allowed(choices.allowTerminal),

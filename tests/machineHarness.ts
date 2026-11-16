@@ -169,8 +169,8 @@ export interface MachinePolicy {
 	/** The terminal veto (ADR 0090, default "denied"; `enroll --allow-terminal`). */
 	terminal?: "allowed" | "denied";
 	maxTerminals?: number;
-	/** The editor's save veto (`files.write`, default "denied";
-	 * `enroll --allow-file-write`). */
+	/** The editor's save veto (`files.write`; a policy without it reads "denied";
+	 * a fresh `enroll` writes "allowed"). */
 	fileWrite?: "allowed" | "denied";
 	/** Safe external directories given relative to the machine's own isolated
 	 * home directory (joined at write time), so entries under the home display

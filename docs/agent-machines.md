@@ -209,8 +209,13 @@ computers, each with its workspaces, each with its sessions.
   gateway metered them.
 - **Connectors**: a session can use your connectors, off until you switch them
   on for it or for a project ([Connectors for an agent](code-panel.md#connectors-for-an-agent)).
+- **A workspace screen** opens when you click a workspace: its sessions, a
+  **New session** button, and **Terminal** and **Files** at the top right,
+  with no session needed. The terminal starts in the workspace folder and the
+  file browser is rooted there; a button you do not see is one the computer, its
+  policy or the deployment does not offer.
 - **Files** browses the workspace. It can also edit and save text files (on by default;
-  a computer enrolled with `--no-file-write` stays read-only); a file that changed
+  a computer enrolled with `--no-file-write` stays read-only, and the browser says so); a file that changed
   on disk since you opened it is a conflict you resolve (reload or overwrite),
   never silently overwritten ([Saving files](agent-machines-reference.md#saving-files)).
 - **Slash commands**: type `/` in the composer for the commands the session can

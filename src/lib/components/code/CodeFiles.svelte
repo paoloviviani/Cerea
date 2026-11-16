@@ -34,7 +34,7 @@
 		writeWorkspaceFile,
 	} from "$lib/codeApi";
 	import type { FileEntry, FilesReadResult } from "$lib/types/machineProtocol";
-	import { gitBadges, humanSize, type GitBadge } from "$lib/utils/codeFiles";
+	import { gitBadges, humanSize, type FileSaveBlock, type GitBadge } from "$lib/utils/codeFiles";
 	import { isInlineRasterMime } from "$lib/utils/filePreview";
 
 	interface Props {
@@ -45,9 +45,24 @@
 		/** Files may be saved here: the deployment's switch, the machine's
 		 * fileWrite policy and its galopin all allow it. */
 		writable?: boolean;
+		/** Why saving is off, shown above a text file so a read-only editor says
+		 * why and how to turn saving on. */
+		saveBlocked?: FileSaveBlock | null;
 	}
 
-	let { deviceId, workspaceId, turnKey = 0, writable = false }: Props = $props();
+	let {
+		deviceId,
+		workspaceId,
+		turnKey = 0,
+		writable = false,
+		saveBlocked = null,
+	}: Props = $props();
+
+	const SAVE_BLOCKED: Record<FileSaveBlock, () => string> = {
+		policy: m["code.files.save_blocked.policy"],
+		machine: m["code.files.save_blocked.machine"],
+		deployment: m["code.files.save_blocked.deployment"],
+	};
 
 	/** files.write's cap (§9.3): a larger text file stays read-only. */
 	const MAX_EDIT_BYTES = 1024 * 1024;
@@ -292,6 +307,15 @@
 					</p>
 				{/if}
 			{:else}
+				{#if !writable && saveBlocked}
+					<p
+						class="flex items-start gap-2 border-b border-gray-200 px-3 py-2 text-xs text-gray-500 dark:border-gray-700"
+						data-testid="file-save-blocked"
+					>
+						<IconLocked class="mt-0.5 size-3.5 shrink-0" />
+						{SAVE_BLOCKED[saveBlocked]()}
+					</p>
+				{/if}
 				{#key open.path}
 					<CodeFileViewer
 						path={open.path}

@@ -144,12 +144,13 @@ Usage:
   --no-default-file-deny  Drop the built-in secret deny list, keeping only
                --file-deny's. The list prevents accidental exposure; it is
                not a boundary against the agent, which can read any file.
-  --allow-file-write  Let the /code editor save text files in this machine's
-               workspaces (default: denied, the explorer is read-only). A
-               save replaces the file atomically and only if it did not
+  --no-file-write  Keep the /code file browser read-only on this machine
+               (default: it can open and save text files in the workspaces).
+               A save replaces the file atomically and only if it did not
                change on disk since it was opened; files on the deny list
-               are never written. 'galopin policy set --no-file-write'
-               turns it off again.
+               are never written. --allow-file-write is accepted and does
+               nothing (the default); 'galopin policy set --no-file-write'
+               and '--allow-file-write' switch it later.
   --no-terminal  Keep the /code panel from opening a real shell on this
                machine (default: terminals ALLOWED, which means anyone who
                controls your Cerea session can run commands as you here —

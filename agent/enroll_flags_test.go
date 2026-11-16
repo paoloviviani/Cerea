@@ -138,9 +138,9 @@ func defaultWord(e enrollFlagEntry) string {
 // other flag may be marked exposed, and none of those may be left out.
 func TestEnrollFlagsExposedSetIsTheDialogsControlList(t *testing.T) {
 	want := []string{
-		"allow-file-write", "allow-free-models", "allow-opencode-provider", "allow-project-config", "default-group", "engine", "file-deny",
+		"allow-free-models", "allow-opencode-provider", "allow-project-config", "default-group", "engine", "file-deny",
 		"max-terminals", "no-agent-tools", "no-background-subagents", "no-command-shell",
-		"no-default-file-deny", "no-files", "no-terminal",
+		"no-default-file-deny", "no-file-write", "no-files", "no-terminal",
 		"workspace-root",
 	}
 	var got []string

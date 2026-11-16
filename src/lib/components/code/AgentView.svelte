@@ -55,6 +55,7 @@
 	import type { Message } from "$lib/types/Message";
 	import { isConversationGenerationActive } from "$lib/utils/generationState";
 	import { agentDisplayTitle } from "$lib/utils/codeAgentTitle";
+	import { fileSaveBlock } from "$lib/utils/codeFiles";
 	import { forkableMessageIds } from "$lib/utils/codeFork";
 	import { shouldShowPendingPlaceholder } from "$lib/utils/pendingPlaceholder";
 	import { consumeAgentUpdates } from "$lib/utils/consumeAgentUpdates";
@@ -294,14 +295,13 @@
 	);
 	/** The explorer's editor (files.write): the deployment's switch, this
 	 * galopin implementing it, and the machine's policy allowing it. */
-	let filesWritable = $derived.by(() => {
-		const device = codeDeviceList.devices.find((d) => d.id === deviceId);
-		return (
-			page.data.codeFileWriteEnabled === true &&
-			device?.machine?.capabilities.fileWrite === true &&
-			device?.policy?.fileWrite === "allowed"
-		);
-	});
+	let fileSaveBlocked = $derived(
+		fileSaveBlock(
+			page.data.codeFileWriteEnabled === true,
+			codeDeviceList.devices.find((d) => d.id === deviceId)
+		)
+	);
+	let filesWritable = $derived(fileSaveBlocked === null);
 	/** Bumped when a turn settles, so the explorer re-reads what an agent wrote. */
 	let filesTurnKey = $state(0);
 	let lastTurnState: string | undefined;
@@ -1673,6 +1673,7 @@
 					workspaceId={(workspace?.id ?? workspaceId) as string}
 					turnKey={filesTurnKey}
 					writable={filesWritable}
+					saveBlocked={fileSaveBlocked}
 				/>
 			</SidePane>
 		{:else if sidePane.open && sidePane.view === "terminal" && terminalOffered && !terminalVetoed && (workspace?.id ?? workspaceId)}
