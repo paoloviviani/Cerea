@@ -75,6 +75,11 @@ func DecodeContent(content, encoding string) ([]byte, error) {
 // the root or out of it) is never written through, .git is never touched,
 // and a path on the deny list is forbidden. The directory must exist.
 func (s *Service) Write(root, rel string, body []byte, baseRevision *string) (Entry, error) {
+	return s.write(root, rel, body, baseRevision, MaxWriteBytes)
+}
+
+// write is Write with the size cap as a parameter: Upload takes the larger one.
+func (s *Service) write(root, rel string, body []byte, baseRevision *string, limit int) (Entry, error) {
 	rel, err := CleanRel(rel)
 	if err != nil {
 		return Entry{}, err
@@ -88,8 +93,8 @@ func (s *Service) Write(root, rel string, body []byte, baseRevision *string) (En
 	if s.Redacted(rel) {
 		return Entry{}, fmt.Errorf("%w: hidden by this machine's policy", ErrForbidden)
 	}
-	if len(body) > MaxWriteBytes {
-		return Entry{}, fmt.Errorf("%w: a file is saved up to %d bytes", ErrTooLarge, MaxWriteBytes)
+	if len(body) > limit {
+		return Entry{}, fmt.Errorf("%w: a file is saved up to %d bytes", ErrTooLarge, limit)
 	}
 	r, err := openRoot(root)
 	if err != nil {

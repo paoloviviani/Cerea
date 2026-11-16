@@ -98,6 +98,12 @@ func (a *auditLogger) fileWrite(workspace, path string, size int, outcome string
 	a.write(map[string]any{"action": "files.write", "workspace": workspace, "path": path, "bytes": size, "outcome": outcome})
 }
 
+// fileUpload records one files.upload: the workspace, the folder and name,
+// the size and how it ended. Never a byte of the content.
+func (a *auditLogger) fileUpload(workspace, dir, name string, size int, outcome string) {
+	a.write(map[string]any{"action": "files.upload", "workspace": workspace, "dir": dir, "name": name, "bytes": size, "outcome": outcome})
+}
+
 // refusal records a policy veto: which op was refused and why, never the
 // arguments that op carried.
 func (a *auditLogger) refusal(op, reason string) {

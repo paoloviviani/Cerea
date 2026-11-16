@@ -591,7 +591,7 @@ func buildHello(back backend.Backend, pol policy.Policy) link.Hello {
 	h.Machine = link.MachineInfo{Mode: "agent", Capabilities: map[string]bool{
 		// fileWrite: this build implements files.write; whether the owner
 		// allows it is the policy's fileWrite, reported separately.
-		"files": true, "fileSearch": false, "fileWatch": false, "fileWrite": true, "terminal": terminal.Supported,
+		"files": true, "fileSearch": false, "fileWatch": false, "fileWrite": true, "fileUpload": true, "terminal": terminal.Supported,
 		// Delegate profiles (PROTOCOL.md §6): the profiles.list/set ops, with
 		// the agent tools they are for.
 		"delegateProfiles": caps.AgentTools && pol.AgentToolsAllowed(),

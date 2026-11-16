@@ -353,6 +353,15 @@ choices:
 - **Reload** drops your edits and shows the file as it is now;
 - **Overwrite** saves your text over the new version.
 
+**Uploading** uses the same gates as saving (the computer's `fileWrite`, the
+deployment switch) plus a galopin that reports `fileUpload`. The Files pane's
+**Upload** button, or dropping files on the list, sends each file (any type, at
+most 30 MB, one at a time) into the folder you last opened. Names are plain file
+names, the deny list and the workspace confinement apply as for a save, and a
+file that already exists is replaced only after you confirm "Replace name?"
+(the op refuses `conflict` otherwise). Each upload is audited with the folder,
+name and size, never the content.
+
 There is no live reload yet: until you save or refresh, the editor does not
 know the file changed. The revision check is what keeps a save from silently
 overwriting an agent's edit. Each save is recorded, with the path and the size

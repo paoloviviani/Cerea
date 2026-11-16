@@ -16,6 +16,7 @@ const apiMock = vi.hoisted(() => ({
 	readWorkspaceFile: vi.fn(),
 	workspaceFileStatus: vi.fn(),
 	writeWorkspaceFile: vi.fn(),
+	uploadWorkspaceFile: vi.fn(),
 }));
 
 vi.mock("$lib/codeApi", () => ({
@@ -37,6 +38,7 @@ vi.mock("$lib/codeApi", () => ({
 		}
 	},
 	writeWorkspaceFile: apiMock.writeWorkspaceFile,
+	uploadWorkspaceFile: apiMock.uploadWorkspaceFile,
 	listWorkspaceFiles: apiMock.listWorkspaceFiles,
 	readWorkspaceFile: apiMock.readWorkspaceFile,
 	workspaceFileStatus: apiMock.workspaceFileStatus,
@@ -337,5 +339,104 @@ describe("CodeFiles editor (files.write)", () => {
 		await screen.getByRole("button", { name: "Back to files" }).click();
 		await expect.element(screen.getByRole("button", { name: "notes.txt" })).toBeVisible();
 		sidePane.reset();
+	});
+});
+
+describe("CodeFiles upload", () => {
+	function mountUpload(uploadable: boolean) {
+		apiMock.listWorkspaceFiles.mockResolvedValue({
+			path: ".",
+			entries: [fileEntry("a.txt")],
+			truncated: false,
+		});
+		apiMock.workspaceFileStatus.mockResolvedValue({ isGitRepo: false, entries: [] });
+		return render(CodeFiles, { deviceId: "d", workspaceId: "ws", writable: true, uploadable });
+	}
+	const pick = (screen: ReturnType<typeof mountUpload>, files: File[]) => {
+		const input = screen.getByTestId("file-upload-input").element() as HTMLInputElement;
+		const data = new DataTransfer();
+		for (const f of files) data.items.add(f);
+		input.files = data.files;
+		input.dispatchEvent(new Event("change", { bubbles: true }));
+	};
+
+	beforeEach(() => {
+		apiMock.uploadWorkspaceFile.mockReset();
+	});
+
+	it("shows no Upload button and takes no drop without the capability", async () => {
+		const screen = mountUpload(false);
+		await expect.element(screen.getByText("a.txt")).toBeVisible();
+		expect(screen.getByTestId("file-upload").elements()).toHaveLength(0);
+		const zone = screen.getByTestId("file-drop-zone").element();
+		const data = new DataTransfer();
+		data.items.add(new File(["x"], "dropped.txt"));
+		zone.dispatchEvent(
+			new DragEvent("drop", { dataTransfer: data, bubbles: true, cancelable: true })
+		);
+		expect(apiMock.uploadWorkspaceFile).not.toHaveBeenCalled();
+	});
+
+	it("uploads several chosen files into the folder shown, then refreshes the list", async () => {
+		apiMock.uploadWorkspaceFile.mockResolvedValue({ entry: fileEntry("x") });
+		const screen = mountUpload(true);
+		await expect.element(screen.getByTestId("file-upload")).toBeVisible();
+		const listed = apiMock.listWorkspaceFiles.mock.calls.length;
+		pick(screen, [new File(["1"], "one.bin"), new File(["2"], "two.bin")]);
+		await expect.element(screen.getByText("Uploaded two.bin")).toBeVisible();
+		expect(apiMock.uploadWorkspaceFile.mock.calls.map((c) => [c[2], c[3].name, c[4]])).toEqual([
+			[".", "one.bin", false],
+			[".", "two.bin", false],
+		]);
+		expect(apiMock.listWorkspaceFiles.mock.calls.length).toBeGreaterThan(listed);
+	});
+
+	it("takes files dropped on the list", async () => {
+		apiMock.uploadWorkspaceFile.mockResolvedValue({ entry: fileEntry("x") });
+		const screen = mountUpload(true);
+		await expect.element(screen.getByText("a.txt")).toBeVisible();
+		const data = new DataTransfer();
+		data.items.add(new File(["x"], "dropped.png"));
+		screen
+			.getByTestId("file-drop-zone")
+			.element()
+			.dispatchEvent(
+				new DragEvent("drop", { dataTransfer: data, bubbles: true, cancelable: true })
+			);
+		await expect.element(screen.getByText("Uploaded dropped.png")).toBeVisible();
+	});
+
+	it("asks 'Replace name?' on an existing file and overwrites only when told to", async () => {
+		const { FileConflictError } = await import("$lib/codeApi");
+		apiMock.uploadWorkspaceFile.mockImplementation(
+			async (_d: string, _w: string, _dir: string, _f: File, overwrite: boolean) => {
+				if (!overwrite) throw new FileConflictError("exists", null);
+				return { entry: fileEntry("x") };
+			}
+		);
+		const confirmSpy = vi.spyOn(window, "confirm");
+		confirmSpy.mockReturnValueOnce(false).mockReturnValueOnce(true);
+		const screen = mountUpload(true);
+		await expect.element(screen.getByTestId("file-upload")).toBeVisible();
+		pick(screen, [new File(["1"], "keep.txt")]);
+		await expect.element(screen.getByText("keep.txt was not replaced.")).toBeVisible();
+		expect(confirmSpy).toHaveBeenCalledWith("Replace keep.txt?");
+		pick(screen, [new File(["2"], "swap.txt")]);
+		await expect.element(screen.getByText("Uploaded swap.txt")).toBeVisible();
+		expect(apiMock.uploadWorkspaceFile.mock.calls.at(-1)?.[4]).toBe(true);
+	});
+
+	it("shows a failure on its own row, and refuses a file over 30 MB without sending it", async () => {
+		apiMock.uploadWorkspaceFile.mockRejectedValue(new Error("hidden by this machine's policy"));
+		const screen = mountUpload(true);
+		await expect.element(screen.getByTestId("file-upload")).toBeVisible();
+		pick(screen, [new File(["1"], "id_rsa")]);
+		await expect.element(screen.getByText("id_rsa: hidden by this machine's policy")).toBeVisible();
+		const big = new File([new Uint8Array(1)], "big.iso");
+		Object.defineProperty(big, "size", { value: 31 * 1024 * 1024 });
+		apiMock.uploadWorkspaceFile.mockClear();
+		pick(screen, [big]);
+		await expect.element(screen.getByText("big.iso is over 30 MB.")).toBeVisible();
+		expect(apiMock.uploadWorkspaceFile).not.toHaveBeenCalled();
 	});
 });

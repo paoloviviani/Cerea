@@ -21,6 +21,8 @@
 	import { beforeNavigate } from "$app/navigation";
 	import { sidePane } from "$lib/stores/sidePane.svelte";
 	import IconRenew from "~icons/carbon/renew";
+	import IconUpload from "~icons/carbon/upload";
+	import { MAX_ATTACHMENT_BYTES } from "$lib/constants/mime";
 	import IconArrowLeft from "~icons/carbon/arrow-left";
 	import IconLocked from "~icons/carbon/locked";
 	import CodeFileTree from "./CodeFileTree.svelte";
@@ -31,6 +33,7 @@
 		readWorkspaceFile,
 		workspaceFileRawUrl,
 		workspaceFileStatus,
+		uploadWorkspaceFile,
 		writeWorkspaceFile,
 	} from "$lib/codeApi";
 	import type { FileEntry, FilesReadResult } from "$lib/types/machineProtocol";
@@ -48,6 +51,9 @@
 		/** Why saving is off, shown above a text file so a read-only editor says
 		 * why and how to turn saving on. */
 		saveBlocked?: FileSaveBlock | null;
+		/** Files may be uploaded into the folder shown: saving is allowed and
+		 * this galopin implements `files.upload`. */
+		uploadable?: boolean;
 	}
 
 	let {
@@ -56,6 +62,7 @@
 		turnKey = 0,
 		writable = false,
 		saveBlocked = null,
+		uploadable = false,
 	}: Props = $props();
 
 	const SAVE_BLOCKED: Record<FileSaveBlock, () => string> = {
@@ -80,6 +87,90 @@
 	/** What is on disk after a save answered "changed on disk": Overwrite saves
 	 * against it. */
 	let conflictRevision = $state<string | null>(null);
+
+	/** The folder uploads go into: the last folder clicked in the tree, or the
+	 * parent of the file open ("." is the workspace folder). */
+	let uploadDir = $state(".");
+	let dragging = $state(false);
+	let fileInput = $state<HTMLInputElement>();
+	interface UploadRow {
+		id: number;
+		name: string;
+		state: "uploading" | "done" | "error";
+		text: string;
+	}
+	let uploads = $state<UploadRow[]>([]);
+	let uploadSeq = 0;
+	let uploadChain: Promise<void> = Promise.resolve();
+	const uploadFolder = $derived(uploadDir === "." ? m["code.files.upload_root"]() : uploadDir);
+
+	function parentOf(path: string): string {
+		const i = path.lastIndexOf("/");
+		return i < 0 ? "." : path.slice(0, i);
+	}
+
+	/** Queue files for upload into the folder shown, one at a time. */
+	function startUploads(list: FileList | File[] | null) {
+		if (!uploadable || !list) return;
+		const dir = uploadDir;
+		for (const file of Array.from(list)) {
+			const row: UploadRow = {
+				id: ++uploadSeq,
+				name: file.name,
+				state: "uploading",
+				text: m["code.files.uploading"]({ name: file.name }),
+			};
+			uploads.push(row);
+			const live = uploads[uploads.length - 1];
+			uploadChain = uploadChain.then(() => uploadOne(live, dir, file));
+		}
+	}
+
+	async function uploadOne(row: UploadRow, dir: string, file: File) {
+		const fail = (reason: string) => {
+			row.state = "error";
+			row.text = m["code.files.upload_failed"]({ name: file.name, reason });
+		};
+		if (file.size > MAX_ATTACHMENT_BYTES) {
+			row.state = "error";
+			row.text = m["code.files.upload_too_large"]({
+				name: file.name,
+				limit: MAX_ATTACHMENT_BYTES / 1024 / 1024,
+			});
+			return;
+		}
+		try {
+			try {
+				await uploadWorkspaceFile(deviceId, workspaceId, dir, file, false);
+			} catch (err) {
+				if (!(err instanceof FileConflictError)) throw err;
+				if (!confirm(m["code.files.replace_confirm"]({ name: file.name }))) {
+					row.state = "error";
+					row.text = m["code.files.upload_not_replaced"]({ name: file.name });
+					return;
+				}
+				await uploadWorkspaceFile(deviceId, workspaceId, dir, file, true);
+			}
+			row.state = "done";
+			row.text = m["code.files.uploaded"]({ name: file.name });
+			refreshKey += 1;
+			void loadStatus();
+		} catch (err) {
+			fail(err instanceof Error ? err.message : "");
+		}
+	}
+
+	function onDrop(event: DragEvent) {
+		if (!uploadable) return;
+		event.preventDefault();
+		dragging = false;
+		startUploads(event.dataTransfer?.files ?? null);
+	}
+	function onDragOver(event: DragEvent) {
+		if (!uploadable || !event.dataTransfer?.types.includes("Files")) return;
+		event.preventDefault();
+		dragging = true;
+	}
 
 	/** Why an open text file cannot be edited here, or null. */
 	let readOnlyReason = $derived(
@@ -190,6 +281,7 @@
 		dirty = false;
 		conflictRevision = null;
 		open = entry;
+		uploadDir = parentOf(entry.path);
 		file = null;
 		text = "";
 		if (entry.redacted) return;
@@ -247,6 +339,30 @@
 				{branch ? m["code.files.on_branch"]({ branch }) : m["code.files.workspace_files"]()}
 			</span>
 		{/if}
+		{#if uploadable}
+			<input
+				bind:this={fileInput}
+				type="file"
+				multiple
+				class="hidden"
+				aria-label={m["code.files.upload_input_label"]()}
+				data-testid="file-upload-input"
+				onchange={(event) => {
+					startUploads(event.currentTarget.files);
+					event.currentTarget.value = "";
+				}}
+			/>
+			<button
+				type="button"
+				class="flex h-6 items-center gap-1 rounded-md px-1.5 text-xs text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+				title={m["code.files.upload_title"]({ folder: uploadFolder })}
+				data-testid="file-upload"
+				onclick={() => fileInput?.click()}
+			>
+				<IconUpload class="size-3.5" />
+				{m["code.files.upload"]()}
+			</button>
+		{/if}
 		<button
 			type="button"
 			class="flex size-6 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
@@ -258,7 +374,48 @@
 		</button>
 	</div>
 
-	<div class="min-h-0 flex-1 overflow-auto">
+	{#if uploads.length > 0}
+		<ul
+			class="shrink-0 border-b border-gray-200 text-xs dark:border-gray-700"
+			data-testid="uploads"
+		>
+			{#each uploads as row (row.id)}
+				<li
+					class="flex items-center gap-2 px-3 py-1 {row.state === 'error'
+						? 'text-red-600 dark:text-red-400'
+						: 'text-gray-500'}"
+					data-state={row.state}
+				>
+					<span class="min-w-0 flex-1 truncate" title={row.text}>{row.text}</span>
+					{#if row.state !== "uploading"}
+						<button
+							type="button"
+							class="shrink-0 hover:underline"
+							onclick={() => (uploads = uploads.filter((u) => u.id !== row.id))}
+							>{m["code.files.upload_dismiss"]()}</button
+						>
+					{/if}
+				</li>
+			{/each}
+		</ul>
+	{/if}
+
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div
+		class="relative min-h-0 flex-1 overflow-auto"
+		ondragover={onDragOver}
+		ondragleave={() => (dragging = false)}
+		ondrop={onDrop}
+		data-testid="file-drop-zone"
+	>
+		{#if dragging}
+			<div
+				class="pointer-events-none absolute inset-1 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-blue-500 bg-blue-50/80 text-sm text-blue-700 dark:bg-blue-900/40 dark:text-blue-200"
+				data-testid="file-drop-hint"
+			>
+				{m["code.files.drop_hint"]({ folder: uploadFolder })}
+			</div>
+		{/if}
 		<div class={open ? "hidden" : "p-1"}>
 			<CodeFileTree
 				{deviceId}
@@ -269,6 +426,7 @@
 				selected={open?.path ?? null}
 				{refreshKey}
 				onselect={select}
+				ondir={(dir) => (uploadDir = dir)}
 			/>
 		</div>
 		{#if open}

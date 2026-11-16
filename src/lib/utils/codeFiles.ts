@@ -83,3 +83,12 @@ export function fileSaveBlock(
 	if (device.policy?.fileWrite !== "allowed") return "policy";
 	return null;
 }
+
+/** Whether the file browser may upload: saving is allowed and this galopin
+ * implements `files.upload` (an older one hides the button). */
+export function fileUploadAllowed(
+	saveBlock: FileSaveBlock | null,
+	device: { machine?: { capabilities: { fileUpload?: boolean } } | null } | undefined
+): boolean {
+	return saveBlock === null && device?.machine?.capabilities.fileUpload === true;
+}

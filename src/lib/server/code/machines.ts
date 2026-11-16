@@ -670,6 +670,18 @@ export class MachineLink {
 	}): Promise<{ entry: FileEntry }> {
 		return this.call("files.write", args);
 	}
+	/** The file browser's upload (§9.3): any bytes (base64) as `name` in the
+	 * workspace folder `dir`, at most 30 MiB. An existing file is replaced only
+	 * with `overwrite`, else `conflict` (details.revision). */
+	filesUpload(args: {
+		workspaceId: string;
+		dir: string;
+		name: string;
+		content: string;
+		overwrite: boolean;
+	}): Promise<{ entry: FileEntry }> {
+		return this.call("files.upload", args);
+	}
 	/** The terminal's machine ops (§9.3); like files.*, forbidden outright
 	 * when the machine's own policy denies terminals (checked machine-side
 	 * before any of these run — the forwarder checks first too, §6.1). */

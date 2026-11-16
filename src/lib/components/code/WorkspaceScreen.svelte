@@ -31,7 +31,7 @@
 	import type { CodeAgentSession, CodeTurnState, CodeWorkspace } from "$lib/types/CodeAgent";
 	import { agentDisplayTitle } from "$lib/utils/codeAgentTitle";
 	import { workspaceLabel } from "$lib/utils/codeSubagents";
-	import { fileSaveBlock } from "$lib/utils/codeFiles";
+	import { fileSaveBlock, fileUploadAllowed } from "$lib/utils/codeFiles";
 	import { formatCompactAge } from "$lib/utils/relativeTime";
 	import * as s from "$lib/components/overlay/styles";
 
@@ -248,7 +248,13 @@
 
 		{#if workspace && sidePane.open && sidePane.view === "files" && filesOffered}
 			<SidePane label={m["code.workspace.files_label"]()} title={m["code.view.files"]()}>
-				<CodeFiles {deviceId} {workspaceId} writable={saveBlocked === null} {saveBlocked} />
+				<CodeFiles
+					{deviceId}
+					{workspaceId}
+					writable={saveBlocked === null}
+					{saveBlocked}
+					uploadable={fileUploadAllowed(saveBlocked, device)}
+				/>
 			</SidePane>
 		{:else if workspace && sidePane.open && sidePane.view === "terminal" && terminalOffered}
 			<SidePane label={m["code.workspace.terminal_label"]()} title={m["code.view.terminal"]()}>

@@ -27,6 +27,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { error, type RequestHandler } from "@sveltejs/kit";
 import { z } from "zod";
 import { recordCodeAudit } from "$lib/server/code/audit";
+import { MAX_ATTACHMENT_BYTES } from "$lib/constants/mime";
 import {
 	codeFileWriteEnabled,
 	codeFilesEnabled,
@@ -93,6 +94,9 @@ const RULES: Array<{ method: "GET" | "POST" | "DELETE"; pattern: RegExp }> = [
 	// The editor's save (files.write, §9.3): behind the explorer's switch,
 	// the deployment's write switch, the machine's policy and its capability.
 	{ method: "POST", pattern: new RegExp(`^v1/workspaces/${ID}/files/content$`) },
+	// The file browser's upload (files.upload, §9.3): same gates, plus its own
+	// capability. Multipart, one file per request.
+	{ method: "POST", pattern: new RegExp(`^v1/workspaces/${ID}/files/upload$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/workspaces/${ID}/terminals$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/workspaces/${ID}/terminals$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/terminals/${ID}/name$`) },
@@ -921,8 +925,9 @@ const fileWriteSchema = z.object({
 
 export const POST: RequestHandler = async (event) => {
 	await requireCodeAgents(event.locals);
-	requireJsonBody(event.request);
 	const path = event.params.path ?? "";
+	const isUpload = new RegExp(`^v1/workspaces/${ID}/files/upload$`).test(path);
+	if (!isUpload) requireJsonBody(event.request);
 	const method = "POST";
 	if (!RULES.some((rule) => rule.method === method && rule.pattern.test(path))) {
 		error(404, "Not available through this endpoint.");
@@ -930,6 +935,64 @@ export const POST: RequestHandler = async (event) => {
 	const device = await getPairedDevice(event.locals, event.url.searchParams.get("device"));
 	const deviceId = device._id.toString();
 	const link = new MachineLink(deviceId);
+
+	// The file browser's upload (§9.3): the same rules as a save, one file per
+	// request, any type up to the attachment cap. The audit row has the folder,
+	// name and size, never the content.
+	const uploadMatch = new RegExp(`^v1/workspaces/(${ID})/files/upload$`).exec(path);
+	if (uploadMatch) {
+		const workspaceId = decodeURIComponent(uploadMatch[1]);
+		await requireFileWriteAllowed(event, device, deviceId, workspaceId);
+		if (device.machine?.capabilities.fileUpload !== true) {
+			await recordCodeAudit(event, { action: "files.upload.refused", deviceId, workspaceId });
+			error(
+				403,
+				"galopin on this computer cannot take uploads yet: update it to upload files here."
+			);
+		}
+		const form = await event.request
+			.formData()
+			.catch(() => error(400, "Expected a multipart form."));
+		const file = form.get("file");
+		const dir = form.get("dir");
+		const name = form.get("name");
+		if (!(file instanceof File) || typeof name !== "string" || name === "") {
+			error(400, "Expected a file and its name.");
+		}
+		if (file.size > MAX_ATTACHMENT_BYTES) {
+			error(413, `File too large, should be <${MAX_ATTACHMENT_BYTES / 1024 / 1024}MB`);
+		}
+		const overwrite = form.get("overwrite") === "true";
+		const folder = typeof dir === "string" && dir !== "" ? dir : ".";
+		const audit = (outcome: string) =>
+			recordCodeAudit(event, {
+				action: "files.upload",
+				deviceId,
+				workspaceId,
+				path: folder === "." ? name : `${folder}/${name}`,
+				bytes: file.size,
+				outcome,
+			});
+		try {
+			const { entry } = await link.filesUpload({
+				workspaceId,
+				dir: folder,
+				name,
+				content: Buffer.from(await file.arrayBuffer()).toString("base64"),
+				overwrite,
+			});
+			await audit("ok");
+			return superjsonResponse({ entry }, { headers: { "Cache-Control": "private, no-store" } });
+		} catch (err) {
+			if (!(err instanceof OpError)) throw err;
+			await audit(err.code);
+			if (err.code === "conflict") {
+				return superjsonResponse({ code: "conflict", message: err.message }, { status: 409 });
+			}
+			return callOp(() => Promise.reject(err));
+		}
+	}
+
 	const body = await readJson(event.request);
 
 	// The editor's save (§9.3). A conflict answers 409 with the revision now on

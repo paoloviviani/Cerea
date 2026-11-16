@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { badgeOf, fileSaveBlock, gitBadges, humanSize } from "./codeFiles";
+import { badgeOf, fileSaveBlock, fileUploadAllowed, gitBadges, humanSize } from "./codeFiles";
 
 describe("git badges", () => {
 	it("maps porcelain-v2 codes to one letter", () => {
@@ -49,5 +49,15 @@ describe("fileSaveBlock", () => {
 		expect(fileSaveBlock(true, { ...allowed, policy: { fileWrite: "denied" } })).toBe("policy");
 		expect(fileSaveBlock(true, { machine: allowed.machine })).toBe("policy");
 		expect(fileSaveBlock(true, undefined)).toBe("machine");
+	});
+});
+
+describe("fileUploadAllowed", () => {
+	it("needs saving allowed and the fileUpload capability", () => {
+		const cap = { machine: { capabilities: { fileUpload: true } } };
+		expect(fileUploadAllowed(null, cap)).toBe(true);
+		expect(fileUploadAllowed("policy", cap)).toBe(false);
+		expect(fileUploadAllowed(null, { machine: { capabilities: {} } })).toBe(false);
+		expect(fileUploadAllowed(null, undefined)).toBe(false);
 	});
 });

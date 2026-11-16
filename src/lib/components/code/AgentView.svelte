@@ -55,7 +55,7 @@
 	import type { Message } from "$lib/types/Message";
 	import { isConversationGenerationActive } from "$lib/utils/generationState";
 	import { agentDisplayTitle } from "$lib/utils/codeAgentTitle";
-	import { fileSaveBlock } from "$lib/utils/codeFiles";
+	import { fileSaveBlock, fileUploadAllowed } from "$lib/utils/codeFiles";
 	import { forkableMessageIds } from "$lib/utils/codeFork";
 	import { shouldShowPendingPlaceholder } from "$lib/utils/pendingPlaceholder";
 	import { consumeAgentUpdates } from "$lib/utils/consumeAgentUpdates";
@@ -1674,6 +1674,10 @@
 					turnKey={filesTurnKey}
 					writable={filesWritable}
 					saveBlocked={fileSaveBlocked}
+					uploadable={fileUploadAllowed(
+						fileSaveBlocked,
+						codeDeviceList.devices.find((d) => d.id === deviceId)
+					)}
 				/>
 			</SidePane>
 		{:else if sidePane.open && sidePane.view === "terminal" && terminalOffered && !terminalVetoed && (workspace?.id ?? workspaceId)}

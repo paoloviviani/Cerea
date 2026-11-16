@@ -28,9 +28,11 @@
 		/** Bumped by the pane to re-read every open directory. */
 		refreshKey: number;
 		onselect: (entry: FileEntry) => void;
+		/** A folder row was clicked: the file browser uploads into the last one. */
+		ondir?: (path: string) => void;
 	}
 
-	let { deviceId, workspaceId, path, depth, badges, selected, refreshKey, onselect }: Props =
+	let { deviceId, workspaceId, path, depth, badges, selected, refreshKey, onselect, ondir }: Props =
 		$props();
 
 	let entries = $state<FileEntry[] | null>(null);
@@ -63,6 +65,7 @@
 
 	function toggle(entry: FileEntry) {
 		expanded = { ...expanded, [entry.path]: !expanded[entry.path] };
+		ondir?.(entry.path);
 	}
 </script>
 
@@ -135,6 +138,7 @@
 						{selected}
 						{refreshKey}
 						{onselect}
+						{ondir}
 					/>
 				{/if}
 			</li>

@@ -218,6 +218,9 @@ computers, each with its workspaces, each with its sessions.
   a computer enrolled with `--no-file-write` stays read-only, and the browser says so); a file that changed
   on disk since you opened it is a conflict you resolve (reload or overwrite),
   never silently overwritten ([Saving files](agent-machines-reference.md#saving-files)).
+  **Upload** (or drop files on the list) adds files of any type, up to 30 MB each,
+  to the folder you last opened; it follows the same rules as saving, asks
+  "Replace name?" before overwriting, and needs a recent galopin.
 - **Slash commands**: type `/` in the composer for the commands the session can
   run, including `/compact`, `/undo`, `/model` and `/new`.
 - **Stop** ends a running turn. **Fork from here** on an answer starts a new
