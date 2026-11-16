@@ -330,7 +330,9 @@
 						<tbody>
 							{#each PERMISSION_CLASSES as c (c)}
 								<tr class="border-t border-gray-200 dark:border-gray-700">
-									<th scope="row" class="py-1.5 pr-3 text-left font-normal">{className(c)}</th>
+									<th scope="row" class="py-1.5 pr-3 text-left font-normal"
+										>{c === "agents" ? m["workspace.agents.row_agents"]() : className(c)}</th
+									>
 									<td class="py-1.5">
 										{#if c === "loop"}
 											<span class="text-gray-600 dark:text-gray-400" data-testid="agents-row-loop"

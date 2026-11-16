@@ -51,10 +51,9 @@ registration.
 
 **The agent executor** (`server/code/scheduleAgentExecutor.ts`) uses `MachineLink`
 ops: the panel's own (`session.create`, `session.setMode`/`setModel`,
-`session.setPermissionMode`, `session.prompt`) and, for the two coordination
-options, galopin's `session.grantCoordination`. Its target is `{ deviceId,
+`session.setPermissionMode`, `session.prompt`). Its target is `{ deviceId,
 workspaceId, sessionMode: "new" | "existing", sessionId?, modeId?, modelId?,
-permissionMode, canMessage?, canSpawn?, labels }`; the device must be the
+permissionMode, labels }`; the device must be the
 caller's own, paired. Things that bite:
 
 - a session a schedule starts is titled `<name> · YYYY-MM-DD HH:mm`; the tree
@@ -62,27 +61,19 @@ caller's own, paired. Things that bite:
   field;
 - the permission word is set **before** the prompt, and for "always this session"
   it is set on that session and stays; the machine's ceiling caps it as everywhere;
-- **coordination is a grant, not a rule.** `session_list`/`session_read`/
-  `session_send`/`session_spawn` are what a grant names (a session on Allow
-  also spawns and sends without one when the ceiling and the machine's rules
-  leave the tool alone, but never reads), and no op writes a
-  rule (`session.setRules` is retired). The two options (`canMessage`: list,
-  read, send; `canSpawn`: spawn; both off by default, `utils/coordination.ts`
-  maps them) become one `session.grantCoordination` after the session exists
-  and **before the prompt**; galopin composes it as allows beneath the ceiling,
-  so a capped key still asks and another workspace still asks. A machine that
-  cannot take it (`backends[].capabilities.coordinationGrant` absent in its
-  hello, `policy.agentTools: "denied"`, or the op answering `unsupported`) runs
-  the prompt without it and the run row says why; any other error fails the run
-  before the prompt. A pinned session whose options are off has its grant
-  cleared (`keys: []`) on a machine that supports it, so "off" means off. The
-  editor and the executor read `utils/coordination.ts` for the wording, so the
-  warning and the run row cannot disagree;
+- **coordination is the session's word and the Agents row, not a grant.** There
+  are no schedule coordination options and the executor never calls
+  `session.grantCoordination` (deprecated, a no-op in galopin). A run's
+  `session_list`/`session_read`/`session_send`/`session_spawn` follow its word:
+  a schedule's Allow runs as Auto (ADR 0109), so the Workspace -> Agents
+  `agents` row decides (Runs runs, anything else is a card for the reviewer or
+  the owner). A stored `canMessage`/`canSpawn` of an older schedule is read and
+  dropped on the next normalisation; the agent tools' retired `coordination`
+  argument is accepted and ignored;
 - **agents make schedules too**: `server/code/machineCalls.ts` answers the
   machine's `call` frames (`schedule.context|list|create|update|delete`) as the
   device's owner, through `createSchedule`/`updateSchedule` and this executor's
-  `validateTarget`, with the agent's own refusals on top (mode no looser and
-  coordination no wider than the caller's, 5 running agent-made schedules per
+  `validateTarget`, with the agent's own refusals on top (mode no looser than the caller's, 5 running agent-made schedules per
   machine, 10 changes per machine per hour with pause/delete exempt, this
   machine's schedules only). Its `agentMode` is the target's `modeId`
   (default `build`, not bounded by the caller). `createdBy` is passed by the caller of

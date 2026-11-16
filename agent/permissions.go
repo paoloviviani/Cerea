@@ -52,7 +52,7 @@ func (mc *machine) decidePolicy(rh backend.RuleHost) decide.Policy {
 // from its subagents is decided by.
 func (mc *machine) rootState(rh backend.RuleHost, sessionID string) decide.State {
 	root := mc.mat.RootOf(sessionID)
-	st := decide.State{Mode: rh.PermissionMode(root), Exceptions: rh.Exceptions(root), Coordination: rh.Coordination(root)}
+	st := decide.State{Mode: rh.PermissionMode(root), Exceptions: rh.Exceptions(root)}
 	if ah, ok := mc.back.(backend.AutoHost); ok {
 		if m, auto := ah.AutoClasses(root); auto {
 			st.Auto, st.AutoRun = true, decide.AutoRunSet(m)
@@ -300,7 +300,6 @@ func (mc *machine) opPermissionRules(ctx context.Context, args json.RawMessage) 
 	return map[string]any{
 		"agent": layers.Agent, "mode": layers.Mode, "rules": rules,
 		"savedApprovals": mc.exceptionViews(rh, a.SessionID), "ceiling": max,
-		"coordination": orEmptyStrings(rh.Coordination(mc.mat.RootOf(a.SessionID))),
 		// The machine's safe external directories, as a person reads them
 		// (home-relative entries shortened). Optional on the wire: a galopin
 		// older than the field omits it, and the panel shows no line.
@@ -417,17 +416,14 @@ func (mc *machine) rejectTreePending(dir, root string) {
 }
 
 // opSessionGrantCoordination answers session.grantCoordination {sessionId,
-// keys}: the narrow grant that lets a session's coordination tools run without
-// a card. Only the four coordination keys are accepted (anything else is
-// `invalid`, and nothing is recorded); an empty list clears the grant. It is
-// kept on the ROOT session's selector, so it persists with it and follows to
-// its subagents, and it is composed as an `allow` beneath the machine's own
-// rules and the ceiling: it never lifts a ceiling cap, the cross-workspace
-// rule, the hop limit or the rate limits. A subagent is `invalid` (it follows
-// its root), an unknown session `not_found`, a machine without agent tools or
-// a backend without galopin's rules `unsupported`. The answer is
-// `{keys}` — the grant now in force. Audited with the keys and the outcome.
-func (mc *machine) opSessionGrantCoordination(ctx context.Context, args json.RawMessage) (any, *link.OpError) {
+// keys}. DEPRECATED and a no-op: the per-session Coordination switches are
+// gone (coordination follows the session's word and, on Auto, the owner's
+// Agents row), so nothing is recorded and no decision reads a grant. It is
+// still accepted, with the same validation and errors as before, so a Cerea
+// from before the change that calls it (a schedule's run, an old sheet) is not
+// broken; the answer is `{keys}`, the normalised keys it was given. Audited
+// with outcome "ignored".
+func (mc *machine) opSessionGrantCoordination(_ context.Context, args json.RawMessage) (any, *link.OpError) {
 	var a struct {
 		SessionID string    `json:"sessionId"`
 		Keys      *[]string `json:"keys"`
@@ -440,25 +436,11 @@ func (mc *machine) opSessionGrantCoordination(ctx context.Context, args json.Raw
 		mc.audit.coordinationGrant(a.SessionID, *a.Keys, "invalid")
 		return nil, opErrf("invalid", "%q cannot be granted: only %s are accepted", bad, strings.Join(permrules.CoordinationKeys, ", "))
 	}
-	dir, _, operr := mc.resolveSession(a.SessionID)
-	if operr != nil {
+	if _, _, operr := mc.resolveSession(a.SessionID); operr != nil {
 		mc.audit.coordinationGrant(a.SessionID, keys, "not_found")
 		return nil, operr
 	}
-	rh, ok := mc.ruleHost()
-	if !ok || mc.agentTools == nil {
-		mc.audit.coordinationGrant(a.SessionID, keys, "unsupported")
-		return nil, opErrf("unsupported", "this machine has no agent tools to grant (they are off, or the backend has none)")
-	}
-	if mc.mat.RootOf(a.SessionID) != a.SessionID {
-		mc.audit.coordinationGrant(a.SessionID, keys, "invalid")
-		return nil, opErrf("invalid", "a subagent follows its root: grant on session %s", mc.mat.RootOf(a.SessionID))
-	}
-	if err := rh.SetCoordination(ctx, dir, a.SessionID, keys); err != nil {
-		mc.audit.coordinationGrant(a.SessionID, keys, "failed")
-		return nil, backendErr(err)
-	}
-	mc.audit.coordinationGrant(a.SessionID, keys, "ok")
+	mc.audit.coordinationGrant(a.SessionID, keys, "ignored")
 	return map[string]any{"keys": orEmptyStrings(keys)}, nil
 }
 

@@ -56,7 +56,7 @@ var agentRules = []permrules.Rule{{Permission: "*", Pattern: "*", Action: permru
 func (c *coordBackend) ID() string      { return "coord" }
 func (c *coordBackend) Version() string { return "0.0.0" }
 func (c *coordBackend) Capabilities() backend.Capabilities {
-	return backend.Capabilities{AgentTools: true, Permissions: true, CoordinationGrant: true, Steer: true}
+	return backend.Capabilities{AgentTools: true, Permissions: true, Steer: true}
 }
 func (c *coordBackend) ListSessions(_ context.Context, dir string) ([]backend.Session, error) {
 	c.mu.Lock()
@@ -200,6 +200,27 @@ func (c *coordBackend) AddException(_ context.Context, _, id string, e permrules
 }
 func (c *coordBackend) RemoveException(context.Context, string, string, string) (bool, error) {
 	panic("not used")
+}
+
+// SetAuto puts a root on Auto (backend.AutoHost).
+func (c *coordBackend) SetAuto(_ context.Context, _, id string, classes map[string]string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	sel := c.sel[id]
+	sel.Mode, sel.Auto, sel.AutoClasses = permrules.Ask, true, classes
+	c.sel[id] = sel
+	return nil
+}
+
+// AutoClasses is the root's Auto map (backend.AutoHost, the part the decision reads).
+func (c *coordBackend) AutoClasses(id string) (map[string]string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	sel := c.sel[c.rootOf(id)]
+	if !sel.Auto || sel.Effective() != permrules.Ask {
+		return nil, false
+	}
+	return sel.AutoClasses, true
 }
 func (c *coordBackend) Coordination(id string) []string {
 	c.mu.Lock()
@@ -372,31 +393,27 @@ func (r *coordRig) grant(id string, keys any) (any, *link.OpError) {
 func (r *coordRig) audit() []map[string]any { return auditRows(r.t, r.stateDir) }
 
 // withRule: what the machine's own rule on a key used to say, said as the
-// caller's coordination grant (allow) or a local deny of the agents class
-// (deny; a deny covers every key, not one).
+// caller on Allow (allow) or a local deny of the agents class (deny; a deny
+// covers every key, not one).
 func withRule(key, action string) any {
 	switch action {
 	case "allow":
-		return rigOpt(func(r *coordRig) {
-			if _, operr := r.grant("caller", []string{key}); operr != nil {
-				r.t.Fatal(operr)
-			}
-		})
+		return withAgentsRule("allow")
 	case "deny":
 		return withDeny("agents")
 	}
 	panic("withRule: " + action)
 }
 
-// withAgentsRule grants the caller every coordination key.
+// withAgentsRule puts the caller on Allow, where every coordination call runs.
 func withAgentsRule(action string) any {
 	if action != "allow" {
 		panic("withAgentsRule: " + action)
 	}
 	return rigOpt(func(r *coordRig) {
-		if _, operr := r.grant("caller", permrules.CoordinationKeys); operr != nil {
-			r.t.Fatal(operr)
-		}
+		sel := r.cb.sel["caller"]
+		sel.Mode = permrules.Allow
+		r.cb.sel["caller"] = sel
 	})
 }
 

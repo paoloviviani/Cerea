@@ -456,7 +456,7 @@ and `session_send`, see [Sessions that talk to sessions](#sessions-that-talk-to-
 plus hard limits that are not permissions at all (hop and rate limits, the
 same-workspace check on sends).
 
-**How a call is decided**, first match wins: (1) galopin's own state → refused; (2) a class you denied locally with `--deny` → refused; (3) on **Plan**, a read inside the project is fine and anything that changes something is refused; (4) a spawner and the session it spawned talking to each other → fine; (5) a schedule's coordination grant; (6) a matching exception → fine (a credential ask only on an exception you gave on its card); (7) on **Allow**, fine; (8) on **Auto**, fine when every class of the call is one the user's map runs; (9) on **Ask**, a read inside the project is fine and everything else is a card. Then the floor: a write into `.git` or CI config, a credential ask and a loop alert are a card even where (7) or (8) said fine. A subagent is decided by **its main session's** setting, from its first
+**How a call is decided**, first match wins: (1) galopin's own state → refused; (2) a class you denied locally with `--deny` → refused; (3) on **Plan**, a read inside the project is fine and anything that changes something is refused; (4) a spawner and the session it spawned talking to each other → fine; (5) (no longer used); (6) a matching exception → fine (a credential ask only on an exception you gave on its card); (7) on **Allow**, fine; (8) on **Auto**, fine when every class of the call is one the user's map runs; (9) on **Ask**, a read inside the project is fine and everything else is a card. Then the floor: a write into `.git` or CI config, a credential ask and a loop alert are a card even where (7) or (8) said fine. A subagent is decided by **its main session's** setting, from its first
 call.
 
 **Reads ask too, and it is cheap.** Measured on this stack, each ask costs
@@ -918,20 +918,15 @@ own rules, what you set for it, and any local `--deny` last), looked up under th
   messages, and separately more than five reads, a minute from one session to the
   same target are refused outright.
 
-#### Granting a session its coordination tools
+#### Coordination is not granted per session
 
-A scheduled run has nobody to answer a card. Cerea's schedules therefore have two
-options, both off: **Can find, read and message other sessions**
-(`session_list`, `session_read`, `session_send`) and **Can start new sessions**
-(`session_spawn`). At each run Cerea sends the computer
-`session.grantCoordination {sessionId, keys}` for the session it just created or
-chose, before the prompt. galopin records the grant with the session (it
-survives a restart) and treats those tools as **allowed** for it. It is never
-more than you allowed: a local `--deny agents` still refuses a granted key, another workspace's sessions still
-ask, the hop limit and the rate limits stand, and Deny on the session wins. A
-galopin from before this op answers `unsupported`: the schedule still runs, and
-its run row says "this computer's galopin is too old to grant coordination; update
-it". Each grant is a row in `audit.log` with its keys and outcome.
+An earlier version let a session or a schedule be _granted_ its coordination
+tools (`session.grantCoordination`). That is gone: a call's fate follows the
+session's step and, on Auto, the **agents** row in Workspace → Agents. Plan
+refuses, Ask is a card, Allow runs, and on Auto Runs runs it while Reviewer or
+You is a card; `session_list` never asks. The op is still accepted by galopin
+so an older Cerea does not break, but it records nothing and galopin no longer
+offers the `coordinationGrant` capability. Stored grants are ignored.
 
 Questions always wait for a user, and a rule never answers a handoff. An allowed call is not invisible: the badge shows in the sender's transcript and
 the computer's audit log records it.
@@ -942,7 +937,7 @@ Spawning is bounded so a session cannot fork without end: a spawn chain is at
 most two deep (a spawned session can spawn once more, its child cannot), at most
 three spawned sessions are live under one root, and a root that has started six
 in ten minutes is refused. A spawned session runs in the spawner's own
-workspace and inherits its permission word, coordination grant and exceptions,
+workspace and inherits its permission word and exceptions,
 never more (an Allow spawner makes a child that runs without a card; a
 read-only child comes from `mode: "plan"`) — still under any local `--deny`,
 which refuses for the child exactly as for the caller. The exceptions are the
@@ -1049,7 +1044,7 @@ before anything starts, and the refusal lists the profiles there are. The model
 can list them itself with `session_profiles`, which needs no approval.
 
 **A model is not a permission.** A profile changes which brain a delegate runs
-on and nothing about what it may do: its permission word, coordination grant and
+on and nothing about what it may do: its permission word and
 "always" answers come from its spawner as ever, any local deny and the computer's rules
 still apply, and the approval card is the same one. For **read-only
 delegation** use the `plan` mode, not a profile: `session_spawn` and
@@ -1123,8 +1118,8 @@ it runs on loopback, when the agent can use an HTTP MCP server.
   the tools as another one. Deleting the session revokes it, and so does
   stopping galopin; tokens are never stored, so a restart makes new ones.
 - **The same approvals.** A call over MCP goes to the same decision as
-  opencode's: Plan refuses, a local deny and the computer's rules apply, a
-  coordination grant or Allow lifts a card, the delegate rules apply, and the
+  opencode's: Plan refuses, a local deny and the computer's rules apply, Allow or a
+  Runs row lifts a card, the delegate rules apply, and the
   same cards and audit rows appear. There is no second, looser path. A
   delegate's report still comes back to the session that started it.
 - **opencode keeps its own route** and does not start the MCP server.

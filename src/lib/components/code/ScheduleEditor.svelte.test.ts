@@ -349,20 +349,7 @@ describe("ScheduleEditor stopping criterion", () => {
 	});
 });
 
-describe("ScheduleEditor coordination options", () => {
-	const device = (over: Record<string, unknown> = {}) =>
-		({
-			id: "d1",
-			name: "Build box",
-			status: "paired",
-			online: true,
-			backends: [{ id: "opencode", version: "1.18.34", capabilities: { coordinationGrant: true } }],
-			policy: { workspaceRoots: [], allowFreeModels: false },
-			...over,
-		}) as never;
-	const message = "Can find, read and message other sessions";
-	const spawn = "Can start new sessions";
-
+describe("ScheduleEditor coordination options (gone)", () => {
 	async function fillAndSave(screen: ReturnType<typeof mount>["screen"], onsaved: unknown) {
 		await screen.getByLabelText("Name", { exact: true }).fill("Orchestrate");
 		await screen.getByLabelText("Prompt", { exact: true }).fill("check on the other sessions");
@@ -371,95 +358,15 @@ describe("ScheduleEditor coordination options", () => {
 		return api.createSchedule.mock.calls[0][0].target;
 	}
 
-	it("offers both options, off, and saves a target with neither", async () => {
+	it("offers no coordination options and saves a target without them", async () => {
 		const { screen, onsaved } = mount({ prefill: { deviceId: "d1", workspaceId: "w1" } });
-		await expect.element(screen.getByLabelText(message)).not.toBeChecked();
-		await expect.element(screen.getByLabelText(spawn)).not.toBeChecked();
+		expect(
+			screen.getByLabelText("Can find, read and message other sessions").elements()
+		).toHaveLength(0);
+		expect(screen.getByLabelText("Can start new sessions").elements()).toHaveLength(0);
 		const target = await fillAndSave(screen, onsaved);
 		expect(target).not.toHaveProperty("canMessage");
 		expect(target).not.toHaveProperty("canSpawn");
-	});
-
-	it("saves each option when it is ticked", async () => {
-		const { screen, onsaved } = mount({ prefill: { deviceId: "d1", workspaceId: "w1" } });
-		await screen.getByLabelText(message).click();
-		await screen.getByLabelText(spawn).click();
-		const target = await fillAndSave(screen, onsaved);
-		expect(target).toMatchObject({ canMessage: true, canSpawn: true });
-	});
-
-	it("shows a saved schedule's options as they were saved", async () => {
-		const { screen } = mount({
-			editing: {
-				id: "sch1",
-				name: "Orchestrate",
-				prompt: "p",
-				enabled: true,
-				timezone: "UTC",
-				recurrence: { type: "daily", at: "09:00" },
-				target: {
-					deviceId: "d1",
-					workspaceId: "w1",
-					sessionMode: "new",
-					permissionMode: "ask",
-					canSpawn: true,
-				},
-			},
-		});
-		await expect.element(screen.getByLabelText(message)).not.toBeChecked();
-		await expect.element(screen.getByLabelText(spawn)).toBeChecked();
-	});
-
-	it("warns, with the run row's words, when the machine's galopin cannot grant them", async () => {
-		codeDeviceList.devices = [
-			device({ backends: [{ id: "opencode", version: "1.18.31", capabilities: {} }] }),
-		];
-		const { screen } = mount({ prefill: { deviceId: "d1", workspaceId: "w1" } });
-		const warning = screen.getByTestId("coordination-unsupported");
-		await expect.element(warning).toBeVisible();
-		await expect
-			.element(warning)
-			.toHaveTextContent("galopin is too old to grant coordination; update it");
-	});
-
-	it("says agent tools are off, instead of too old, for a machine enrolled without them", async () => {
-		codeDeviceList.devices = [
-			device({ policy: { workspaceRoots: [], allowFreeModels: false, agentTools: "denied" } }),
-		];
-		const { screen } = mount({ prefill: { deviceId: "d1", workspaceId: "w1" } });
-		await expect
-			.element(screen.getByTestId("coordination-unsupported"))
-			.toHaveTextContent("enrolled without agent tools");
-	});
-
-	it("is quiet for a machine that can grant them and caps nothing", async () => {
-		const { screen } = mount({ prefill: { deviceId: "d1", workspaceId: "w1" } });
-		await screen.getByLabelText(message).click();
-		expect(screen.getByTestId("coordination-unsupported").elements()).toHaveLength(0);
-		expect(screen.getByTestId("coordination-ceiling").elements()).toHaveLength(0);
-	});
-
-	it("says what the machine's ceiling still holds at Ask, only for what is ticked", async () => {
-		codeDeviceList.devices = [
-			device({
-				policy: {
-					workspaceRoots: [],
-					allowFreeModels: false,
-					permission: { max: { session_send: "ask", session_spawn: "ask" } },
-				},
-			}),
-		];
-		const { screen } = mount({ prefill: { deviceId: "d1", workspaceId: "w1" } });
-		expect(screen.getByTestId("coordination-ceiling").elements()).toHaveLength(0);
-		await screen.getByLabelText(message).click();
-		const note = screen.getByTestId("coordination-ceiling");
-		await expect.element(note).toHaveTextContent("messaging sessions at Ask");
-		await expect.element(note).toHaveTextContent("Needs-you inbox");
-		await expect.element(note).not.toHaveTextContent("starting sessions");
-		await screen.getByLabelText(spawn).click();
-		await expect
-			.element(screen.getByTestId("coordination-ceiling"))
-			.toHaveTextContent("messaging and starting sessions at Ask");
 	});
 
 	it("says an agent made the schedule, linking its session; a person's says nothing", async () => {

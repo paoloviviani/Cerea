@@ -51,7 +51,7 @@ func TestCreateSessionHandsTheAgentItsOwnMCPServer(t *testing.T) {
 	b, fa := newTestBackendWith(t, true, true)
 	iss := &fakeIssuer{}
 	b.SetMCPIssuer(iss)
-	if caps := b.Capabilities(); !caps.AgentTools || !caps.ScheduleTools || !caps.CoordinationGrant {
+	if caps := b.Capabilities(); !caps.AgentTools || !caps.ScheduleTools || caps.CoordinationGrant {
 		t.Fatalf("capabilities = %+v, want the tools advertised", caps)
 	}
 	s, err := b.CreateSession(context.Background(), "/w", backend.CreateSessionOptions{Title: "t", SpawnedBy: &backend.SpawnedBy{SessionID: "parent"}})

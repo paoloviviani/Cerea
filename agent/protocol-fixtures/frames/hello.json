@@ -34,7 +34,7 @@
 					"agentTools": true,
 					"steer": true,
 					"permissions": true,
-					"coordinationGrant": true,
+					"coordinationGrant": false,
 					"scheduleTools": true,
 					"historyPaging": true
 				}

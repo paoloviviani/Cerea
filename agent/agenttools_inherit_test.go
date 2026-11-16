@@ -43,20 +43,15 @@ func spawnChild(t *testing.T, r *coordRig) (string, map[string]any) {
 	return child, result
 }
 
-func TestSpawnInheritsAllowWordAndGrant(t *testing.T) {
+func TestSpawnInheritsAllowWord(t *testing.T) {
 	r := newCoordRig(t, nil)
 	allowCaller(t, r)
-	mustGrant(t, r, "caller", []string{"session_read"})
-
 	child, result := spawnChild(t, r)
 	if result["permissionMode"] != "allow" {
 		t.Errorf("result permissionMode = %v, want allow", result["permissionMode"])
 	}
 	if got := r.cb.PermissionMode(child); got != permrules.Allow {
 		t.Errorf("child word = %s, want allow", got)
-	}
-	if got := r.cb.Coordination(child); len(got) != 1 || got[0] != "session_read" {
-		t.Errorf("child grant = %v, want the caller's [session_read]", got)
 	}
 	if n := len(r.asks()); n != 0 {
 		t.Fatalf("an allow spawn raised %d cards: %+v", n, r.asks())

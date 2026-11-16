@@ -10,8 +10,7 @@
  * timezone, the `CHAT_SCHEDULES_ENABLED` kill switch), plus the agent's own:
  *  - the target machine is always the calling one, and the workspace must be
  *    on it (the executor's `validateTarget` checks it live);
- *  - the permission mode is no looser than the caller's (deny < ask < allow)
- *    and the coordination keys are a subset of the caller's grant;
+ *  - the permission mode is no looser than the caller's (deny < ask < allow);
  *  - at most `MAX_ACTIVE_AGENT_SCHEDULES` running agent-created schedules per
  *    machine, and `MAX_CALLS_PER_HOUR` changes per machine per hour (a pause
  *    or a delete is counted but never refused: stopping must always work);
@@ -43,13 +42,11 @@ import {
 	updateSchedule,
 } from "$lib/server/schedules/store";
 import { recurrenceText } from "$lib/utils/scheduleFormat";
-import { coordinationKeys } from "$lib/utils/coordination";
 import {
 	COORDINATION_KEYS,
 	type CallErrorCode,
 	type CallFrame,
 	type CallResFrame,
-	type CoordinationKey,
 	type MachineCallOp,
 	type PermissionMode,
 } from "$lib/types/machineProtocol";
@@ -74,6 +71,9 @@ const AGENT_MODES = ["plan", "build"] as const;
 const RANK: Record<PermissionMode, number> = { deny: 0, ask: 1, allow: 2 };
 const WORD: Record<PermissionMode, string> = { deny: "Deny", ask: "Ask", allow: "Allow" };
 
+/** Retired: a schedule has no coordination options any more (coordination follows the
+ * session's word and the Agents row). Still accepted, and ignored, so a galopin that
+ * still sends it keeps working. */
 const coordinationArg = z.array(z.enum(COORDINATION_KEYS)).max(COORDINATION_KEYS.length);
 
 /** Exported for the shared fixtures spec: the call fixtures' args must parse. */
@@ -116,24 +116,6 @@ function parseArgs<T>(schema: z.ZodType<T>, args: unknown): T {
 	return parsed.data;
 }
 
-/** The two coordination options a schedule stores, from wire keys. The
- * messaging keys come as one group, since the option grants all three. */
-function optionsFromKeys(keys: CoordinationKey[]): { canMessage?: true; canSpawn?: true } {
-	const messaging: CoordinationKey[] = ["session_list", "session_read", "session_send"];
-	const some = messaging.filter((k) => keys.includes(k));
-	if (some.length > 0 && some.length < messaging.length) {
-		throw new CallError(
-			"invalid",
-			"Coordination comes in two groups: session_list, session_read and session_send together, " +
-				"and session_spawn on its own."
-		);
-	}
-	return {
-		...(some.length ? { canMessage: true as const } : {}),
-		...(keys.includes("session_spawn") ? { canSpawn: true as const } : {}),
-	};
-}
-
 /** Refuse anything wider than what the calling session has itself. */
 function checkWithinCaller(frame: CallFrame, target: AgentTarget): void {
 	if (RANK[target.permissionMode] > RANK[frame.caller.permissionMode]) {
@@ -141,13 +123,6 @@ function checkWithinCaller(frame: CallFrame, target: AgentTarget): void {
 			"forbidden",
 			`A schedule cannot run with looser permissions than yours: you are on ${WORD[frame.caller.permissionMode]}, ` +
 				`so it can be ${frame.caller.permissionMode === "ask" ? "Ask or Deny" : "Deny"} at most.`
-		);
-	}
-	const wider = coordinationKeys(target).filter((k) => !frame.caller.coordination.includes(k));
-	if (wider.length) {
-		throw new CallError(
-			"forbidden",
-			`A schedule cannot have coordination you do not have yourself: ${wider.join(", ")}.`
 		);
 	}
 }
@@ -227,7 +202,6 @@ function listItem(schedule: Schedule, self: boolean) {
 		permissionMode: target.permissionMode,
 		// No stored mode: the executor's own default for a new session.
 		agentMode: target.modeId ?? "plan",
-		coordination: coordinationKeys(target),
 		// Absent = repeats for ever; firedCount is what the limit counts.
 		...(schedule.maxOccurrences !== undefined
 			? { maxOccurrences: schedule.maxOccurrences, firedCount: schedule.firedCount ?? 0 }
@@ -364,7 +338,6 @@ async function opCreate(ctx: CallContext) {
 		...(args.session === "this" ? { sessionId: ctx.frame.rootSessionId } : {}),
 		modeId: args.agentMode ?? "build",
 		permissionMode: args.permissionMode,
-		...optionsFromKeys(args.coordination ?? []),
 		labels: { machine: "", workspace: "" },
 	};
 	if (!target.workspaceId) throw new CallError("invalid", "Say which workspace (workspaceId).");
@@ -424,20 +397,14 @@ async function opUpdate(ctx: CallContext) {
 	const targetChanged =
 		args.agentMode !== undefined ||
 		args.workspaceId !== undefined ||
-		args.permissionMode !== undefined ||
-		args.coordination !== undefined;
+		args.permissionMode !== undefined;
 	let target: AgentTarget | undefined;
 	if (targetChanged) {
-		const keys = args.coordination ?? coordinationKeys(before);
-		const rest = { ...before };
-		delete rest.canMessage;
-		delete rest.canSpawn;
 		target = {
-			...rest,
+			...before,
 			workspaceId: args.workspaceId ?? before.workspaceId,
 			...(args.agentMode ? { modeId: args.agentMode } : {}),
 			permissionMode: args.permissionMode ?? before.permissionMode,
-			...optionsFromKeys(keys),
 		};
 		if (target.workspaceId !== before.workspaceId && before.sessionMode === "existing") {
 			throw new CallError(
@@ -449,10 +416,7 @@ async function opUpdate(ctx: CallContext) {
 	// What the schedule will do when it next runs must be within the caller:
 	// a new prompt, a new target, or switching it back on all hand it over.
 	// The agent mode alone is not bounded by the caller.
-	const boundChanged =
-		args.workspaceId !== undefined ||
-		args.permissionMode !== undefined ||
-		args.coordination !== undefined;
+	const boundChanged = args.workspaceId !== undefined || args.permissionMode !== undefined;
 	if (args.prompt !== undefined || boundChanged || paused === false) {
 		checkWithinCaller(ctx.frame, target ?? before);
 	}

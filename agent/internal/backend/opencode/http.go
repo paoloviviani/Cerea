@@ -191,7 +191,7 @@ func (b *Backend) Capabilities() backend.Capabilities {
 		// mid-turn is steered into the running turn (delivery "steer").
 		AgentTools: b.toolsEnabled(), Steer: true,
 		// A grant needs the tools and rules galopin composes itself.
-		CoordinationGrant: b.toolsEnabled() && b.cfg.Permissions != nil,
+		CoordinationGrant: false,
 		// The schedule tools are installed with the others.
 		ScheduleTools: b.toolsEnabled(),
 		// 2.x's message list pages by cursor (before a message, newest first).

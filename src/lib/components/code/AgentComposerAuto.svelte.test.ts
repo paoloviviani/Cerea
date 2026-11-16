@@ -169,6 +169,63 @@ describe("below the composer", () => {
 	});
 });
 
+describe("the Auto line under the composer", () => {
+	const NO_MODEL = "Auto: no reviewer decision model defined, falling back to Ask";
+	const DEGRADED = "Auto: reviewer unavailable. Asks come to you until it answers again.";
+	const auto = (over: Partial<CodeAgentSession> = {}) =>
+		session({ permissionMode: "ask", autoClasses: { command: "ask", edit: "run" }, ...over });
+	const none = (id: string) => document.querySelector(`[data-testid="${id}"]`);
+
+	it("shows no-model without opening the sheet, and it wins over unavailable", async () => {
+		const screen = mount({
+			agent: auto(),
+			autoApproval: {
+				available: false,
+				perClass: PER_CLASS_DEFAULTS,
+				degraded: true,
+				noDecisionModel: true,
+			},
+		});
+		await expect
+			.element(screen.getByTestId("permission-no-model-line"))
+			.toHaveTextContent(NO_MODEL);
+		expect(none("permission-degraded-line")).toBeNull();
+	});
+
+	it("shows reviewer unavailable when there is a model but it keeps failing", async () => {
+		const screen = mount({
+			agent: auto(),
+			autoApproval: { available: true, perClass: PER_CLASS_DEFAULTS, degraded: true },
+		});
+		await expect
+			.element(screen.getByTestId("permission-degraded-line"))
+			.toHaveTextContent(DEGRADED);
+		expect(none("permission-no-model-line")).toBeNull();
+	});
+
+	it("shows nothing when the reviewer is healthy", async () => {
+		const screen = mount({ agent: auto() });
+		await expect.element(screen.getByTestId("permission-mode-auto")).toBeVisible();
+		expect(none("permission-no-model-line")).toBeNull();
+		expect(none("permission-degraded-line")).toBeNull();
+	});
+
+	it("shows nothing when the step is not Auto, whatever the reviewer's state", async () => {
+		const screen = mount({
+			agent: session({ permissionMode: "ask", autoClasses: undefined }),
+			autoApproval: {
+				available: false,
+				perClass: PER_CLASS_DEFAULTS,
+				degraded: true,
+				noDecisionModel: true,
+			},
+		});
+		await expect.element(screen.getByTestId("permission-mode-ask")).toBeVisible();
+		expect(none("permission-no-model-line")).toBeNull();
+		expect(none("permission-degraded-line")).toBeNull();
+	});
+});
+
 describe("the Auto line when there is no decision model", () => {
 	const NO_MODEL = "Auto: no reviewer decision model defined, falling back to Ask";
 	const open = async (autoApproval: NonNullable<Parameters<typeof mount>[0]>["autoApproval"]) => {

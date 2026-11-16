@@ -163,9 +163,6 @@ func (at *agentTools) callerFacts(tc *toolCaller) scheduleCaller {
 	c := scheduleCaller{WorkspaceID: tc.workspaceID, PermissionMode: string(permrules.Ask), Coordination: []string{}}
 	if rh, ok := at.mc.back.(backend.RuleHost); ok {
 		c.PermissionMode = string(rh.PermissionMode(tc.session.ID))
-		if keys := rh.Coordination(tc.session.ID); len(keys) > 0 {
-			c.Coordination = keys
-		}
 	}
 	return c
 }
