@@ -30,6 +30,9 @@ import (
 // thing to the workspace registry, the session materializer or the
 // backend, and return a result link can marshal into a res frame.
 type machine struct {
+	// uploadMeta remembers what each chunked upload is for (workspace, folder,
+	// path), so the commit can audit it.
+	uploadMeta sync.Map
 	workspaces *workspaces.Registry
 	back       backend.Backend
 	mat        *sessions.Materializer
@@ -238,8 +241,10 @@ func (mc *machine) Handle(ctx context.Context, op string, args json.RawMessage) 
 		return mc.opFiles(ctx, op, args)
 	case "files.write":
 		return mc.opFilesWrite(args)
-	case "files.upload":
-		return mc.opFilesUpload(args)
+	case "files.upload.begin", "files.upload.chunk", "files.upload.commit", "files.upload.abort":
+		return mc.opFilesUpload(op, args)
+	case "files.zip.begin", "files.zip.read", "files.zip.abort":
+		return mc.opFilesZip(op, args)
 	case "terminal.list", "terminal.open", "terminal.attach", "terminal.detach", "terminal.resize", "terminal.rename", "terminal.close":
 		return mc.opTerminal(ctx, op, args)
 	case "workspace.list":
@@ -1804,52 +1809,115 @@ func (mc *machine) opFilesWrite(args json.RawMessage) (any, *link.OpError) {
 	return nil, operr
 }
 
-// opFilesUpload answers files.upload, the file browser's upload (PROTOCOL.md
-// §9.3): any bytes into a workspace folder, behind the same gates as
-// files.write (files on, fileWrite on) and the same confinement and deny list.
-// An existing file is replaced only with overwrite: true, else `conflict`.
-func (mc *machine) opFilesUpload(args json.RawMessage) (any, *link.OpError) {
-	if !mc.pol.FilesAllowed() {
-		mc.audit.refusal("files.upload", "files off by machine policy")
-		return nil, opErrf("forbidden", "this machine was enrolled with --no-files: re-enroll without it to upload files here")
-	}
-	if !mc.pol.FileWriteAllowed() {
-		mc.audit.refusal("files.upload", "file write denied by machine policy")
-		return nil, opErrf("forbidden", "file saving is off on this machine: run `galopin policy set --allow-file-write` (or re-enroll without --no-file-write) to upload files here")
+// opFilesUpload answers the chunked upload's ops (PROTOCOL.md §9.3):
+// files.upload.begin / .chunk / .commit / .abort. Behind the same gates as
+// files.write (files on, fileWrite on), with the same confinement and deny
+// list; galopin appends the chunks to a hidden temp file next to the target
+// and renames it into place at the commit. The audit has one line per upload
+// (workspace, path, size, outcome), at its commit or refusal, never a byte.
+func (mc *machine) opFilesUpload(op string, args json.RawMessage) (any, *link.OpError) {
+	if op != "files.upload.abort" {
+		if !mc.pol.FilesAllowed() {
+			mc.audit.refusal(op, "files off by machine policy")
+			return nil, opErrf("forbidden", "this machine was enrolled with --no-files: re-enroll without it to upload files here")
+		}
+		if !mc.pol.FileWriteAllowed() {
+			mc.audit.refusal(op, "file write denied by machine policy")
+			return nil, opErrf("forbidden", "file saving is off on this machine: run `galopin policy set --allow-file-write` (or re-enroll without --no-file-write) to upload files here")
+		}
 	}
 	var a struct {
 		WorkspaceID string  `json:"workspaceId"`
 		Dir         string  `json:"dir"`
-		Name        string  `json:"name"`
-		Content     *string `json:"content"`
+		Path        string  `json:"path"`
+		Size        int64   `json:"size"`
 		Overwrite   bool    `json:"overwrite"`
+		Mkdirs      bool    `json:"mkdirs"`
+		UploadID    string  `json:"uploadId"`
+		Offset      int64   `json:"offset"`
+		Content     *string `json:"content"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil {
 		return nil, invalidArgs(err)
 	}
-	if a.Content == nil {
-		return nil, opErrf("invalid", "content is required")
-	}
-	w, ok := mc.workspaces.Get(a.WorkspaceID)
-	if !ok {
-		return nil, notFound("workspace")
-	}
-	body, err := files.DecodeUpload(*a.Content)
-	if err == nil {
-		var entry files.Entry
-		entry, err = mc.files.Upload(w.Path, a.Dir, a.Name, body, a.Overwrite)
-		if err == nil {
-			mc.audit.fileUpload(w.ID, a.Dir, a.Name, len(body), "ok")
-			return map[string]any{"entry": entry}, nil
+	switch op {
+	case "files.upload.begin":
+		w, ok := mc.workspaces.Get(a.WorkspaceID)
+		if !ok {
+			return nil, notFound("workspace")
 		}
+		id, err := mc.files.UploadBegin(w.Path, a.Dir, a.Path, a.Size, a.Overwrite, a.Mkdirs)
+		if err != nil {
+			operr := filesErr(err)
+			mc.audit.fileUpload(w.ID, a.Dir, a.Path, int(a.Size), operr.Code)
+			return nil, operr
+		}
+		mc.uploadMeta.Store(id, [3]string{w.ID, a.Dir, a.Path})
+		return map[string]any{"uploadId": id}, nil
+	case "files.upload.chunk":
+		if a.Content == nil {
+			return nil, opErrf("invalid", "content is required")
+		}
+		received, err := mc.files.UploadChunk(a.UploadID, a.Offset, *a.Content)
+		if err != nil {
+			return nil, filesErr(err)
+		}
+		return map[string]any{"received": received}, nil
+	case "files.upload.commit":
+		entry, err := mc.files.UploadCommit(a.UploadID)
+		meta, _ := mc.uploadMeta.LoadAndDelete(a.UploadID)
+		m, _ := meta.([3]string)
+		if err != nil {
+			operr := filesErr(err)
+			mc.audit.fileUpload(m[0], m[1], m[2], 0, operr.Code)
+			return nil, operr
+		}
+		mc.audit.fileUpload(m[0], m[1], m[2], int(entry.Size), "ok")
+		return map[string]any{"entry": entry}, nil
+	default: // files.upload.abort
+		mc.files.UploadAbort(a.UploadID)
+		mc.uploadMeta.Delete(a.UploadID)
+		return map[string]any{}, nil
 	}
-	operr := filesErr(err)
-	size := len(body)
-	if body == nil {
-		size = len(*a.Content)
+}
+
+// opFilesZip answers the folder download's ops (PROTOCOL.md §9.3):
+// files.zip.begin (the pre-walk and the caps), files.zip.read (the next bytes
+// of the streamed zip) and files.zip.abort. Policy `files` only.
+func (mc *machine) opFilesZip(op string, args json.RawMessage) (any, *link.OpError) {
+	if !mc.pol.FilesAllowed() {
+		return nil, opErrf("forbidden", "this machine was enrolled with --no-files: re-enroll without it to browse files here")
 	}
-	mc.audit.fileUpload(w.ID, a.Dir, a.Name, size, operr.Code)
-	return nil, operr
+	var a struct {
+		WorkspaceID string `json:"workspaceId"`
+		Path        string `json:"path"`
+		ZipID       string `json:"zipId"`
+		Length      int64  `json:"length"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil {
+		return nil, invalidArgs(err)
+	}
+	switch op {
+	case "files.zip.begin":
+		w, ok := mc.workspaces.Get(a.WorkspaceID)
+		if !ok {
+			return nil, notFound("workspace")
+		}
+		info, err := mc.files.ZipBegin(w.Path, a.Path)
+		if err != nil {
+			return nil, filesErr(err)
+		}
+		return info, nil
+	case "files.zip.read":
+		chunk, err := mc.files.ZipRead(a.ZipID, a.Length)
+		if err != nil {
+			return nil, filesErr(err)
+		}
+		return chunk, nil
+	default:
+		mc.files.ZipAbort(a.ZipID)
+		return map[string]any{}, nil
+	}
 }
 
 func filesErr(err error) *link.OpError {

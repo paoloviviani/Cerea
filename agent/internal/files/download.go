@@ -11,7 +11,7 @@ import (
 // of at most MaxDownloadChunk bytes, up to MaxDownloadBytes in all.
 const (
 	MaxDownloadChunk = 1 << 20
-	MaxDownloadBytes = 100 << 20
+	MaxDownloadBytes = 500 << 20
 )
 
 // ReadBytes reads up to length raw bytes of one file from offset, whatever

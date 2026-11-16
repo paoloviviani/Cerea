@@ -136,10 +136,12 @@ export interface Machine {
 		fileSearch?: boolean;
 		fileWatch?: boolean;
 		fileWrite?: boolean;
-		/** `files.upload` works (§9.3): any file into a workspace folder. */
+		/** `files.upload.*` work (§9.3): chunked upload of any file, up to 200 MiB. */
 		fileUpload?: boolean;
 		/** `files.download` works (§9.3): raw bytes of any file, in chunks. */
 		fileDownload?: boolean;
+		/** `files.zip.*` work (§9.3): a folder as a streamed zip. */
+		folderDownload?: boolean;
 		terminal?: boolean;
 		/** `profiles.list` / `profiles.set` work (§6 "Delegate profiles"): the
 		 * machine's delegate profiles, editable by its owner. A galopin older
@@ -734,7 +736,13 @@ export const OP_NAMES = [
 	"files.read",
 	"files.status",
 	"files.write",
-	"files.upload",
+	"files.upload.begin",
+	"files.upload.chunk",
+	"files.upload.commit",
+	"files.upload.abort",
+	"files.zip.begin",
+	"files.zip.read",
+	"files.zip.abort",
 	"files.download",
 	"session.setEffort",
 	"session.unrevert",

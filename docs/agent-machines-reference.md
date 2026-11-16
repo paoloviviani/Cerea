@@ -357,19 +357,37 @@ choices:
 
 **Uploading** uses the same gates as saving (the computer's `fileWrite`, the
 deployment switch) plus a galopin that reports `fileUpload`. The Files pane's
-**Upload** button, or dropping files on the list, sends each file (any type, at
-most 30 MB, one at a time) into the folder you last opened. Names are plain file
-names, the deny list and the workspace confinement apply as for a save, and a
-file that already exists is replaced only after you confirm "Replace name?"
-(the op refuses `conflict` otherwise). Each upload is audited with the folder,
-name and size, never the content.
+**Upload** and **Upload folder** buttons, or dropping files or folders on the
+list, send each file (any type, at most 200 MB) in 8 MiB chunks, one file at a
+time, into the folder you last opened: Cerea forwards each chunk to galopin,
+which appends it to a hidden temp file next to the target and renames it into
+place at the end (atomically, checking again right before the rename that the
+file did not appear or change). Partial files are deleted when an upload is
+cancelled, fails, or sits idle for 10 minutes. A folder keeps its relative
+structure (galopin makes the subfolders inside the workspace, never through a
+symlink), at most 5,000 files and 2 GB in one go. The deny list applies to every
+resulting path (the file and each folder), as does the workspace confinement.
+Files that already exist are replaced only after the one prompt "N files already
+exist: Replace all / Skip existing / Cancel". Each upload is audited with the
+path and size, never the content. Cerea's proxy has no request body limit that
+bites: a chunk is at most 16 MiB, far under the app's `BODY_SIZE_LIMIT`.
 
 **Downloading** needs only that the explorer is on (not `fileWrite`) and a
 galopin that reports `fileDownload`. Cerea streams the file from the computer in
-1 MiB chunks (up to 100 MiB, and it stops if the file changes mid-way) as an
-attachment with a safe content type, never rendered inline; the deny list and
-the workspace confinement apply as for reading, and each download is audited
-with the path and size.
+1 MiB chunks (up to 500 MB, nothing held whole, and it stops if the file
+changes mid-way) as an attachment with a safe content type, never rendered
+inline; the deny list and the workspace confinement apply as for reading, and
+each download is audited with the path and size.
+
+**Downloading a folder as a zip** (a galopin that reports `folderDownload`)
+needs the explorer on. galopin walks the folder first and refuses over 20,000
+files or 2 GB uncompressed, then writes the zip while it streams (never whole in
+memory or on disk). Every entry is inside the workspace root; symlinks are not
+followed (the link is left out); deny-listed files and folders and `.git` are
+left out. A `SKIPPED.txt` in the zip lists what was left out, by path and
+reason. It lists paths, not just a count, because the file browser already shows
+the owner those names (a hidden file is listed, locked), so the list discloses
+nothing new and is what explains a missing file; it never holds contents.
 
 There is no live reload yet: until you save or refresh, the editor does not
 know the file changed. The revision check is what keeps a save from silently

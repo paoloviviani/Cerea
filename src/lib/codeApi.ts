@@ -35,6 +35,7 @@ import type { CodeDeviceView } from "$lib/server/codeDevices";
 import type { DelegateProfiles } from "$lib/types/machineProtocol";
 import type { AgentStreamUpdate } from "$lib/types/CodeAgent";
 import { type GatewayUsageResponse, type TurnSpan, turnQuery } from "$lib/utils/gatewayUsage";
+import { UPLOAD_CHUNK_BYTES } from "$lib/constants/transfer";
 import type {
 	CodeAgentSession,
 	CodeCommand,
@@ -471,29 +472,79 @@ export async function writeWorkspaceFile(
 	return unwrap(response);
 }
 
-/** Upload one file of any type into a workspace folder (files.upload, §9.3).
- * An existing file is replaced only with `overwrite`; otherwise a 409 throws
- * `FileConflictError`. */
+/**
+ * Upload one file of any type, up to 200 MiB, in 8 MiB chunks (files.upload.*,
+ * §9.3): begin names `relPath` (it may hold "/", the folders made with
+ * `mkdirs`) under the workspace folder `dir`; the chunks follow in order; the
+ * commit puts the file in place. An existing file throws `FileConflictError`
+ * (at begin, or at commit if it changed meanwhile) unless `overwrite`.
+ * Aborting (the signal, or any failure) tells galopin to drop the partial file.
+ */
 export async function uploadWorkspaceFile(
 	deviceId: string,
 	workspaceId: string,
 	dir: string,
+	relPath: string,
 	file: File,
-	overwrite: boolean
+	opts: {
+		overwrite?: boolean;
+		mkdirs?: boolean;
+		signal?: AbortSignal;
+		onProgress?: (sent: number, total: number) => void;
+	} = {}
 ): Promise<{ entry: FileEntry }> {
-	const form = new FormData();
-	form.set("file", file);
-	form.set("name", file.name);
-	form.set("dir", dir);
-	if (overwrite) form.set("overwrite", "true");
-	const response = await fetch(filesUrl(deviceId, workspaceId, "/upload", {}), {
+	const phase = (name: string, query: Record<string, string> = {}) =>
+		filesUrl(deviceId, workspaceId, `/upload/${name}`, query);
+	const json = (body: unknown, signal?: AbortSignal) => ({
 		method: "POST",
-		body: form,
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(body),
+		signal,
 	});
-	if (response.status === 409) {
-		throw new FileConflictError("The file already exists.", null);
+	const begin = await fetch(
+		phase("begin"),
+		json(
+			{
+				dir,
+				path: relPath,
+				size: file.size,
+				overwrite: opts.overwrite === true,
+				mkdirs: opts.mkdirs === true,
+			},
+			opts.signal
+		)
+	);
+	if (begin.status === 409) throw new FileConflictError("The file already exists.", null);
+	const { uploadId } = await unwrap<{ uploadId: string }>(begin);
+	try {
+		let sent = 0;
+		opts.onProgress?.(0, file.size);
+		while (sent < file.size) {
+			const end = Math.min(sent + UPLOAD_CHUNK_BYTES, file.size);
+			const res = await fetch(phase("chunk", { uploadId, offset: String(sent) }), {
+				method: "POST",
+				headers: { "content-type": "application/octet-stream" },
+				body: file.slice(sent, end),
+				signal: opts.signal,
+			});
+			await unwrap(res);
+			sent = end;
+			opts.onProgress?.(sent, file.size);
+		}
+		const commit = await fetch(phase("commit"), json({ uploadId, path: relPath }, opts.signal));
+		if (commit.status === 409) throw new FileConflictError("The file already exists.", null);
+		return await unwrap<{ entry: FileEntry }>(commit);
+	} catch (err) {
+		// Best effort, and never cancelled by the signal that stopped us.
+		void fetch(phase("abort"), json({ uploadId })).catch(() => undefined);
+		throw err;
 	}
-	return unwrap(response);
+}
+
+/** A folder as a zip (files.zip.*, §9.3): an attachment, streamed. Use as an
+ * `<a href download>`. */
+export function workspaceFileZipUrl(deviceId: string, workspaceId: string, path: string): string {
+	return filesUrl(deviceId, workspaceId, "/zip", { path });
 }
 
 /** The workspace's git status, for the tree's badges. */

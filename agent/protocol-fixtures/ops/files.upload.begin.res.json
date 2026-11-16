@@ -1,0 +1,15 @@
+{
+	"_meta": {
+		"spec": "§9.3",
+		"direction": "M→C",
+		"op": "files.upload.begin"
+	},
+	"frame": {
+		"type": "res",
+		"id": "r1",
+		"ok": true,
+		"result": {
+			"uploadId": "u_8f3a"
+		}
+	}
+}

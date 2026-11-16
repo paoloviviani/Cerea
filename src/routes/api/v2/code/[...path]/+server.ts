@@ -27,7 +27,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { error, type RequestHandler } from "@sveltejs/kit";
 import { z } from "zod";
 import { recordCodeAudit } from "$lib/server/code/audit";
-import { MAX_ATTACHMENT_BYTES } from "$lib/constants/mime";
+import { UPLOAD_MAX_CHUNK_BYTES, UPLOAD_MAX_FILE_BYTES } from "$lib/constants/transfer";
 import {
 	codeFileWriteEnabled,
 	codeFilesEnabled,
@@ -87,14 +87,17 @@ const RULES: Array<{ method: "GET" | "POST" | "DELETE"; pattern: RegExp }> = [
 	{ method: "GET", pattern: new RegExp(`^v1/workspaces/${ID}/agents$`) },
 	{
 		method: "GET",
-		pattern: new RegExp(`^v1/workspaces/${ID}/files(/(stat|content|raw|status|download))?$`),
+		pattern: new RegExp(`^v1/workspaces/${ID}/files(/(stat|content|raw|status|download|zip))?$`),
 	},
 	// The editor's save (files.write, §9.3): behind the explorer's switch,
 	// the deployment's write switch, the machine's policy and its capability.
 	{ method: "POST", pattern: new RegExp(`^v1/workspaces/${ID}/files/content$`) },
-	// The file browser's upload (files.upload, §9.3): same gates, plus its own
-	// capability. Multipart, one file per request.
-	{ method: "POST", pattern: new RegExp(`^v1/workspaces/${ID}/files/upload$`) },
+	// The file browser's chunked upload (files.upload.*, §9.3): same gates, plus
+	// its own capability. begin / chunk (raw bytes) / commit / abort.
+	{
+		method: "POST",
+		pattern: new RegExp(`^v1/workspaces/${ID}/files/upload/(begin|chunk|commit|abort)$`),
+	},
 	{ method: "GET", pattern: new RegExp(`^v1/workspaces/${ID}/terminals$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/workspaces/${ID}/terminals$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/terminals/${ID}/name$`) },
@@ -437,7 +440,7 @@ export const GET: RequestHandler = async (event) => {
 	// behind the deployment switch and the machine's own policy (checked
 	// here first, and again by galopin), confined to the workspace there.
 	const filesMatch = new RegExp(
-		`^v1/workspaces/(${ID})/files(?:/(stat|content|raw|status|download))?$`
+		`^v1/workspaces/(${ID})/files(?:/(stat|content|raw|status|download|zip))?$`
 	).exec(path);
 	if (filesMatch) {
 		if (!codeFilesEnabled()) error(404, "The file explorer is not turned on here.");
@@ -484,7 +487,7 @@ export const GET: RequestHandler = async (event) => {
 			case "download": {
 				// Any file's bytes, as a download: owner-only, files on (reading is
 				// enough, not fileWrite), the deny list and the workspace root
-				// enforced by galopin, which also refuses a file over 100 MiB.
+				// enforced by galopin, which also refuses a file over 500 MiB.
 				if (device.machine?.capabilities.fileDownload !== true) {
 					await recordCodeAudit(event, { action: "files.download.refused", deviceId, workspaceId });
 					error(
@@ -531,6 +534,54 @@ export const GET: RequestHandler = async (event) => {
 						"content-type": downloadContentType(first.mime),
 						"content-disposition": contentDisposition(name),
 						"content-length": String(first.size),
+						"x-content-type-options": "nosniff",
+						"content-security-policy": "sandbox; default-src 'none'",
+						"cache-control": "private, no-store",
+					},
+				});
+			}
+			case "zip": {
+				// A folder as a zip, built by galopin while it streams (never whole in
+				// memory or on disk): files policy only, the deny list and the root
+				// enforced there, caps checked by a pre-walk before the first byte.
+				if (device.machine?.capabilities.folderDownload !== true) {
+					await recordCodeAudit(event, { action: "files.zip.refused", deviceId, workspaceId });
+					error(
+						403,
+						"galopin on this computer cannot send folders yet: update it to download folders here."
+					);
+				}
+				const begun = await callOp(() => link.filesZipBegin({ workspaceId, path: relPath }));
+				await recordCodeAudit(event, {
+					action: "files.zip",
+					deviceId,
+					workspaceId,
+					path: relPath,
+					bytes: begun.bytes,
+				});
+				let done = false;
+				const stream = new ReadableStream<Uint8Array>({
+					async pull(controller) {
+						try {
+							const chunk = await link.filesZipRead({ zipId: begun.zipId });
+							if (chunk.content) controller.enqueue(Buffer.from(chunk.content, "base64"));
+							if (chunk.eof) {
+								done = true;
+								controller.close();
+							}
+						} catch (err) {
+							done = true;
+							controller.error(err);
+						}
+					},
+					async cancel() {
+						if (!done) await link.filesZipAbort({ zipId: begun.zipId }).catch(() => undefined);
+					},
+				});
+				return new Response(stream, {
+					headers: {
+						"content-type": "application/zip",
+						"content-disposition": contentDisposition(`${begun.name || "folder"}.zip`),
 						"x-content-type-options": "nosniff",
 						"content-security-policy": "sandbox; default-src 'none'",
 						"cache-control": "private, no-store",
@@ -975,6 +1026,17 @@ const profilesSetSchema = z.object({
 
 const terminalNameSchema = z.object({ title: z.string().trim().min(1).max(120) });
 
+const uploadBeginSchema = z.object({
+	dir: z.string().max(4096).default("."),
+	path: z.string().min(1).max(4096),
+	size: z.number().int().min(0),
+	overwrite: z.boolean().default(false),
+	mkdirs: z.boolean().default(false),
+});
+const uploadIdSchema = z.object({ uploadId: z.string().min(1).max(128) });
+/** Commit may carry the file's path, only so the audit row can name it. */
+const uploadCommitMetaSchema = z.object({ path: z.string().max(4096) });
+
 const fileWriteSchema = z.object({
 	path: z.string().min(1).max(4096),
 	// Base64 of 1 MiB is 1.4 MB; anything longer cannot be within the cap.
@@ -986,8 +1048,9 @@ const fileWriteSchema = z.object({
 export const POST: RequestHandler = async (event) => {
 	await requireCodeAgents(event.locals);
 	const path = event.params.path ?? "";
-	const isUpload = new RegExp(`^v1/workspaces/${ID}/files/upload$`).test(path);
-	if (!isUpload) requireJsonBody(event.request);
+	// A chunk is raw bytes; every other POST here is JSON.
+	const isChunk = new RegExp(`^v1/workspaces/${ID}/files/upload/chunk$`).test(path);
+	if (!isChunk) requireJsonBody(event.request);
 	const method = "POST";
 	if (!RULES.some((rule) => rule.method === method && rule.pattern.test(path))) {
 		error(404, "Not available through this endpoint.");
@@ -996,12 +1059,17 @@ export const POST: RequestHandler = async (event) => {
 	const deviceId = device._id.toString();
 	const link = new MachineLink(deviceId);
 
-	// The file browser's upload (§9.3): the same rules as a save, one file per
-	// request, any type up to the attachment cap. The audit row has the folder,
-	// name and size, never the content.
-	const uploadMatch = new RegExp(`^v1/workspaces/(${ID})/files/upload$`).exec(path);
+	// The file browser's chunked upload (§9.3): the same rules as a save, one
+	// file at a time in 8 MiB chunks, up to 200 MiB, any type. Each chunk
+	// request carries raw bytes; this route forwards them as base64. The audit
+	// row (path, size, outcome) is written at the commit or at a refusal,
+	// never the content.
+	const uploadMatch = new RegExp(
+		`^v1/workspaces/(${ID})/files/upload/(begin|chunk|commit|abort)$`
+	).exec(path);
 	if (uploadMatch) {
 		const workspaceId = decodeURIComponent(uploadMatch[1]);
+		const phase = uploadMatch[2];
 		await requireFileWriteAllowed(event, device, deviceId, workspaceId);
 		if (device.machine?.capabilities.fileUpload !== true) {
 			await recordCodeAudit(event, { action: "files.upload.refused", deviceId, workspaceId });
@@ -1010,46 +1078,103 @@ export const POST: RequestHandler = async (event) => {
 				"galopin on this computer cannot take uploads yet: update it to upload files here."
 			);
 		}
-		const form = await event.request
-			.formData()
-			.catch(() => error(400, "Expected a multipart form."));
-		const file = form.get("file");
-		const dir = form.get("dir");
-		const name = form.get("name");
-		if (!(file instanceof File) || typeof name !== "string" || name === "") {
-			error(400, "Expected a file and its name.");
-		}
-		if (file.size > MAX_ATTACHMENT_BYTES) {
-			error(413, `File too large, should be <${MAX_ATTACHMENT_BYTES / 1024 / 1024}MB`);
-		}
-		const overwrite = form.get("overwrite") === "true";
-		const folder = typeof dir === "string" && dir !== "" ? dir : ".";
-		const audit = (outcome: string) =>
-			recordCodeAudit(event, {
-				action: "files.upload",
-				deviceId,
-				workspaceId,
-				path: folder === "." ? name : `${folder}/${name}`,
-				bytes: file.size,
-				outcome,
-			});
-		try {
-			const { entry } = await link.filesUpload({
-				workspaceId,
-				dir: folder,
-				name,
-				content: Buffer.from(await file.arrayBuffer()).toString("base64"),
-				overwrite,
-			});
-			await audit("ok");
-			return superjsonResponse({ entry }, { headers: { "Cache-Control": "private, no-store" } });
-		} catch (err) {
+		const uploadId = event.url.searchParams.get("uploadId") ?? "";
+		const fail = async (err: unknown, audit?: (outcome: string) => Promise<void>) => {
 			if (!(err instanceof OpError)) throw err;
-			await audit(err.code);
+			await audit?.(err.code);
 			if (err.code === "conflict") {
 				return superjsonResponse({ code: "conflict", message: err.message }, { status: 409 });
 			}
 			return callOp(() => Promise.reject(err));
+		};
+		if (phase === "chunk") {
+			const declared = Number(event.request.headers.get("content-length") ?? "0");
+			if (declared > UPLOAD_MAX_CHUNK_BYTES) error(413, "A chunk is at most 16 MiB.");
+			const offset = Number(event.url.searchParams.get("offset"));
+			if (!uploadId || !Number.isInteger(offset) || offset < 0)
+				error(400, "Expected uploadId and offset.");
+			const bytes = Buffer.from(await event.request.arrayBuffer());
+			if (bytes.length > UPLOAD_MAX_CHUNK_BYTES) error(413, "A chunk is at most 16 MiB.");
+			try {
+				const { received } = await link.filesUploadChunk({
+					uploadId,
+					offset,
+					content: bytes.toString("base64"),
+				});
+				return superjsonResponse(
+					{ received },
+					{ headers: { "Cache-Control": "private, no-store" } }
+				);
+			} catch (err) {
+				return fail(err);
+			}
+		}
+		const form = await readJson(event.request);
+		if (phase === "begin") {
+			const parsed = uploadBeginSchema.safeParse(form);
+			if (!parsed.success) error(400, "Expected { dir?, path, size, overwrite?, mkdirs? }.");
+			const { dir, path: relPath, size, overwrite, mkdirs } = parsed.data;
+			if (size > UPLOAD_MAX_FILE_BYTES) {
+				await recordCodeAudit(event, {
+					action: "files.upload",
+					deviceId,
+					workspaceId,
+					path: dir === "." ? relPath : `${dir}/${relPath}`,
+					bytes: size,
+					outcome: "too_large",
+				});
+				error(413, `A file is uploaded up to ${UPLOAD_MAX_FILE_BYTES / 1024 / 1024} MiB.`);
+			}
+			const audited = dir === "." ? relPath : `${dir}/${relPath}`;
+			try {
+				const { uploadId: id } = await link.filesUploadBegin({
+					workspaceId,
+					dir,
+					path: relPath,
+					size,
+					overwrite,
+					mkdirs,
+				});
+				return superjsonResponse(
+					{ uploadId: id },
+					{ headers: { "Cache-Control": "private, no-store" } }
+				);
+			} catch (err) {
+				return fail(err, (outcome) =>
+					recordCodeAudit(event, {
+						action: "files.upload",
+						deviceId,
+						workspaceId,
+						path: audited,
+						bytes: size,
+						outcome,
+					})
+				);
+			}
+		}
+		const idParsed = uploadIdSchema.safeParse(form);
+		if (!idParsed.success) error(400, "Expected { uploadId }.");
+		if (phase === "abort") {
+			await callOp(() => link.filesUploadAbort({ uploadId: idParsed.data.uploadId }));
+			return superjsonResponse({}, { headers: { "Cache-Control": "private, no-store" } });
+		}
+		// commit
+		const meta = uploadCommitMetaSchema.safeParse(form);
+		const auditCommit = (outcome: string, bytes?: number) =>
+			recordCodeAudit(event, {
+				action: "files.upload",
+				deviceId,
+				workspaceId,
+				path: meta.success ? meta.data.path : undefined,
+				bytes,
+				outcome,
+			});
+		try {
+			const { entry } = await link.filesUploadCommit({ uploadId: idParsed.data.uploadId });
+			await auditCommit("ok", entry.size);
+			return superjsonResponse({ entry }, { headers: { "Cache-Control": "private, no-store" } });
+		} catch (err) {
+			return fail(err, (outcome) => auditCommit(outcome));
 		}
 	}
 

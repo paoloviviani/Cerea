@@ -218,11 +218,15 @@ computers, each with its workspaces, each with its sessions.
   a computer enrolled with `--no-file-write` stays read-only, and the browser says so); a file that changed
   on disk since you opened it is a conflict you resolve (reload or overwrite),
   never silently overwritten ([Saving files](agent-machines-reference.md#saving-files)).
-  **Upload** (or drop files on the list) adds files of any type, up to 30 MB each,
-  to the folder you last opened; it follows the same rules as saving, asks
-  "Replace name?" before overwriting, and needs a recent galopin. **Download**
-  (an icon on a file's row, or a button in the open file) saves any file, up to
-  100 MiB, with only reading needed.
+  **Upload** (or drop files or whole folders on the list) adds files of any
+  type, up to 200 MB each (a folder: up to 5,000 files and 2 GB), to the folder
+  you last opened, in chunks with progress and a Cancel; it follows the same rules
+  as saving, asks once "N files already exist: Replace all / Skip existing /
+  Cancel" before overwriting, and needs a recent galopin. **Download** (an icon on
+  a file's row, or a button in the open file) saves any file up to 500 MB, and
+  **Download as zip** (on a folder) a whole folder up to 2 GB, with only reading
+  needed; deny-listed files and symlinks are left out of a zip and listed in its
+  `SKIPPED.txt`.
 - **Slash commands**: type `/` in the composer for the commands the session can
   run, including `/compact`, `/undo`, `/model` and `/new`.
 - **Stop** ends a running turn. **Fork from here** on an answer starts a new

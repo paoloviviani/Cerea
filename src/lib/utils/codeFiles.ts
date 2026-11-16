@@ -92,6 +92,13 @@ export function fileDownloadAllowed(
 	return device?.machine?.capabilities.fileDownload === true;
 }
 
+/** Whether the file browser offers Download as zip on folders. */
+export function folderDownloadAllowed(
+	device: { machine?: { capabilities: { folderDownload?: boolean } } | null } | undefined
+): boolean {
+	return device?.machine?.capabilities.folderDownload === true;
+}
+
 /** Whether the file browser may upload: saving is allowed and this galopin
  * implements `files.upload` (an older one hides the button). */
 export function fileUploadAllowed(
