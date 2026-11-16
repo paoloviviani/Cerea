@@ -65,7 +65,7 @@ The images are public on the GitHub Container Registry
 pulls the versions this release pins, with no login.
 
 `./configure` asks for your origin (`https://cerea.example.org`), the
-administrator's email, a preset, the TLS mode and the identity provider. It
+administrator's email, a preset, the TLS mode and the identity provider, then whether to turn on coding agents (galopin on users' computers; yes by default, `--no-agents` to refuse; access is then set per group in the Pystino console). It
 generates every secret and writes `.env` at mode 0600. The first sign-in for
 the bundled Authelia goes to `first-sign-in.txt` (mode 0600). Sign in at `https://<your origin>/console` (the console; `https://<your origin>/` opens the chat), then delete that file.
 
@@ -793,6 +793,21 @@ The proxy trusts `X-Forwarded-For` only from `TRUSTED_PROXIES` (default
 `private_ranges`). If the front reaches this host from another range, such
 as a VPN's `100.64.0.0/10`, set `TRUSTED_PROXIES` to that range. Otherwise the
 logs show the front's address instead of the client's.
+
+### No domain name
+
+With only a public IP address there are two ways to set the origin:
+
+- **An IP with `internal` TLS.** `--origin https://203.0.113.7 --tls internal`.
+  No DNS is needed, but browsers warn about the certificate until you trust
+  Caddy's CA (see below).
+- **A sslip.io name with `acme`.** `--origin https://203-0-113-7.sslip.io --tls acme`
+  (the IP with dashes). sslip.io is a free DNS service that resolves such a name
+  to the IP, so Caddy gets a real Let's Encrypt certificate and browsers do not
+  warn, provided ports 80 and 443 are reachable from the internet.
+
+The origin always starts with `https://`. If you type `http://…` or a port such
+as `:433`, `./configure` suggests the corrected form.
 
 ### Certificate trust with internal TLS
 

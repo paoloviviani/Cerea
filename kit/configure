@@ -57,7 +57,8 @@ REDACTION_ENDPOINT = "http://redaction:8080"
 #: internal network, and the bucket it keeps files in.
 RUSTFS_ENDPOINT = "http://rustfs:9000"
 RUSTFS_BUCKET = "cerea"
-DEFAULT_UPSTREAM = "https://api.cortecs.ai/v1"
+#: No provider by default: the gateway starts empty and providers are added in the Pystino console.
+DEFAULT_UPSTREAM = ""
 FIRST_SIGN_IN = "first-sign-in.txt"
 TLS_MODES = ("acme", "internal", "upstream")
 IDPS = ("authelia", "external")
@@ -751,14 +752,56 @@ def is_ip(host: str) -> bool:
     return True
 
 
+# Ports that are nearly always a typo for 443 (or a plain-HTTP port) in an https origin.
+SUSPICIOUS_HTTPS_PORTS = (80, 433, 4433)
+
+ORIGIN_HELP = (
+    "  An origin is the address users type, always starting with https://\n"
+    "    a DNS name        https://cerea.example.org   (TLS acme: a real certificate)\n"
+    "    an IP address     https://203.0.113.7         (TLS internal: browsers warn)\n"
+    "    no domain, but a public IP\n"
+    "                      https://203-0-113-7.sslip.io   (sslip.io is a free DNS name that\n"
+    "                      resolves to the IP, so TLS acme gives a real certificate when\n"
+    "                      ports 80 and 443 are reachable)"
+)
+
+
+def origin_suggestions(origin: str) -> list:
+    """https:// forms of an http:// origin: the same host, then the sslip.io name for an IPv4 host."""
+    parts = urlsplit(origin.strip())
+    try:
+        host, port = parts.hostname, parts.port
+    except ValueError:
+        return []
+    if not host:
+        return []
+    if port in SUSPICIOUS_HTTPS_PORTS:
+        port = None  # http://host:80 and typos such as :433 mean the default https port
+    suffix = f":{port}" if port else ""
+    shown = f"[{host}]" if ":" in host else host
+    found = [f"https://{shown}{suffix}"]
+    try:
+        v4 = isinstance(ipaddress.ip_address(host), ipaddress.IPv4Address)
+    except ValueError:
+        v4 = False
+    if v4:
+        found.append(f"https://{host.replace('.', '-')}.sslip.io{suffix}")
+    return found
+
+
 def split_origin(origin: str) -> tuple:
     """(normalised origin, host, port or None). Refuses what cannot work."""
     parts = urlsplit(origin.strip())
     if parts.scheme != "https":
-        raise ConfigError(
+        message = (
             f"the public origin must be https:// (got {origin!r}); browsers reach the stack "
             "over TLS in every mode, upstream included"
         )
+        if parts.scheme == "http":
+            found = origin_suggestions(origin)
+            if found:
+                message += "; did you mean " + " or ".join(found) + "?"
+        raise ConfigError(message)
     if not parts.hostname or parts.path not in ("", "/") or parts.query or parts.fragment:
         raise ConfigError(f"the public origin must be https://host[:port], got {origin!r}")
     try:
@@ -1434,10 +1477,11 @@ def build(answers: Answers, existing: dict, template: str, discovery: dict | Non
         key = answers.upstream_api_key or values.get("CHAT_OPENAI_API_KEY", "")
         if not key:
             raise ConfigError("the generic preset needs the endpoint's API key (--upstream-api-key)")
+        base_url = answers.upstream_base_url or values.get("CHAT_OPENAI_BASE_URL") or DEFAULT_UPSTREAM
+        if not base_url:
+            raise ConfigError("the generic preset needs the endpoint's URL (--upstream-base-url)")
         values.update(
-            CHAT_OPENAI_BASE_URL=answers.upstream_base_url
-            or values.get("CHAT_OPENAI_BASE_URL")
-            or DEFAULT_UPSTREAM,
+            CHAT_OPENAI_BASE_URL=base_url,
             CHAT_OPENAI_API_KEY=key,
             # Forced: user-token mode would send people's IdP tokens to a third party.
             CHAT_USE_USER_TOKEN="false",
@@ -2349,7 +2393,8 @@ def check(root: Path, *, network: bool = True, probe_host: bool = True) -> Repor
 # --- the interactive part -----------------------------------------------------------
 
 
-def ask(prompt: str, default: str = "", *, secret: bool = False, validate=None) -> str:
+def ask(prompt: str, default: str = "", *, secret: bool = False, validate=None, empty_hint: str = "",
+        optional: bool = False) -> str:
     suffix = f" [{default}]" if default and not secret else (" [keep]" if default else "")
     while True:
         try:
@@ -2357,14 +2402,49 @@ def ask(prompt: str, default: str = "", *, secret: bool = False, validate=None) 
         except EOFError:
             raise SystemExit("\nconfigure: input ended; nothing written") from None
         value = raw.strip() or default
+        if not value and optional:
+            return ""
         if not value:
             print("  an answer is needed")
+            if empty_hint:
+                print(empty_hint)
             continue
         if validate:
             try:
                 validate(value)
             except ConfigError as exc:
                 print(f"  {exc}")
+                continue
+        return value
+
+
+def ask_origin(default: str = "") -> str:
+    """Ask for the public origin, guiding the user towards one that works."""
+    print(ORIGIN_HELP)
+    while True:
+        value = ask("Public origin, https://host[:port]", default,
+                    validate=lambda v: None, empty_hint=ORIGIN_HELP)
+        if urlsplit(value).scheme == "http":
+            found = origin_suggestions(value)
+            print("  the origin must be https://, browsers reach the stack over TLS in every mode")
+            if found:
+                print("  did you mean:")
+                for f in found:
+                    print(f"    {f}")
+                default = found[0]  # Enter accepts the first suggestion
+                print("  (press Enter to accept the first)")
+            continue
+        try:
+            _, host, port = split_origin(value)
+        except ConfigError as exc:
+            print(f"  {exc}")
+            continue
+        if port in SUSPICIOUS_HTTPS_PORTS:
+            print(f"  port {port} is unusual for https; did you mean 443 (leave the port out)?")
+            if choose(
+                f"Use port {port} as typed?", {"yes": f"keep {value}", "no": "type the origin again"}, "no"
+            ) != "yes":
+                default = value.replace(f":{port}", "", 1)
                 continue
         return value
 
@@ -2385,11 +2465,7 @@ def interview(answers: Answers, given: set, existing: dict) -> Answers:
     if existing:
         print("Editing the existing .env: Enter keeps each current answer.\n")
     if "origin" not in given:
-        answers.origin = ask(
-            "Public origin, https://host[:port]",
-            answers.origin,
-            validate=lambda v: split_origin(v),
-        )
+        answers.origin = ask_origin(answers.origin)
     if "admin_email" not in given:
         answers.admin_email = ask(
             "Administrator's email (their first sign-in becomes an administrator)",
@@ -2520,11 +2596,32 @@ def interview(answers: Answers, given: set, existing: dict) -> Answers:
             },
             "yes" if answers.rustfs else "no",
         ) == "yes"
+    if "agents" not in given:
+        print("  Access is then controlled per group in the Pystino console.")
+        answers.agents = choose(
+            "Coding agents (galopin on users' computers)?",
+            {
+                "yes": "on: the Agents tab in the chat, and users pair their own machines",
+                "no": "off: no Agents tab in the chat",
+            },
+            "yes" if answers.agents is not False else "no",
+        ) == "yes"
     if answers.preset == "generic" and "upstream_api_key" not in given:
         answers.upstream_base_url = ask(
             "OpenAI-compatible endpoint", existing.get("CHAT_OPENAI_BASE_URL", DEFAULT_UPSTREAM)
         )
         answers.upstream_api_key = ask("Its API key", existing.get("CHAT_OPENAI_API_KEY", ""), secret=True)
+    elif (answers.preset not in ("generic", "satellite") and not existing
+          and "upstream_base_url" not in given and "upstream_api_key" not in given):
+        url = ask(
+            "Upstream base URL (leave empty to add providers in the console)",
+            "",
+            validate=lambda v: None if v.startswith(("http://", "https://")) else _raise("an http(s):// URL"),
+            optional=True,
+        )
+        if url:
+            answers.upstream_base_url = url
+            answers.upstream_api_key = ask("Its API key (empty: set it in the console)", "", secret=True, optional=True)
     print()
     return answers
 
@@ -2561,6 +2658,9 @@ def cmd_configure(args, root: Path) -> int:
     template = (root / ".env.example").read_text(encoding="utf-8")
     existing = parse_env(env_path.read_text(encoding="utf-8")) if env_path.exists() else {}
     answers = answers_from(existing) if existing else Answers()
+    if not existing:
+        # Pystino allows coding agents by default, so a fresh install turns them on here too.
+        answers.agents = True
     given = set()
     for attr in Answers.__dataclass_fields__:
         value = getattr(args, attr, None)
@@ -2656,6 +2756,9 @@ def cmd_configure(args, root: Path) -> int:
                     answers.agents = False
                     pre_notes.append("agent machines disabled: the issuer offers no device flow")
             else:
+                if "agents" not in given and not existing:
+                    answers.agents = False
+                    pre_notes.append("agent machines left off: the issuer offers no device flow")
                 pre_notes.append(f"the issuer offers no device flow: galopin cannot enroll ({problem})")
     if existing and model_mode_problems(existing):
         # An install from before the two modes were exclusive. build() writes
@@ -2907,7 +3010,7 @@ def parser() -> argparse.ArgumentParser:
 
     o = p.add_argument_group("optional")
     o.add_argument("--agents", action=argparse.BooleanOptionalAction, default=None,
-                   help="agent machines (/chat/code and galopin)")
+                   help="coding agents: /chat/code and galopin (default on for a fresh install; --no-agents turns off)")
     o.add_argument("--terminal", action=argparse.BooleanOptionalAction, default=None,
                    help="the browser terminal on agent machines (a full remote shell; needs --agents)")
     o.add_argument("--fetch", action=argparse.BooleanOptionalAction, default=None,
