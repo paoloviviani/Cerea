@@ -13,6 +13,7 @@ import type { TextGenerationContext } from "./types";
 import { logger } from "$lib/server/logger";
 import { modelReadsImages } from "./utils/modelReadsImages";
 import { resolvePreprompt } from "./preprompt";
+import { webSearchNoticeFor } from "./webSearchNotice";
 import { locationLine } from "$lib/utils/location";
 import { collections } from "$lib/server/database";
 import { projectContext } from "$lib/server/projects";
@@ -126,6 +127,11 @@ async function* textGenerationWithoutTitle(
 		executionAvailable:
 			ctx.locals?.scheduledRun === undefined || executionBackend().supportsUnattended,
 	});
+
+	// Web search the model cannot use (no tools) or the user has not switched on: one line,
+	// so it explains that instead of claiming it has no web access.
+	const searchNotice = await webSearchNoticeFor(ctx, conv);
+	if (searchNotice) preprompt = preprompt ? `${preprompt}\n\n${searchNotice}` : searchNotice;
 
 	// Standing facts about this person, carried in from earlier conversations
 	// (see `$lib/types/Memory`). Appended after `resolvePreprompt` for the

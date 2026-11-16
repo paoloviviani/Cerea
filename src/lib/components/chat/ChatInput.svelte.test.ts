@@ -516,6 +516,25 @@ describe("ChatInput: composer toolbar order and attach-menu cascade", () => {
 			expect(calls.some((call) => call.method === "PATCH")).toBe(false);
 		});
 
+		it("is disabled with a reason when the model cannot use tools", async () => {
+			const calls = stubFetch();
+			const { container } = await renderComposer(
+				{ id: CONV_ID },
+				[],
+				true,
+				{ webSearchAvailable: true },
+				{ modelSupportsTools: false }
+			);
+			const pill = findWebSearchPill(container) as HTMLButtonElement;
+			expect(pill.disabled).toBe(true);
+			expect(pill.getAttribute("aria-pressed")).toBe("false");
+			expect(pill.title).toBe(
+				"This model cannot use tools, so it cannot search the web. Pick a model that supports tools."
+			);
+			pill.click();
+			expect(calls.some((call) => call.method === "PATCH")).toBe(false);
+		});
+
 		it("points an administrator at where to set it up", async () => {
 			stubFetch();
 			const { container } = await renderComposer({ id: CONV_ID }, [], false, {

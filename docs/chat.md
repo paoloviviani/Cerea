@@ -364,6 +364,14 @@ are shown disabled with "Web search isn't set up on this deployment"; an
 administrator also sees where to fix it. Nothing is offered that could not
 work.
 
+Search is offered to the model as a tool call, so a model that cannot use tools
+cannot search. For such a model the pill is shown disabled with "This model
+cannot use tools, so it cannot search the web. Pick a model that supports
+tools.", and if search is on anyway (from a default) the assistant says so
+instead of claiming it has no web access. When search is off for a chat but a
+backend is granted, the assistant knows the switch exists and tells you to turn
+it on.
+
 This is the deployment's own search, not the model's. **Administration → Web
 search** lists the search backends the gateway offers and lets an administrator
 choose which one runs (`WEB_SEARCH_MODEL` in the environment overrides it).

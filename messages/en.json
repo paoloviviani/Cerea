@@ -992,6 +992,7 @@
 	"app.tooltip.copied": "Copied",
 	"app.update_banner.message": "A new version is ready.",
 	"app.update_banner.reload": "Reload",
+	"app.web_search.needs_tools": "This model cannot use tools, so it cannot search the web. Pick a model that supports tools.",
 	"app.web_search.unavailable": "Web search isn't set up here yet.",
 	"app.web_search.unavailable_admin": "Web search isn't set up here yet. An administrator can set it up in Admin → Web search.",
 	"chat.annotate.add": "Add to chat",

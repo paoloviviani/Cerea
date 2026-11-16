@@ -5,6 +5,10 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Web search with a model that cannot use tools no longer confuses users.** Search is only offered as a tool call, so a model without tools could not search while the switch looked on. The composer now shows the Web search switch as unavailable for such a model, with the reason, and the assistant says plainly that it cannot search instead of "I can't search the web". When search is off but a backend is granted, the assistant tells users to turn on the switch.
+
 ## v0.54.0 — 2026-11-16
 
 Pins: Cerea `0.54.0` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.3`, opencode `2.3.0`.

@@ -568,6 +568,9 @@
 	// Respect per‑model multimodal toggle from settings (force enable)
 	let modelIsMultimodalOverride = $derived($settings.multimodalOverrides?.[settingsKey]);
 	let modelIsMultimodal = $derived((modelIsMultimodalOverride ?? currentModel.multimodal) === true);
+	let modelSupportsTools = $derived(
+		($settings.toolsOverrides?.[settingsKey] ?? currentModel.supportsTools) === true
+	);
 
 	// Always allow common text-like files; add images only when model is multimodal
 	import {
@@ -998,6 +1001,7 @@
 										{onPaste}
 										disabled={isReadOnly || lastIsError}
 										{modelIsMultimodal}
+										{modelSupportsTools}
 										bind:focused
 									>
 										{#snippet trailingActions()}
