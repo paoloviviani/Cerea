@@ -319,6 +319,24 @@ func TestAgentToolsIntegration(t *testing.T) {
 		// report-back subtest below asks for reports explicitly.
 		return mustJSON2(map[string]any{"title": title, "prompt": prompt, "mode": mode, "report": false})
 	}
+	// allowTools sets the explicit allows on a root session: one blanket
+	// exception per coordination key (what a saved "always" or an explicit allow
+	// is now), replacing any it had. There is no per-session grant any more.
+	allowTools := func(dir, sessionID string, keys []string) error {
+		for _, ex := range oc.Exceptions(sessionID) {
+			if permrules.IsCoordinationKey(ex.Permission) {
+				if _, err := oc.RemoveException(ctx, dir, sessionID, ex.ID); err != nil {
+					return err
+				}
+			}
+		}
+		for _, k := range keys {
+			if _, err := oc.AddException(ctx, dir, sessionID, permrules.Exception{ID: "ex_it_" + k, Permission: k, Patterns: []string{"*"}}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	newSession := func(ws workspaces.Workspace, title, mode string) backend.Session {
 		t.Helper()
 		s, err := oc.CreateSession(ctx, ws.Path, backend.CreateSessionOptions{Title: title, ModeID: mode})
@@ -335,7 +353,7 @@ func TestAgentToolsIntegration(t *testing.T) {
 		}
 		rulesMu.Unlock()
 		if len(grant) > 0 {
-			if err := oc.SetCoordination(ctx, ws.Path, s.ID, grant); err != nil {
+			if err := allowTools(ws.Path, s.ID, grant); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -1303,12 +1321,17 @@ func TestAgentToolsIntegration(t *testing.T) {
 		setMachineRules(nil)
 	})
 
-	// grantCoordination plays session.grantCoordination through the machine's
-	// own dispatcher, the way Cerea's schedule executor does.
+	// grantCoordination gives a session an explicit allow for the tools (a
+	// blanket exception per key); an empty list removes them. session.grantCoordination
+	// itself is a deprecated no-op.
 	grantCoordination := func(t *testing.T, sessionID string, keys []string) {
 		t.Helper()
-		if _, operr := mc.Handle(ctx, "session.grantCoordination", mustJSONArgs(t, map[string]any{"sessionId": sessionID, "keys": keys})); operr != nil {
-			t.Fatalf("session.grantCoordination: %+v", operr)
+		dir, _, operr := mc.resolveSession(sessionID)
+		if operr != nil {
+			t.Fatalf("resolveSession: %+v", operr)
+		}
+		if err := allowTools(dir, sessionID, keys); err != nil {
+			t.Fatal(err)
 		}
 	}
 	runTool := func(t *testing.T, from backend.Session, ws workspaces.Workspace, trigger, tool string) (backend.Part, []backend.PermissionRequest) {

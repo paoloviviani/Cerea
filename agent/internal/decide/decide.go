@@ -578,6 +578,10 @@ func CoordinationFor(p Policy, s State, key string, delegate bool, target permru
 		answer = permrules.Allow
 	case key == "session_list":
 		answer = permrules.Allow
+	case excepted(s.Exceptions, Request{Key: key}):
+		// An explicit allow for the tool (a blanket exception on the root)
+		// applies as for any other tool.
+		answer = permrules.Allow
 	case autoRuns:
 		// Auto follows the owner's Agents row (Workspace, Agents): Runs frees
 		// every agents call, read included; any other row is a card, which
