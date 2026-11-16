@@ -12,11 +12,14 @@ describe("attachmentSizeRefusal", () => {
 		);
 	});
 
-	it("keeps 10 MB for every other type", () => {
+	it("allows 30 MB for every other type", () => {
 		expect(
-			attachmentSizeRefusal({ name: "d.pdf", size: 12 * MB, type: "application/pdf" })
-		).toMatch(/limited to 10 MB/);
-		expect(attachmentSizeRefusal({ name: "d.txt", size: 10 * MB, type: "text/plain" })).toBeNull();
+			attachmentSizeRefusal({ name: "d.pdf", size: 31 * MB, type: "application/pdf" })
+		).toMatch(/limited to 30 MB/);
+		expect(
+			attachmentSizeRefusal({ name: "d.pdf", size: 29 * MB, type: "application/pdf" })
+		).toBeNull();
+		expect(attachmentSizeRefusal({ name: "d.txt", size: 30 * MB, type: "text/plain" })).toBeNull();
 	});
 });
 

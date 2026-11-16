@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -28,7 +30,7 @@ Usage:
                 [--group NAME | --default-group] [--output PATH]
                 [--creds PATH] [--shim-port PORT] [--no-discover]
                 [--allow-opencode-provider] [--connectors-only]
-                [--engine opencode|goose] [--yes]
+                [--engine opencode|goose] [--group-choice-cmd ARG ...] [--yes]
 
   --engine     The coding engine this machine runs: opencode (default) or goose
                (ADR 0110; needs the pinned goose release, which the install
@@ -168,7 +170,17 @@ Usage:
                 allow or the session was granted it; a spawn or a send asks unless
                 a rule says allow, the session was granted it, or its own word is
                 Allow with the ceiling leaving the tool alone).
-   --yes        Overwrite existing files without asking.
+   --group-choice-cmd ARG
+                For a program that signs in on the user's behalf (the Mac app).
+                Repeat it to build a command line (first ARG is the program).
+                When several billing groups exist and none is chosen, galopin
+                runs that command with the default group's name (empty when none
+                is set) and then every group name appended as arguments; the
+                command prints the chosen name on stdout, or fails to cancel.
+                Names are data: they are passed as arguments, never through a shell.
+   --yes        Overwrite existing files without asking. Also never prompts for a
+                billing group: with several groups it takes your default, or
+                fails listing the names (choose with --group NAME).
 
 Re-enrolling: when a credential file already exists (at --creds), its
 recorded issuer, gateway, Cerea origin, client id, billing group, shim port
@@ -205,7 +217,10 @@ type enrollOptions struct {
 	// picker sets — instead of pinning a group here (bill_to_default in
 	// credentials.json). One console setting then moves billing and model
 	// visibility for the chat and every following machine at once.
-	defaultGroup           bool
+	defaultGroup bool
+	// groupChoiceCmd is the argv of the program that picks a billing group
+	// when there are several and none was chosen (--group-choice-cmd).
+	groupChoiceCmd         []string
 	output                 string
 	creds                  string
 	shimPort               int
@@ -278,6 +293,7 @@ func newEnrollFlagSet(opts *enrollOptions) (fs *flag.FlagSet, noDiscover *bool) 
 	fs.BoolVar(&opts.loopback, "loopback", false, "")
 	fs.StringVar(&opts.group, "group", "", "")
 	fs.BoolVar(&opts.defaultGroup, "default-group", false, "")
+	fs.Var(stringListFlag{&opts.groupChoiceCmd}, "group-choice-cmd", "")
 	fs.StringVar(&opts.output, "output", "", "")
 	fs.StringVar(&opts.creds, "creds", "", "")
 	fs.IntVar(&opts.shimPort, "shim-port", defaultShimPort, "")
@@ -718,7 +734,7 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 			return err
 		}
 	} else {
-		group, err = pickGroup(ctx, gateway, tokens.AccessToken, opts.group, opts.groupRecorded)
+		group, err = pickGroup(ctx, gateway, tokens.AccessToken, opts.group, opts.groupRecorded, groupChoice{cmd: opts.groupChoiceCmd, nonInteractive: opts.yes || !stdinInteractive()})
 		if err != nil {
 			return err
 		}
@@ -938,6 +954,50 @@ func selectFlow(doc *discovery, forceDevice, forceLoopback bool) (bool, error) {
 	}
 }
 
+// groupChoice says how pickGroup may settle several groups with no flag.
+type groupChoice struct {
+	cmd            []string // --group-choice-cmd
+	nonInteractive bool     // --yes, or stdin is not a terminal: never prompt
+}
+
+// stdinInteractive reports whether stdin is a terminal a person can type at
+// (a pipe, a file and /dev/null are not).
+func stdinInteractive() bool {
+	st, err := os.Stdin.Stat()
+	if err != nil || st.Mode()&os.ModeCharDevice == 0 {
+		return false
+	}
+	if null, err := os.Stat(os.DevNull); err == nil && os.SameFile(st, null) {
+		return false
+	}
+	return true
+}
+
+// runGroupChoiceCmd asks the --group-choice-cmd program to pick: argv is the
+// command, then the default's name (empty for none), then every group name.
+// No shell is involved, so a name cannot inject anything. The answer must be
+// one of the names.
+func runGroupChoiceCmd(ctx context.Context, argv []string, defName string, groups []billableGroup) (string, error) {
+	args := append(append([]string{}, argv[1:]...), defName)
+	for _, g := range groups {
+		args = append(args, g.Name)
+	}
+	cmd := exec.CommandContext(ctx, argv[0], args...)
+	cmd.Stdin = nil
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("no billing group was chosen")
+	}
+	picked := strings.TrimSpace(out.String())
+	for _, g := range groups {
+		if g.Name == picked {
+			return picked, nil
+		}
+	}
+	return "", fmt.Errorf("no billing group was chosen")
+}
+
 // pickGroup resolves the x-bill-to value: a name, per the gateway's rule
 // (ADR 0061). An explicit --group must be a current membership (verified
 // against the live list, not trusted blind); several groups without a flag
@@ -945,7 +1005,7 @@ func selectFlow(doc *discovery, forceDevice, forceLoopback bool) (bool, error) {
 //
 // recorded marks a preselect that came from the previous enrollment, not a
 // flag: when it is no longer billable the person is asked instead of failing.
-func pickGroup(ctx context.Context, gateway, accessToken, preselect string, recorded bool) (string, error) {
+func pickGroup(ctx context.Context, gateway, accessToken, preselect string, recorded bool, ch groupChoice) (string, error) {
 	groups, err := fetchGroups(ctx, gateway, accessToken)
 	if err != nil {
 		return "", err
@@ -972,13 +1032,29 @@ func pickGroup(ctx context.Context, gateway, accessToken, preselect string, reco
 		fmt.Fprintf(os.Stderr, "billing group: %s (only one available)\n", groups[0].Name)
 		return groups[0].Name, nil
 	}
-	fmt.Fprintln(os.Stderr, "billable groups:")
-	def := 0
+	def, hasDefault := 0, false
 	for i, g := range groups {
 		if g.IsDefault {
-			def = i
+			def, hasDefault = i, true
 		}
 	}
+	switch {
+	case len(ch.cmd) > 0:
+		defName := ""
+		if hasDefault {
+			defName = groups[def].Name
+		}
+		return runGroupChoiceCmd(ctx, ch.cmd, defName, groups)
+	case ch.nonInteractive:
+		// Never read stdin here: a program that drives enroll has none, and
+		// the read would fail with a bare EOF.
+		if hasDefault {
+			fmt.Fprintf(os.Stderr, "billing group: %s (your default; several are available)\n", groups[def].Name)
+			return groups[def].Name, nil
+		}
+		return "", fmt.Errorf("you can bill to several groups and have no default set: choose one with --group NAME, or set a default in the Pystino console's group picker (choices: %s)", strings.Join(names, ", "))
+	}
+	fmt.Fprintln(os.Stderr, "billable groups:")
 	choice, err := promptChoice(fmt.Sprintf("pick a billing group [1-%d, default %d]: ", len(groups), def+1), names, def)
 	if err != nil {
 		return "", err

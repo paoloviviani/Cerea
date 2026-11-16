@@ -73,3 +73,29 @@ describe("MoveMenu delete", () => {
 		expect(itemNames()).toEqual(["Delete"]);
 	});
 });
+
+describe("MoveMenu archive", () => {
+	it("offers Archive before Delete and calls onarchive alone on select", async () => {
+		const onarchive = vi.fn();
+		const ondelete = vi.fn();
+		const screen = render(MoveMenu, { label: LABEL, onmove: () => {}, onarchive, ondelete });
+		unmount = screen.unmount;
+		await open();
+		expect(itemNames()).toEqual(["Move to project…", "Archive", "Delete"]);
+		(
+			[...document.body.querySelectorAll('[role="menuitem"]')].find(
+				(el) => el.textContent?.trim() === "Archive"
+			) as HTMLElement
+		).click();
+		await vi.waitFor(() => expect(onarchive).toHaveBeenCalledTimes(1));
+		expect(ondelete).not.toHaveBeenCalled();
+	});
+
+	it("offers Unarchive where onunarchive is given", async () => {
+		const onunarchive = vi.fn();
+		const screen = render(MoveMenu, { label: LABEL, onunarchive, ondelete: () => {} });
+		unmount = screen.unmount;
+		await open();
+		expect(itemNames()).toEqual(["Unarchive", "Delete"]);
+	});
+});

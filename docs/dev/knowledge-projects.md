@@ -145,7 +145,7 @@ gateway at all skips that chain**: `CHAT_OCR_BASE_URL` (with
 `CHAT_OCR_API_KEY` and a required `CHAT_OCR_MODEL`) makes extraction post to
 `{base}/ocr` directly, which works because Pystino, Mistral and Cortecs serve
 one shape. Set, it overrides the gateway path rather than falling
-back to it, reads PDFs only, and caps a document at 10 MB — the base64 body of
+back to it, reads PDFs only, and caps a document at 10 MB (attachments may be larger) — the base64 body of
 a 20 MB PDF is ~27 MB and no vendor's limit for it is known. Unset, nothing
 about the above changes. The deployment's own
 extractor is not a special case — it is an ordinary model row on the gateway

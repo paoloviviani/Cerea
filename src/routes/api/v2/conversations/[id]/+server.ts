@@ -18,6 +18,7 @@ import {
 import type { TurnStateSnapshot } from "$lib/types/TurnState";
 import { deleteConversationStorage } from "$lib/server/conversationStorage";
 import { moveConversationToProject } from "$lib/server/conversationProject";
+import { setConversationArchived } from "$lib/server/conversationArchive";
 import { withRunFiles } from "$lib/server/execution/runFiles";
 
 export const GET: RequestHandler = async ({ locals, params }) => {
@@ -150,6 +151,16 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 	requireAuth(locals);
 
 	const body = await request.json();
+
+	// Archiving: its own operation, owner only (see conversationArchive.ts).
+	if (body && "archived" in body) {
+		const result = await setConversationArchived({
+			locals,
+			conversationId: params.id ?? "",
+			archived: body.archived,
+		});
+		return superjsonResponse({ success: true, ...result });
+	}
 
 	// Moving a chat into, between or out of projects: its own operation, with
 	// its own permission rules (see conversationProject.ts).

@@ -25,6 +25,7 @@ type Row = Pick<
 	| "model"
 	| "projectId"
 	| "scheduledUnread"
+	| "archivedAt"
 >;
 
 const LIST_FIELDS = {
@@ -35,6 +36,7 @@ const LIST_FIELDS = {
 	model: 1,
 	projectId: 1,
 	scheduledUnread: 1,
+	archivedAt: 1,
 } as const;
 
 /** MongoDB's "no text index" (still building, or never built): content search is skipped. */
@@ -64,7 +66,13 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 	// concatenation, so `p` and infinite scroll work as before. Content hits
 	// carry a `snippet`.
 	const pattern = titleSearchPattern(q);
-	const auth = authCondition(locals);
+	// `archived=1` lists only archived chats (newest archived first, no content
+	// search needed to tell them apart); otherwise they are left out.
+	const archived = url.searchParams.get("archived") === "1";
+	const auth = {
+		...authCondition(locals),
+		archivedAt: archived ? { $type: "date" as const } : null,
+	};
 	const titleFilter = pattern ? { ...auth, title: { $regex: pattern } } : auth;
 	const withContent =
 		!!pattern && !!locals.user && url.searchParams.get("content") === "1" && hasWholeWord(q);
@@ -81,7 +89,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 		titleRows = await collections.conversations
 			.find(titleFilter)
 			.project<Row>(LIST_FIELDS)
-			.sort({ lastActivityAt: -1, updatedAt: -1 })
+			.sort(archived ? { archivedAt: -1, _id: -1 } : { lastActivityAt: -1, updatedAt: -1 })
 			.skip(start)
 			.limit(want)
 			.toArray();
@@ -99,11 +107,19 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 					{
 						$match: {
 							userId: locals.user._id,
+							archivedAt: auth.archivedAt,
 							$text: { $search: textSearchString(q) },
 							title: { $not: { $regex: pattern as string } },
 						},
 					},
-					{ $project: { lastActivityAt: 1, updatedAt: 1, score: { $meta: "textScore" } } },
+					{
+						$project: {
+							lastActivityAt: 1,
+							updatedAt: 1,
+							archivedAt: 1,
+							score: { $meta: "textScore" },
+						},
+					},
 					{ $sort: { score: -1, lastActivityAt: -1, updatedAt: -1, _id: -1 } },
 					{ $skip: Math.max(0, start - (titleTotal ?? 0)) },
 					{ $limit: want - titleRows.length },
@@ -162,6 +178,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 			...(conv.titleSource === "user" ? { titleByUser: true } : {}),
 			// A scheduled run answered here and its owner has not opened it since.
 			...(conv.scheduledUnread ? { unread: true } : {}),
+			...(conv.archivedAt ? { archivedAt: conv.archivedAt } : {}),
 			...(snippet ? { snippet } : {}),
 		};
 	});

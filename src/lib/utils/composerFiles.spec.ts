@@ -74,7 +74,7 @@ describe("uploadComposerFiles", () => {
 
 	it("surfaces the server's refusal", async () => {
 		const fetchImpl = async () =>
-			new Response(JSON.stringify({ message: "File too large, should be <10MB" }), {
+			new Response(JSON.stringify({ message: "File too large, should be <30MB" }), {
 				status: 413,
 			});
 		await expect(

@@ -157,7 +157,7 @@ export async function writeAttachment(
 				: documentMime(sniffed, file.name));
 
 	// The size limit follows what the bytes are, not what the client declared:
-	// a 24 MB PDF sent as `audio/mpeg` is a PDF, and a PDF is capped at 10 MB.
+	// a 24 MB PDF sent as `audio/mpeg` is a PDF, and a PDF is capped at the 30 MB attachment limit.
 	if (!audio && buffer.byteLength > maxAttachmentBytesFor(mime)) {
 		throw new AttachmentTooLargeError(
 			`${file.name} is too large: files are limited to ${MAX_ATTACHMENT_BYTES / 1024 / 1024} MB.`

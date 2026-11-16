@@ -156,9 +156,44 @@ func (p Paths) Log() string { return filepath.Join(p.Home, "Library", "Logs", "g
 func PairArgs(address string, agent bool) []string {
 	a := []string{"enroll", "--cerea", address, "--device", "--yes"}
 	if !agent {
-		a = append(a, "--connectors-only")
+		// A connectors-only machine has no billing group to choose.
+		return append(a, "--connectors-only")
 	}
+	a = append(a, GroupChoiceArgs()...)
 	return a
+}
+
+// groupChoiceScript is the AppleScript behind the billing-group choice. galopin
+// appends the default group's name (empty for none) and then every group name
+// to the command line, so they reach the script as argv items 2, 3, ... and are
+// never part of the script text (item 1 is a fixed word that keeps osascript
+// from reading a name that starts with "-" as an option). Cancelling fails the
+// command, which makes the pairing stop.
+var groupChoiceScript = []string{
+	"on run argv",
+	"set def to item 2 of argv",
+	"set names to items 3 thru -1 of argv",
+	`set prompt_ to "You can bill to more than one group. Which one should this Mac use?"`,
+	"if def is \"\" then",
+	`set r to choose from list names with prompt prompt_ with title "` + AppName + `" OK button name "Pair" cancel button name "Cancel"`,
+	"else",
+	`set r to choose from list names with prompt prompt_ with title "` + AppName + `" default items {def} OK button name "Pair" cancel button name "Cancel"`,
+	"end if",
+	"if r is false then error number -128",
+	"return item 1 of r",
+	"end run",
+}
+
+// GroupChoiceArgs are the `galopin enroll` flags that make galopin ask the user
+// to pick a billing group in a native list when there are several and none was
+// chosen (the group list is only known after sign-in, so enroll asks, in the
+// same run, and the user signs in once). The default group is preselected.
+func GroupChoiceArgs() []string {
+	a := []string{"--group-choice-cmd", "osascript"}
+	for _, l := range groupChoiceScript {
+		a = append(a, "--group-choice-cmd", "-e", "--group-choice-cmd", l)
+	}
+	return append(a, "--group-choice-cmd", "pick")
 }
 
 // BrowserSetupArgs and BrowserEnableArgs are the two commands behind "Set up browser".

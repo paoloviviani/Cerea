@@ -46,7 +46,7 @@
 							return;
 						}
 
-						// if the file is past its limit (25 MB audio, 10 MB the rest) abort
+						// if the file is past its limit (25 MB audio, 30 MB the rest) abort
 						if (file.size > maxAttachmentBytesFor(file.type)) {
 							setErrorMsg(
 								isAudioAttachmentMime(file.type)

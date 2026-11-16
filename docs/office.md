@@ -281,7 +281,7 @@ really looks. This is for the assistant; you keep the preview above.
   document up to 1 MiB, a picture up to 20 MiB and 40 million pixels, and a deck up
   to 200 slides, a workbook up to 100,000 cells and a chart up to 5,000 values.
   An edit may have up to 200 operations. A file to convert to PDF may be up
-  to 20 MB.
+  to 30 MB.
 - **Time.** One call is stopped after about 30 seconds of work (60 seconds in
   all). A very large file may need to be split.
 - **Editing a deck:** you cannot add a native chart to an existing deck, edit

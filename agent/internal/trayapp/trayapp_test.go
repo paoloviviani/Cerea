@@ -137,3 +137,22 @@ func TestPlists(t *testing.T) {
 		t.Error(p.ServicePlist())
 	}
 }
+
+// A pairing that bills (agent) lets galopin ask for the billing group in a
+// native list; names are never in the script text, and connectors-only has none.
+func TestPairArgsGroupChoice(t *testing.T) {
+	agent := PairArgs("https://c.org", true)
+	joined := strings.Join(agent, " ")
+	if !strings.Contains(joined, "--group-choice-cmd osascript --group-choice-cmd -e") || !strings.HasSuffix(joined, "--group-choice-cmd pick") {
+		t.Fatal(joined)
+	}
+	if strings.Contains(joined, "--group ") || strings.Contains(strings.Join(PairArgs("https://c.org", false), " "), "group-choice") {
+		t.Fatal(joined)
+	}
+	script := strings.Join(groupChoiceScript, "\n")
+	for _, want := range []string{"choose from list names", "default items {def}", "error number -128"} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("%q missing from the script", want)
+		}
+	}
+}

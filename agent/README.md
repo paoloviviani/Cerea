@@ -189,6 +189,17 @@ path recorded in the existing `credentials.json`, so only the login is asked;
 a flag you pass wins, and the group is asked only if the recorded one is no
 longer billable.
 
+Several billing groups and no `--group`: at a terminal `enroll` asks you to
+pick. With `--yes`, or when stdin is not a terminal (a script, a container, an
+app), it never prompts: it takes your Pystino default group, or fails listing
+the group names and saying to pass `--group NAME` or set a default in the
+console. A program that signs in for a user (the Mac app) can pass
+`--group-choice-cmd ARG` (repeat it to build a command line): after sign-in,
+`enroll` runs that command with the default group's name (empty for none) and
+every group name appended as arguments, reads the chosen name from its stdout,
+and fails if it fails or prints a name that is not a group. No shell is
+involved, so names cannot inject anything, and the user signs in once.
+
 ### Auth
 
 `credentials.json` is the machine's sign-in: an OIDC refresh credential that
