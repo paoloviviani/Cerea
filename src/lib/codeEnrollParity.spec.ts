@@ -231,8 +231,8 @@ describe.skipIf(!HAVE_BINARY)(
 				}),
 			],
 			["files off, secret list dropped", choose({ noFiles: true, noDefaultFileDeny: true })],
-			["file writes allowed", choose({ allowFileWrite: true })],
-			["file writes asked for with files off", choose({ noFiles: true, allowFileWrite: true })],
+			["file writes unticked", choose({ allowFileWrite: false })],
+			["file writes unticked with files off", choose({ noFiles: true, allowFileWrite: false })],
 			[
 				"everything at once",
 				choose({
@@ -246,7 +246,7 @@ describe.skipIf(!HAVE_BINARY)(
 					// not allowOpencodeProvider: galopin refuses it together with project config
 					workspaceRoots: ["/a b"],
 					noFiles: false,
-					allowFileWrite: true,
+					allowFileWrite: false,
 					fileDeny: ["*.secret"],
 					noDefaultFileDeny: true,
 				}),

@@ -16,7 +16,7 @@ Usage:
   galopin policy show [--creds PATH] [--state-dir PATH]
   galopin policy set [options] [--creds PATH] [--state-dir PATH]
 
-'set' may only TIGHTEN the policy: turn files, file writes, the terminal, command
+'set' may only TIGHTEN the policy (it also lifts denies and re-allows file saving, below): turn files, file writes, the terminal, command
 shell or agent tools off, lower maxTerminals, or add to the file deny list. This file is
 never writable over the link (PROTOCOL.md §4); the local CLI keeps that
 same one-way shape, so loosening anything back — files, terminal or
@@ -25,6 +25,8 @@ refuses and names the 'enroll' re-run that does it instead.
 
   --no-files          Turn the /code explorer off.
   --no-file-write     Stop the /code editor from saving files here.
+  --allow-file-write  Let the /code editor save files here again (the default
+                      on a fresh enroll; needs files on).
   --no-terminal       Turn the terminal off.
   --no-command-shell  Refuse every command whose template expands shell,
                       and every command whose shell is unknown.
@@ -40,7 +42,7 @@ refuses and names the 'enroll' re-run that does it instead.
                        session's word (edit, command, web, outside, secrets,
                        agents, tools; repeatable). Advanced: the user's own
                        word (Plan, Ask, Allow, Auto) decides everything else.
-   --no-deny CLASS     Lift a local deny (the one loosening 'set' allows: the
+   --no-deny CLASS     Lift a local deny (a loosening 'set' allows: the
                        deny is the owner's own refuse-only setting).
    --limit, --permission-max, --permission-rule  Retired (ADR 0109): accepted
                        and ignored with a warning for one more release.
@@ -121,6 +123,7 @@ func runPolicySet(args []string) error {
 	var credsPath, stateDir string
 	noFiles := fs.Bool("no-files", false, "")
 	noFileWrite := fs.Bool("no-file-write", false, "")
+	allowFileWrite := fs.Bool("allow-file-write", false, "")
 	noTerminal := fs.Bool("no-terminal", false, "")
 	noCommandShell := fs.Bool("no-command-shell", false, "")
 	noAgentTools := fs.Bool("no-agent-tools", false, "")
@@ -158,6 +161,16 @@ func runPolicySet(args []string) error {
 	}
 
 	changed := false
+	if *noFileWrite && *allowFileWrite {
+		return fmt.Errorf("policy set: --no-file-write and --allow-file-write contradict each other")
+	}
+	if *allowFileWrite {
+		if *noFiles || !pol.FilesAllowed() {
+			return fmt.Errorf("policy set: file saving needs the explorer on; re-enroll without --no-files first")
+		}
+		pol.FileWrite = policy.FileWriteAllowed
+		changed = true
+	}
 	if *noFileWrite {
 		pol.FileWrite = policy.FileWriteDenied
 		changed = true

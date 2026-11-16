@@ -234,10 +234,12 @@ func (mc *machine) Handle(ctx context.Context, op string, args json.RawMessage) 
 	switch op {
 	case "mcp.list", "mcp.open", "mcp.close", "mcp.login", "mcp.loginComplete":
 		return mc.opMcp(ctx, op, args)
-	case "files.list", "files.stat", "files.read", "files.status":
+	case "files.list", "files.stat", "files.read", "files.status", "files.download":
 		return mc.opFiles(ctx, op, args)
 	case "files.write":
 		return mc.opFilesWrite(args)
+	case "files.upload":
+		return mc.opFilesUpload(args)
 	case "terminal.list", "terminal.open", "terminal.attach", "terminal.detach", "terminal.resize", "terminal.rename", "terminal.close":
 		return mc.opTerminal(ctx, op, args)
 	case "workspace.list":
@@ -1741,6 +1743,8 @@ func (mc *machine) opFiles(ctx context.Context, op string, args json.RawMessage)
 		res = map[string]any{"entry": e}
 	case "files.read":
 		res, err = mc.files.Read(w.Path, a.Path, a.Offset, a.Length, a.As)
+	case "files.download":
+		res, err = mc.files.ReadBytes(w.Path, a.Path, a.Offset, a.Length)
 	case "files.status":
 		res, err = mc.files.Status(ctx, w.Path)
 	}
@@ -1752,18 +1756,18 @@ func (mc *machine) opFiles(ctx context.Context, op string, args json.RawMessage)
 
 // opFilesWrite answers files.write, the /code editor's save (PROTOCOL.md
 // §9.3). The read side's confinement holds (os.Root, the deny list, no
-// symlink followed), behind a second gate: the fileWrite policy, off unless
-// the owner enrolled with --allow-file-write. Every attempt that reaches a
+// symlink followed), behind a second gate: the fileWrite policy, on by
+// default, off with `enroll --no-file-write` or `policy set --no-file-write`. Every attempt that reaches a
 // workspace is one audit line: the path, the size and the outcome, never the
 // content.
 func (mc *machine) opFilesWrite(args json.RawMessage) (any, *link.OpError) {
 	if !mc.pol.FilesAllowed() {
 		mc.audit.refusal("files.write", "files off by machine policy")
-		return nil, opErrf("forbidden", "this machine was enrolled with --no-files: re-enroll without it, and with --allow-file-write, to save files here")
+		return nil, opErrf("forbidden", "this machine was enrolled with --no-files: re-enroll without it to save files here")
 	}
 	if !mc.pol.FileWriteAllowed() {
 		mc.audit.refusal("files.write", "file write denied by machine policy")
-		return nil, opErrf("forbidden", "this machine was enrolled without --allow-file-write: re-enroll with it to save files here")
+		return nil, opErrf("forbidden", "file saving is off on this machine: run `galopin policy set --allow-file-write` (or re-enroll without --no-file-write) to save files here")
 	}
 	var a struct {
 		WorkspaceID  string  `json:"workspaceId"`
@@ -1797,6 +1801,54 @@ func (mc *machine) opFilesWrite(args json.RawMessage) (any, *link.OpError) {
 		size = len(*a.Content) // refused before decoding: what was sent
 	}
 	mc.audit.fileWrite(w.ID, a.Path, size, operr.Code)
+	return nil, operr
+}
+
+// opFilesUpload answers files.upload, the file browser's upload (PROTOCOL.md
+// §9.3): any bytes into a workspace folder, behind the same gates as
+// files.write (files on, fileWrite on) and the same confinement and deny list.
+// An existing file is replaced only with overwrite: true, else `conflict`.
+func (mc *machine) opFilesUpload(args json.RawMessage) (any, *link.OpError) {
+	if !mc.pol.FilesAllowed() {
+		mc.audit.refusal("files.upload", "files off by machine policy")
+		return nil, opErrf("forbidden", "this machine was enrolled with --no-files: re-enroll without it to upload files here")
+	}
+	if !mc.pol.FileWriteAllowed() {
+		mc.audit.refusal("files.upload", "file write denied by machine policy")
+		return nil, opErrf("forbidden", "file saving is off on this machine: run `galopin policy set --allow-file-write` (or re-enroll without --no-file-write) to upload files here")
+	}
+	var a struct {
+		WorkspaceID string  `json:"workspaceId"`
+		Dir         string  `json:"dir"`
+		Name        string  `json:"name"`
+		Content     *string `json:"content"`
+		Overwrite   bool    `json:"overwrite"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil {
+		return nil, invalidArgs(err)
+	}
+	if a.Content == nil {
+		return nil, opErrf("invalid", "content is required")
+	}
+	w, ok := mc.workspaces.Get(a.WorkspaceID)
+	if !ok {
+		return nil, notFound("workspace")
+	}
+	body, err := files.DecodeUpload(*a.Content)
+	if err == nil {
+		var entry files.Entry
+		entry, err = mc.files.Upload(w.Path, a.Dir, a.Name, body, a.Overwrite)
+		if err == nil {
+			mc.audit.fileUpload(w.ID, a.Dir, a.Name, len(body), "ok")
+			return map[string]any{"entry": entry}, nil
+		}
+	}
+	operr := filesErr(err)
+	size := len(body)
+	if body == nil {
+		size = len(*a.Content)
+	}
+	mc.audit.fileUpload(w.ID, a.Dir, a.Name, size, operr.Code)
 	return nil, operr
 }
 

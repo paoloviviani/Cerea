@@ -469,6 +469,31 @@ export async function writeWorkspaceFile(
 	return unwrap(response);
 }
 
+/** Upload one file of any type into a workspace folder (files.upload, §9.3).
+ * An existing file is replaced only with `overwrite`; otherwise a 409 throws
+ * `FileConflictError`. */
+export async function uploadWorkspaceFile(
+	deviceId: string,
+	workspaceId: string,
+	dir: string,
+	file: File,
+	overwrite: boolean
+): Promise<{ entry: FileEntry }> {
+	const form = new FormData();
+	form.set("file", file);
+	form.set("name", file.name);
+	form.set("dir", dir);
+	if (overwrite) form.set("overwrite", "true");
+	const response = await fetch(filesUrl(deviceId, workspaceId, "/upload", {}), {
+		method: "POST",
+		body: form,
+	});
+	if (response.status === 409) {
+		throw new FileConflictError("The file already exists.", null);
+	}
+	return unwrap(response);
+}
+
 /** The workspace's git status, for the tree's badges. */
 export async function workspaceFileStatus(
 	deviceId: string,
@@ -480,6 +505,16 @@ export async function workspaceFileStatus(
 /** An image served as itself (raster types only, sandboxed). */
 export function workspaceFileRawUrl(deviceId: string, workspaceId: string, path: string): string {
 	return filesUrl(deviceId, workspaceId, "/raw", { path });
+}
+
+/** A file as a download (files.download, §9.3): any type, served as an
+ * attachment, never rendered. Use as an `<a href download>`. */
+export function workspaceFileDownloadUrl(
+	deviceId: string,
+	workspaceId: string,
+	path: string
+): string {
+	return filesUrl(deviceId, workspaceId, "/download", { path });
 }
 
 export async function getAgentDiff(

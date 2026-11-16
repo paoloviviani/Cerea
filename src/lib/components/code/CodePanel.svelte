@@ -21,6 +21,7 @@
 	import IconCode from "~icons/carbon/code";
 	import IconLaptop from "~icons/carbon/laptop";
 	import AgentView from "./AgentView.svelte";
+	import WorkspaceScreen from "./WorkspaceScreen.svelte";
 	import NeedsYouInbox from "./NeedsYouInbox.svelte";
 	import CodeReauthCard from "./CodeReauthCard.svelte";
 	import { codeReauth } from "$lib/stores/codeReauth.svelte";
@@ -96,7 +97,7 @@
 	{:else if codeReauth.required}
 		<CodeReauthCard />
 	{:else}
-		{#key `${selectedDeviceId ?? ""}:${selectedAgentId ?? ""}`}
+		{#key `${selectedDeviceId ?? ""}:${selectedWorkspaceId ?? ""}:${selectedAgentId ?? ""}`}
 			{#if selectedAgentId && selectedDeviceId}
 				<AgentView
 					deviceId={selectedDeviceId}
@@ -121,6 +122,10 @@
 						</div>
 					</div>
 				</div>
+			{:else if selectedDeviceId && selectedWorkspaceId && selected?.status === "paired"}
+				<!-- A workspace with no session open: New session, its sessions, and
+				     its Terminal and Files (no session needed). -->
+				<WorkspaceScreen deviceId={selectedDeviceId} workspaceId={selectedWorkspaceId} />
 			{:else}
 				<!-- The empty state is deliberately small and generously
 				     surrounded: a faint dashed box adrift in the pane reads as

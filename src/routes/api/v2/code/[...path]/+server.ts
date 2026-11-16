@@ -27,6 +27,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { error, type RequestHandler } from "@sveltejs/kit";
 import { z } from "zod";
 import { recordCodeAudit } from "$lib/server/code/audit";
+import { MAX_ATTACHMENT_BYTES } from "$lib/constants/mime";
 import {
 	codeFileWriteEnabled,
 	codeFilesEnabled,
@@ -88,11 +89,14 @@ const RULES: Array<{ method: "GET" | "POST" | "DELETE"; pattern: RegExp }> = [
 	{ method: "GET", pattern: new RegExp(`^v1/workspaces/${ID}/agents$`) },
 	{
 		method: "GET",
-		pattern: new RegExp(`^v1/workspaces/${ID}/files(/(stat|content|raw|status))?$`),
+		pattern: new RegExp(`^v1/workspaces/${ID}/files(/(stat|content|raw|status|download))?$`),
 	},
 	// The editor's save (files.write, §9.3): behind the explorer's switch,
 	// the deployment's write switch, the machine's policy and its capability.
 	{ method: "POST", pattern: new RegExp(`^v1/workspaces/${ID}/files/content$`) },
+	// The file browser's upload (files.upload, §9.3): same gates, plus its own
+	// capability. Multipart, one file per request.
+	{ method: "POST", pattern: new RegExp(`^v1/workspaces/${ID}/files/upload$`) },
 	{ method: "GET", pattern: new RegExp(`^v1/workspaces/${ID}/terminals$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/workspaces/${ID}/terminals$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/terminals/${ID}/name$`) },
@@ -305,14 +309,14 @@ async function requireTerminalAllowed(
 const MAX_FILE_WRITE_BYTES = 1024 * 1024;
 
 const FILE_WRITE_VETO_NOTE =
-	"This machine was enrolled without --allow-file-write: re-enroll it with that flag to save files here.";
+	"Saving files is off on this machine: run `galopin policy set --allow-file-write` on it (or re-enroll without --no-file-write) to save files here.";
 
 /**
  * Saving a file (PROTOCOL.md §9.3 `files.write`) is live only when all three
  * hold: the deployment switch (`CODE_FILE_WRITE_ENABLED`, on with the
  * explorer unless set to `false`: 404 like the explorer's own), this galopin
  * implementing it (`hello.machine.capabilities.fileWrite`), and the machine's
- * policy (`fileWrite`, denied unless enrolled with `--allow-file-write`). The
+ * policy (`fileWrite`, allowed unless `--no-file-write`). The
  * last two answer 403 with the fix and are audited as refusals; galopin
  * checks its policy again on its side.
  */
@@ -328,7 +332,7 @@ async function requireFileWriteAllowed(
 		await recordCodeAudit(event, { action: "files.write.refused", deviceId, workspaceId });
 		error(
 			403,
-			"This machine was enrolled with --no-files: re-enroll it without that flag, and with --allow-file-write, to save files here."
+			"This machine was enrolled with --no-files: re-enroll it without that flag to save files here."
 		);
 	}
 	if (device.machine?.capabilities.fileWrite !== true) {
@@ -436,7 +440,7 @@ export const GET: RequestHandler = async (event) => {
 	// behind the deployment switch and the machine's own policy (checked
 	// here first, and again by galopin), confined to the workspace there.
 	const filesMatch = new RegExp(
-		`^v1/workspaces/(${ID})/files(?:/(stat|content|raw|status))?$`
+		`^v1/workspaces/(${ID})/files(?:/(stat|content|raw|status|download))?$`
 	).exec(path);
 	if (filesMatch) {
 		if (!codeFilesEnabled()) error(404, "The file explorer is not turned on here.");
@@ -479,6 +483,62 @@ export const GET: RequestHandler = async (event) => {
 					read.kind === "image" ? { ...read, content: undefined, encoding: "none" } : read,
 					{ headers: { "Cache-Control": "private, no-store" } }
 				);
+			}
+			case "download": {
+				// Any file's bytes, as a download: owner-only, files on (reading is
+				// enough, not fileWrite), the deny list and the workspace root
+				// enforced by galopin, which also refuses a file over 100 MiB.
+				if (device.machine?.capabilities.fileDownload !== true) {
+					await recordCodeAudit(event, { action: "files.download.refused", deviceId, workspaceId });
+					error(
+						403,
+						"galopin on this computer cannot send downloads yet: update it to download files here."
+					);
+				}
+				const first = await callOp(() =>
+					link.filesDownload({ workspaceId, path: relPath, offset: 0 })
+				);
+				await recordCodeAudit(event, {
+					action: "files.download",
+					deviceId,
+					workspaceId,
+					path: relPath,
+					bytes: first.size,
+				});
+				let chunk = first;
+				let sent = false;
+				const stream = new ReadableStream<Uint8Array>({
+					async pull(controller) {
+						try {
+							if (sent) {
+								const next = await link.filesDownload({
+									workspaceId,
+									path: relPath,
+									offset: chunk.offset + chunk.length,
+								});
+								// The file changed under the download: stop, never splice versions.
+								if (next.revision !== first.revision) throw new Error("changed on disk");
+								chunk = next;
+							}
+							sent = true;
+							if (chunk.content) controller.enqueue(Buffer.from(chunk.content, "base64"));
+							if (chunk.eof || chunk.length === 0) controller.close();
+						} catch (err) {
+							controller.error(err);
+						}
+					},
+				});
+				const name = relPath.split("/").pop() || "download";
+				return new Response(stream, {
+					headers: {
+						"content-type": downloadContentType(first.mime),
+						"content-disposition": contentDisposition(name),
+						"content-length": String(first.size),
+						"x-content-type-options": "nosniff",
+						"content-security-policy": "sandbox; default-src 'none'",
+						"cache-control": "private, no-store",
+					},
+				});
 			}
 			case "raw": {
 				const read = await callOp(() => link.filesRead({ workspaceId, path: relPath }));
@@ -832,6 +892,24 @@ const titleSchema = z.object({
 const cancelSchema = z.unknown();
 
 /** The only types the raw file route serves inline. */
+/** A download is never rendered by this origin: raster images and plain text
+ * keep their type (the attachment disposition still saves them), everything
+ * else, scripts and HTML and SVG included, is an opaque byte stream. */
+function downloadContentType(mime: string): string {
+	return RAW_IMAGE_TYPES.has(mime) || mime.split(";")[0] === "text/plain"
+		? mime
+		: "application/octet-stream";
+}
+
+/** `attachment` with an ASCII fallback and the RFC 5987 UTF-8 name. */
+function contentDisposition(name: string): string {
+	const ascii = name.replace(/[^\x20-\x7e]|["\\%;]/g, "_");
+	return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name).replace(
+		/['()*]/g,
+		(c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`
+	)}`;
+}
+
 const RAW_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
 /** The blanket for one session. Anything but one of the three words is a 400
@@ -921,8 +999,9 @@ const fileWriteSchema = z.object({
 
 export const POST: RequestHandler = async (event) => {
 	await requireCodeAgents(event.locals);
-	requireJsonBody(event.request);
 	const path = event.params.path ?? "";
+	const isUpload = new RegExp(`^v1/workspaces/${ID}/files/upload$`).test(path);
+	if (!isUpload) requireJsonBody(event.request);
 	const method = "POST";
 	if (!RULES.some((rule) => rule.method === method && rule.pattern.test(path))) {
 		error(404, "Not available through this endpoint.");
@@ -930,6 +1009,64 @@ export const POST: RequestHandler = async (event) => {
 	const device = await getPairedDevice(event.locals, event.url.searchParams.get("device"));
 	const deviceId = device._id.toString();
 	const link = new MachineLink(deviceId);
+
+	// The file browser's upload (§9.3): the same rules as a save, one file per
+	// request, any type up to the attachment cap. The audit row has the folder,
+	// name and size, never the content.
+	const uploadMatch = new RegExp(`^v1/workspaces/(${ID})/files/upload$`).exec(path);
+	if (uploadMatch) {
+		const workspaceId = decodeURIComponent(uploadMatch[1]);
+		await requireFileWriteAllowed(event, device, deviceId, workspaceId);
+		if (device.machine?.capabilities.fileUpload !== true) {
+			await recordCodeAudit(event, { action: "files.upload.refused", deviceId, workspaceId });
+			error(
+				403,
+				"galopin on this computer cannot take uploads yet: update it to upload files here."
+			);
+		}
+		const form = await event.request
+			.formData()
+			.catch(() => error(400, "Expected a multipart form."));
+		const file = form.get("file");
+		const dir = form.get("dir");
+		const name = form.get("name");
+		if (!(file instanceof File) || typeof name !== "string" || name === "") {
+			error(400, "Expected a file and its name.");
+		}
+		if (file.size > MAX_ATTACHMENT_BYTES) {
+			error(413, `File too large, should be <${MAX_ATTACHMENT_BYTES / 1024 / 1024}MB`);
+		}
+		const overwrite = form.get("overwrite") === "true";
+		const folder = typeof dir === "string" && dir !== "" ? dir : ".";
+		const audit = (outcome: string) =>
+			recordCodeAudit(event, {
+				action: "files.upload",
+				deviceId,
+				workspaceId,
+				path: folder === "." ? name : `${folder}/${name}`,
+				bytes: file.size,
+				outcome,
+			});
+		try {
+			const { entry } = await link.filesUpload({
+				workspaceId,
+				dir: folder,
+				name,
+				content: Buffer.from(await file.arrayBuffer()).toString("base64"),
+				overwrite,
+			});
+			await audit("ok");
+			return superjsonResponse({ entry }, { headers: { "Cache-Control": "private, no-store" } });
+		} catch (err) {
+			if (!(err instanceof OpError)) throw err;
+			await audit(err.code);
+			if (err.code === "conflict") {
+				return superjsonResponse({ code: "conflict", message: err.message }, { status: 409 });
+			}
+			return callOp(() => Promise.reject(err));
+		}
+	}
+
 	const body = await readJson(event.request);
 
 	// The editor's save (§9.3). A conflict answers 409 with the revision now on

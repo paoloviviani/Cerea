@@ -13,7 +13,8 @@
 	import IconDocument from "~icons/carbon/document";
 	import IconLink from "~icons/carbon/link";
 	import IconLocked from "~icons/carbon/locked";
-	import { listWorkspaceFiles } from "$lib/codeApi";
+	import IconDownload from "~icons/carbon/download";
+	import { listWorkspaceFiles, workspaceFileDownloadUrl } from "$lib/codeApi";
 	import type { FileEntry } from "$lib/types/machineProtocol";
 	import type { GitBadge } from "$lib/utils/codeFiles";
 
@@ -28,10 +29,24 @@
 		/** Bumped by the pane to re-read every open directory. */
 		refreshKey: number;
 		onselect: (entry: FileEntry) => void;
+		/** A folder row was clicked: the file browser uploads into the last one. */
+		ondir?: (path: string) => void;
+		/** Each file has a Download link (the galopin has `fileDownload`). */
+		downloadable?: boolean;
 	}
 
-	let { deviceId, workspaceId, path, depth, badges, selected, refreshKey, onselect }: Props =
-		$props();
+	let {
+		deviceId,
+		workspaceId,
+		path,
+		depth,
+		badges,
+		selected,
+		refreshKey,
+		onselect,
+		ondir,
+		downloadable = false,
+	}: Props = $props();
 
 	let entries = $state<FileEntry[] | null>(null);
 	let truncated = $state(false);
@@ -63,6 +78,7 @@
 
 	function toggle(entry: FileEntry) {
 		expanded = { ...expanded, [entry.path]: !expanded[entry.path] };
+		ondir?.(entry.path);
 	}
 </script>
 
@@ -88,43 +104,62 @@
 				aria-expanded={isDir ? open : undefined}
 				aria-selected={selected === entry.path}
 			>
-				<button
-					type="button"
-					class="flex h-6 w-full items-center gap-1.5 rounded-md pr-2 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700/60 {selected ===
-					entry.path
-						? 'bg-gray-100 dark:bg-gray-700/60'
-						: ''} {entry.ignored ? 'opacity-50' : ''}"
-					style="padding-left: {depth * 12 + 8}px"
-					title={entry.redacted
-						? m["code.file_tree.redacted"]()
-						: entry.symlink?.escapes
-							? m["code.file_tree.symlink_escapes"]({ target: entry.symlink.target })
-							: entry.path}
-					onclick={() => (isDir ? toggle(entry) : onselect(entry))}
-				>
-					{#if isDir}
-						{#if open}<IconFolderOpen class="size-3.5 shrink-0 text-gray-500" />{:else}<IconFolder
-								class="size-3.5 shrink-0 text-gray-500"
-							/>{/if}
-					{:else if entry.type === "symlink"}
-						<IconLink class="size-3.5 shrink-0 text-gray-500" />
-					{:else}
-						<IconDocument class="size-3.5 shrink-0 text-gray-400" />
-					{/if}
-					<span class="min-w-0 flex-1 truncate text-gray-800 dark:text-gray-200">{entry.name}</span>
-					{#if entry.redacted}
-						<IconLocked
-							class="size-3 shrink-0 text-gray-500"
-							aria-label={m["code.file_tree.redacted"]()}
-						/>
-					{/if}
-					{#if badge}
-						<span
-							class="shrink-0 font-mono text-[10px] font-semibold {badgeClass[badge]}"
-							data-testid="git-badge">{badge === "?" ? "U" : badge === "U" ? "!" : badge}</span
+				<div class="group relative">
+					<button
+						type="button"
+						class="flex h-6 w-full items-center gap-1.5 rounded-md pr-2 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700/60 {downloadable &&
+						entry.type === 'file' &&
+						!entry.redacted
+							? 'pr-7'
+							: ''} {selected === entry.path
+							? 'bg-gray-100 dark:bg-gray-700/60'
+							: ''} {entry.ignored ? 'opacity-50' : ''}"
+						style="padding-left: {depth * 12 + 8}px"
+						title={entry.redacted
+							? m["code.file_tree.redacted"]()
+							: entry.symlink?.escapes
+								? m["code.file_tree.symlink_escapes"]({ target: entry.symlink.target })
+								: entry.path}
+						onclick={() => (isDir ? toggle(entry) : onselect(entry))}
+					>
+						{#if isDir}
+							{#if open}<IconFolderOpen class="size-3.5 shrink-0 text-gray-500" />{:else}<IconFolder
+									class="size-3.5 shrink-0 text-gray-500"
+								/>{/if}
+						{:else if entry.type === "symlink"}
+							<IconLink class="size-3.5 shrink-0 text-gray-500" />
+						{:else}
+							<IconDocument class="size-3.5 shrink-0 text-gray-400" />
+						{/if}
+						<span class="min-w-0 flex-1 truncate text-gray-800 dark:text-gray-200"
+							>{entry.name}</span
 						>
+						{#if entry.redacted}
+							<IconLocked
+								class="size-3 shrink-0 text-gray-500"
+								aria-label={m["code.file_tree.redacted"]()}
+							/>
+						{/if}
+						{#if badge}
+							<span
+								class="shrink-0 font-mono text-[10px] font-semibold {badgeClass[badge]}"
+								data-testid="git-badge">{badge === "?" ? "U" : badge === "U" ? "!" : badge}</span
+							>
+						{/if}
+					</button>
+					{#if downloadable && entry.type === "file" && !entry.redacted}
+						<a
+							href={workspaceFileDownloadUrl(deviceId, workspaceId, entry.path)}
+							download={entry.name}
+							class="absolute top-0.5 right-1 flex size-5 items-center justify-center rounded-md text-gray-500 hover:bg-gray-200 hover:text-gray-800 focus:opacity-100 max-sm:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 dark:hover:bg-gray-600"
+							title={m["code.files.download_title"]({ name: entry.name })}
+							aria-label={m["code.files.download_title"]({ name: entry.name })}
+							data-testid="file-download"
+						>
+							<IconDownload class="size-3.5" />
+						</a>
 					{/if}
-				</button>
+				</div>
 				{#if open}
 					<Self
 						{deviceId}
@@ -135,6 +170,8 @@
 						{selected}
 						{refreshKey}
 						{onselect}
+						{ondir}
+						{downloadable}
 					/>
 				{/if}
 			</li>

@@ -549,6 +549,10 @@ services:
       # link (galopin enroll --connectors-only). On by default in the kit; independent of
       # CODE_AGENTS_ENABLED. Exactly "true" turns it on.
       LOCAL_CONNECTORS_ENABLED: ${LOCAL_CONNECTORS_ENABLED:-true}
+      # The /code file browser and its editor: both on unless exactly "false"
+      # (the kill switches; each computer can still refuse them on its own).
+      CODE_FILES_ENABLED: ${CODE_FILES_ENABLED:-}
+      CODE_FILE_WRITE_ENABLED: ${CODE_FILE_WRITE_ENABLED:-}
       # The browser terminal in /code: off unless exactly "true", and even then
       # only for machines enrolled with --allow-terminal.
       CODE_TERMINAL_ENABLED: ${CODE_TERMINAL_ENABLED:-}

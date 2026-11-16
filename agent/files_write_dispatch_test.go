@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -48,8 +50,8 @@ func TestFilesWriteIsDeniedByDefault(t *testing.T) {
 	mc, wsID, dir, auditPath := writeMachine(t, policy.Default())
 	base := revisionOf(t, mc, wsID, "main.go")
 	_, operr := mc.Handle(context.Background(), "files.write", writeArgs(wsID, "main.go", "package other\n", &base))
-	if operr == nil || operr.Code != "forbidden" || !strings.Contains(operr.Message, "--allow-file-write") {
-		t.Fatalf("files.write = %+v, want forbidden naming --allow-file-write", operr)
+	if operr == nil || operr.Code != "forbidden" || !strings.Contains(operr.Message, "policy set --allow-file-write") {
+		t.Fatalf("files.write = %+v, want forbidden naming policy set --allow-file-write", operr)
 	}
 	if got, _ := os.ReadFile(filepath.Join(dir, "main.go")); string(got) != "package main\n" {
 		t.Errorf("main.go was written: %q", got)
@@ -142,5 +144,81 @@ func TestFilesWriteSavesAndAuditsWithoutContent(t *testing.T) {
 	}
 	if strings.Contains(string(log), "SENTINEL") || strings.Contains(string(log), "package") {
 		t.Errorf("the audit log carries file content: %s", log)
+	}
+}
+
+func uploadArgs(wsID, dir, name string, content []byte, overwrite bool) json.RawMessage {
+	body, _ := json.Marshal(map[string]any{
+		"workspaceId": wsID, "dir": dir, "name": name,
+		"content": base64.StdEncoding.EncodeToString(content), "overwrite": overwrite,
+	})
+	return body
+}
+
+func TestFilesUploadOp(t *testing.T) {
+	mc, wsID, dir, auditPath := writeMachine(t, freshEnrollPolicy())
+	data := []byte{0, 1, 2, 255, 254}
+	if _, operr := mc.Handle(context.Background(), "files.upload", uploadArgs(wsID, ".", "pic.bin", data, false)); operr != nil {
+		t.Fatalf("upload: %+v", operr)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dir, "pic.bin")); !bytes.Equal(got, data) {
+		t.Errorf("bytes = %v", got)
+	}
+	_, operr := mc.Handle(context.Background(), "files.upload", uploadArgs(wsID, ".", "pic.bin", []byte("n"), false))
+	if operr == nil || operr.Code != "conflict" {
+		t.Fatalf("existing = %+v, want conflict", operr)
+	}
+	if _, operr := mc.Handle(context.Background(), "files.upload", uploadArgs(wsID, ".", "pic.bin", []byte("n"), true)); operr != nil {
+		t.Fatalf("overwrite: %+v", operr)
+	}
+	_, operr = mc.Handle(context.Background(), "files.upload", uploadArgs(wsID, "../x", "a", []byte("n"), true))
+	if operr == nil || operr.Code != "invalid" {
+		t.Errorf("escape = %+v, want invalid", operr)
+	}
+	log, _ := os.ReadFile(auditPath)
+	if !strings.Contains(string(log), `"action":"files.upload"`) || strings.Contains(string(log), "AQID") {
+		t.Errorf("audit = %s", log)
+	}
+}
+
+func TestFilesUploadIsRefusedWithoutFileWrite(t *testing.T) {
+	denied := freshEnrollPolicy()
+	denied.FileWrite = policy.FileWriteDenied
+	mc, wsID, dir, _ := writeMachine(t, denied)
+	_, operr := mc.Handle(context.Background(), "files.upload", uploadArgs(wsID, ".", "x.bin", []byte("x"), false))
+	if operr == nil || operr.Code != "forbidden" {
+		t.Fatalf("upload with fileWrite denied = %+v, want forbidden", operr)
+	}
+	off := freshEnrollPolicy()
+	off.Files = policy.FilesOff
+	mc2, ws2, _, _ := writeMachine(t, off)
+	if _, operr := mc2.Handle(context.Background(), "files.upload", uploadArgs(ws2, ".", "x.bin", []byte("x"), false)); operr == nil || operr.Code != "forbidden" {
+		t.Fatalf("upload with files off = %+v", operr)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "x.bin")); err == nil {
+		t.Error("a refused upload wrote a file")
+	}
+}
+
+func TestFilesDownloadOpNeedsFilesNotFileWrite(t *testing.T) {
+	ro := freshEnrollPolicy()
+	ro.FileWrite = policy.FileWriteDenied
+	mc, wsID, dir, _ := writeMachine(t, ro)
+	data := []byte{0, 1, 2, 255}
+	if err := os.WriteFile(filepath.Join(dir, "x.bin"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, operr := mc.Handle(context.Background(), "files.download", json.RawMessage(`{"workspaceId":"`+wsID+`","path":"x.bin"}`))
+	if operr != nil {
+		t.Fatalf("download with fileWrite off: %+v", operr)
+	}
+	if got, _ := base64.StdEncoding.DecodeString(res.(files.ReadResult).Content); !bytes.Equal(got, data) {
+		t.Errorf("bytes = %v", got)
+	}
+	off := freshEnrollPolicy()
+	off.Files = policy.FilesOff
+	mc2, ws2, _, _ := writeMachine(t, off)
+	if _, operr := mc2.Handle(context.Background(), "files.download", json.RawMessage(`{"workspaceId":"`+ws2+`","path":"x.bin"}`)); operr == nil || operr.Code != "forbidden" {
+		t.Errorf("download with files off = %+v", operr)
 	}
 }

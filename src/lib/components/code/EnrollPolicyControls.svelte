@@ -283,8 +283,7 @@
 				"allowFileWrite",
 				"enroll-allow-file-write",
 				m["code.enroll.file_write_label"](),
-				m["code.enroll.file_write_text"](),
-				true
+				m["code.enroll.file_write_text"]()
 			)}
 			{@render listField(
 				"enroll-file-deny",
