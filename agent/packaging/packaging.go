@@ -24,3 +24,17 @@ var gooseVersion string
 // from the goose-version file; goose-sha256 beside it records the archives'
 // checksums, which upstream does not publish. Written only by bump-goose.sh.
 func GooseVersion() string { return strings.TrimSpace(gooseVersion) }
+
+//go:embed galopin.service
+var systemdUnit string
+
+// SystemdUnit is the user unit galopin.service, the template `galopin service
+// install` renders (and the file a manual install copies).
+func SystemdUnit() string { return systemdUnit }
+
+//go:embed org.cerea.galopin.plist
+var launchdPlist string
+
+// LaunchdPlist is the LaunchAgent org.cerea.galopin.plist, the template
+// `galopin service install` renders (and the file a manual install copies).
+func LaunchdPlist() string { return launchdPlist }

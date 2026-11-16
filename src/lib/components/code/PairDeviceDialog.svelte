@@ -36,9 +36,14 @@
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 	import {
 		buildDockerCommand,
+		buildDockerDetachedCommand,
+		buildDockerDetachedUndo,
 		buildEnrollCommand,
 		cleanContainerName,
 		DEFAULT_CONTAINER_NAME,
+		KEEP_RUNNING_INSTALL,
+		KEEP_RUNNING_LINGER,
+		KEEP_RUNNING_UNINSTALL,
 	} from "$lib/codeEnrollCommand";
 	import { APP_VERSION } from "$lib/utils/appVersion";
 	import { buildUpgradeCommand, galopinNeedsUpgrade } from "$lib/galopinUpgrade";
@@ -109,6 +114,21 @@
 	const explicitCommand = $derived(
 		buildEnrollCommand({ ...enrollOptions, installOpencode, explicit: true })
 	);
+	// Step 3, "Keep it running": which OS the service command is explained for. Both print the same
+	// command; the Linux one adds the linger hint, the macOS one names the log.
+	let keepOs = $state<"linux" | "macos">(
+		typeof navigator !== "undefined" && /mac/i.test(navigator.platform ?? "") ? "macos" : "linux"
+	);
+	// i18n: literal (a file path)
+	const MACOS_LOG = "~/Library/Logs/galopin.log";
+	const keepOsOptions = [
+		{ value: "linux", label: m["code.pair.keep_os_linux"]() },
+		{ value: "macos", label: m["code.pair.keep_os_macos"]() },
+	];
+	const detachedCommand = $derived(
+		buildDockerDetachedCommand({ version: APP_VERSION, name: containerName })
+	);
+	const detachedUndo = $derived(buildDockerDetachedUndo(containerName));
 	const downloads = [
 		{ name: "galopin-linux-amd64", label: m["code.pair.platform_linux_amd64"]() },
 		{ name: "galopin-linux-arm64", label: m["code.pair.platform_linux_arm64"]() },
@@ -340,6 +360,75 @@
 				{/each}
 			</ul>
 		{/if}
+
+		<div class="mt-6" data-testid="pair-keep-running">
+			<p class={s.LABEL}>{m["code.pair.keep_label"]()}</p>
+			{#if docker}
+				<p class="mt-1 mb-2 text-xs text-ink-muted">{m["code.pair.keep_docker_text"]()}</p>
+				{#if keepPairing}
+					<div class="mb-2 flex items-center gap-2 rounded-lg border border-line bg-surface p-3">
+						<pre
+							class="min-w-0 flex-1 font-mono text-xs break-all whitespace-pre-wrap text-ink"
+							data-testid="galopin-keep-command">{detachedCommand}</pre>
+						<CopyToClipBoardBtn
+							classNames="flex size-8 shrink-0 items-center justify-center rounded-lg border border-line bg-surface text-ink-muted hover:bg-sunken"
+							value={detachedCommand}
+						/>
+					</div>
+					<p class="text-xs text-ink-muted">
+						{m["code.pair.keep_docker_undo"]()}
+						<code class="font-mono" data-testid="galopin-keep-undo">{detachedUndo}</code>
+					</p>
+				{:else}
+					<p class="text-xs text-ink-muted" data-testid="pair-keep-docker-volume">
+						{m["code.pair.keep_docker_volume"]()}
+					</p>
+				{/if}
+			{:else}
+				<p class="mt-1 mb-2 text-xs text-ink-muted">{m["code.pair.keep_text"]()}</p>
+				<div class="mb-2">
+					<SegmentedGroup
+						label={m["code.pair.keep_os_label"]()}
+						options={keepOsOptions}
+						value={keepOs}
+						onchange={(value) => (keepOs = value === "macos" ? "macos" : "linux")}
+					/>
+				</div>
+				<div class="mb-2 flex items-center gap-2 rounded-lg border border-line bg-surface p-3">
+					<pre
+						class="min-w-0 flex-1 font-mono text-xs break-all whitespace-pre-wrap text-ink"
+						data-testid="galopin-keep-command">{KEEP_RUNNING_INSTALL}</pre>
+					<CopyToClipBoardBtn
+						classNames="flex size-8 shrink-0 items-center justify-center rounded-lg border border-line bg-surface text-ink-muted hover:bg-sunken"
+						value={KEEP_RUNNING_INSTALL}
+					/>
+				</div>
+				<p class="mb-2 text-xs text-ink-muted">
+					{m["code.pair.keep_undo"]()}
+					<code class="font-mono" data-testid="galopin-keep-undo">{KEEP_RUNNING_UNINSTALL}</code>
+				</p>
+				{#if keepOs === "linux"}
+					<div class="text-xs text-ink-muted" data-testid="pair-keep-linger">
+						<p class="mb-1">{m["code.pair.keep_linux_note"]()}</p>
+						<div class="flex items-center gap-2 rounded-lg border border-line bg-surface p-3">
+							<pre
+								class="min-w-0 flex-1 font-mono text-xs break-all whitespace-pre-wrap text-ink"
+								data-testid="galopin-keep-linger">{KEEP_RUNNING_LINGER}</pre>
+							<CopyToClipBoardBtn
+								classNames="flex size-8 shrink-0 items-center justify-center rounded-lg border border-line bg-surface text-ink-muted hover:bg-sunken"
+								value={KEEP_RUNNING_LINGER}
+							/>
+						</div>
+					</div>
+				{:else}
+					<p class="text-xs text-ink-muted" data-testid="pair-keep-macos">
+						{m["code.pair.keep_macos_note"]()}
+						<code class="font-mono">{MACOS_LOG}</code>.
+					</p>
+				{/if}
+				<p class="mt-2 text-xs text-ink-muted">{m["code.pair.keep_needs_new"]()}</p>
+			{/if}
+		</div>
 
 		<div class={s.SHEET_FOOTER}>
 			<button type="button" onclick={onclose} class={s.SECONDARY}>{m["code.pair.close"]()}</button>

@@ -1529,7 +1529,41 @@ The command is `launch <tool>` so other tools can follow; only opencode exists.
 
 ### Keeping it running
 
-**Linux**, as a systemd user service, so galopin starts at boot, restarts if it
+`galopin run` stops when its terminal closes. One command keeps it going: start at
+login, restart if it stops. It is the last step of the **Pair a computer** dialog,
+and you can run it any time after pairing:
+
+```sh
+galopin service install      # write the service, enable it, start it now
+galopin service status       # installed? running? starts at login? where is the log?
+galopin service uninstall    # stop it and remove the service
+```
+
+It runs **this** galopin binary as `galopin run`. To run with other options (an
+ACP engine, a machine name), pass them after `--`:
+`galopin service install -- --backend acp --acp-command "my-agent acp" --machine-name build-box`.
+Running `install` again updates the service and restarts it.
+
+- **Linux**: a systemd user unit, `~/.config/systemd/user/galopin.service`, enabled
+  and started with `systemctl --user`. It does not run while nobody is logged in
+  unless lingering is on; `install` checks and, if it is off, prints the one
+  command to run (`loginctl enable-linger "$USER"`, which may need sudo; galopin
+  never runs sudo). Log: `journalctl --user -u galopin -f`.
+- **macOS**: a LaunchAgent, `~/Library/LaunchAgents/org.cerea.galopin.plist`, loaded
+  with `launchctl`. Log: `~/Library/Logs/galopin.log`. Not for a Mac with the Cerea
+  connector app, which already keeps galopin running.
+- **Windows**: there is no Windows build of galopin; use WSL and run this there.
+- **Containers**: no service. Run the container detached,
+  `docker run -d --restart unless-stopped …` (the dialog prints it).
+- **Updating**: `galopin upgrade` and `install.sh --upgrade` stop the systemd
+  service and start it again on Linux. On macOS, run `galopin service uninstall`,
+  upgrade, then `galopin service install`.
+
+The commands need a galopin from the Cerea that added them: update galopin first on
+an older computer. To set it up by hand, or where `galopin service` does not fit,
+the manual way follows.
+
+**By hand, Linux**, as a systemd user service, so galopin starts at boot, restarts if it
 crashes, and keeps running after you log out. Run these as the user that
 enrolled the computer (not root), once `galopin run` works in a terminal:
 
@@ -1589,7 +1623,7 @@ dialog), restart the service so it runs the new binary:
 session has no user bus. Log in again, or run
 `export XDG_RUNTIME_DIR=/run/user/$(id -u)` first.
 
-**macOS**, as a LaunchAgent:
+**By hand, macOS**, as a LaunchAgent:
 
 ```sh
 sed "s/USER/$USER/g" org.cerea.galopin.plist > ~/Library/LaunchAgents/org.cerea.galopin.plist
@@ -1663,7 +1697,7 @@ Linux (or `$XDG_CONFIG_HOME`), `~/Library/Application Support` on macOS.
    token at the identity provider and clears it (see
    [Removing a computer](#removing-a-computer)). Do this while the computer is
    still on, so it can clean up its own credential.
-2. **Stop and remove the service.**
+2. **Stop and remove the service.** `galopin service uninstall` does it on Linux and macOS; by hand:
    - Linux: `systemctl --user disable --now galopin`, then
      `rm ~/.config/systemd/user/galopin.service` and
      `systemctl --user daemon-reload`. (If you ran `loginctl enable-linger "$USER"`

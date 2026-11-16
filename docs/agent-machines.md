@@ -272,7 +272,21 @@ policy. New panel features that need a newer galopin say so ("update galopin on
 that computer"). Details, including macOS, are in
 [Updating galopin](agent-machines-reference.md#updating-galopin).
 
-To keep galopin running when the terminal closes, see
+## Keep it running
+
+`galopin run` stops when its terminal closes. The last step of the **Pair a
+computer** dialog, **Keep it running**, gives one command for it:
+
+```sh
+~/.local/bin/galopin service install
+```
+
+It starts galopin when you log in and restarts it if it stops. To undo it, run
+`galopin service uninstall`; `galopin service status` shows whether it runs and
+where its log is. On a Linux server that should keep running with nobody logged
+in, also run `loginctl enable-linger "$USER"` (it may need sudo). In Docker the
+dialog prints `docker run -d --restart unless-stopped …` instead. A galopin
+from before this command needs updating first. Details:
 [Keeping it running](agent-machines-reference.md#keeping-it-running).
 
 ## Upgrading galopin

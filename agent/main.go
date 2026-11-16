@@ -48,6 +48,8 @@ Commands:
   policy    Show, or locally tighten, this machine's policy.json.
   reset     Return this machine's policy to the defaults (keeps credentials
             and the pairing with Cerea).
+  service   Keep 'galopin run' going: start at login, restart if it stops
+            ('service install|uninstall|status').
   version   Print galopin's version.
   upgrade   Upgrade this galopin (and its engine) from the Cerea it is enrolled
             with, keeping enrollment and settings.
@@ -85,6 +87,8 @@ func main() {
 		err = runConnectors(os.Args[2:])
 	case "browser":
 		err = runBrowser(os.Args[2:])
+	case "service":
+		err = runService(os.Args[2:])
 	case "version", "-v", "--version":
 		fmt.Println(agentVersion)
 		return

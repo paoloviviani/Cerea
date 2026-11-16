@@ -12,6 +12,9 @@ Pins: Cerea `0.54.2` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cere
 `docker compose pull && docker compose up -d`. **On computers:** `curl -fsSL <your-cerea>/galopin/install.sh | sh -s -- --upgrade` for the ACP improvements (Claude Code and other ACP agents).
 
 - **The ACP backend covers the current Agent Client Protocol, so Claude Code (`claude-agent-acp`) works end to end.** Sessions started outside Cerea, such as in the Claude Code terminal, are listed (paged) and open with their history; opening a very large session no longer floods the link or breaks the view (the replay is quiet, tool calls are always named, and the history is served in pages, newest first). Mode and model selectors follow the agent's config options; the context meter and cost read the agent's usage updates; attachments follow the agent's prompt capabilities (images, embedded files); deleting a session also removes it from the agent's list; a cancelled turn ends quietly and a turn stopped by a token or request limit says so. docs/agent-machines-reference.md has a "Running Claude Code over ACP" section.
+## Unreleased
+
+- **The Pair a computer dialog helps keep galopin running.** A third step, **Keep it running**, prints `galopin service install` (a systemd user service on Linux, a LaunchAgent on macOS): galopin starts at login and restarts if it stops. `galopin service status` and `galopin service uninstall` show and undo it; flags for `run` go after `--` to keep an engine or machine name. On Linux the dialog also shows the `loginctl enable-linger` line for servers; for Docker it prints the detached `docker run -d --restart unless-stopped` form after the interactive sign-in run. **On computers:** update galopin first (`curl -fsSL <your-cerea>/galopin/install.sh | sh -s -- --upgrade`), because the command is new in galopin.
 
 ## v0.54.1 — 2026-11-16
 

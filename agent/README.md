@@ -249,8 +249,21 @@ whether the refresh credential is present, whether the shim last saw the
 credential permanently refused (its `status.json` verdict), and whether the
 machine is revoked.
 
-To keep `run` up, install it as a systemd user unit (Linux) or a
-LaunchAgent (macOS). The files are `packaging/galopin.service` and
+To keep `run` up (start at login, restart if it stops), let galopin install it:
+
+```sh
+galopin service install      # systemd user unit (Linux) or LaunchAgent (macOS)
+galopin service status
+galopin service uninstall
+```
+
+It runs this binary as `galopin run`; flags after `--` go to `run`
+(`galopin service install -- --backend acp --acp-command "my-agent acp"`). Run
+again, it updates the service and restarts it. On Linux it prints the one
+command to keep it running after logout when lingering is off
+(`loginctl enable-linger "$USER"`). Containers and Windows get no service.
+
+By hand, the files are `packaging/galopin.service` and
 `packaging/org.cerea.galopin.plist`, and each says how to install it in its
 header comment:
 
