@@ -509,6 +509,13 @@ export class Database {
 			.catch((e) =>
 				logger.error(e, "Error creating index for conversations by userId, updatedAt and title")
 			);
+		// The Archived tab on /chats: only archived chats are in it, newest first.
+		conversations
+			.createIndex(
+				{ userId: 1, archivedAt: -1 },
+				{ partialFilterExpression: { archivedAt: { $type: "date" } } }
+			)
+			.catch((e) => logger.error(e, "Error creating index for conversations by archivedAt"));
 		// Message-content search on /chats (`$text`). Built once at startup, in
 		// the background (MongoDB 4.2+ builds without blocking reads and writes):
 		// minutes on a large install, and until it finishes the search answers

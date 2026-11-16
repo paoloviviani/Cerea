@@ -23,6 +23,7 @@ const ROWS = [
 interface SeenCall {
 	method: string;
 	url: string;
+	body?: string;
 }
 
 const text = () => document.body.textContent ?? "";
@@ -174,9 +175,10 @@ describe("ChatsList tabs", () => {
 		renderWithApp(ChatsList, {} as never);
 		await vi.waitFor(() => expect(text()).toContain("Budget talk"));
 		const tabs = [...document.body.querySelectorAll('nav[aria-label="Chats sections"] a')];
-		expect(tabs.map((a) => a.textContent?.trim())).toEqual(["Chats", "Artifacts"]);
+		expect(tabs.map((a) => a.textContent?.trim())).toEqual(["Chats", "Artifacts", "Archived"]);
 		expect(tabs[0].getAttribute("aria-current")).toBe("page");
 		expect(tabs[1].getAttribute("href")).toBe("/chats?tab=artifacts");
+		expect(tabs[2].getAttribute("href")).toBe("/chats?tab=archived");
 		expect(document.body.querySelector('[data-testid="artifacts-list"]')).toBeNull();
 	});
 
@@ -217,5 +219,94 @@ describe("ChatsList tabs", () => {
 		expect(document.body.querySelector('[data-testid="chats-list"]')).toBeNull();
 		const tabs = [...document.body.querySelectorAll('nav[aria-label="Chats sections"] a')];
 		expect(tabs[1].getAttribute("aria-current")).toBe("page");
+	});
+});
+
+describe("ChatsList archive", () => {
+	let calls: SeenCall[];
+	let listUrls: string[];
+
+	beforeEach(() => {
+		calls = [];
+		listUrls = [];
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				const method = init?.method ?? "GET";
+				if (url.includes("/api/v2/projects")) return Response.json({ data: [] });
+				if (/\/api\/v2\/conversations\/[^/]+$/.test(url) && method === "PATCH") {
+					calls.push({ method, url, body: String(init?.body) });
+					return new Response(superjson.stringify({ success: true, leftProject: false }));
+				}
+				if (/\/api\/v2\/conversations\/[^/]+$/.test(url) && method === "DELETE") {
+					calls.push({ method, url });
+					return new Response(superjson.stringify({ success: true }));
+				}
+				listUrls.push(url);
+				return new Response(
+					superjson.stringify({
+						conversations: url.includes("archived=1")
+							? [{ ...ROWS[0], archivedAt: new Date().toISOString() }]
+							: ROWS,
+						hasMore: false,
+					})
+				);
+			})
+		);
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		document.body.innerHTML = "";
+		setPage({ url: "/" });
+	});
+
+	it("offers Archive in a chat row's menu; the row leaves at once and the sidebar is told", async () => {
+		const convsStore = newConversationsStore();
+		convsStore.init([
+			{ id: "a1", title: "Budget talk", updatedAt: new Date() },
+			{ id: "a2", title: "Trip plan", updatedAt: new Date() },
+		]);
+		renderWithApp(ChatsList, {} as never, {
+			context: new Map<unknown, unknown>([[CONVERSATIONS_CONTEXT_KEY, convsStore]]),
+		});
+		await vi.waitFor(() => expect(text()).toContain("Budget talk"));
+		expect(listUrls[0]).not.toContain("archived");
+
+		(await menuItem("Budget talk", "Archive")).click();
+		await vi.waitFor(() => expect(calls).toHaveLength(1));
+		expect(calls[0].url).toMatch(/\/api\/v2\/conversations\/a1$/);
+		expect(JSON.parse(calls[0].body as string)).toEqual({ archived: true });
+		await vi.waitFor(() => expect(text()).not.toContain("Budget talk"));
+		expect(text()).toContain("Trip plan");
+		expect(convsStore.list.some((conv) => String(conv.id) === "a1")).toBe(false);
+	});
+
+	it("?tab=archived lists archived chats with Unarchive and Delete, and no Archive", async () => {
+		renderWithApp(ChatsList, {} as never, { page: { url: "/chats?tab=archived" } });
+		await vi.waitFor(() => expect(text()).toContain("Budget talk"));
+		expect(listUrls[0]).toContain("archived=1");
+		expect(text()).toContain("Archived chats");
+		const tabs = [...document.body.querySelectorAll('nav[aria-label="Chats sections"] a')];
+		expect(tabs[2].getAttribute("aria-current")).toBe("page");
+
+		await menuItem("Budget talk", "Unarchive");
+		const names = [...document.body.querySelectorAll('[role="menuitem"]')].map((el) =>
+			el.textContent?.trim()
+		);
+		expect(names).toEqual(["Unarchive", "Delete"]);
+	});
+
+	it("Unarchive sends { archived: false } and takes the row out of the Archived tab", async () => {
+		renderWithApp(ChatsList, {} as never, { page: { url: "/chats?tab=archived" } });
+		await vi.waitFor(() => expect(text()).toContain("Budget talk"));
+		(await menuItem("Budget talk", "Unarchive")).click();
+		await vi.waitFor(() => expect(calls).toHaveLength(1));
+		expect(JSON.parse(calls[0].body as string)).toEqual({
+			archived: false,
+		});
+		await vi.waitFor(() => expect(text()).not.toContain("Budget talk"));
+		expect(text()).toContain("No archived chats");
 	});
 });

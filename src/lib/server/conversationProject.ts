@@ -84,9 +84,10 @@ export async function moveConversationToProject(options: {
 		return { projectId: project._id.toString(), projectName: project.name };
 	}
 
+	// A chat moved into a project is no longer archived: archived chats are in no project.
 	await collections.conversations.updateOne(
 		{ _id: conversation._id },
-		{ $set: { projectId: project._id } }
+		{ $set: { projectId: project._id }, $unset: { archivedAt: "" } }
 	);
 	if (current) {
 		await deleteDerived({ conversationId: conversation._id }).catch((err) =>

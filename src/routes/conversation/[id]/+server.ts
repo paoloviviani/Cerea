@@ -440,6 +440,8 @@ export async function POST({ request, locals, params, getClientAddress }) {
 				// A user message (or a retry, or an answer to a prompt) was just sent.
 				lastActivityAt: new Date(),
 			},
+			// Talking in an archived chat brings it back.
+			$unset: { archivedAt: "" },
 		}
 	);
 
