@@ -185,6 +185,21 @@ export async function setUserList(
 	return { keys, appsToo };
 }
 
+/** Everything a user could list for a session on `deviceId`: Cerea's connectors and that computer's own servers. */
+export async function availableOptions(
+	userId: ObjectId,
+	deviceId: string
+): Promise<AgentConnectorOption[]> {
+	const options = await cereaOptions(userId);
+	if (localConnectorsEnabled()) {
+		const device = await ownedDevice(userId, deviceId);
+		if (device && device.status === "paired") {
+			options.push(...(await computerOptions(device).catch(() => [])));
+		}
+	}
+	return options;
+}
+
 /** What a session on `deviceId` inherits: the user's list, as options (Cerea's and that computer's own). */
 export async function connectorOptions(
 	userId: ObjectId,
@@ -193,13 +208,7 @@ export async function connectorOptions(
 	const { keys } = await getUserList(userId);
 	if (keys.length === 0) return [];
 	const listed = new Set(keys);
-	const options = await cereaOptions(userId);
-	if (localConnectorsEnabled()) {
-		const device = await ownedDevice(userId, deviceId);
-		if (device && device.status === "paired") {
-			options.push(...(await computerOptions(device).catch(() => [])));
-		}
-	}
+	const options = await availableOptions(userId, deviceId);
 	return options.filter((o) => listed.has(o.key)).sort(compareConnectors);
 }
 

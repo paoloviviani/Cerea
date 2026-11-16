@@ -10,7 +10,7 @@ import { z } from "zod";
 import { collections } from "$lib/server/database";
 import { checkOwnedTarget, workspaceNameOn } from "$lib/server/code/agentSessions";
 import { isMachineOnline, MachineLink } from "$lib/server/code/machines";
-import { connectorOptions, MAX_SESSION_CONNECTORS } from "$lib/server/code/sessionConnectors";
+import { availableOptions, MAX_SESSION_CONNECTORS } from "$lib/server/code/sessionConnectors";
 import { OpError, PERMISSION_STEPS } from "$lib/types/machineProtocol";
 import type { ProjectAgentProfile, ProjectAgentProfileInput } from "$lib/types/AgentSession";
 import type { ProjectAgentProfileRow } from "$lib/types/ProjectAgentProfileRow";
@@ -79,11 +79,11 @@ export async function saveProjectAgentProfile(
 		}
 	}
 
-	// Every connector must be one the user could switch on for a session on this machine now.
+	// Every connector must be one the user could list for a session on this machine now.
 	const connectorKeys = [...new Set(input.connectorKeys ?? [])];
 	if (connectorKeys.length > 0) {
 		const allowed = new Set(
-			(await connectorOptions(userId, input.deviceId))
+			(await availableOptions(userId, input.deviceId))
 				.filter((o) => !o.unavailable)
 				.map((o) => o.key)
 		);
