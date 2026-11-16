@@ -84,6 +84,14 @@ export function fileSaveBlock(
 	return null;
 }
 
+/** Whether the file browser offers Download: reading is enough, so only the
+ * galopin's `fileDownload` capability matters. */
+export function fileDownloadAllowed(
+	device: { machine?: { capabilities: { fileDownload?: boolean } } | null } | undefined
+): boolean {
+	return device?.machine?.capabilities.fileDownload === true;
+}
+
 /** Whether the file browser may upload: saving is allowed and this galopin
  * implements `files.upload` (an older one hides the button). */
 export function fileUploadAllowed(

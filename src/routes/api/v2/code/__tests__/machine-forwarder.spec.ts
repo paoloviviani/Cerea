@@ -1707,3 +1707,123 @@ describe("uploading a file (files.upload)", () => {
 		machine.close();
 	});
 });
+
+describe("downloading a file (files.download)", () => {
+	const POLICY = { workspaceRoots: [], allowFreeModels: false };
+	// Reading is enough: fileWrite is denied here on purpose.
+	const READER = {
+		machine: { capabilities: { files: true, fileDownload: true } },
+		policy: { ...POLICY, files: "read" as const, fileWrite: "denied" as const },
+	};
+	const result = (over: Record<string, unknown>) => ({
+		path: "a.bin",
+		revision: "r1",
+		size: 6,
+		offset: 0,
+		length: 3,
+		eof: false,
+		kind: "binary",
+		mime: "application/octet-stream",
+		encoding: "base64",
+		content: Buffer.from([0, 255, 7]).toString("base64"),
+		...over,
+	});
+	function download(deviceId: string, workspaceId: string, path: string, locals = user.locals) {
+		return forwarder(
+			forwarderGET,
+			`/api/v2/code/v1/workspaces/${workspaceId}/files/download?device=${deviceId}&path=${encodeURIComponent(path)}`,
+			{ locals }
+		);
+	}
+
+	it("streams the chunks as one attachment with safe headers, and audits the path and size", async () => {
+		const machine = await connectAndPair(READER);
+		const deviceId = machine.deviceId as string;
+		const { workspace } = await createWorkspace(machine, deviceId);
+		const offsets: number[] = [];
+		machine.onOp("files.download", (args: { offset: number }) => {
+			offsets.push(args.offset);
+			return args.offset === 0
+				? result({})
+				: result({
+						offset: 3,
+						eof: true,
+						content: Buffer.from([1, 2, 3]).toString("base64"),
+					});
+		});
+		const res = await download(deviceId, workspace.id, "dir/ré port.html");
+		expect(res.status).toBe(200);
+		expect(Buffer.from(await res.arrayBuffer())).toEqual(Buffer.from([0, 255, 7, 1, 2, 3]));
+		expect(offsets).toEqual([0, 3]);
+		expect(res.headers.get("content-type")).toBe("application/octet-stream");
+		expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+		expect(res.headers.get("content-length")).toBe("6");
+		const disposition = res.headers.get("content-disposition") ?? "";
+		expect(disposition).toContain("attachment");
+		expect(disposition).toContain("filename*=UTF-8''r%C3%A9%20port.html");
+		const audited = await collections.codeAudit
+			.find({ deviceId: new ObjectId(deviceId) })
+			.toArray();
+		expect(audited.map((a) => [a.action, a.path, a.bytes])).toEqual([
+			["files.download", "dir/ré port.html", 6],
+		]);
+		machine.close();
+	});
+
+	it("maps the machine's refusals (deny list, too large) and never serves a script as itself", async () => {
+		const machine = await connectAndPair(READER);
+		const deviceId = machine.deviceId as string;
+		const { workspace } = await createWorkspace(machine, deviceId);
+		let mode = "deny";
+		machine.onOp("files.download", () => {
+			if (mode === "deny") throw new OpError("forbidden", "hidden by this machine's policy");
+			if (mode === "big") throw new OpError("too_large", "a file is downloaded up to 100 MiB");
+			return result({ mime: "image/svg+xml", eof: true, size: 3 });
+		});
+		expect((await download(deviceId, workspace.id, "id_rsa")).status).toBe(403);
+		mode = "big";
+		expect((await download(deviceId, workspace.id, "huge.iso")).status).toBe(413);
+		mode = "svg";
+		const svg = await download(deviceId, workspace.id, "x.svg");
+		expect(svg.headers.get("content-type")).toBe("application/octet-stream");
+		machine.close();
+	});
+
+	const REFUSED: Array<[string, typeof READER]> = [
+		["files are off", { ...READER, policy: { ...READER.policy, files: "off" as never } }],
+		[
+			"galopin has no fileDownload capability",
+			{ ...READER, machine: { capabilities: { files: true } } as never },
+		],
+	];
+	for (const [label, options] of REFUSED) {
+		it(`is refused, and never reaches the machine, when ${label}`, async () => {
+			const machine = await connectAndPair(options);
+			const deviceId = machine.deviceId as string;
+			const { workspace } = await createWorkspace(machine, deviceId);
+			let forwarded = false;
+			machine.onOp("files.download", () => {
+				forwarded = true;
+				return result({ eof: true });
+			});
+			expect((await download(deviceId, workspace.id, "a.bin")).status).toBe(403);
+			expect(forwarded).toBe(false);
+			machine.close();
+		});
+	}
+
+	it("refuses a device that belongs to a different user", async () => {
+		const machine = await connectAndPair(READER);
+		const deviceId = machine.deviceId as string;
+		const { workspace } = await createWorkspace(machine, deviceId);
+		let forwarded = false;
+		machine.onOp("files.download", () => {
+			forwarded = true;
+			return result({ eof: true });
+		});
+		const other = await createTestUser();
+		expect((await download(deviceId, workspace.id, "a.bin", other.locals)).status).toBe(404);
+		expect(forwarded).toBe(false);
+		machine.close();
+	});
+});

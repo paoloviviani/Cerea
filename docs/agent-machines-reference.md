@@ -362,6 +362,13 @@ file that already exists is replaced only after you confirm "Replace name?"
 (the op refuses `conflict` otherwise). Each upload is audited with the folder,
 name and size, never the content.
 
+**Downloading** needs only that the explorer is on (not `fileWrite`) and a
+galopin that reports `fileDownload`. Cerea streams the file from the computer in
+1 MiB chunks (up to 100 MiB, and it stops if the file changes mid-way) as an
+attachment with a safe content type, never rendered inline; the deny list and
+the workspace confinement apply as for reading, and each download is audited
+with the path and size.
+
 There is no live reload yet: until you save or refresh, the editor does not
 know the file changed. The revision check is what keeps a save from silently
 overwriting an agent's edit. Each save is recorded, with the path and the size

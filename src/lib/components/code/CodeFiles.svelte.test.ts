@@ -42,6 +42,8 @@ vi.mock("$lib/codeApi", () => ({
 	listWorkspaceFiles: apiMock.listWorkspaceFiles,
 	readWorkspaceFile: apiMock.readWorkspaceFile,
 	workspaceFileStatus: apiMock.workspaceFileStatus,
+	workspaceFileDownloadUrl: (_d: string, _w: string, path: string) =>
+		`/api/v2/code/v1/workspaces/ws/files/download?device=d&path=${encodeURIComponent(path)}`,
 	workspaceFileRawUrl: (_deviceId: string, _workspaceId: string, path: string) =>
 		`/api/v2/code/v1/workspaces/ws/files/raw?device=d&path=${encodeURIComponent(path)}`,
 }));
@@ -438,5 +440,47 @@ describe("CodeFiles upload", () => {
 		pick(screen, [big]);
 		await expect.element(screen.getByText("big.iso is over 30 MB.")).toBeVisible();
 		expect(apiMock.uploadWorkspaceFile).not.toHaveBeenCalled();
+	});
+});
+
+describe("CodeFiles download", () => {
+	function mountDownload(downloadable: boolean) {
+		apiMock.listWorkspaceFiles.mockResolvedValue({
+			path: ".",
+			entries: [fileEntry("a.bin")],
+			truncated: false,
+		});
+		apiMock.workspaceFileStatus.mockResolvedValue({ isGitRepo: false, entries: [] });
+		return render(CodeFiles, { deviceId: "d", workspaceId: "ws", downloadable });
+	}
+
+	it("offers a Download link per file, to the download route, only with the capability", async () => {
+		const off = mountDownload(false);
+		await expect.element(off.getByText("a.bin")).toBeVisible();
+		expect(off.getByTestId("file-download").elements()).toHaveLength(0);
+		off.unmount();
+		const on = mountDownload(true);
+		const link = on.getByTestId("file-download");
+		await expect.element(link).toHaveAttribute("download", "a.bin");
+		await expect
+			.element(link)
+			.toHaveAttribute("href", expect.stringContaining("/files/download?device=d&path=a.bin"));
+	});
+
+	it("has a Download button in the open-file view too", async () => {
+		apiMock.readWorkspaceFile.mockResolvedValue({
+			path: "a.bin",
+			revision: "r1",
+			size: 8,
+			offset: 0,
+			length: 0,
+			eof: true,
+			kind: "binary",
+			mime: "application/octet-stream",
+			encoding: "none",
+		});
+		const screen = mountDownload(true);
+		await screen.getByText("a.bin").click();
+		await expect.element(screen.getByTestId("file-download-open")).toBeVisible();
 	});
 });

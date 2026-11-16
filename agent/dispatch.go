@@ -234,7 +234,7 @@ func (mc *machine) Handle(ctx context.Context, op string, args json.RawMessage) 
 	switch op {
 	case "mcp.list", "mcp.open", "mcp.close", "mcp.login", "mcp.loginComplete":
 		return mc.opMcp(ctx, op, args)
-	case "files.list", "files.stat", "files.read", "files.status":
+	case "files.list", "files.stat", "files.read", "files.status", "files.download":
 		return mc.opFiles(ctx, op, args)
 	case "files.write":
 		return mc.opFilesWrite(args)
@@ -1743,6 +1743,8 @@ func (mc *machine) opFiles(ctx context.Context, op string, args json.RawMessage)
 		res = map[string]any{"entry": e}
 	case "files.read":
 		res, err = mc.files.Read(w.Path, a.Path, a.Offset, a.Length, a.As)
+	case "files.download":
+		res, err = mc.files.ReadBytes(w.Path, a.Path, a.Offset, a.Length)
 	case "files.status":
 		res, err = mc.files.Status(ctx, w.Path)
 	}

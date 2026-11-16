@@ -55,7 +55,7 @@
 	import type { Message } from "$lib/types/Message";
 	import { isConversationGenerationActive } from "$lib/utils/generationState";
 	import { agentDisplayTitle } from "$lib/utils/codeAgentTitle";
-	import { fileSaveBlock, fileUploadAllowed } from "$lib/utils/codeFiles";
+	import { fileDownloadAllowed, fileSaveBlock, fileUploadAllowed } from "$lib/utils/codeFiles";
 	import { forkableMessageIds } from "$lib/utils/codeFork";
 	import { shouldShowPendingPlaceholder } from "$lib/utils/pendingPlaceholder";
 	import { consumeAgentUpdates } from "$lib/utils/consumeAgentUpdates";
@@ -1674,6 +1674,7 @@
 					turnKey={filesTurnKey}
 					writable={filesWritable}
 					saveBlocked={fileSaveBlocked}
+					downloadable={fileDownloadAllowed(codeDeviceList.devices.find((d) => d.id === deviceId))}
 					uploadable={fileUploadAllowed(
 						fileSaveBlocked,
 						codeDeviceList.devices.find((d) => d.id === deviceId)

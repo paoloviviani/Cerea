@@ -211,6 +211,8 @@
 	"code.workspace.not_found": "This workspace is no longer on this computer.",
 	"code.workspace.files_label": "Workspace files",
 	"code.workspace.terminal_label": "Workspace terminal",
+	"code.files.download": "Download",
+	"code.files.download_title": "Download {name}",
 	"code.files.upload": "Upload",
 	"code.files.upload_title": "Upload files into {folder}",
 	"code.files.upload_root": "the workspace folder",

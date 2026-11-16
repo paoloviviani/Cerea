@@ -138,6 +138,8 @@ export interface Machine {
 		fileWrite?: boolean;
 		/** `files.upload` works (§9.3): any file into a workspace folder. */
 		fileUpload?: boolean;
+		/** `files.download` works (§9.3): raw bytes of any file, in chunks. */
+		fileDownload?: boolean;
 		terminal?: boolean;
 		/** `profiles.list` / `profiles.set` work (§6 "Delegate profiles"): the
 		 * machine's delegate profiles, editable by its owner. A galopin older
@@ -733,6 +735,7 @@ export const OP_NAMES = [
 	"files.status",
 	"files.write",
 	"files.upload",
+	"files.download",
 	"session.setEffort",
 	"session.unrevert",
 	"backend.modes",

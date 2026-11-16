@@ -47,6 +47,7 @@
 				"fileWatch": false,
 				"fileWrite": true,
 				"fileUpload": true,
+				"fileDownload": true,
 				"terminal": true,
 				"delegateProfiles": true,
 				"mcp": true

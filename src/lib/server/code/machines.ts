@@ -670,6 +670,17 @@ export class MachineLink {
 	}): Promise<{ entry: FileEntry }> {
 		return this.call("files.write", args);
 	}
+	/** The file browser's download (§9.3): up to 1 MiB of raw bytes of any file
+	 * from `offset`, as base64 in `content`; `size` is the whole file (refused
+	 * over 100 MiB) and `eof` ends the loop. */
+	filesDownload(args: {
+		workspaceId: string;
+		path: string;
+		offset: number;
+		length?: number;
+	}): Promise<FilesReadResult> {
+		return this.call("files.download", args);
+	}
 	/** The file browser's upload (§9.3): any bytes (base64) as `name` in the
 	 * workspace folder `dir`, at most 30 MiB. An existing file is replaced only
 	 * with `overwrite`, else `conflict` (details.revision). */

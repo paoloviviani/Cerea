@@ -216,6 +216,8 @@
 	"code.workspace.not_found": "[Ťȟíś ŵóŕķśþáćé íś ńó ľóńǧéŕ óń ťȟíś ćóḿþúťéŕ.]",
 	"code.workspace.files_label": "[Ŵóŕķśþáćé ƒíľéś]",
 	"code.workspace.terminal_label": "[Ŵóŕķśþáćé ťéŕḿíńáľ]",
+	"code.files.download": "[Ďóŵńľóáď]",
+	"code.files.download_title": "[Ďóŵńľóáď {name}]",
 	"code.files.upload": "[Úþľóáď]",
 	"code.files.upload_title": "[Úþľóáď ƒíľéś íńťó {folder}]",
 	"code.files.upload_root": "[ťȟé ŵóŕķśþáćé ƒóľďéŕ]",

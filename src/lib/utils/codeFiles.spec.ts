@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { badgeOf, fileSaveBlock, fileUploadAllowed, gitBadges, humanSize } from "./codeFiles";
+import {
+	badgeOf,
+	fileDownloadAllowed,
+	fileSaveBlock,
+	fileUploadAllowed,
+	gitBadges,
+	humanSize,
+} from "./codeFiles";
 
 describe("git badges", () => {
 	it("maps porcelain-v2 codes to one letter", () => {
@@ -59,5 +66,13 @@ describe("fileUploadAllowed", () => {
 		expect(fileUploadAllowed("policy", cap)).toBe(false);
 		expect(fileUploadAllowed(null, { machine: { capabilities: {} } })).toBe(false);
 		expect(fileUploadAllowed(null, undefined)).toBe(false);
+	});
+});
+
+describe("fileDownloadAllowed", () => {
+	it("needs only the fileDownload capability", () => {
+		expect(fileDownloadAllowed({ machine: { capabilities: { fileDownload: true } } })).toBe(true);
+		expect(fileDownloadAllowed({ machine: { capabilities: {} } })).toBe(false);
+		expect(fileDownloadAllowed(undefined)).toBe(false);
 	});
 });

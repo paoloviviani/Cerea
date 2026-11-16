@@ -118,3 +118,82 @@ func TestUploadRefusesBadNamesDenyAndEscapes(t *testing.T) {
 		t.Error("the file outside the workspace was created")
 	}
 }
+
+func TestReadBytesRoundTripsBinaryInChunks(t *testing.T) {
+	root := t.TempDir()
+	body := make([]byte, 0, 2*MaxDownloadChunk+17)
+	for i := 0; i < 2*MaxDownloadChunk+17; i++ {
+		body = append(body, byte(i*7))
+	}
+	if err := os.WriteFile(filepath.Join(root, "a.bin"), body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A PNG-named file too big for an image view, and a non-UTF-8 "text" file.
+	if err := os.WriteFile(filepath.Join(root, "latin.txt"), []byte{'c', 'a', 'f', 0xe9}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := New(nil)
+	var got []byte
+	for off := int64(0); ; {
+		res, err := s.ReadBytes(root, "a.bin", off, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		chunk, err := base64.StdEncoding.DecodeString(res.Content)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, chunk...)
+		off += res.Length
+		if res.EOF {
+			break
+		}
+	}
+	if !bytes.Equal(got, body) {
+		t.Error("the chunks did not rebuild the file")
+	}
+	res, err := s.ReadBytes(root, "latin.txt", 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dec, _ := base64.StdEncoding.DecodeString(res.Content); !bytes.Equal(dec, []byte{'c', 'a', 'f', 0xe9}) {
+		t.Errorf("non-UTF-8 text was altered: %v", dec)
+	}
+}
+
+func TestReadBytesDenyConfinementAndCap(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	write(t, root, "id_rsa", "KEY")
+	write(t, root, ".git/config", "x")
+	if err := os.WriteFile(filepath.Join(outside, "t.txt"), []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(outside, "t.txt"), filepath.Join(root, "link.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "outdir")); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Create(filepath.Join(root, "huge.bin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(MaxDownloadBytes + 1); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	s := New([]string{"id_rsa*"})
+	for _, tc := range []struct {
+		rel  string
+		want error
+	}{
+		{"id_rsa", ErrForbidden}, {".git/config", ErrInvalid}, {"../x", ErrInvalid},
+		{"/etc/passwd", ErrInvalid}, {"link.txt", ErrForbidden}, {"outdir/t.txt", ErrForbidden},
+		{"huge.bin", ErrTooLarge}, {"missing", ErrNotFound}, {".", ErrInvalid},
+	} {
+		if _, err := s.ReadBytes(root, tc.rel, 0, 0); !errors.Is(err, tc.want) {
+			t.Errorf("%q: %v, want %v", tc.rel, err, tc.want)
+		}
+	}
+}

@@ -199,3 +199,26 @@ func TestFilesUploadIsRefusedWithoutFileWrite(t *testing.T) {
 		t.Error("a refused upload wrote a file")
 	}
 }
+
+func TestFilesDownloadOpNeedsFilesNotFileWrite(t *testing.T) {
+	ro := freshEnrollPolicy()
+	ro.FileWrite = policy.FileWriteDenied
+	mc, wsID, dir, _ := writeMachine(t, ro)
+	data := []byte{0, 1, 2, 255}
+	if err := os.WriteFile(filepath.Join(dir, "x.bin"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, operr := mc.Handle(context.Background(), "files.download", json.RawMessage(`{"workspaceId":"`+wsID+`","path":"x.bin"}`))
+	if operr != nil {
+		t.Fatalf("download with fileWrite off: %+v", operr)
+	}
+	if got, _ := base64.StdEncoding.DecodeString(res.(files.ReadResult).Content); !bytes.Equal(got, data) {
+		t.Errorf("bytes = %v", got)
+	}
+	off := freshEnrollPolicy()
+	off.Files = policy.FilesOff
+	mc2, ws2, _, _ := writeMachine(t, off)
+	if _, operr := mc2.Handle(context.Background(), "files.download", json.RawMessage(`{"workspaceId":"`+ws2+`","path":"x.bin"}`)); operr == nil || operr.Code != "forbidden" {
+		t.Errorf("download with files off = %+v", operr)
+	}
+}

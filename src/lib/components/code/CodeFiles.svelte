@@ -22,6 +22,7 @@
 	import { sidePane } from "$lib/stores/sidePane.svelte";
 	import IconRenew from "~icons/carbon/renew";
 	import IconUpload from "~icons/carbon/upload";
+	import IconDownload from "~icons/carbon/download";
 	import { MAX_ATTACHMENT_BYTES } from "$lib/constants/mime";
 	import IconArrowLeft from "~icons/carbon/arrow-left";
 	import IconLocked from "~icons/carbon/locked";
@@ -34,6 +35,7 @@
 		workspaceFileRawUrl,
 		workspaceFileStatus,
 		uploadWorkspaceFile,
+		workspaceFileDownloadUrl,
 		writeWorkspaceFile,
 	} from "$lib/codeApi";
 	import type { FileEntry, FilesReadResult } from "$lib/types/machineProtocol";
@@ -54,6 +56,8 @@
 		/** Files may be uploaded into the folder shown: saving is allowed and
 		 * this galopin implements `files.upload`. */
 		uploadable?: boolean;
+		/** Files may be downloaded: this galopin implements `files.download`. */
+		downloadable?: boolean;
 	}
 
 	let {
@@ -63,6 +67,7 @@
 		writable = false,
 		saveBlocked = null,
 		uploadable = false,
+		downloadable = false,
 	}: Props = $props();
 
 	const SAVE_BLOCKED: Record<FileSaveBlock, () => string> = {
@@ -334,6 +339,17 @@
 				class="min-w-0 flex-1 truncate font-mono text-xs text-gray-600 dark:text-gray-300"
 				title={open.path}>{open.path}</span
 			>
+			{#if downloadable && !open.redacted}
+				<a
+					href={workspaceFileDownloadUrl(deviceId, workspaceId, open.path)}
+					download={open.name}
+					class="flex h-6 items-center gap-1 rounded-md px-1.5 text-xs text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+					data-testid="file-download-open"
+				>
+					<IconDownload class="size-3.5" />
+					{m["code.files.download"]()}
+				</a>
+			{/if}
 		{:else}
 			<span class="min-w-0 flex-1 truncate text-xs text-gray-500">
 				{branch ? m["code.files.on_branch"]({ branch }) : m["code.files.workspace_files"]()}
@@ -427,6 +443,7 @@
 				{refreshKey}
 				onselect={select}
 				ondir={(dir) => (uploadDir = dir)}
+				{downloadable}
 			/>
 		</div>
 		{#if open}

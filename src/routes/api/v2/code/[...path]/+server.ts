@@ -89,7 +89,7 @@ const RULES: Array<{ method: "GET" | "POST" | "DELETE"; pattern: RegExp }> = [
 	{ method: "GET", pattern: new RegExp(`^v1/workspaces/${ID}/agents$`) },
 	{
 		method: "GET",
-		pattern: new RegExp(`^v1/workspaces/${ID}/files(/(stat|content|raw|status))?$`),
+		pattern: new RegExp(`^v1/workspaces/${ID}/files(/(stat|content|raw|status|download))?$`),
 	},
 	// The editor's save (files.write, §9.3): behind the explorer's switch,
 	// the deployment's write switch, the machine's policy and its capability.
@@ -440,7 +440,7 @@ export const GET: RequestHandler = async (event) => {
 	// behind the deployment switch and the machine's own policy (checked
 	// here first, and again by galopin), confined to the workspace there.
 	const filesMatch = new RegExp(
-		`^v1/workspaces/(${ID})/files(?:/(stat|content|raw|status))?$`
+		`^v1/workspaces/(${ID})/files(?:/(stat|content|raw|status|download))?$`
 	).exec(path);
 	if (filesMatch) {
 		if (!codeFilesEnabled()) error(404, "The file explorer is not turned on here.");
@@ -483,6 +483,62 @@ export const GET: RequestHandler = async (event) => {
 					read.kind === "image" ? { ...read, content: undefined, encoding: "none" } : read,
 					{ headers: { "Cache-Control": "private, no-store" } }
 				);
+			}
+			case "download": {
+				// Any file's bytes, as a download: owner-only, files on (reading is
+				// enough, not fileWrite), the deny list and the workspace root
+				// enforced by galopin, which also refuses a file over 100 MiB.
+				if (device.machine?.capabilities.fileDownload !== true) {
+					await recordCodeAudit(event, { action: "files.download.refused", deviceId, workspaceId });
+					error(
+						403,
+						"galopin on this computer cannot send downloads yet: update it to download files here."
+					);
+				}
+				const first = await callOp(() =>
+					link.filesDownload({ workspaceId, path: relPath, offset: 0 })
+				);
+				await recordCodeAudit(event, {
+					action: "files.download",
+					deviceId,
+					workspaceId,
+					path: relPath,
+					bytes: first.size,
+				});
+				let chunk = first;
+				let sent = false;
+				const stream = new ReadableStream<Uint8Array>({
+					async pull(controller) {
+						try {
+							if (sent) {
+								const next = await link.filesDownload({
+									workspaceId,
+									path: relPath,
+									offset: chunk.offset + chunk.length,
+								});
+								// The file changed under the download: stop, never splice versions.
+								if (next.revision !== first.revision) throw new Error("changed on disk");
+								chunk = next;
+							}
+							sent = true;
+							if (chunk.content) controller.enqueue(Buffer.from(chunk.content, "base64"));
+							if (chunk.eof || chunk.length === 0) controller.close();
+						} catch (err) {
+							controller.error(err);
+						}
+					},
+				});
+				const name = relPath.split("/").pop() || "download";
+				return new Response(stream, {
+					headers: {
+						"content-type": downloadContentType(first.mime),
+						"content-disposition": contentDisposition(name),
+						"content-length": String(first.size),
+						"x-content-type-options": "nosniff",
+						"content-security-policy": "sandbox; default-src 'none'",
+						"cache-control": "private, no-store",
+					},
+				});
 			}
 			case "raw": {
 				const read = await callOp(() => link.filesRead({ workspaceId, path: relPath }));
@@ -836,6 +892,24 @@ const titleSchema = z.object({
 const cancelSchema = z.unknown();
 
 /** The only types the raw file route serves inline. */
+/** A download is never rendered by this origin: raster images and plain text
+ * keep their type (the attachment disposition still saves them), everything
+ * else, scripts and HTML and SVG included, is an opaque byte stream. */
+function downloadContentType(mime: string): string {
+	return RAW_IMAGE_TYPES.has(mime) || mime.split(";")[0] === "text/plain"
+		? mime
+		: "application/octet-stream";
+}
+
+/** `attachment` with an ASCII fallback and the RFC 5987 UTF-8 name. */
+function contentDisposition(name: string): string {
+	const ascii = name.replace(/[^\x20-\x7e]|["\\%;]/g, "_");
+	return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name).replace(
+		/['()*]/g,
+		(c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`
+	)}`;
+}
+
 const RAW_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
 /** The blanket for one session. Anything but one of the three words is a 400

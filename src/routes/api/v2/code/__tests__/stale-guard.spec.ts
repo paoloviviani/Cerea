@@ -155,6 +155,7 @@ const FORWARDER_SAMPLES: Array<[string, string]> = [
 	["GET", "v1/workspaces/w1/files"],
 	["GET", "v1/workspaces/w1/files/stat"],
 	["GET", "v1/workspaces/w1/files/content"],
+	["GET", "v1/workspaces/w1/files/download"],
 	["GET", "v1/workspaces/w1/files/raw"],
 	["GET", "v1/workspaces/w1/files/status"],
 	["POST", "v1/workspaces/w1/files/content"],

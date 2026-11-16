@@ -642,7 +642,7 @@ func resultTarget(op string) any {
 		return &struct {
 			Entry files.Entry `json:"entry"`
 		}{}
-	case "files.read":
+	case "files.read", "files.download":
 		return &files.ReadResult{}
 	case "files.status":
 		return &files.StatusResult{}

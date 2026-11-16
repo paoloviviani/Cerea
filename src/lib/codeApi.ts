@@ -507,6 +507,16 @@ export function workspaceFileRawUrl(deviceId: string, workspaceId: string, path:
 	return filesUrl(deviceId, workspaceId, "/raw", { path });
 }
 
+/** A file as a download (files.download, §9.3): any type, served as an
+ * attachment, never rendered. Use as an `<a href download>`. */
+export function workspaceFileDownloadUrl(
+	deviceId: string,
+	workspaceId: string,
+	path: string
+): string {
+	return filesUrl(deviceId, workspaceId, "/download", { path });
+}
+
 export async function getAgentDiff(
 	deviceId: string,
 	agentId: string
