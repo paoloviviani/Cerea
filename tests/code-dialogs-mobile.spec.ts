@@ -60,7 +60,7 @@ function visibleTreeButton(page: Page, title: string) {
 }
 
 async function openAgentsPanel(page: Page) {
-	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}&ws=${WS}`);
+	await page.goto(`${E2E_APP_BASE}/code?device=${DEVICE}`);
 	await page.getByRole("button", { name: "Open Agents panel" }).click();
 }
 

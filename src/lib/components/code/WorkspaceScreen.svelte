@@ -172,13 +172,12 @@
 				{:else}
 					<div class="flex flex-wrap items-center gap-x-3 gap-y-2">
 						<div class="min-w-0 flex-1">
-							<h1 class="truncate text-base font-semibold text-ink" data-testid="workspace-name">
-								{label || m["code.workspace.loading"]()}
-							</h1>
 							{#if workspace?.path}
 								<p class="text-xs break-all text-ink-muted" data-testid="workspace-path">
 									{workspace.path}
 								</p>
+							{:else}
+								<p class="text-xs text-ink-faint">{m["code.workspace.loading"]()}</p>
 							{/if}
 						</div>
 						<button
