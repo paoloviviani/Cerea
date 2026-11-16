@@ -155,7 +155,7 @@ Never the arguments or the result, which stay between the chat and the server.
 
 ## Coding agents on the same computer
 
-On a computer that also runs coding agents, a session can use its own computer's connectors without going through Cerea: switch them on for the session (the **Connectors** switches in its Permissions sheet, "on this computer"; see [Connectors for an agent](code-panel.md#connectors-for-an-agent)). galopin runs the call itself, in-process, with the same ceiling as the chat: `allowedTools` still applies, a server that needs a sign-in is refused until you sign in, and each call adds its line to `audit.log`. The call is also a `tools` call for the session's permissions (Plan refuses it, Ask raises a card, the computer's `tools` limit caps it). Switching a server on for a session is separate from its Workspace switch for the chat.
+On a computer that also runs coding agents, a session can use its own computer's connectors without going through Cerea: switch them on in your one list (Workspace → Agents → **Connectors your agents may use**, grouped under the computer's name); a session on that computer inherits them and can turn any off for itself ("on this computer" in its Permissions sheet; see [Connectors for an agent](code-panel.md#connectors-for-an-agent)). galopin runs the call itself, in-process, with the same ceiling as the chat: `allowedTools` still applies, a server that needs a sign-in is refused until you sign in, and each call adds its line to `audit.log`. The call is also a `tools` call for the session's permissions (Plan refuses it, Ask raises a card, the computer's `tools` limit caps it). Listing a server for your agents is separate from its Workspace switch for the chat.
 
 ## Signing in to an http server
 

@@ -230,9 +230,11 @@ keep `galopin run` going.
 
 Unless you pass `--no-connectors`, it also adds a goose extension, **Cerea
 connectors**, served by galopin on loopback with a secret. It offers this
-computer's own connectors and the Cerea connectors you switched on in
-**Workspace → Agents → Connectors for your local agents**. None is on by default.
-These calls are not governed by a session's Plan, Ask or Allow (your agent's own
+computer's own connectors and the Cerea connectors on your one list in
+**Workspace → Agents → Connectors your agents may use**, while its switch **Apps on
+my computers may use these connectors too (their own approvals apply)** is on (it
+is on by default; the list itself starts empty). Coding sessions started from Cerea
+inherit the same list. These calls are not governed by a session's Plan, Ask or Allow (your agent's own
 approval applies), and each one is recorded in the review log.
 
 The endpoint exists only after setup: `run` opens it when `local-agents.json` is in

@@ -1,11 +1,11 @@
 /**
  * Which connectors a coding-agent session may use (ADR 0108, item 3).
  *
- * `GET ?device=&session=` answers `{ options, selected }`: the connectors the caller could switch
- * on for a session on that machine (Cerea's and the machine's own), and the session's current
- * opt-in (empty without `session`). `PUT { deviceId, sessionId, keys }` replaces the opt-in, and
- * an empty list clears it. Default is none. Owner only: the machine is the caller's own, and each
- * key must be one the resolver offers this caller now, so another user's connector cannot be named.
+ * `GET ?device=&session=` answers `{ options, selected }`: the connectors a session on that
+ * machine INHERITS from the user's one list in Workspace -> Agents (Cerea's and that machine's
+ * own), and which of them the session has on (all, without `session`). `PUT { deviceId,
+ * sessionId, keys }` sets what the session has on: it only narrows, a key outside the list is
+ * refused, and every inherited connector left out is off for that session. Owner only.
  */
 import { error, type RequestHandler } from "@sveltejs/kit";
 import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";

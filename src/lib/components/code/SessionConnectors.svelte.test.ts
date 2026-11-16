@@ -60,7 +60,7 @@ const checkbox = (screen: ReturnType<typeof renderWithApp>, name: string) =>
 	screen.getByTestId(`connector-switch-${name}`);
 
 describe("the session's connector switches", () => {
-	it("lists every connector by name with nothing on by default", async () => {
+	it("lists every inherited connector by name", async () => {
 		const screen = renderWithApp(SessionConnectors, { deviceId: "d1", sessionId: "s1" });
 		await expect.element(checkbox(screen, "Tracker")).toBeInTheDocument();
 		for (const name of ["Tracker", "Maps", "notes"]) {
@@ -76,6 +76,24 @@ describe("the session's connector switches", () => {
 		await expect.element(checkbox(screen, "Infomaniak Calendar")).toBeInTheDocument();
 		await expect.element(screen.getByTestId("connector-detail")).toHaveTextContent("(calendar)");
 		await expect.element(screen.getByText("Issues and boards")).toBeVisible();
+		// It is the user's list, inherited: the hint says where it comes from.
+		await expect.element(screen.getByText(/From Workspace → Agents/)).toBeVisible();
+	});
+
+	it("turning one off saves only the narrowed set, and turning it back on restores it", async () => {
+		api.getSessionConnectors.mockResolvedValue({
+			options: OPTIONS,
+			selected: ["connector:a", "base:maps"],
+		});
+		const screen = renderWithApp(SessionConnectors, { deviceId: "d1", sessionId: "s1" });
+		await expect.element(checkbox(screen, "Tracker")).toBeChecked();
+		await checkbox(screen, "Tracker").click();
+		expect(api.setSessionConnectors).toHaveBeenLastCalledWith("d1", "s1", ["base:maps"]);
+		await checkbox(screen, "Tracker").click();
+		expect(api.setSessionConnectors).toHaveBeenLastCalledWith("d1", "s1", [
+			"base:maps",
+			"connector:a",
+		]);
 	});
 
 	it("saves the whole selection on each switch, and shows what Cerea answered", async () => {

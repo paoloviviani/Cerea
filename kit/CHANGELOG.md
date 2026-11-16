@@ -7,7 +7,7 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
-- **Connector lists show the connector's own description and a readable name.** In Workspace → Agents and in a coding session's connectors, a connector's line is now its own description (the administrator's, or what its server says about itself), plain and cut at a word; it was the first tool's description. A server on your computer shows its proper name with its id beside it, and both lists sort by name.
+- **One list of connectors for your agents.** Workspace → Agents → **Connectors your agents may use** is now the only place you choose them: your Cerea connectors and, under each computer's name, that computer's own servers. A coding session inherits the list and can only turn items off for itself (its Permissions sheet says "from Workspace → Agents"); every call still goes through its Plan, Ask, Allow or Auto word. One switch, **Apps on my computers may use these connectors too (their own approvals apply)**, on by default, lets goose Desktop, Claude Code in a terminal and other apps use the list's Cerea connectors through galopin. A project's connectors now narrow the list for the sessions it starts. **The two earlier lists were merged** on first start: your list is what your local-agents list and all your sessions had on, nobody loses reach, and sessions start with nothing turned off. A connector's line is now its own description (the administrator's, or what its server says about itself), plain and cut at a word, instead of its first tool's description; a server on your computer shows its proper name with its id beside it, and the lists sort by name.
 
 ## v0.54.2 — 2026-11-16
 

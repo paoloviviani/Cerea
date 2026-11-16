@@ -1,21 +1,22 @@
 /**
- * Workspace -> Agents: the connectors the user's OWN agents (goose Desktop, the goose CLI, an
- * editor extension, set up with `galopin goose setup`) may use through galopin's local MCP
- * endpoint (ADR 0110). `GET` answers `{ options, selected }`: Cerea's connectors the caller could
- * switch on and the current list (default none). `PUT { keys }` replaces it; an empty list clears
- * it. The caller's own list only, and each key must be a connector the resolver offers this
- * caller now, so another user's connector cannot be named. galopin fetches the allowed set over
- * its link (`connector.list` with source "local-agent").
+ * Workspace -> Agents: the user's ONE list of connectors their agents may use. `GET` answers
+ * `{ options, computers, selected, appsToo }`: Cerea's connectors and each paired computer's own
+ * servers the caller could list, the list itself (default none), and the "apps on my computers
+ * may use these too" switch (default on). `PUT { keys?, appsToo? }` changes either; an empty
+ * `keys` clears the list. The caller's own list only, and each key must be one the resolver (or
+ * the caller's own paired computer) offers now, so another user's connector cannot be named.
+ * Coding sessions inherit the list and may narrow it per session; galopin fetches it for apps on
+ * the user's computers over its link (`connector.list` with source "local-agent").
  */
 import { error, json, type RequestHandler } from "@sveltejs/kit";
 import { z } from "zod";
 import { requireCodeAgents } from "$lib/server/codeDevices";
 import {
-	getLocalAgentKeys,
-	localAgentOptions,
+	getUserList,
+	listChoices,
 	MAX_SESSION_CONNECTORS,
 	SessionConnectorsError,
-	setLocalAgentKeys,
+	setUserList,
 } from "$lib/server/code/sessionConnectors";
 
 async function caller(locals: App.Locals) {
@@ -27,24 +28,24 @@ async function caller(locals: App.Locals) {
 
 export const GET: RequestHandler = async ({ locals }) => {
 	const userId = await caller(locals);
-	const [options, selected] = await Promise.all([
-		localAgentOptions(userId),
-		getLocalAgentKeys(userId),
-	]);
-	return json({ options, selected });
+	const [choices, list] = await Promise.all([listChoices(userId), getUserList(userId)]);
+	return json({ ...choices, selected: list.keys, appsToo: list.appsToo });
 };
 
-const bodySchema = z.object({
-	keys: z.array(z.string().min(1).max(300)).max(MAX_SESSION_CONNECTORS),
-});
+const bodySchema = z
+	.object({
+		keys: z.array(z.string().min(1).max(300)).max(MAX_SESSION_CONNECTORS).optional(),
+		appsToo: z.boolean().optional(),
+	})
+	.refine((b) => b.keys !== undefined || b.appsToo !== undefined);
 
 export const PUT: RequestHandler = async ({ locals, request }) => {
 	const userId = await caller(locals);
 	const parsed = bodySchema.safeParse(await request.json().catch(() => null));
-	if (!parsed.success) error(400, "Expected { keys }.");
+	if (!parsed.success) error(400, "Expected { keys } or { appsToo }.");
 	try {
-		const selected = await setLocalAgentKeys(userId, parsed.data.keys);
-		return json({ selected });
+		const list = await setUserList(userId, parsed.data);
+		return json({ selected: list.keys, appsToo: list.appsToo });
 	} catch (err) {
 		if (err instanceof SessionConnectorsError) error(400, err.message);
 		throw err;

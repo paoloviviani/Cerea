@@ -17,10 +17,12 @@ import {
 } from "./machineConnectors";
 import {
 	connectorOptions,
-	getLocalAgentKeys,
+	connectorsNow,
+	getUserList,
 	getSessionConnectorKeys,
-	localAgentOptions,
-	setLocalAgentKeys,
+	listChoices,
+	setUserList,
+	mergeConnectorLists,
 	setSessionConnectorKeys,
 	SessionConnectorsError,
 } from "./sessionConnectors";
@@ -102,6 +104,7 @@ const err = (r: CallResFrame) => {
 	return (r as Err).error;
 };
 
+const connectorsNowFor = (dev: string) => connectorsNow(owner, dev, ROOT);
 const list = (deviceHex = deviceId.toString()) =>
 	handleConnectorCall(deviceHex, frame("connector.list"));
 const callTool = (key: string, tool: string, args: Record<string, unknown> = {}) =>
@@ -156,7 +159,7 @@ describe("connector.list", () => {
 	it("is empty by default, however many connectors the user has, and lists the opted-in one after", async () => {
 		const key = await addConnector(owner, "Tracker");
 		expect(ok(await list())).toEqual({ connectors: [], local: [] });
-		await setSessionConnectorKeys(owner, deviceId.toString(), ROOT, [key]);
+		await setUserList(owner, { keys: [key] });
 		const result = ok(await list());
 		expect(result.connectors).toHaveLength(1);
 		expect(result.connectors[0]).toMatchObject({
@@ -168,7 +171,7 @@ describe("connector.list", () => {
 
 	it("never carries a credential, a header or a url", async () => {
 		const key = await addConnector(owner, "Tracker");
-		await setSessionConnectorKeys(owner, deviceId.toString(), ROOT, [key]);
+		await setUserList(owner, { keys: [key] });
 		const body = JSON.stringify(await list());
 		expect(body).toContain("Tracker");
 		for (const secret of [SECRET, "Bearer", "Authorization", "tracker.test"]) {
@@ -180,22 +183,22 @@ describe("connector.list", () => {
 		const mine = await addConnector(owner, "Mine");
 		const theirs = await addConnector(stranger, "Theirs");
 		// The API refuses to opt in to it ...
-		await expect(
-			setSessionConnectorKeys(owner, deviceId.toString(), ROOT, [theirs])
-		).rejects.toBeInstanceOf(SessionConnectorsError);
+		await expect(setUserList(owner, { keys: [theirs] })).rejects.toBeInstanceOf(
+			SessionConnectorsError
+		);
+		await setUserList(owner, { keys: [mine] });
 		const offered = (await connectorOptions(owner, deviceId.toString())).map((o) => o.name);
 		expect(offered).toContain("Mine");
 		expect(offered).not.toContain("Theirs");
 		// ... and even a row written around the API (a bug, a restore) lists nothing of theirs.
-		await collections.codeSessionConnectors.insertOne({
-			_id: new ObjectId(),
-			userId: owner,
-			deviceId: deviceId.toString(),
-			sessionId: ROOT,
-			keys: [mine, theirs],
-			createdAt: new Date(),
-			updatedAt: new Date(),
-		});
+		await collections.codeSessionConnectors.updateOne(
+			{ userId: owner, deviceId: "*", sessionId: "local-agents" },
+			{
+				$set: { keys: [mine, theirs], savedAt: new Date() },
+				$setOnInsert: { createdAt: new Date() },
+			},
+			{ upsert: true }
+		);
 		const names = ok(await list()).connectors.map((c: { name: string }) => c.name);
 		expect(names).toEqual(["Mine"]);
 		const refused = err(await callTool(theirs, "find"));
@@ -205,7 +208,7 @@ describe("connector.list", () => {
 
 	it("applies the deployment's modes: Off hides an opted-in connector, On and locked show it", async () => {
 		const dep = await addConnector(owner, "Dep Search", { scope: "deployment", auth: "none" });
-		await setSessionConnectorKeys(owner, deviceId.toString(), ROOT, [dep]);
+		await setUserList(owner, { keys: [dep] });
 		expect(ok(await list()).connectors.map((c: { name: string }) => c.name)).toEqual([
 			"Dep Search",
 		]);
@@ -221,7 +224,7 @@ describe("connector.list", () => {
 
 	it("honours the user's own switch in Workspace, even for a connector opted in earlier", async () => {
 		const key = await addConnector(owner, "Tracker");
-		await setSessionConnectorKeys(owner, deviceId.toString(), ROOT, [key]);
+		await setUserList(owner, { keys: [key] });
 		await setSwitch(owner, key, false);
 		expect(ok(await list()).connectors).toEqual([]);
 		expect(err(await callTool(key, "find")).code).toBe("forbidden");
@@ -231,19 +234,19 @@ describe("connector.list", () => {
 
 	it("leaves out a connector that needs a sign-in, and cannot opt in to it", async () => {
 		const oauth = await addConnector(owner, "Notion", { auth: "oauth", tokenSealed: undefined });
-		const options = await connectorOptions(owner, deviceId.toString());
+		const options = (await listChoices(owner)).options;
 		expect(options.find((o) => o.name === "Notion")).toMatchObject({
 			unavailable: "needs sign-in",
 		});
-		await expect(
-			setSessionConnectorKeys(owner, deviceId.toString(), ROOT, [oauth])
-		).rejects.toBeInstanceOf(SessionConnectorsError);
+		await expect(setUserList(owner, { keys: [oauth] })).rejects.toBeInstanceOf(
+			SessionConnectorsError
+		);
 	});
 
 	it("says a connector's tools could not be listed instead of failing the whole list", async () => {
 		const a = await addConnector(owner, "Aaa");
 		const b = await addConnector(owner, "Bbb");
-		await setSessionConnectorKeys(owner, deviceId.toString(), ROOT, [a, b]);
+		await setUserList(owner, { keys: [a, b] });
 		fake.list.mockRejectedValueOnce(new Error("ECONNREFUSED secret.internal:9"));
 		const result = ok(await list());
 		expect(result.connectors).toHaveLength(2);
@@ -255,13 +258,13 @@ describe("connector.list", () => {
 	it("offers the session's own machine's servers by name, and never another machine's", async () => {
 		const own = `local:${deviceId}:notes`;
 		const other = `local:${strangerDeviceId}:notes`;
-		await setSessionConnectorKeys(owner, deviceId.toString(), ROOT, [own]);
+		await setUserList(owner, { keys: [own] });
 		expect(ok(await list()).local).toEqual(["notes"]);
-		await expect(
-			setSessionConnectorKeys(owner, deviceId.toString(), ROOT, [other])
-		).rejects.toBeInstanceOf(SessionConnectorsError);
+		await expect(setUserList(owner, { keys: [other] })).rejects.toBeInstanceOf(
+			SessionConnectorsError
+		);
 		await collections.codeSessionConnectors.updateOne(
-			{ userId: owner, sessionId: ROOT },
+			{ userId: owner, deviceId: "*", sessionId: "local-agents" },
 			{ $set: { keys: [other] } }
 		);
 		expect(ok(await list()).local).toEqual([]);
@@ -277,7 +280,7 @@ describe("connector.list", () => {
 describe("connector.call", () => {
 	it("runs the tool with the user's own credential, which stays on the server", async () => {
 		const key = await addConnector(owner, "Tracker");
-		await setSessionConnectorKeys(owner, deviceId.toString(), ROOT, [key]);
+		await setUserList(owner, { keys: [key] });
 		const result = ok(await callTool(key, "find", { q: "bug" }));
 		expect(result).toEqual({ isError: false, text: "3 issues" });
 		expect(fake.call).toHaveBeenCalledTimes(1);
@@ -290,7 +293,7 @@ describe("connector.call", () => {
 
 	it("answers for a subagent through its root's opt-in", async () => {
 		const key = await addConnector(owner, "Tracker");
-		await setSessionConnectorKeys(owner, deviceId.toString(), ROOT, [key]);
+		await setUserList(owner, { keys: [key] });
 		// callTool sends sessionId SUB with rootSessionId ROOT
 		expect(ok(await callTool(key, "find")).isError).toBe(false);
 	});
@@ -298,7 +301,7 @@ describe("connector.call", () => {
 	it("refuses a connector the session was not opted in to, with the same user and data", async () => {
 		const on = await addConnector(owner, "On");
 		const off = await addConnector(owner, "Off");
-		await setSessionConnectorKeys(owner, deviceId.toString(), ROOT, [on]);
+		await setUserList(owner, { keys: [on] });
 		expect(ok(await callTool(on, "find")).isError).toBe(false);
 		expect(err(await callTool(off, "find")).code).toBe("forbidden");
 		expect(fake.call).toHaveBeenCalledTimes(1);
@@ -306,14 +309,14 @@ describe("connector.call", () => {
 
 	it("refuses a tool the connector does not list", async () => {
 		const key = await addConnector(owner, "Tracker");
-		await setSessionConnectorKeys(owner, deviceId.toString(), ROOT, [key]);
+		await setUserList(owner, { keys: [key] });
 		expect(err(await callTool(key, "drop_table")).code).toBe("not_found");
 		expect(fake.call).not.toHaveBeenCalled();
 	});
 
 	it("passes a tool's own error through as a result, and names non-text content", async () => {
 		const key = await addConnector(owner, "Tracker");
-		await setSessionConnectorKeys(owner, deviceId.toString(), ROOT, [key]);
+		await setUserList(owner, { keys: [key] });
 		fake.call.mockResolvedValueOnce({ text: "rate limited", isError: true });
 		expect(ok(await callTool(key, "find"))).toEqual({ isError: true, text: "rate limited" });
 		fake.call.mockResolvedValueOnce({
@@ -329,7 +332,7 @@ describe("connector.call", () => {
 
 	it("cuts an oversize result and says so", async () => {
 		const key = await addConnector(owner, "Tracker");
-		await setSessionConnectorKeys(owner, deviceId.toString(), ROOT, [key]);
+		await setUserList(owner, { keys: [key] });
 		fake.call.mockResolvedValueOnce({ text: "x".repeat(MAX_RESULT_CHARS + 50), isError: false });
 		const text = ok(await callTool(key, "find")).text as string;
 		expect(text.length).toBeLessThan(MAX_RESULT_CHARS + 120);
@@ -338,7 +341,7 @@ describe("connector.call", () => {
 
 	it("maps failures without the service's own words", async () => {
 		const key = await addConnector(owner, "Tracker");
-		await setSessionConnectorKeys(owner, deviceId.toString(), ROOT, [key]);
+		await setUserList(owner, { keys: [key] });
 		fake.call.mockRejectedValueOnce(
 			new Error("HTTP 401 Unauthorized https://tracker.test/mcp?token=zzz")
 		);
@@ -356,7 +359,7 @@ describe("connector.call", () => {
 
 	it("bounds the call in time and rate", async () => {
 		const key = await addConnector(owner, "Tracker");
-		await setSessionConnectorKeys(owner, deviceId.toString(), ROOT, [key]);
+		await setUserList(owner, { keys: [key] });
 		await callTool(key, "find");
 		expect(fake.call.mock.calls[0][3]).toMatchObject({ timeoutMs: 80_000 });
 		for (let i = 1; i < MAX_CALLS_PER_MINUTE; i++) await callTool(key, "find");
@@ -365,7 +368,7 @@ describe("connector.call", () => {
 
 	it("audits the connector and tool, never the arguments or the result", async () => {
 		const key = await addConnector(owner, "Tracker");
-		await setSessionConnectorKeys(owner, deviceId.toString(), ROOT, [key]);
+		await setUserList(owner, { keys: [key] });
 		await callTool(key, "find", { q: "private-question" });
 		const rows = await collections.codeAudit.find({ deviceId, action: "connector.call" }).toArray();
 		expect(rows).toHaveLength(1);
@@ -386,76 +389,162 @@ describe("connector.call", () => {
 	});
 });
 
-describe("the opt-in", () => {
-	it("defaults to none, is replaced as a whole, and clears with an empty list", async () => {
+describe("the session's narrowing of the user's one list", () => {
+	it("inherits the whole list, narrows per session, never widens, and clears when all are on again", async () => {
 		const a = await addConnector(owner, "Aaa");
 		const b = await addConnector(owner, "Bbb");
+		const c = await addConnector(owner, "Ccc");
 		const dev = deviceId.toString();
 		expect(await getSessionConnectorKeys(owner, dev, ROOT)).toEqual([]);
-		await setSessionConnectorKeys(owner, dev, ROOT, [a, b, a]);
+		await setUserList(owner, { keys: [a, b] });
 		expect((await getSessionConnectorKeys(owner, dev, ROOT)).sort()).toEqual([a, b].sort());
 		await setSessionConnectorKeys(owner, dev, ROOT, [b]);
 		expect(await getSessionConnectorKeys(owner, dev, ROOT)).toEqual([b]);
+		expect(ok(await list()).connectors.map((x: { name: string }) => x.name)).toEqual(["Bbb"]);
+		// Another session is untouched.
+		expect((await getSessionConnectorKeys(owner, dev, "ses_other")).sort()).toEqual([a, b].sort());
+		// A connector outside the list cannot be switched on for a session.
+		await expect(setSessionConnectorKeys(owner, dev, ROOT, [b, c])).rejects.toBeInstanceOf(
+			SessionConnectorsError
+		);
+		// One added to the list later is inherited by a session that narrowed earlier.
+		await setUserList(owner, { keys: [a, b, c] });
+		expect((await getSessionConnectorKeys(owner, dev, ROOT)).sort()).toEqual([b, c].sort());
+		await setSessionConnectorKeys(owner, dev, ROOT, [a, b, c]);
+		expect(
+			await collections.codeSessionConnectors.countDocuments({ userId: owner, sessionId: ROOT })
+		).toBe(0);
+		// Narrowing everything off leaves the session with nothing.
 		await setSessionConnectorKeys(owner, dev, ROOT, []);
-		expect(await getSessionConnectorKeys(owner, dev, ROOT)).toEqual([]);
-		// Another session is untouched by all of it.
-		expect(await getSessionConnectorKeys(owner, dev, "ses_other")).toEqual([]);
+		expect(ok(await list())).toEqual({ connectors: [], local: [] });
 	});
 
 	it("is owner-only: a stranger can neither read nor change the owner's session", async () => {
 		const key = await addConnector(owner, "Tracker");
-		await setSessionConnectorKeys(owner, deviceId.toString(), ROOT, [key]);
+		await setUserList(owner, { keys: [key] });
 		expect(await getSessionConnectorKeys(stranger, deviceId.toString(), ROOT)).toEqual([]);
-		await addConnector(stranger, "Theirs");
 		await expect(
 			setSessionConnectorKeys(stranger, deviceId.toString(), ROOT, [key])
 		).rejects.toBeInstanceOf(SessionConnectorsError);
 	});
+
+	it("scopes a computer's own server to that computer", async () => {
+		const own = `local:${deviceId}:notes`;
+		await setUserList(owner, { keys: [own] });
+		expect(ok(await list()).local).toEqual(["notes"]);
+		// The same list, asked for by another of the user's computers' sessions, serves nothing.
+		const other = new ObjectId();
+		expect((await connectorsNowFor(other.toString())).local).toEqual([]);
+	});
 });
 
-describe("local agents (galopin goose setup, ADR 0110)", () => {
+describe("apps on the user's computers (galopin goose setup, ADR 0110)", () => {
 	const localFrame = (op: string, args: Record<string, unknown> = {}): CallFrame =>
 		frame(op, { source: "local-agent", ...args });
 
-	it("offers nothing by default, then exactly the user's own switched-on connectors", async () => {
+	it("offers nothing by default, then exactly the user's own listed connectors", async () => {
 		const mine = await addConnector(owner, "Mine");
 		const theirs = await addConnector(stranger, "Theirs");
 		expect(
 			ok(await handleConnectorCall(deviceId.toString(), localFrame("connector.list")))
 		).toEqual({ connectors: [], local: [] });
-		expect((await localAgentOptions(owner)).map((o) => o.name)).toEqual(["Mine"]);
-		await expect(setLocalAgentKeys(owner, [theirs])).rejects.toBeInstanceOf(SessionConnectorsError);
-		expect(await setLocalAgentKeys(owner, [mine])).toEqual([mine]);
+		expect((await listChoices(owner)).options.map((o) => o.name)).toEqual(["Mine"]);
+		await expect(setUserList(owner, { keys: [theirs] })).rejects.toBeInstanceOf(
+			SessionConnectorsError
+		);
+		expect((await setUserList(owner, { keys: [mine] })).keys).toEqual([mine]);
 		const listed = ok(await handleConnectorCall(deviceId.toString(), localFrame("connector.list")));
 		expect(listed.connectors.map((c) => c.name)).toEqual(["Mine"]);
-		await setLocalAgentKeys(owner, []);
-		expect(await getLocalAgentKeys(owner)).toEqual([]);
+		await setUserList(owner, { keys: [] });
+		expect((await getUserList(owner)).keys).toEqual([]);
 	});
 
-	it("is separate from a session's opt-in, and the call is audited as a local agent", async () => {
-		const sessionOnly = await addConnector(owner, "SessionOnly");
-		const localOnly = await addConnector(owner, "LocalOnly");
-		await setSessionConnectorKeys(owner, deviceId.toString(), ROOT, [sessionOnly]);
-		await setLocalAgentKeys(owner, [localOnly]);
-		const denied = err(
-			await handleConnectorCall(
-				deviceId.toString(),
-				localFrame("connector.call", { connector: sessionOnly, tool: "find", arguments: {} })
-			)
-		);
-		expect(denied.code).toBe("forbidden");
-		expect(fake.call).not.toHaveBeenCalled();
+	it("is on by default, serves the same list as sessions, and nothing once the switch is off", async () => {
+		const key = await addConnector(owner, "Shared");
+		await setUserList(owner, { keys: [key] });
+		expect((await getUserList(owner)).appsToo).toBe(true);
+		// The same single list feeds a session ...
+		expect(ok(await list()).connectors.map((c: { name: string }) => c.name)).toEqual(["Shared"]);
+		// ... and apps on the computer; the call is audited as a local agent.
 		const done = await handleConnectorCall(
 			deviceId.toString(),
-			localFrame("connector.call", { connector: localOnly, tool: "find", arguments: {} })
+			localFrame("connector.call", { connector: key, tool: "find", arguments: {} })
 		);
 		expect(ok(done).isError).toBe(false);
-		expect(fake.call).toHaveBeenCalledTimes(1);
 		const rows = await collections.codeAudit.find({ deviceId }).toArray();
 		expect(
 			rows.some((r) => r.origin === "local-agent" && String(r.name).startsWith("local agent:"))
 		).toBe(true);
-		// A session's list does not see the local-only connector.
-		expect(ok(await list()).connectors.map((c) => c.name)).toEqual(["SessionOnly"]);
+		// Switch off: apps get nothing and are denied, sessions are unaffected.
+		await setUserList(owner, { appsToo: false });
+		expect(
+			ok(await handleConnectorCall(deviceId.toString(), localFrame("connector.list")))
+		).toEqual({ connectors: [], local: [] });
+		fake.call.mockClear();
+		const denied = err(
+			await handleConnectorCall(
+				deviceId.toString(),
+				localFrame("connector.call", { connector: key, tool: "find", arguments: {} })
+			)
+		);
+		expect(denied.code).toBe("forbidden");
+		expect(fake.call).not.toHaveBeenCalled();
+		expect(ok(await list()).connectors).toHaveLength(1);
+		// The list itself is kept when the switch moves.
+		expect((await getUserList(owner)).keys).toEqual([key]);
+	});
+
+	it("a session's narrowing does not touch what apps get", async () => {
+		const key = await addConnector(owner, "Shared");
+		await setUserList(owner, { keys: [key] });
+		await setSessionConnectorKeys(owner, deviceId.toString(), ROOT, []);
+		expect(ok(await list()).connectors).toEqual([]);
+		const listed = ok(await handleConnectorCall(deviceId.toString(), localFrame("connector.list")));
+		expect(listed.connectors.map((c) => c.name)).toEqual(["Shared"]);
+	});
+});
+
+describe("merging the old two lists (mergeConnectorLists)", () => {
+	const row = (over: Record<string, unknown>) => ({
+		_id: new ObjectId(),
+		userId: owner,
+		createdAt: new Date(),
+		updatedAt: new Date(),
+		...over,
+	});
+
+	it("makes the union of the old local-agents keys and every session's keys, once, and is idempotent", async () => {
+		const a = await addConnector(owner, "Aaa");
+		const b = await addConnector(owner, "Bbb");
+		const c = await addConnector(owner, "Ccc");
+		await collections.codeSessionConnectors.insertMany([
+			row({ deviceId: "*", sessionId: "local-agents", keys: [a] }),
+			row({ deviceId: deviceId.toString(), sessionId: "s1", keys: [a, b] }),
+			row({ deviceId: deviceId.toString(), sessionId: "s2", keys: [c] }),
+		] as never);
+		expect(await mergeConnectorLists()).toBeGreaterThanOrEqual(1);
+		const list1 = await getUserList(owner);
+		expect(list1.keys.sort()).toEqual([a, b, c].sort());
+		expect(list1.appsToo).toBe(true);
+		// The old per-session rows are gone (no narrowing), and the list no longer expires.
+		expect(
+			await collections.codeSessionConnectors.countDocuments({
+				userId: owner,
+				deviceId: { $ne: "*" },
+			})
+		).toBe(0);
+		const stored = await collections.codeSessionConnectors.findOne({
+			userId: owner,
+			deviceId: "*",
+		});
+		expect(stored?.updatedAt).toBeUndefined();
+		expect(stored?.savedAt).toBeInstanceOf(Date);
+		// Again: nothing changes.
+		await mergeConnectorLists();
+		expect((await getUserList(owner)).keys.sort()).toEqual([a, b, c].sort());
+		// Narrowing written after the merge survives another run.
+		await setSessionConnectorKeys(owner, deviceId.toString(), ROOT, [a]);
+		await mergeConnectorLists();
+		expect(await getSessionConnectorKeys(owner, deviceId.toString(), ROOT)).toEqual([a]);
 	});
 });
