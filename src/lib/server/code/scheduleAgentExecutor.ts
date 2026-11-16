@@ -2,8 +2,7 @@
  * The "agent" executor for scheduled actions: a prompt sent to a coding
  * session on one of the person's paired machines, through the same
  * `MachineLink` ops the /code panel itself uses (`session.create`,
- * `session.setPermissionMode`, `session.prompt`), plus `session.grantCoordination`
- * when a schedule's coordination options are on (below).
+ * `session.setPermissionMode`, `session.prompt`).
  *
  * **Target** (stored, validated by `validateTarget`):
  * `{ deviceId, workspaceId, sessionMode: "new" | "existing", sessionId?,
@@ -21,19 +20,11 @@
  * in the schedule's zone) or the pinned one is reused, its mode, model and
  * Deny / Ask / Allow word are set, and the prompt is sent.
  *
- * **Coordination.** Two options, both off by default: `canMessage` ("can
- * find, read and message other sessions": `session_list`, `session_read`,
- * `session_send`) and `canSpawn` ("can start new sessions": `session_spawn`).
- * After the session is created or chosen and before the prompt, the run
- * applies them with `session.grantCoordination`, so an unattended run can
- * orchestrate the machine's other sessions without stopping at an approval
- * card. The grant is never more than the machine allows: its ceiling still
- * caps a key, another workspace's sessions still ask, the hop and rate
- * limits stand. A machine whose galopin predates the op (no `coordinationGrant`
- * in its hello, or `unsupported`) runs the prompt without it and the run row
- * says so. A pinned session whose schedule has both options off has any grant
- * cleared (it may have been set by an earlier version of the schedule); a
- * new session each run has nothing to clear.
+ * **Coordination.** A run's find, read, message and start-a-session calls follow
+ * the session's word and, on Auto, the Agents row (Workspace, Agents) like every
+ * other session. The schedule has no coordination options any more: the stored
+ * `canMessage` / `canSpawn` of an older schedule are read and ignored, and
+ * nothing calls `session.grantCoordination`.
  *
  * **Permissions.** The word is applied to the run's session and the machine's
  * ceiling still caps it (galopin composes the ceiling last, PROTOCOL.md
@@ -63,8 +54,6 @@ import {
 import { runStamp, scheduledRunHeader } from "$lib/server/schedules/runHeader";
 import { registerExecutor, type ExecutorOutcome } from "$lib/server/schedules/executors";
 import { OpError, type Session } from "$lib/types/machineProtocol";
-import { coordinationKeys, coordinationSupport, TOO_OLD_DETAIL } from "$lib/utils/coordination";
-import type { CodeDevice } from "$lib/types/CodeAgent";
 import type { Schedule } from "$lib/types/Schedule";
 
 const label = z.string().trim().max(160);
@@ -96,10 +85,6 @@ export type AgentTarget = {
 	modeId?: string;
 	modelId?: string;
 	permissionMode: "deny" | "ask" | "allow";
-	/** Coordination: find, read and message other sessions. Absent = off. */
-	canMessage?: boolean;
-	/** Coordination: start new sessions. Absent = off. */
-	canSpawn?: boolean;
 	labels: { machine: string; workspace: string; session?: string };
 };
 
@@ -115,8 +100,6 @@ export function parseTarget(target: unknown): AgentTarget | null {
 		...(t.modeId ? { modeId: t.modeId } : {}),
 		...(t.modelId ? { modelId: t.modelId } : {}),
 		permissionMode: t.permissionMode,
-		...(t.canMessage ? { canMessage: true } : {}),
-		...(t.canSpawn ? { canSpawn: true } : {}),
 		labels: {
 			machine: t.labels?.machine ?? "",
 			workspace: t.labels?.workspace ?? "",
@@ -293,7 +276,6 @@ registerExecutor({
 			ids: { deviceId: target.deviceId, workspaceId: target.workspaceId, sessionId: session.id },
 			label: session.title,
 		};
-		let coordination: Coordination = { tail: ".", header: "none" };
 		try {
 			// A schedule's "allow" keeps meaning Auto (ADR 0109): an unattended run is still routed to
 			// the owner's reviewer or to them, never silently hands off.
@@ -307,11 +289,6 @@ registerExecutor({
 			return { ...failedFrom(err, "setting the permission mode"), result };
 		}
 		try {
-			coordination = await applyCoordination(link, device, target, session.id);
-		} catch (err) {
-			return { ...failedFrom(err, "granting coordination"), result };
-		}
-		try {
 			await sendPrompt(
 				link,
 				session.id,
@@ -322,7 +299,6 @@ registerExecutor({
 					timezone: schedule.timezone,
 					previousRunAt: previousRun?.firedAt,
 					now,
-					coordination: coordination.header,
 				})}\n\n${schedule.prompt}`
 			);
 		} catch (err) {
@@ -338,66 +314,10 @@ registerExecutor({
 		return {
 			status: "sent",
 			result,
-			detail: `Sent to "${session.title}" with ${word} permissions${coordination.tail}`,
+			detail: `Sent to "${session.title}" with ${word} permissions.`,
 		};
 	},
 });
-
-/**
- * Grant (or clear) the session's coordination tools before the prompt, and
- * say what happened as the tail of the run row's detail: "." when nothing
- * was asked, a sentence when it was granted, and the plain reason when it
- * could not be. A machine that cannot take a grant is not an error: the run
- * goes ahead without it.
- */
-interface Coordination {
-	/** The tail of the run row's detail. */
-	tail: string;
-	/** What the prompt's header says: the keys granted, or "none (why)". */
-	header: string;
-}
-
-async function applyCoordination(
-	link: MachineLink,
-	device: CodeDevice,
-	target: AgentTarget,
-	sessionId: string
-): Promise<Coordination> {
-	const keys = coordinationKeys(target);
-	const support = coordinationSupport(device);
-	if (keys.length === 0) {
-		// Nothing asked. A pinned session may still carry a grant an earlier version
-		// of this schedule gave it: take it back, so turning the options off means off.
-		if (target.sessionMode === "existing" && support.ok) {
-			try {
-				await link.sessionGrantCoordination({ sessionId, keys: [] });
-			} catch (err) {
-				if (!(err instanceof OpError && err.code === "unsupported")) throw err;
-			}
-		}
-		return { tail: ".", header: "none" };
-	}
-	if (!support.ok) {
-		const why = support.reason === "tools-off" ? "agent tools are off" : "galopin is too old";
-		return { tail: `, but ${support.detail}.`, header: `none (${why})` };
-	}
-	try {
-		await link.sessionGrantCoordination({ sessionId, keys });
-	} catch (err) {
-		if (err instanceof OpError && err.code === "unsupported") {
-			return { tail: `, but ${TOO_OLD_DETAIL}.`, header: "none (galopin is too old)" };
-		}
-		throw err;
-	}
-	const can = [
-		...(target.canMessage ? ["find, read and message other sessions"] : []),
-		...(target.canSpawn ? ["start new sessions"] : []),
-	];
-	return {
-		tail: `. It may ${can.join(" and ")}, within what the machine allows.`,
-		header: keys.join(", "),
-	};
-}
 
 /**
  * A machine was revoked: switch off every schedule that points at it now,

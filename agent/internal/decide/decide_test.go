@@ -162,18 +162,13 @@ func TestAutoRunsOnlyTheClassesItsMapSays(t *testing.T) {
 	if a, _ := ConnectorCall(pol(), auto, false); a != permrules.Ask {
 		t.Errorf("connector call, tools ask: %s", a)
 	}
-	if a, _ := CoordinationFor(pol(), State{Mode: permrules.Ask, Auto: true, AutoRun: AutoRunSet(map[string]string{"agents": "run"})}, "session_send", false, ""); a != permrules.Ask {
-		t.Errorf("coordination, agents run, no grant: %s (the switch off asks in Auto)", a)
-	}
 	autoRun := State{Mode: permrules.Ask, Auto: true, AutoRun: AutoRunSet(map[string]string{"agents": "run"})}
 	for _, key := range []string{"session_read", "session_send", "session_spawn"} {
-		if a, _ := CoordinationFor(pol(), autoRun, key, false, ""); a != permrules.Ask {
-			t.Errorf("Auto, agents run, switch off, %s: %s, want ask", key, a)
+		if a, _ := CoordinationFor(pol(), autoRun, key, false, ""); a != permrules.Allow {
+			t.Errorf("Auto, agents row Runs, %s: %s, want allow", key, a)
 		}
-		on := autoRun
-		on.Coordination = []string{key}
-		if a, _ := CoordinationFor(pol(), on, key, false, ""); a != permrules.Allow {
-			t.Errorf("Auto, switch on, %s: %s, want allow", key, a)
+		if a, _ := CoordinationFor(pol(), auto, key, false, ""); a != permrules.Ask {
+			t.Errorf("Auto, agents row not Runs, %s: %s, want ask", key, a)
 		}
 	}
 	if a, _ := CoordinationFor(pol(), autoRun, "session_list", false, ""); a != permrules.Allow {
@@ -274,7 +269,6 @@ func TestClassOfLabelsEveryRequest(t *testing.T) {
 }
 
 func TestCoordinationTool(t *testing.T) {
-	grant := State{Coordination: []string{"session_read", "session_send"}}
 	tests := []struct {
 		name     string
 		p        Policy
@@ -288,11 +282,10 @@ func TestCoordinationTool(t *testing.T) {
 		{"allow spawn", Policy{}, State{Mode: permrules.Allow}, "session_spawn", false, permrules.Allow, permrules.Allow},
 		{"no target, Ask: the word applies", Policy{}, State{}, "session_spawn", false, "", permrules.Ask},
 		{"allow send, no target", Policy{}, State{Mode: permrules.Allow}, "session_send", false, "", permrules.Allow},
-		{"allow read with no target is grant-gated", Policy{}, State{Mode: permrules.Allow}, "session_read", false, "", permrules.Ask},
+		{"allow read with no target runs", Policy{}, State{Mode: permrules.Allow}, "session_read", false, "", permrules.Allow},
 		{"list needs no approval", Policy{}, State{}, "session_list", false, "", permrules.Allow},
-		{"grant read", Policy{}, grant, "session_read", false, "", permrules.Allow},
-		{"grant does not cover spawn", Policy{}, grant, "session_spawn", false, "", permrules.Ask},
-		{"plan refuses", Policy{}, State{Mode: permrules.Deny, Coordination: []string{"session_send"}}, "session_send", false, permrules.Deny, permrules.Deny},
+		{"ask read asks", Policy{}, State{}, "session_read", false, "", permrules.Ask},
+		{"plan refuses", Policy{}, State{Mode: permrules.Deny}, "session_send", false, permrules.Deny, permrules.Deny},
 		{"Ask sends to a more cautious Plan session: still asks", Policy{}, State{Mode: permrules.Ask}, "session_send", false, permrules.Deny, permrules.Ask},
 		{"Ask sends to an Allow session: the session word applies", Policy{}, State{Mode: permrules.Ask}, "session_send", false, permrules.Allow, permrules.Ask},
 		{"Allow sends to an Ask session: free", Policy{}, State{Mode: permrules.Allow}, "session_send", false, permrules.Ask, permrules.Allow},

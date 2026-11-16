@@ -47,9 +47,9 @@ type Capabilities struct {
 	// session's turn runs is folded into that turn instead of refused.
 	AgentTools bool `json:"agentTools"`
 	Steer      bool `json:"steer"`
-	// CoordinationGrant says session.grantCoordination (PROTOCOL.md §6) works:
-	// the agent tools are installed AND the session's rules are galopin's to
-	// compose, so a grant can be recorded and applied.
+	// CoordinationGrant is always false: session.grantCoordination is deprecated
+	// and ignored (PROTOCOL.md §6), so the capability is not offered: an older
+	// Cerea then shows no working switch.
 	CoordinationGrant bool `json:"coordinationGrant"`
 	// ScheduleTools says galopin installed its schedule tools (schedule_list,
 	// schedule_create, schedule_update, schedule_delete; PROTOCOL.md §6 "Agent

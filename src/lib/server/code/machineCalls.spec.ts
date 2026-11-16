@@ -234,12 +234,7 @@ describe("the link", () => {
 
 describe("schedule.create", () => {
 	it("creates a schedule on the calling machine, recorded as the agent's", async () => {
-		const item = await createViaCall(
-			{ coordination: ["session_spawn"] },
-			{
-				caller: { coordination: ["session_spawn"] },
-			}
-		);
+		const item = await createViaCall();
 		expect(item).toMatchObject({
 			name: "Check CI",
 			prompt: "See whether CI is green and fix it if not.",
@@ -251,7 +246,6 @@ describe("schedule.create", () => {
 			session: "new",
 			permissionMode: "ask",
 			agentMode: "build",
-			coordination: ["session_spawn"],
 			createdBy: { kind: "agent", sessionId: session.id, title: "Refactor the parser" },
 			self: false,
 		});
@@ -263,7 +257,6 @@ describe("schedule.create", () => {
 			sessionMode: "new",
 			modeId: "build",
 			permissionMode: "ask",
-			canSpawn: true,
 			labels: { machine: "build box", workspace: "repo" },
 		});
 		expect(row.createdBy).toEqual({
@@ -384,22 +377,12 @@ describe("schedule.create", () => {
 		await createViaCall({ permissionMode: "deny" }, { caller: { permissionMode: "ask" } });
 	});
 
-	it("refuses coordination the caller does not have, or half the messaging group", async () => {
-		refused(
-			await machine.call("schedule.create", createArgs({ coordination: ["session_spawn"] })),
-			"forbidden",
-			/session_spawn/
-		);
-		refused(
-			await machine.call("schedule.create", createArgs({ coordination: ["session_list"] }), {
-				caller: { coordination: ["session_list"] },
-			}),
-			"invalid",
-			/two groups/
-		);
-		const all = ["session_list", "session_read", "session_send"];
-		const item = await createViaCall({ coordination: all }, { caller: { coordination: all } });
-		expect(item.coordination).toEqual(all);
+	it("accepts and ignores the retired coordination argument", async () => {
+		const item = await createViaCall({ coordination: ["session_spawn"] });
+		expect(item).not.toHaveProperty("coordination");
+		const row = await getSchedule(person.user._id, item.id);
+		expect(row.target).not.toHaveProperty("canSpawn");
+		expect(row.target).not.toHaveProperty("canMessage");
 	});
 
 	it("refuses a workspace that is not on this computer", async () => {
@@ -516,7 +499,6 @@ describe("schedule.list, update and delete", () => {
 		expect(schedules[0]).toMatchObject({
 			createdBy: { kind: "person" },
 			permissionMode: "allow",
-			coordination: [],
 			lastRunAt: null,
 			self: false,
 		});
@@ -556,14 +538,6 @@ describe("schedule.list, update and delete", () => {
 				"schedule.update",
 				{ id: item.id, permissionMode: "allow" },
 				{ caller: { permissionMode: "ask" } }
-			),
-			"forbidden"
-		);
-		refused(
-			await machine.call(
-				"schedule.update",
-				{ id: item.id, coordination: ["session_spawn"] },
-				{ caller: { coordination: [] } }
 			),
 			"forbidden"
 		);

@@ -38,17 +38,16 @@ func TestDelegationSkillShipsWithTools(t *testing.T) {
 		"never tell a task subagent",            // the delegating side never routes the report through session_send
 		"## Brief it so it can start cold",      // the briefing template
 		"**Acceptance**",
-		"report: false",                  // fire-and-forget opt-out
-		"## Safety",                      // the safety rules, in one block
-		"## Scheduling work",             // the schedule tools' section
-		"**List first.**",                // update instead of duplicating
-		"session: \"this\"",              // follow-ups land in this session
-		"Schedules outlive you.",         // name them clearly
-		"paused: true",                   // stop your own when done
-		"every create asks the person",   // the runaway guard, so the model expects the card
-		"all together (or none of them)", // the coordination options Cerea stores
-		"Deny included",                  // stopping your own schedule always works
-		"## Profiles and recipes",        // delegate profiles and the three recipes
+		"report: false",                // fire-and-forget opt-out
+		"## Safety",                    // the safety rules, in one block
+		"## Scheduling work",           // the schedule tools' section
+		"**List first.**",              // update instead of duplicating
+		"session: \"this\"",            // follow-ups land in this session
+		"Schedules outlive you.",       // name them clearly
+		"paused: true",                 // stop your own when done
+		"every create asks the person", // the runaway guard, so the model expects the card
+		"Deny included",                // stopping your own schedule always works
+		"## Profiles and recipes",      // delegate profiles and the three recipes
 		"session_profiles", "session_committee", "**Handoff**", "**Second opinion**", "**Committee**",
 		"A profile is a model, never a permission", // a profile never widens what a delegate may do
 		"mode: \"plan\"", // read-only comes from the mode argument

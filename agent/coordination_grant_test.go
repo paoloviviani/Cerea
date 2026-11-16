@@ -3,10 +3,10 @@ package main
 import (
 	"context"
 	"reflect"
-	"strings"
 	"testing"
 
 	"galopin/internal/backend"
+	"galopin/internal/permrules"
 )
 
 func mustGrant(t *testing.T, r *coordRig, id string, keys any) {
@@ -16,27 +16,31 @@ func mustGrant(t *testing.T, r *coordRig, id string, keys any) {
 	}
 }
 
-// Only the four coordination keys are accepted: anything else is `invalid` and
-// records nothing.
-func TestGrantCoordinationKeyAllowlist(t *testing.T) {
+func setWord(r *coordRig, mode permrules.Action, auto map[string]string) {
+	sel := r.cb.sel["caller"]
+	sel.Mode = mode
+	if auto != nil {
+		sel.Auto, sel.AutoClasses = true, auto
+	}
+	r.cb.sel["caller"] = sel
+}
+
+// session.grantCoordination is DEPRECATED and ignored: the same validation as
+// before, but nothing is recorded and no decision reads it.
+func TestGrantCoordinationIsAcceptedAndIgnored(t *testing.T) {
 	r := newCoordRig(t, nil)
-	for _, keys := range [][]string{{"bash"}, {"session_send", "edit"}, {"*"}, {"session_*"}, {"task"}, {""}, {"external_directory"}} {
-		_, operr := r.grant("caller", keys)
-		if operr == nil || operr.Code != "invalid" {
+	for _, keys := range [][]string{{"bash"}, {"session_send", "edit"}, {"*"}, {""}} {
+		if _, operr := r.grant("caller", keys); operr == nil || operr.Code != "invalid" {
 			t.Errorf("keys %v: err = %v, want invalid", keys, operr)
 		}
 	}
-	if got := r.cb.Coordination("caller"); len(got) != 0 {
-		t.Errorf("a refused grant recorded %v", got)
+	for _, raw := range []string{`{"sessionId":"caller"}`, `{"sessionId":"caller","keys":"session_send"}`} {
+		if _, operr := r.mc.opSessionGrantCoordination(context.Background(), []byte(raw)); operr == nil || operr.Code != "invalid" {
+			t.Errorf("%s = %v, want invalid", raw, operr)
+		}
 	}
-	// keys is required (an empty list clears), and must be a list.
-	raw := []byte(`{"sessionId":"caller"}`)
-	if _, operr := r.mc.opSessionGrantCoordination(context.Background(), raw); operr == nil || operr.Code != "invalid" {
-		t.Errorf("missing keys = %v, want invalid", operr)
-	}
-	raw = []byte(`{"sessionId":"caller","keys":"session_send"}`)
-	if _, operr := r.mc.opSessionGrantCoordination(context.Background(), raw); operr == nil || operr.Code != "invalid" {
-		t.Errorf("keys as a string = %v, want invalid", operr)
+	if _, operr := r.grant("ses_nope", []string{"session_send"}); operr == nil || operr.Code != "not_found" {
+		t.Errorf("unknown session = %v, want not_found", operr)
 	}
 	res, operr := r.grant("caller", []string{"session_spawn", "session_read", "session_read"})
 	if operr != nil {
@@ -45,97 +49,69 @@ func TestGrantCoordinationKeyAllowlist(t *testing.T) {
 	if got := res.(map[string]any)["keys"]; !reflect.DeepEqual(got, []string{"session_read", "session_spawn"}) {
 		t.Errorf("answer keys = %v, want sorted and de-duplicated", got)
 	}
-}
-
-func TestGrantCoordinationRefusals(t *testing.T) {
-	r := newCoordRig(t, nil)
-	if _, operr := r.grant("ses_nope", []string{"session_send"}); operr == nil || operr.Code != "not_found" {
-		t.Errorf("unknown session = %v, want not_found", operr)
+	if got := r.cb.Coordination("caller"); len(got) != 0 {
+		t.Errorf("a grant was recorded: %v", got)
 	}
-	r.addSession(r.w1, "kid", "Kid", "caller")
-	if _, operr := r.grant("kid", []string{"session_send"}); operr == nil || operr.Code != "invalid" || !strings.Contains(operr.Message, "caller") {
-		t.Errorf("a subagent = %v, want invalid naming its root", operr)
-	}
-	// A machine that installed no agent tools has nothing to grant.
-	r.mc.agentTools = nil
-	if _, operr := r.grant("caller", []string{"session_send"}); operr == nil || operr.Code != "unsupported" {
-		t.Errorf("no agent tools = %v, want unsupported", operr)
-	}
-}
-
-// The point of the op: a granted session reads another's text and messages it
-// with no card, and the same calls ask on a session nobody granted.
-func TestGrantedSessionReadsAndSendsWithoutACard(t *testing.T) {
-	r := newCoordRig(t, nil)
-	r.say("peer", "assistant", "build is green", t0)
-	mustGrant(t, r, "caller", []string{"session_list", "session_read", "session_send"})
-
-	out, err := r.call("caller", "session_read", map[string]any{"target": "peer"})
-	if err != nil || !strings.Contains(out, "build is green") {
-		t.Fatalf("read: %v %q", err, out)
-	}
-	res, err := r.call("caller", "session_send", map[string]any{"target": "peer", "text": "thanks, ship it"})
-	if err != nil || res != `{"autoApproved":true}` {
-		t.Fatalf("send: %v %q", err, res)
-	}
-	if _, err := r.call("caller", "session_list", map[string]any{"note": "x"}); err != nil {
+	// And a granted key frees nothing: Ask still raises the card.
+	r.say("peer", "assistant", "x", t0)
+	if _, err := r.call("caller", "session_read", map[string]any{"target": "peer"}); err != nil {
 		t.Fatal(err)
 	}
-	if n := len(r.asks()); n != 0 {
-		t.Fatalf("a granted session raised %d cards: %+v", n, r.asks())
+	if n := len(r.asks()); n != 1 {
+		t.Errorf("a deprecated grant freed a read: %d cards, want 1", n)
 	}
-	ps := r.prompts()
-	if len(ps) != 1 || ps[0].session != "peer" || ps[0].prompt.Text != "thanks, ship it" || ps[0].prompt.SentBy == nil {
-		t.Errorf("prompts = %+v, want the one message to peer", ps)
+	var rows []map[string]any
+	for _, row := range r.audit() {
+		if row["action"] == "session.grantCoordination" {
+			rows = append(rows, row)
+		}
 	}
-
-	// The key not granted still asks.
-	if _, err := r.call("caller", "session_spawn", map[string]any{"title": "t", "prompt": "p", "mode": "inherit"}); err == nil {
-		// spawn needs CreateSession, which the rig does not provide: it must have
-		// reached the card (the rig answers once) before failing there.
-		t.Log("spawn unexpectedly succeeded")
-	}
-	if asks := r.asks(); len(asks) != 1 || asks[0].Tool != "session_spawn" {
-		t.Errorf("asks = %+v, want a card for the key that was not granted", asks)
-	}
-
-	// A session nobody granted asks for the same read.
-	if _, err := r.call("peer", "session_read", map[string]any{"target": "other"}); err != nil {
-		t.Fatal(err)
-	}
-	if asks := r.asks(); asks[len(asks)-1].Tool != "session_read" {
-		t.Errorf("asks = %+v, want a read card from the ungranted session", asks)
+	last := rows[len(rows)-1]
+	if last["outcome"] != "ignored" || last["session"] != "caller" {
+		t.Errorf("audit row = %v, want outcome ignored", last)
 	}
 }
 
-// A grant is never more than the machine's ceiling, the cross-workspace rule,
-// the hop limit or the rate limit.
-func TestGrantNeverExceedsTheCeilingWorkspaceHopOrRate(t *testing.T) {
-	// A local deny of the agents class beats a grant.
+// permission.rules no longer carries a grant and the hello does not offer one.
+func TestPermissionRulesAndHelloShowNoGrant(t *testing.T) {
+	r := newCoordRig(t, nil)
+	res, operr := r.mc.opPermissionRules(context.Background(), []byte(`{"sessionId":"caller"}`))
+	if operr != nil {
+		t.Fatal(operr)
+	}
+	if _, has := res.(map[string]any)["coordination"]; has {
+		t.Error("permission.rules still reports a coordination grant")
+	}
+	hello := buildHello(r.cb, r.mc.pol)
+	if hello.Backends[0].Capabilities["coordinationGrant"] {
+		t.Error("hello must not advertise coordinationGrant")
+	}
+}
+
+// The limits that stood over a grant stand over Allow: a local deny of agents,
+// another workspace, the hop limit and the rate limit.
+func TestCoordinationLimitsStandOnAllow(t *testing.T) {
 	r := newCoordRig(t, withDeny("agents"))
+	setWord(r, permrules.Allow, nil)
 	r.say("peer", "user", "x", t0)
-	mustGrant(t, r, "caller", []string{"session_read", "session_send"})
 	_, err := r.call("caller", "session_read", map[string]any{"target": "peer"})
 	refusedWith(t, err, "refused")
 
-	// Cross-workspace: send and read to another workspace still ask.
 	r = newCoordRig(t, nil)
+	setWord(r, permrules.Allow, nil)
 	r.say("other", "user", "x", t0)
-	mustGrant(t, r, "caller", []string{"session_read", "session_send"})
 	if _, err := r.call("caller", "session_read", map[string]any{"target": "other"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := r.call("caller", "session_send", map[string]any{"target": "other", "text": "hi"}); err != nil {
 		t.Fatal(err)
 	}
-	asks := r.asks()
-	if len(asks) != 2 || asks[0].Tool != "session_read" || asks[1].Tool != "session_send" {
+	if asks := r.asks(); len(asks) != 2 || asks[0].Tool != "session_read" || asks[1].Tool != "session_send" {
 		t.Fatalf("cross-workspace asks = %+v, want a card each", asks)
 	}
 
-	// Hop: a send past hop 3 asks even in the same workspace.
 	r = newCoordRig(t, nil)
-	mustGrant(t, r, "caller", []string{"session_send"})
+	setWord(r, permrules.Allow, nil)
 	r.mc.mat.ApplyBackendEvent(context.Background(), backend.BackendEvent{WorkspaceDir: r.w1.Path, SessionID: "caller", Event: backend.Event{
 		Kind: backend.EventMessage, Message: &backend.Message{ID: "m1", Role: "user", SentBy: &backend.MessageSender{SessionID: "peer", Hop: 3}},
 	}})
@@ -143,12 +119,11 @@ func TestGrantNeverExceedsTheCeilingWorkspaceHopOrRate(t *testing.T) {
 		t.Fatal(err)
 	}
 	if asks := r.asks(); len(asks) != 1 || asks[0].Tool != "session_send" {
-		t.Fatalf("a send at hop 4 asks despite the grant; asks = %+v", asks)
+		t.Fatalf("a send at hop 4 asks; asks = %+v", asks)
 	}
 
-	// Rate: the sixth send in a minute is refused.
 	r = newCoordRig(t, nil)
-	mustGrant(t, r, "caller", []string{"session_send"})
+	setWord(r, permrules.Allow, nil)
 	for i := 0; i < sendsPerWindow; i++ {
 		if _, err := r.call("caller", "session_send", map[string]any{"target": "peer", "text": "hi"}); err != nil {
 			t.Fatalf("send %d: %v", i, err)
@@ -158,147 +133,57 @@ func TestGrantNeverExceedsTheCeilingWorkspaceHopOrRate(t *testing.T) {
 	refusedWith(t, err, "send rate limit")
 }
 
-// `keys: []` clears the grant: the next call asks again. Deny keeps it but wins.
-func TestGrantCoordinationClearsAndYieldsToDeny(t *testing.T) {
-	r := newCoordRig(t, nil)
-	r.say("peer", "user", "x", t0)
-	mustGrant(t, r, "caller", []string{"session_read"})
-	if _, err := r.call("caller", "session_read", map[string]any{"target": "peer"}); err != nil || len(r.asks()) != 0 {
-		t.Fatalf("granted read: %v asks=%d", err, len(r.asks()))
-	}
-	mustGrant(t, r, "caller", []string{})
-	if got := r.cb.Coordination("caller"); len(got) != 0 {
-		t.Errorf("after clearing: %v", got)
-	}
-	if _, err := r.call("caller", "session_read", map[string]any{"target": "peer"}); err != nil {
-		t.Fatal(err)
-	}
-	if len(r.asks()) != 1 {
-		t.Errorf("a cleared grant must ask again; asks = %d", len(r.asks()))
-	}
-	// Deny wins over a kept grant: refused up front with the Deny message,
-	// before any card.
-	mustGrant(t, r, "caller", []string{"session_read"})
-	_ = r.cb.SetPermissionMode(context.Background(), "", "caller", "deny")
-	_, err := r.call("caller", "session_read", map[string]any{"target": "peer"})
-	refusedWith(t, err, "set to Plan")
-}
-
-// The grant is audited with its keys and its outcome, refusals included.
-func TestGrantCoordinationIsAudited(t *testing.T) {
-	r := newCoordRig(t, nil)
-	mustGrant(t, r, "caller", []string{"session_send", "session_read"})
-	_, _ = r.grant("caller", []string{"bash"})
-	mustGrant(t, r, "caller", []string{})
-	var rows []map[string]any
-	for _, row := range r.audit() {
-		if row["action"] == "session.grantCoordination" {
-			rows = append(rows, row)
-		}
-	}
-	if len(rows) != 3 {
-		t.Fatalf("rows = %v", rows)
-	}
-	if rows[0]["outcome"] != "ok" || !reflect.DeepEqual(rows[0]["keys"], []any{"session_read", "session_send"}) || rows[0]["session"] != "caller" {
-		t.Errorf("grant row = %v", rows[0])
-	}
-	if rows[1]["outcome"] != "invalid" || !reflect.DeepEqual(rows[1]["keys"], []any{"bash"}) {
-		t.Errorf("refused row = %v", rows[1])
-	}
-	if rows[2]["outcome"] != "ok" || !reflect.DeepEqual(rows[2]["keys"], []any{}) {
-		t.Errorf("clear row = %v", rows[2])
-	}
-}
-
-// permission.rules shows the grant, and a hello says the machine can take one.
-func TestPermissionRulesAndHelloShowTheGrant(t *testing.T) {
-	r := newCoordRig(t, nil)
-	mustGrant(t, r, "caller", []string{"session_read"})
-	raw := []byte(`{"sessionId":"caller"}`)
-	res, operr := r.mc.opPermissionRules(context.Background(), raw)
-	if operr != nil {
-		t.Fatal(operr)
-	}
-	if got := res.(map[string]any)["coordination"]; !reflect.DeepEqual(got, []string{"session_read"}) {
-		t.Errorf("coordination = %v", got)
-	}
-	hello := buildHello(r.cb, r.mc.pol)
-	if !hello.Backends[0].Capabilities["coordinationGrant"] {
-		t.Error("hello must advertise coordinationGrant")
-	}
-}
-
-// The Coordination switch per word (the owner's report that models coordinate
-// "without it being enabled"): with the switch off, Ask and Auto (even with the
-// agents row on run) raise a card for read, send and spawn; Allow runs them
-// without one, so the switch is moot there; Plan refuses. With it on, no card.
-// session_list never asks.
-func TestCoordinationSwitchPerWord(t *testing.T) {
-	type word struct {
-		name string
-		set  func(r *coordRig)
-		// wantCard is whether the switch-off call raises a card; refused is Plan.
-		wantCard, refused bool
-	}
-	words := []word{
-		{"ask", func(r *coordRig) {}, true, false},
-		{"auto agents run", func(r *coordRig) {
-			sel := r.cb.sel["caller"]
-			sel.Auto, sel.AutoClasses = true, map[string]string{"agents": "run"}
-			r.cb.sel["caller"] = sel
-		}, true, false},
-		{"allow", func(r *coordRig) {
-			sel := r.cb.sel["caller"]
-			sel.Mode = "allow"
-			r.cb.sel["caller"] = sel
-		}, false, false},
-		{"plan", func(r *coordRig) {
-			sel := r.cb.sel["caller"]
-			sel.Mode = "deny"
-			r.cb.sel["caller"] = sel
-		}, false, true},
+// Coordination per word and per Agents row: Ask is a card, Auto follows the
+// agents row (Runs runs; Reviewer and You are a card, which Cerea routes),
+// Allow runs, Plan refuses; session_list never asks.
+func TestCoordinationPerModeAndAgentsRow(t *testing.T) {
+	cases := []struct {
+		name     string
+		mode     permrules.Action
+		auto     map[string]string
+		wantCard bool
+		refused  bool
+	}{
+		{"ask", permrules.Ask, nil, true, false},
+		{"auto, agents Runs", permrules.Ask, map[string]string{"agents": "run"}, false, false},
+		{"auto, agents Reviewer", permrules.Ask, map[string]string{"agents": "ask"}, true, false},
+		{"auto, agents You", permrules.Ask, map[string]string{"agents": "ask"}, true, false},
+		{"allow", permrules.Allow, nil, false, false},
+		{"plan", permrules.Deny, nil, false, true},
 	}
 	calls := map[string]map[string]any{
 		"session_read":  {"target": "peer"},
 		"session_send":  {"target": "peer", "text": "hi"},
 		"session_spawn": {"title": "t", "prompt": "p", "mode": "inherit"},
 	}
-	for _, w := range words {
+	for _, c := range cases {
 		for tool, args := range calls {
-			for _, on := range []bool{false, true} {
-				r := newCoordRig(t, nil)
-				r.say("peer", "assistant", "x", t0)
-				w.set(r)
-				if on {
-					mustGrant(t, r, "caller", []string{tool})
+			r := newCoordRig(t, nil)
+			r.say("peer", "assistant", "x", t0)
+			setWord(r, c.mode, c.auto)
+			_, err := r.call("caller", tool, args)
+			n := len(r.asks())
+			name := c.name + "/" + tool
+			switch {
+			case c.refused:
+				if err == nil || n != 0 {
+					t.Errorf("%s: Plan must refuse with no card (err %v, asks %d)", name, err, n)
 				}
-				_, err := r.call("caller", tool, args)
-				n := len(r.asks())
-				name := w.name + "/" + tool + "/switch"
-				switch {
-				case w.refused:
-					if err == nil || n != 0 {
-						t.Errorf("%s: Plan must refuse with no card (err %v, asks %d)", name, err, n)
-					}
-				case on:
-					if n != 0 {
-						t.Errorf("%s on: raised %d cards", name, n)
-					}
-				case w.wantCard:
-					if n != 1 || r.asks()[0].Tool != tool {
-						t.Errorf("%s off: asks = %+v, want one %s card", name, r.asks(), tool)
-					}
-				default:
-					if n != 0 {
-						t.Errorf("%s off: %d cards, want none (Allow runs it)", name, n)
-					}
+			case c.wantCard:
+				if n != 1 || r.asks()[0].Tool != tool {
+					t.Errorf("%s: asks = %+v, want one %s card", name, r.asks(), tool)
+				}
+			default:
+				if n != 0 {
+					t.Errorf("%s: %d cards, want none", name, n)
 				}
 			}
 		}
-	}
-	// Finding sessions never asks, switch or not.
-	r := newCoordRig(t, nil)
-	if _, err := r.call("caller", "session_list", map[string]any{"note": "x"}); err != nil || len(r.asks()) != 0 {
-		t.Errorf("session_list: %v, %d cards", err, len(r.asks()))
+		r := newCoordRig(t, nil)
+		setWord(r, c.mode, c.auto)
+		_, err := r.call("caller", "session_list", map[string]any{"note": "x"})
+		if len(r.asks()) != 0 || (err != nil && !c.refused) {
+			t.Errorf("%s: session_list asked or failed: %v, %d cards", c.name, err, len(r.asks()))
+		}
 	}
 }

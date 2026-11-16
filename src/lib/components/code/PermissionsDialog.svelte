@@ -3,7 +3,7 @@
 	from a session's menu in the agents sidebar): what reaches the user on this machine, class by
 	class (ADR 0107 section 3), from the machine's limits (its hello), the administrator's rows and
 	the reviewer's availability. Then the session's Exceptions (what "Always allow" on a card left
-	behind, with Remove) and the Coordination switches. The exceptions and the grant are read from
+	behind, with Remove). The exceptions are read from
 	the machine for this session (`permission.rules`) and re-read after every change; the machine's
 	own rules are never listed.
 -->
@@ -17,7 +17,6 @@
 		getAutoApproval,
 		getPermissionRules,
 		removeSavedApproval,
-		setCoordinationGrant,
 		type CodeDeviceView,
 	} from "$lib/codeApi";
 	import type { PermissionRulesResult, PermissionStep } from "$lib/types/machineProtocol";
@@ -30,13 +29,6 @@
 		reviewerFor,
 		type AutoSetup,
 	} from "$lib/utils/autoApproval";
-	import {
-		ceilingNote,
-		coordinationKeys,
-		coordinationOptions,
-		coordinationSupport,
-		type CoordinationOptions,
-	} from "$lib/utils/coordination";
 	import { error as errorToast } from "$lib/stores/errors";
 	import IconShield from "~icons/lucide/shield";
 	import { codeReauth } from "$lib/stores/codeReauth.svelte";
@@ -52,13 +44,9 @@
 		/** The reviewer's availability and the user's own rows; read here when the opener has
 		 * none. */
 		setup?: AutoSetup | null;
-		/** The device row this session belongs to, for the coordination
-		 * switches' disabled reasons (a galopin too old to grant, agent tools
-		 * off) and the ceiling note. Unknown when the tree has not loaded
-		 * it — the switches stay usable and the grant itself answers. */
+		/** The device row this session belongs to (its name and reviewer opt-out). */
 		device?: CodeDeviceView;
-		/** A subagent holds no grant of its own (it follows its root):
-		 * the section says so instead of offering the switches. */
+		/** A subagent follows its root: the connectors section is left out. */
 		subagent?: boolean;
 		/** Called after an exception is removed (the dialog re-reads itself);
 		 * a parent showing the exceptions count re-reads with it. */
@@ -78,7 +66,6 @@
 	}: Props = $props();
 
 	let removing = $state<string | null>(null);
-	let coordinating = $state(false);
 
 	/** The machine's `permission.rules` answer for this session, read here:
 	 * the dialog owns its read, so it can be opened for any session's row,
@@ -163,29 +150,6 @@
 			errorToast.set(err instanceof Error ? err.message : m["code.permissions.could_not_remove"]());
 		} finally {
 			removing = null;
-		}
-	}
-
-	/** The session's grant read back as the two switches, in the same
-	 * wording the schedules use (utils/coordination.ts). */
-	let grant = $derived(coordinationOptions(result?.coordination ?? []));
-	/** Whether the machine can take a grant at all; null while the device
-	 * row is unknown — the switches stay usable and the grant itself
-	 * answers (an old galopin 404s with the reason). */
-	let grantable = $derived(device ? coordinationSupport(device) : null);
-	let ceilingWarning = $derived(device ? ceilingNote(device, result?.coordination ?? []) : null);
-
-	async function setGrant(next: CoordinationOptions) {
-		if (coordinating) return;
-		coordinating = true;
-		try {
-			await setCoordinationGrant(deviceId, agentId, coordinationKeys(next));
-			await load();
-			onchanged?.();
-		} catch (err) {
-			errorToast.set(err instanceof Error ? err.message : m["code.permissions.could_not_grant"]());
-		} finally {
-			coordinating = false;
 		}
 	}
 </script>
@@ -309,61 +273,6 @@
 						<p class="mt-1 text-ink-faint">
 							{m["code.permissions.exceptions_note"]()}
 						</p>
-					{/if}
-				</div>
-
-				<div>
-					<p class="mb-1 font-medium text-ink">{m["code.permissions.coordination"]()}</p>
-					{#if subagent}
-						<p class="text-ink-muted">
-							{m["code.permissions.subagent_note"]()}
-						</p>
-					{:else if grantable && !grantable.ok}
-						<p class="text-ink-muted" data-testid="coordination-unavailable">
-							{grantable.reason === "tools-off"
-								? m["code.permissions.coord_tools_off"]()
-								: m["code.permissions.coord_too_old"]()}
-						</p>
-					{:else}
-						<div
-							class="space-y-2"
-							role="group"
-							aria-label={m["code.permissions.coordination_label"]()}
-							data-testid="coordination-options"
-						>
-							<label class="flex items-start gap-2 text-sm text-ink">
-								<input
-									type="checkbox"
-									class="mt-1"
-									checked={grant.canMessage}
-									disabled={coordinating}
-									onchange={() =>
-										void setGrant({ canMessage: !grant.canMessage, canSpawn: grant.canSpawn })}
-								/>
-								<span>{m["code.permissions.can_message"]()}</span>
-							</label>
-							<label class="flex items-start gap-2 text-sm text-ink">
-								<input
-									type="checkbox"
-									class="mt-1"
-									checked={grant.canSpawn}
-									disabled={coordinating}
-									onchange={() =>
-										void setGrant({ canMessage: grant.canMessage, canSpawn: !grant.canSpawn })}
-								/>
-								<span>{m["code.permissions.can_spawn"]()}</span>
-							</label>
-						</div>
-						<p class="mt-1 text-ink-faint" data-testid="coordination-note">
-							{mode === "allow"
-								? m["code.permissions.grant_note_allow"]()
-								: mode === "deny"
-									? m["code.permissions.grant_note_plan"]()
-									: m["code.permissions.grant_note"]()}
-						</p>
-						{#if ceilingWarning}
-							<p class="mt-1 text-ink-faint">{ceilingWarning}</p>
-						{/if}
 					{/if}
 				</div>
 

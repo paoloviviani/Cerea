@@ -646,13 +646,7 @@ func (at *agentTools) spawnCore(ctx context.Context, tc *toolCaller, call backen
 				return "", child.ID, refuse("the new session %q was created but its permission word was not inherited: %v", child.ID, err)
 			}
 		}
-		keys := rh.Coordination(tc.session.ID)
 		exceptions := rh.Exceptions(tc.session.ID)
-		if len(keys) > 0 {
-			if err := rh.SetCoordination(ctx, tc.dir, child.ID, keys); err != nil {
-				return "", child.ID, refuse("the new session %q was created but its coordination grant was not inherited: %v", child.ID, err)
-			}
-		}
 		// The person's "always" answers ride along, exactly as the caller's
 		// root holds them — same permission, same patterns, same action —
 		// never more than the caller has (the ceiling caps them as it caps

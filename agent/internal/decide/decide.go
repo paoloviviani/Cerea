@@ -74,9 +74,8 @@ type Request struct {
 
 // State is the ROOT session's state: a subagent is decided by its root's.
 type State struct {
-	Mode         permrules.Action
-	Exceptions   []permrules.Exception
-	Coordination []string
+	Mode       permrules.Action
+	Exceptions []permrules.Exception
 	// Auto marks an Auto session (Mode is Ask): the classes in AutoRun run with
 	// no card, every other class is a card (ADR 0109 amendment). A nil AutoRun
 	// on an Auto session runs nothing.
@@ -559,9 +558,9 @@ var askCallersAreFree = false
 // spawn (a child is never looser than its spawner) and a schedule; "" when
 // there is no target. A call is free when the target's word is the same or more
 // cautious than the caller's on Allow; otherwise the caller's word applies. An
-// Auto caller is on Ask here, and a session tool is free only by its
-// Coordination grant (the agents row does not free it); its agents class
-// running frees the schedule tools the way Allow does.
+// Auto caller is on Ask here, except that its agents class running (the
+// Agents row says Runs) makes a call free the way Allow does. There is no
+// per-session grant: session.grantCoordination is a deprecated no-op.
 func CoordinationFor(p Policy, s State, key string, delegate bool, target permrules.Action) (permrules.Action, string) {
 	if p.Deny[ClassAgents] {
 		return permrules.Deny, denyReason(ClassAgents)
@@ -577,20 +576,16 @@ func CoordinationFor(p Policy, s State, key string, delegate bool, target permru
 	switch {
 	case delegate:
 		answer = permrules.Allow
-	case contains(s.Coordination, key):
-		answer = permrules.Allow
 	case key == "session_list":
 		answer = permrules.Allow
-	case autoRuns && !permrules.IsCoordinationKey(key):
-		// The session tools are not here: the Coordination switch is the more
-		// specific statement, so with it off an Auto session's read,
-		// send and spawn are a card (the reviewer's or the user's by
-		// Cerea's row) whatever the agents row says. What is left is the
-		// schedule tools.
+	case autoRuns:
+		// Auto follows the owner's Agents row (Workspace, Agents): Runs frees
+		// every agents call, read included; any other row is a card, which
+		// Cerea sends to the reviewer or to the user.
 		answer = permrules.Allow
 	case target.Valid() && wordRank(target) <= wordRank(s.Mode) && (s.Mode == permrules.Allow || askCallersAreFree):
 		answer = permrules.Allow
-	case s.Mode == permrules.Allow && key != "session_read":
+	case s.Mode == permrules.Allow:
 		answer = permrules.Allow
 	}
 	return answer, ""

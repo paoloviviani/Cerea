@@ -358,14 +358,11 @@ PATH` may only remove from it.
   `session_read`, `session_send` and `session_spawn`, so a session's model can
   find, **read** (the other session's user and assistant text only, never its
   tool output, truncated at 4 KB a message and 32 KB an answer), message and
-  start other sessions on this machine. What happens is the **agents** class (above): a call from a session on Allow to a session whose word is the same or more cautious needs no card, a call from a session on Ask or Auto still asks (on Auto even when its map runs `agents`) unless the session was **granted** it (`session.grantCoordination {sessionId, keys}`, only those four keys; `[]` clears); with `--deny agents` none works. A spawned session
-  inherits its spawner's exceptions and grant, and its word only as Allow (an
-  Allow spawner starts an Allow child, any other starts on Ask), never more;
-  Cerea's scheduled runs orchestrate other sessions
-  with nobody to answer a card this way. A grant persists with the session, and is never
-  more than a local deny, another workspace, the hop limit or the rate limits
-  allow. An older galopin has no such op and answers `unsupported`; Cerea runs
-  the schedule without it and says so. Every read, send, spawn and grant is a
+  start other sessions on this machine. What happens is the **agents** class (above): on Plan every call is refused, on Ask each is a card, on Allow they run, and on Auto they follow the owner's **Agents** row (Workspace, Agents: Runs runs, Reviewer or You is a card); `session_list` never asks, a spawner and the session it spawned talk freely, and with `--deny agents` none works. A spawned session
+  inherits its spawner's exceptions, and its word only as Allow (an
+  Allow spawner starts an Allow child, any other starts on Ask), never more. There is no
+  per-session coordination grant any more: `session.grantCoordination` is a
+  deprecated no-op that older Cerea versions may still call. Every read, send and spawn is a
   row in `audit.log`, never the text. See [PROTOCOL.md](PROTOCOL.md) §6.
 - **Schedule tools** (installed with the agent tools): `schedule_list`,
   `schedule_create`, `schedule_update` and `schedule_delete` let a session's

@@ -224,7 +224,7 @@ func (b *Backend) Capabilities() backend.Capabilities {
 		ToolImages: true,
 		// galopin's coordination tools reach the agent as an MCP server per
 		// session (tools.go); the selector state they need is this backend's.
-		AgentTools: tools, ScheduleTools: tools, CoordinationGrant: tools,
+		AgentTools: tools, ScheduleTools: tools, CoordinationGrant: false,
 	}
 }
 

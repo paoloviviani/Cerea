@@ -2,13 +2,7 @@
 	Create or edit a schedule. The target is an ordered picker — machine, then a
 	workspace on it (or a new one, made when the schedule is saved), then a new
 	session each run or one existing session — followed by mode, model and the
-	permission word, whether the run may work with the machine's other
-	sessions, the prompt and the timetable.
-
-	The two coordination options (both off) become `session.grantCoordination` at
-	each run (see the agent executor). The editor says what the machine will make
-	of them: a galopin too old to grant them, or a ceiling that holds a granted
-	tool at Ask, which then still waits in the Needs-you inbox.
+	permission word, the prompt and the timetable.
 
 	The workspace and session lists come from the same /code listings the tree
 	uses (`listWorkspaces`, `listWorkspaceAgents`); an offline machine can be
@@ -54,7 +48,6 @@
 	import { allTimezones, browserTimezone, formatWhen } from "$lib/utils/scheduleFormat";
 	import { weekdayNames } from "./scheduleLabels";
 	import * as s from "$lib/components/overlay/styles";
-	import { ceilingNote, coordinationKeys, coordinationSupport } from "$lib/utils/coordination";
 
 	interface Props {
 		/** The schedule being edited; absent for a new one. */
@@ -84,8 +77,6 @@
 		modeId?: string;
 		modelId?: string;
 		permissionMode?: "deny" | "ask" | "allow";
-		canMessage?: boolean;
-		canSpawn?: boolean;
 		labels?: { machine?: string; workspace?: string; session?: string };
 	};
 	const stored = (untrack(() => editing?.target) ?? {}) as Target;
@@ -150,8 +141,6 @@
 	// A schedule's third step is Auto (ADR 0109): an unattended run is routed by the owner's rows
 	// and never hands off.
 	const thirdLabel = $derived(m["code.permission_mode.auto"]());
-	let canMessage = $state(stored.canMessage === true);
-	let canSpawn = $state(stored.canSpawn === true);
 	let enabled = $state(untrack(() => editing?.enabled) ?? true);
 	let stopAfter = $state(
 		untrack(() => (editing?.maxOccurrences != null ? String(editing.maxOccurrences) : ""))
@@ -194,14 +183,6 @@
 	const makingWorkspace = $derived(workspaceChoice === NEW);
 	const knownWorkspace = $derived(workspaces.find((w) => w.id === workspaceChoice));
 	const timezones = allTimezones();
-	// What the chosen machine will make of the coordination options.
-	const coordination = $derived(device ? coordinationSupport(device) : null);
-	const coordinationCeiling = $derived(
-		device && coordination?.ok
-			? ceilingNote(device, coordinationKeys({ canMessage, canSpawn }))
-			: null
-	);
-
 	const recurrence = $derived<Recurrence>(
 		preset === "hours"
 			? { type: "hours", every: Math.trunc(Number(hoursEvery)) }
@@ -415,8 +396,6 @@
 				...(modeId ? { modeId } : {}),
 				...(modelId ? { modelId } : {}),
 				permissionMode,
-				...(canMessage ? { canMessage: true } : {}),
-				...(canSpawn ? { canSpawn: true } : {}),
 				labels: {
 					...(workspaceName ? { workspace: workspaceName } : {}),
 					...(existing ? { session: sessionTitle(sessionChoice) ?? stored.labels?.session } : {}),
@@ -837,30 +816,6 @@
 						<p class={s.HINT}>{m["code.schedule_editor.allow_hint"]()}</p>
 					{:else}
 						<p class={s.HINT}>{m["code.schedule_editor.plan_hint"]()}</p>
-					{/if}
-				</div>
-
-				<div class="mt-4" data-testid="coordination-options">
-					<span class={s.LABEL} id="sched-coord-label">{m["code.schedule_editor.others"]()}</span>
-					<div class="space-y-2" role="group" aria-labelledby="sched-coord-label">
-						<label class="flex items-start gap-2 text-sm text-ink">
-							<input type="checkbox" class="mt-1" bind:checked={canMessage} disabled={busy} />
-							<span>{m["code.schedule_editor.can_message"]()}</span>
-						</label>
-						<label class="flex items-start gap-2 text-sm text-ink">
-							<input type="checkbox" class="mt-1" bind:checked={canSpawn} disabled={busy} />
-							<span>{m["code.schedule_editor.can_spawn"]()}</span>
-						</label>
-					</div>
-					<p class={s.HINT}>{m["code.schedule_editor.others_hint"]()}</p>
-					{#if coordination && !coordination.ok}
-						<p class="{s.NOTICE} mt-2" data-testid="coordination-unsupported">
-							{coordination.reason === "too-old"
-								? m["code.schedule_editor.too_old"]()
-								: m["code.schedule_editor.tools_off"]()}
-						</p>
-					{:else if coordinationCeiling}
-						<p class="{s.NOTICE} mt-2" data-testid="coordination-ceiling">{coordinationCeiling}</p>
 					{/if}
 				</div>
 			{/if}
