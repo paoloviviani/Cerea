@@ -61,8 +61,8 @@ backend. The computer then appears under
 
 The browser needs **Node.js 22.18 or newer** on that computer (not needed for connectors
 alone). Get it from [nodejs.org/en/download](https://nodejs.org/en/download) (pick the LTS),
-or on macOS with `brew install node`. Check it with `node --version`. The upcoming macOS
-"Cerea connector" app bundles Node, so app users do not need this.
+or on macOS with `brew install node`. Check it with `node --version`. The macOS
+[Cerea connector app](agent-machines.md#macos-app-menu-bar) bundles Node, so app users do not need this.
 
 A computer that already runs a coding agent needs no second enrollment: it offers
 connectors too as soon as it has an `mcp.json`. To run only the connectors on

@@ -344,8 +344,8 @@ it or a private address). The chat reads `SANDBOX`, `SANDBOX_MANAGER_URL` and `S
 and reaches the manager only through them. A mix (the profile on while `SANDBOX=off`, a missing
 token, and so on) is an error from `./configure --check` and a warning in the chat's log, and the
 chat treats it as off. Limits for the services and for each sandbox, and what N sandboxes cost,
-are in `.env.example` and in `docs/sandboxes.md`. This release installs the control plane only:
-`execute_code` does not use it yet.
+are in `.env.example` and in `docs/sandboxes.md`. With `./configure --code-execution server`,
+the chat runs `execute_code` in these sandboxes; the default stays the browser.
 
 ## MongoDB: 8 by default, 4.4 where the host cannot run it
 

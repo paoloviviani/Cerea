@@ -221,13 +221,13 @@ Everything below is a variable in `.env` (see `.env.example`); an empty one mean
 
 **Totals**:
 
-| Limit                                                                             | Variable                       | Default                                                        |
-| --------------------------------------------------------------------------------- | ------------------------------ | -------------------------------------------------------------- |
-| Concurrent sandboxes overall                                                      | `SANDBOX_MAX_LEASES`           | 8                                                              |
-| Concurrent sandboxes per user                                                     | `SANDBOX_MAX_LEASES_PER_OWNER` | 3                                                              |
-| Requests the manager handles at once (more get `503 busy`, before a body is read) | `SANDBOX_MAX_INFLIGHT`         | 16                                                             |
-| File transfers in flight (a subset of the above)                                  | `SANDBOX_MAX_FILE_TRANSFERS`   | 4                                                              |
-| Warm pool (pristine sandboxes kept ready)                                         | `SANDBOX_WARM_POOL_SIZE`       | 0 (reserved; the pool arrives with the `execute_code` backend) |
+| Limit                                                                             | Variable                       | Default                       |
+| --------------------------------------------------------------------------------- | ------------------------------ | ----------------------------- |
+| Concurrent sandboxes overall                                                      | `SANDBOX_MAX_LEASES`           | 8                             |
+| Concurrent sandboxes per user                                                     | `SANDBOX_MAX_LEASES_PER_OWNER` | 3                             |
+| Requests the manager handles at once (more get `503 busy`, before a body is read) | `SANDBOX_MAX_INFLIGHT`         | 16                            |
+| File transfers in flight (a subset of the above)                                  | `SANDBOX_MAX_FILE_TRANSFERS`   | 4                             |
+| Warm pool (pristine sandboxes kept ready)                                         | `SANDBOX_WARM_POOL_SIZE`       | 0 (reserved; ignored for now) |
 
 A request over a total gets `429 quota_exceeded`. A CPU and memory total over all sandboxes is in [A shared budget](#a-shared-budget).
 

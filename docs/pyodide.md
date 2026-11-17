@@ -3,6 +3,8 @@
 !!! info "For everyone"
 
     What the in-browser Python sandbox does and its limits; the last section is for operators.
+    When an operator turns on the [server sandbox](sandboxes.md#run-execute_code-on-the-server),
+    the assistant's `execute_code` runs there instead; Python blocks in an answer still run in the browser.
 
 Cerea runs Python **in your browser**, not on the server, using
 [Pyodide](https://github.com/pyodide/pyodide) (CPython compiled to
@@ -180,8 +182,9 @@ knowledge base therefore cannot turn an artifact into a way to send data out.
   settings. Operators can switch it off for everyone with
   `CHAT_PYODIDE_PYPI_DISABLED=true`, which also hides the user's option.
 - **Where code runs.** `CHAT_CODE_EXECUTION` (`browser` by default, `off` to
-  disable every code feature; `server` is reserved) is set by the operator
-  only. See [configuration](configuration.md). On a phone, a run keeps going
+  disable every code feature; `server` runs `execute_code` in the
+  [server sandbox](sandboxes.md#run-execute_code-on-the-server), which needs
+  `SANDBOX` on) is set by the operator only. See [configuration](configuration.md). On a phone, a run keeps going
   only while the page is open: the card says so, the screen is kept awake while
   it runs, and a page that goes to the background asks the server to keep the
   turn waiting (`CODE_PAUSED_WAIT_MS`) and restarts the run when it returns.
