@@ -42,6 +42,26 @@ test("on a phone, new artifact versions leave the chat visible until a tap opens
 					content: "<h1>Landing</h1><p>Version one.</p>",
 				}),
 			},
+		],
+		content: ["First", " done", "."],
+		chunkDelayMs: 10,
+	});
+
+	await page.goto(`${E2E_APP_BASE}/`);
+	await send(page, "build a landing page");
+	await page.waitForURL(/\/conversation\/[a-f0-9]{24}/);
+
+	// The turn finishes with the chat on screen and the panel never shown.
+	await expect(page.locator('[data-message-role="assistant"]').last()).toContainText(
+		"First done.",
+		{ timeout: 30_000 }
+	);
+	const panel = page.getByLabel(PANEL_LABEL, { exact: true });
+	await expect(panel).toHaveCount(0);
+
+	// A second turn makes version two; the chat is still not covered.
+	await mockOpenAI.setDefaultScenario({
+		toolCalls: [
 			{
 				id: "call_v2",
 				name: "artifact",
@@ -53,18 +73,14 @@ test("on a phone, new artifact versions leave the chat visible until a tap opens
 				}),
 			},
 		],
-		content: ["All", " done", "."],
+		content: ["Second", " done", "."],
 		chunkDelayMs: 10,
 	});
-
-	await page.goto(`${E2E_APP_BASE}/`);
-	await send(page, "build a landing page");
-	await page.waitForURL(/\/conversation\/[a-f0-9]{24}/);
-
-	// The turn finishes with the chat on screen and the panel never shown.
-	const last = page.locator('[data-message-role="assistant"]').last();
-	await expect(last).toContainText("All done.", { timeout: 30_000 });
-	const panel = page.getByLabel(PANEL_LABEL, { exact: true });
+	await send(page, "make it version two");
+	await expect(page.locator('[data-message-role="assistant"]').last()).toContainText(
+		"Second done.",
+		{ timeout: 30_000 }
+	);
 	await expect(panel).toHaveCount(0);
 
 	// Both versions are cards; the newest carries the "Updated" hint.
