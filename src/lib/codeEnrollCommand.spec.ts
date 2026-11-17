@@ -392,8 +392,8 @@ describe("keeping it running", () => {
 		expect(cmd).toContain("--name galopin-my-box");
 		expect(cmd).toContain("-v galopin-my-box:/home/galopin");
 		expect(cmd).toContain(`${GALOPIN_IMAGE}:1.2.3`);
-		expect(cmd.endsWith("start")).toBe(true);
-		expect(cmd).not.toMatch(/--rm|-it\b|--cerea/);
+		expect(cmd.endsWith(`${GALOPIN_IMAGE}:1.2.3`)).toBe(true);
+		expect(cmd).not.toMatch(/--rm|-it\b|--cerea|\sstart$/);
 		expect(buildDockerDetachedUndo("My Box")).toBe("docker rm -f galopin-my-box");
 	});
 

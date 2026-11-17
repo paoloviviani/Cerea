@@ -503,13 +503,14 @@ describe("the Docker switch", () => {
 		await radio(screen, NATIVE).click();
 		await expect.element(radio(screen, NATIVE)).toBeChecked();
 	}
-	/** What an untouched dialog prints in Docker mode. */
+	/** What an untouched dialog prints in Docker mode (the pairing is kept by default). */
 	const dockerCommand = (extra: Record<string, unknown> = {}) =>
 		buildDockerCommand({
 			origin: ORIGIN,
 			issuer: ISSUER,
 			gatewayOrigin: GATEWAY,
 			version: APP_VERSION,
+			keepPairing: true,
 			...extra,
 		});
 
@@ -630,32 +631,43 @@ describe("the Docker switch", () => {
 		const screen = mount();
 		await chooseDocker(screen);
 		await screen.getByTestId("pair-docker-name").fill("lab");
-		await screen.getByTestId("pair-docker-keep").click();
 		expect(command(screen)).toContain("-v galopin-lab:/home/galopin");
 		await chooseNative(screen);
 		expect(command(screen)).toBe(PLAIN);
 		expect(command(screen)).not.toContain("lab");
 	});
 
-	it("keeping the pairing is off to start with; ticking adds the volume line (and a restart note), unticking removes both", async () => {
+	it("keeping the pairing is on to start with; unticking removes the volume line and the restart note, ticking brings them back", async () => {
 		const screen = mount();
 		await chooseDocker(screen);
 		const keep = screen.getByTestId("pair-docker-keep");
-		await expect.element(keep).not.toBeChecked();
-		expect(command(screen)).not.toContain("-v galopin-");
-		expect(screen.getByTestId("pair-docker-keep-note").elements()).toHaveLength(0);
-
-		await keep.click();
 		await expect.element(keep).toBeChecked();
-		expect(command(screen)).toBe(dockerCommand({ billToDefault: true, keepPairing: true }));
+		expect(command(screen)).toBe(dockerCommand({ billToDefault: true }));
 		expect(command(screen)).toContain("-v galopin-sandbox:/home/galopin");
 		await expect
 			.element(screen.getByTestId("pair-docker-keep-note"))
 			.toHaveTextContent("run the same command without start and the flags");
 
 		await keep.click();
-		expect(command(screen)).toBe(dockerCommand({ billToDefault: true }));
+		await expect.element(keep).not.toBeChecked();
+		expect(command(screen)).toBe(dockerCommand({ billToDefault: true, keepPairing: false }));
+		expect(command(screen)).not.toContain("-v galopin-");
 		expect(screen.getByTestId("pair-docker-keep-note").elements()).toHaveLength(0);
+
+		await keep.click();
+		expect(command(screen)).toBe(dockerCommand({ billToDefault: true }));
+		await expect.element(screen.getByTestId("pair-docker-keep-note")).toBeVisible();
+	});
+
+	it("warns that the first run is interactive and must not be started with -d --restart", async () => {
+		const screen = mount();
+		expect(screen.getByTestId("pair-docker-no-detach").elements()).toHaveLength(0);
+		await chooseDocker(screen);
+		await expect
+			.element(screen.getByTestId("pair-docker-no-detach"))
+			.toHaveTextContent(
+				"Run this first command as it is, in the foreground: do not add -d or --restart, because a container that cannot sign in would restart in a loop."
+			);
 	});
 
 	it("says workspace folders are paths inside the container, and that /workspace is the project", async () => {
@@ -774,26 +786,41 @@ describe("keep it running", () => {
 		expect(text(screen, "galopin-keep-command")).toBe(INSTALL);
 	});
 
-	it("in Docker asks for the kept pairing, then prints the detached command", async () => {
+	const DETACHED = (name: string) =>
+		[
+			"docker run -d --restart unless-stopped",
+			`--name galopin-${name}`,
+			`--hostname ${name}`,
+			`-v galopin-${name}:/home/galopin`,
+			'-v "$PWD":/workspace',
+			`${GALOPIN_IMAGE}:${APP_VERSION}`,
+		].join(" \\\n  ");
+	const UNSAVED =
+		'The first run above has no saved pairing: tick "Keep the pairing across restarts" and run it again first, or this container will have nothing to start from.';
+
+	it("in Docker prints the detached command with the pairing kept, and no note", async () => {
 		const screen = mount();
 		await screen.getByRole("radio", { name: "In a Docker container" }).click();
-		expect(screen.getByTestId("galopin-keep-command").elements()).toHaveLength(0);
-		await expect.element(screen.getByTestId("pair-keep-docker-volume")).toBeVisible();
 		// The interactive first run stays as it was.
 		expect(command(screen).startsWith("docker run -it --rm")).toBe(true);
-
-		await screen.getByTestId("pair-docker-keep").click();
-		const detached = text(screen, "galopin-keep-command");
-		expect(detached).toContain("docker run -d --restart unless-stopped");
-		expect(detached).toContain("-v galopin-sandbox:/home/galopin");
-		expect(detached).toContain(`${GALOPIN_IMAGE}:${APP_VERSION}`);
-		expect(detached).not.toContain("--rm");
-		expect(detached).not.toContain("-it");
-		expect(detached).not.toContain("--cerea");
+		expect(text(screen, "galopin-keep-command")).toBe(DETACHED("sandbox"));
 		expect(text(screen, "galopin-keep-undo")).toBe("docker rm -f galopin-sandbox");
+		expect(screen.getByTestId("pair-keep-docker-unsaved").elements()).toHaveLength(0);
 
 		await screen.getByTestId("pair-docker-name").fill("build-box");
-		expect(text(screen, "galopin-keep-command")).toContain("--name galopin-build-box");
+		expect(text(screen, "galopin-keep-command")).toBe(DETACHED("build-box"));
 		expect(screen.getByTestId("galopin-keep-linger").elements()).toHaveLength(0);
+	});
+
+	it("in Docker with the pairing not kept, still prints the command, with the note above it", async () => {
+		const screen = mount();
+		await screen.getByRole("radio", { name: "In a Docker container" }).click();
+		await screen.getByTestId("pair-docker-keep").click();
+		await expect.element(screen.getByTestId("pair-keep-docker-unsaved")).toHaveTextContent(UNSAVED);
+		expect(text(screen, "galopin-keep-command")).toBe(DETACHED("sandbox"));
+		expect(text(screen, "galopin-keep-undo")).toBe("docker rm -f galopin-sandbox");
+
+		await screen.getByTestId("pair-docker-keep").click();
+		expect(screen.getByTestId("pair-keep-docker-unsaved").elements()).toHaveLength(0);
 	});
 });

@@ -91,9 +91,9 @@ container.
 
 In this mode the dialog also asks for a **Computer name** (the name the computer
 has in the Agents panel; `sandbox` to start with) and offers **Keep the pairing
-across restarts**, off by default: a container left alone forgets everything when
-it stops, and one that keeps its pairing in a Docker volume does not need pairing
-again. The options work as on a computer, except that the opencode install, the
+across restarts**, ticked by default: a container that keeps its pairing in a
+Docker volume does not need pairing again, while an unticked one forgets
+everything when it stops (a throwaway container). The options work as on a computer, except that the opencode install, the
 manual download and the goose engine are not offered (the image has what it
 needs), and workspace folders you type are paths inside the container.
 
@@ -299,7 +299,10 @@ It starts galopin when you log in and restarts it if it stops. To undo it, run
 `galopin service uninstall`; `galopin service status` shows whether it runs and
 where its log is. On a Linux server that should keep running with nobody logged
 in, also run `loginctl enable-linger "$USER"` (it may need sudo). In Docker the
-dialog prints `docker run -d --restart unless-stopped …` instead. A galopin
+dialog always prints `docker run -d --restart unless-stopped …` instead (with
+the pairing box unticked it says to tick it and run the first command again
+first). Run the first, interactive command as printed, without `-d` or
+`--restart`: a container that cannot sign in would restart in a loop. A galopin
 from before this command needs updating first. Details:
 [Keeping it running](agent-machines-reference.md#keeping-it-running).
 
