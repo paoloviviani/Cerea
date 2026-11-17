@@ -164,7 +164,12 @@ describe("the switcher on the pages", () => {
 
 		mount({ user: { id: "u" }, usageEnabled: true });
 		await trigger().click();
-		expect(sheetLabels()).toEqual(["Application settings", "Notifications", "Usage"]);
+		expect(sheetLabels()).toEqual([
+			"Application settings",
+			"Notifications",
+			"Shared links",
+			"Usage",
+		]);
 		await page.getByRole("link", { name: "Notifications" }).click();
 		expect(followed).toEqual(["/settings/notifications"]);
 	});

@@ -58,7 +58,7 @@ test("share a Markdown artifact to anyone, read it in a fresh context, revoke it
 
 	await panel.getByTestId("share-link-button").click();
 	const dialog = page.getByTestId("share-dialog");
-	await expect(dialog).toContainText("Preview");
+	await expect(dialog.getByTestId("share-preview")).toContainText("Launch plan");
 	await dialog.getByLabel("Anyone with the link").check();
 	await expect(dialog.getByTestId("share-notice")).toContainText(
 		"Anyone with the link sees exactly this content."
