@@ -134,23 +134,23 @@ who is not an administrator will not see them. Administrators decide:
 
 ## Where to read more
 
-Documentation: https://paoloviviani.github.io/Cerea/
+Documentation: https://paoloviviani.github.io/Cerea/docs/
 
-- Chat: https://paoloviviani.github.io/Cerea/chat/
-- Artifacts: https://paoloviviani.github.io/Cerea/artifacts/
-- Python in the browser: https://paoloviviani.github.io/Cerea/pyodide/
-- Word, Excel, PowerPoint and PDF files: https://paoloviviani.github.io/Cerea/office/
-- Knowledge and projects: https://paoloviviani.github.io/Cerea/knowledge/
-- Connectors: https://paoloviviani.github.io/Cerea/connectors/
-- Local connectors: https://paoloviviani.github.io/Cerea/local-connectors/
-- Skills: https://paoloviviani.github.io/Cerea/skills/
-- Notifications: https://paoloviviani.github.io/Cerea/notifications/
-- Agent machines: https://paoloviviani.github.io/Cerea/agent-machines/
-- Administering the chat (admins): https://paoloviviani.github.io/Cerea/chat-admin/
-- File storage (operators): https://paoloviviani.github.io/Cerea/storage/
-- The headless browser (operators): https://paoloviviani.github.io/Cerea/browser/
-- Configuration (operators): https://paoloviviani.github.io/Cerea/configuration/
-- The Agents panel: https://paoloviviani.github.io/Cerea/code-panel/
+- Chat: https://paoloviviani.github.io/Cerea/docs/chat/
+- Artifacts: https://paoloviviani.github.io/Cerea/docs/artifacts/
+- Python in the browser: https://paoloviviani.github.io/Cerea/docs/pyodide/
+- Word, Excel, PowerPoint and PDF files: https://paoloviviani.github.io/Cerea/docs/office/
+- Knowledge and projects: https://paoloviviani.github.io/Cerea/docs/knowledge/
+- Connectors: https://paoloviviani.github.io/Cerea/docs/connectors/
+- Local connectors: https://paoloviviani.github.io/Cerea/docs/local-connectors/
+- Skills: https://paoloviviani.github.io/Cerea/docs/skills/
+- Notifications: https://paoloviviani.github.io/Cerea/docs/notifications/
+- Agent machines: https://paoloviviani.github.io/Cerea/docs/agent-machines/
+- Administering the chat (admins): https://paoloviviani.github.io/Cerea/docs/chat-admin/
+- File storage (operators): https://paoloviviani.github.io/Cerea/docs/storage/
+- The headless browser (operators): https://paoloviviani.github.io/Cerea/docs/browser/
+- Configuration (operators): https://paoloviviani.github.io/Cerea/docs/configuration/
+- The Agents panel: https://paoloviviani.github.io/Cerea/docs/code-panel/
 
 In the app: Settings (usage and billing, notifications, review log), Workspace
 (Skills, Connectors, Local connectors, Memory), and Admin for administrators.

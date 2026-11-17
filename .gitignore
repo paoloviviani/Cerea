@@ -43,7 +43,8 @@ static/pyodide/
 src/**/__screenshots__/
 
 # mkdocs build output
-/site
+/site/*
+!/site/landing/
 
 # Scratch output, never committed
 server.log
@@ -53,3 +54,4 @@ screenshots/
 project.inlang/.meta.json
 project.inlang/README.md
 __pycache__/
+/out/

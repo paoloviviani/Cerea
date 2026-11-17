@@ -166,7 +166,7 @@ them at a real MongoDB with `TEST_MONGODB_URL` and add `--no-file-parallelism`),
 (galopin, which needs Go 1.24+). Toolchains, git hooks, every test layer, CI,
 releasing and the repository's conventions are in
 [CONTRIBUTING.md](CONTRIBUTING.md), which is also the
-[Development](https://paoloviviani.github.io/Cerea/development/) page of the
+[Development](https://paoloviviani.github.io/Cerea/docs/development/) page of the
 documentation.
 
 **The image** fixes SvelteKit's base path at build time, and builds galopin

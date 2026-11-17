@@ -99,7 +99,7 @@ shared key (`CHAT_OPENAI_API_KEY` stays empty). `generic` is standalone mode:
 one shared key to one endpoint, with personal tokens off. `./configure` writes
 only one of the two, `./configure --check` reports a mix as an error, and
 `./configure --set` refuses to create one. The chat itself refuses to start on a
-mix ([Configuration](https://paoloviviani.github.io/Cerea/configuration/#two-modes-never-a-mix)).
+mix ([Configuration](https://paoloviviani.github.io/Cerea/docs/configuration/#two-modes-never-a-mix)).
 An `.env` from an older install that mixes them: run `./configure`, which says
 so and offers the fix.
 
@@ -175,10 +175,10 @@ again. Keep the old directory until the new stack works.
 | `authelia` | `authelia` | the bundled identity provider at `/authelia` (stock image, `authelia/configuration.yml`) |
 | `redaction` | `redaction` | PII redaction for the gateway |
 | `extractor` | `documents`, `redaction` | the local document reader (Word, Excel, PowerPoint and old `.doc` files, scanned-PDF pages as images; with a [locally built variant](#a-better-document-reader-extractor-options), scans and layouts read as text); `homelab` runs it through `documents`, without redaction |
-| `playwright` | `fetch` | a headless browser for the chat's web fetch. On in the `enterprise` preset; on any other preset, add it later with `./configure --fetch && docker compose up -d`, and remove it with `./configure --no-fetch`. Boxed in: its own `fetch` network shared only with the chat, Chromium's sandbox on, read-only filesystem, no capabilities, limits ([browser](https://paoloviviani.github.io/Cerea/browser/)) |
+| `playwright` | `fetch` | a headless browser for the chat's web fetch. On in the `enterprise` preset; on any other preset, add it later with `./configure --fetch && docker compose up -d`, and remove it with `./configure --no-fetch`. Boxed in: its own `fetch` network shared only with the chat, Chromium's sandbox on, read-only filesystem, no capabilities, limits ([browser](https://paoloviviani.github.io/Cerea/docs/browser/)) |
 | `gotenberg` | `office` | Office files as PDF previews in the chat, and the `convert_document` tool for models (Gotenberg: LibreOffice and Chromium). Off in every preset; add it with `./configure --office-preview && docker compose up -d`, remove it with `--no-office-preview` |
 | `sandbox-manager`, `sandbox-socket-proxy` | `sandbox` | server sandboxes for code execution (ADR 0115): a manager of gVisor sandboxes and the Docker socket proxy it reaches Docker through. Off in every preset; `./configure --sandbox local` adds them (needs the `runsc` runtime registered with Docker), `--sandbox remote` uses a manager on another host (`kit/sandbox/compose.yaml`), `--sandbox off` removes both. See `docs/sandboxes.md` ("Server sandboxes") |
-| `rustfs` | `rustfs` | RustFS, an S3-compatible object store that holds the chat's files (attachments, generated files, uploads, previews) instead of MongoDB. Off in every preset; add it with `./configure --object-store && docker compose up -d`. A fresh install uses it at once; an existing one keeps its files in MongoDB until they are copied ([Storage](https://paoloviviani.github.io/Cerea/storage/)). Your own S3 works without the profile |
+| `rustfs` | `rustfs` | RustFS, an S3-compatible object store that holds the chat's files (attachments, generated files, uploads, previews) instead of MongoDB. Off in every preset; add it with `./configure --object-store && docker compose up -d`. A fresh install uses it at once; an existing one keeps its files in MongoDB until they are copied ([Storage](https://paoloviviani.github.io/Cerea/docs/storage/)). Your own S3 works without the profile |
 
 Every service names an image and nothing builds on `up`. `COMPOSE_PROFILES`
 in `.env` chooses the add-ons.
@@ -224,7 +224,7 @@ On an **existing** install the profile starts RustFS but the chat keeps using
 MongoDB: switching the store under existing files would hide every one of
 them. Copy them first with `scripts/blobs-migrate.mjs`, then set
 `CHAT_BLOB_STORE='s3'`; the procedure, with a dry run and verification, is in
-[Storage](https://paoloviviani.github.io/Cerea/storage/). `./configure --no-object-store` refuses while the
+[Storage](https://paoloviviani.github.io/Cerea/docs/storage/). `./configure --no-object-store` refuses while the
 chat is using the bundled store, for the same reason.
 
 RustFS sits alone with the chat on an `internal` Docker network (no route out, no
@@ -237,7 +237,7 @@ the Mongo backup holds only the index of the files, not their bytes.
 
 Any other S3-compatible store (AWS S3, Cloudflare R2, Backblaze B2, MinIO,
 Ceph) works without the profile: set `CHAT_BLOB_STORE='s3'` and the `CHAT_S3_*`
-variables in `.env` (see `.env.example` and [Storage](https://paoloviviani.github.io/Cerea/storage/)).
+variables in `.env` (see `.env.example` and [Storage](https://paoloviviani.github.io/Cerea/docs/storage/)).
 
 ### Creating and editing Word, Excel, PowerPoint and PDF files (`documents` service)
 
@@ -944,7 +944,7 @@ enabled. Put its Application ID in `OIDC_MACHINE_CLIENT_ID` (GitLab cannot
 have the default `opencode-enrollment`). Its tokens cannot be introspected,
 since the application has no secret, so the gateway checks them at GitLab's
 `/oauth/token/info` with the token itself; see
-[Agent machines](https://paoloviviani.github.io/Cerea/agent-machines/#with-gitlab-as-the-identity-provider).
+[Agent machines](https://paoloviviani.github.io/Cerea/docs/agent-machines/#with-gitlab-as-the-identity-provider).
 
 ### Groups from the identity provider
 
@@ -1219,7 +1219,7 @@ the last 7 days; the machine's own link to the chat is not affected.
 `galopin run` stops with its terminal. On Linux the machine's owner keeps it
 running as a systemd user unit, on macOS as a LaunchAgent (both files ship in
 `agent/packaging/`; the steps are in
-[Keeping it running](https://paoloviviani.github.io/Cerea/agent-machines/#keeping-it-running)).
+[Keeping it running](https://paoloviviani.github.io/Cerea/docs/agent-machines/#keeping-it-running)).
 After re-running the install line, `systemctl --user restart galopin` starts
 the new binary.
 
@@ -1235,7 +1235,7 @@ which also prints the whole how-to filled in with this deployment's address. The
 servers are listed in the machine's own `mcp.json`; nothing on the link starts a
 command that is not in that file. Set the variable to anything else to turn the
 feature off: connectors machines are then refused and the tab is hidden. See
-[Local connectors](https://paoloviviani.github.io/Cerea/local-connectors/).
+[Local connectors](https://paoloviviani.github.io/Cerea/docs/local-connectors/).
 
 **Auto in the composer** can have a decision-model reviewer behind it: an
 administrator chooses one under Administration → Auto-approval, and it stays off
@@ -1247,7 +1247,7 @@ session on one of their machines on a timetable, and agents can make schedules
 on their own machine. `CHAT_SCHEDULES_ENABLED='false'` is the kill switch (on
 otherwise) and `CHAT_SCHEDULES_MAX_PER_USER` caps each person's schedules
 (default 20); see
-[Scheduled actions](https://paoloviviani.github.io/Cerea/code-panel/#scheduled-actions).
+[Scheduled actions](https://paoloviviani.github.io/Cerea/docs/code-panel/#scheduled-actions).
 
 ### opencode without Cerea
 
