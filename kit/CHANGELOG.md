@@ -5,7 +5,11 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.54.4 — 2026-11-17
+
+Pins: Cerea `0.54.4` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.4`, opencode `2.3.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. Nothing to do on computers.
 
 - **Pair a computer, Docker: Keep it running always shows its command.** In Docker, **Keep the pairing across restarts** is now ticked by default (untick it for a throwaway container), so the first run already carries the saved pairing, and step 3 always prints the detached `docker run -d --restart unless-stopped …` command with its undo line. With the box unticked it adds a line above the command saying to tick it and run the first command again first. Step 1 also warns not to start the interactive first run with `-d --restart`, because a container that cannot sign in would restart in a loop.
 
