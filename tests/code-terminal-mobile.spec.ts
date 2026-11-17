@@ -138,6 +138,12 @@ async function openOneTerminal(page: Page, fake: FakeMachine): Promise<string> {
 	return terminalId;
 }
 
+/** A tap on the terminal: pointer down and up in place, quickly. */
+async function tapTerminal(page: Page) {
+	await page.getByTestId("code-terminal").locator(".xterm").click();
+	await expect(xtermTextarea(page)).toBeFocused();
+}
+
 function xtermTextarea(page: Page) {
 	return page.locator(".xterm-helper-textarea");
 }
@@ -150,29 +156,7 @@ test.describe("the terminal's mobile view/type/keys bar", () => {
 		fake = null;
 	});
 
-	test("opens in view mode: a tap never focuses the textarea", async ({ page, db, session }) => {
-		const sub = `e2e-${randomUUID()}`;
-		await seedUser(db, session.sessionId, sub);
-		const name = `mtterm-${randomUUID().slice(0, 6)}`;
-		fake = await connectFakeMachine(sub, name);
-
-		await page.setViewportSize(MOBILE_VIEWPORT);
-		await pairAndOpenWorkspace(page, name);
-		await openOneTerminal(page, fake);
-
-		await page.getByTestId("code-terminal").locator(".xterm").click();
-		await expect(xtermTextarea(page)).not.toBeFocused();
-		const bar = page.getByRole("toolbar", { name: "Terminal keys" });
-		await expect(bar).toBeVisible();
-		// Wrapped, not a scrolling strip: the first and last keys are both on screen.
-		await expect(bar.getByRole("button", { name: "Escape" })).toBeInViewport({ ratio: 1 });
-		await expect(bar.getByRole("button", { name: "Type" })).toBeInViewport({ ratio: 1 });
-		await expect(bar.getByRole("button", { name: "Increase font size" })).toBeInViewport({
-			ratio: 1,
-		});
-	});
-
-	test("Type focuses the textarea; Done returns to view mode; the bar stays", async ({
+	test("a tap focuses the textarea; the key bar has no Type or Done", async ({
 		page,
 		db,
 		session,
@@ -186,15 +170,37 @@ test.describe("the terminal's mobile view/type/keys bar", () => {
 		await pairAndOpenWorkspace(page, name);
 		await openOneTerminal(page, fake);
 
-		await page.getByRole("button", { name: "Type" }).click();
-		await expect(xtermTextarea(page)).toBeFocused();
+		await expect(xtermTextarea(page)).not.toBeFocused();
+		await tapTerminal(page);
+		const bar = page.getByRole("toolbar", { name: "Terminal keys" });
+		await expect(bar).toBeVisible();
+		await expect(bar.getByRole("button", { name: "Type" })).toHaveCount(0);
+		await expect(bar.getByRole("button", { name: "Done" })).toHaveCount(0);
+		// Wrapped, not a scrolling strip: the first and last keys are both on screen.
+		await expect(bar.getByRole("button", { name: "Escape" })).toBeInViewport({ ratio: 1 });
+		await expect(bar.getByRole("button", { name: "Paste" })).toBeInViewport({ ratio: 1 });
+		await expect(bar.getByRole("button", { name: "Increase font size" })).toBeInViewport({
+			ratio: 1,
+		});
+	});
+
+	test("the bar stays when the keyboard closes (blur)", async ({ page, db, session }) => {
+		const sub = `e2e-${randomUUID()}`;
+		await seedUser(db, session.sessionId, sub);
+		const name = `mtterm-${randomUUID().slice(0, 6)}`;
+		fake = await connectFakeMachine(sub, name);
+
+		await page.setViewportSize(MOBILE_VIEWPORT);
+		await pairAndOpenWorkspace(page, name);
+		await openOneTerminal(page, fake);
+
+		await tapTerminal(page);
 		const bar = page.getByRole("toolbar", { name: "Terminal keys" });
 		await expect(bar).toBeVisible();
 
-		await bar.getByRole("button", { name: "Done" }).click();
+		await xtermTextarea(page).blur();
 		await expect(xtermTextarea(page)).not.toBeFocused();
 		await expect(bar).toBeVisible();
-		await expect(bar.getByRole("button", { name: "Type" })).toBeVisible();
 	});
 
 	test("Esc and Ctrl+C reach the machine as the right bytes", async ({ page, db, session }) => {
@@ -207,7 +213,7 @@ test.describe("the terminal's mobile view/type/keys bar", () => {
 		await pairAndOpenWorkspace(page, name);
 		const terminalId = await openOneTerminal(page, fake);
 
-		await page.getByRole("button", { name: "Type" }).click();
+		await tapTerminal(page);
 		const bar = page.getByRole("toolbar", { name: "Terminal keys" });
 
 		await bar.getByRole("button", { name: "Escape" }).click();
@@ -256,7 +262,7 @@ test.describe("the terminal's mobile view/type/keys bar", () => {
 		await pairAndOpenWorkspace(page, name);
 		const terminalId = await openOneTerminal(page, fake);
 
-		await page.getByRole("button", { name: "Type" }).click();
+		await tapTerminal(page);
 		const bar = page.getByRole("toolbar", { name: "Terminal keys" });
 		const ctrl = bar.getByRole("button", { name: "Control" });
 		await expect(ctrl).toHaveAttribute("aria-pressed", "false");
@@ -292,7 +298,7 @@ test.describe("the terminal's mobile view/type/keys bar", () => {
 		await pairAndOpenWorkspace(page, name);
 		const terminalId = await openOneTerminal(page, fake);
 
-		await page.getByRole("button", { name: "Type" }).click();
+		await tapTerminal(page);
 		const bar = page.getByRole("toolbar", { name: "Terminal keys" });
 		await bar.getByRole("button", { name: "Arrow up" }).click();
 
@@ -328,7 +334,7 @@ test.describe("the terminal's mobile view/type/keys bar", () => {
 		const beforeCols = 80;
 
 		await openOneTerminal(page, fake);
-		await page.getByRole("button", { name: "Type" }).click();
+		await tapTerminal(page);
 		const bar = page.getByRole("toolbar", { name: "Terminal keys" });
 		await bar.getByRole("button", { name: "Increase font size" }).click();
 
