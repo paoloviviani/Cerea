@@ -196,9 +196,10 @@ export function buildDockerCommand(opts: DockerCommandOptions): string {
 /**
  * The detached form of the Docker pairing, for keeping the container running: the same image,
  * the pairing volume and the project mount as `buildDockerCommand`, but `-d --restart
- * unless-stopped` instead of `-it --rm`, a fixed container name, and no `start` flags (a
- * container that is already paired starts the agent by itself). Needs the pairing volume, so it
- * is only meaningful after the interactive first run kept the pairing.
+ * unless-stopped` instead of `-it --rm`, a fixed container name, and no `start` and no flags (the
+ * image's default command is `start`, and a container that is already paired starts the agent by
+ * itself). Needs the pairing volume, so it is only meaningful after the interactive first run
+ * kept the pairing.
  */
 export function buildDockerDetachedCommand(opts: { version: string; name?: string }): string {
 	const name = cleanContainerName(opts.name ?? "");
@@ -209,7 +210,6 @@ export function buildDockerDetachedCommand(opts: { version: string; name?: strin
 		`-v galopin-${name}:/home/galopin`,
 		'-v "$PWD":/workspace',
 		`${GALOPIN_IMAGE}:${opts.version}`,
-		"start",
 	].join(CONT);
 }
 

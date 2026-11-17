@@ -79,7 +79,8 @@
 	let mode = $state<"native" | "docker">("native");
 	const docker = $derived(mode === "docker");
 	let containerName = $state(DEFAULT_CONTAINER_NAME);
-	let keepPairing = $state(false);
+	// On by default in Docker: step 3's detached command starts from the saved pairing.
+	let keepPairing = $state(true);
 	const modes = [
 		{ value: "native", label: m["code.pair.mode_native"]() },
 		{ value: "docker", label: m["code.pair.mode_docker"]() },
@@ -247,6 +248,9 @@
 		<p class="mb-4 text-xs text-ink-muted" data-testid="pair-explain">
 			{#if docker}
 				{m["code.pair.docker_explain"]()}
+				<span class="mt-1 block" data-testid="pair-docker-no-detach">
+					<Rich parts={m["code.pair.docker_no_detach"].parts()} tags={{ code: inlineCode }} />
+				</span>
 			{:else}
 				<Rich parts={m["code.pair.explain"].parts()} tags={{ code: inlineCode }} />
 			{/if}
@@ -365,25 +369,24 @@
 			<p class={s.LABEL}>{m["code.pair.keep_label"]()}</p>
 			{#if docker}
 				<p class="mt-1 mb-2 text-xs text-ink-muted">{m["code.pair.keep_docker_text"]()}</p>
-				{#if keepPairing}
-					<div class="mb-2 flex items-center gap-2 rounded-lg border border-line bg-surface p-3">
-						<pre
-							class="min-w-0 flex-1 font-mono text-xs break-all whitespace-pre-wrap text-ink"
-							data-testid="galopin-keep-command">{detachedCommand}</pre>
-						<CopyToClipBoardBtn
-							classNames="flex size-8 shrink-0 items-center justify-center rounded-lg border border-line bg-surface text-ink-muted hover:bg-sunken"
-							value={detachedCommand}
-						/>
-					</div>
-					<p class="text-xs text-ink-muted">
-						{m["code.pair.keep_docker_undo"]()}
-						<code class="font-mono" data-testid="galopin-keep-undo">{detachedUndo}</code>
-					</p>
-				{:else}
-					<p class="text-xs text-ink-muted" data-testid="pair-keep-docker-volume">
-						{m["code.pair.keep_docker_volume"]()}
+				{#if !keepPairing}
+					<p class="mb-2 text-xs text-ink-muted" data-testid="pair-keep-docker-unsaved">
+						{m["code.pair.keep_docker_unsaved"]()}
 					</p>
 				{/if}
+				<div class="mb-2 flex items-center gap-2 rounded-lg border border-line bg-surface p-3">
+					<pre
+						class="min-w-0 flex-1 font-mono text-xs break-all whitespace-pre-wrap text-ink"
+						data-testid="galopin-keep-command">{detachedCommand}</pre>
+					<CopyToClipBoardBtn
+						classNames="flex size-8 shrink-0 items-center justify-center rounded-lg border border-line bg-surface text-ink-muted hover:bg-sunken"
+						value={detachedCommand}
+					/>
+				</div>
+				<p class="text-xs text-ink-muted">
+					{m["code.pair.keep_docker_undo"]()}
+					<code class="font-mono" data-testid="galopin-keep-undo">{detachedUndo}</code>
+				</p>
 			{:else}
 				<p class="mt-1 mb-2 text-xs text-ink-muted">{m["code.pair.keep_text"]()}</p>
 				<div class="mb-2">
