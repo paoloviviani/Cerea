@@ -271,6 +271,102 @@ each, so a helper can run on a different model; the model can also run a
 opinion. All of it is under the same permissions.
 See [Delegating work](agent-machines-reference.md#delegating-work).
 
+## Claude Code with your own subscription
+
+Claude Code can run as a session in the Agents panel, signed in to **your** Claude
+subscription on **your** computer. Cerea drives it through galopin's ACP backend:
+you send prompts, see answers, tool calls and diffs, approve actions and use slash
+commands. Model calls go straight from Claude Code to Anthropic: they do not pass
+through the gateway and do not use your Cerea quota. This covers agent sessions
+only; Anthropic models in the chat still need an Anthropic provider in the gateway.
+
+### Requirements
+
+- A computer paired with Cerea as an **agent machine**, with the galopin CLI. The
+  macOS menu-bar app pairs connectors only, so it is not enough.
+- galopin **0.54.2 or newer**: `curl -fsSL <your-cerea>/galopin/install.sh | sh -s -- --upgrade`.
+- **Node 22 or newer.**
+- Claude Code installed and signed in with your subscription (run `claude` once
+  and sign in).
+
+### Setup
+
+1. Install the ACP adapter, pinning a version rather than taking the newest:
+
+   ```sh
+   npm i -g @agentclientprotocol/claude-agent-acp@<version>
+   ```
+
+   `npm view @agentclientprotocol/claude-agent-acp time` lists versions by date; a
+   version a few weeks old is a reasonable choice.
+
+2. Stop any galopin already running, then try it in the foreground:
+
+   ```sh
+   galopin run --backend acp --acp-command "claude-agent-acp"
+   ```
+
+3. In Cerea: **Agents**, then the computer, then **New session** in a workspace.
+
+4. To keep it running (galopin **0.54.3 or newer**), install it as a service with
+   the same flags:
+
+   ```sh
+   galopin service install -- --backend acp --acp-command "$(command -v claude-agent-acp)"
+   ```
+
+   Use the **full path** of `claude-agent-acp`: a service does not see the PATH of
+   your shell, nvm or Homebrew. Check with `galopin service status`.
+
+### What works
+
+- Prompts, streamed answers, tool calls, diffs, and approval cards. Approvals
+  follow the session's mode (Plan, Ask, Auto, Allow).
+- Slash commands: your `.claude/commands`, those from plugins and skills, and the
+  built-ins that do not need the terminal.
+- Sessions started in the Claude Code terminal show up in Cerea's list and open
+  with their history. Large sessions load page by page.
+- Image and file attachments, where Claude Code accepts them.
+
+### Limits
+
+- **The model and token usage are not shown in Cerea:** the adapter does not report
+  them. They count against your subscription, not Cerea.
+- **No reverting turns, no sub-sessions shown as separate sessions, no prompting
+  mid-turn.** The ACP protocol does not have them.
+- **"Always allow"** on an approval stays a galopin rule on that computer. It is not
+  written into Claude Code's own settings.
+- **galopin's deny list** (keys, credentials) protects what Cerea shows and sends.
+  Claude Code's own file access follows its own permission rules: set those in
+  Claude Code if you want the same protection.
+- **Terminal-only commands** like `/login`, `/config` and `/model` are not available
+  from Cerea.
+
+### Through the gateway instead of a subscription
+
+To bill a group and apply the privacy pipelines, point Claude Code at the gateway
+with a gateway key instead of a Claude login. Set these for the galopin process
+(your shell, or the service's environment):
+
+```sh
+ANTHROPIC_BASE_URL=https://<your-cerea>
+ANTHROPIC_AUTH_TOKEN=<a gateway key>
+ANTHROPIC_MODEL=<a model id the gateway serves>
+```
+
+Claude Code adds `/v1/messages` itself, so the base URL is the gateway's origin
+without `/v1`.
+
+### Terms of use
+
+Anthropic's terms restrict third-party products that offer sign-in with a Claude
+account, or use its rate limits, unless Anthropic approves them. Here each user
+runs the official Claude Code with their own subscription on their own computer,
+and Cerea never holds or relays the credentials. Check Anthropic's current terms
+before offering this to an organisation; the gateway route has no such question.
+
+More detail: [Running Claude Code over ACP](agent-machines-reference.md#running-claude-code-over-acp).
+
 ## Updating galopin
 
 galopin is a plain binary, so updating it is the install again. On the computer,

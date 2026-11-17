@@ -146,7 +146,7 @@ unchanged), so to run it against a gateway instead of a Claude login set these
 for the galopin process (a service unit's `Environment=`, or your shell):
 
 ```
-ANTHROPIC_BASE_URL=https://your-gateway.example/v1
+ANTHROPIC_BASE_URL=https://your-gateway.example   # the origin: Claude Code adds /v1/messages
 ANTHROPIC_AUTH_TOKEN=<token for that gateway>
 ANTHROPIC_MODEL=<model id the gateway serves>
 ```
