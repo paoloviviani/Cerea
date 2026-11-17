@@ -5,6 +5,10 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Phone: a new artifact version no longer covers the chat.** On a phone, creating or updating an artifact leaves the panel closed; the card in the message shows the latest version with a small "Updated" hint, and a tap opens it. A panel you already have open still follows the newest version, and desktop is unchanged. Nothing to do on computers.
+
 ## v0.55.1 — 2026-11-17
 
 Pins: Cerea `0.55.1` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.4`, opencode `2.3.0`.

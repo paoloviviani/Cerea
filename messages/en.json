@@ -1175,6 +1175,7 @@
 	"chat.artifact.card.kind_version": "{kind}{version}",
 	"chat.artifact.card.open": "Open file: {title}",
 	"chat.artifact.card.unmatched": "This change couldn't be matched to a file",
+	"chat.artifact.card.updated": "Updated",
 	"chat.artifact.kind.code": "Code",
 	"chat.artifact.kind.html": "Web app",
 	"chat.artifact.kind.markdown": "Document",

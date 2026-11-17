@@ -132,11 +132,18 @@ class SidePaneStore {
 		this.revealNonce += 1;
 	}
 
-	/** Open once per streaming version; respects the user closing the panel mid-stream. */
-	maybeAutoOpen(identifier: string, version: number) {
+	/**
+	 * Open once per streaming version; respects the user closing the panel
+	 * mid-stream. `allowed` is false on a phone, where the pane is a fullscreen
+	 * overlay: the version is spent without opening anything, so the card
+	 * updates and the user opens it with a tap. A pane that is already open
+	 * keeps following the latest version by itself (`version` null).
+	 */
+	maybeAutoOpen(identifier: string, version: number, allowed = true) {
 		const key = `${identifier}:${version}`;
 		if (this.autoOpenedKeys.has(key)) return;
 		this.autoOpenedKeys.add(key);
+		if (!allowed) return;
 		this.openArtifact(identifier, null);
 	}
 
