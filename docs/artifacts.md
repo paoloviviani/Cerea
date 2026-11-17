@@ -133,6 +133,8 @@ artifact you are looking at. The link shows a **frozen copy of that version**:
 later changes in the chat do not appear unless you press **Update to latest
 version**. It never includes the chat, the prompt or any other artifact.
 
+![The Share link dialog: a preview, who can open it, when it expires, and a note on exactly what the link shows.](assets/screenshots/chat-share-dialog.webp)
+
 The dialog shows a preview, and says plainly who will see it: _Anyone with the
 link sees exactly this content_, or, for the default audience, _Any signed-in
 user of this deployment with the link sees exactly this content_. You choose:
