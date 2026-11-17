@@ -126,9 +126,12 @@ export const GET: RequestHandler = async ({ locals }) => {
 		// The public artifact links (ADR 0120): what each shows and who may open it. The
 		// token is never stored, so it cannot be exported; the frozen content stays with
 		// the conversation's own artifact.
-		listOwnShares(locals.user._id).then((links) => {
-			zipfile.addBuffer(Buffer.from(JSON.stringify(links, null, 2)), "shared-links.json");
-		}),
+		listOwnShares(locals.user._id)
+			.then((links) => {
+				zipfile.addBuffer(Buffer.from(JSON.stringify(links, null, 2)), "shared-links.json");
+			})
+			// The links are an extra: never let them fail the rest of the export.
+			.catch((err) => logger.warn({ err }, "export_shared_links_failed")),
 	];
 
 	Promise.all(promises).then(async () => {
