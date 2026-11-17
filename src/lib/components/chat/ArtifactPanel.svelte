@@ -60,12 +60,14 @@
 	import ExternalLinkModal from "../ExternalLinkModal.svelte";
 	import HtmlPreviewModal from "../HtmlPreviewModal.svelte";
 	import ScreenshotAnnotationModal from "./ScreenshotAnnotationModal.svelte";
+	import ShareArtifactDialog from "../sharing/ShareArtifactDialog.svelte";
 
 	import CarbonCloseLarge from "~icons/carbon/close-large";
 	import CarbonChevronLeft from "~icons/carbon/chevron-left";
 	import CarbonChevronRight from "~icons/carbon/chevron-right";
 	import CarbonCamera from "~icons/carbon/camera";
 	import CarbonDownload from "~icons/carbon/download";
+	import CarbonShare from "~icons/carbon/share";
 	import CarbonMaximize from "~icons/carbon/maximize";
 	import CarbonPlayFilledAlt from "~icons/carbon/play-filled-alt";
 	import LucideWrapText from "~icons/lucide/wrap-text";
@@ -899,6 +901,16 @@
 	};
 
 	let conversationId = $derived(page.params?.id);
+	// Share link… (ADR 0120): the owner's own chat, signed in, sharing on, a finished version.
+	let shareOpen = $state(false);
+	let canShare = $derived(
+		canPersistFiles &&
+			(page.route.id ?? "").startsWith("/conversation/[id]") &&
+			Boolean(page.data.user) &&
+			(page.data as { artifactSharingEnabled?: boolean }).artifactSharingEnabled === true &&
+			Boolean(conversationId) &&
+			((version?.complete === true && !version.interrupted) || Boolean(fileVersion))
+	);
 	let fileDownloadUrl = $derived(
 		fileVersion && conversationId
 			? `${base}/conversation/${conversationId}/code-execution/output/${fileVersion.sha256}`
@@ -988,6 +1000,18 @@
 		{/if}
 
 		<div class="flex flex-none items-center gap-0.5 text-gray-500 dark:text-gray-400">
+			{#if canShare}
+				<button
+					type="button"
+					class="btn rounded-md p-1.5 text-xs hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
+					title={m["share.panel.button"]()}
+					aria-label={m["share.panel.button"]()}
+					data-testid="share-link-button"
+					onclick={() => (shareOpen = true)}
+				>
+					<CarbonShare />
+				</button>
+			{/if}
 			{#if version}
 				<CopyToClipBoardBtn
 					value={exportContent ?? version.content}
@@ -1349,6 +1373,34 @@
 
 {#if externalLinkUrl}
 	<ExternalLinkModal url={externalLinkUrl} onclose={() => (externalLinkUrl = null)} />
+{/if}
+
+{#if shareOpen && canShare && conversationId}
+	<ShareArtifactDialog
+		{conversationId}
+		artifact={version
+			? {
+					kind: "text",
+					identifier: version.identifier,
+					title: version.title,
+					type: version.type,
+					version: version.version,
+					latestVersion: totalVersions,
+					content: version.content,
+				}
+			: fileVersion
+				? {
+						kind: "file",
+						name: fileVersion.name,
+						sha256: fileVersion.sha256,
+						mime: fileVersion.name.includes(".")
+							? (fileVersion.name.split(".").pop() ?? "").toUpperCase()
+							: "file",
+						size: fileVersion.size,
+					}
+				: { kind: "file", name: "", sha256: "", mime: "", size: 0 }}
+		onclose={() => (shareOpen = false)}
+	/>
 {/if}
 
 {#if pendingScreenshot}

@@ -24,6 +24,7 @@ import { resolveLocale } from "$lib/i18n/resolve";
 import { runWithLocale } from "$lib/server/requestLocale";
 import { safeRequestFields } from "./safeLogFields";
 import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";
+import { handlePublicShare, isPublicShareRoute } from "$lib/server/sharing/publicHook";
 
 type HandleInput = Parameters<Handle>[0];
 
@@ -138,6 +139,9 @@ export const SIGNED_OUT_GET_ROUTES: ReadonlyMap<string, string> = new Map([
 		"/.well-known/oauth-cimd",
 		"OAuth client-ID metadata document, fetched by the identity provider",
 	],
+	["/s/[token]", "public artifact link: answered before the wall, by the share handler (ADR 0120)"],
+	["/s/[token]/doc", "public artifact link: the sandboxed document, same handler"],
+	["/s/[token]/file/[...name]", "public artifact link: the snapshot's download, same handler"],
 	["/models/[...model]", "linkable model page"],
 	["/models/[...model]/thumbnail.png", "social preview image of a model page"],
 	// What the root layout load fetches before anyone is signed in.
@@ -207,6 +211,12 @@ export async function handleRequest({ event, resolve }: HandleInput): Promise<Re
 				},
 				"Request received"
 			);
+
+			// Public artifact links (ADR 0120) have their own, cookie-free path: before
+			// any session is looked up or created, and before the login wall.
+			if (isPublicShareRoute(event.route.id)) {
+				return handlePublicShare(event, resolve);
+			}
 
 			function errorResponse(status: number, message: string) {
 				const sendJson =

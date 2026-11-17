@@ -31,6 +31,11 @@
 	flush_interval -1
 }
 
+# Artifact share links (ADR 0120). ./configure writes SHARE_MODE (off, path or
+# subdomain); the two imports add, per mode, the share site and the main site's
+# route (or its refusal of the app-host path). Both are empty for `off`.
+import /etc/caddy/share/site-{$SHARE_MODE:off}.caddy
+
 {$SITE_ADDRESS} {
 	{$TLS_DIRECTIVE}
 
@@ -38,6 +43,8 @@
 	# (mounted here) are imported inside the site block. None is needed by
 	# default; a glob that matches nothing is not an error.
 	import /etc/caddy.d/*.caddy
+
+	import /etc/caddy/share/main-{$SHARE_MODE:off}.caddy
 
 	# The chat's own service credential is for the gateway, over the compose
 	# network, never for anyone arriving here. Answered before either

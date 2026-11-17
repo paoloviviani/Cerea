@@ -116,6 +116,12 @@ export interface FeatureFlags {
 	/** Whether the assistant may hand work to sub-agents (`delegate`, `research`). Administration -> Sub-agents. */
 	delegationEnabled: boolean;
 	/**
+	 * Whether artifact share links are on (ADR 0120): the environment default
+	 * (`ARTIFACT_SHARING_ENABLED`) unless the administrator's toggle says otherwise.
+	 * Off hides Share, refuses the API and stops existing links resolving.
+	 */
+	artifactSharingEnabled: boolean;
+	/**
 	 * Whether this origin serves the Pystino console at /console
 	 * (`CHAT_CONSOLE_ENABLED`). On means the gateway profiles (homelab, team,
 	 * enterprise): the chat's admin panel links to the console for the

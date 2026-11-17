@@ -19,6 +19,7 @@ import { legacyShares } from "$lib/server/legacyShares";
 import { logger } from "$lib/server/logger";
 import { deleteConversationWebFetchCache } from "$lib/server/webFetchCache";
 import { deleteConversationBrowserScopes } from "$lib/server/browser/kept";
+import { deleteConversationSharedArtifacts } from "$lib/server/sharing/shares";
 import type { Conversation } from "$lib/types/Conversation";
 
 /**
@@ -88,6 +89,7 @@ export async function deleteConversationStorage(
 		deleteConversationWebFetchCache(conversationId),
 		deleteConversationBrowserScopes(conversationId),
 		releaseSandboxes(conversationId),
+		deleteConversationSharedArtifacts(conversationId),
 	]);
 	// The first two log their own failures. These do not, and they are the
 	// privacy ones; the daily orphan sweep retries what they leave.
@@ -111,6 +113,14 @@ export async function deleteConversationStorage(
 		logger.error(
 			{ err: scopes.reason },
 			"conversation_browser_scopes_delete_failed: they lapse on their own within hours"
+		);
+	}
+	const artifactShares = results[7];
+	if (artifactShares.status === "rejected") {
+		// A link that outlives its chat still shows a copy of its artifact: the privacy one.
+		logger.error(
+			{ err: artifactShares.reason },
+			"conversation_artifact_share_delete_failed: the links keep resolving until removed"
 		);
 	}
 	if (derived.status === "rejected") {

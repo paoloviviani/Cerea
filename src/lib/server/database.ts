@@ -48,6 +48,7 @@ import { mongoMemoryVersion } from "./mongoMemoryVersion";
 import { ensureLegacyOpenssl } from "./legacyOpenssl";
 import { env as privateEnv } from "$env/dynamic/private";
 import { blobStoreFromEnv } from "./blobs";
+import type { SharedArtifact, ShareSettings } from "$lib/types/SharedArtifact";
 import { logger } from "$lib/server/logger";
 import { building } from "$app/environment";
 import { onExit } from "./exitHandler";
@@ -293,6 +294,9 @@ export class Database {
 		// One person's own connector switches (ADR 0104), one row per person.
 		const connectorSwitches = db.collection<ConnectorSwitchesRow>("connectorSwitches");
 		const mcpTokens = db.collection<McpToken>("mcpTokens");
+		// Public share links to a frozen artifact version (ADR 0120), and the deployment's one on/off row.
+		const sharedArtifacts = db.collection<SharedArtifact>("sharedArtifacts");
+		const shareSettings = db.collection<ShareSettings>("shareSettings");
 		const mcpOauthPending = db.collection<McpOauthPending>("mcpOauthPending");
 		// A local connector's sign-in in flight (ADR 0102): who started it, for which device and
 		// server. No token or verifier: those stay on the machine.
@@ -367,6 +371,8 @@ export class Database {
 			mcpConnectors,
 			connectorModes,
 			connectorSwitches,
+			sharedArtifacts,
+			shareSettings,
 			mcpTokens,
 			mcpOauthPending,
 			localConnectorOauth,
@@ -419,6 +425,7 @@ export class Database {
 			mcpConnectors,
 			connectorModes,
 			connectorSwitches,
+			sharedArtifacts,
 			mcpTokens,
 			mcpOauthPending,
 			localConnectorOauth,
@@ -534,6 +541,21 @@ export class Database {
 		connectorSwitches
 			.createIndex({ userId: 1 }, { unique: true })
 			.catch((e) => logger.error(e, "Error creating index for connectorSwitches"));
+		// A link is found by the hash of its token; its owner lists theirs; a deleted
+		// conversation finds its links. An expired link stays 30 days (the owner sees it
+		// as expired, and can extend it) and is then removed.
+		sharedArtifacts
+			.createIndex({ tokenHash: 1 }, { unique: true })
+			.catch((e) => logger.error(e, "Error creating index for sharedArtifacts by tokenHash"));
+		sharedArtifacts
+			.createIndex({ ownerId: 1, createdAt: -1 })
+			.catch((e) => logger.error(e, "Error creating index for sharedArtifacts by ownerId"));
+		sharedArtifacts
+			.createIndex({ conversationId: 1 })
+			.catch((e) => logger.error(e, "Error creating index for sharedArtifacts by conversationId"));
+		sharedArtifacts
+			.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 })
+			.catch((e) => logger.error(e, "Error creating index for sharedArtifacts by expiresAt"));
 		connectorModes
 			.createIndex({ key: 1 }, { unique: true })
 			.catch((e) => logger.error(e, "Error creating index for connectorModes"));

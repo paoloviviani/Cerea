@@ -773,6 +773,19 @@ so run only servers that need no personal credential. Personal accounts (mail,
 calendar, files) belong in [local connectors](#local-connectors), where each
 person's server runs on their own machine.
 
+## Artifact share links
+
+A user can share one frozen version of an artifact by a link (the artifact panel's **Share link…**; ADR 0120), to signed-in users of this deployment or to anyone. **Signed-in links always live on the app's own origin**, at `https://<host>/s/<token>` (the visitor's normal session decides, and a visitor without one is sent to sign in and back). **Anyone's links** use the address you choose with `./configure`:
+
+| Choice | Flag | Anyone's link | What it means |
+| --- | --- | --- | --- |
+| **Subdomain** (recommended) | `--share-mode subdomain` (`--share-host` to rename it) | `https://share.<host>/<token>` | The proxy routes that host to the chat's public share handler and nothing else: no app shell, no API, and no cookie sent either way. A public page can never meet the app's session, and the app's own host refuses anyone's links. Needs its own DNS record; with `acme` its certificate is requested on the first visit, and `internal` and `upstream` work as for the main host. |
+| **Path** | `--share-mode path` (`--share-path`, `/s` by default) | `https://<host>/s/<token>` | The same origin as the app. Simpler, but shared HTML runs on this site's own origin. |
+
+Choosing a path prints this warning, and `./configure --check` repeats it: *Public (anyone) links to HTML artifacts would run on this site's own origin, isolated only by the browser sandbox. A subdomain is safer for public links: it keeps shared pages away from the app's cookies and makes phishing under your domain harder. Signed-in links always use the path.* A fresh install gets the path unless you pick the subdomain (the interview defaults to the subdomain when the app has a DNS name). An existing `.env` is left as it is until you choose: its links work at `/chat/s/<token>`.
+
+Sharing is on unless `ARTIFACT_SHARING_ENABLED=false` (`./configure --no-sharing`). An administrator's toggle (Administration → Storage) overrides that default once it has been set; off, every link answers "not available" and the links are kept. `.env` keys: `SHARE_MODE` (off, path or subdomain), `SHARE_SITE_ADDRESS`, `ARTIFACT_SHARE_ORIGIN`, `ARTIFACT_SHARE_PATH`. The proxy's side is `caddy/share/`. Changing a link's audience gives it a new address (and so a new token).
+
 ## TLS modes
 
 | `--tls` | When | What you need |

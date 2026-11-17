@@ -214,7 +214,13 @@ type ExtraConfigKeys =
 	 * prompt. Unset on a deployment that serves no gateway to machines;
 	 * the dialog falls back to the browser's own origin rather than
 	 * guessing a gateway address server-side. */
-	| "CODE_GATEWAY_ORIGIN";
+	| "CODE_GATEWAY_ORIGIN"
+	/** Artifact share links (ADR 0120): on unless exactly "false"; the admin toggle overrides it. */
+	| "ARTIFACT_SHARING_ENABLED"
+	/** The share subdomain's full origin; unset means links live at a path on the app's origin. */
+	| "ARTIFACT_SHARE_ORIGIN"
+	/** The path prefix links carry on the app's origin (default `<base>/s`). */
+	| "ARTIFACT_SHARE_PATH";
 
 type ConfigProxy = ConfigManager & { [K in ConfigKey | ExtraConfigKeys]: string };
 

@@ -405,7 +405,7 @@ class TestFreshInstall(unittest.TestCase):
     def test_the_interview_asks_about_coding_agents_defaulting_to_yes(self):
         printed = []
         a = answers(agents=True)
-        given = {"origin", "admin_email", "preset", "tls", "idp", "office", "rustfs", "upstream_base_url"}
+        given = {"share_mode", "origin", "admin_email", "preset", "tls", "idp", "office", "rustfs", "upstream_base_url"}
         with mock.patch("builtins.input", return_value=""), \
                 mock.patch.object(cfg, "refuse_authelia", return_value=None), \
                 mock.patch("builtins.print", side_effect=lambda *x, **k: printed.append(" ".join(map(str, x)))):
@@ -415,7 +415,7 @@ class TestFreshInstall(unittest.TestCase):
         self.assertTrue(any("per group in the Pystino console" in p for p in printed), printed)
 
     def test_the_interview_agents_answer_no_and_a_rerun_default(self):
-        given = {"origin", "admin_email", "preset", "tls", "idp", "office", "rustfs", "upstream_base_url"}
+        given = {"share_mode", "origin", "admin_email", "preset", "tls", "idp", "office", "rustfs", "upstream_base_url"}
         with mock.patch("builtins.input", return_value="no"), \
                 mock.patch.object(cfg, "refuse_authelia", return_value=None), \
                 mock.patch("builtins.print"):
@@ -428,7 +428,7 @@ class TestFreshInstall(unittest.TestCase):
 
     def test_the_agents_flag_is_not_asked_and_a_rerun_keeps_the_value(self):
         printed = []
-        given = {"origin", "admin_email", "preset", "tls", "idp", "office", "rustfs", "agents"}
+        given = {"share_mode", "origin", "admin_email", "preset", "tls", "idp", "office", "rustfs", "agents"}
         with mock.patch("builtins.input", return_value=""), \
                 mock.patch.object(cfg, "refuse_authelia", return_value=None), \
                 mock.patch("builtins.print", side_effect=lambda *x, **k: printed.append(" ".join(map(str, x)))):
@@ -454,7 +454,7 @@ class TestFreshInstall(unittest.TestCase):
             prompts.append(prompt)
             return ""
 
-        given = {"origin", "admin_email", "preset", "tls", "idp", "office", "rustfs", "agents"}
+        given = {"share_mode", "origin", "admin_email", "preset", "tls", "idp", "office", "rustfs", "agents"}
         with mock.patch("builtins.input", side_effect=fake_input), \
                 mock.patch("getpass.getpass", side_effect=AssertionError("key asked")), \
                 mock.patch.object(cfg, "refuse_authelia", return_value=None), \
@@ -674,7 +674,7 @@ class TestFreshInstall(unittest.TestCase):
             return ""
 
         a = answers(**self._EXTERNAL)
-        given = {"origin", "admin_email", "preset", "tls", "idp", "oidc_issuer",
+        given = {"share_mode", "origin", "admin_email", "preset", "tls", "idp", "oidc_issuer",
                  "oidc_console_client_secret", "oidc_chat_client_secret", "office", "rustfs", "agents"}
         with mock.patch("builtins.input", side_effect=fake_input), \
                 mock.patch("builtins.print", side_effect=lambda *x, **k: printed.append(" ".join(map(str, x)))):
@@ -689,7 +689,7 @@ class TestFreshInstall(unittest.TestCase):
     def test_the_interview_does_not_ask_with_the_bundled_authelia(self):
         printed = []
         a = answers(idp="authelia")
-        given = {"origin", "admin_email", "preset", "tls", "idp"}
+        given = {"share_mode", "origin", "admin_email", "preset", "tls", "idp"}
         with mock.patch("builtins.input", return_value=""), \
                 mock.patch.object(cfg, "refuse_authelia", return_value=None), \
                 mock.patch("builtins.print", side_effect=lambda *x, **k: printed.append(" ".join(map(str, x)))):
@@ -1839,3 +1839,164 @@ class TestExtractor(Deploy):
         code, _, err = self.run_cli("--non-interactive", "--extractor-image", "x")
         self.assertEqual(code, 2)
         self.assertIn("--extractor", err)
+
+
+class TestShareLinks(Deploy):
+    """Artifact share links (ADR 0120): the subdomain or the path, and what each writes."""
+
+    def test_a_fresh_install_gets_the_path_and_the_warning(self):
+        result = build()
+        values = result.values
+        self.assertEqual(values["SHARE_MODE"], "path")
+        self.assertEqual(values["ARTIFACT_SHARE_PATH"], "/s")
+        self.assertEqual(values["ARTIFACT_SHARE_ORIGIN"], "")
+        self.assertEqual(values["SHARE_SITE_ADDRESS"], "")
+        warning = [n for n in result.notes if "share links" in n]
+        self.assertEqual(len(warning), 1)
+        self.assertIn(
+            "Public (anyone) links to HTML artifacts would run on this site's own origin, isolated only by the "
+            "browser sandbox. A subdomain is safer for public links: it keeps shared pages away from the app's "
+            "cookies and makes phishing under your domain harder. Signed-in links always use the path.",
+            warning[0],
+        )
+
+    def test_subdomain_defaults_to_share_dot_host_in_every_tls_mode(self):
+        acme = build(share_mode="subdomain").values
+        self.assertEqual(acme["ARTIFACT_SHARE_ORIGIN"], "https://share.chat.example.org")
+        self.assertEqual(acme["SHARE_SITE_ADDRESS"], "https://share.chat.example.org")
+        # Signed-in links always use the path, so it is kept in subdomain mode too.
+        self.assertEqual(acme["ARTIFACT_SHARE_PATH"], "/s")
+        internal = build(share_mode="subdomain", tls="internal").values
+        self.assertEqual(internal["SHARE_SITE_ADDRESS"], "https://share.chat.example.org")
+        # Behind a TLS front the proxy listens on plain HTTP, like the main site.
+        upstream = build(share_mode="subdomain", tls="upstream").values
+        self.assertEqual(upstream["SITE_ADDRESS"], "http://:80")
+        self.assertEqual(upstream["SHARE_SITE_ADDRESS"], "http://share.chat.example.org")
+        self.assertEqual(upstream["ARTIFACT_SHARE_ORIGIN"], "https://share.chat.example.org")
+
+    def test_a_subdomain_follows_a_non_default_https_port(self):
+        values = build(origin="https://chat.example.org:8443", share_mode="subdomain").values
+        self.assertEqual(values["ARTIFACT_SHARE_ORIGIN"], "https://share.chat.example.org:8443")
+
+    def test_the_subdomain_and_the_path_can_be_named(self):
+        self.assertEqual(
+            build(share_mode="subdomain", share_host="Links.Example.org").values["ARTIFACT_SHARE_ORIGIN"],
+            "https://links.example.org",
+        )
+        self.assertEqual(build(share_mode="path", share_path="shared/").values["ARTIFACT_SHARE_PATH"], "/shared")
+
+    def test_refusals(self):
+        for kw in (
+            dict(share_mode="subdomain", share_host="chat.example.org"),  # the app's own host
+            dict(share_mode="subdomain", share_host="10.0.0.5"),
+            dict(share_mode="subdomain", share_host="share"),
+            dict(share_mode="path", share_path="/chat"),  # shadows the app
+            dict(share_mode="path", share_path="/a b"),
+            dict(share_mode="elsewhere"),
+        ):
+            with self.subTest(kw=kw), self.assertRaises(cfg.ConfigError):
+                build(**kw)
+        # An IP host has no sibling name to give the share host.
+        with self.assertRaises(cfg.ConfigError):
+            build(origin="https://10.0.0.5", tls="internal", share_mode="subdomain")
+
+    def test_a_re_run_keeps_the_choice_and_an_upgrade_stays_as_it_was(self):
+        sub = dict(build(share_mode="subdomain", share_host="links.example.org").values)
+        again = build(existing=sub).values
+        self.assertEqual(again["ARTIFACT_SHARE_ORIGIN"], "https://links.example.org")
+        self.assertEqual(again["SHARE_MODE"], "subdomain")
+        # An .env from before this setting writes nothing: links stay at /chat/s/<token>.
+        old = {k: v for k, v in build().values.items() if k not in cfg.SHARE_KEYS}
+        kept = build(existing=old).values
+        self.assertEqual(kept.get("SHARE_MODE", ""), "")
+        self.assertEqual(kept.get("ARTIFACT_SHARE_PATH", ""), "")
+
+    def test_switching_modes_clears_the_other_modes_values(self):
+        sub = dict(build(share_mode="subdomain").values)
+        path = build(existing=sub, share_mode="path").values
+        self.assertEqual((path["ARTIFACT_SHARE_ORIGIN"], path["SHARE_SITE_ADDRESS"]), ("", ""))
+        self.assertEqual(path["ARTIFACT_SHARE_PATH"], "/s")
+
+    def test_the_kill_switch(self):
+        self.assertEqual(build(sharing=False).values["ARTIFACT_SHARING_ENABLED"], "false")
+        off = dict(build(sharing=False).values)
+        self.assertEqual(build(existing=off).values["ARTIFACT_SHARING_ENABLED"], "false")
+        self.assertEqual(build(existing=off, sharing=True).values["ARTIFACT_SHARING_ENABLED"], "")
+
+    def test_check_flags_an_inconsistent_env_and_warns_about_the_path(self):
+        path = cfg.Report()
+        cfg.check_values(dict(build().values), path)
+        self.assertEqual(path.errors, [])
+        self.assertTrue(any("isolated only by the browser sandbox" in w for w in path.warnings))
+
+        sub_values = dict(build(share_mode="subdomain").values)
+        ok = cfg.Report()
+        cfg.check_values(sub_values, ok)
+        self.assertEqual(ok.errors, [])
+        self.assertFalse(any("browser sandbox" in w for w in ok.warnings))
+
+        bad = cfg.Report()
+        cfg.check_values({**sub_values, "SHARE_SITE_ADDRESS": ""}, bad)
+        self.assertTrue(any("SHARE_SITE_ADDRESS" in e for e in bad.errors))
+        worse = cfg.Report()
+        cfg.check_values({**sub_values, "SHARE_MODE": "everywhere"}, worse)
+        self.assertTrue(any("SHARE_MODE" in e for e in worse.errors))
+
+    def test_the_cli_writes_the_subdomain_and_the_compose_passes_it_on(self):
+        code, out, err = self.run_cli(
+            "--non-interactive", "--origin", "https://chat.example.org", "--admin-email", "ops@example.org",
+            "--share-mode", "subdomain", "--offline",
+        )
+        self.assertEqual(code, 0, err)
+        env = cfg.parse_env((self.dir / ".env").read_text(encoding="utf-8"))
+        self.assertEqual(env["SHARE_MODE"], "subdomain")
+        self.assertEqual(env["ARTIFACT_SHARE_ORIGIN"], "https://share.chat.example.org")
+        compose = (self.dir / "compose.yaml").read_text(encoding="utf-8")
+        for name in ("SHARE_MODE", "SHARE_SITE_ADDRESS", "SHARE_PATH", "ARTIFACT_SHARE_ORIGIN",
+                     "ARTIFACT_SHARE_PATH", "ARTIFACT_SHARING_ENABLED"):
+            self.assertIn(name, compose)
+
+    def test_the_cli_prints_the_path_warning(self):
+        code, out, err = self.run_cli(
+            "--non-interactive", "--origin", "https://chat.example.org", "--admin-email", "ops@example.org",
+            "--share-mode", "path", "--offline",
+        )
+        self.assertEqual(code, 0, err)
+        self.assertIn("isolated only by the browser sandbox", out + err)
+
+
+class TestShareInterview(unittest.TestCase):
+    """The interview offers the subdomain first where the app has a DNS name, and the path where it cannot."""
+
+    GIVEN = {"origin", "admin_email", "preset", "tls", "idp", "office", "rustfs", "agents", "upstream_base_url"}
+
+    def ask(self, origin, tls, replies, existing=None, extra=()):
+        replies = iter(replies)
+        printed = []
+        with mock.patch("builtins.input", side_effect=lambda prompt="": next(replies)), \
+                mock.patch.object(cfg, "refuse_authelia", return_value=None), \
+                mock.patch("builtins.print", side_effect=lambda *x, **k: printed.append(" ".join(map(str, x)))):
+            result = cfg.interview(answers(origin=origin, tls=tls), set(self.GIVEN) | set(extra), existing or {})
+        return result, printed
+
+    def test_a_dns_name_defaults_to_the_subdomain_and_asks_for_the_host(self):
+        result, printed = self.ask("https://chat.example.org", "acme", ["", ""])
+        self.assertEqual(result.share_mode, "subdomain")
+        self.assertEqual(result.share_host, "share.chat.example.org")
+        self.assertTrue(any("Artifact share links" in line for line in printed))
+
+    def test_an_ip_can_only_default_to_the_path(self):
+        result, _ = self.ask("https://10.0.0.5", "internal", [""])
+        self.assertEqual(result.share_mode, "path")
+        self.assertIsNone(result.share_host)
+
+    def test_the_path_can_be_chosen_on_a_dns_name(self):
+        result, _ = self.ask("https://chat.example.org", "acme", ["path"])
+        self.assertEqual(result.share_mode, "path")
+
+    def test_a_flag_or_an_existing_choice_is_not_asked_again(self):
+        # No replies are available: asking would raise StopIteration.
+        result, printed = self.ask("https://chat.example.org", "acme", [], extra=("share_mode",))
+        self.assertIsNone(result.share_mode)
+        result, printed = self.ask("https://chat.example.org", "acme", [], existing={"SHARE_MODE": "path"})
+        self.assertFalse(any("Artifact share links" in line for line in printed))

@@ -7,6 +7,7 @@ import { downloadFile } from "$lib/server/files/downloadFile";
 import mimeTypes from "mime-types";
 import { logger } from "$lib/server/logger";
 import { stripRedactionValues } from "$lib/server/turnStats";
+import { listOwnShares } from "$lib/server/sharing/shares";
 
 export const GET: RequestHandler = async ({ locals }) => {
 	if (!locals.user) {
@@ -122,6 +123,12 @@ export const GET: RequestHandler = async ({ locals }) => {
 					"conversations.json"
 				);
 			}),
+		// The public artifact links (ADR 0120): what each shows and who may open it. The
+		// token is never stored, so it cannot be exported; the frozen content stays with
+		// the conversation's own artifact.
+		listOwnShares(locals.user._id).then((links) => {
+			zipfile.addBuffer(Buffer.from(JSON.stringify(links, null, 2)), "shared-links.json");
+		}),
 	];
 
 	Promise.all(promises).then(async () => {

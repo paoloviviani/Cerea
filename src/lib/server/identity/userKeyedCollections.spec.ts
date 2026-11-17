@@ -40,6 +40,8 @@ const ALL_COLLECTIONS: Record<string, boolean> = {
 	mcpConnectors: true,
 	connectorSwitches: true, // a person's own connector on/off switches; owner-keyed, one row each
 	connectorModes: false, // the deployment's own connector modes, not user content
+	sharedArtifacts: true, // a person's public artifact links (ADR 0120); owner-keyed, reassigned on merge, erased with the account
+	shareSettings: false, // the deployment's one sharing switch, not user content
 	mcpTokens: true,
 	mcpOauthPending: true,
 	localConnectorOauth: true, // a local connector's sign-in in flight; deleted on merge, erased with the account

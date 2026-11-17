@@ -12,6 +12,7 @@
 	import { m } from "$lib/paraglide/messages";
 	import { formatNumber } from "$lib/i18n/format";
 	import Rich from "$lib/i18n/Rich.svelte";
+	import SharedLinksAdmin from "$lib/components/sharing/SharedLinksAdmin.svelte";
 
 	interface Summary {
 		retentionDays: number;
@@ -226,3 +227,7 @@
 		</div>
 	{/if}
 </section>
+
+<div class="mt-6 rounded-lg border border-gray-200 p-5 dark:border-gray-700">
+	<SharedLinksAdmin />
+</div>

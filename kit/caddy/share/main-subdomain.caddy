@@ -1,0 +1,11 @@
+# Artifact share links with a subdomain (SHARE_MODE=subdomain): anyone's links live
+# on the share host (site-subdomain.caddy). Signed-in links always use this path on
+# the app's own host, where the visitor's session is. The chat refuses an anyone
+# link here and a signed-in link on the share host.
+handle {$SHARE_PATH:/s}/* {
+	uri strip_prefix {$SHARE_PATH:/s}
+	rewrite * /chat/s{uri}
+	reverse_proxy chat:3000 {
+		import to_app
+	}
+}

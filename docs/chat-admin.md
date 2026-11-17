@@ -501,6 +501,17 @@ period, or none, keeps everything that still exists. The value is stored in the
 chat's configuration and overrides `CHAT_FILE_RETENTION_DAYS`; with
 `ENABLE_CONFIG_MANAGER` off it can only be set in the environment.
 
+### Shared links
+
+The same screen lists every [shared artifact link](artifacts.md#sharing-an-artifact)
+in the deployment (artifact, chat, who shared it, audience, expiry, views, when
+made), with **Revoke** on each, and holds the one deployment-wide switch,
+**Allow artifact share links**. It overrides `ARTIFACT_SHARING_ENABLED` once
+it has been set, in either direction. Off, the **Share link…** button is hidden,
+making and changing links is refused and **every existing link answers "not
+available"**; the links are kept, so turning sharing back on restores them. There
+is no per-group switch.
+
 ## Searching message text
 
 The **Chats** page searches what was said in chats with a MongoDB text index on

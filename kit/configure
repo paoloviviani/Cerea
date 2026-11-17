@@ -61,6 +61,19 @@ RUSTFS_BUCKET = "cerea"
 DEFAULT_UPSTREAM = ""
 FIRST_SIGN_IN = "first-sign-in.txt"
 TLS_MODES = ("acme", "internal", "upstream")
+#: Artifact share links (ADR 0120): where a link lives. A subdomain keeps shared
+#: pages off the app's origin; a path is the weaker, simpler shape.
+SHARE_MODES = ("subdomain", "path")
+SHARE_PATH_DEFAULT = "/s"
+#: The .env keys the share settings own.
+SHARE_KEYS = ("SHARE_MODE", "SHARE_SITE_ADDRESS", "ARTIFACT_SHARE_ORIGIN", "ARTIFACT_SHARE_PATH")
+#: The first path segment of what the proxy already routes: a share path must not shadow it.
+SHARE_PATH_RESERVED = ("chat", "authelia", "authelia-src", "internal", "console", "v1", "auth", "api")
+SHARE_PATH_WARNING = (
+    "Public (anyone) links to HTML artifacts would run on this site's own origin, isolated only by the "
+    "browser sandbox. A subdomain is safer for public links: it keeps shared pages away from the app's "
+    "cookies and makes phishing under your domain harder. Signed-in links always use the path."
+)
 IDPS = ("authelia", "external")
 #: What the console and the chat ask the IdP for. `groups` is a scope only at
 #: some providers (Authelia, Keycloak); others carry the claim without it.
@@ -863,6 +876,42 @@ def site_for(tls: str, host: str) -> tuple:
     return f"https://{host}", ("tls internal" if tls == "internal" else "")
 
 
+_HOSTNAME = re.compile(r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
+
+
+def refuse_share_host(share_host: str, host: str) -> str:
+    """The share subdomain, normalised, or a ConfigError saying what is wrong."""
+    share_host = share_host.strip().lower().rstrip(".")
+    if is_ip(host) or "." not in host:
+        raise ConfigError(
+            f"a share subdomain needs the app on a DNS name (got {host!r}); use --share-mode path, "
+            "or give the app a DNS name"
+        )
+    if not _HOSTNAME.match(share_host):
+        raise ConfigError(f"the share host must be a DNS name such as share.{host}, got {share_host!r}")
+    if share_host == host:
+        raise ConfigError(
+            "the share host must differ from the app's host: its whole point is to keep shared pages "
+            "off the app's origin"
+        )
+    return share_host
+
+
+def refuse_share_path(path: str) -> str:
+    """The share path prefix, normalised (a leading slash, none trailing), or a ConfigError."""
+    path = "/" + path.strip().strip("/")
+    if not re.match(r"^/[A-Za-z0-9._~-]+(/[A-Za-z0-9._~-]+)*$", path):
+        raise ConfigError(f"the share path must look like /s or /shared, got {path!r}")
+    if path.split("/")[1] in SHARE_PATH_RESERVED:
+        raise ConfigError(f"the share path {path!r} would shadow a route the proxy already serves; pick another")
+    return path
+
+
+def site_for_share(tls: str, share_host: str) -> str:
+    """The proxy's address for the share host: plain HTTP behind a TLS front, else https."""
+    return f"http://{share_host}" if tls == "upstream" else f"https://{share_host}"
+
+
 # --- the MongoDB image --------------------------------------------------------
 #
 # MongoDB 8 is the default; 4.4 is what runs where 8 cannot. Two host facts
@@ -1007,6 +1056,13 @@ class Answers:
     idp: str = "authelia"
     agents: bool | None = None
     terminal: bool | None = None
+    #: Artifact share links (ADR 0120). share_mode: subdomain | path; None leaves what .env holds
+    #: (a fresh install gets path). share_host: the subdomain's host (default share.<host>).
+    #: share_path: the path prefix (default /s). sharing: False writes ARTIFACT_SHARING_ENABLED=false.
+    share_mode: str | None = None
+    share_host: str | None = None
+    share_path: str | None = None
+    sharing: bool | None = None
     # The headless browser (the fetch profile): None leaves it to the preset
     # and to a hand-enabled profile; True/False add or remove it.
     fetch: bool | None = None
@@ -1434,6 +1490,33 @@ def build(answers: Answers, existing: dict, template: str, discovery: dict | Non
     elif not values.get("ACME_EMAIL") or values.get("ACME_EMAIL") == f"admin@{old_host}":
         values["ACME_EMAIL"] = "admin@example.org" if is_ip(host) else f"admin@{host}"
     values["PROXY_DEFAULT"] = "chat" if preset.standalone else "gateway"
+
+    # --- artifact share links (ADR 0120) -----------------------------------------
+    # Only an answer, or a fresh install, writes anything: an existing .env that
+    # names no mode keeps links at /chat/s/<token>, which needs no proxy route.
+    share_mode = answers.share_mode or values.get("SHARE_MODE") or ("path" if fresh else "")
+    if share_mode not in ("", *SHARE_MODES):
+        raise ConfigError(f"the share mode must be one of {', '.join(SHARE_MODES)}")
+    if answers.sharing is not None:
+        values["ARTIFACT_SHARING_ENABLED"] = "" if answers.sharing else "false"
+    if share_mode == "subdomain":
+        current = values.get("ARTIFACT_SHARE_ORIGIN", "")
+        current_host = urlsplit(current).hostname if current else None
+        share_host = refuse_share_host(answers.share_host or current_host or f"share.{host}", host)
+        values["SHARE_MODE"] = "subdomain"
+        values["ARTIFACT_SHARE_ORIGIN"] = f"https://{share_host}" + (f":{origin_port}" if origin_port else "")
+        values["SHARE_SITE_ADDRESS"] = site_for_share(answers.tls, share_host)
+        # Signed-in links always use the path on the app's origin, so the path is kept in both modes.
+        values["ARTIFACT_SHARE_PATH"] = refuse_share_path(
+            answers.share_path or values.get("ARTIFACT_SHARE_PATH") or SHARE_PATH_DEFAULT
+        )
+    elif share_mode == "path":
+        share_path = refuse_share_path(answers.share_path or values.get("ARTIFACT_SHARE_PATH") or SHARE_PATH_DEFAULT)
+        values["SHARE_MODE"] = "path"
+        values["ARTIFACT_SHARE_PATH"] = share_path
+        values["ARTIFACT_SHARE_ORIGIN"] = ""
+        values["SHARE_SITE_ADDRESS"] = ""
+        notes.append(f"artifact share links at {origin}{share_path}/<token>: {SHARE_PATH_WARNING}")
 
     # --- secrets: minted once, never re-minted ------------------------------------
     for key, nbytes in MINTED.items():
@@ -1882,6 +1965,40 @@ def model_mode_problems(values: dict) -> list:
     return problems
 
 
+def check_share(values: dict, report: Report, host: str, tls: str) -> None:
+    """Artifact share links (ADR 0120): the mode and the values that must follow from it."""
+    mode = values.get("SHARE_MODE", "")
+    if not mode:
+        return
+    if mode not in SHARE_MODES:
+        report.errors.append(f"SHARE_MODE={mode!r}; use one of {', '.join(SHARE_MODES)} (or leave it empty)")
+        return
+    if mode == "path":
+        try:
+            path = refuse_share_path(values.get("ARTIFACT_SHARE_PATH") or SHARE_PATH_DEFAULT)
+        except ConfigError as exc:
+            report.errors.append(str(exc))
+            return
+        if values.get("ARTIFACT_SHARE_ORIGIN"):
+            report.errors.append("SHARE_MODE=path but ARTIFACT_SHARE_ORIGIN is set: the link would use the origin; run ./configure --share-mode path")
+        report.warnings.append(f"artifact share links at {path} on the app's origin: {SHARE_PATH_WARNING}")
+        return
+    origin = values.get("ARTIFACT_SHARE_ORIGIN", "")
+    try:
+        _, share_host, _ = split_origin(origin)
+        refuse_share_host(share_host, host)
+    except ConfigError as exc:
+        report.errors.append(f"ARTIFACT_SHARE_ORIGIN: {exc}")
+        return
+    if values.get("SHARE_SITE_ADDRESS") != site_for_share(tls, share_host):
+        report.errors.append(
+            f"SHARE_MODE=subdomain needs SHARE_SITE_ADDRESS='{site_for_share(tls, share_host)}' "
+            f"(found {values.get('SHARE_SITE_ADDRESS')!r}); run ./configure again"
+        )
+    if tls == "acme":
+        report.notes.append(f"{share_host} needs a DNS record pointing here, like {host}: its certificate is requested on the first visit")
+
+
 def check_values(values: dict, report: Report) -> None:
     """Everything that can be said from .env alone."""
     profiles = {p for p in values.get("COMPOSE_PROFILES", "").split(",") if p}
@@ -1953,6 +2070,7 @@ def check_values(values: dict, report: Report) -> None:
             )
         if tls == "internal":
             report.notes.append("TLS_MODE=internal: browsers will warn; fine for development only")
+        check_share(values, report, host, tls)
     if values.get("PROXY_DEFAULT", "gateway") == "gateway" and "gateway" not in profiles:
         report.errors.append("PROXY_DEFAULT=gateway but the gateway profile is off; set PROXY_DEFAULT='chat'")
     try:
@@ -2489,6 +2607,23 @@ def interview(answers: Answers, given: set, existing: dict) -> Answers:
             tls_default,
         )
         refuse_tls(answers.tls, host)
+    if "share_mode" not in given and not answers.share_mode and "SHARE_MODE" not in existing:
+        dns = not is_ip(host) and "." in host
+        answers.share_mode = choose(
+            "Artifact share links (a public link to one artifact):",
+            {
+                "subdomain": f"share.{host}: a separate host for public links, the safer shape (needs a DNS "
+                             "record and, with acme, a certificate for it); signed-in links stay on the path",
+                "path": f"{SHARE_PATH_DEFAULT} on this host: simpler, but public HTML links run on the app's own origin",
+            },
+            "subdomain" if dns else "path",
+        )
+    if answers.share_mode == "subdomain" and "share_host" not in given:
+        answers.share_host = ask(
+            "Share host",
+            urlsplit(existing.get("ARTIFACT_SHARE_ORIGIN", "")).hostname or f"share.{host}",
+            validate=lambda v: refuse_share_host(v, host) and None,
+        )
     if answers.tls == "upstream" and "http_port" not in given:
         port = ask(
             "Port the TLS front forwards plain HTTP to, on this host",
@@ -3013,6 +3148,17 @@ def parser() -> argparse.ArgumentParser:
                    help="coding agents: /chat/code and galopin (default on for a fresh install; --no-agents turns off)")
     o.add_argument("--terminal", action=argparse.BooleanOptionalAction, default=None,
                    help="the browser terminal on agent machines (a full remote shell; needs --agents)")
+    o.add_argument("--share-mode", dest="share_mode", choices=SHARE_MODES,
+                   help="artifact share links (ADR 0120): subdomain (share.<host> for public links, recommended: "
+                        "they never run on the app's origin) or path (/s on the app's origin, weaker isolation). "
+                        "Signed-in links always use the path. A fresh install gets path")
+    o.add_argument("--share-host", dest="share_host",
+                   help="--share-mode subdomain: the host (default share.<host>); it needs its own DNS record")
+    o.add_argument("--share-path", dest="share_path",
+                   help="the path prefix on the app's origin (default /s): where signed-in links live, and public ones in path mode")
+    o.add_argument("--sharing", action=argparse.BooleanOptionalAction, default=None,
+                   help="artifact share links on (the default) or off (ARTIFACT_SHARING_ENABLED=false); "
+                        "an administrator can also toggle it in Administration")
     o.add_argument("--fetch", action=argparse.BooleanOptionalAction, default=None,
                    help="the headless browser for web fetch (the fetch profile); --no-fetch removes it")
     o.add_argument("--browser", action=argparse.BooleanOptionalAction, default=None,
