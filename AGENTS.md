@@ -65,10 +65,9 @@ Two things about running the suites in a container:
   85 files in October 2026, every Svelte component test — does
   not run. It needs a real
   Chromium through Playwright, and the image's browsers must match the
-  _installed_ Playwright rather than the caret range in `package.json`
-  (`node_modules/playwright` was 1.64.1 while the range said `^1.55.1`, and the
-  mismatched image reports `no tests` plus a `Serialized Error: { log: [] }`,
-  which says nothing about the cause):
+  _installed_ Playwright (`package.json` pins `playwright`; a mismatched image
+  reports `no tests` plus a `Serialized Error: { log: [] }`, which says nothing
+  about the cause). CI's `client` job runs 3 shards in that image:
 
   ```bash
   docker run --rm -v $PWD:/chat -w /chat --entrypoint /bin/sh \
@@ -171,8 +170,8 @@ lint` (or `npx prettier --check` on the files you changed), the server tests
 - **End-to-end tests run against a fresh build.** `npm run build` first,
   then `E2E_SKIP_BUILD=1`. A stale `build/` passes or fails for reasons that have
   nothing to do with the change.
-- **CI runs on every push to main** (`ci.yml`: `check`, `client`, `go`,
-  `e2e-smoke`; the whole e2e suite nightly, or `-f full=true` on a dispatch,
+- **CI runs on every push to main** (`ci.yml`: `check`, `go`, `client`,
+  `e2e-smoke` and the path-gated jobs such as `documents`, `sandbox`; the whole e2e suite nightly, or `-f full=true` on a dispatch,
   and on a PR the `client` job only when it touches `src/lib/components`).
   The smoke subset is the Playwright specs tagged `@smoke` in their title:
   add the tag to a spec that guards a main path, never to a slow or timing-
@@ -241,6 +240,7 @@ src/
 │   │   ├── auth.ts       # OpenID Connect authentication
 │   │   ├── code/         # the /code panel's server side: machine link, forwarder, schedules executor
 │   │   ├── schedules/    # the kind-agnostic scheduled-actions core
+│   │   ├── sharing/      # public share links (`/s/<token>`)
 │   │   ├── codeDevices.ts  # pairing records, and the per-person scope on them
 │   │   └── codeEnabled.ts  # the CODE_AGENTS_ENABLED gate (and files, terminal, schedules)
 │   ├── types/            # TypeScript interfaces (Conversation, Message, User, Model, etc.)
@@ -268,7 +268,8 @@ src/
 - `projects` - Groups of conversations sharing standing context
 - `users` - User accounts (OIDC-backed)
 - `sessions` - Session data
-- Retired, never dropped: `assistants`, `reports`, `sharedConversations` (public share links, removed). No type or index; read by raw name only so erasure, merge and conversation delete still reach old rows (`RETIRED_COLLECTIONS`, `legacyShares.ts`)
+- `sharedArtifacts`, `shareSettings` - Public share links to an artifact or file (`src/lib/server/sharing/`, served at `/s/<token>`; user docs in [docs/artifacts.md](docs/artifacts.md))
+- Retired, never dropped: `assistants`, `reports`, `sharedConversations` (the old conversation share links). No type or index; read by raw name only so erasure, merge and conversation delete still reach old rows (`RETIRED_COLLECTIONS`, `legacyShares.ts`)
 - `settings` - User preferences (including the global system prompt)
 - `connectorModes` - How the deployment offers its own connectors: `off` / `on` / `locked` and `alwaysLoaded`, keyed `base:<name>` or `connector:<id>`; no row means `on` (ADR 0104)
 - `connectorSwitches` - One row per person: the connectors they switched off (default-on) or on (default-off); owner-keyed (ADR 0104)
@@ -333,7 +334,8 @@ One resolver, `mcpLocalsFor` (`mcp/selection.ts`), builds a turn's servers; neve
 add a second path. Connectors load on demand through `load_tools`, appending to
 the request so prompt caching holds. Tool output from outside is data
 (`textGeneration/untrusted.ts`): a new built-in that returns outside content must
-be added to `EXTERNAL_BUILTIN_TOOLS`. Approvals are unchanged.
+be added to `EXTERNAL_BUILTIN_TOOLS`. Approvals are unchanged. Workspace → Agents holds the one connector list, with an
+"apps on my computers" switch for local MCP clients ([docs/code-panel.md](docs/code-panel.md)).
 
 Full reference: [docs/dev/mcp-connectors.md](docs/dev/mcp-connectors.md).
 
@@ -394,7 +396,10 @@ userinfo; the registry is in-process. The browser never reaches a machine
 directly: every call goes through Cerea, and the SSE bridge is cursored on the
 machine's own `epoch`/`seq`. Tool-output images are references, never bytes on the
 stream. The chat drives agent sessions through the same machinery (ADR 0106).
-The wire contract is `agent/PROTOCOL.md`; new ops and fields are optional and
+galopin lives in `agent/` (see `agent/README.md`): one instance per machine
+(`instance_lock.go`), `galopin service` to run it as a service, a multi-arch
+image, and file ops (`files.upload.*`, `files.download`, `files.zip.*`) over the
+link. The wire contract is `agent/PROTOCOL.md`; new ops and fields are optional and
 advertised (MAINTAINING.md section 4).
 
 Full reference: [docs/dev/code-panel.md](docs/dev/code-panel.md).
@@ -406,9 +411,16 @@ A kind-agnostic core (`src/lib/server/schedules/`) with one executor per kind
 is the conversation route's own turn, unattended, authenticated through the
 user's background OIDC grant (`schedules/grants.ts`); permission mode is Ask or
 Allow, never looser than the user's setting. The `schedule` tool only proposes;
-a click on the approval card creates. Coordination between agents is a grant.
+a click on the approval card creates. Coordination between agents is the session's word and the Agents row; there are no coordination switches or grants.
 
 Full reference: [docs/dev/schedules.md](docs/dev/schedules.md).
+
+### Large content as files
+
+A text attachment, extracted document or long paste past 25% of the model's
+context window reaches the model as a pointer to a sandbox file it reads with
+code, not inlined (`textGeneration/utils/largeContent.ts`). The window comes from
+the gateway's `context_window`, read in `models.ts`.
 
 ### Document tools
 
