@@ -5,6 +5,10 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Phone terminal: tap to type.** On a phone, tapping the terminal opens the keyboard; swiping still scrolls the scrollback and never opens it. The **Type** and **Done** keys are gone (the keyboard closes with the phone's own key or a tap outside). The extra-keys row is otherwise unchanged. Nothing to do on computers.
+
 ## v0.55.0 — 2026-11-17
 
 Pins: Cerea `0.55.0` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.4`, opencode `2.3.0`.
