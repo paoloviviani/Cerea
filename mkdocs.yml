@@ -18,9 +18,9 @@
 
 site_name: Cerea
 # GitHub Pages (the docs workflow publishes on docs/mkdocs changes):
-# https://paoloviviani.github.io/Cerea/ — canonical, so strict builds
+# https://paoloviviani.github.io/Cerea/docs/ — canonical, so strict builds
 # generate honest absolute links.
-site_url: https://paoloviviani.github.io/Cerea/
+site_url: https://paoloviviani.github.io/Cerea/docs/
 site_description: >
   A self-hosted chat for the models your gateway exposes, with knowledge bases,
   artifacts, Python in the browser, and coding agents on your own machines.

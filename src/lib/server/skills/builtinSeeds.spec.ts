@@ -319,9 +319,9 @@ describe("the cerea built-in", () => {
 		expect(skill.description).toMatch(/what you can do/i);
 		const root = resolve(__dirname, "../../../..");
 		const nav = readFileSync(resolve(root, "mkdocs.yml"), "utf8");
-		const base = "https://paoloviviani.github.io/Cerea/";
+		const base = "https://paoloviviani.github.io/Cerea/docs/";
 		const links = [
-			...skill.content.matchAll(/https:\/\/paoloviviani\.github\.io\/Cerea\/([a-z-]*)\/?/g),
+			...skill.content.matchAll(/https:\/\/paoloviviani\.github\.io\/Cerea\/docs\/([a-z-]*)\/?/g),
 		];
 		const pages = links.map((m) => m[1]).filter(Boolean);
 		expect(pages.length).toBeGreaterThan(5);

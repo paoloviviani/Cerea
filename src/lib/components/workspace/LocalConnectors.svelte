@@ -42,7 +42,7 @@
 	import LucidePlug from "~icons/lucide/plug";
 
 	/** The page that explains all of this, for the "more" link. */
-	const DOCS_URL = "https://paoloviviani.github.io/Cerea/local-connectors/";
+	const DOCS_URL = "https://paoloviviani.github.io/Cerea/docs/local-connectors/";
 	const POLL_MS = 8000;
 
 	const publicConfig = usePublicConfig();
@@ -71,7 +71,7 @@
 	);
 
 	/** Browser use (ADR 0116): the card that sets up a browser on a connectors computer. */
-	const BROWSER_DOCS_URL = "https://paoloviviani.github.io/Cerea/browser-use/";
+	const BROWSER_DOCS_URL = "https://paoloviviani.github.io/Cerea/docs/browser-use/";
 	const showBrowserCard = $derived(Boolean(page.data.browserUseEnabled) && !denied);
 	const browserSetup = `${GALOPIN_BIN} browser setup`;
 	const browserEnable = `${GALOPIN_BIN} browser enable`;
