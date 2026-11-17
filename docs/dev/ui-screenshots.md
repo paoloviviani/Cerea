@@ -34,3 +34,11 @@ rules:
   outside the repository, in a reports directory the owner reads (for example
   `reports/screenshots/<date>-<topic>/` next to the checkout), never committed,
   and point to the files.
+
+## The user-docs screenshots
+
+`scripts/docs-screenshots/` regenerates the images in `docs/assets` from the hermetic e2e stack
+(fake machine, fake data, a user called Ada). To re-run, after `npm run build`:
+`E2E_SKIP_BUILD=1 flock /tmp/heavy.lock.a npx playwright test -c scripts/docs-screenshots/playwright.config.ts`
+(`SHOTS_ONLY=<regexp on the test title>` shoots a subset), then
+`uv run --with pillow python scripts/docs-screenshots/finish.py` writes the WebP files. Look at each one.
