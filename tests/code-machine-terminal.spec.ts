@@ -217,6 +217,15 @@ test.describe("the terminal on a real machine", () => {
 		await expect(jump).toBeVisible();
 		await jump.click();
 		await expect(jump).toHaveCount(0);
+
+		// A tap (not a drag) opens the keyboard: typing then reaches the shell. The row text
+		// has no newlines, so the typed "echo hi" followed by its output "hi" reads "echo hihi".
+		await touch("touchStart", y0);
+		await touch("touchEnd", y0);
+		await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+		await page.keyboard.type("echo hi");
+		await page.keyboard.press("Enter");
+		await expect(term).toContainText("echo hihi", { timeout: 15_000 });
 	});
 
 	test("coexistence: a busy terminal doesn't stall a streaming session turn", async ({

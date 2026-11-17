@@ -305,3 +305,81 @@ describe("CodeTerminal touch scrolling", () => {
 		expect(screen.baseElement.querySelector('button[aria-label="Scroll to bottom"]')).toBeNull();
 	});
 });
+
+describe("CodeTerminal tap to type", () => {
+	function stubNarrow(): void {
+		vi.stubGlobal("matchMedia", (query: string) => ({
+			matches: query.includes("639"),
+			media: query,
+			onchange: null,
+			addEventListener() {},
+			removeEventListener() {},
+			addListener() {},
+			removeListener() {},
+			dispatchEvent: () => false,
+		}));
+	}
+
+	function pointer(target: Element, type: string, x: number, y: number, timeStamp?: number): void {
+		const ev = new PointerEvent(type, {
+			pointerId: 1,
+			isPrimary: true,
+			pointerType: "touch",
+			clientX: x,
+			clientY: y,
+			bubbles: true,
+			cancelable: true,
+		});
+		if (timeStamp !== undefined) Object.defineProperty(ev, "timeStamp", { value: timeStamp });
+		target.dispatchEvent(ev);
+	}
+
+	it("a tap focuses the textarea", async () => {
+		stubNarrow();
+		const screen = await mountTerminal();
+		const el = viewport(screen.baseElement);
+		const r = el.getBoundingClientRect();
+		const x = r.left + 20;
+		const y = r.top + 20;
+		pointer(el, "pointerdown", x, y, 1000);
+		pointer(el, "pointerup", x + 2, y + 1, 1100);
+		expect(document.activeElement).toBe(helperTextarea(screen.baseElement));
+	});
+
+	it("a drag does not focus", async () => {
+		stubNarrow();
+		const screen = await mountTerminal();
+		const el = viewport(screen.baseElement);
+		const r = el.getBoundingClientRect();
+		const x = r.left + 20;
+		const y = r.top + 20;
+		pointer(el, "pointerdown", x, y, 1000);
+		pointer(el, "pointermove", x, y + 40, 1050);
+		pointer(el, "pointerup", x, y + 40, 1100);
+		expect(document.activeElement).not.toBe(helperTextarea(screen.baseElement));
+	});
+
+	it("a long press does not focus", async () => {
+		stubNarrow();
+		const screen = await mountTerminal();
+		const el = viewport(screen.baseElement);
+		const r = el.getBoundingClientRect();
+		pointer(el, "pointerdown", r.left + 20, r.top + 20, 1000);
+		pointer(el, "pointerup", r.left + 20, r.top + 20, 1700);
+		expect(document.activeElement).not.toBe(helperTextarea(screen.baseElement));
+	});
+
+	it("the key row has no Type or Done key, and a special key sends without focusing", async () => {
+		stubNarrow();
+		const screen = await mountTerminal();
+		expect(screen.baseElement.querySelector('button[aria-label="Type"]')).toBeNull();
+		expect(screen.baseElement.querySelector('button[aria-label="Done"]')).toBeNull();
+		const esc = screen.baseElement.querySelector('button[aria-label="Escape"]');
+		const tab = esc ?? screen.baseElement.querySelector('button[aria-label="Tab"]');
+		if (!(tab instanceof HTMLButtonElement)) throw new Error("no special key found");
+		const before = FakeWebSocket.sent.length;
+		tab.click();
+		await vi.waitFor(() => expect(inputTextsSince(before).length).toBe(1));
+		expect(document.activeElement).not.toBe(helperTextarea(screen.baseElement));
+	});
+});

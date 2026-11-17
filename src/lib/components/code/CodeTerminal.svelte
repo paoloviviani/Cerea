@@ -63,8 +63,8 @@
 	let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
 	// Below the mobile breakpoint the composer and side pane use (§2.4 of the
-	// terminal plan): a terminal opens in view mode (touch-scroll only, no
-	// keyboard) so an accidental tap never types into a shell. Desktop never
+	// terminal plan): a swipe scrolls without a keyboard and a tap
+	// (not a drag or long press) focuses the textarea to type. Desktop never
 	// reads any of this — the guards below are gated on `narrowViewport`.
 	const narrowViewport = new MediaQuery("(max-width: 639px)");
 	let typingMode = $state(false);
@@ -237,15 +237,65 @@
 		ws.send(JSON.stringify({ t: "resize", cols, rows, claim: true }));
 	}
 
-	/** Below the mobile breakpoint, in view mode: a tap must never reach
-	 * xterm's own click-to-focus handling, wherever it is wired internally —
-	 * capturing here, ahead of anything xterm attaches on a descendant, and
-	 * `stopPropagation` so the event never continues to it. */
-	function blockFocusInViewMode(e: Event): void {
-		if (narrowViewport.current && !typingMode) {
+	/** Below the mobile breakpoint a touch must never reach xterm's own
+	 * click-to-focus handling, wherever it is wired internally: swipes scroll
+	 * the scrollback without raising the keyboard. Capturing here, ahead of
+	 * anything xterm attaches on a descendant, and `stopPropagation` so the
+	 * event never continues to it. A tap is told from a drag by
+	 * `attachTapToType`, which focuses the textarea itself. */
+	function blockXtermFocus(e: Event): void {
+		if (narrowViewport.current) {
 			e.preventDefault();
 			e.stopPropagation();
 		}
+	}
+
+	/** A tap (one pointer, up within TAP_SLOP px of down and TAP_MAX_MS) focuses
+	 * the xterm textarea so the keyboard opens. It runs synchronously inside
+	 * the `pointerup` handler: iOS Safari only raises the keyboard for a focus
+	 * made within a user gesture. A drag, a long press or a second finger
+	 * never focuses. */
+	function attachTapToType(el: HTMLElement): () => void {
+		const TAP_SLOP = 10;
+		const TAP_MAX_MS = 300;
+		let down: { id: number; x: number; y: number; t: number } | null = null;
+		let active = 0;
+		const onDown = (e: PointerEvent): void => {
+			active += 1;
+			down =
+				active === 1 && e.isPrimary
+					? { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp }
+					: null;
+		};
+		const onMove = (e: PointerEvent): void => {
+			if (down && e.pointerId === down.id) {
+				if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > TAP_SLOP) down = null;
+			}
+		};
+		const onUp = (e: PointerEvent): void => {
+			active = Math.max(0, active - 1);
+			const d = down;
+			down = null;
+			if (!d || e.pointerId !== d.id || !narrowViewport.current) return;
+			if (e.timeStamp - d.t > TAP_MAX_MS) return;
+			if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > TAP_SLOP) return;
+			enterTypingMode();
+		};
+		const onCancel = (): void => {
+			active = Math.max(0, active - 1);
+			down = null;
+		};
+		// Capture: `blockXtermFocus` stops this event before the bubble phase.
+		el.addEventListener("pointerdown", onDown, true);
+		el.addEventListener("pointermove", onMove);
+		el.addEventListener("pointerup", onUp);
+		el.addEventListener("pointercancel", onCancel);
+		return () => {
+			el.removeEventListener("pointerdown", onDown, true);
+			el.removeEventListener("pointermove", onMove);
+			el.removeEventListener("pointerup", onUp);
+			el.removeEventListener("pointercancel", onCancel);
+		};
 	}
 
 	function updateScrolledUp(): void {
@@ -509,23 +559,19 @@
 		term?.textarea?.focus();
 	}
 
-	function exitTypingMode(): void {
-		typingMode = false;
-		term?.textarea?.blur();
-	}
-
 	$effect(() => {
 		const parent = host;
 		if (!parent) return;
 		destroyed = false;
-		parent.addEventListener("pointerdown", blockFocusInViewMode, true);
+		parent.addEventListener("pointerdown", blockXtermFocus, true);
+		const detachTapToType = attachTapToType(parent);
 		let textareaEl: HTMLTextAreaElement | null = null;
 		const detachTouchScroll = attachTouchScroll(parent);
 		const onTextareaBlur = () => {
 			typingMode = false;
 		};
-		// A safety net alongside `blockFocusInViewMode`: if the textarea ever
-		// receives focus while in view mode regardless (a path this component
+		// A safety net alongside `blockXtermFocus`: if the textarea ever
+		// receives focus without a tap on this component regardless (a path this component
 		// didn't anticipate), it is handed straight back, before a soft
 		// keyboard has a chance to animate in.
 		const onTextareaFocus = () => {
@@ -574,7 +620,8 @@
 			// order relative to this cleanup isn't something to build on).
 			sendAckIfDue(true);
 			destroyed = true;
-			parent.removeEventListener("pointerdown", blockFocusInViewMode, true);
+			parent.removeEventListener("pointerdown", blockXtermFocus, true);
+			detachTapToType();
 			detachTouchScroll();
 			textareaEl?.removeEventListener("blur", onTextareaBlur);
 			textareaEl?.removeEventListener("focus", onTextareaFocus);
@@ -666,7 +713,7 @@
 			<!-- i18n: literal (Esc, Tab, Ctrl, Alt are the keycaps printed on a keyboard) -->
 			<!-- Three full rows of nine. Modifiers and motion first, then the
 			     punctuation a shell actually asks for, then the control actions
-			     with Type (the typing-mode toggle) anchoring the last row. -->
+			     and the font size. A tap on the terminal opens the keyboard. -->
 			{@render key(m["code.terminal.key.escape"](), "Esc", () => sendKey("\x1b"))}
 			{@render key(m["code.terminal.key.tab"](), "Tab", () => sendKey("\t"))}
 			{@render key(m["code.terminal.key.control"](), "Ctrl", toggleCtrl, ctrlSticky)}
@@ -695,25 +742,6 @@
 			)}
 			{@render key(m["code.terminal.key.font_smaller"](), "A−", () => changeFontSize(-1))}
 			{@render key(m["code.terminal.key.font_larger"](), "A+", () => changeFontSize(1))}
-			{#if typingMode}
-				{@render key(
-					m["code.terminal.key.done"](),
-					m["code.terminal.key_text.done"](),
-					exitTypingMode,
-					undefined,
-					true,
-					3
-				)}
-			{:else}
-				{@render key(
-					m["code.terminal.key.type"](),
-					m["code.terminal.key_text.type"](),
-					enterTypingMode,
-					undefined,
-					true,
-					3
-				)}
-			{/if}
 		</div>
 	{/if}
 </div>
