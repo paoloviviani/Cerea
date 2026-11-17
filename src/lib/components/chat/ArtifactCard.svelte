@@ -44,6 +44,17 @@
 		return displayed === version.version;
 	});
 
+	// A later version than the first, and this card is the newest one: a subtle
+	// hint, since on a phone a new version no longer opens the panel by itself.
+	let isNewVersion = $derived(
+		!!version &&
+			!!artifact &&
+			!streaming &&
+			!isActive &&
+			version.version > 1 &&
+			version.version === artifact.versions.length
+	);
+
 	const KIND_LABELS: Record<ArtifactKind, () => string> = {
 		html: m["chat.artifact.kind.html"],
 		react: m["chat.artifact.kind.react"],
@@ -148,4 +159,11 @@
 			{subtitle}
 		</p>
 	</div>
+	{#if isNewVersion}
+		<span
+			data-testid="artifact-card-updated"
+			class="flex-none rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-600 dark:bg-blue-500/15 dark:text-blue-300"
+			>{m["chat.artifact.card.updated"]()}</span
+		>
+	{/if}
 </button>

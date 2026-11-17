@@ -18,6 +18,7 @@
 	import { runFiles } from "$lib/stores/runFiles.svelte";
 	import { collectPaneItems } from "$lib/utils/paneItems";
 	import { sidePane } from "$lib/stores/sidePane.svelte";
+	import { DESKTOP_MEDIA_QUERY } from "$lib/utils/isDesktop.svelte";
 
 	import IconArrowUp from "~icons/lucide/arrow-up";
 	import IconMic from "~icons/lucide/mic";
@@ -272,12 +273,17 @@
 		collectArtifacts(messages, loading ? messages.at(-1)?.id : undefined)
 	);
 
+	// On a phone the panel is a fullscreen overlay that covers the chat, so a
+	// new version never opens it: the card updates and a tap opens it.
+	const autoOpenAllowed = () =>
+		typeof window === "undefined" || window.matchMedia(DESKTOP_MEDIA_QUERY).matches;
+
 	// Auto-open the panel when a new artifact version starts streaming in
-	// (once per version, so closing it mid-stream sticks).
+	// (once per version, so closing it mid-stream sticks). Desktop only.
 	$effect(() => {
 		const streaming = artifactRegistry.streaming;
 		if (!streaming || !loading) return;
-		sidePane.maybeAutoOpen(streaming.identifier, streaming.version);
+		sidePane.maybeAutoOpen(streaming.identifier, streaming.version, autoOpenAllowed());
 	});
 
 	// Live `artifact`-tool drafts (tool mode): the latest draft per tool call
@@ -308,7 +314,7 @@
 		for (const draft of artifactDrafts) {
 			if (!draft.identifier) continue;
 			const known = artifactRegistry.artifacts.get(draft.identifier)?.versions.length ?? 0;
-			sidePane.maybeAutoOpen(draft.identifier, known + 1);
+			sidePane.maybeAutoOpen(draft.identifier, known + 1, autoOpenAllowed());
 		}
 	});
 
@@ -557,7 +563,7 @@
 		// A dashboard named before it exists (create_trackio) is not framable until
 		// the run reaches trackio.init; opening it early frames a 404.
 		if (latest.spaceId && trackioStatus.status(latest.url) !== "live") return;
-		if (!window.matchMedia("(min-width: 768px)").matches) return;
+		if (!window.matchMedia(DESKTOP_MEDIA_QUERY).matches) return;
 		sidePane.maybeAutoOpenTrackio(latest.url, latest.label);
 	});
 

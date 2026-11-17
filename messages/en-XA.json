@@ -1241,6 +1241,7 @@
 	"chat.artifact.card.kind_version": "[{kind}{version}]",
 	"chat.artifact.card.open": "[Óþéń ƒíľé: {title}]",
 	"chat.artifact.card.unmatched": "[Ťȟíś ćȟáńǧé ćóúľďń'ť ƀé ḿáťćȟéď ťó á ƒíľé]",
+	"chat.artifact.card.updated": "[Úþďáťéď]",
 	"chat.artifact.kind.code": "[Ćóďé]",
 	"chat.artifact.kind.html": "[Ŵéƀ áþþ]",
 	"chat.artifact.kind.markdown": "[Ďóćúḿéńť]",
