@@ -7,6 +7,7 @@ import { artifactFileName, type ArtifactKind } from "$lib/utils/artifacts";
 import { buildArtifactSrcdoc } from "$lib/utils/previewSrcdoc";
 import { buildSlidesSrcdoc } from "$lib/utils/slides/srcdoc";
 import type { SharedArtifact } from "$lib/types/SharedArtifact";
+import { config } from "$lib/server/config";
 
 /** What the sandbox renders: running pages. Everything else is a read-only viewer. */
 const SANDBOXED_KINDS: ReadonlySet<ArtifactKind> = new Set([
@@ -95,8 +96,18 @@ function shell(
 	return { html, csp };
 }
 
+/** The deployment's address as users know it: the app origin's host, else the app name. */
+function siteName(): string {
+	const origin = (config.PUBLIC_ORIGIN ?? "").trim();
+	try {
+		return origin ? new URL(origin).host : "Cerea";
+	} catch {
+		return "Cerea";
+	}
+}
+
 export function bandFor(share: SharedArtifact): string {
-	return m["share.public.band"]({ name: share.ownerName });
+	return m["share.public.band"]({ site: siteName(), name: share.ownerName });
 }
 
 export function title(share: SharedArtifact): string {

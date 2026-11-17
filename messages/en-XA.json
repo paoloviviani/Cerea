@@ -4159,7 +4159,7 @@
 	"admin.services.updates.offline": "[{product}: ćóúľď ńóť ŕéáćȟ ǦíťȞúƀ. Ćȟéćķ ťȟíś śéŕǚéŕ'ś íńťéŕńéť áććéśś áńď ťŕý áǧáíń.]",
 	"admin.services.updates.rate_limited": "[{product}: ǦíťȞúƀ íś ľíḿíťíńǧ ŕéǫúéśťś ŕíǧȟť ńóŵ. Ťŕý áǧáíń ľáťéŕ.]",
 	"admin.services.updates.unknown": "[{product}: ćóúľď ńóť ŕéáď ťȟé ľáťéśť ŕéľéáśé.]",
-	"share.public.band": "[Śȟáŕéď ƒŕóḿ Ćéŕéá ƀý {name}: ńóť áń óƒƒíćíáľ þáǧé]",
+	"share.public.band": "[Śȟáŕéď ƒŕóḿ {site} ƀý {name}.]",
 	"share.public.unavailable_band": "[Ćéŕéá śȟáŕéď ľíńķ]",
 	"share.public.unavailable_title": "[Ńóť áǚáíľáƀľé]",
 	"share.public.unavailable_body": "[Ťȟíś ľíńķ ďóéś ńóť éẋíśť, ȟáś éẋþíŕéď, óŕ ȟáś ƀééń ťúŕńéď óƒƒ.]",
