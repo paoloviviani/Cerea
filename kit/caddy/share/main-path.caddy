@@ -1,0 +1,12 @@
+# Artifact share links as a path on this host (SHARE_MODE=path; SHARE_PATH, /s by
+# default). The chat serves them at /chat/s/<token>; this publishes the short path.
+# Anyone's links then run shared HTML on this origin, isolated only by the CSP
+# sandbox the chat sets: a subdomain (SHARE_MODE=subdomain) is the safer shape for
+# public links, see ./configure. Signed-in links always use this path.
+handle {$SHARE_PATH:/s}/* {
+	uri strip_prefix {$SHARE_PATH:/s}
+	rewrite * /chat/s{uri}
+	reverse_proxy chat:3000 {
+		import to_app
+	}
+}

@@ -1,0 +1,2 @@
+# Artifact share links as a path on the app's own host (SHARE_MODE=path): no
+# second site. The route is in main-path.caddy, imported inside the main site.

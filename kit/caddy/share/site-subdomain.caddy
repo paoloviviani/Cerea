@@ -1,0 +1,30 @@
+# Anyone's artifact share links on their own host (SHARE_MODE=subdomain, ADR 0120). This
+# host routes to the chat's public share handler and nothing else: no app shell,
+# no API, and no cookie in either direction (none is forwarded, none is passed
+# back), so a shared page can never meet the app's session. TLS is the main
+# site's, in all three modes.
+{$SHARE_SITE_ADDRESS} {
+	{$TLS_DIRECTIVE}
+
+	handle /robots.txt {
+		header Content-Type text/plain
+		respond "User-agent: *
+Disallow: /
+" 200
+	}
+
+	# <token>, <token>/doc and <token>/file/<name>: a 128-bit token and nothing else.
+	@share path_regexp ^/[A-Za-z0-9_-]{22}(/doc|/file/.+)?$
+	handle @share {
+		rewrite * /chat/s{uri}
+		reverse_proxy chat:3000 {
+			import to_app
+			header_up -Cookie
+			header_down -Set-Cookie
+		}
+	}
+
+	handle {
+		respond 404
+	}
+}

@@ -1,0 +1,2 @@
+# Artifact share links, no dedicated route (SHARE_MODE unset or off): links are
+# served by the chat at /chat/s/<token>, which the /chat/* route already proxies.

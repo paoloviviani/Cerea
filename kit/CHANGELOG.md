@@ -5,6 +5,10 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Share links for artifacts, with a safer address for public ones.** A user can now make a link to one frozen version of an artifact (Share link… in the artifact panel; ADR 0120), to signed-in users of the deployment or to anyone, with an expiry. **Signed-in links always use the path on the app's origin** (`/s/<token>`, with the visitor's session). `./configure` asks where **anyone's** links live: a **subdomain** (`--share-mode subdomain`, recommended: `share.<host>`, which the proxy routes to the chat's public share handler only, with no app shell and no cookies in either direction, so a public page never runs next to the app's session; it needs its own DNS record, and with `acme` a certificate it requests itself) or the **path** (`--share-mode path`, `/s` by default, `--share-path` changes it). `--share-host` names the subdomain. Choosing a path prints: "Public (anyone) links to HTML artifacts would run on this site's own origin, isolated only by the browser sandbox. A subdomain is safer for public links: it keeps shared pages away from the app's cookies and makes phishing under your domain harder. Signed-in links always use the path." Links are on unless `ARTIFACT_SHARING_ENABLED=false` (`--no-sharing`); an administrator's toggle in Administration → Storage overrides that once set. Off, every link answers "not available" and is kept, so turning sharing back on restores them. New `.env` keys: `SHARE_MODE`, `SHARE_SITE_ADDRESS`, `ARTIFACT_SHARE_ORIGIN`, `ARTIFACT_SHARE_PATH`; the proxy's configuration changed (`caddy/share/`), so `docker compose up -d` recreates it. **Existing installs** are unchanged until you run `./configure --share-mode subdomain` (or `path`): until then links work at `/chat/s/<token>` on the app's own origin.
+
 ## v0.54.4 — 2026-11-17
 
 Pins: Cerea `0.54.4` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.4`, opencode `2.3.0`.

@@ -109,7 +109,7 @@ services:
     image: ${CADDY_IMAGE:-caddy:2.11-alpine}
     restart: unless-stopped
     labels:
-      cerea.config-rev: "sha256:e0f896ac8aa73dc2"
+      cerea.config-rev: "sha256:8421f5c1e0e7e76c"
     ports:
       - "${PUBLIC_BIND:-0.0.0.0}:${HTTP_PORT:-80}:80"
       - "${PUBLIC_BIND:-0.0.0.0}:${HTTPS_PORT:-443}:443"
@@ -120,6 +120,10 @@ services:
       ACME_EMAIL: ${ACME_EMAIL:-admin@example.org}
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-private_ranges}
       PROXY_DEFAULT: ${PROXY_DEFAULT:-gateway}
+      # Artifact share links (ADR 0120): off, path or subdomain, and what the mode needs.
+      SHARE_MODE: ${SHARE_MODE:-off}
+      SHARE_SITE_ADDRESS: ${SHARE_SITE_ADDRESS:-}
+      SHARE_PATH: ${ARTIFACT_SHARE_PATH:-/s}
       # No Multipath TCP on the published listeners. Go 1.24+ opens them as
       # MPTCP by default, the public exploit path of CVE-2026-98432 (a Linux
       # IPv4 TCP use-after-free; the real fix is a patched kernel, see
@@ -611,6 +615,11 @@ services:
       OPENID_LOGOUT_URL: ${OIDC_LOGOUT_URL:-}
       LOGOUT_ALSO_CLEAR_COOKIES: gw_session,gw_idt:/auth
       CHAT_SECRET_KEY: ${CHAT_SECRET_KEY:-}
+      # Artifact share links (ADR 0120). Empty: on, at /chat/s/<token>. The origin is the
+      # share subdomain; the path is the prefix the proxy publishes on the app's origin.
+      ARTIFACT_SHARING_ENABLED: ${ARTIFACT_SHARING_ENABLED:-}
+      ARTIFACT_SHARE_ORIGIN: ${ARTIFACT_SHARE_ORIGIN:-}
+      ARTIFACT_SHARE_PATH: ${ARTIFACT_SHARE_PATH:-}
       # The gateway's own credential for /chat/internal/erasure, over the
       # compose network only. Never reachable from the edge regardless: the
       # Caddyfile answers 404 for this path first, and this app refuses any

@@ -121,3 +121,52 @@ The tab lists **only your own chats**. In a shared project, the artifacts of
 a colleague's chats are not listed and not counted. There is nothing to delete
 on the tab: an artifact belongs to its chat and goes when you delete the chat
 (or after the retention period, for files).
+
+## Sharing an artifact
+
+!!! info "For everyone"
+
+    You can give anyone a link to one artifact, without sharing the chat.
+
+**Share link…** in the artifact panel's header makes a public link to the
+artifact you are looking at. The link shows a **frozen copy of that version**:
+later changes in the chat do not appear unless you press **Update to latest
+version**. It never includes the chat, the prompt or any other artifact.
+
+The dialog shows a preview, and says plainly who will see it: _Anyone with the
+link sees exactly this content_, or, for the default audience, _Any signed-in
+user of this deployment with the link sees exactly this content_. You choose:
+
+- **Who can open it:** signed-in users of this deployment (the default), or anyone with the link.
+- **When it expires:** after 7, 30 or 90 days, or never. Expired links stay listed, and you can set a new period.
+- **Copy link.** For safety only a hash of the link is stored, so the link is shown **once**, when you make it. Later the dialog manages it (audience, expiry, **Update to latest version**, **Revoke**) and **Replace link** makes a new link and retires the old one.
+
+**Settings → Shared links** lists your links (artifact, chat, audience, expiry,
+views, when made) with **Revoke**. An administrator sees every link and can
+revoke any of them, and can switch sharing off for the whole deployment under
+[Administration → Storage](chat-admin.md#shared-links). Deleting a chat deletes
+its links. A link made from a file the assistant's code produced lasts as long
+as that file is kept (see [File artifacts](#file-artifacts)).
+
+What a visitor sees depends on the kind:
+
+| Kind                               | A visitor gets                                                                                  |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Markdown, tables, code, files      | a read-only page with the title and a **Download** button                                       |
+| HTML, React, slides, diagrams, SVG | the page itself, running in a sandboxed frame with no access to anything of yours or the site's |
+
+Every shared page carries a band the page cannot remove: _Shared from Cerea by
+&lt;your name&gt;: not an official page_. Pages are not indexed by search engines,
+send no referrer and set no cookies. Views are counted roughly (once per
+visitor a day). Sharing is audited (who made, changed, revoked and opened a
+link, never the content).
+
+**Where links live** is the operator's choice (`./configure`). **Signed-in links
+always use the path on the app's own address** (`/s/<token>`), where your normal
+session decides; someone not signed in is sent to sign in and back. **Anyone's
+links** use a separate **subdomain** if there is one (the safer shape: public pages
+never share an address with the app's cookies) or the same path (shared HTML then
+runs on that origin, isolated only by the browser sandbox). Changing a link's
+audience gives it a new address, so the old one stops working: the dialog shows
+the new one. See [Configuration](configuration.md#artifact-share-links) and the
+[deployment kit](deploy-kit.md#artifact-share-links).

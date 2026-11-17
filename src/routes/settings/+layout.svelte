@@ -16,6 +16,7 @@
 	import CarbonSettings from "~icons/carbon/settings";
 	import CarbonMeter from "~icons/carbon/meter";
 	import CarbonNotification from "~icons/carbon/notification";
+	import CarbonLink from "~icons/carbon/link";
 	import SectionSwitcher from "$lib/components/nav/SectionSwitcher.svelte";
 
 	interface Props {
@@ -42,6 +43,16 @@
 						href: "/settings/notifications",
 						label: m["settings.tabs.notifications"](),
 						icon: CarbonNotification,
+					},
+				]
+			: []),
+		// The user's public artifact links (ADR 0120); the tab stays when sharing is off so links can still be revoked.
+		...(page.data.user
+			? [
+					{
+						href: "/settings/shared-links",
+						label: m["settings.tabs.shared_links"](),
+						icon: CarbonLink,
 					},
 				]
 			: []),

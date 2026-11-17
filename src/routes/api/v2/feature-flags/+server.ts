@@ -6,6 +6,7 @@ import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";
 import { loginEnabled, OIDConfig } from "$lib/server/auth";
 import { config } from "$lib/server/config";
 import { knowledgeEnabled } from "$lib/server/knowledgeEnabled";
+import { sharingEnabled } from "$lib/server/sharing/settings";
 import { memoryEnabled } from "$lib/server/memoryEnabled";
 import { delegationEnabled } from "$lib/server/delegation";
 import { codeAgentsAllowedFor, consoleAllowedFor } from "$lib/server/codeEnabled";
@@ -71,6 +72,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 		knowledgeEnabled: knowledgeEnabled(),
 		memoryEnabled: memoryEnabled(),
 		delegationEnabled: delegationEnabled(),
+		artifactSharingEnabled: await sharingEnabled(),
 		// A deployment fact, not a product toggle: the gateway profiles
 		// serve /console on this origin and the admin panel may link to it;
 		// the standalone profiles do not (satellite's console is central's,

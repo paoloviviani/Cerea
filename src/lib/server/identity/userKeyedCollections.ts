@@ -795,6 +795,17 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		},
 	},
 	{
+		name: "sharedArtifacts",
+		owner: "ownerId",
+		mergeRule: "reassign",
+		eraseRule: "by-owner",
+		ownerField: "ownerId",
+		// The links (and the copies of artifacts they hold) belong to the account: moved with
+		// it on a merge, deleted with it. Their conversations are erased by their own entry.
+		merge: (stray, target) => reassignSimple(collections.sharedArtifacts, "ownerId", stray, target),
+		erase: (userId) => eraseByField(collections.sharedArtifacts, "ownerId", userId),
+	},
+	{
 		name: "settings",
 		owner: "userId",
 		mergeRule: "keep-target-delete-stray",
