@@ -202,7 +202,15 @@ open, you are asked first.
 
 Browser use needs only [local connectors](local-connectors.md), not coding agents.
 A user whose groups may use local connectors but not agents can set up a
-browser on their own computer:
+browser on their own computer.
+
+**On a Mac**, the [Cerea connector app](agent-machines.md#macos-app-menu-bar)
+does it without a terminal: pair the Mac, then choose **Set up browser**. The
+app bundles Node.js and keeps galopin running. Its zips are attached to each
+release.
+
+**With the command line** (on a Mac, or on Linux, including a computer with no
+screen: `galopin browser enable --headless`):
 
 1. Open Workspace, Connectors. The **Use the browser on your computer** card
    shows the commands for this deployment (it appears when browser use is on and
@@ -232,8 +240,8 @@ browser. The per-computer approval key is handed over on the same link
 
 The browser needs **Node.js 22.18 or newer** on that computer (not needed for connectors
 alone). Get it from [nodejs.org/en/download](https://nodejs.org/en/download) (pick the LTS),
-or on macOS with `brew install node`. Check it with `node --version`. The upcoming macOS
-"Cerea connector" app bundles Node, so app users do not need this.
+or on macOS with `brew install node`. Check it with `node --version`. The macOS
+[Cerea connector app](agent-machines.md#macos-app-menu-bar) bundles Node, so app users do not need this.
 
 ## Settings (operators)
 

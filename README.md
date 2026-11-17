@@ -8,7 +8,8 @@
 # Cerea
 
 A self-hosted chat for any OpenAI-compatible endpoint, with knowledge bases,
-artifacts, Python in the browser, and coding agents on your own machines.
+artifacts, Python (in the browser, or in a server sandbox), and coding agents
+on your own machines.
 
 **The name.** _Cerea_ is a Turinese _modo di dire_: a historic, affectionate
 greeting that means both _buongiorno_ and _arrivederci_.
@@ -67,15 +68,34 @@ the gateway.
   connectors ([docs/connectors.md](docs/connectors.md)).
 - **Knowledge bases and projects**, shareable with people or groups, with an
   optional project memory ([docs/knowledge.md](docs/knowledge.md)).
-- **Python in your browser**, in a WebAssembly sandbox with the scientific and
-  office libraries ([docs/pyodide.md](docs/pyodide.md)).
+- **Python the assistant runs**: by default in your browser, in a WebAssembly
+  sandbox with the scientific and office libraries, so your files never leave
+  your device ([docs/pyodide.md](docs/pyodide.md)); or, when the operator
+  turns it on, in a gVisor sandbox on the server with native packages and more
+  memory ([docs/sandboxes.md](docs/sandboxes.md)).
+- **Share links**: a link to one artifact, for signed-in users or anyone, with an expiry
+  and a band naming who shared it ([docs/artifacts.md](docs/artifacts.md#sharing-an-artifact)).
+- **Browser use**: the assistant does a task in a real browser on your own
+  computer, with approval before anything that commits; no cloud browser
+  ([docs/browser-use.md](docs/browser-use.md)).
+- **Large content as files**: a long paste or attachment is handed to the
+  model as a file it can read in parts, and a connector's file result is kept
+  as a file of the chat ([docs/chat.md](docs/chat.md),
+  [docs/connectors.md](docs/connectors.md#files-a-connector-returns)).
+- **One connector list** for the chat and your agents, with local connectors
+  on your own computers ([docs/local-connectors.md](docs/local-connectors.md)).
+- **Self-hosted model servers** (vLLM, SGLang, llama.cpp) as gateway providers
+  _(Pystino)_ ([Pystino docs](https://github.com/paoloviviani/Pystino/blob/main/docs/provider-catalogue.md#self-hosted-servers-vllm-sglang-llamacpp)).
 - **Your own models and look**: a global system prompt and private custom
   models (a base model plus a prompt) under Workspace → Customize models, a
   searchable list of every chat at `/chats`, and accent and background palettes
   ([docs/chat.md](docs/chat.md)).
 - **The `/code` agents panel**: coding agents on your own machines through
   **galopin**, with a file explorer, scheduled actions (a prompt sent to a
-  session on a timetable) and, off by default, a browser terminal. With
+  session on a timetable) and, off by default, a browser terminal. The file
+  explorer uploads, downloads and zips files and folders; Claude Code runs
+  over ACP, and `galopin service` keeps galopin running
+  ([docs/agent-machines.md](docs/agent-machines.md)). With
   Pystino the agents' model calls are metered like the chat's; without it
   they use opencode's own providers.
 
