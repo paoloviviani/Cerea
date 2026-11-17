@@ -155,8 +155,8 @@ What a visitor sees depends on the kind:
 | Markdown, tables, code, files      | a read-only page with the title and a **Download** button                                       |
 | HTML, React, slides, diagrams, SVG | the page itself, running in a sandboxed frame with no access to anything of yours or the site's |
 
-Every shared page carries a band the page cannot remove: _Shared from Cerea by
-&lt;your name&gt;: not an official page_. Pages are not indexed by search engines,
+Every shared page carries a band the page cannot remove: _Shared from
+&lt;this site's address&gt; by &lt;your name&gt;._ Pages are not indexed by search engines,
 send no referrer and set no cookies. Views are counted roughly (once per
 visitor a day). Sharing is audited (who made, changed, revoked and opened a
 link, never the content).

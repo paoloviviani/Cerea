@@ -3853,7 +3853,7 @@
 	"admin.services.updates.offline": "{product}: could not reach GitHub. Check this server's internet access and try again.",
 	"admin.services.updates.rate_limited": "{product}: GitHub is limiting requests right now. Try again later.",
 	"admin.services.updates.unknown": "{product}: could not read the latest release.",
-	"share.public.band": "Shared from Cerea by {name}: not an official page",
+	"share.public.band": "Shared from {site} by {name}.",
 	"share.public.unavailable_band": "Cerea shared link",
 	"share.public.unavailable_title": "Not available",
 	"share.public.unavailable_body": "This link does not exist, has expired, or has been turned off.",

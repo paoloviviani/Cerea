@@ -76,9 +76,7 @@ test("share a Markdown artifact to anyone, read it in a fresh context, revoke it
 	expect(response?.headers()["set-cookie"]).toBeUndefined();
 	await expect(view.getByRole("heading", { name: "Launch plan" })).toBeVisible();
 	await expect(view.getByText("Ship")).toBeVisible();
-	await expect(view.getByRole("note")).toContainText(
-		"Shared from Cerea by Ada Sharer: not an official page"
-	);
+	await expect(view.getByRole("note")).toContainText(/Shared from .+ by Ada Sharer\./);
 	expect(await visitor.cookies()).toEqual([]);
 
 	// Settings lists it.

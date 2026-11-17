@@ -117,7 +117,7 @@ describe("an anyone link", () => {
 		expect(res.status).toBe(200);
 		expectPublicHeaders(res);
 		const html = await res.text();
-		expect(html).toContain("Shared from Cerea by Test User: not an official page");
+		expect(html).toContain("by Test User.");
 		expect(html).toContain("<strong>world</strong>");
 		// Raw HTML in the Markdown is escaped, and the page itself runs no script.
 		expect(html).not.toContain("<script>alert(1)</script>");
@@ -138,7 +138,7 @@ describe("an anyone link", () => {
 		expect(res.status).toBe(200);
 		expectPublicHeaders(res);
 		const html = await res.text();
-		expect(html).toContain("Shared from Cerea by Test User: not an official page");
+		expect(html).toContain("by Test User.");
 		expect(html).toContain('sandbox="allow-scripts"');
 		expect(html).toContain(`src="/s/${made.token}/doc"`);
 		// The band is in this page; the artifact's document is a different one.
@@ -154,7 +154,7 @@ describe("an anyone link", () => {
 		expect(res.headers.get("content-type")).toContain("text/html");
 		const html = await res.text();
 		expect(html).toContain("<h1>Hi</h1>");
-		expect(html).not.toContain("Shared from Cerea");
+		expect(html).not.toContain("Shared from ");
 	});
 
 	it("sends a top-level navigation to the document back to the page with the band", async () => {
