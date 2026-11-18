@@ -50,6 +50,7 @@
 	import { noteServerNow } from "$lib/utils/clockSkew.svelte";
 	import { useAPIClient, handleResponse } from "$lib/APIClient";
 	import { trackAttachmentSource } from "$lib/utils/execution/attachmentMounts.svelte";
+	import { prunedVersions } from "$lib/stores/prunedVersions.svelte";
 
 	let { data } = $props();
 
@@ -711,6 +712,11 @@
 			autoApproveTools =
 				(data.toolApprovalOverride ?? $settings.toolApprovalPolicy) === "always-allow";
 		}
+	});
+	// Artifact versions the owner deleted: the registries flag them (C122).
+	$effect(() => {
+		prunedVersions.set(data.prunedArtifactVersions);
+		return () => prunedVersions.set([]);
 	});
 	let messages = $state(untrack(() => data.messages));
 	// Local copy of rootMessageId avoids mutating the load-data prop directly.

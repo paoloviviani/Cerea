@@ -47,6 +47,13 @@ export interface FileArtifactVersion {
 	 * the code the run was asked to execute.
 	 */
 	runKey?: string;
+	/** The owner deleted this version: it stays in the list (numbers never shift) but has no bytes. */
+	deleted?: true;
+}
+
+/** The key under which a deleted file version is recorded on the conversation. */
+export function fileVersionKey(messageId: string, name: string, sha256: string): string {
+	return `file:${messageId}:${sha256}:${name}`;
 }
 
 export interface FileArtifact {
@@ -66,7 +73,11 @@ type FileMessage = Pick<Message, "id" | "from" | "updates">;
  * tool runs, code blocks, artifact cells — into versioned file artifacts,
  * keyed by filename.
  */
-export function collectFileArtifacts(messages: FileMessage[]): FileArtifactRegistry {
+export function collectFileArtifacts(
+	messages: FileMessage[],
+	/** Keys of versions the owner deleted (`fileVersionKey`). */
+	pruned?: ReadonlySet<string>
+): FileArtifactRegistry {
 	const artifacts = new Map<string, FileArtifact>();
 	for (const message of messages) {
 		if (message.from !== "assistant") continue;
@@ -116,6 +127,9 @@ export function collectFileArtifacts(messages: FileMessage[]): FileArtifactRegis
 					messageId: message.id,
 					...(file.uploaded === false ? { uploaded: false } : {}),
 					...(runKey ? { runKey } : {}),
+					...(pruned?.has(fileVersionKey(message.id, file.name, file.sha256))
+						? { deleted: true as const }
+						: {}),
 				});
 			}
 		}

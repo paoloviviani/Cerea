@@ -5,6 +5,10 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Delete older versions of an artifact, and a per-deployment version limit.** The artifact panel has **Delete older versions**: it asks first, deletes every version except the current one and says how many went. A version with an active share link is never deleted ("N versions deleted; M kept because they are shared"). Old cards in the chat that pointed at a deleted version say "This version was deleted" and link to the current one; a file version's stored bytes are freed. Administration → Storage has **Versions to keep per artifact** (also `ARTIFACT_MAX_VERSIONS`, empty or 0 = unlimited, the default; the administrator's value overrides it): older versions beyond it are removed by the hourly sweep, with the same exception for shared versions. New `.env` key `ARTIFACT_MAX_VERSIONS`. Nothing to do on computers.
+
 ## v0.55.2 — 2026-11-17
 
 Pins: Cerea `0.55.2` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.4`, opencode `2.3.0`.

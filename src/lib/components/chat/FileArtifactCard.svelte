@@ -94,6 +94,7 @@
 			total: artifact.versions.length,
 			size: version.size,
 			uploaded: version.uploaded,
+			deleted: version.deleted === true,
 			messageId: version.messageId,
 			runKey: version.runKey,
 		};
@@ -114,6 +115,8 @@
 	let kept = $derived(sha256 !== undefined && cachedFileBytes(sha256) !== undefined);
 	let notSaved = $derived(storedFlag === false);
 	let gone = $derived(notSaved && !kept && inlineContent === undefined);
+	// The owner deleted this version (C122).
+	let deleted = $derived(resolved?.deleted === true);
 
 	let conversationId = $derived(page.params?.id);
 	let storeUrl = $derived(
@@ -179,7 +182,7 @@
 		}
 	}
 
-	const showsImage = $derived(autoExpand && isInlineRasterImage(baseName) && !gone);
+	const showsImage = $derived(autoExpand && isInlineRasterImage(baseName) && !gone && !deleted);
 
 	const ACTION =
 		"flex items-center justify-center gap-1 rounded-md px-1.5 py-1.5 @[520px]:px-2 text-xs text-blue-600 hover:bg-blue-500/10 disabled:cursor-not-allowed disabled:opacity-60 dark:text-blue-400 dark:hover:bg-blue-500/10";
@@ -208,7 +211,17 @@
 			</p>
 		</div>
 		<div class="flex flex-none items-center gap-0.5">
-			{#if resolved && !inPanel && !gone}
+			{#if deleted && !inPanel}
+				<button
+					type="button"
+					class={ACTION}
+					data-testid="file-card-open-current"
+					onclick={() => ctx?.panel.openArtifact(resolved?.name ?? "", null)}
+				>
+					{m["chat.artifact.card.open_current"]()}
+				</button>
+			{/if}
+			{#if resolved && !inPanel && !gone && !deleted}
 				<button
 					type="button"
 					class={ACTION}
@@ -220,7 +233,7 @@
 					<span class="hidden @[520px]:inline">{m["chat.file_card.open"]()}</span>
 				</button>
 			{/if}
-			{#if !gone}
+			{#if !gone && !deleted}
 				<button
 					type="button"
 					class={ACTION}
@@ -235,7 +248,11 @@
 			{/if}
 		</div>
 	</div>
-	{#if notSaved}
+	{#if deleted}
+		<p class="mt-1.5 text-xs text-amber-600 dark:text-amber-400" data-testid="file-deleted">
+			{m["chat.artifact.card.deleted"]()}
+		</p>
+	{:else if notSaved}
 		<p
 			class="mt-1.5 flex flex-wrap items-center gap-x-2 text-xs text-amber-600 dark:text-amber-400"
 			data-testid="file-not-saved"

@@ -4,6 +4,7 @@ const { state } = vi.hoisted(() => ({
 	state: { stored: "" as string, managerOn: "true", lastSummaryDays: -1 },
 }));
 const setMock = vi.hoisted(() => vi.fn());
+const versions = vi.hoisted(() => ({ admin: undefined as number | undefined, env: 0 }));
 
 vi.mock("$lib/server/admin", () => ({
 	requireAdmin: vi.fn(async () => ({ email: "admin@example.org", isAdmin: true })),
@@ -31,6 +32,16 @@ vi.mock("$lib/server/config", () => ({
 // (no MONGODB_URL) that would start its own in-memory MongoDB, outside the
 // suite's shared test database. Nothing in this spec touches a collection.
 vi.mock("$lib/server/database", () => ({ collections: {} }));
+vi.mock("$lib/server/artifactVersions/prune", () => ({ requestFullVersionSweep: vi.fn() }));
+vi.mock("$lib/server/artifactVersions/settings", () => ({
+	MAX_ARTIFACT_VERSIONS_LIMIT: 1000,
+	maxArtifactVersions: async () => versions.admin ?? versions.env,
+	maxVersionsEnvDefault: () => versions.env,
+	maxVersionsOverridden: async () => versions.admin !== undefined,
+	setMaxArtifactVersions: async (value: number | null) => {
+		versions.admin = value === null ? undefined : value;
+	},
+}));
 vi.mock("$lib/server/execution/deliverables", async () => {
 	const actual = await vi.importActual<typeof import("$lib/server/execution/deliverables")>(
 		"$lib/server/execution/deliverables"
@@ -67,6 +78,8 @@ beforeEach(() => {
 	state.stored = "";
 	state.managerOn = "true";
 	state.lastSummaryDays = -1;
+	versions.admin = undefined;
+	versions.env = 0;
 });
 
 describe("admin storage", () => {
@@ -109,5 +122,37 @@ describe("admin storage", () => {
 		state.managerOn = "false";
 		await expect(PATCH(patch({ retentionDays: 10 }))).rejects.toMatchObject({ status: 409 });
 		expect(setMock).not.toHaveBeenCalled();
+	});
+
+	it("reports the versions limit: unlimited by default, the environment's, then the administrator's", async () => {
+		expect(await (await GET(get())).json()).toMatchObject({
+			maxArtifactVersions: 0,
+			maxArtifactVersionsOverridden: false,
+		});
+		versions.env = 5;
+		expect(await (await GET(get())).json()).toMatchObject({
+			maxArtifactVersions: 5,
+			maxArtifactVersionsEnv: 5,
+		});
+		await PATCH(patch({ maxArtifactVersions: 2 }));
+		expect(await (await GET(get())).json()).toMatchObject({
+			maxArtifactVersions: 2,
+			maxArtifactVersionsEnv: 5,
+			maxArtifactVersionsOverridden: true,
+		});
+		await PATCH(patch({ maxArtifactVersions: null }));
+		expect((await (await GET(get())).json()).maxArtifactVersions).toBe(5);
+	});
+
+	it("saves the versions limit without the config manager, and refuses a bad one", async () => {
+		state.managerOn = "false";
+		const res = await PATCH(patch({ maxArtifactVersions: 3 }));
+		expect((await res.json()).maxArtifactVersions).toBe(3);
+		expect(setMock).not.toHaveBeenCalled();
+		await expect(PATCH(patch({ maxArtifactVersions: -1 }))).rejects.toMatchObject({ status: 400 });
+		await expect(PATCH(patch({ maxArtifactVersions: 5000 }))).rejects.toMatchObject({
+			status: 400,
+		});
+		await expect(PATCH(patch({}))).rejects.toMatchObject({ status: 400 });
 	});
 });

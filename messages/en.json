@@ -1158,6 +1158,8 @@
 	"chat.approval.browse.reason.unclassified": "The browser could not tell what this button does.",
 	"chat.artifact.card.applying": "Applying edit…",
 	"chat.artifact.card.code_lang": "Code · {language}",
+	"chat.artifact.card.deleted": "This version was deleted",
+	"chat.artifact.card.open_current": "Open the current version",
 	"chat.artifact.card.edit_interrupted": "Edit interrupted{version}",
 	"chat.artifact.card.edited": "Edited{version}",
 	"chat.artifact.card.edited_failed": [
@@ -1543,6 +1545,40 @@
 	"chat.panel.fix": "Send the problems and ask for a fix",
 	"chat.panel.fullscreen": "Open fullscreen",
 	"chat.panel.generating": "Generating",
+	"chat.panel.delete_older": "Delete older versions",
+	"chat.panel.delete_older_body": [
+		{
+			"declarations": ["input count", "local countPlural = count: plural"],
+			"selectors": ["countPlural"],
+			"match": {
+				"countPlural=one": "{count} older version of this artifact will be deleted. This cannot be undone. The current version stays, and so does any version that has an active share link.",
+				"countPlural=other": "{count} older versions of this artifact will be deleted. This cannot be undone. The current version stays, and so does any version that has an active share link."
+			}
+		}
+	],
+	"chat.panel.delete_older_confirm": "Delete",
+	"chat.panel.delete_older_done": [
+		{
+			"declarations": ["input deleted", "input kept", "local deletedPlural = deleted: plural"],
+			"selectors": ["deletedPlural"],
+			"match": {
+				"deletedPlural=one": "{deleted} version deleted; {kept} kept because they are shared.",
+				"deletedPlural=other": "{deleted} versions deleted; {kept} kept because they are shared."
+			}
+		}
+	],
+	"chat.panel.delete_older_done_plain": [
+		{
+			"declarations": ["input deleted", "local deletedPlural = deleted: plural"],
+			"selectors": ["deletedPlural"],
+			"match": {
+				"deletedPlural=one": "{deleted} version deleted.",
+				"deletedPlural=other": "{deleted} versions deleted."
+			}
+		}
+	],
+	"chat.panel.delete_older_failed": "Could not delete the older versions.",
+	"chat.panel.delete_older_title": "Delete older versions?",
 	"chat.panel.label": "File panel",
 	"chat.panel.next_version": "Next version",
 	"chat.panel.no_file": "No file selected",
@@ -2150,6 +2186,14 @@
 	"admin.storage.size.mb": "{value} MB",
 	"admin.storage.title": "Files produced by code",
 	"admin.storage.usage.none": "No produced files are stored.",
+	"admin.storage.versions.env": "Set by the environment (ARTIFACT_MAX_VERSIONS): {value}.",
+	"admin.storage.versions.help": "Keep at most this many versions of each artifact. Older ones are deleted by the next sweep, except any version that has an active share link. Leave empty or 0 for no limit.",
+	"admin.storage.versions.invalid": "A whole number from 0 to {max}.",
+	"admin.storage.versions.label": "Versions to keep per artifact",
+	"admin.storage.versions.reset": "Use the environment's value",
+	"admin.storage.versions.saved": "Saved. Older versions are removed from the next sweep, within the hour.",
+	"admin.storage.versions.title": "Versions per artifact",
+	"admin.storage.versions.unlimited": "No limit",
 	"admin.storage.usage.some": [
 		{
 			"declarations": ["input count", "input size", "local countPlural = count: plural"],

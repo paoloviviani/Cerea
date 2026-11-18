@@ -1218,6 +1218,8 @@
 	"chat.approval.browse.reason.unclassified": "[Ťȟé ƀŕóŵśéŕ ćóúľď ńóť ťéľľ ŵȟáť ťȟíś ƀúťťóń ďóéś.]",
 	"chat.artifact.card.applying": "[Áþþľýíńǧ éďíť…]",
 	"chat.artifact.card.code_lang": "[Ćóďé · {language}]",
+	"chat.artifact.card.deleted": "[Ťȟíś ǚéŕśíóń ŵáś ďéľéťéď]",
+	"chat.artifact.card.open_current": "[Óþéń ťȟé ćúŕŕéńť ǚéŕśíóń]",
 	"chat.artifact.card.edit_interrupted": "[Éďíť íńťéŕŕúþťéď{version}]",
 	"chat.artifact.card.edited": "[Éďíťéď{version}]",
 	"chat.artifact.card.edited_failed": [
@@ -1636,6 +1638,56 @@
 	"chat.panel.fix": "[Śéńď ťȟé þŕóƀľéḿś áńď áśķ ƒóŕ á ƒíẋ]",
 	"chat.panel.fullscreen": "[Óþéń ƒúľľśćŕééń]",
 	"chat.panel.generating": "[Ǧéńéŕáťíńǧ]",
+	"chat.panel.delete_older": "[Ďéľéťé óľďéŕ ǚéŕśíóńś]",
+	"chat.panel.delete_older_body": [
+		{
+			"declarations": [
+				"input count",
+				"local countPlural = count: plural"
+			],
+			"selectors": [
+				"countPlural"
+			],
+			"match": {
+				"countPlural=one": "[{count} óľďéŕ ǚéŕśíóń óƒ ťȟíś áŕťíƒáćť ŵíľľ ƀé ďéľéťéď. Ťȟíś ćáńńóť ƀé úńďóńé. Ťȟé ćúŕŕéńť ǚéŕśíóń śťáýś, áńď śó ďóéś áńý ǚéŕśíóń ťȟáť ȟáś áń áćťíǚé śȟáŕé ľíńķ.]",
+				"countPlural=other": "[{count} óľďéŕ ǚéŕśíóńś óƒ ťȟíś áŕťíƒáćť ŵíľľ ƀé ďéľéťéď. Ťȟíś ćáńńóť ƀé úńďóńé. Ťȟé ćúŕŕéńť ǚéŕśíóń śťáýś, áńď śó ďóéś áńý ǚéŕśíóń ťȟáť ȟáś áń áćťíǚé śȟáŕé ľíńķ.]"
+			}
+		}
+	],
+	"chat.panel.delete_older_confirm": "[Ďéľéťé]",
+	"chat.panel.delete_older_done": [
+		{
+			"declarations": [
+				"input deleted",
+				"input kept",
+				"local deletedPlural = deleted: plural"
+			],
+			"selectors": [
+				"deletedPlural"
+			],
+			"match": {
+				"deletedPlural=one": "[{deleted} ǚéŕśíóń ďéľéťéď; {kept} ķéþť ƀéćáúśé ťȟéý áŕé śȟáŕéď.]",
+				"deletedPlural=other": "[{deleted} ǚéŕśíóńś ďéľéťéď; {kept} ķéþť ƀéćáúśé ťȟéý áŕé śȟáŕéď.]"
+			}
+		}
+	],
+	"chat.panel.delete_older_done_plain": [
+		{
+			"declarations": [
+				"input deleted",
+				"local deletedPlural = deleted: plural"
+			],
+			"selectors": [
+				"deletedPlural"
+			],
+			"match": {
+				"deletedPlural=one": "[{deleted} ǚéŕśíóń ďéľéťéď.]",
+				"deletedPlural=other": "[{deleted} ǚéŕśíóńś ďéľéťéď.]"
+			}
+		}
+	],
+	"chat.panel.delete_older_failed": "[Ćóúľď ńóť ďéľéťé ťȟé óľďéŕ ǚéŕśíóńś.]",
+	"chat.panel.delete_older_title": "[Ďéľéťé óľďéŕ ǚéŕśíóńś?]",
 	"chat.panel.label": "[Ƒíľé þáńéľ]",
 	"chat.panel.next_version": "[Ńéẋť ǚéŕśíóń]",
 	"chat.panel.no_file": "[Ńó ƒíľé śéľéćťéď]",
@@ -2312,6 +2364,14 @@
 	"admin.storage.size.mb": "[{value} ḾƁ]",
 	"admin.storage.title": "[Ƒíľéś þŕóďúćéď ƀý ćóďé]",
 	"admin.storage.usage.none": "[Ńó þŕóďúćéď ƒíľéś áŕé śťóŕéď.]",
+	"admin.storage.versions.env": "[Śéť ƀý ťȟé éńǚíŕóńḿéńť (ÁŔŤÍƑÁĆŤ_ḾÁẊ_ǙÉŔŚÍÓŃŚ): {value}.]",
+	"admin.storage.versions.help": "[Ķééþ áť ḿóśť ťȟíś ḿáńý ǚéŕśíóńś óƒ éáćȟ áŕťíƒáćť. Óľďéŕ óńéś áŕé ďéľéťéď ƀý ťȟé ńéẋť śŵééþ, éẋćéþť áńý ǚéŕśíóń ťȟáť ȟáś áń áćťíǚé śȟáŕé ľíńķ. Ĺéáǚé éḿþťý óŕ 0 ƒóŕ ńó ľíḿíť.]",
+	"admin.storage.versions.invalid": "[Á ŵȟóľé ńúḿƀéŕ ƒŕóḿ 0 ťó {max}.]",
+	"admin.storage.versions.label": "[Ǚéŕśíóńś ťó ķééþ þéŕ áŕťíƒáćť]",
+	"admin.storage.versions.reset": "[Úśé ťȟé éńǚíŕóńḿéńť'ś ǚáľúé]",
+	"admin.storage.versions.saved": "[Śáǚéď. Óľďéŕ ǚéŕśíóńś áŕé ŕéḿóǚéď ƒŕóḿ ťȟé ńéẋť śŵééþ, ŵíťȟíń ťȟé ȟóúŕ.]",
+	"admin.storage.versions.title": "[Ǚéŕśíóńś þéŕ áŕťíƒáćť]",
+	"admin.storage.versions.unlimited": "[Ńó ľíḿíť]",
 	"admin.storage.usage.some": [
 		{
 			"declarations": [

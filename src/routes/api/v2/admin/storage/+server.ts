@@ -16,6 +16,14 @@ import { config } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
 import { requireAdmin } from "$lib/server/admin";
 import {
+	MAX_ARTIFACT_VERSIONS_LIMIT,
+	maxArtifactVersions,
+	maxVersionsEnvDefault,
+	maxVersionsOverridden,
+	setMaxArtifactVersions,
+} from "$lib/server/artifactVersions/settings";
+import { requestFullVersionSweep } from "$lib/server/artifactVersions/prune";
+import {
 	DEFAULT_RETENTION_DAYS,
 	MAX_RETENTION_DAYS,
 	deliverableStorageSummary,
@@ -23,7 +31,19 @@ import {
 } from "$lib/server/execution/deliverables";
 
 const days = z.coerce.number().int().min(0).max(MAX_RETENTION_DAYS);
-const body = z.object({ retentionDays: days });
+const body = z
+	.object({
+		retentionDays: days.optional(),
+		/** Versions kept per artifact: 0 is unlimited, null goes back to ARTIFACT_MAX_VERSIONS. */
+		maxArtifactVersions: z
+			.number()
+			.int()
+			.min(0)
+			.max(MAX_ARTIFACT_VERSIONS_LIMIT)
+			.nullable()
+			.optional(),
+	})
+	.refine((b) => b.retentionDays !== undefined || b.maxArtifactVersions !== undefined);
 
 export const GET: RequestHandler = async ({ locals, url }) => {
 	await requireAdmin(locals);
@@ -39,31 +59,53 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 		defaultDays: DEFAULT_RETENTION_DAYS,
 		maxDays: MAX_RETENTION_DAYS,
 		configurable: config.ENABLE_CONFIG_MANAGER === "true",
+		maxArtifactVersions: await maxArtifactVersions(),
+		maxArtifactVersionsEnv: maxVersionsEnvDefault(),
+		maxArtifactVersionsOverridden: await maxVersionsOverridden(),
+		maxArtifactVersionsLimit: MAX_ARTIFACT_VERSIONS_LIMIT,
 		...summary,
 	});
 };
 
 export const PATCH: RequestHandler = async ({ locals, request }) => {
 	const admin = await requireAdmin(locals);
-	if (config.ENABLE_CONFIG_MANAGER !== "true") {
-		error(
-			409,
-			"This deployment stores configuration in the environment only " +
-				"(ENABLE_CONFIG_MANAGER is not true): set CHAT_FILE_RETENTION_DAYS there instead."
-		);
-	}
 	const parsed = body.safeParse(await request.json().catch(() => null));
 	if (!parsed.success) {
-		error(400, `Days must be a whole number from 0 to ${MAX_RETENTION_DAYS}.`);
+		error(
+			400,
+			`Days must be a whole number from 0 to ${MAX_RETENTION_DAYS}, and versions from 0 to ${MAX_ARTIFACT_VERSIONS_LIMIT}.`
+		);
 	}
-	const before = fileRetentionDays();
-	await config.set("CHAT_FILE_RETENTION_DAYS", String(parsed.data.retentionDays));
-	// Logged with who and from what: a shorter period deletes files at the
-	// next sweep, and "who made last month's documents disappear" is a
-	// question somebody will ask.
-	logger.info(
-		{ from: before, to: parsed.data.retentionDays, admin: admin.email },
-		"file_retention_changed"
-	);
-	return json({ retentionDays: fileRetentionDays() });
+	if (parsed.data.maxArtifactVersions !== undefined) {
+		// Stored in the database like the sharing toggle, so it needs no config manager.
+		const before = await maxArtifactVersions();
+		await setMaxArtifactVersions(parsed.data.maxArtifactVersions);
+		requestFullVersionSweep();
+		logger.info(
+			{ from: before, to: await maxArtifactVersions(), admin: admin.email },
+			"artifact_max_versions_changed"
+		);
+	}
+	if (parsed.data.retentionDays !== undefined) {
+		if (config.ENABLE_CONFIG_MANAGER !== "true") {
+			error(
+				409,
+				"This deployment stores configuration in the environment only " +
+					"(ENABLE_CONFIG_MANAGER is not true): set CHAT_FILE_RETENTION_DAYS there instead."
+			);
+		}
+		const before = fileRetentionDays();
+		await config.set("CHAT_FILE_RETENTION_DAYS", String(parsed.data.retentionDays));
+		// Logged with who and from what: a shorter period deletes files at the
+		// next sweep, and "who made last month's documents disappear" is a
+		// question somebody will ask.
+		logger.info(
+			{ from: before, to: parsed.data.retentionDays, admin: admin.email },
+			"file_retention_changed"
+		);
+	}
+	return json({
+		retentionDays: fileRetentionDays(),
+		maxArtifactVersions: await maxArtifactVersions(),
+	});
 };

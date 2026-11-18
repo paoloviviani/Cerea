@@ -574,6 +574,7 @@ services:
       MCP_SERVERS: ${MCP_SERVERS:-}
       MCP_INTERNAL_HOSTS: ${MCP_INTERNAL_HOSTS:-}
       CHAT_FILE_RETENTION_DAYS: ${CHAT_FILE_RETENTION_DAYS:-}
+      ARTIFACT_MAX_VERSIONS: ${ARTIFACT_MAX_VERSIONS:-}
       CHAT_WEBFETCH_CACHE_DAYS: ${CHAT_WEBFETCH_CACHE_DAYS:-}
       # Browser use (ADR 0116): the `browse` tool, off unless exactly "true". Empty values take the
       # chat's defaults (a saved Administration value overrides these).

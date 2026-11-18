@@ -123,6 +123,8 @@ export const GET: RequestHandler = async ({ locals, params }) => {
 				: undefined,
 		projectName,
 		plan: "plan" in conversation ? conversation.plan : undefined,
+		prunedArtifactVersions:
+			"prunedArtifactVersions" in conversation ? conversation.prunedArtifactVersions : undefined,
 		turnState,
 	});
 };

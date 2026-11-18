@@ -32,6 +32,8 @@
 	);
 
 	let missing = $derived(!ctx || !version);
+	// The owner deleted this version (C122): the card says so and points at the current one.
+	let deleted = $derived(version?.deleted === true && !!artifact);
 	let streaming = $derived(!!version && !version.complete);
 	// Highlight only the card whose version the panel is currently displaying
 	let isActive = $derived.by(() => {
@@ -69,6 +71,7 @@
 	let title = $derived(version?.title ?? op.title ?? op.identifier);
 
 	let subtitle = $derived.by(() => {
+		if (deleted) return m["chat.artifact.card.deleted"]();
 		if (missing) return m["chat.artifact.card.unmatched"]();
 		if (!version) return "";
 		if (streaming)
@@ -111,59 +114,87 @@
 	}
 </script>
 
-<button
-	type="button"
-	data-exclude-from-copy
-	class="my-2 flex w-full max-w-md items-center gap-3 rounded-xl border bg-white py-3 pr-6 pl-3.5 text-left shadow-xs has-[+.prose]:mb-4! [.prose+&]:mt-4!
-		{isActive
-		? 'border-blue-300 ring-1 ring-blue-300 dark:border-blue-500/30 dark:ring-blue-500/30'
-		: 'border-gray-200 hover:border-gray-300 dark:border-gray-700 dark:hover:border-gray-600'}
-		{missing ? 'cursor-default opacity-80' : 'cursor-pointer'} dark:bg-gray-800/80"
-	onclick={(e) => {
-		e.stopPropagation();
-		openInPanel();
-	}}
-	disabled={missing}
-	aria-label={m["chat.artifact.card.open"]({ title })}
->
+{#if deleted}
 	<div
-		class="flex size-9 flex-none items-center justify-center rounded-lg bg-gray-100 text-gray-500 dark:bg-gray-700/70 dark:text-gray-300"
+		data-exclude-from-copy
+		data-testid="artifact-card-deleted"
+		class="my-2 flex w-full max-w-md items-center gap-3 rounded-xl border border-gray-200 bg-white py-3 pr-4 pl-3.5 opacity-80 shadow-xs dark:border-gray-700 dark:bg-gray-800/80"
 	>
-		{#if streaming}
-			<EosIconsLoading class="text-base" />
-		{:else if missing}
-			<CarbonWarning class="text-base text-amber-500" />
-		{:else if version?.type === "html"}
-			<LucideAppWindow class="text-base" />
-		{:else if version?.type === "react"}
-			<CarbonLogoReact class="text-base" />
-		{:else if version?.type === "svg"}
-			<CarbonImage class="text-base" />
-		{:else if version?.type === "markdown"}
-			<CarbonDocument class="text-base" />
-		{:else if version?.type === "mermaid"}
-			<LucideWorkflow class="text-base" />
-		{:else if version?.type === "slides"}
-			<LucidePresentation class="text-base" />
-		{:else if version?.type === "table"}
-			<CarbonTable class="text-base" />
-		{:else}
-			<CarbonCode class="text-base" />
-		{/if}
-	</div>
-	<div class="min-w-0 flex-1">
-		<p class="truncate text-sm font-medium text-gray-800 dark:text-gray-200">
-			{title}
-		</p>
-		<p class="truncate text-xs text-gray-500 dark:text-gray-400">
-			{subtitle}
-		</p>
-	</div>
-	{#if isNewVersion}
-		<span
-			data-testid="artifact-card-updated"
-			class="flex-none rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-600 dark:bg-blue-500/15 dark:text-blue-300"
-			>{m["chat.artifact.card.updated"]()}</span
+		<div
+			class="flex size-9 flex-none items-center justify-center rounded-lg bg-gray-100 text-gray-500 dark:bg-gray-700/70 dark:text-gray-300"
 		>
-	{/if}
-</button>
+			<CarbonWarning class="text-base text-amber-500" />
+		</div>
+		<div class="min-w-0 flex-1">
+			<p class="truncate text-sm font-medium text-gray-800 dark:text-gray-200">{title}</p>
+			<p class="truncate text-xs text-gray-500 dark:text-gray-400">{subtitle}</p>
+		</div>
+		<button
+			type="button"
+			class="flex-none text-xs text-blue-600 underline dark:text-blue-400"
+			onclick={(e) => {
+				e.stopPropagation();
+				if (version) ctx?.panel.openArtifact(version.identifier, null);
+			}}
+		>
+			{m["chat.artifact.card.open_current"]()}
+		</button>
+	</div>
+{:else}
+	<button
+		type="button"
+		data-exclude-from-copy
+		class="my-2 flex w-full max-w-md items-center gap-3 rounded-xl border bg-white py-3 pr-6 pl-3.5 text-left shadow-xs has-[+.prose]:mb-4! [.prose+&]:mt-4!
+		{isActive
+			? 'border-blue-300 ring-1 ring-blue-300 dark:border-blue-500/30 dark:ring-blue-500/30'
+			: 'border-gray-200 hover:border-gray-300 dark:border-gray-700 dark:hover:border-gray-600'}
+		{missing ? 'cursor-default opacity-80' : 'cursor-pointer'} dark:bg-gray-800/80"
+		onclick={(e) => {
+			e.stopPropagation();
+			openInPanel();
+		}}
+		disabled={missing}
+		aria-label={m["chat.artifact.card.open"]({ title })}
+	>
+		<div
+			class="flex size-9 flex-none items-center justify-center rounded-lg bg-gray-100 text-gray-500 dark:bg-gray-700/70 dark:text-gray-300"
+		>
+			{#if streaming}
+				<EosIconsLoading class="text-base" />
+			{:else if missing}
+				<CarbonWarning class="text-base text-amber-500" />
+			{:else if version?.type === "html"}
+				<LucideAppWindow class="text-base" />
+			{:else if version?.type === "react"}
+				<CarbonLogoReact class="text-base" />
+			{:else if version?.type === "svg"}
+				<CarbonImage class="text-base" />
+			{:else if version?.type === "markdown"}
+				<CarbonDocument class="text-base" />
+			{:else if version?.type === "mermaid"}
+				<LucideWorkflow class="text-base" />
+			{:else if version?.type === "slides"}
+				<LucidePresentation class="text-base" />
+			{:else if version?.type === "table"}
+				<CarbonTable class="text-base" />
+			{:else}
+				<CarbonCode class="text-base" />
+			{/if}
+		</div>
+		<div class="min-w-0 flex-1">
+			<p class="truncate text-sm font-medium text-gray-800 dark:text-gray-200">
+				{title}
+			</p>
+			<p class="truncate text-xs text-gray-500 dark:text-gray-400">
+				{subtitle}
+			</p>
+		</div>
+		{#if isNewVersion}
+			<span
+				data-testid="artifact-card-updated"
+				class="flex-none rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-600 dark:bg-blue-500/15 dark:text-blue-300"
+				>{m["chat.artifact.card.updated"]()}</span
+			>
+		{/if}
+	</button>
+{/if}

@@ -15,6 +15,7 @@
 	import { collectTrackioDashboards } from "$lib/utils/trackio";
 	import { trackioStatus } from "$lib/stores/trackioStatus.svelte";
 	import { collectFileArtifacts, withLiveRunFiles } from "$lib/utils/fileArtifacts";
+	import { prunedVersions } from "$lib/stores/prunedVersions.svelte";
 	import { runFiles } from "$lib/stores/runFiles.svelte";
 	import { collectPaneItems } from "$lib/utils/paneItems";
 	import { sidePane } from "$lib/stores/sidePane.svelte";
@@ -270,7 +271,7 @@
 	// Only the message currently receiving tokens can have a streaming artifact;
 	// unclosed tags anywhere else are interrupted generations, not live ones.
 	let artifactRegistry = $derived(
-		collectArtifacts(messages, loading ? messages.at(-1)?.id : undefined)
+		collectArtifacts(messages, loading ? messages.at(-1)?.id : undefined, prunedVersions.all)
 	);
 
 	// On a phone the panel is a fullscreen overlay that covers the chat, so a
@@ -329,7 +330,9 @@
 	// them), plus the records this tab made since it loaded, so a file becomes
 	// an artifact as soon as its upload lands. Records the loader already
 	// served are skipped, so a file is never a version twice.
-	let fileRegistry = $derived(collectFileArtifacts(withLiveRunFiles(messages, runFiles.all)));
+	let fileRegistry = $derived(
+		collectFileArtifacts(withLiveRunFiles(messages, runFiles.all), prunedVersions.all)
+	);
 
 	// One ordered list of everything the pane can show, so its next/previous walks
 	// artifacts and dashboards together instead of each view navigating only its
