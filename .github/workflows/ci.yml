@@ -67,7 +67,7 @@ jobs:
   check:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     services:
       mongo:
         # mongo:8 (8.0.x) refuses to boot on Linux kernel 6.19+ (SERVER-121912,
