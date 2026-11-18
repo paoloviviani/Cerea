@@ -7,20 +7,13 @@ import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import { nextVersionNumber } from "$lib/server/execution/fileVersions";
 import { transcribeAudio } from "$lib/server/transcription";
-import { audioMime } from "./audioAttachment";
 import {
 	MAX_ATTACHMENT_BYTES,
 	MAX_AUDIO_ATTACHMENT_BYTES,
 	maxAttachmentBytesFor,
-	isLineJsonName,
-	LINE_JSON_MIME,
 } from "$lib/constants/mime";
-import {
-	documentMime,
-	extractDocument,
-	isExtractableDocument,
-	type Extraction,
-} from "./extractDocument";
+import { classifyUpload, UNSUPPORTED_UPLOAD_MESSAGE } from "./classifyUpload";
+import { extractDocument, isExtractableDocument, type Extraction } from "./extractDocument";
 
 /** One blob-store entry, resolved when the write has actually landed. */
 export async function store(
@@ -107,6 +100,15 @@ export class AttachmentTooLargeError extends Error {
 	}
 }
 
+/** A file that is not text, an image, a document or audio (the route answers 415). */
+export class UnsupportedAttachmentError extends Error {
+	readonly status = 415;
+	constructor(message = UNSUPPORTED_UPLOAD_MESSAGE) {
+		super(message);
+		this.name = "UnsupportedAttachmentError";
+	}
+}
+
 /**
  * The key a file is stored under. Text that decodes cleanly keeps the hash of
  * its decoded text, as before, so a file stored earlier is still found under
@@ -129,32 +131,27 @@ export async function writeAttachment(
 	tag?: AttachmentTag,
 	options?: UploadOptions
 ): Promise<MessageFile> {
-	const buffer = await file.arrayBuffer();
+	let buffer = await file.arrayBuffer();
 
-	// The type is the one the bytes sniff as, falling back to what the browser
-	// said — and that one type is used for the deciding, the stored entry and
-	// the `MessageFile` alike. A legacy `.doc` saved as `.docx` sniffs as a
-	// compound file (`application/x-cfb`) while the browser says "docx"; the
-	// two used to disagree, and extraction followed the one the allowlist did
-	// not know.
-	const sha = await contentHash(buffer);
+	// What the bytes are decides everything (`classifyUpload`): text of any
+	// extension, a document, audio or an image. Any other binary is refused.
+	// The one type it names is used for the deciding, the stored entry and the
+	// `MessageFile` alike (a legacy `.doc` saved as `.docx` sniffs as a compound
+	// file while the browser says "docx"; the two used to disagree).
 	const sniffedOnly = (await fileTypeFromBuffer(buffer))?.mime;
 	const sniffed = sniffedOnly ?? file.type;
-	const audio = audioMime(sniffedOnly, new Uint8Array(buffer));
-	// A claim of `audio/*` the bytes do not bear out is not stored as audio, so
-	// nothing downstream (the prompt, the player) takes the file for sound.
-	const spoofedAudio = !audio && sniffed.startsWith("audio/");
-	// `.jsonl` / `.ndjson` have no type browsers agree on (empty, octet-stream,
-	// `application/jsonl`...): by name, when the bytes carry no signature of
-	// their own, they are text, like `.json`.
-	const lineJson = !audio && !sniffedOnly && isLineJsonName(file.name);
-	const mime =
-		audio ??
-		(lineJson
-			? LINE_JSON_MIME
-			: spoofedAudio
-				? "application/octet-stream"
-				: documentMime(sniffed, file.name));
+	const classified = await classifyUpload(file.name, file.type, new Uint8Array(buffer));
+	if (classified.kind === "unsupported") throw new UnsupportedAttachmentError();
+	// UTF-16 text is stored as UTF-8, the encoding the prompt reads it in.
+	if (classified.kind === "text" && classified.bytes) {
+		buffer = classified.bytes.buffer.slice(
+			classified.bytes.byteOffset,
+			classified.bytes.byteOffset + classified.bytes.byteLength
+		) as ArrayBuffer;
+	}
+	const sha = await contentHash(buffer);
+	const audio = classified.kind === "audio" ? classified.mime : null;
+	const mime = classified.mime;
 
 	// The size limit follows what the bytes are, not what the client declared:
 	// a 24 MB PDF sent as `audio/mpeg` is a PDF, and a PDF is capped at the 30 MB attachment limit.

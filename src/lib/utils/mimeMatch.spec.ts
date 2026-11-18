@@ -28,24 +28,20 @@ describe("mimeMatchesAllowlist", () => {
 });
 
 describe("fileMatchesAllowlist", () => {
-	const accept = ["text/*", ".jsonl", ".ndjson"];
+	const accept = ["text/*", "application/pdf"];
 
-	it("accepts .jsonl and .ndjson by extension whatever type the browser declared", () => {
-		for (const type of [
-			"",
-			"application/octet-stream",
-			"application/jsonl",
-			"application/x-ndjson",
-		]) {
-			expect(fileMatchesAllowlist({ name: "rows.jsonl", type }, accept)).toBe(true);
-			expect(fileMatchesAllowlist({ name: "Rows.NDJSON", type }, accept)).toBe(true);
+	it("does not turn away text by its extension or type: the server reads the bytes", () => {
+		for (const name of ["rows.jsonl", "diagram.drawio", "scene.excalidraw", "x.foo", "Makefile"]) {
+			for (const type of ["", "application/octet-stream", "application/x-ndjson"]) {
+				expect(fileMatchesAllowlist({ name, type }, accept)).toBe(true);
+			}
 		}
 	});
 
-	it("still judges other files by their type", () => {
-		expect(fileMatchesAllowlist({ name: "a.txt", type: "text/plain" }, accept)).toBe(true);
-		expect(fileMatchesAllowlist({ name: "a.bin", type: "application/octet-stream" }, accept)).toBe(
-			false
-		);
+	it("still judges images and audio by type, and everything when text is not taken", () => {
+		expect(fileMatchesAllowlist({ name: "a.png", type: "image/png" }, accept)).toBe(false);
+		expect(fileMatchesAllowlist({ name: "a.mp3", type: "audio/mpeg" }, accept)).toBe(false);
+		expect(fileMatchesAllowlist({ name: "a.png", type: "image/png" }, ["image/*"])).toBe(true);
+		expect(fileMatchesAllowlist({ name: "a.foo", type: "" }, ["image/*"])).toBe(false);
 	});
 });

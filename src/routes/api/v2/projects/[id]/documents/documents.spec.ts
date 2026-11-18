@@ -110,6 +110,21 @@ describe("/api/v2/projects/[id]/documents", () => {
 		expect(await buildProjectDocumentsBlock(projectId)).toContain("## notes.md\n# Heading");
 	});
 
+	it("reads text of any extension: .drawio, .excalidraw and an unknown one", async () => {
+		const { ownerLocals, projectId } = await setup();
+		for (const [name, body, mime] of [
+			["d.drawio", '<?xml version="1.0"?><mxfile><diagram/></mxfile>', "application/xml"],
+			["s.excalidraw", '{"type":"excalidraw","elements":[]}', "application/json"],
+			["n.foo", "free text in a file", "text/plain"],
+		]) {
+			const res = await upload(projectId, ownerLocals, name, body, "");
+			expect(res.status).toBe(201);
+			const { data } = await res.json();
+			expect(data.document).toMatchObject({ name, status: "ready", mime });
+		}
+		expect(await buildProjectDocumentsBlock(projectId)).toContain("## n.foo\nfree text in a file");
+	});
+
 	it("reads a document through the chat's extractor, once", async () => {
 		const { ownerLocals, projectId } = await setup();
 		extractMock.mockResolvedValue({ ok: true, text: "Extracted body.", pages: 3 });
@@ -166,6 +181,15 @@ describe("/api/v2/projects/[id]/documents", () => {
 			"image/png"
 		);
 		expect(png.status).toBe(415);
+		const bin = await upload(
+			projectId,
+			ownerLocals,
+			"a.bin",
+			new Uint8Array([1, 0, 2, 255]),
+			"application/octet-stream"
+		);
+		expect(bin.status).toBe(415);
+		expect((await bin.json()).message ?? "").toMatch(/isn't supported/);
 		expect(await upload(projectId, ownerLocals, "a.txt", "same")).toMatchObject({ status: 201 });
 		const again = await upload(projectId, ownerLocals, "b.txt", "same");
 		expect(again.status).toBe(409);

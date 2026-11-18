@@ -584,7 +584,6 @@
 	// Always allow common text-like files; add images only when model is multimodal
 	import {
 		TEXT_MIME_ALLOWLIST,
-		TEXT_EXTENSION_ACCEPT,
 		IMAGE_MIME_ALLOWLIST_DEFAULT,
 		DOCUMENT_MIME_ALLOWLIST,
 		AUDIO_MIME_ALLOWLIST,
@@ -594,7 +593,6 @@
 		Array.from(
 			new Set([
 				...TEXT_MIME_ALLOWLIST,
-				...TEXT_EXTENSION_ACCEPT,
 				// Documents whatever the model is: it never sees the bytes, only
 				// the text the gateway's extractor read out of them.
 				...DOCUMENT_MIME_ALLOWLIST,

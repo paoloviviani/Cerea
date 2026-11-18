@@ -70,6 +70,17 @@ describe("classifying a content", () => {
 		expect(kind("notes.txt", text)).toBe("prose");
 	});
 
+	it("calls XML- and JSON-shaped content data whatever the extension", () => {
+		const drawio =
+			'<?xml version="1.0" encoding="UTF-8"?>\n<mxfile host="app.diagrams.net"><diagram/></mxfile>';
+		expect(kind("flow.drawio", drawio, "application/xml")).toBe("data");
+		expect(kind("flow.drawio", "<mxfile><diagram/></mxfile>", "text/plain")).toBe("data");
+		expect(
+			kind("scene.excalidraw", '{"type":"excalidraw","elements":[]}', "application/json")
+		).toBe("data");
+		expect(kind("page.html", "<!doctype html><html><body>hi</body></html>")).not.toBe("data");
+	});
+
 	it("calls data by extension", () => {
 		for (const name of [
 			"a.json",

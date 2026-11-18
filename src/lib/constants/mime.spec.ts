@@ -23,21 +23,10 @@ describe("attachmentSizeRefusal", () => {
 	});
 });
 
-describe("line-delimited JSON attachments", () => {
-	it("offers the extensions to the composer and the agent ceiling", async () => {
+describe("text attachments", () => {
+	it("offers every file in the knowledge and project pickers, and the agent ceiling takes text", async () => {
 		const m = await import("./mime");
-		expect(m.TEXT_EXTENSION_ACCEPT).toEqual([".jsonl", ".ndjson"]);
-		expect(m.AGENT_ATTACHMENT_MIME_ALLOWLIST).toEqual(
-			expect.arrayContaining([".jsonl", ".ndjson"])
-		);
-		expect(m.KNOWLEDGE_ACCEPT).toContain(".jsonl");
-	});
-
-	it("classifies by name, and keeps the declared type for other files", async () => {
-		const { attachmentMimeFor, isLineJsonName } = await import("./mime");
-		expect(isLineJsonName("a.JSONL")).toBe(true);
-		expect(isLineJsonName("a.json")).toBe(false);
-		expect(attachmentMimeFor("a.ndjson", "application/x-ndjson")).toBe("text/plain");
-		expect(attachmentMimeFor("a.json", "application/json")).toBe("application/json");
+		expect(m.KNOWLEDGE_ACCEPT).toBe("*/*");
+		expect(m.AGENT_ATTACHMENT_MIME_ALLOWLIST).toContain("text/*");
 	});
 });

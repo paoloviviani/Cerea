@@ -75,6 +75,13 @@ function looksDelimited(sample: string): boolean {
 	});
 }
 
+/** An XML prolog or an opening tag (not an HTML page) at the start of the content. */
+function looksLikeXml(sample: string): boolean {
+	const start = sample.replace(/^\uFEFF/, "").trimStart();
+	if (/^<!doctype html|^<html[\s>]/i.test(start)) return false;
+	return /^<\?xml\s|^<[A-Za-z_][\w:.-]*[\s/>]/.test(start);
+}
+
 /** Sentences or headings: lines of several words, ending in punctuation or a heading. */
 function looksLikeProse(sample: string): boolean {
 	const lines = sample.split("\n").filter((line) => line.trim() !== "");
@@ -101,6 +108,13 @@ export function classifyContent(input: { name: string; mime?: string; text: stri
 		if (first === "{" || first === "[") return "data";
 	}
 	if (extension === "" && DATA_MIME.test(mime)) return "data";
+	// A file of any other extension (`.drawio`, `.excalidraw`) is data when its
+	// content is shaped like XML or JSON; HTML is a document and is left to the
+	// checks below.
+	if (!PROSE_EXTENSIONS.has(extension) && !DOCUMENT_EXTENSIONS.has(extension)) {
+		if (first === "{" || first === "[") return "data";
+		if (looksLikeXml(sample)) return "data";
+	}
 	if (looksDelimited(sample)) return "data";
 	if (
 		PROSE_EXTENSIONS.has(extension) ||
