@@ -8,8 +8,14 @@ vi.mock("$lib/server/logger", () => ({
 }));
 
 const { collections } = await import("$lib/server/database");
-const { ARTIFACT_TOOL_NAME, artifactToolDefinition, createArtifactTool, resolveArtifactOp } =
-	await import("./artifactTool");
+const {
+	ARTIFACT_TOOL_NAME,
+	MAX_READ_CHARS,
+	artifactToolDefinition,
+	createArtifactTool,
+	readArtifact,
+	resolveArtifactOp,
+} = await import("./artifactTool");
 const { MessageUpdateType } = await import("$lib/types/MessageUpdate");
 
 const findOne = collections.conversations.findOne as ReturnType<typeof vi.fn>;
@@ -38,6 +44,7 @@ describe("artifact tool schema", () => {
 			"create",
 			"update",
 			"rewrite",
+			"read",
 		]);
 	});
 
@@ -351,5 +358,71 @@ describe("resolveArtifactOp", () => {
 		const tool = createArtifactTool();
 		const outcome = await tool.execute({ identifier: "x" }, { uuid: "u1", toolCallId: "call_1" });
 		expect("error" in outcome).toBe(true);
+	});
+});
+
+describe("artifact read", () => {
+	const block = (content: string) =>
+		`<artifact identifier="deck" type="slides" title="Deck">${content}</artifact>`;
+	const update = (from: string, to: string) =>
+		`<artifact identifier="deck" type="update"><old_str>${from}</old_str><new_str>${to}</new_str></artifact>`;
+	const history = [
+		msg("m1", block("<section>one</section>")),
+		msg("m2", update("one", "two")),
+		msg("m3", update("two", "three")),
+	];
+
+	it("returns the current version by default and an earlier one by number", () => {
+		const current = readArtifact(history, new Set(), { identifier: "deck" });
+		expect(current).toMatchObject({ ok: true });
+		expect(current.ok && current.text).toContain("v3 of 3 (current)");
+		expect(current.ok && current.text).toContain("<section>three</section>");
+		const first = readArtifact(history, new Set(), { identifier: "deck", version: 1 });
+		expect(first.ok && first.text).toContain("<section>one</section>");
+		expect(first.ok && first.text).not.toContain("(current)");
+	});
+
+	it("marks the text as data, not instructions", () => {
+		const read = readArtifact(history, new Set(), { identifier: "deck" });
+		expect(read.ok && read.text).toMatch(/^\[Result of artifact: content from outside/);
+		expect(read.ok && read.text).toMatch(/not instructions/);
+	});
+
+	it("says a deleted version was deleted and does not return it", () => {
+		const read = readArtifact(history, new Set(["m1:0"]), { identifier: "deck", version: 1 });
+		expect(read).toMatchObject({ ok: false });
+		expect(!read.ok && read.error).toContain("was deleted");
+		expect(!read.ok && read.error).toContain("current version is v3");
+		expect(!read.ok && read.error).not.toContain("one");
+	});
+
+	it("rejects an unknown artifact or version", () => {
+		expect(readArtifact(history, new Set(), { identifier: "nope" })).toMatchObject({ ok: false });
+		const missing = readArtifact(history, new Set(), { identifier: "deck", version: 9 });
+		expect(!missing.ok && missing.error).toContain("versions 1 to 3");
+	});
+
+	it("cuts a long version, says so, and continues with offset", () => {
+		const big = "x".repeat(MAX_READ_CHARS + 500);
+		const h = [msg("m1", block(big))];
+		const first = readArtifact(h, new Set(), { identifier: "deck" });
+		expect(first.ok && first.text).toContain("Truncated: 500 more characters");
+		expect(first.ok && first.text).toContain(`offset ${MAX_READ_CHARS}`);
+		const rest = readArtifact(h, new Set(), { identifier: "deck", offset: MAX_READ_CHARS });
+		expect(rest.ok && rest.text).not.toContain("Truncated");
+		expect(rest.ok && rest.text.split("x").length - 1).toBe(500);
+	});
+
+	it("the tool reads the conversation and honours its deleted versions", async () => {
+		findOne.mockResolvedValue({ messages: history, prunedArtifactVersions: ["m1:0"] });
+		const tool = createArtifactTool();
+		const ctx = { uuid: "u", toolCallId: "t", conversationId: "c" as never };
+		const gone = await tool.execute(
+			{ command: "read", identifier: "deck", version: 1 },
+			ctx as never
+		);
+		expect(gone).toMatchObject({ error: expect.stringContaining("was deleted") });
+		const ok = await tool.execute({ command: "read", identifier: "deck" }, ctx as never);
+		expect(ok).toMatchObject({ resultText: expect.stringContaining("three") });
 	});
 });

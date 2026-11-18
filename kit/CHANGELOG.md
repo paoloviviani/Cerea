@@ -5,6 +5,10 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Long artifact work stays small.** The assistant no longer gets every old version of an artifact back on each turn: past artifact operations in the history are one-line notes (`[artifact "Deck" (slides) → v7: updated]`), the current version of the artifacts in use comes once after your last message, and a new `read` command on the artifact tool fetches any other artifact or an earlier version. The notes are the same every turn, so the cached part of the conversation stays valid. The assistant is told to edit with `update` and touch only what changes. Nothing stored changes: the panel, versions and exports are as before.
+
 ## v0.56.1 — 2026-11-17
 
 Pins: Cerea `0.56.1` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.4`, opencode `2.3.0`.

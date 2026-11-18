@@ -21,6 +21,8 @@ export interface EndpointParameters {
 	abortSignal?: AbortSignal;
 	/** Optional thinking-effort, forwarded as OpenAI `reasoning_effort` when set */
 	reasoningEffort?: "low" | "medium" | "high";
+	/** Artifacts are on this turn (tags mode): history carries notes, not contents, and the current versions at the tail. */
+	artifactHistory?: import("../textGeneration/artifactHistory").ArtifactHistoryOptions;
 	/** Per-model user override for reasoning; wins over the model's supportsReasoning flag in both directions */
 	reasoningOverride?: boolean;
 }

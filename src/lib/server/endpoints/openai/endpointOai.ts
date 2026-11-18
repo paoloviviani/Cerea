@@ -185,6 +185,7 @@ export async function endpointOai(
 			abortSignal,
 			reasoningEffort,
 			reasoningOverride,
+			artifactHistory,
 		}) => {
 			// Hoisted above the message prep so the history budget can reserve the
 			// reply allowance this request will actually ask for.
@@ -207,6 +208,7 @@ export async function endpointOai(
 					contextLengthTokens: model.contextLength,
 					maxOutputTokens: parameters?.max_tokens,
 					timezone: locals?.timezone,
+					...(artifactHistory ? { artifactHistory } : {}),
 				});
 
 			// Normalize preprompt and handle empty values
