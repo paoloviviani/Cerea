@@ -501,6 +501,22 @@ period, or none, keeps everything that still exists. The value is stored in the
 chat's configuration and overrides `CHAT_FILE_RETENTION_DAYS`; with
 `ENABLE_CONFIG_MANAGER` off it can only be set in the environment.
 
+### Versions per artifact
+
+**Versions to keep per artifact** limits how many versions of one artifact the
+deployment keeps; empty or `0` means no limit, which is the default. Beyond the
+limit, the oldest versions are deleted by the hourly sweep (the one that expires
+produced files), for [text and file artifacts](artifacts.md#deleting-older-versions)
+alike; a file version's stored bytes are freed. **A version with an active share
+link is never deleted** (not revoked, not expired), so a chat can keep more than
+the limit for as long as a link points at an older version. The sweep is
+idempotent, and it logs only counts. Lowering the limit deletes what it now
+exceeds at the next sweep, in every chat, and it cannot be recovered; users can
+also delete older versions of one artifact themselves. The value is stored in
+the database like the sharing switch below, so it works whether or not
+`ENABLE_CONFIG_MANAGER` is on, and it overrides `ARTIFACT_MAX_VERSIONS` once set
+(**Use the environment's value** removes it again).
+
 ### Shared links
 
 The same screen lists every [shared artifact link](artifacts.md#sharing-an-artifact)

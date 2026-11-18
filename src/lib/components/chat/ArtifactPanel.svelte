@@ -61,6 +61,9 @@
 	import HtmlPreviewModal from "../HtmlPreviewModal.svelte";
 	import ScreenshotAnnotationModal from "./ScreenshotAnnotationModal.svelte";
 	import ShareArtifactDialog from "../sharing/ShareArtifactDialog.svelte";
+	import DeleteOlderVersionsModal from "./DeleteOlderVersionsModal.svelte";
+	import { deleteOlderVersions } from "$lib/utils/artifactVersions";
+	import { prunedVersions } from "$lib/stores/prunedVersions.svelte";
 
 	import CarbonCloseLarge from "~icons/carbon/close-large";
 	import CarbonChevronLeft from "~icons/carbon/chevron-left";
@@ -68,6 +71,7 @@
 	import CarbonCamera from "~icons/carbon/camera";
 	import CarbonDownload from "~icons/carbon/download";
 	import CarbonShare from "~icons/carbon/share";
+	import CarbonTrashCan from "~icons/carbon/trash-can";
 	import CarbonMaximize from "~icons/carbon/maximize";
 	import CarbonPlayFilledAlt from "~icons/carbon/play-filled-alt";
 	import LucideWrapText from "~icons/lucide/wrap-text";
@@ -119,9 +123,12 @@
 		sidePane.identifier ? registry.artifacts.get(sidePane.identifier) : undefined
 	);
 	let totalVersions = $derived(artifact?.versions.length ?? 0);
-	let displayVersionNumber = $derived(
-		sidePane.version === null ? totalVersions : Math.min(sidePane.version, totalVersions)
-	);
+	// A deleted version (C122) keeps its number but shows nothing: a pinned one falls back to the latest.
+	let displayVersionNumber = $derived.by(() => {
+		const wanted =
+			sidePane.version === null ? totalVersions : Math.min(sidePane.version, totalVersions);
+		return artifact?.versions[wanted - 1]?.deleted ? totalVersions : wanted;
+	});
 	let version = $derived<ArtifactVersion | undefined>(
 		artifact && displayVersionNumber > 0 ? artifact.versions[displayVersionNumber - 1] : undefined
 	);
@@ -131,14 +138,18 @@
 		!artifact && sidePane.identifier ? fileRegistry.artifacts.get(sidePane.identifier) : undefined
 	);
 	let fileTotalVersions = $derived(fileArtifact?.versions.length ?? 0);
-	let fileDisplayVersionNumber = $derived(
-		sidePane.version === null ? fileTotalVersions : Math.min(sidePane.version, fileTotalVersions)
-	);
+	let fileDisplayVersionNumber = $derived.by(() => {
+		const wanted =
+			sidePane.version === null ? fileTotalVersions : Math.min(sidePane.version, fileTotalVersions);
+		return fileArtifact?.versions[wanted - 1]?.deleted ? fileTotalVersions : wanted;
+	});
 	let fileVersion = $derived<FileArtifactVersion | undefined>(
 		fileArtifact && fileDisplayVersionNumber > 0
 			? fileArtifact.versions[fileDisplayVersionNumber - 1]
 			: undefined
 	);
+	let liveVersions = $derived(artifact?.versions.filter((v) => !v.deleted).length ?? 0);
+	let fileLiveVersions = $derived(fileArtifact?.versions.filter((v) => !v.deleted).length ?? 0);
 	let isStreamingVersion = $derived(!!version && !version.complete);
 	// Live tool-mode drafts for the open artifact: a create/rewrite still
 	// streaming (no finalized version yet), an update in flight ("Editing…"),
@@ -857,6 +868,14 @@
 		setTimeout(() => URL.revokeObjectURL(url), 60_000);
 	}
 
+	/** The nearest version that is not deleted in a direction, or `from` when there is none. */
+	function stepVersion(versions: Array<{ deleted?: true }>, from: number, dir: 1 | -1): number {
+		for (let n = from + dir; n >= 1 && n <= versions.length; n += dir) {
+			if (!versions[n - 1]?.deleted) return n;
+		}
+		return from;
+	}
+
 	function gotoVersion(n: number) {
 		if (!artifact) return;
 		const clamped = Math.max(1, Math.min(n, totalVersions));
@@ -911,6 +930,54 @@
 			Boolean(conversationId) &&
 			((version?.complete === true && !version.interrupted) || Boolean(fileVersion))
 	);
+	// Delete older versions (C122): the owner's own chat, an artifact with more than one live version.
+	let olderCount = $derived(
+		fileVersion ? Math.max(0, fileLiveVersions - 1) : Math.max(0, liveVersions - 1)
+	);
+	let canDeleteOlder = $derived(
+		canPersistFiles &&
+			(page.route.id ?? "").startsWith("/conversation/[id]") &&
+			Boolean(conversationId) &&
+			Boolean(artifact ?? fileArtifact) &&
+			olderCount > 0 &&
+			!isStreamingVersion
+	);
+	let deleteOlderOpen = $state(false);
+	let deleteOlderBusy = $state(false);
+	let deleteOlderNote = $state<string | null>(null);
+
+	async function confirmDeleteOlder() {
+		const target = artifact ?? fileArtifact;
+		const latest = target?.versions.at(-1);
+		if (!target || !latest || !conversationId) return;
+		deleteOlderBusy = true;
+		try {
+			const result = await deleteOlderVersions({
+				conversationId,
+				identifier: artifact ? artifact.identifier : (fileArtifact?.name ?? ""),
+				leafMessageId: latest.messageId,
+			});
+			prunedVersions.set(result.pruned);
+			deleteOlderNote =
+				result.keptShared > 0
+					? m["chat.panel.delete_older_done"]({
+							deleted: result.deleted,
+							kept: result.keptShared,
+						})
+					: m["chat.panel.delete_older_done_plain"]({ deleted: result.deleted });
+		} catch {
+			deleteOlderNote = m["chat.panel.delete_older_failed"]();
+		} finally {
+			deleteOlderBusy = false;
+			deleteOlderOpen = false;
+		}
+	}
+	// A note about one artifact says nothing about the next one.
+	$effect(() => {
+		void sidePane.identifier;
+		deleteOlderNote = null;
+	});
+
 	let fileDownloadUrl = $derived(
 		fileVersion && conversationId
 			? `${base}/conversation/${conversationId}/code-execution/output/${fileVersion.sha256}`
@@ -964,13 +1031,13 @@
 				>
 					{m["chat.panel.streaming"]()}
 				</span>
-			{:else if fileVersion && fileTotalVersions > 1}
+			{:else if fileVersion && fileLiveVersions > 1}
 				<span
 					class="flex-none rounded-sm bg-gray-100 px-1 py-px font-mono text-xxs text-gray-500 dark:bg-gray-800 dark:text-gray-400"
 				>
 					{m["chat.panel.version"]({ number: fileDisplayVersionNumber })}
 				</span>
-			{:else if totalVersions > 1}
+			{:else if liveVersions > 1}
 				<span
 					class="flex-none rounded-sm bg-gray-100 px-1 py-px font-mono text-xxs text-gray-500 dark:bg-gray-800 dark:text-gray-400"
 				>
@@ -1234,16 +1301,17 @@
 
 	<!-- footer -->
 	<footer
-		class="flex h-10 flex-none items-center justify-between gap-2 border-t border-gray-100 px-3 text-xs text-gray-500 dark:border-gray-800 dark:text-gray-400"
+		class="@container flex h-10 flex-none items-center justify-between gap-2 border-t border-gray-100 px-3 text-xs text-gray-500 dark:border-gray-800 dark:text-gray-400"
 	>
 		<div class="flex items-center gap-1">
-			{#if totalVersions > 1}
+			{#if liveVersions > 1 && artifact}
 				<button
 					type="button"
 					class="btn rounded-sm p-1 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-gray-800"
-					disabled={displayVersionNumber <= 1}
+					disabled={stepVersion(artifact.versions, displayVersionNumber, -1) ===
+						displayVersionNumber}
 					title={m["chat.panel.previous_version"]()}
-					onclick={() => gotoVersion(displayVersionNumber - 1)}
+					onclick={() => gotoVersion(stepVersion(artifact.versions, displayVersionNumber, -1))}
 				>
 					<CarbonChevronLeft />
 				</button>
@@ -1253,19 +1321,22 @@
 				<button
 					type="button"
 					class="btn rounded-sm p-1 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-gray-800"
-					disabled={displayVersionNumber >= totalVersions}
+					disabled={stepVersion(artifact.versions, displayVersionNumber, 1) ===
+						displayVersionNumber}
 					title={m["chat.panel.next_version"]()}
-					onclick={() => gotoVersion(displayVersionNumber + 1)}
+					onclick={() => gotoVersion(stepVersion(artifact.versions, displayVersionNumber, 1))}
 				>
 					<CarbonChevronRight />
 				</button>
-			{:else if fileVersion && fileTotalVersions > 1}
+			{:else if fileVersion && fileLiveVersions > 1 && fileArtifact}
 				<button
 					type="button"
 					class="btn rounded-sm p-1 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-gray-800"
-					disabled={fileDisplayVersionNumber <= 1}
+					disabled={stepVersion(fileArtifact.versions, fileDisplayVersionNumber, -1) ===
+						fileDisplayVersionNumber}
 					title={m["chat.panel.previous_version"]()}
-					onclick={() => gotoFileVersion(fileDisplayVersionNumber - 1)}
+					onclick={() =>
+						gotoFileVersion(stepVersion(fileArtifact.versions, fileDisplayVersionNumber, -1))}
 				>
 					<CarbonChevronLeft />
 				</button>
@@ -1278,9 +1349,11 @@
 				<button
 					type="button"
 					class="btn rounded-sm p-1 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-gray-800"
-					disabled={fileDisplayVersionNumber >= fileTotalVersions}
+					disabled={stepVersion(fileArtifact.versions, fileDisplayVersionNumber, 1) ===
+						fileDisplayVersionNumber}
 					title={m["chat.panel.next_version"]()}
-					onclick={() => gotoFileVersion(fileDisplayVersionNumber + 1)}
+					onclick={() =>
+						gotoFileVersion(stepVersion(fileArtifact.versions, fileDisplayVersionNumber, 1))}
 				>
 					<CarbonChevronRight />
 				</button>
@@ -1295,10 +1368,26 @@
 					{fileKindLabel(fileVersion.name)}
 				</span>
 			{/if}
+			{#if canDeleteOlder}
+				<button
+					type="button"
+					class="btn flex items-center gap-1 rounded-sm p-1 hover:bg-gray-100 dark:hover:bg-gray-800"
+					title={m["chat.panel.delete_older"]()}
+					aria-label={m["chat.panel.delete_older"]()}
+					data-testid="delete-older-versions"
+					onclick={() => (deleteOlderOpen = true)}
+				>
+					<CarbonTrashCan />
+					<span class="hidden @sm:inline">{m["chat.panel.delete_older"]()}</span>
+				</button>
+			{/if}
 		</div>
 
 		<div class="flex min-w-0 items-center gap-2">
-			{#if isStreamingVersion}
+			{#if deleteOlderNote}
+				<span class="truncate" role="status" data-testid="delete-older-note">{deleteOlderNote}</span
+				>
+			{:else if isStreamingVersion}
 				<span class="router-shimmer whitespace-nowrap">
 					{version?.op === "update" ? m["chat.panel.applying"]() : m["chat.panel.generating"]()}
 				</span>
@@ -1373,6 +1462,15 @@
 
 {#if externalLinkUrl}
 	<ExternalLinkModal url={externalLinkUrl} onclose={() => (externalLinkUrl = null)} />
+{/if}
+
+{#if deleteOlderOpen}
+	<DeleteOlderVersionsModal
+		count={olderCount}
+		busy={deleteOlderBusy}
+		onclose={() => (deleteOlderOpen = false)}
+		onconfirm={confirmDeleteOlder}
+	/>
 {/if}
 
 {#if shareOpen && canShare && conversationId}

@@ -26,6 +26,7 @@ export interface ConversationData {
 	/** Project defaults for seeding per-chat state on first open. */
 	projectDefaults?: { defaultWebSearch?: boolean };
 	plan?: PlanState;
+	prunedArtifactVersions?: string[];
 	/** Bases attached to this conversation, resolved to names for the composer. */
 	knowledgeBases?: { id: string; name: string }[];
 	turnState?: TurnStateSnapshot;

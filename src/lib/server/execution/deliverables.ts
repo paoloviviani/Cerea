@@ -10,6 +10,7 @@ import type { PersistedDeliverableRef } from "$lib/types/ParkedCall";
 import type { Conversation } from "$lib/types/Conversation";
 import type { User } from "$lib/types/User";
 import { isDuplicateKeyError, nextVersionNumber } from "./fileVersions";
+import { sweepArtifactVersions } from "$lib/server/artifactVersions/prune";
 import {
 	previewInBackground,
 	previewOwner,
@@ -503,6 +504,7 @@ export class DeliverableReaper {
 	private constructor() {
 		const sweep = () =>
 			sweepExpiredDeliverables()
+				.then(() => sweepArtifactVersions())
 				.then(() => sweepOrphanedDeliverableBytes())
 				.catch((err) => logger.error({ err }, "[code-execution] deliverable sweep failed"));
 		const interval = setInterval(sweep, sweepIntervalMs());

@@ -217,6 +217,8 @@ type ExtraConfigKeys =
 	| "CODE_GATEWAY_ORIGIN"
 	/** Artifact share links (ADR 0120): on unless exactly "false"; the admin toggle overrides it. */
 	| "ARTIFACT_SHARING_ENABLED"
+	/** Versions kept per artifact (C122): empty or 0 = unlimited; the admin value overrides it. */
+	| "ARTIFACT_MAX_VERSIONS"
 	/** The share subdomain's full origin; unset means links live at a path on the app's origin. */
 	| "ARTIFACT_SHARE_ORIGIN"
 	/** The path prefix links carry on the app's origin (default `<base>/s`). */

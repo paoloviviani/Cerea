@@ -318,6 +318,10 @@ export interface ArtifactVersion {
 	messageId: Message["id"];
 	/** For updates: number of find/replace pairs that did not match */
 	failedPairs?: number;
+	/** `artifactVersionKey` of the operation that made it: how a deleted version is named. */
+	opKey?: string;
+	/** The owner deleted this version: it stays in the list (numbers never shift) but shows no content. */
+	deleted?: true;
 }
 
 export interface Artifact {
@@ -343,6 +347,9 @@ export function artifactOpKey(messageId: Message["id"], opIndex: number): string
 	return `${messageId}:${opIndex}`;
 }
 
+/** The key under which a deleted text version is recorded on the conversation. */
+export const artifactVersionKey = artifactOpKey;
+
 /** Case/whitespace-insensitive identifier key, for tolerant update linking. */
 function normalizeIdentifier(id: string): string {
 	return id.trim().toLowerCase();
@@ -360,7 +367,9 @@ function normalizeIdentifier(id: string): string {
  */
 export function collectArtifacts(
 	messages: Array<Pick<Message, "id" | "from" | "content">>,
-	liveMessageId?: Message["id"]
+	liveMessageId?: Message["id"],
+	/** Keys of versions the owner deleted: they are still applied (later updates build on them) but flagged. */
+	pruned?: ReadonlySet<string>
 ): ArtifactRegistry {
 	const artifacts = new Map<string, Artifact>();
 	const byMessageOp = new Map<string, ArtifactCardRef>();
@@ -402,6 +411,8 @@ export function collectArtifacts(
 					op: artifact.versions.length > 0 ? "rewrite" : "create",
 					version: artifact.versions.length + 1,
 					messageId: message.id,
+					opKey: key,
+					...(pruned?.has(key) ? { deleted: true as const } : {}),
 				};
 				artifact.versions.push(version);
 				byMessageOp.set(key, { identifier: op.identifier, version: version.version });
@@ -447,6 +458,8 @@ export function collectArtifacts(
 				op: "update",
 				version: artifact.versions.length + 1,
 				messageId: message.id,
+				opKey: key,
+				...(pruned?.has(key) ? { deleted: true as const } : {}),
 				// A finished update with zero parsed pairs is a no-op the model
 				// didn't intend — surface it as a failed edit instead of silently
 				// showing "Edited" with unchanged content.

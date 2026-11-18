@@ -59,9 +59,15 @@ export interface SharedArtifact {
 	updatedAt: Date;
 }
 
-/** The one deployment-wide switch's row (`_id` is always "global"). */
+/**
+ * The deployment-wide settings row (`_id` is always "global"): the sharing switch, and the
+ * administrator's "keep at most N versions per artifact" (C122) that sits beside it.
+ */
 export interface ShareSettings {
 	_id: string;
-	enabled: boolean;
+	/** Absent until the administrator has toggled sharing: the environment's default stands. */
+	enabled?: boolean;
+	/** The administrator's version limit (0 = unlimited); absent: `ARTIFACT_MAX_VERSIONS` stands. */
+	maxArtifactVersions?: number;
 	updatedAt: Date;
 }

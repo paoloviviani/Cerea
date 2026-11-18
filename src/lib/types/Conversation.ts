@@ -126,4 +126,13 @@ export interface Conversation extends Timestamps {
 	 * the messages-only writes in the conversation route never clobber it.
 	 */
 	plan?: PlanState;
+
+	/**
+	 * Artifact versions the owner deleted ("Delete older versions", or the deployment's
+	 * "keep at most N versions" sweep), as keys (`artifactVersionKey`, `fileVersionKey`).
+	 * Versions are derived from the messages, so a deleted one is marked here and the
+	 * message tree stays as it was; a file version's stored bytes are freed as well.
+	 * Written only with a targeted `$addToSet`, never by the messages-only writes.
+	 */
+	prunedArtifactVersions?: string[];
 }

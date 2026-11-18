@@ -72,6 +72,7 @@ in panel**.
 
 - **Versions follow the name.** When you ask for a change and the assistant writes `report.pdf` again, that is v2 of the same artifact; an identical file adds nothing.
 - **A card always opens what it showed.** An older card in the chat opens the version it produced at the time, even after later versions exist; the panel moves you between versions.
+- **Deleting older versions** works the same way as for text artifacts (see [Deleting older versions](#deleting-older-versions)); the stored files are freed.
 - **Produced files are kept for 30 days** by default (an administrator sets the period, or no expiry, under [Administration → Storage](chat-admin.md#storage)), per user, and survive reloads and
   other devices, so a chart or a document is still there the next day, however the assistant ran the code.
 
@@ -83,6 +84,22 @@ under its card, without a click. Charts the assistant draws arrive this way, as
 [Charts](pyodide.md#charts)). **SVG is never shown inline**, because an
 SVG can carry script, and neither are formats a browser may not decode; those
 keep the click-to-preview and the download.
+
+## Deleting older versions
+
+!!! info "For everyone"
+
+    You can free the history of an artifact without deleting the chat.
+
+**Delete older versions** (the trash button at the bottom of the artifact panel, on your own chats) deletes every version of this artifact except the current one. It asks first and says how many versions will go; it cannot be undone. Afterwards it reports, for example, _2 versions deleted; 1 kept because they are shared._
+
+- **A version with an active share link is never deleted**, whatever the link's audience: not revoked and not expired. Revoke the link (or let it expire) first if you want that version gone. Only a link's owner can do this, since only the owner of a chat can delete its versions.
+- **The numbers do not change.** The remaining versions keep their numbers (the current one may be _v3_ with _v1_ kept because it is shared), and the version arrows step over the deleted ones.
+- **Old cards in the chat** that pointed at a deleted version say _This version was deleted_ and offer **Open the current version** instead of breaking.
+- **Files:** a file version's stored bytes are freed, unless another version or stored file still uses the same content.
+- **Text:** the messages of the chat are not changed (a text artifact is written into them). The deleted version is marked on the chat and no longer shown or counted.
+
+An administrator can also limit how many versions of each artifact the deployment keeps, under [Administration → Storage](chat-admin.md#versions-per-artifact): older versions beyond that number are deleted by the hourly sweep, with the same exception for shared versions. It is off (unlimited) by default.
 
 ## The Artifacts panel
 
@@ -120,7 +137,8 @@ and Office documents from the document tools.
 The tab lists **only your own chats**. In a shared project, the artifacts of
 a colleague's chats are not listed and not counted. There is nothing to delete
 on the tab: an artifact belongs to its chat and goes when you delete the chat
-(or after the retention period, for files).
+(or after the retention period, for files); to free its history, open it and use
+[Delete older versions](#deleting-older-versions).
 
 ## Sharing an artifact
 

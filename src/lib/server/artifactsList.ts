@@ -134,7 +134,13 @@ type ArtifactMessage = Pick<Message, "id" | "from" | "content"> & { createdAt?: 
 /** The assistant messages of the chats that mention an artifact tag, grouped by chat. */
 async function artifactMessages(scope: ArtifactListScope) {
 	return collections.conversations
-		.aggregate<{ _id: ObjectId; title: string; updatedAt: Date; messages: ArtifactMessage[] }>([
+		.aggregate<{
+			_id: ObjectId;
+			title: string;
+			updatedAt: Date;
+			messages: ArtifactMessage[];
+			prunedArtifactVersions?: string[];
+		}>([
 			{
 				$match: {
 					...scope.owner,
@@ -148,6 +154,7 @@ async function artifactMessages(scope: ArtifactListScope) {
 				$project: {
 					title: 1,
 					updatedAt: 1,
+					prunedArtifactVersions: 1,
 					messages: {
 						$map: {
 							input: {
@@ -187,7 +194,8 @@ async function textItems(scope: ArtifactListScope): Promise<ArtifactListItem[]> 
 	const items: ArtifactListItem[] = [];
 	for (const chat of await artifactMessages(scope)) {
 		const when = new Map(chat.messages.map((message) => [message.id, message.createdAt]));
-		for (const artifact of collectArtifacts(chat.messages).artifacts.values()) {
+		const pruned = new Set(chat.prunedArtifactVersions ?? []);
+		for (const artifact of collectArtifacts(chat.messages, undefined, pruned).artifacts.values()) {
 			const latest = artifact.versions.at(-1);
 			if (!latest) continue;
 			items.push({
@@ -196,7 +204,7 @@ async function textItems(scope: ArtifactListScope): Promise<ArtifactListItem[]> 
 				identifier: artifact.identifier,
 				type: latest.type,
 				version: latest.version,
-				versionCount: artifact.versions.length,
+				versionCount: artifact.versions.filter((v) => !v.deleted).length,
 				conversationId: String(chat._id),
 				conversationTitle: chat.title,
 				at: (when.get(latest.messageId) ?? chat.updatedAt).toISOString(),
