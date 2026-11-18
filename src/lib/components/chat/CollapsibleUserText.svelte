@@ -39,7 +39,7 @@
 
 <div class="flex w-full flex-col items-end">
 	<div
-		class="relative w-fit max-w-[85%] overflow-hidden rounded-[1.1rem] bg-blue-50 dark:bg-accent-subtle"
+		class="relative w-fit max-w-[85%] overflow-hidden rounded-[1.1rem] bg-gray-100 dark:bg-raised"
 	>
 		<p
 			bind:this={el}
@@ -51,7 +51,7 @@
 		</p>
 		{#if overflows && !expanded}
 			<div
-				class="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-linear-to-t from-blue-50 dark:from-accent-subtle"
+				class="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-linear-to-t from-gray-100 dark:from-raised"
 			></div>
 		{/if}
 	</div>

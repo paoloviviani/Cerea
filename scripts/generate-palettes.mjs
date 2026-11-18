@@ -92,8 +92,8 @@ const ACCENTS = {
  *
  * Three background tones (Neutral, Cool, Warm) on ONE OKLCH lightness ladder.
  * They differ only in hue and chroma, so they behave identically (same
- * contrast, same elevation steps) and read as clearly different. Neutral has no
- * chroma at all; Cool is hue 255 and Warm hue 70, both faint enough that
+ * contrast, same elevation steps) and read as clearly different. Neutral has a
+ * whisper of warmth; Cool is hue 255 and Warm hue 70, both faint enough that
  * Cool never drifts toward navy.
  *
  * Dark mode has an explicit elevation ladder, a steady lightness step per
@@ -116,12 +116,16 @@ const LADDER = {
 // The "Contrast" sidebar: a surface clearly apart from the page in each tone (light:
 // a step darker than the page, dark: lighter than it), with its own edge.
 const SIDEBAR_CONTRAST = { light: 0.935, lightEdge: 0.87, dark: 0.245, darkEdge: 0.32 };
-const DARK_LADDER = { page: 0.165, sidebar: 0.2, card: 0.235, composer: 0.27, border: 0.31 };
+const DARK_LADDER = { page: 0.165, sidebar: 0.2, card: 0.235, composer: 0.27, border: 0.285 };
+// Hairlines are quiet: default borders sit one small step off the ground (the ladder's 200
+// is for hover fills), and the quiet step is barely there. `strong` stays for focus edges.
+const LIGHT_BORDER = { border: 0.94, quiet: 0.962 };
 // One chroma per tone keeps the ramp simple; the low-lightness steps clip anyway.
 const TONES = {
-	neutral: { hue: 0, chroma: 0 },
+	// The default: a faint warmth (page is about #faf9f7), off-white and grey, never beige.
+	neutral: { hue: 85, chroma: 0.004 },
 	cool: { hue: 255, chroma: 0.018 },
-	warm: { hue: 70, chroma: 0.011 },
+	warm: { hue: 70, chroma: 0.016 },
 };
 
 function oklchHex(L, C, H) {
@@ -205,9 +209,9 @@ function neutralBlock(name, { hue, chroma }) {
 	out(`\t--colour-bg: ${g[50]};`);
 	out(`\t--colour-sidebar: ${g[50]};`);
 	out(`\t--colour-surface-sunken: ${g[100]};`);
-	out(`\t--colour-border: ${g[200]};`);
+	out(`\t--colour-border: ${at(LIGHT_BORDER.border)};`);
 	out(`\t--colour-border-strong: ${g[400]};`);
-	out(`\t--colour-border-quiet: ${g[100]};`);
+	out(`\t--colour-border-quiet: ${at(LIGHT_BORDER.quiet)};`);
 	out(`\t--colour-text: ${g[950]};`);
 	out(`\t--colour-text-muted: ${g[700]};`);
 	out(`\t--colour-text-faint: ${g[600]};`);

@@ -295,7 +295,7 @@
 
 {#snippet code(text: string)}
 	<code
-		class="rounded-sm bg-blue-50 px-1 py-px font-mono text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+		class="rounded-sm bg-gray-100 px-1 py-px font-mono text-gray-700 dark:bg-gray-800 dark:text-gray-300"
 		>{text}</code
 	>
 {/snippet}
@@ -322,7 +322,7 @@
 					<span class="min-w-0 truncate text-sm text-gray-600 dark:text-gray-300">{summary}</span>
 				{:else if request.source !== "assistant"}
 					<code
-						class="min-w-0 truncate rounded-sm bg-blue-50 px-1 py-px font-mono text-xs text-blue-700 opacity-90 dark:bg-blue-900/30 dark:text-blue-300"
+						class="min-w-0 truncate rounded-sm bg-gray-100 px-1 py-px font-mono text-xs text-gray-700 opacity-90 dark:bg-gray-800 dark:text-gray-300"
 						>{request.server}</code
 					>
 				{/if}

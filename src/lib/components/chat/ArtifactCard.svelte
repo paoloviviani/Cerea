@@ -192,7 +192,7 @@
 		{#if isNewVersion}
 			<span
 				data-testid="artifact-card-updated"
-				class="flex-none rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-600 dark:bg-blue-500/15 dark:text-blue-300"
+				class="flex-none rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600 dark:bg-gray-800 dark:text-gray-300"
 				>{m["chat.artifact.card.updated"]()}</span
 			>
 		{/if}
