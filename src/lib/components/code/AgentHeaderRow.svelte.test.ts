@@ -92,6 +92,17 @@ describe("AgentHeaderRow panels", () => {
 		await expect.element(screen.getByTestId("panels-sheet")).not.toBeInTheDocument();
 	});
 
+	it("names Mistral Vibe, with its mark, in the sheet header", async () => {
+		await page.viewport(390, 800);
+		const screen = mount({ phone: true, engine: "acp:@mistralai/mistral-vibe" });
+		render(MobileNav, { title: "" });
+		await screen.getByRole("button", { name: "Panels" }).click();
+		await expect.element(screen.getByText("Mistral Vibe · done")).toBeVisible();
+		await expect.element(screen.getByTestId("engine-icon-vibe")).toBeInTheDocument();
+		// not the protocol id
+		expect(screen.getByText(/mistralai/).elements()).toHaveLength(0);
+	});
+
 	it("keeps the labelled buttons inline when they fit, and folds when they do not", async () => {
 		await page.viewport(1200, 800);
 		const screen = mount();

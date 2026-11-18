@@ -1,0 +1,58 @@
+# galopin's Mistral Vibe engine against the pinned Vibe release, with a fake
+# OpenAI-compatible model (agent/internal/mockllm): no secrets, no network model.
+# The release and its hash-pinned dependency lock are agent/packaging/vibe-version and
+# vibe-requirements.txt (bump: agent/packaging/bump-vibe.sh, agent/README.md "Mistral
+# Vibe releases"). Runs on a push to main or a pull request that touches agent/ (or
+# this file), weekly, on demand. One Linux runner, 20 minute cap, no matrix.
+name: vibe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "agent/**"
+      - ".github/workflows/vibe.yml"
+  pull_request:
+    paths:
+      - "agent/**"
+      - ".github/workflows/vibe.yml"
+  schedule:
+    - cron: "37 4 * * 3" # weekly
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pinned:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+      - uses: astral-sh/setup-uv@v5
+      - name: Install the pinned Vibe from the hash lock (as install.sh does)
+        run: |
+          uv --no-config venv --quiet --python ">=3.12,<3.14" "$RUNNER_TEMP/vibe-venv"
+          uv --no-config pip install --quiet --python "$RUNNER_TEMP/vibe-venv/bin/python" \
+            --require-hashes --no-deps --only-binary :all: -r agent/packaging/vibe-requirements.txt
+          version=$(cat agent/packaging/vibe-version)
+          [ "$("$RUNNER_TEMP/vibe-venv/bin/python" -c 'import vibe; print(vibe.__version__)')" = "$version" ] || { echo "::error::installed Vibe is not $version"; exit 1; }
+      - name: Vibe engine suite
+        working-directory: agent
+        env:
+          GALOPIN_VIBE_IT: "1"
+        shell: bash
+        run: |
+          set +e
+          export GALOPIN_VIBE_BIN="$RUNNER_TEMP/vibe-venv/bin/vibe-acp"
+          go test -count=1 -v -timeout 15m -run 'Vibe' . 2>&1 | cut -c1-2000 | tee "$RUNNER_TEMP/vibe-test.log"
+          exit "${PIPESTATUS[0]}"
+      - name: No Vibe test was skipped
+        run: |
+          if grep -E -- '--- SKIP: Test(Vibe|.*Vibe)' "$RUNNER_TEMP/vibe-test.log"; then
+            echo "::error::a Vibe test was skipped, so this run did not cover it"; exit 1
+          fi

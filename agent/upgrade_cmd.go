@@ -23,7 +23,7 @@ Usage:
 Downloads <cerea>/galopin/install.sh from the Cerea recorded at enroll time
 (https, or http only on this computer) and runs it with --upgrade: it stops
 galopin, backs up galopin's state and opencode's database, installs the new
-galopin (and the opencode or goose this Cerea pins, when galopin installed
+galopin (and the opencode, goose or Mistral Vibe this Cerea pins, when galopin installed
 it), refreshes the browser runtime, and restarts the systemd unit. Enrollment
 and settings are kept. It shows what will happen and asks first.
 

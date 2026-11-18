@@ -49,6 +49,7 @@
 	import { m } from "$lib/paraglide/messages";
 	import { onMount } from "svelte";
 	import Modal from "$lib/components/Modal.svelte";
+	import { engineLabel } from "$lib/utils/engineLabel";
 	import IconCode from "~icons/carbon/code";
 	import IconWarning from "~icons/carbon/warning-filled";
 	import { createAgent, listProviders, setPermissionMode } from "$lib/codeApi";
@@ -168,7 +169,9 @@
 				<!-- galopin runs one backend per machine (its --backend flag), so there is
 				     usually nothing to choose: name it rather than offer a one-item list. -->
 				<p class="text-sm text-ink-muted" data-testid="agent-backend">
-					{m["code.agent_dialog.runs_on"]({ provider: providers[0]?.id ?? "opencode" })}
+					{m["code.agent_dialog.runs_on"]({
+						provider: engineLabel(providers[0]?.id) ?? "opencode",
+					})}
 				</p>
 			{:else}
 				<label class={s.LABEL} for="agent-provider">{m["code.agent_dialog.provider"]()}</label>

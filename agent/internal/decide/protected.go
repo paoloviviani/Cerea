@@ -103,6 +103,20 @@ func NewProtected(home, stateDir string, extraOwn ...string) Protected {
 		add(&pr.OwnDirs, root)
 		add(&pr.SecretDirs, root)
 	}
+	// The user's own Mistral Vibe: ~/.vibe (or VIBE_HOME) holds its API key (.env),
+	// config.toml and its trusted-folders list, and a write there could set a tool to
+	// "always" or trust a repository's own config. Protected like galopin's files, and
+	// credential stores for reads. galopin's own Vibe home is under its config
+	// directory (extraOwn), so it is covered as galopin's.
+	vibe := []string{}
+	if home != "" {
+		vibe = append(vibe, filepath.Join(home, ".vibe"))
+	}
+	if root := os.Getenv("VIBE_HOME"); root != "" {
+		vibe = append(vibe, root)
+	}
+	add(&pr.OwnDirs, vibe...)
+	add(&pr.SecretDirs, vibe...)
 	pr.OwnDirs = withResolved(pr.OwnDirs)
 	pr.SecretDirs = withResolved(pr.SecretDirs)
 	return pr

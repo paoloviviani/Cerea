@@ -57,7 +57,7 @@ export const ENROLL_FLAGS: readonly EnrollFlag[] = [
 	{ flag: "allow-opencode-provider", kind: "bool", default: false, exposed: true },
 	{ flag: "allow-project-config", kind: "bool", default: false, exposed: true },
 	{ flag: "default-group", kind: "bool", default: false, exposed: true },
-	// ADR 0110: the coding engine, opencode (default) or goose.
+	// ADR 0110: the coding engine, opencode (default), goose or vibe (Mistral Vibe).
 	{ flag: "engine", kind: "string", default: "opencode", exposed: true },
 	{ flag: "file-deny", kind: "list", default: [], exposed: true },
 	{ flag: "max-terminals", kind: "int", default: 8, exposed: true },

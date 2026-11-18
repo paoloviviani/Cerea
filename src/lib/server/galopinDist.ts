@@ -22,6 +22,7 @@ import upgradeFunctions from "./galopinUpgrade.sh?raw";
 import installBody from "./galopinInstall.sh?raw";
 import { GOOSE_SHA256, GOOSE_VERSION } from "$lib/gooseVersion";
 import { OPENCODE_SHA256 } from "$lib/opencodeVersion";
+import { VIBE_LOCK_SHA256, VIBE_VERSION } from "$lib/vibeVersion";
 
 export const GALOPIN_TARGETS = [
 	"linux-amd64",
@@ -36,6 +37,7 @@ export const GALOPIN_BINARIES = GALOPIN_TARGETS.map((t) => `galopin-${t}`);
 export const GALOPIN_PUBLIC_NAMES = new Set<string>([
 	...GALOPIN_BINARIES,
 	"SHA256SUMS",
+	"vibe-requirements.txt",
 	"version",
 	"install.sh",
 	"enroll.json",
@@ -79,6 +81,13 @@ function shellQuote(value: string): string {
  *
  *   curl -fsSL https://<origin><base>/galopin/install.sh | sh -s -- --engine goose
  *
+ * With `--engine vibe` it installs the pinned Mistral Vibe release into
+ * `galopin-vibe/venv` beside galopin: a Python environment built by `uv` from
+ * `vibe-requirements.txt` (served by this deployment, checked against the sha256 in
+ * `vibeVersion.ts`), which pins every dependency by hash and takes wheels only:
+ *
+ *   curl -fsSL https://<origin><base>/galopin/install.sh | sh -s -- --engine vibe
+ *
  * With `--with-opencode` (or GALOPIN_WITH_OPENCODE=1) it installs the pinned
  * opencode release (`OPENCODE_VERSION`) from opencode's own GitHub release
  * archive into $HOME/.opencode/bin, verified against the sha256 recorded in
@@ -113,9 +122,9 @@ printf 'Then confirm it: an agent computer in the /code panel, a connectors comp
 	const fill = (text: string, values: Record<string, string>) =>
 		text
 			.replace(/^[ \t]*#.*\n/gm, "")
-			.replace(/@([A-Z_]+)@/g, (all, key: string) => values[key] ?? all)
+			.replace(/@([A-Z0-9_]+)@/g, (all, key: string) => values[key] ?? all)
 			.trimEnd();
-	const versions = { OPENCODE_VERSION, GOOSE_VERSION };
+	const versions = { OPENCODE_VERSION, GOOSE_VERSION, VIBE_VERSION, VIBE_LOCK_SHA256 };
 	const upgradeScript = fill(upgradeFunctions, {
 		...versions,
 		DOCKER_IMAGE: `${GALOPIN_IMAGE}:${APP_VERSION}`,
@@ -140,11 +149,12 @@ upgrade="\${GALOPIN_UPGRADE:-}"
 creds="\${GALOPIN_CREDS:-}"
 stopfg=""
 dogoose=1
+dovibe=1
 engine_set=""
 if [ -n "\${GALOPIN_ENGINE:-}" ]; then engine_set=1; fi
 while [ $# -gt 0 ]; do
 	case "$1" in
-		--engine) [ $# -ge 2 ] || { echo "galopin install: --engine needs opencode or goose" >&2; exit 1; }; engine=$2; engine_set=1; shift 2 ;;
+		--engine) [ $# -ge 2 ] || { echo "galopin install: --engine needs opencode, goose or vibe" >&2; exit 1; }; engine=$2; engine_set=1; shift 2 ;;
 		--with-opencode) withopencode=1; shift ;;
 		--engine=*) engine=\${1#--engine=}; engine_set=1; shift ;;
 		--upgrade) upgrade=1; shift ;;
@@ -154,7 +164,7 @@ while [ $# -gt 0 ]; do
 		*) echo "galopin install: unknown option $1" >&2; exit 1 ;;
 	esac
 done
-case "$engine" in opencode | goose) ;; *) echo "galopin install: --engine must be opencode or goose" >&2; exit 1 ;; esac
+case "$engine" in opencode | goose | vibe) ;; *) echo "galopin install: --engine must be opencode, goose or vibe" >&2; exit 1 ;; esac
 
 fail() { printf 'galopin install: %s\\n' "$1" >&2; exit 1; }
 

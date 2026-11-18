@@ -49,7 +49,9 @@ A satellite or standalone chat on another host sets `CEREA_BASE_URL` to that add
    do. The red cross (**Reject this computer**) refuses one you did not expect to
    see.
 
-A fresh computer also needs opencode, the coding engine galopin runs: tick
+A fresh computer also needs a coding engine for galopin to run: opencode by default (goose and
+**Mistral Vibe** are the other two, chosen under Advanced as **Coding engine**; see
+[the Mistral Vibe engine](agent-machines-reference.md#the-mistral-vibe-engine)). For opencode, tick
 **Install opencode** in the dialog and the line installs it first.
 
 That is all. The rest of this page is the panel in brief, what the permission
@@ -94,7 +96,7 @@ has in the Agents panel; `sandbox` to start with) and offers **Keep the pairing
 across restarts**, ticked by default: a container that keeps its pairing in a
 Docker volume does not need pairing again, while an unticked one forgets
 everything when it stops (a throwaway container). The options work as on a computer, except that the opencode install, the
-manual download and the goose engine are not offered (the image has what it
+manual download and the goose and Mistral Vibe engines are not offered (the image has what it
 needs), and workspace folders you type are paths inside the container.
 
 The image is published with each Cerea release under the same version as the
@@ -462,7 +464,7 @@ another site). In order, `--upgrade`:
    the old one is put back at once. For the opencode engine it installs the opencode
    version your Cerea pins when galopin's own copy in `~/.opencode/bin` is older or
    missing (never a downgrade, unless you pass `--with-opencode`); goose the same way for
-   the goose engine. An opencode you installed elsewhere, such as with npm, is left alone,
+   the goose engine, and the pinned Mistral Vibe the same way for the Vibe engine. An opencode you installed elsewhere, such as with npm, is left alone,
    with a note on how to update it.
 6. **Refreshes** the browser runtime when you set it up (`galopin browser setup`) and
    checks the credential (`galopin auth status`).

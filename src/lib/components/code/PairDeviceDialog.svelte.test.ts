@@ -571,9 +571,10 @@ describe("the Docker switch", () => {
 		expect(screen.getByTestId("enroll-install-opencode").elements()).toHaveLength(0);
 		expect(screen.getByRole("checkbox", { name: /Install opencode/ }).elements()).toHaveLength(0);
 		expect(screen.getByRole("option", { name: "goose" }).elements()).toHaveLength(0);
+		expect(screen.getByRole("option", { name: "Mistral Vibe" }).elements()).toHaveLength(0);
 		await expect.element(screen.getByTestId("enroll-engine")).toHaveValue("opencode");
 		// Nor does the engine's help text talk about a goose that is not in the image.
-		expect(screen.getByTestId("enroll-advanced").element().textContent).not.toMatch(/goose/i);
+		expect(screen.getByTestId("enroll-advanced").element().textContent).not.toMatch(/goose|vibe/i);
 
 		await chooseNative(screen);
 		await expect.element(screen.getByText("Download manually")).toBeVisible();
@@ -594,6 +595,22 @@ describe("the Docker switch", () => {
 
 		await chooseNative(screen);
 		await expect.element(screen.getByTestId("enroll-engine")).toHaveValue("opencode");
+		expect(command(screen)).toBe(PLAIN);
+	});
+
+	it("Mistral Vibe is offered on the computer, prints --engine vibe and the Vibe install line, and never reaches Docker", async () => {
+		const screen = mount();
+		await openAdvanced(screen);
+		expect(screen.getByRole("option", { name: "Mistral Vibe" }).elements()).toHaveLength(1);
+		await screen.getByTestId("enroll-engine").selectOptions("vibe");
+		expect(command(screen)).toContain("install.sh' | sh -s -- --engine vibe &&");
+		expect(policyPart(screen)).toBe("--engine vibe --default-group");
+		await chooseDocker(screen);
+		expect(command(screen)).not.toContain("--engine");
+		expect(screen.getByRole("option", { name: "Mistral Vibe" }).elements()).toHaveLength(0);
+		await chooseNative(screen);
+		await expect.element(screen.getByTestId("enroll-engine")).toHaveValue("opencode");
+		await screen.getByTestId("enroll-engine").selectOptions("opencode");
 		expect(command(screen)).toBe(PLAIN);
 	});
 
