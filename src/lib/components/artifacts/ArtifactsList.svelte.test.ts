@@ -203,7 +203,9 @@ describe("ArtifactsList: Delete older versions", () => {
 				["/api/v2/artifacts/versions", { conversationId: "c1", identifier: "report.docx" }],
 			]);
 			expect(text()).toContain("2 versions");
-			expect(document.body.querySelector('[data-testid="delete-older-modal"]')).toBeNull();
+			await vi.waitFor(() =>
+				expect(document.body.querySelector('[data-testid="delete-older-modal"]')).toBeNull()
+			);
 		});
 	}
 
