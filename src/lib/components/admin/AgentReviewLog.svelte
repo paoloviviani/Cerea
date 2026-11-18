@@ -42,6 +42,13 @@
 	let cls = $state("");
 	let loading = $state(true);
 	let failure = $state<string | null>(null);
+	/** The agents sign-in expired (older than 7 days) or is gone: say so and offer the way back. */
+	let signInAgain = $state(false);
+	const reauthHref = $derived(
+		`${base}/login?reauth=1&next=${encodeURIComponent(
+			scope === "own" ? `${base}/settings/review-log` : `${base}/admin/auto-approval`
+		)}`
+	);
 
 	async function fetchPage(
 		before: string | null
@@ -52,6 +59,10 @@
 		if (cls) q.set("class", cls);
 		if (before) q.set("before", before);
 		const response = await fetch(`${endpoint}?${q}`);
+		if (response.status === 401) {
+			signInAgain = true;
+			throw new Error(m["admin.auto.log.reauth"]());
+		}
 		if (!response.ok) throw new Error(m["admin.common.error_status"]({ status: response.status }));
 		return response.json();
 	}
@@ -59,6 +70,7 @@
 	async function reload() {
 		loading = true;
 		failure = null;
+		signInAgain = false;
 		try {
 			const page = await fetchPage(null);
 			entries = page.entries;
@@ -145,7 +157,21 @@
 			{#each PERMISSION_CLASSES as c (c)}<option value={c}>{className(c)}</option>{/each}
 		</select>
 	</div>
-	{#if failure}<p class="text-sm text-red-600" role="alert">{failure}</p>{/if}
+	{#if signInAgain}
+		<div
+			class="flex flex-wrap items-center gap-3 text-sm"
+			role="alert"
+			data-testid="auto-log-reauth"
+		>
+			<p class="text-gray-700 dark:text-gray-300">{m["admin.auto.log.reauth"]()}</p>
+			<a
+				href={reauthHref}
+				data-sveltekit-reload
+				class="rounded-md bg-gray-900 px-3 py-1.5 text-white dark:bg-gray-100 dark:text-gray-900"
+				>{m["admin.auto.log.reauth_button"]()}</a
+			>
+		</div>
+	{:else if failure}<p class="text-sm text-red-600" role="alert">{failure}</p>{/if}
 	{#if loading}
 		<p class="text-sm text-gray-500">{m["admin.common.loading"]()}</p>
 	{:else if entries.length === 0}

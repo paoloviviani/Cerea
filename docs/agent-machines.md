@@ -380,6 +380,15 @@ curl -fsSL "$CEREA_BASE_URL/galopin/install.sh" | sh
 systemctl --user restart galopin     # or stop and start `galopin run`
 ```
 
+The panel offers this only when galopin itself changed: a computer is flagged when
+its galopin is older than the last Cerea release that changed galopin
+(`agent/LAST_CHANGED`), so a Cerea release without galopin changes flags nothing.
+A galopin older than the oldest one Cerea still supports (`MIN_SUPPORTED_GALOPIN`
+in `src/lib/utils/appVersion.ts`, raised by hand when support for an older
+galopin is dropped) gets a stronger "update needed" warning. When preparing a
+release commit, run `scripts/release/galopin-last-changed.sh X.Y.Z`; `release.sh`
+checks it.
+
 You do **not** enroll again: the computer keeps its pairing, credential and
 policy. New panel features that need a newer galopin say so ("update galopin on
 that computer"). Details, including macOS, are in

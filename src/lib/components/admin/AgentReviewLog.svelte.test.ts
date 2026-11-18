@@ -107,3 +107,19 @@ describe("Administration -> Agents -> Review log", () => {
 		await expect.element(page.getByTestId("auto-log-cards")).toHaveTextContent("npm test");
 	});
 });
+
+describe("Review log with an expired agents sign-in", () => {
+	it("answers a 401 with a sign-in-again card, not a raw status", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response("Must have a valid session or user", { status: 401 }))
+		);
+		renderWithApp(AgentReviewLog, { scope: "own" });
+		const card = page.getByTestId("auto-log-reauth");
+		await expect.element(card).toHaveTextContent("Your sign-in for agents has expired");
+		await expect
+			.element(card.getByRole("link", { name: "Sign in again" }))
+			.toHaveAttribute("href", expect.stringContaining("/login?reauth=1&next="));
+		expect(document.body.textContent).not.toContain("Something went wrong (401)");
+	});
+});

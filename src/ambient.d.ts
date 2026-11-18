@@ -62,3 +62,6 @@ declare module "ws" {
 
 /** Cerea's version (package.json at build time), inlined by Vite's `define`. */
 declare const __APP_VERSION__: string;
+
+/** The last Cerea version that changed galopin (agent/LAST_CHANGED), inlined by Vite's `define`. */
+declare const __GALOPIN_LAST_CHANGED__: string;

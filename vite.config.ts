@@ -207,6 +207,11 @@ export default defineConfig({
 	define: {
 		// The release version, from package.json at build time: the runtime env of
 		// the image does not carry it (PUBLIC_VERSION is only set under `npm run`).
+		// The last Cerea version that changed galopin (agent/LAST_CHANGED, kept by
+		// scripts/release/galopin-last-changed.sh): what a computer is compared with.
+		__GALOPIN_LAST_CHANGED__: JSON.stringify(
+			readFileSync(new URL("./agent/LAST_CHANGED", import.meta.url), "utf8").trim()
+		),
 		__APP_VERSION__: JSON.stringify(
 			JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).version
 		),

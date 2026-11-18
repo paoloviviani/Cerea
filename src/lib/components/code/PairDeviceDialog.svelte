@@ -45,7 +45,7 @@
 		KEEP_RUNNING_LINGER,
 		KEEP_RUNNING_UNINSTALL,
 	} from "$lib/codeEnrollCommand";
-	import { APP_VERSION } from "$lib/utils/appVersion";
+	import { APP_VERSION, GALOPIN_LAST_CHANGED } from "$lib/utils/appVersion";
 	import { buildUpgradeCommand, galopinNeedsUpgrade } from "$lib/galopinUpgrade";
 	import SegmentedGroup from "$lib/components/settings/SegmentedGroup.svelte";
 	import { defaultPolicyChoices } from "$lib/codeEnrollPolicy";
@@ -142,13 +142,13 @@
 	let busy = $state<string | null>(null);
 	let failure = $state<string | null>(null);
 
-	// A paired computer whose galopin is older than this Cerea: it needs no new pairing, only this line.
+	// A paired computer whose galopin is older than the last release that changed it: it needs no new pairing, only this line.
 	const upgradable = $derived(
 		codeDeviceList.devices.filter(
 			(device) =>
 				device.status === "paired" &&
 				!device.agentContainer &&
-				galopinNeedsUpgrade(device.agentVersion, APP_VERSION)
+				galopinNeedsUpgrade(device.agentVersion, GALOPIN_LAST_CHANGED)
 		)
 	);
 	const upgradeCommand = $derived(buildUpgradeCommand(origin));

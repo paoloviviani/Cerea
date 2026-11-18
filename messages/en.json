@@ -389,6 +389,7 @@
 	"code.nav.state_running": "Running",
 	"code.nav.sub_waiting_title": "A subagent is waiting for your approval",
 	"code.nav.upgrade_galopin": "This computer runs an older galopin ({version}). Upgrade it, keeping its pairing and settings:",
+	"code.nav.upgrade_galopin_required": "This computer runs galopin {version}, which this Cerea no longer supports. Update it now, keeping its pairing and settings:",
 	"code.nav.waiting_title": "Waiting for your approval",
 	"code.nav.workspace_actions": "Workspace actions",
 	"code.nav.workspace_count": [
@@ -3484,6 +3485,8 @@
 	"admin.auto.log.link": "Review log",
 	"admin.auto.log.back": "Back to Agents",
 	"admin.auto.log.title": "Review log",
+	"admin.auto.log.reauth": "Your sign-in for agents has expired. Sign in again to see the review log.",
+	"admin.auto.log.reauth_button": "Sign in again",
 	"admin.auto.log.intro_own": "What the reviewer decided for your requests, newest first, kept 90 days. Commands and paths are shortened.",
 	"admin.auto.log.intro": "What the reviewer decided, newest first, kept 90 days. Commands and paths are shortened.",
 	"admin.auto.log.machine": "Computer",
