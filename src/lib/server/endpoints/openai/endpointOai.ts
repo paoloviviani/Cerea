@@ -1,3 +1,4 @@
+import { endOnUserTurn } from "$lib/server/textGeneration/utils/endOnUserTurn";
 import { z } from "zod";
 import { openAICompletionToTextGenerationStream } from "./openAICompletionToTextGenerationStream";
 import {
@@ -238,7 +239,8 @@ export async function endpointOai(
 
 			const body = {
 				model: modelId,
-				messages: messagesOpenAI,
+				// Never end on an assistant message: that is a prefill, and recent Anthropic models 400 on it.
+				messages: endOnUserTurn(messagesOpenAI, "endpoint"),
 				stream: streamingSupported,
 				// The usage chunk is where the gateway puts the turn's token counts,
 				// cost and redaction summary.

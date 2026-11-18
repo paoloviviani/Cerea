@@ -51,7 +51,12 @@
 		/** Identity the scroll controller re-initializes on — a conversation id,
 		 * or any stable key for a non-conversation surface. */
 		conversationKey?: string;
-		onretry?: (payload: { id: Message["id"]; content?: string }) => void;
+		onretry?: (payload: {
+			id: Message["id"];
+			content?: string;
+			/** Keep the failed turn's partial output and ask the model to go on. */
+			continueFromPartial?: boolean;
+		}) => void;
 		onshowAlternateMsg?: (payload: { id: Message["id"] }) => void;
 		/** Pluggable approval-card answer path, threaded to ChatMessage (see it). */
 		onanswerElicitation?: (

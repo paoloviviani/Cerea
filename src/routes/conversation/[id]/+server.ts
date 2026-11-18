@@ -1,3 +1,4 @@
+import { promptForRetry } from "$lib/utils/tree/promptForRetry";
 import { classifyGatewayError, quotaMessageForUser } from "$lib/server/gatewayErrors";
 import { usageEnabled } from "$lib/server/usage/enabled";
 import { gatewayCurrency } from "$lib/server/usage/pystinoProvider";
@@ -385,8 +386,9 @@ export async function POST({ request, locals, params, getClientAddress }) {
 				{ from: "assistant", content: "", createdAt: new Date(), updatedAt: new Date() },
 				messageId
 			);
-			messagesForPrompt = buildSubtree(conv, messageId);
-			messagesForPrompt.pop(); // don't need the latest assistant message in the prompt since we're retrying it
+			// The branch up to the question only: the failed or unwanted attempt is not
+			// part of what the model sees (see promptForRetry).
+			messagesForPrompt = promptForRetry(conv, messageId);
 		}
 	} else {
 		// just a normal linear conversation, so we add the user message

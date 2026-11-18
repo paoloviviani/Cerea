@@ -419,6 +419,58 @@ describe("runMcpFlow", () => {
 	});
 });
 
+describe("runMcpFlow never sends a request that ends on an assistant message", () => {
+	const lastRoles = () =>
+		mocks.create.mock.calls.map(
+			(call) => (call[0].messages as ChatCompletionMessageParam[]).at(-1)?.role
+		);
+
+	it("ends every round of a tool loop (a skill load, then execute_code) on its tool results", async () => {
+		scriptRounds([
+			{ toolCalls: [{ id: "call_1", name: "do_thing", arguments: '{"skill":"x"}' }] },
+			{ toolCalls: [{ id: "call_2", name: "do_thing", arguments: '{"code":"print(1)"}' }] },
+			{ content: "done" },
+		]);
+		scriptToolResults("ok");
+
+		await runFlow();
+
+		expect(mocks.create).toHaveBeenCalledTimes(3);
+		expect(lastRoles()).toEqual(["user", "tool", "tool"]);
+	});
+
+	it("fixes a history that ends on an assistant message: the continue turn follows it", async () => {
+		scriptRounds([{ content: "carrying on" }]);
+
+		await runFlow({
+			messages: [
+				{ from: "user", content: "hello" },
+				{ from: "assistant", content: "half of an ans" },
+			],
+		} as never);
+
+		const sent = requestMessages(0);
+		expect(sent.at(-1)).toMatchObject({
+			role: "user",
+			content: "Continue from where you stopped.",
+		});
+		expect(sent.at(-2)).toMatchObject({ role: "assistant", content: "half of an ans" });
+	});
+
+	it("drops a failed attempt that produced nothing instead of sending it last", async () => {
+		scriptRounds([{ content: "fresh" }]);
+
+		await runFlow({
+			messages: [
+				{ from: "user", content: "hello" },
+				{ from: "assistant", content: "" },
+			],
+		} as never);
+
+		expect(lastRoles()).toEqual(["user"]);
+	});
+});
+
 describe("runMcpFlow turn stats and redaction", () => {
 	const redaction = (count: number, extra: Record<string, unknown> = {}) => ({
 		applied: true,

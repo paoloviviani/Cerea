@@ -1,3 +1,4 @@
+import { endOnUserTurn } from "$lib/server/textGeneration/utils/endOnUserTurn";
 import {
 	THINK_CLOSE,
 	THINK_OPEN,
@@ -1087,8 +1088,11 @@ export async function* runMcpFlow({
 			// request, or on a gateway that has no backend ready for a moment;
 			// absorb what outlasts the SDK's quick retries.
 			const roundReq = linkedRequestSignal(abortSignal);
-			const startRound = (request: ChatCompletionCreateParamsStreaming) =>
-				withUpstreamRetry(
+			const startRound = (round: ChatCompletionCreateParamsStreaming) => {
+				// Every round, whatever built its messages: a request ending on an assistant
+				// message is a prefill, which recent Anthropic models reject with a 400.
+				const request = { ...round, messages: endOnUserTurn(round.messages, "tool-loop") };
+				return withUpstreamRetry(
 					() =>
 						openai.chat.completions.create(request, {
 							signal: roundReq.signal,
@@ -1108,6 +1112,7 @@ export async function* runMcpFlow({
 							),
 					}
 				);
+			};
 			let completionStream: Stream<ChatCompletionChunk>;
 			try {
 				completionStream = await startRound(completionRequest);
@@ -1414,7 +1419,11 @@ export async function* runMcpFlow({
 					const nonStream = await withUpstreamRetry(
 						() =>
 							openai.chat.completions.create(
-								{ ...completionBase, messages: messagesOpenAI, stream: false },
+								{
+									...completionBase,
+									messages: endOnUserTurn(messagesOpenAI, "tool-loop"),
+									stream: false,
+								},
 								{
 									signal: abortSignal,
 									headers: {

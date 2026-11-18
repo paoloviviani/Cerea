@@ -1,3 +1,4 @@
+import { endOnUserTurn } from "$lib/server/textGeneration/utils/endOnUserTurn";
 import type { OpenAI } from "openai";
 import type {
 	ChatCompletionCreateParamsNonStreaming,
@@ -337,7 +338,7 @@ export async function runNestedAgent(
 		const request: ChatCompletionCreateParamsNonStreaming = {
 			...base,
 			stream: false,
-			messages,
+			messages: endOnUserTurn(messages, "sub-agent"),
 			// Omitting `tools` entirely is what forces the final summary: the
 			// budget prompt alone is a suggestion the model can ignore; an
 			// absent tool list is a constraint it can't.
