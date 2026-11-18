@@ -3,8 +3,9 @@
 The app's words are moving, area by area, into one catalogue,
 `messages/en.json`, read through Paraglide JS (inlang) the way the Pystino
 console does it, with the same key style, the same `en-XA` pseudo-locale and the
-same `i18n:check`. English is the only language that ships; the machinery is
-here so that adding a language is a file, not a change to every screen.
+same `i18n:check`. English and Italian (`it`) ship; the machinery is here so that
+adding a language is a file, not a change to every screen. The Italian wording
+follows [i18n-it-glossary.md](i18n-it-glossary.md).
 
 **Converted so far:** every screen: Settings, chat (conversation, composer,
 messages), sidebar and navigation, connectors, the app shell and its shared
@@ -28,7 +29,16 @@ template, which is correct until its area is converted.
 3. Markup: declare a snippet per tag, then
    `<Rich parts={m["key"].parts({ ... })} tags={{ code }} />` (`$lib/i18n/Rich.svelte`). The words and their order are the translator's, the
    look is the template's.
-4. Run `npm run i18n:pseudo` (regenerates `messages/en-XA.json`) and
+4. Add the Italian to `messages/it.json` in the same PR (same key, same
+   `{placeholders}`, `{#tags}` and plural variants; wording and tone from the
+   glossary: informal "tu", sentence case, "utenti"). Changing an English message
+   means re-reading its Italian too. CI fails on a missing key, a lost or renamed
+   placeholder, a missing plural variant, and an empty or untranslated (identical
+   to English) value; a value that is legitimately the same (a product name, a
+   unit) goes in `SAME_AS_ENGLISH` in `scripts/i18n-check.mjs`. Italian values
+   more than 60% longer than the English are listed (they fail nothing): look at
+   them on a phone-width screen.
+5. Run `npm run i18n:pseudo` (regenerates `messages/en-XA.json`) and
    `npm run i18n:check`.
 
 Words that are not words (the product name, a command, a value from the API) stay
@@ -51,12 +61,16 @@ and a real locale that lost a key or a `{placeholder}`. It runs in `npm run lint
 **Adding a language:** copy `messages/en.json` to `messages/<tag>.json` and
 translate the values (keys and `{placeholders}` unchanged), add the tag to
 `locales` in `project.inlang/settings.json`, run `npm run i18n:check`. It appears
-in Settings → Language by itself, written in its own name.
+in Settings → Language by itself, written in its own name. Write a glossary first
+(`i18n-it-glossary.md` is the model), and add the language's plural categories
+beyond `one` and `other` if it has them (Italian carries `many`, the same text as
+`other`, which `messages/it.json` fills in; the check allows it).
 
 **Which language a request gets** is decided once, in `hooks/handle.ts`, by the
 pure `resolveLocale` (`src/lib/i18n/resolve.ts`): the person's saved choice
 (`Settings.locale`, saved through the same two settings endpoints as the palette,
-so it follows them across devices), then the `cerea_locale` cookie (what the
+so it follows them across devices; the picker's "Use my browser's language" sends
+`locale: "auto"`, which removes it), then the `cerea_locale` cookie (what the
 selector wrote in this browser), then `Accept-Language`, then English. The render
 runs inside Paraglide's per-request store (`server/requestLocale.ts`), so
 concurrent requests never see each other's language; `%lang%` in `app.html`

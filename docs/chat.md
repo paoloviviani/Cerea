@@ -10,6 +10,15 @@ billing group, not to the chat. What you can use is whatever the gateway
 grants your groups: the model list, the search tier and the document reader
 below are all per user.
 
+## Language
+
+The interface is available in English and Italian (Italiano). Cerea uses the
+language you chose in **Settings → Application → Language**; if you have not
+chosen one, it follows your browser's language, and falls back to English.
+**Use my browser's language** in that list goes back to following the browser.
+The assistant answers in whatever language you write to it, whichever language
+the interface is in.
+
 ## Your billing group
 
 ![The user menu shows your allowance for the period.](assets/screenshots/user-menu-quota.webp)

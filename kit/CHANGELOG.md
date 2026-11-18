@@ -9,6 +9,8 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 - **Mistral Vibe is a coding engine.** Pair a computer with **Coding engine → Mistral Vibe** (under Advanced in the Pair dialog, `galopin enroll --engine vibe`) and it runs Mistral Vibe through galopin's own proxy: the gateway's models and billing, nothing sent to Mistral directly. The install line fetches the pinned Vibe release with `uv` from a lock that pins every package by hash. Vibe runs in galopin's own home (never your `~/.vibe`), asks before every tool call so Plan, Ask, Allow and the fixed floor apply, offers none of its own auto-approve modes, and never loads a repository's `.vibe/` config. The Agents panel names the engine and shows its mark. Two fixes help every ACP engine: an ask that names only a call id is now completed from the call's own announcement (so its class, path and card are right), and reopening a session while the previous agent process is still shutting down waits for it instead of failing. Not in the Docker image.
 
+- **Cerea speaks Italian.** The whole interface is available in Italian (Italiano). It follows your browser's language until you choose one in **Settings → Application → Language**, where **Use my browser's language** goes back to following it. Dates, times, numbers and relative times use the chosen language's conventions. The assistant's own prompts, the documentation and the Authelia sign-in pages stay in English.
+
 ## v0.57.0 — 2026-11-17
 
 Pins: Cerea `0.57.0` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.4`, opencode `2.3.0`.

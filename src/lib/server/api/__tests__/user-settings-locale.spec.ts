@@ -72,6 +72,20 @@ describe.each([
 		expect((await stored(locals))?.locale).toBe("en");
 	});
 
+	it("saves Italian, and 'auto' (use my browser's language) removes the saved choice", async () => {
+		const { locals } = await createTestUser();
+		await save(locals, { locale: "it" });
+		expect(await savedLocaleFor(locals)).toBe("it");
+		await save(locals, { locale: "auto", accent: "rose" });
+		const s = await stored(locals);
+		expect(s?.locale).toBeUndefined();
+		expect(s?.accent).toBe("rose");
+		expect(await savedLocaleFor(locals)).toBeUndefined();
+		// And a later explicit choice is stored again.
+		await save(locals, { locale: "en" });
+		expect(await savedLocaleFor(locals)).toBe("en");
+	});
+
 	it("takes the pseudo-locale in development, where the flag is on", async () => {
 		const { locals } = await createTestUser();
 		await save(locals, { locale: "en-XA" });
@@ -108,6 +122,8 @@ describe("localePatch", () => {
 		expect(localePatch({ locale: "en-XA" }, false)).toEqual({});
 		expect(localePatch({ locale: "en-XA" }, true)).toEqual({ locale: "en-XA" });
 		expect(localePatch({ locale: "klingon" }, true)).toEqual({});
+		expect(localePatch({ locale: "it" }, false)).toEqual({ locale: "it" });
+		expect(localePatch({ locale: "auto" }, true)).toEqual({});
 		expect(localePatch({ locale: null }, true)).toEqual({});
 		expect(localePatch({}, true)).toEqual({});
 	});

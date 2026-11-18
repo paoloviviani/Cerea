@@ -2,7 +2,7 @@ import { collections } from "$lib/server/database";
 import { z } from "zod";
 import { locationSettingsFields } from "$lib/utils/location";
 import { paletteFields, palettePatch } from "$lib/server/paletteSettings";
-import { localeFields, localePatch } from "$lib/server/localeSettings";
+import { localeFields, localePatch, localeUnset } from "$lib/server/localeSettings";
 import { guardAnonymousSettingsRow } from "$lib/server/anonymousSettings";
 import { authCondition, loginEnabled } from "$lib/server/auth";
 import { GLOBAL_SYSTEM_PROMPT_MAX } from "$lib/types/CustomModel";
@@ -109,6 +109,7 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 			$setOnInsert: {
 				createdAt: new Date(),
 			},
+			...(localeUnset({ locale }) ? { $unset: localeUnset({ locale }) } : {}),
 		},
 		{
 			upsert: true,

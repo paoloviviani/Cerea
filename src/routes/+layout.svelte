@@ -295,7 +295,7 @@
 		<meta property="og:image" content="{publicConfig.assetPath}/thumbnail.png" />
 		<meta property="og:description" content={publicConfig.PUBLIC_APP_DESCRIPTION} />
 		<meta property="og:site_name" content={publicConfig.PUBLIC_APP_NAME} />
-		<meta property="og:locale" content="en_US" />
+		<meta property="og:locale" content={data.locale === "it" ? "it_IT" : "en_US"} />
 	{/if}
 	<link rel="icon" href="{publicConfig.assetPath}/icon.svg?v=2" type="image/svg+xml" />
 	{#if publicConfig.PUBLIC_ORIGIN}

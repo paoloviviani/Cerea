@@ -36,6 +36,17 @@ export function localePatch(
 	return parsed ? { locale: parsed } : {};
 }
 
+/** The settings value that means "no explicit choice: follow my browser's language". */
+export const AUTO_LOCALE = "auto";
+
+/**
+ * What to `$unset` for the locale: the "use my browser's language" choice
+ * removes the saved language, so the cookie-less default (Accept-Language) applies.
+ */
+export function localeUnset({ locale }: { locale?: string | null }) {
+	return locale === AUTO_LOCALE ? { locale: "" as const } : undefined;
+}
+
 /**
  * The person's (or session's) saved language. A failure here must never fail
  * the page, so it degrades to "no saved choice".

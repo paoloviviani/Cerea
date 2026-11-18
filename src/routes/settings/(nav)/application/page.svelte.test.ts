@@ -61,7 +61,7 @@ describe("Settings > Application, in the pseudo-locale", () => {
 			.split("\n")
 			.map((line) => line.trim())
 			.filter((line) => /[A-Za-z]{3,}/.test(line) && !line.includes("["))
-			.filter((line) => !/^Cerea\b/.test(line) && line !== "English");
+			.filter((line) => !/^Cerea\b/.test(line) && line !== "English" && line !== "Italiano");
 		expect(unmarked).toEqual([]);
 	});
 
@@ -73,13 +73,37 @@ describe("Settings > Application, in the pseudo-locale", () => {
 				(o) => o.value
 			);
 		await expect.element(real.getByLabelText("Language")).toBeVisible();
-		expect(options()).toEqual(["en"]);
+		expect(options()).toEqual(["auto", "en", "it"]);
 		real.unmount();
 
 		page.data = { pseudoLocaleEnabled: true };
 		const dev = renderWithApp(ApplicationPage, {}, { context: stores(), page });
 		await expect.element(dev.getByLabelText("Language")).toBeVisible();
-		expect(options()).toEqual(["en", "en-XA"]);
+		expect(options()).toEqual(["auto", "en", "it", "en-XA"]);
+	});
+});
+
+describe("Settings > Application, the language picker", () => {
+	it("shows 'use my browser's language' until a language has been chosen, then the choice", async () => {
+		page.data = { pseudoLocaleEnabled: false };
+		const select = () => document.querySelector<HTMLSelectElement>("#language-select");
+		const none = renderWithApp(ApplicationPage, {}, { context: stores(), page });
+		await expect.element(none.getByLabelText("Language")).toBeVisible();
+		expect(select()?.value).toBe("auto");
+		expect(select()?.selectedOptions[0]?.textContent).toBe("Use my browser's language");
+		none.unmount();
+
+		const store = writable({ activeModel: "", locale: "it" });
+		const context = new Map<unknown, unknown>([
+			[
+				"settings",
+				{ subscribe: store.subscribe, update: vi.fn(), instantSet: vi.fn(), set: vi.fn() },
+			],
+		]);
+		const chosen = renderWithApp(ApplicationPage, {}, { context, page });
+		await expect.element(chosen.getByLabelText("Language")).toBeVisible();
+		expect(select()?.value).toBe("it");
+		expect(select()?.selectedOptions[0]?.textContent).toBe("Italiano");
 	});
 });
 
