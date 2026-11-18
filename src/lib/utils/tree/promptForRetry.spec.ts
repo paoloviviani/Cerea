@@ -93,7 +93,7 @@ describe("a failed turn, then Continue", () => {
 		const user = addChildren(conv, { from: "user", content: "q" } as Node, conv.rootMessageId);
 		const failed = addChildren(
 			conv,
-			{ from: "assistant", content: "only text", updates: [] } as Node,
+			{ from: "assistant", content: "only text", updates: [] } as unknown as Node,
 			user
 		);
 		const cont = addChildren(conv, { from: "user", content: CONTINUE_PROMPT } as Node, failed);
