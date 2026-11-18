@@ -158,3 +158,74 @@ describe("ArtifactsList", () => {
 		expect(document.body.querySelector('[data-testid="artifacts-empty"]')).toBeNull();
 	});
 });
+
+describe("ArtifactsList: Delete older versions", () => {
+	const click = (el: Element | null) => (el as HTMLElement).click();
+
+	for (const project of ["p1", "none"]) {
+		it(`offers it only on rows with older versions (project=${project}), confirms, reports and refreshes the count`, async () => {
+			const posts: unknown[] = [];
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+					if (init?.method === "POST") {
+						posts.push([String(input), JSON.parse(String(init.body))]);
+						return Response.json({ deleted: 2, keptShared: 1, freedFiles: 0, pruned: [] });
+					}
+					return Response.json({ data: [FILE, TEXT], hasMore: false });
+				})
+			);
+			renderWithApp(ArtifactsList, { project } as never);
+			await vi.waitFor(() => expect(text()).toContain("report.docx"));
+
+			// Only the 3-version row has a menu.
+			expect(document.body.querySelectorAll('button[aria-haspopup="menu"]').length).toBe(1);
+			click(document.body.querySelector('button[aria-haspopup="menu"]'));
+			click(
+				await vi.waitFor(() => {
+					const item = document.body.querySelector('[data-testid="artifacts-delete-older"]');
+					expect(item).not.toBeNull();
+					return item;
+				})
+			);
+			await vi.waitFor(() =>
+				expect(document.body.querySelector('[data-testid="delete-older-modal"]')).not.toBeNull()
+			);
+			expect(text()).toContain("2 older versions");
+			click(document.body.querySelector('[data-testid="delete-older-confirm"]'));
+
+			await vi.waitFor(() =>
+				expect(
+					document.body.querySelector('[data-testid="artifacts-prune-note"]')?.textContent
+				).toContain("2 versions deleted; 1 kept because they are shared.")
+			);
+			expect(posts).toEqual([
+				["/api/v2/artifacts/versions", { conversationId: "c1", identifier: "report.docx" }],
+			]);
+			expect(text()).toContain("2 versions");
+			expect(document.body.querySelector('[data-testid="delete-older-modal"]')).toBeNull();
+		});
+	}
+
+	it("says so when it fails", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (_i: RequestInfo | URL, init?: RequestInit) =>
+				init?.method === "POST"
+					? new Response("no", { status: 500 })
+					: Response.json({ data: [FILE], hasMore: false })
+			)
+		);
+		renderWithApp(ArtifactsList, { project: "p1" } as never);
+		await vi.waitFor(() => expect(text()).toContain("report.docx"));
+		click(document.body.querySelector('button[aria-haspopup="menu"]'));
+		await vi.waitFor(() =>
+			click(document.body.querySelector('[data-testid="artifacts-delete-older"]'))
+		);
+		await vi.waitFor(() =>
+			click(document.body.querySelector('[data-testid="delete-older-confirm"]'))
+		);
+		await vi.waitFor(() => expect(text()).toContain("Could not delete the older versions."));
+		expect(text()).toContain("3 versions");
+	});
+});

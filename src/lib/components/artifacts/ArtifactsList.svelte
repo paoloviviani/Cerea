@@ -8,8 +8,8 @@
 	it is, the latest version and how many there are, the chat it came from and
 	when. The name and the chat open that chat with the artifact in the side
 	panel (`?artifact=`), which is the preview; the download takes the latest
-	version. Nothing here deletes: an artifact belongs to its chat and goes
-	with it.
+	version. Nothing here deletes an artifact (it belongs to its chat and goes
+	with it); the row's ⋯ menu can delete its older versions (C122).
 
 	The name filter narrows as you type (after a short pause); more rows load
 	as the end of the list scrolls into view. Loads in `onMount`: this renders
@@ -27,6 +27,10 @@
 	import { fileKindLabel, fileKindOf, formatFileSize } from "$lib/utils/filePreview";
 	import InfiniteScroll from "$lib/components/InfiniteScroll.svelte";
 	import * as s from "$lib/components/overlay/styles";
+	import RowMenu from "$lib/components/nav/RowMenu.svelte";
+	import DeleteOlderVersionsModal from "$lib/components/chat/DeleteOlderVersionsModal.svelte";
+	import { deleteOlderVersions } from "$lib/utils/artifactVersions";
+	import CarbonTrashCan from "~icons/carbon/trash-can";
 
 	import CarbonCode from "~icons/carbon/code";
 	import CarbonDocument from "~icons/carbon/document";
@@ -68,6 +72,40 @@
 	/** Bumped on every new filter, so a slow answer to an old one is dropped. */
 	let generation = 0;
 	let debounce: ReturnType<typeof setTimeout> | undefined;
+
+	/** "Delete older versions": the row being confirmed, and the note on the last one done. */
+	let pruning = $state<Row | null>(null);
+	let pruneBusy = $state(false);
+	let pruneNote = $state<{ key: string; text: string } | null>(null);
+	const rowKey = (row: Row) => `${row.conversationId}:${row.kind}:${row.identifier}`;
+
+	async function confirmPrune() {
+		const row = pruning;
+		if (!row) return;
+		pruneBusy = true;
+		try {
+			const result = await deleteOlderVersions({
+				conversationId: row.conversationId,
+				identifier: row.identifier,
+			});
+			row.versionCount = 1 + result.keptShared;
+			pruneNote = {
+				key: rowKey(row),
+				text:
+					result.keptShared > 0
+						? m["chat.panel.delete_older_done"]({
+								deleted: result.deleted,
+								kept: result.keptShared,
+							})
+						: m["chat.panel.delete_older_done_plain"]({ deleted: result.deleted }),
+			};
+		} catch {
+			pruneNote = { key: rowKey(row), text: m["chat.panel.delete_older_failed"]() };
+		} finally {
+			pruneBusy = false;
+			pruning = null;
+		}
+	}
 
 	const searching = $derived(query.trim() !== "");
 
@@ -266,7 +304,7 @@
 
 	{#if rows.length > 0}
 		<ul class="flex flex-col gap-2" data-testid="artifacts-rows">
-			{#each rows as row (`${row.conversationId}:${row.kind}:${row.identifier}`)}
+			{#each rows as row (rowKey(row))}
 				{@const Icon = iconFor(row)}
 				<li
 					class="{s.card(false)} flex items-start gap-3 py-3 pr-3 pl-4"
@@ -292,6 +330,15 @@
 								{formatRelativeTime(row.at)}
 							</time>
 						</div>
+						{#if pruneNote?.key === rowKey(row)}
+							<p
+								class="mt-1 text-xs text-ink-muted"
+								role="status"
+								data-testid="artifacts-prune-note"
+							>
+								{pruneNote.text}
+							</p>
+						{/if}
 						<a
 							href={openHref(row)}
 							class="mt-1 block max-w-full truncate text-xs text-accent no-underline hover:underline"
@@ -309,6 +356,25 @@
 					>
 						<CarbonDownload class="size-4" />
 					</a>
+					{#if row.versionCount > 1}
+						<RowMenu label={row.name}>
+							{#snippet children(close)}
+								<button
+									type="button"
+									role="menuitem"
+									data-testid="artifacts-delete-older"
+									onclick={() => {
+										close();
+										pruning = row;
+									}}
+									class="flex h-8 w-full items-center gap-2 px-3 text-left text-sm whitespace-nowrap text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+								>
+									<CarbonTrashCan class="size-3.5" />
+									{m["chat.panel.delete_older"]()}
+								</button>
+							{/snippet}
+						</RowMenu>
+					{/if}
 				</li>
 			{/each}
 		</ul>
@@ -337,3 +403,12 @@
 		</div>
 	{/if}
 </div>
+
+{#if pruning}
+	<DeleteOlderVersionsModal
+		count={pruning.versionCount - 1}
+		busy={pruneBusy}
+		onclose={() => (pruning = null)}
+		onconfirm={confirmPrune}
+	/>
+{/if}

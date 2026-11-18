@@ -409,6 +409,7 @@
 	"code.nav.state_running": "[Ŕúńńíńǧ]",
 	"code.nav.sub_waiting_title": "[Á śúƀáǧéńť íś ŵáíťíńǧ ƒóŕ ýóúŕ áþþŕóǚáľ]",
 	"code.nav.upgrade_galopin": "[Ťȟíś ćóḿþúťéŕ ŕúńś áń óľďéŕ ǧáľóþíń ({version}). Úþǧŕáďé íť, ķééþíńǧ íťś þáíŕíńǧ áńď śéťťíńǧś:]",
+	"code.nav.upgrade_galopin_required": "[Ŧȟíś ćóḿþúťéŕ ŕúńś ǵáĺóþíń {version}, ŵȟíćȟ ťȟíś Ćéŕéá ńó ĺóńǵéŕ śúþþóŕťś. Úþďáťé íť ńóŵ.]",
 	"code.nav.waiting_title": "[Ŵáíťíńǧ ƒóŕ ýóúŕ áþþŕóǚáľ]",
 	"code.nav.workspace_actions": "[Ŵóŕķśþáćé áćťíóńś]",
 	"code.nav.workspace_count": [
@@ -3784,6 +3785,8 @@
 	"admin.auto.log.link": "[Ŕéǚíéŵ ľóǧ]",
 	"admin.auto.log.back": "[Ɓáćķ ťó Áǧéńťś]",
 	"admin.auto.log.title": "[Ŕéǚíéŵ ľóǧ]",
+	"admin.auto.log.reauth": "[Ýóúŕ śíǵń-íń ƒóŕ áǵéńťś ȟáś éxþíŕéď. Śíǵń íń áǵáíń ťó śéé ťȟé ŕéǘíéŵ ĺóǵ.]",
+	"admin.auto.log.reauth_button": "[Śíǵń íń áǵáíń]",
 	"admin.auto.log.intro_own": "[Ŵȟáť ťȟé ŕéǚíéŵéŕ ďéćíďéď ƒóŕ ýóúŕ ŕéǫúéśťś, ńéŵéśť ƒíŕśť, ķéþť 90 ďáýś. Ćóḿḿáńďś áńď þáťȟś áŕé śȟóŕťéńéď.]",
 	"admin.auto.log.intro": "[Ŵȟáť ťȟé ŕéǚíéŵéŕ ďéćíďéď, ńéŵéśť ƒíŕśť, ķéþť 90 ďáýś. Ćóḿḿáńďś áńď þáťȟś áŕé śȟóŕťéńéď.]",
 	"admin.auto.log.machine": "[Ćóḿþúťéŕ]",

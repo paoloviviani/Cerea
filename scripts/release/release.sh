@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # release.sh X.Y.Z: publish a release whose release commit is already on main
-# (package.json at X.Y.Z, `kit/tools/pin --cerea X.Y.Z`, a `## vX.Y.Z` entry in
+# (package.json at X.Y.Z, `kit/tools/pin --cerea X.Y.Z`, `scripts/release/galopin-last-changed.sh X.Y.Z`, a `## vX.Y.Z` entry in
 # kit/CHANGELOG.md). Every step is checked and the script stops at the first
 # failure; `stable` moves only after the fresh-kit test printed E2E_OK. See
 # AGENTS.md "Releasing".
@@ -24,6 +24,10 @@ SHA=$(git rev-parse origin/main)
 # deterministic.
 git show "$SHA:kit/CHANGELOG.md" | grep "^## $T " >/dev/null || stop "kit/CHANGELOG.md has no '## $T' entry"
 git ls-remote --exit-code origin "refs/tags/$T" >/dev/null && stop "$T already exists"
+# agent/LAST_CHANGED drives the "update galopin" hint: it must say $V when galopin changed since
+# the previous tag. The release commit is already pushed, so this only checks; fix it with
+# scripts/release/galopin-last-changed.sh $V before the release commit.
+REF=$SHA scripts/release/galopin-last-changed.sh "$V" --check || stop "agent/LAST_CHANGED is wrong"
 echo "releasing $T at $SHA"
 
 # 1. CI green on the release commit — or, when a path filter skipped it, on

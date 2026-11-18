@@ -80,8 +80,12 @@
 	import CopyToClipBoardBtn from "$lib/components/CopyToClipBoardBtn.svelte";
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 	import { buildEnrollCommand } from "$lib/codeEnrollCommand";
-	import { buildUpgradeCommand, galopinNeedsUpgrade } from "$lib/galopinUpgrade";
-	import { APP_VERSION } from "$lib/utils/appVersion";
+	import {
+		buildUpgradeCommand,
+		galopinNeedsUpgrade,
+		galopinUnsupported,
+	} from "$lib/galopinUpgrade";
+	import { GALOPIN_LAST_CHANGED, MIN_SUPPORTED_GALOPIN } from "$lib/utils/appVersion";
 	import PairDeviceDialog from "./PairDeviceDialog.svelte";
 	import PermissionsDialog from "./PermissionsDialog.svelte";
 	import { stepOf } from "$lib/types/machineProtocol";
@@ -808,13 +812,19 @@
 						</div>
 					</div>
 				{/if}
-				{#if device.status === "paired" && !isDead && !device.agentContainer && galopinNeedsUpgrade(device.agentVersion, APP_VERSION)}
+				{#if device.status === "paired" && !isDead && !device.agentContainer && galopinNeedsUpgrade(device.agentVersion, GALOPIN_LAST_CHANGED)}
+					{@const required = galopinUnsupported(device.agentVersion, MIN_SUPPORTED_GALOPIN)}
 					<div
-						class="mb-1.5 ml-7 rounded-lg border border-line bg-sunken p-2 text-xs text-ink-muted"
+						class="mb-1.5 ml-7 rounded-lg border p-2 text-xs text-ink-muted {required
+							? 'border-amber-500 bg-amber-50 dark:bg-amber-950/30'
+							: 'border-line bg-sunken'}"
 						data-testid="device-upgrade"
+						data-severity={required ? "required" : "available"}
 					>
 						<p class="mb-1.5 font-medium text-ink">
-							{m["code.nav.upgrade_galopin"]({ version: device.agentVersion ?? "" })}
+							{required
+								? m["code.nav.upgrade_galopin_required"]({ version: device.agentVersion ?? "" })
+								: m["code.nav.upgrade_galopin"]({ version: device.agentVersion ?? "" })}
 						</p>
 						<div class="flex items-center gap-2 rounded-md border border-line bg-surface p-2">
 							<pre

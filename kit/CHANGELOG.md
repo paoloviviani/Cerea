@@ -5,6 +5,12 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Settings → Review log says when your agents sign-in has expired.** It no longer shows "Something went wrong (401)": it says "Your sign-in for agents has expired" with a **Sign in again** button (the same forced re-login /code uses). The Administration review log does the same.
+- **Delete older versions on the artifact lists.** The project page's artifacts list and the Artifacts tab on /chats have it in each row's ⋯ menu, for artifacts with more than one version. Same confirmation and result text as the side panel; the row's version count updates.
+- **"Update galopin" only when galopin changed.** A computer is flagged only when its galopin is older than the last release that changed galopin (`agent/LAST_CHANGED`), not on every Cerea release. `scripts/release/galopin-last-changed.sh X.Y.Z` keeps the file right for a release commit and `release.sh` checks it. A galopin below `MIN_SUPPORTED_GALOPIN` gets a stronger "update needed" warning.
+
 ## v0.56.0 — 2026-11-17
 
 Pins: Cerea `0.56.0` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.4`, opencode `2.3.0`.
