@@ -86,6 +86,24 @@ galopin" or "ready to bump the pin"). Bump with `packaging/bump-goose.sh
 Goose .`. `galopin goose setup` configures a user's own goose; see the
 agent-machines reference.
 
+## Mistral Vibe releases
+
+`galopin enroll --engine vibe` runs Mistral Vibe (`vibe-acp`) instead of opencode,
+through the same ACP backend as goose. The pinned release is
+`packaging/vibe-version`; `packaging/vibe-requirements.txt` pins it and every
+dependency by sha256 (a universal lock for Python 3.12 and 3.13 on Linux and macOS,
+amd64 and arm64), and `src/lib/vibeVersion.ts` carries the release and the lock's own
+sha256 for the served `install.sh`. The installer needs `uv`; it builds
+`galopin-vibe/venv` beside galopin with `--require-hashes --no-deps --only-binary :all:`
+(no build step runs), and galopin runs `venv/bin/python -m vibe.acp.entrypoint` with
+`VIBE_HOME` set to `<state dir>/vibe`, never `~/.vibe` (`vibe_engine.go`).
+`.github/workflows/vibe.yml` runs the Vibe suite (`GALOPIN_VIBE_IT=1`, a fake model in
+`internal/mockllm`) on changes to `agent/` and weekly. Bump with
+`packaging/bump-vibe.sh <version>`. Locally: install the lock into a venv, then
+`GALOPIN_VIBE_IT=1 GALOPIN_VIBE_BIN=<venv>/bin/vibe-acp go test -run Vibe .`. There is
+no `galopin vibe setup` (pointing the user's own Vibe at the proxy): it would mean
+writing a provider into the user's `~/.vibe/config.toml`, and is not built.
+
 ## Running
 
 ```

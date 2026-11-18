@@ -69,6 +69,10 @@ func (b *Backend) handleRequest(id json.RawMessage, method string, params json.R
 		st = b.reg.getOrCreate(p.SessionID, "")
 	}
 
+	// An ask may omit what the call's own tool_call said (Vibe sends no kind
+	// and no title): complete it before it is classified.
+	p.ToolCall = b.enrichAsk(st, p.ToolCall)
+
 	localID := fmt.Sprintf("%s:perm:%s", p.SessionID, getStr(p.ToolCall, "toolCallId"))
 	req := backend.PermissionRequest{
 		ID:        localID,
@@ -288,6 +292,7 @@ func (b *Backend) handleToolCall(st *sessionState, upd map[string]any) {
 	partID := "tool:" + callID
 
 	st.mu.Lock()
+	st.rememberCall(callID, upd)
 	replaying := st.replaying
 	msgID := ""
 	if _, ok := st.partIndex[partID]; ok {

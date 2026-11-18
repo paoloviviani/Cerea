@@ -30,9 +30,12 @@ Usage:
                 [--group NAME | --default-group] [--output PATH]
                 [--creds PATH] [--shim-port PORT] [--no-discover]
                 [--allow-opencode-provider] [--connectors-only]
-                [--engine opencode|goose] [--group-choice-cmd ARG ...] [--yes]
+                [--engine opencode|goose|vibe] [--group-choice-cmd ARG ...] [--yes]
 
-  --engine     The coding engine this machine runs: opencode (default) or goose
+  --engine     The coding engine this machine runs: opencode (default), goose
+               or vibe (Mistral Vibe; needs the pinned release, which the install
+               line fetches with 'install.sh | sh -s -- --engine vibe'; enroll
+               then writes galopin's own Vibe home, never ~/.vibe).
                (ADR 0110; needs the pinned goose release, which the install
                line fetches with 'install.sh | sh -s -- --engine goose').
                Recorded in the credential file, used by 'run', and kept when
@@ -358,7 +361,7 @@ func runEnroll(args []string) error {
 		return fmt.Errorf("--device and --loopback conflict: pick one flow")
 	}
 	if !validEngine(opts.engine) {
-		return fmt.Errorf("--engine %q: want %q or %q", opts.engine, engineOpencode, engineGoose)
+		return fmt.Errorf("--engine %q: want %q, %q or %q", opts.engine, engineOpencode, engineGoose, engineVibe)
 	}
 	set := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
@@ -670,9 +673,10 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 	connectors := opts.connectorsOnly
 	var err error
 	goose := !connectors && opts.engine == engineGoose
-	if goose {
-		// goose has its own config (goose_engine.go), written under the
-		// state directory: no opencode.json.
+	vibe := !connectors && opts.engine == engineVibe
+	if goose || vibe {
+		// goose and Vibe have their own configs (goose_engine.go, vibe_engine.go),
+		// written under the state directory: no opencode.json.
 		opts.output = ""
 	} else if !connectors {
 		// The opencode.json lives beside the credentials unless --output says
@@ -804,6 +808,9 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 	if goose {
 		creds.Engine = engineGoose
 	}
+	if vibe {
+		creds.Engine = engineVibe
+	}
 	if err := saveCredentials(opts.creds, creds); err != nil {
 		return err
 	}
@@ -812,6 +819,10 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 	}
 	if goose {
 		if err := writeGooseEngineConfig(gooseRootFor(opts.creds), creds, models); err != nil {
+			return err
+		}
+	} else if vibe {
+		if err := writeVibeEngineConfig(vibeHomeFor(opts.creds), creds, models); err != nil {
 			return err
 		}
 	} else {
@@ -860,7 +871,7 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 	// model pinned there outside Pystino would bypass this gateway (or break
 	// background results once the provider is unreachable). Warn now, while
 	// the files can still be fixed; run reports them again at every start.
-	if !goose {
+	if !goose && !vibe {
 		for _, p := range scanModelPins(opts.allowFreeModels) {
 			fmt.Fprintf(os.Stderr, "warning: %s\n", p.Warning())
 		}
@@ -880,6 +891,9 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 		fmt.Fprintf(os.Stderr, "wrote galopin's goose config under %s (provider galopin via shim %s; never ~/.config/goose) and credentials %s\n", gooseRootFor(opts.creds), shimAddr, opts.creds)
 		fmt.Fprintf(os.Stderr, "engine: goose %s. %s\n", packaging.GooseVersion(), gooseInstalledNote())
 		fmt.Fprintf(os.Stderr, "'galopin goose setup' also points your own goose (Desktop, CLI, editor extension) at the same proxy.\n")
+	} else if vibe {
+		fmt.Fprintf(os.Stderr, "wrote galopin's Mistral Vibe config under %s (provider galopin via shim %s; never ~/.vibe) and credentials %s\n", vibeHomeFor(opts.creds), shimAddr, opts.creds)
+		fmt.Fprintf(os.Stderr, "engine: Mistral Vibe %s. %s\n", packaging.VibeVersion(), vibeInstalledNote())
 	} else {
 		fmt.Fprintf(os.Stderr, "wrote opencode config %s (provider pystino via shim %s) and credentials %s\n", opts.output, shimAddr, opts.creds)
 		fmt.Fprintf(os.Stderr, "'galopin run' finds the opencode config through the credentials, from any directory.\n")

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -542,5 +543,39 @@ func TestStopReasonsThatAreNotANormalEndSayWhy(t *testing.T) {
 		if sawErr != wantErr {
 			t.Errorf("%s: error event = %v, want %v", reason, sawErr, wantErr)
 		}
+	}
+}
+
+// ---- Vibe: a session another process still holds
+
+// An agent that keeps a lock per open session (Mistral Vibe) refuses a load with
+// "already open" while the previous agent process is still shutting down; the
+// open waits for it instead of failing.
+func TestOpeningASessionAnotherProcessHoldsIsRetried(t *testing.T) {
+	old := openBusyDelays
+	openBusyDelays = []time.Duration{time.Millisecond, time.Millisecond, time.Millisecond}
+	defer func() { openBusyDelays = old }()
+	busy := 2
+	b, fa := newBackend(t, func(fa *fakeAgent) {
+		fa.hook = func(fa *fakeAgent, id json.RawMessage, method string, _ map[string]any) bool {
+			if method == "session/load" && busy > 0 {
+				busy--
+				_ = fa.conn.respond(id, nil, &rpcError{Code: -31002, Message: "Session is already open: ext-1"})
+				return true
+			}
+			return false
+		}
+	})
+	if _, err := b.Transcript(context.Background(), "/w", "ext-1"); err != nil {
+		t.Fatalf("the open failed instead of waiting for the other process: %v", err)
+	}
+	if n := len(fa.called("session/load")); n != 3 {
+		t.Errorf("session/load called %d times, want 3 (two refused, one answered)", n)
+	}
+
+	// still held after every retry: the error says so
+	busy = 100
+	if _, err := b.Transcript(context.Background(), "/w", "ext-2"); err == nil || !strings.Contains(err.Error(), "already open") {
+		t.Errorf("err = %v, want the agent's own 'already open'", err)
 	}
 }

@@ -22,10 +22,11 @@ trap upgrade_on_exit EXIT
 
 oc_ready=
 goose_ready=
+vibe_ready=
 
 if [ -n "$upgrade" ]; then
 	upgrade_precheck
-	case "$engine" in opencode | goose | none) ;; *) fail "--engine must be opencode or goose" ;; esac
+	case "$engine" in opencode | goose | vibe | none) ;; *) fail "--engine must be opencode, goose or vibe" ;; esac
 	upgrade_engines
 fi
 
@@ -98,6 +99,21 @@ if [ "$engine" = goose ] && [ -n "$dogoose" ]; then
 	goose_ready=1
 fi
 
+if [ "$engine" = vibe ] && [ -n "$dovibe" ]; then
+	# Mistral Vibe is a Python application: built into an environment of galopin's own with
+	# uv, from a lock that pins every package by hash, wheels only (no build step runs).
+	command -v uv >/dev/null 2>&1 || fail "Mistral Vibe needs uv (https://docs.astral.sh/uv/): install it, then run this again"
+	fetch "$origin/galopin/vibe-requirements.txt" "$tmp/vibe-requirements.txt" || fail "could not download the Mistral Vibe lock from $origin"
+	got=$(sha256 "$tmp/vibe-requirements.txt")
+	[ "$got" = "@VIBE_LOCK_SHA256@" ] || fail "checksum mismatch for vibe-requirements.txt (expected @VIBE_LOCK_SHA256@, got $got); Mistral Vibe not installed"
+	# --no-config: a uv.toml of the user's must not redirect the index or the Python.
+	uv --no-config venv --quiet --python ">=3.12,<3.14" "$tmp/vibe-venv" || fail "could not create a Python 3.12 or 3.13 environment for Mistral Vibe (uv fetches one when none is installed)"
+	uv --no-config pip install --quiet --python "$tmp/vibe-venv/bin/python" --require-hashes --no-deps --only-binary :all: -r "$tmp/vibe-requirements.txt" || fail "could not install Mistral Vibe @VIBE_VERSION@ (hashes are checked; wheels only); not installed"
+	# never report success for an install that cannot run here
+	[ "$("$tmp/vibe-venv/bin/python" -c 'import vibe; print(vibe.__version__)' 2>/dev/null)" = "@VIBE_VERSION@" ] || fail "the Mistral Vibe install does not run on this computer; not installed"
+	vibe_ready=1
+fi
+
 if [ -n "$upgrade" ]; then
 	upgrade_stop
 	upgrade_backup
@@ -134,6 +150,14 @@ if [ -n "$goose_ready" ]; then
 	install_bin "$tmp/goose-x/goose" "$dir/galopin-goose/goose" || fail "could not install goose to $dir/galopin-goose"
 	printf 'Installed goose @GOOSE_VERSION@ to %s/galopin-goose/goose (checksum verified; a goose you installed yourself is left alone).\n' "$dir"
 fi
+if [ -n "$vibe_ready" ]; then
+	mkdir -p "$dir/galopin-vibe"
+	rm -rf "$dir/galopin-vibe/venv.new.$$"
+	mv "$tmp/vibe-venv" "$dir/galopin-vibe/venv.new.$$" || fail "could not install Mistral Vibe to $dir/galopin-vibe"
+	rm -rf "$dir/galopin-vibe/venv"
+	mv "$dir/galopin-vibe/venv.new.$$" "$dir/galopin-vibe/venv" || fail "could not install Mistral Vibe to $dir/galopin-vibe"
+	printf 'Installed Mistral Vibe @VIBE_VERSION@ to %s/galopin-vibe/venv (every package checked against a hash; a Vibe you installed yourself is left alone).\n' "$dir"
+fi
 case ":$PATH:" in
 	*":$dir:"*) ;;
 	*) printf 'Note: %s is not on your PATH; add it, or run %s/galopin directly.\n' "$dir" "$dir" ;;
@@ -144,4 +168,5 @@ if [ -n "$upgrade" ]; then
 fi
 engineflag=""
 [ "$engine" = goose ] && engineflag=" --engine goose"
+[ "$engine" = vibe ] && engineflag=" --engine vibe"
 @NEXT@

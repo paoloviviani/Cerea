@@ -88,7 +88,7 @@
 
 	function chooseMode(value: string) {
 		mode = value === "docker" ? "docker" : "native";
-		// The image has no goose: a goose choice made on this computer must not
+		// The image has no goose or Vibe: such a choice made on this computer must not
 		// leak into the container's command (or come back unseen).
 		if (mode === "docker") policyChoices.engine = "opencode";
 	}
