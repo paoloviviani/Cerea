@@ -5,7 +5,11 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.56.1 — 2026-11-17
+
+Pins: Cerea `0.56.1` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.4`, opencode `2.3.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. Nothing to do on computers.
 
 - **Settings → Review log says when your agents sign-in has expired.** It no longer shows "Something went wrong (401)": it says "Your sign-in for agents has expired" with a **Sign in again** button (the same forced re-login /code uses). The Administration review log does the same.
 - **Delete older versions on the artifact lists.** The project page's artifacts list and the Artifacts tab on /chats have it in each row's ⋯ menu, for artifacts with more than one version. Same confirmation and result text as the side panel; the row's version count updates.
