@@ -109,6 +109,9 @@ const TEXT_PROPS = ["title", "placeholder", "aria-label", "alt", "label", "aria-
 
 const HAS_LETTERS = /[A-Za-z]/;
 
+/** Generated locales: never translated, never reviewed for wording. */
+const PSEUDO = ["en-XA"];
+
 /**
  * A line that says it means to keep its text. Some words are not words: the
  * product's name, a command somebody has to type, a value the API sent. Say so
@@ -163,21 +166,216 @@ function tokens(text) {
 }
 
 /**
- * A message's shape with the words taken out: its variant keys and every
- * placeholder and tag in order. "The translation kept every placeholder",
- * made checkable.
+ * The pieces of a message that carry words: a plain string is one piece, a
+ * plural or select message is one piece per variant, keyed `countPlural=one`.
  */
-function shape(value) {
-	if (typeof value === "string") return tokens(value);
-	if (Array.isArray(value)) return value.map(shape);
-	if (value && typeof value === "object") {
-		return Object.fromEntries(
-			Object.entries(value)
-				.filter(([key]) => key !== "$schema")
-				.map(([key, entry]) => [key, shape(entry)])
-		);
+export function variants(value) {
+	if (typeof value === "string") return { "": value };
+	if (Array.isArray(value)) {
+		const out = {};
+		for (const entry of value) {
+			for (const [key, text] of Object.entries(entry.match ?? {})) out[key] = text;
+		}
+		return out;
 	}
-	return value;
+	return {};
+}
+
+/** The selectors and declarations of a message: the part a translation may not change. */
+function frame(value) {
+	return Array.isArray(value)
+		? JSON.stringify(value.map(({ declarations, selectors }) => ({ declarations, selectors })))
+		: "";
+}
+
+/**
+ * Compares one translated message with the English one and names what is
+ * wrong, in words: a placeholder or tag that was lost, added or renamed (order
+ * is the translator's: Italian is not English), a plural variant that is
+ * missing, or declarations that changed. Variants a language needs and English
+ * does not (`many`, for Italian millions) are allowed.
+ */
+export function compareMessage(base, translated) {
+	const problems = [];
+	if ((typeof base === "string") !== (typeof translated === "string")) {
+		return ["is a plain message in one language and a plural or select in the other"];
+	}
+	if (frame(base) !== frame(translated)) problems.push("its plural or select declarations differ");
+	const from = variants(base);
+	const to = variants(translated);
+	for (const key of Object.keys(from)) {
+		if (!(key in to)) {
+			problems.push(`has no variant ${key}`);
+			continue;
+		}
+		const want = tokens(from[key]).sort();
+		const got = tokens(to[key]).sort();
+		if (JSON.stringify(want) !== JSON.stringify(got)) {
+			problems.push(
+				`${key ? `variant ${key}: ` : ""}placeholders or tags differ (expected ${want.join(" ") || "none"}, found ${got.join(" ") || "none"})`
+			);
+		}
+	}
+	return problems;
+}
+
+/**
+ * Strings that are legitimately the same in English and Italian: names,
+ * units, symbols, loanwords. A translated value equal to the English one is
+ * otherwise an untranslated string. Matched case-insensitively on the whole
+ * value after placeholders are removed.
+ */
+const SAME_AS_ENGLISH = new Set(
+	[
+		"Cerea",
+		"Pystino",
+		"galopin",
+		"opencode",
+		"goose",
+		"OK",
+		"Email",
+		"Web",
+		"Console",
+		"Auto",
+		"Stop",
+		"Input",
+		"Output",
+		"Stderr",
+		"Provider",
+		"Token",
+		"URL",
+		"Header",
+		"Notion",
+		"Linux",
+		"macOS",
+		"Word",
+		"PDF",
+		"Markdown",
+		"Dashboard",
+		"Workspace",
+		"Computer",
+		"Chat",
+		"Prompt",
+		"Fork",
+		"Glob",
+		"Tab",
+		"Tilde",
+		"Pipe",
+		"Alt",
+		"MCP",
+		"Online",
+		"Offline",
+		"Pagina",
+		"Pipeline",
+		"Internet",
+		"Account",
+		"Backend",
+		"Cron",
+		"Download",
+		"Sandbox",
+		"Skill",
+		"Base",
+		"Hop",
+		"html",
+		"markdown",
+		"mermaid",
+		"react",
+		"svg",
+		"online",
+		"offline",
+		"sub",
+		"main",
+		"https://",
+		"SKILL.md",
+		"Linux x86-64",
+		"Linux ARM64",
+		"macOS Intel",
+		"macOS Apple silicon",
+		"{value} B",
+		"{value} kB",
+		"{value} MB",
+		"{value} KB",
+		"{value} GB",
+		"{value} s",
+		"{n} ms",
+		"{n} s",
+		"{n}. {title}",
+		"{count}h",
+		"v{number}",
+		"{current} / {total}",
+		"{used} / {limit}",
+		"{label} {index}",
+		"{name}: {reason}",
+		"{kind}{version}",
+		"{#code}{name}{/code}",
+		"{tag}",
+		"{input} in · {output} out",
+		"offline {age}",
+		"{count} workspace",
+		"{count} base",
+		"{count}{more} chat",
+		"{count} chat",
+		"Cron {expr}",
+		"1. Computer",
+		"2. Workspace",
+		"Control",
+		"File",
+		"Sans-serif",
+		"Serif",
+		"Logo",
+		"embedding",
+		"Browser",
+		"Audio",
+		"Prompt: {prompt}",
+		"File, {type}",
+		"Link",
+		"Gateway",
+	].map((value) => value.toLowerCase())
+);
+
+/** Whether a value is the same in both languages on purpose (a name, a unit, a symbol). */
+function sameOnPurpose(text) {
+	const bare = text.replace(/\{#?\/?[^{}]*\}/g, "").trim();
+	return (
+		SAME_AS_ENGLISH.has(
+			text
+				.trim()
+				.replace(/[.…]+$/, "")
+				.toLowerCase()
+		) ||
+		// Nothing left that a translator could have translated: only symbols, digits, tags.
+		!/[A-Za-z]{3,}/.test(bare)
+	);
+}
+
+/** Italian runs about a fifth longer than English; past this it is worth a look on a small screen. */
+const LONG_RATIO = 1.6;
+const LONG_MIN = 12;
+
+/**
+ * What is wrong with a real locale beyond a missing key: a value that is empty,
+ * or word for word the English one (and not allow-listed), and the values far
+ * longer than the English, which are reported for layout review and fail
+ * nothing.
+ */
+export function reviewLocale(base, translated) {
+	const empty = [];
+	const same = [];
+	const long = [];
+	for (const [key, value] of Object.entries(translated)) {
+		const english = variants(base[key]);
+		for (const [variant, text] of Object.entries(variants(value))) {
+			const label = variant ? `${key} [${variant}]` : key;
+			if (text.trim() === "") empty.push(label);
+			const source = english[variant] ?? english[variant.replace(/many$/, "other")];
+			if (source === undefined) continue;
+			if (text === source && !sameOnPurpose(text)) same.push(label);
+			if (source.length >= LONG_MIN && text.length > source.length * LONG_RATIO) {
+				long.push({ key: label, english: source.length, translated: text.length });
+			}
+		}
+	}
+	return { empty, same, long };
 }
 
 /** Every message the app's own code asks for, and where it asks. */
@@ -284,8 +482,8 @@ async function main() {
 
 	// 3. Every other catalogue: the pseudo-locale is generated and must be
 	// regenerated; a real one must carry every key with its placeholders.
+	const longReports = [];
 	const settings = JSON.parse(await readFile(join(APP, "project.inlang", "settings.json"), "utf8"));
-	const before = shape(base);
 	for (const locale of settings.locales.filter((l) => l !== settings.baseLocale)) {
 		const file = `messages/${locale}.json`;
 		let current;
@@ -300,13 +498,29 @@ async function main() {
 		if (locale === "en-XA" && current !== serialise(buildPseudoLocale(base))) {
 			failures.push(`${file} is out of date with messages/en.json — run \`npm run i18n:pseudo\``);
 		}
-		const after = shape(JSON.parse(current));
+		const parsed = flatten(JSON.parse(current));
 		for (const key of keys) {
-			if (!(key in after)) failures.push(`${file} has no message for ${key}`);
-			else if (JSON.stringify(before[key]) !== JSON.stringify(after[key])) {
+			if (!(key in parsed)) {
+				failures.push(`${file} has no message for ${key}`);
+				continue;
+			}
+			for (const problem of compareMessage(flat[key], parsed[key])) {
+				failures.push(`${file}: ${key} ${problem}`);
+			}
+		}
+		for (const key of Object.keys(parsed)) {
+			if (!keys.has(key)) failures.push(`${file} has ${key}, which en.json does not (delete it)`);
+		}
+		if (!PSEUDO.includes(locale)) {
+			const { empty, same, long } = reviewLocale(flat, parsed);
+			for (const key of empty) failures.push(`${file}: ${key} is empty`);
+			for (const key of same) {
 				failures.push(
-					`${file} changed more than the wording of ${key}: a placeholder, a tag or a variant key differs`
+					`${file}: ${key} is the same as English (translate it, or allow-list it in scripts/i18n-check.mjs)`
 				);
+			}
+			if (long.length > 0) {
+				longReports.push({ file, long });
 			}
 		}
 	}
@@ -334,6 +548,17 @@ async function main() {
 		console.error(`i18n:check failed (${failures.length}):`);
 		for (const failure of failures) console.error(`  - ${failure}`);
 		process.exit(1);
+	}
+	// Layout review, not a failure: values far longer than the English.
+	for (const { file, long } of longReports) {
+		const sorted = [...long].sort((a, b) => b.translated / b.english - a.translated / a.english);
+		const shown = process.argv.includes("--long") ? sorted : sorted.slice(0, 5);
+		console.log(
+			`${file}: ${long.length} value(s) more than ${Math.round((LONG_RATIO - 1) * 100)}% longer than English (check them on a small screen${process.argv.includes("--long") ? "" : "; --long lists all"}):`
+		);
+		for (const { key, english, translated } of shown) {
+			console.log(`  ${key}: ${english} -> ${translated}`);
+		}
 	}
 	console.log(
 		`i18n:check passed: ${keys.size} message(s), ${used.size} used, ${converted} converted template(s)`

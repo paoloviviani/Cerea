@@ -3156,7 +3156,8 @@
 	"settings.application.background.option.glow": "[Ǧľóŵ]",
 	"settings.application.background.option.bold": "[Ɓóľď]",
 	"settings.application.language.title": "[Ĺáńǧúáǧé]",
-	"settings.application.language.description": "[Ťȟé ľáńǧúáǧé ťȟé áþþ íś śȟóŵń íń. Ćȟáńǧíńǧ íť ŕéľóáďś ťȟé þáǧé.]",
+	"settings.application.language.description": "[Ťȟé ľáńǧúáǧé ťȟé áþþ íś śȟóŵń íń. Ćȟáńǧíńǧ íť ŕéľóáďś ťȟé þáǧé. Ɓý ďéƒáúľť íť ƒóľľóŵś ýóúŕ ƀŕóŵśéŕ.]",
+	"settings.application.language.auto_option": "[Úśé ḿý ƀŕóŵśéŕ'ś ľáńǧúáǧé]",
 	"settings.application.language.pseudo_option": "[{tag} (þśéúďó-ľóćáľé, ƒóŕ ťéśťíńǧ)]",
 	"settings.application.streaming.title": "[Ȟóŵ ŕéþľíéś áþþéáŕ]",
 	"settings.application.streaming.description": "[Ćȟóóśé ȟóŵ ťȟé áśśíśťáńť'ś ťéẋť áþþéáŕś áś íť ŵŕíťéś.]",
@@ -4295,5 +4296,12 @@
 	"share.admin.app_origin_warning": "[Þúƀľíć (áńýóńé) ľíńķś ťó ȞŤḾĹ áŕťíƒáćťś ŕúń óń ťȟíś śíťé'ś óŵń áďďŕéśś, íśóľáťéď óńľý ƀý ťȟé ƀŕóŵśéŕ śáńďƀóẋ. Á śéþáŕáťé śȟáŕé áďďŕéśś íś śáƒéŕ: śéť íť ŵíťȟ ./ćóńƒíǧúŕé. Śíǧńéď-íń ľíńķś áľŵáýś úśé ťȟé áþþ'ś áďďŕéśś.]",
 	"share.admin.empty": "[Ńó ľíńķś ȟáǚé ƀééń ḿáďé.]",
 	"share.admin.saved": "[Śáǚéď.]",
-	"share.admin.error": "[Ťȟáť ďíď ńóť ŵóŕķ. Ťŕý áǧáíń.]"
+	"share.admin.error": "[Ťȟáť ďíď ńóť ŵóŕķ. Ťŕý áǧáíń.]",
+	"settings.notifications.push.ios_install": "[Óń áń íÞȟóńé óŕ íÞáď, ńóťíƒíćáťíóńś ŵóŕķ óńľý óńćé ťȟé áþþ íś áďďéď ťó ťȟé Ȟóḿé Śćŕééń (íÓŚ 16.4 óŕ ľáťéŕ): ťáþ Śȟáŕé, ťȟéń Áďď ťó Ȟóḿé Śćŕééń, áńď óþéń íť ƒŕóḿ ťȟéŕé.]",
+	"settings.notifications.push.insecure": "[Ńóťíƒíćáťíóńś ńééď á śéćúŕé (ȟťťþś) ćóńńéćťíóń.]",
+	"settings.notifications.push.unsupported": "[Ťȟíś ƀŕóŵśéŕ ďóéś ńóť śúþþóŕť þúśȟ ńóťíƒíćáťíóńś.]",
+	"settings.notifications.push.denied_help": "[Ńóťíƒíćáťíóńś áŕé ƀľóćķéď ƒóŕ ťȟíś śíťé íń ťȟé ƀŕóŵśéŕ'ś śéťťíńǧś. Áľľóŵ ťȟéḿ ťȟéŕé, ťȟéń ćóḿé ƀáćķ.]",
+	"settings.notifications.push.denied": "[Ńóťíƒíćáťíóńś áŕé ƀľóćķéď ƒóŕ ťȟíś śíťé íń ťȟé ƀŕóŵśéŕ'ś śéťťíńǧś.]",
+	"settings.notifications.push.not_allowed": "[Ńóťíƒíćáťíóńś ŵéŕé ńóť áľľóŵéď.]",
+	"settings.notifications.push.turn_on_failed": "[Ćóúľď ńóť ťúŕń ńóťíƒíćáťíóńś óń.]"
 }

@@ -5,7 +5,7 @@
 	import { useSettingsStore } from "$lib/stores/settings";
 	import { m } from "$lib/paraglide/messages";
 	import Rich from "$lib/i18n/Rich.svelte";
-	import { activeLocale, localeLabel, rememberLocaleCookie } from "$lib/i18n/locale";
+	import { forgetLocaleCookie, localeLabel, rememberLocaleCookie } from "$lib/i18n/locale";
 	import { parseLocale, selectableLocales } from "$lib/i18n/resolve";
 	import type { StreamingMode } from "$lib/types/Settings";
 	import LocationSettings from "$lib/components/settings/LocationSettings.svelte";
@@ -171,7 +171,6 @@
 	// (en-XA) appears only where the server says it may (dev, or CHAT_PSEUDO_LOCALE).
 	const pseudoAllowed = $derived(page.data.pseudoLocaleEnabled === true);
 	const languages = $derived(selectableLocales(pseudoAllowed));
-	const language = activeLocale();
 
 	function languageName(tag: string): string {
 		return parseLocale(tag, false)
@@ -179,9 +178,19 @@
 			: m["settings.application.language.pseudo_option"]({ tag });
 	}
 
+	// Whether the person has chosen a language (the saved setting), or follows the browser's.
+	const languageChoice = $derived(parseLocale($settings.locale, pseudoAllowed) ?? "auto");
+
 	async function chooseLanguage(value: string) {
+		if (value === "auto") {
+			if (languageChoice === "auto") return;
+			forgetLocaleCookie();
+			await settings.instantSet({ locale: "auto" });
+			window.location.reload();
+			return;
+		}
 		const next = parseLocale(value, pseudoAllowed);
-		if (!next || next === language) return;
+		if (!next || next === languageChoice) return;
 		rememberLocaleCookie(next);
 		// Saved before the reload: the server reads the saved choice first, so a
 		// reload that outran the save would come back in the old language.
@@ -370,9 +379,10 @@
 						id="language-select"
 						name="locale"
 						class="rounded-md border border-gray-300 bg-white px-1 py-1 text-xs text-gray-800 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
-						value={language}
+						value={languageChoice}
 						onchange={(e) => chooseLanguage(e.currentTarget.value)}
 					>
+						<option value="auto">{m["settings.application.language.auto_option"]()}</option>
 						{#each languages as tag (tag)}
 							<option value={tag}>{languageName(tag)}</option>
 						{/each}

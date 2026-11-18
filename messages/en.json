@@ -2891,7 +2891,8 @@
 	"settings.application.background.option.glow": "Glow",
 	"settings.application.background.option.bold": "Bold",
 	"settings.application.language.title": "Language",
-	"settings.application.language.description": "The language the app is shown in. Changing it reloads the page.",
+	"settings.application.language.description": "The language the app is shown in. Changing it reloads the page. By default it follows your browser.",
+	"settings.application.language.auto_option": "Use my browser's language",
 	"settings.application.language.pseudo_option": "{tag} (pseudo-locale, for testing)",
 	"settings.application.streaming.title": "How replies appear",
 	"settings.application.streaming.description": "Choose how the assistant's text appears as it writes.",
@@ -3973,5 +3974,12 @@
 	"share.admin.app_origin_warning": "Public (anyone) links to HTML artifacts run on this site's own address, isolated only by the browser sandbox. A separate share address is safer: set it with ./configure. Signed-in links always use the app's address.",
 	"share.admin.empty": "No links have been made.",
 	"share.admin.saved": "Saved.",
-	"share.admin.error": "That did not work. Try again."
+	"share.admin.error": "That did not work. Try again.",
+	"settings.notifications.push.ios_install": "On an iPhone or iPad, notifications work only once the app is added to the Home Screen (iOS 16.4 or later): tap Share, then Add to Home Screen, and open it from there.",
+	"settings.notifications.push.insecure": "Notifications need a secure (https) connection.",
+	"settings.notifications.push.unsupported": "This browser does not support push notifications.",
+	"settings.notifications.push.denied_help": "Notifications are blocked for this site in the browser's settings. Allow them there, then come back.",
+	"settings.notifications.push.denied": "Notifications are blocked for this site in the browser's settings.",
+	"settings.notifications.push.not_allowed": "Notifications were not allowed.",
+	"settings.notifications.push.turn_on_failed": "Could not turn notifications on."
 }

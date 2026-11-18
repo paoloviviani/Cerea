@@ -3,6 +3,7 @@
  * component so they can be tested without rendering it.
  */
 import { m } from "$lib/paraglide/messages";
+import { formatNumber } from "$lib/i18n/format";
 import { formatCost } from "$lib/utils/gatewayUsage";
 import type { RedactionEntity, TurnRedaction, TurnStats } from "$lib/types/TurnStats";
 
@@ -154,7 +155,7 @@ export function formatSpeed(tokensPerSecond: number | null | undefined): string 
 }
 
 export function formatCount(n: number | null | undefined): string {
-	return n == null ? "—" : new Intl.NumberFormat().format(n);
+	return n == null ? "—" : formatNumber(n);
 }
 
 /**

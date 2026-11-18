@@ -17,7 +17,7 @@ import { z } from "zod";
 import { visibleAdminInstructions } from "$lib/server/adminInstructions";
 import { locationSettingsFields } from "$lib/utils/location";
 import { paletteFields, palettePatch } from "$lib/server/paletteSettings";
-import { localeFields, localePatch } from "$lib/server/localeSettings";
+import { localeFields, localePatch, localeUnset } from "$lib/server/localeSettings";
 
 const settingsSchema = z.object({
 	// On by default for new accounts (DEFAULT_SETTINGS); absent on older
@@ -174,6 +174,7 @@ export const POST: RequestHandler = async ({ locals, request, getClientAddress }
 			$setOnInsert: {
 				createdAt: new Date(),
 			},
+			...(localeUnset({ locale }) ? { $unset: localeUnset({ locale }) } : {}),
 		},
 		{ upsert: true }
 	);

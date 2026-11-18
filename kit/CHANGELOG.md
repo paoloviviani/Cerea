@@ -5,6 +5,10 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Cerea speaks Italian.** The whole interface is available in Italian (Italiano). It follows your browser's language until you choose one in **Settings → Application → Language**, where **Use my browser's language** goes back to following it. Dates, times, numbers and relative times use the chosen language's conventions. The assistant's own prompts, the documentation and the Authelia sign-in pages stay in English.
+
 ## v0.57.0 — 2026-11-17
 
 Pins: Cerea `0.57.0` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.4`, opencode `2.3.0`.

@@ -8,6 +8,8 @@
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
 	import { m } from "$lib/paraglide/messages";
+	import { formatDateTime } from "$lib/i18n/format";
+	import { FULL_DATE_TIME } from "$lib/i18n/dateOptions";
 	import { PERMISSION_CLASSES } from "$lib/types/machineProtocol";
 	import type { ReviewOutcome } from "$lib/types/AgentReview";
 	import { className } from "$lib/utils/autoApproval";
@@ -186,7 +188,7 @@
 					data-testid="auto-log-card"
 				>
 					<div class="flex flex-wrap gap-x-1 text-xs text-gray-500">
-						<span>{new Date(e.time).toLocaleString()}</span>
+						<span>{formatDateTime(e.time, FULL_DATE_TIME)}</span>
 						<span aria-hidden="true">·</span>
 						<span class="text-gray-700 dark:text-gray-300">{e.machine}</span>
 						<span aria-hidden="true">·</span>
@@ -238,7 +240,8 @@
 							class="border-t border-gray-200 align-top dark:border-gray-700"
 							data-testid="auto-log-row"
 						>
-							<td class="py-1.5 pr-3 whitespace-nowrap">{new Date(e.time).toLocaleString()}</td>
+							<td class="py-1.5 pr-3 whitespace-nowrap">{formatDateTime(e.time, FULL_DATE_TIME)}</td
+							>
 							<td class="py-1.5 pr-3 whitespace-nowrap">{e.machine}</td>
 							<td class="py-1.5 pr-3 whitespace-nowrap">{className(e.class)}</td>
 							<td class="min-w-48 py-1.5 pr-3 font-mono text-xs break-all" title={e.reason}

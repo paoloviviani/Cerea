@@ -14,6 +14,8 @@
 -->
 <script lang="ts">
 	import { m } from "$lib/paraglide/messages";
+	import { formatDateTime } from "$lib/i18n/format";
+	import { FULL_DATE_TIME } from "$lib/i18n/dateOptions";
 	import Portal from "$lib/components/Portal.svelte";
 	import CarbonInformation from "~icons/carbon/information";
 	import CarbonInformationFilled from "~icons/carbon/information-filled";
@@ -92,7 +94,7 @@
 	const hasConsole = $derived((page.data as { consoleEnabled?: boolean }).consoleEnabled === true);
 	const when = $derived.by(() => {
 		const at = stats?.at ?? (message.createdAt ? new Date(message.createdAt).getTime() : undefined);
-		return at === undefined ? "—" : new Date(at).toLocaleString();
+		return at === undefined ? "—" : formatDateTime(at, FULL_DATE_TIME);
 	});
 	function entityLine(entity: RedactionEntity): string {
 		return [

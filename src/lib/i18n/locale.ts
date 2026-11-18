@@ -70,6 +70,15 @@ export function rememberLocaleCookie(locale: Locale): void {
 	}
 }
 
+/** Forget the explicit choice ("use my browser's language"). */
+export function forgetLocaleCookie(): void {
+	try {
+		document.cookie = `${LOCALE_COOKIE}=; path=/; max-age=0; samesite=lax`;
+	} catch {
+		// See above.
+	}
+}
+
 /**
  * A locale's own name for itself ("English", "Italiano"), for the selector.
  * Each language is written in that language, so a person who landed on the
