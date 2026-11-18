@@ -44,7 +44,7 @@ export const ACCENT_SWATCHES: Record<Accent, string> = {
 export const NEUTRAL_SWATCHES: Record<Neutral, string> = {
 	neutral: "#747371",
 	cool: "#6c747e",
-	warm: "#7a7269",
+	warm: "#78726c",
 };
 
 /** An unknown or missing value is "not chosen", never an error: settings written by a newer build must not break an older one. */

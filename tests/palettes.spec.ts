@@ -234,7 +234,7 @@ test.describe("Appearance", () => {
 		await expect(page.locator("body")).not.toHaveCSS("background-image", "none");
 		await expect(page.locator("nav.app-sidebar:visible")).toHaveCSS(
 			"background-color",
-			"rgb(233, 233, 233)"
+			"rgb(235, 233, 230)"
 		);
 
 		await page.goto(SETTINGS);

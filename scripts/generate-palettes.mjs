@@ -125,7 +125,7 @@ const TONES = {
 	// The default: a faint warmth (page is about #faf9f7), off-white and grey, never beige.
 	neutral: { hue: 85, chroma: 0.004 },
 	cool: { hue: 255, chroma: 0.018 },
-	warm: { hue: 70, chroma: 0.016 },
+	warm: { hue: 70, chroma: 0.011 },
 };
 
 function oklchHex(L, C, H) {
