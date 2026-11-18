@@ -195,7 +195,7 @@ async function fileChat(contents = ["one", "two", "three"]) {
 		messages: contents.map((_, i) => message(`m${i + 1}`, "done")),
 	});
 	const refs: Array<{ sha256: string; size: number; name: string }> = [];
-	const messages = [];
+	const messages: unknown[] = [];
 	for (const [i, text] of contents.entries()) {
 		const stored = await storeDeliverable({
 			conversationId: chat._id,
@@ -220,7 +220,10 @@ async function fileChat(contents = ["one", "two", "three"]) {
 			})
 		);
 	}
-	await collections.conversations.updateOne({ _id: chat._id }, { $set: { messages } });
+	await collections.conversations.updateOne(
+		{ _id: chat._id },
+		{ $set: { messages: messages as never } }
+	);
 	return { owner, chat, refs };
 }
 
