@@ -230,3 +230,84 @@ test("tags inside thinking are ignored", async ({ page, mockOpenAI, db, session 
 		timeout: 30_000,
 	});
 });
+
+test("a long artifact history sends stubs and one current copy, and read fetches v1", async ({
+	page,
+	mockOpenAI,
+	db,
+	session,
+}) => {
+	await useModel(db, session, TOOL_MODEL);
+	const filler = "<p>FILLER_LINE_XYZ</p>\n".repeat(40);
+	const deck = (marker: string) =>
+		`<section><h1>${marker}</h1></section>\n<section>\n${filler}</section>\n`;
+	const panel = page.getByLabel(PANEL_LABEL, { exact: true });
+	const call = (id: string, args: Record<string, unknown>) => ({
+		id,
+		name: "artifact",
+		arguments: JSON.stringify(args),
+	});
+
+	await mockOpenAI.setDefaultScenario({
+		toolCalls: [
+			call("call_c", {
+				command: "create",
+				identifier: "deck",
+				type: "slides",
+				title: "Team deck",
+				content: deck("ALPHA_V1"),
+			}),
+		],
+		content: ["Made", " it."],
+		chunkDelayMs: 10,
+	});
+	await page.goto(`${E2E_APP_BASE}/`);
+	await send(page, "make a deck");
+	await page.waitForURL(/\/conversation\/[a-f0-9]{24}/);
+	await expect(panel).toBeVisible({ timeout: 30_000 });
+
+	const edit = async (n: number, from: string, to: string) => {
+		await mockOpenAI.setDefaultScenario({
+			toolCalls: [
+				call(`call_u${n}`, { command: "update", identifier: "deck", old_str: from, new_str: to }),
+			],
+			content: ["Edited", "."],
+			chunkDelayMs: 10,
+		});
+		await send(page, `edit ${n}`);
+		await expect(panel.getByText(`v${n + 1} / ${n + 1}`)).toBeVisible({ timeout: 30_000 });
+	};
+	await edit(1, "ALPHA_V1", "BETA_V2");
+	await edit(2, "BETA_V2", "GAMMA_V3");
+
+	// Turn 4: a plain reply. What the model receives holds the deck once.
+	await mockOpenAI.setDefaultScenario({ content: ["Fine", "."], chunkDelayMs: 10 });
+	await send(page, "how does it look?");
+	await expect(page.locator('[data-message-role="assistant"]').last()).toContainText("Fine.", {
+		timeout: 30_000,
+	});
+	const chat = (await mockOpenAI.requests()).filter((r) => r.path === "/v1/chat/completions");
+	const last = JSON.stringify(chat.at(-1)?.body);
+	expect(last.split("FILLER_LINE_XYZ").length - 1).toBe(40);
+	expect(last).toContain("GAMMA_V3");
+	expect(last).not.toContain("ALPHA_V1");
+	expect(last).not.toContain("BETA_V2");
+	expect(last).toContain('[artifact \\"Team deck\\" (slides) → v1: created]');
+	expect(last).toContain('[artifact \\"Team deck\\" (slides) → v3: updated, 1 edit]');
+	expect(last).toContain("<current_artifacts>");
+
+	// Turn 5: the model reads v1 and gets it back, marked as data.
+	await mockOpenAI.setDefaultScenario({
+		toolCalls: [call("call_r", { command: "read", identifier: "deck", version: 1 })],
+		content: ["Read", " it."],
+		chunkDelayMs: 10,
+	});
+	await send(page, "what did v1 say?");
+	await expect(page.locator('[data-message-role="assistant"]').last()).toContainText("Read it.", {
+		timeout: 30_000,
+	});
+	const after = (await mockOpenAI.requests()).filter((r) => r.path === "/v1/chat/completions");
+	const followUp = JSON.stringify(after.at(-1)?.body);
+	expect(followUp).toContain("ALPHA_V1");
+	expect(followUp).toContain("v1 of 3");
+});

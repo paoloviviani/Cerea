@@ -19,6 +19,12 @@ import {
 } from "$lib/types/MessageUpdate";
 import { ToolResultStatus } from "$lib/types/Tool";
 import { isValidJsonObject } from "$lib/server/textGeneration/mcp/toolInvocation";
+import {
+	buildCurrentArtifactsBlock,
+	stubArtifactHistory,
+	tailBudgetChars,
+	type ArtifactHistoryOptions,
+} from "../artifactHistory";
 
 type ChatMessageParam = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
@@ -412,7 +418,7 @@ function replayAssistantTurn(
  *   proceeds regardless of producer.
  */
 export async function prepareMessagesWithFiles(
-	messages: EndpointMessage[],
+	rawMessages: EndpointMessage[],
 	imageProcessor: ReturnType<typeof makeImageProcessor>,
 	isMultimodal: boolean,
 	options?: {
@@ -441,8 +447,24 @@ export async function prepareMessagesWithFiles(
 		codeToolOffered?: boolean;
 		/** The delegate tool is offered this turn: a chunked read can use sub-agents. */
 		delegateToolOffered?: boolean;
+		/**
+		 * Artifacts are on this turn: past artifact operations are sent as one-line
+		 * notes (no content) and the current versions follow the last user message.
+		 * Absent, the history is sent as stored (artifacts off for the model).
+		 */
+		artifactHistory?: ArtifactHistoryOptions;
 	}
 ): Promise<OpenAI.Chat.Completions.ChatCompletionMessageParam[]> {
+	let messages = rawMessages;
+	let artifactTail: string | null = null;
+	if (options?.artifactHistory) {
+		const stubbed = stubArtifactHistory(rawMessages, options.artifactHistory);
+		messages = stubbed.messages;
+		artifactTail = buildCurrentArtifactsBlock(stubbed.registry, rawMessages, {
+			...options.artifactHistory,
+			budgetChars: tailBudgetChars(options.contextLengthTokens),
+		});
+	}
 	type ReplayCandidate = { replay: AssistantReplayMessage[]; flat: ChatMessageParam };
 	const prepared = await Promise.all(
 		messages.map(async (message, index): Promise<ChatMessageParam[] | ReplayCandidate> => {
@@ -557,7 +579,12 @@ export async function prepareMessagesWithFiles(
 	// paying only the difference over the floor. A history that already exceeds
 	// the cap leaves nothing to spend, so every turn keeps its flat form and the
 	// request is no larger than it used to be.
-	const total = budgetCharsFor(options?.contextLengthTokens, options?.maxOutputTokens);
+	// The tail is part of the request too: what it takes comes off the history's share.
+	const total = Math.max(
+		0,
+		budgetCharsFor(options?.contextLengthTokens, options?.maxOutputTokens) -
+			(artifactTail?.length ?? 0)
+	);
 	const windowBounded = Boolean(options?.contextLengthTokens && options.contextLengthTokens > 0);
 	let budget = total - floor;
 	const resolved: ChatMessageParam[][] = [...flatForms];
@@ -587,7 +614,29 @@ export async function prepareMessagesWithFiles(
 		budget -= upgrade;
 		resolved[i] = entry.replay;
 	}
-	return resolved.flat();
+	const out = resolved.flat();
+	if (artifactTail) appendToLastUserMessage(out, artifactTail);
+	return out;
+}
+
+/**
+ * The current artifacts go at the very end of the history, in the last user message.
+ * Everything before it is what the previous turn's request also began with (the
+ * past operations are fixed notes), so the cached prefix holds; only this tail and the
+ * new turn are new. A system message here would be rejected by providers that allow
+ * one only first, and a message of its own would put two user turns side by side.
+ */
+function appendToLastUserMessage(out: ChatMessageParam[], tail: string): void {
+	for (let i = out.length - 1; i >= 0; i -= 1) {
+		const message = out[i];
+		if (message.role !== "user") continue;
+		if (typeof message.content === "string") {
+			out[i] = { ...message, content: `${message.content}\n\n${tail}` };
+		} else if (Array.isArray(message.content)) {
+			out[i] = { ...message, content: [...message.content, { type: "text", text: tail }] };
+		}
+		return;
+	}
 }
 
 async function prepareFiles(

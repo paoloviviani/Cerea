@@ -5,6 +5,7 @@ import type { Message } from "$lib/types/Message";
 import { MessageUpdateType } from "$lib/types/MessageUpdate";
 import { collectArtifacts, type ArtifactKind } from "$lib/utils/artifacts";
 import { ARTIFACT_TOOL_GUIDANCE } from "../artifacts";
+import { markUntrustedResult } from "../untrusted";
 import type { BuiltinTool } from "./types";
 
 export const ARTIFACT_TOOL_NAME = "artifact";
@@ -31,16 +32,17 @@ export const artifactToolDefinition = {
 		name: ARTIFACT_TOOL_NAME,
 		description:
 			"Create or edit a live artifact in the side panel (apps, pages, components, documents, diagrams, longer code). " +
-			"Every call creates a new version with history. The result is short and never echoes the content. " +
+			"Every create, update and rewrite makes a new version with history; the result is short and never echoes the content. " +
+			"read returns the content of an artifact (the current version, or an earlier one) without changing anything. " +
 			ARTIFACT_TOOL_GUIDANCE,
 		parameters: {
 			type: "object",
 			properties: {
 				command: {
 					type: "string",
-					enum: ["create", "update", "rewrite"],
+					enum: ["create", "update", "rewrite", "read"],
 					description:
-						"create makes a new artifact (identifier must be new); update edits the latest version with an exact old_str/new_str pair; rewrite replaces the whole content of an existing artifact (same identifier).",
+						"create makes a new artifact (identifier must be new); update edits the latest version with an exact old_str/new_str pair (the way to change an artifact); rewrite replaces the whole content of an existing artifact (same identifier), only for a fresh version or when most of it changes; read returns the content of an artifact version.",
 				},
 				identifier: {
 					type: "string",
@@ -76,6 +78,15 @@ export const artifactToolDefinition = {
 					type: "string",
 					description: "For update: the replacement text.",
 				},
+				version: {
+					type: "integer",
+					description: "For read: the version number (default: the current version).",
+				},
+				offset: {
+					type: "integer",
+					description:
+						"For read: the character to start at, to continue a result that was cut off (default 0).",
+				},
 			},
 			required: ["command"],
 		},
@@ -83,7 +94,7 @@ export const artifactToolDefinition = {
 };
 
 const baseArgsSchema = z.object({
-	command: z.enum(["create", "update", "rewrite"]),
+	command: z.enum(["create", "update", "rewrite", "read"]),
 	identifier: z.string().optional(),
 	type: z.string().optional(),
 	language: z.string().optional(),
@@ -91,6 +102,8 @@ const baseArgsSchema = z.object({
 	content: z.string().optional(),
 	old_str: z.string().optional(),
 	new_str: z.string().optional(),
+	version: z.number().int().optional(),
+	offset: z.number().int().optional(),
 });
 
 export type ArtifactArgs = z.infer<typeof baseArgsSchema>;
@@ -100,6 +113,75 @@ export type ResolvedArtifactOp =
 	| { ok: false; error: string };
 
 type HistoryMessage = Pick<Message, "id" | "from" | "content">;
+
+/** The most one read returns; the rest is fetched with `offset`. */
+export const MAX_READ_CHARS = 40_000;
+
+export type ReadArtifactResult = { ok: true; text: string } | { ok: false; error: string };
+
+/**
+ * `read`: the content of one version of an artifact of this conversation. A version the
+ * owner deleted is reported as deleted, never returned. Text is cut at MAX_READ_CHARS with a
+ * note saying where to continue.
+ */
+export function readArtifact(
+	history: HistoryMessage[],
+	pruned: ReadonlySet<string>,
+	args: Pick<ArtifactArgs, "identifier" | "version" | "offset">
+): ReadArtifactResult {
+	const identifierError = invalidIdentifier(args.identifier);
+	if (identifierError)
+		return { ok: false, error: `${identifierError}. Retry with a corrected identifier.` };
+	const identifier = args.identifier as string;
+	const registry = collectArtifacts(
+		history.filter((m) => m.from === "assistant"),
+		undefined,
+		pruned
+	);
+	const artifact = registry.artifacts.get(identifier);
+	if (!artifact || artifact.versions.length === 0) {
+		const known = [...registry.artifacts.keys()];
+		return {
+			ok: false,
+			error:
+				`Artifact "${identifier}" does not exist in this conversation.` +
+				(known.length > 0 ? ` Known identifiers: ${known.join(", ")}.` : ""),
+		};
+	}
+	const latest = artifact.versions.length;
+	const number = args.version ?? latest;
+	if (!Number.isInteger(number) || number < 1 || number > latest) {
+		return {
+			ok: false,
+			error: `Artifact "${identifier}" has versions 1 to ${latest}; there is no v${number}.`,
+		};
+	}
+	const version = artifact.versions[number - 1];
+	if (version.deleted) {
+		return {
+			ok: false,
+			error: `v${number} of artifact "${identifier}" was deleted by the user and cannot be read.${
+				artifact.versions[latest - 1].deleted ? "" : ` The current version is v${latest}.`
+			}`,
+		};
+	}
+	const offset = Math.max(0, args.offset ?? 0);
+	const total = version.content.length;
+	if (offset > 0 && offset >= total) {
+		return { ok: false, error: `offset ${offset} is past the end (${total} characters).` };
+	}
+	const slice = version.content.slice(offset, offset + MAX_READ_CHARS);
+	const end = offset + slice.length;
+	const header =
+		`artifact "${identifier}" "${version.title}" (${version.type}) v${number} of ${latest}` +
+		(number === latest ? " (current)" : "") +
+		`, characters ${offset}-${end} of ${total}`;
+	const note =
+		end < total
+			? `\n[Truncated: ${total - end} more characters. Call read again with offset ${end} to continue.]`
+			: "";
+	return { ok: true, text: markUntrustedResult("artifact", `${header}\n${slice}${note}`) };
+}
 
 function invalidIdentifier(value: unknown): string | null {
 	if (typeof value !== "string" || value.length === 0)
@@ -333,12 +415,14 @@ export function createArtifactTool(params: { turnBlocks?: string[] } = {}): Buil
 				};
 			}
 			let history: HistoryMessage[] = [];
+			let pruned: ReadonlySet<string> = new Set();
 			try {
 				if (ctx.conversationId) {
 					const conv = await collections.conversations.findOne(
 						{ _id: ctx.conversationId },
-						{ projection: { messages: 1 } }
+						{ projection: { messages: 1, prunedArtifactVersions: 1 } }
 					);
+					pruned = new Set(conv?.prunedArtifactVersions ?? []);
 					const stored = (conv?.messages ?? []) as Array<Pick<Message, "id" | "from" | "content">>;
 					// The message this turn writes into may already be stored with
 					// this turn's earlier blocks in it; those come from `turnBlocks`
@@ -358,6 +442,10 @@ export function createArtifactTool(params: { turnBlocks?: string[] } = {}): Buil
 						content: turnBlocks.join("\n\n"),
 					},
 				];
+			}
+			if (parsed.data.command === "read") {
+				const read = readArtifact(history, pruned, parsed.data);
+				return read.ok ? { resultText: read.text } : { error: read.error };
 			}
 			const resolved = resolveArtifactOp(history, parsed.data);
 			if (!resolved.ok) return { error: resolved.error };

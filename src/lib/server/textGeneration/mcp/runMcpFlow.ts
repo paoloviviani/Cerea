@@ -761,6 +761,15 @@ export async function* runMcpFlow({
 				timezone: userTimezone,
 				codeToolOffered: oaTools.some((tool) => tool.function.name === EXECUTE_CODE_TOOL_NAME),
 				delegateToolOffered: oaTools.some((tool) => tool.function.name === DELEGATE_TOOL_NAME),
+				// Past artifact operations as one-line notes, the current versions at the tail.
+				...(artifactsEnabled
+					? {
+							artifactHistory: {
+								mode: artifactsMode,
+								pruned: new Set(conv.prunedArtifactVersions ?? []),
+							},
+						}
+					: {}),
 			}
 		);
 		const toolPreprompt = buildToolPreprompt(oaTools, userTimezone, builtinTools, {

@@ -35,6 +35,31 @@ rewrite the artifact whole, or send targeted replacements that are applied to
 the latest version, so it does not re-emit a long document to change a
 sentence. The panel keeps the history and lets you move between versions.
 
+### How the assistant sees artifacts
+
+Everything above is stored in the chat, but the assistant is not handed every
+version again on each turn: a deck revised ten times would fill its window
+with ten copies. What it receives instead:
+
+- **Past operations are one-line notes**, with no content, for example
+  `[artifact "Cerea deck" (slides) → v7: updated, 2 edits]`. The note for a message is
+  the same on every turn, so the cached part of the conversation (and its cost) holds.
+- **The current version** of the artifacts you are working on comes once, in a
+  `<current_artifacts>` block after your last message: at most three, the most recently
+  changed first, and at most about 15% of the model's context window in total. Others are
+  listed by name and version.
+- **`read`** is a command of the artifact tool: the assistant can fetch the current
+  version of any artifact, or an earlier one (`version`), without changing anything.
+  Long content comes in parts (`offset`). A [deleted version](#deleting-older-versions)
+  is never shown or readable. What `read` returns is data, not instructions.
+- **Edit, don't rewrite.** The assistant is asked to use `update` and touch only the
+  slides or sections that change, and `rewrite` only for a fresh version or when most of
+  the content changes.
+
+This is only how the history is rendered for the model: the panel, the versions, a
+conversation export and shares are unchanged. It applies the same way to a model that
+writes artifact tags in its text (it has no `read`), and to scheduled runs.
+
 Whether a model makes artifacts follows the model's setting in the
 **Workspace → Models** tab: on for a model that can call tools unless the
 setting says otherwise.

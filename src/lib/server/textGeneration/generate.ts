@@ -9,6 +9,7 @@ import type { TextGenerationContext } from "./types";
 import type { EndpointMessage } from "../endpoints/endpoints";
 import { generateFromDefaultEndpoint } from "../generateFromDefaultEndpoint";
 import { generateSummaryOfReasoning } from "./reasoning";
+import { artifactsEnabledForTurn } from "./artifacts";
 import { logger } from "../logger";
 import { TurnStatsCollector, mergeCallReport, redactionFromError } from "../turnStats";
 
@@ -24,6 +25,7 @@ export async function* generate(
 		forceMultimodal,
 		reasoningEffort,
 		reasoningOverride,
+		artifactsOverride,
 		locals,
 		abortController,
 		messageId,
@@ -69,6 +71,18 @@ export async function* generate(
 			abortSignal: abortController.signal,
 			reasoningEffort,
 			reasoningOverride,
+			...(artifactsEnabledForTurn({
+				artifactsOverride,
+				supportsArtifacts: model.supportsArtifacts,
+				supportsTools: model.supportsTools,
+			})
+				? {
+						artifactHistory: {
+							mode: "tags" as const,
+							pruned: new Set(conv.prunedArtifactVersions ?? []),
+						},
+					}
+				: {}),
 		});
 	} catch (err) {
 		// A refused request still says what the gateway did: the dot turns red.
