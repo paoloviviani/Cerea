@@ -8,6 +8,7 @@
 	pressed.
 -->
 <script lang="ts">
+	import { formatDateTime } from "$lib/i18n/format";
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
 	import { m } from "$lib/paraglide/messages";
@@ -155,7 +156,7 @@
 	}
 
 	function checkedAt(iso: string): string {
-		return new Date(iso).toLocaleTimeString();
+		return formatDateTime(iso, { timeStyle: "medium" });
 	}
 
 	function updateLine(product: string, update: ProductUpdate): string {

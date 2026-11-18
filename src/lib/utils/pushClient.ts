@@ -6,6 +6,7 @@
  */
 
 import { base } from "$app/paths";
+import { m } from "$lib/paraglide/messages";
 
 export type PushSupport =
 	| { ok: true }
@@ -51,34 +52,33 @@ export function isIos(env: Pick<PushEnv, "userAgent" | "maxTouchPoints">): boole
 	);
 }
 
-export const IOS_INSTALL_MESSAGE =
-	"On an iPhone or iPad, notifications work only once the app is added to the Home Screen " +
-	"(iOS 16.4 or later): tap Share, then Add to Home Screen, and open it from there.";
-
 export function pushSupport(env: PushEnv = readPushEnv()): PushSupport {
 	if (isIos(env) && !env.standalone) {
-		return { ok: false, reason: "ios-install", message: IOS_INSTALL_MESSAGE };
+		return {
+			ok: false,
+			reason: "ios-install",
+			message: m["settings.notifications.push.ios_install"](),
+		};
 	}
 	if (!env.isSecureContext) {
 		return {
 			ok: false,
 			reason: "insecure",
-			message: "Notifications need a secure (https) connection.",
+			message: m["settings.notifications.push.insecure"](),
 		};
 	}
 	if (!env.hasServiceWorker || !env.hasPushManager || !env.hasNotification) {
 		return {
 			ok: false,
 			reason: "unsupported",
-			message: "This browser does not support push notifications.",
+			message: m["settings.notifications.push.unsupported"](),
 		};
 	}
 	if (env.permission === "denied") {
 		return {
 			ok: false,
 			reason: "denied",
-			message:
-				"Notifications are blocked for this site in the browser's settings. Allow them there, then come back.",
+			message: m["settings.notifications.push.denied_help"](),
 		};
 	}
 	return { ok: true };
@@ -133,8 +133,8 @@ export async function enableThisDevice(publicKey: string): Promise<void> {
 	if (permission !== "granted") {
 		throw new PushClientError(
 			permission === "denied"
-				? "Notifications are blocked for this site in the browser's settings."
-				: "Notifications were not allowed."
+				? m["settings.notifications.push.denied"]()
+				: m["settings.notifications.push.not_allowed"]()
 		);
 	}
 	const registration = await workerRegistration();
@@ -152,7 +152,9 @@ export async function enableThisDevice(publicKey: string): Promise<void> {
 	});
 	if (!response.ok) {
 		await subscription.unsubscribe().catch(() => undefined);
-		throw new PushClientError(await errorMessage(response, "Could not turn notifications on."));
+		throw new PushClientError(
+			await errorMessage(response, m["settings.notifications.push.turn_on_failed"]())
+		);
 	}
 }
 

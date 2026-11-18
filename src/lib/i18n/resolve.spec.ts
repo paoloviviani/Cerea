@@ -9,8 +9,8 @@ import {
 
 describe("selectableLocales", () => {
 	it("lists real locales only, unless pseudo is allowed", () => {
-		expect(selectableLocales(false)).toEqual(["en"]);
-		expect(selectableLocales(true)).toEqual(["en", "en-XA"]);
+		expect(selectableLocales(false)).toEqual(["en", "it"]);
+		expect(selectableLocales(true)).toEqual(["en", "it", "en-XA"]);
 	});
 });
 
@@ -49,6 +49,10 @@ describe("matchAcceptLanguage", () => {
 	it("falls from the full tag to its language, then to the next tag", () => {
 		expect(matchAcceptLanguage("en-GB")).toBe("en");
 		expect(matchAcceptLanguage("fr-CH, fr;q=0.9, en;q=0.5")).toBe("en");
+		expect(matchAcceptLanguage("it")).toBe("it");
+		expect(matchAcceptLanguage("it-IT")).toBe("it");
+		expect(matchAcceptLanguage("it-CH, de;q=0.5")).toBe("it");
+		expect(matchAcceptLanguage("fr, it;q=0.4, en;q=0.2")).toBe("it");
 	});
 
 	it("has no answer for a language we do not carry", () => {
@@ -67,6 +71,16 @@ describe("resolveLocale", () => {
 		expect(resolveLocale({ cookie: "nope", acceptLanguage: "en-GB" })).toBe("en");
 		expect(resolveLocale({ acceptLanguage: "fr" })).toBe("en");
 		expect(resolveLocale({})).toBe("en");
+	});
+
+	it("puts an explicit setting before the header, and the header before the default", () => {
+		expect(resolveLocale({ saved: "en", acceptLanguage: "it-IT" })).toBe("en");
+		expect(resolveLocale({ saved: "it", acceptLanguage: "en-GB" })).toBe("it");
+		expect(resolveLocale({ acceptLanguage: "it-IT,it;q=0.9,en;q=0.8" })).toBe("it");
+		expect(resolveLocale({ acceptLanguage: "it-CH" })).toBe("it");
+		expect(resolveLocale({ acceptLanguage: "de, fr" })).toBe("en");
+		// "Use my browser's language" clears the saved value: the header decides again.
+		expect(resolveLocale({ saved: undefined, acceptLanguage: "it" })).toBe("it");
 	});
 
 	it("honours the pseudo-locale from a saved choice or cookie only when allowed", () => {

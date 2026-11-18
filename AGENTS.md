@@ -364,7 +364,8 @@ User-visible strings come from `messages/en.json` through Paraglide, in every
 converted area (`CONVERTED` in `scripts/i18n-check.mjs`; currently every screen).
 `npm run i18n:check` is part of lint. New strings are messages, not literals;
 `en-XA` is the pseudo-locale for spotting leftovers. The language of a request is
-decided once in `hooks/handle.ts`.
+decided once in `hooks/handle.ts`. A new or changed string needs its Italian in
+`messages/it.json` in the same PR (glossary: `docs/dev/i18n-it-glossary.md`); CI enforces it.
 
 Full reference: [docs/dev/translations.md](docs/dev/translations.md).
 
