@@ -28,6 +28,7 @@
 	import { requireAuthUser } from "$lib/utils/auth";
 	import ToolUpdate from "./ToolUpdate.svelte";
 	import TurnWaitBanner from "./TurnWaitBanner.svelte";
+	import TurnFailedActions from "./TurnFailedActions.svelte";
 	import TurnFailedBanner from "./TurnFailedBanner.svelte";
 	import {
 		failedTurnReasonOf,
@@ -118,7 +119,12 @@
 		 * log (the coding-agent transcript) omit it, and the affordances that
 		 * mutate the tree — retry, edit — are not offered.
 		 */
-		onretry?: (payload: { id: Message["id"]; content?: string }) => void;
+		onretry?: (payload: {
+			id: Message["id"];
+			content?: string;
+			/** Keep the failed turn's partial output and ask the model to go on. */
+			continueFromPartial?: boolean;
+		}) => void;
 		onshowAlternateMsg?: (payload: { id: Message["id"] }) => void;
 		/**
 		 * Pluggable answer path for approval cards: when set, the agent-style
@@ -1284,6 +1290,14 @@
 				<TurnFailedBanner reason={failedReason} isLatest={isLatestFailedTurn} />
 			{:else if streamError}
 				<TurnFailedBanner reason={streamError} isLatest />
+				{#if onretry && isLast && !loading}
+					<TurnFailedActions
+						onretry={() => onretry?.({ id: message.id })}
+						oncontinue={blocks.length > 0 || message.content
+							? () => onretry?.({ id: message.id, continueFromPartial: true })
+							: undefined}
+					/>
+				{/if}
 			{:else if loopStopped}
 				<TurnStoppedNote />
 			{/if}

@@ -566,6 +566,61 @@ describe("a turn that died on the stream", () => {
 		expect(reason?.textContent).toContain("Your monthly allowance of €10.00 is used up.");
 		expect(baseElement.querySelector('[data-message-role="assistant"] .rounded-2xl')).toBeNull();
 	});
+
+	it("offers Retry alone when nothing was produced", () => {
+		const { baseElement } = render(ChatMessage, {
+			message: { id: "e1", from: "assistant", content: "", children: [], updates: [errorUpdate] },
+			loading: false,
+			isLast: true,
+			readOnly: false,
+			onretry: vi.fn(),
+		} as never);
+		expect(baseElement.querySelector('[data-testid="turn-failed-retry"]')).not.toBeNull();
+		expect(baseElement.querySelector('[data-testid="turn-failed-continue"]')).toBeNull();
+	});
+
+	it("keeps the partial output on screen, with the error and both actions", () => {
+		const onretry = vi.fn();
+		const { baseElement } = render(ChatMessage, {
+			message: {
+				id: "e2",
+				from: "assistant",
+				content: "Here is the first half of the answer",
+				children: [],
+				updates: [errorUpdate],
+			},
+			loading: false,
+			isLast: true,
+			readOnly: false,
+			onretry,
+		} as never);
+		const turn = baseElement.querySelector('[data-message-role="assistant"]') as HTMLElement;
+		expect(turn.textContent).toContain("Here is the first half of the answer");
+		expect(turn.querySelector('[data-testid="turn-failed-reason"]')?.textContent).toContain(
+			"used up"
+		);
+		(turn.querySelector('[data-testid="turn-failed-retry"]') as HTMLElement).click();
+		expect(onretry).toHaveBeenLastCalledWith({ id: "e2" });
+		(turn.querySelector('[data-testid="turn-failed-continue"]') as HTMLElement).click();
+		expect(onretry).toHaveBeenLastCalledWith({ id: "e2", continueFromPartial: true });
+	});
+
+	it("offers neither on an older failed turn", () => {
+		const { baseElement } = render(ChatMessage, {
+			message: {
+				id: "e3",
+				from: "assistant",
+				content: "old",
+				children: [],
+				updates: [errorUpdate],
+			},
+			loading: false,
+			isLast: false,
+			readOnly: false,
+			onretry: vi.fn(),
+		} as never);
+		expect(baseElement.querySelector('[data-testid="turn-failed-retry"]')).toBeNull();
+	});
 });
 
 describe("a turn that is only a pending question", () => {

@@ -34,7 +34,6 @@
 	import StopGeneratingBtn from "../StopGeneratingBtn.svelte";
 	import type { Model } from "$lib/types/Model";
 	import FileDropzone from "./FileDropzone.svelte";
-	import RetryBtn from "../RetryBtn.svelte";
 	import { base } from "$app/paths";
 	import ChatMessageColumn from "./ChatMessageColumn.svelte";
 	import ModelEffortPicker from "./ModelEffortPicker.svelte";
@@ -104,7 +103,12 @@
 		files?: File[];
 		onmessage?: (content: string) => void;
 		onstop?: () => void;
-		onretry?: (payload: { id: Message["id"]; content?: string }) => void;
+		onretry?: (payload: {
+			id: Message["id"];
+			content?: string;
+			/** Keep the failed turn's partial output and ask the model to go on. */
+			continueFromPartial?: boolean;
+		}) => void;
 		onshowAlternateMsg?: (payload: { id: Message["id"] }) => void;
 		draft?: string;
 		/**
@@ -934,20 +938,6 @@
 						</button>
 					</div>
 				{/if}
-				<div class="flex w-full gap-2 *:mb-3">
-					{#if !loading && lastIsError}
-						<RetryBtn
-							classNames="ml-auto"
-							onClick={() => {
-								if (lastMessage && lastMessage.ancestors) {
-									onretry?.({
-										id: lastMessage.id,
-									});
-								}
-							}}
-						/>
-					{/if}
-				</div>
 				<form
 					tabindex="-1"
 					aria-label={isFileUploadEnabled ? m["chat.window.dropzone"]() : undefined}
