@@ -33,11 +33,47 @@
 		 * in its path (the `/code` panel) passes its store's route instead.
 		 */
 		fileBaseUrl?: string;
+		/** The viewer owns the conversation: a withheld file then offers its explicit download. */
+		canDownloadWithheld?: boolean;
 	}
 
-	let { file, canClose = true, onclose, fileBaseUrl }: Props = $props();
+	let {
+		file,
+		canClose = true,
+		onclose,
+		fileBaseUrl,
+		canDownloadWithheld = false,
+	}: Props = $props();
 
 	let showModal = $state(false);
+
+	// The owner's explicit download of a privacy-withheld file: a click mints a
+	// one-time token (a same-origin POST with a header only this page sends), and
+	// the browser then follows the single-use link. Only in a chat, where the
+	// route exists; never for a shared or read-only view.
+	let withheldBusy = $state(false);
+	let withheldError = $state(false);
+	async function downloadWithheld(event: Event) {
+		event.stopPropagation();
+		if (file.type !== "hash" || withheldBusy) return;
+		withheldBusy = true;
+		withheldError = false;
+		try {
+			const res = await fetch(outputBase.replace(/\/output$/, "") + "/withheld-download", {
+				method: "POST",
+				credentials: "same-origin",
+				headers: { "Content-Type": "application/json", "X-Cerea-Withheld-Download": "click" },
+				body: JSON.stringify({ sha256: file.value }),
+			});
+			if (!res.ok) throw new Error(String(res.status));
+			const { url } = (await res.json()) as { url: string };
+			window.location.assign(url);
+		} catch {
+			withheldError = true;
+		} finally {
+			withheldBusy = false;
+		}
+	}
 
 	// Capture URL once at component creation to prevent reactive updates during navigation
 	// svelte-ignore state_referenced_locally
@@ -434,7 +470,7 @@
 	tabindex="0"
 >
 	<div class="group relative flex items-center rounded-xl shadow-xs">
-		{#if isImage(file.mime)}
+		{#if isImage(file.mime) && !withheld}
 			<div class="h-36 overflow-hidden rounded-xl">
 				<img
 					src={file.type === "base64"
@@ -444,7 +480,7 @@
 					class="h-36 bg-gray-200 object-cover dark:bg-gray-800"
 				/>
 			</div>
-		{:else if isAudio(file.mime)}
+		{:else if isAudio(file.mime) && !withheld}
 			<div
 				class="flex h-14 w-72 items-center gap-2 overflow-hidden rounded-xl border border-gray-200 bg-white p-2 dark:border-gray-800 dark:bg-gray-900"
 				class:file-hoverable={isClickable}
@@ -471,7 +507,7 @@
 					</dt>
 				</dl>
 			</div>
-		{:else if isVideo(file.mime)}
+		{:else if isVideo(file.mime) && !withheld}
 			<div
 				class="w-72 overflow-clip rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900"
 			>
@@ -483,7 +519,7 @@
 					controls
 				></video>
 			</div>
-		{:else if isPlainText(file.mime)}
+		{:else if isPlainText(file.mime) && !withheld}
 			<div
 				class="flex h-14 w-64 items-center gap-2 overflow-hidden rounded-xl border border-gray-200 bg-white p-2 2xl:w-72 dark:border-gray-800 dark:bg-gray-900"
 				class:file-hoverable={isClickable}
@@ -504,7 +540,7 @@
 					{/if}
 				</dl>
 			</div>
-		{:else if file.mime === "application/octet-stream"}
+		{:else if file.mime === "application/octet-stream" && !withheld}
 			<div
 				class="flex h-14 w-72 items-center gap-2 overflow-hidden rounded-xl border border-gray-200 bg-white p-2 dark:border-gray-800 dark:bg-gray-900"
 				class:file-hoverable={isClickable}
@@ -564,6 +600,24 @@
 						</dt>
 					{:else}
 						<dt class="text-xs text-gray-400">{file.mime}</dt>
+					{/if}
+					{#if withheld && canDownloadWithheld && !fileBaseUrl}
+						<dt class="max-w-full truncate text-xs">
+							<button
+								type="button"
+								class="text-gray-600 underline hover:text-gray-900 dark:text-gray-300 dark:hover:text-white"
+								data-testid="withheld-download"
+								disabled={withheldBusy}
+								onclick={downloadWithheld}
+							>
+								{m["chat.uploaded.withheld_download"]()}
+							</button>
+							{#if withheldError}
+								<span class="text-amber-600 dark:text-amber-400"
+									>{m["chat.uploaded.withheld_download_failed"]()}</span
+								>
+							{/if}
+						</dt>
 					{/if}
 					{#if file.type === "hash" && file.readerModel}
 						<dt class="max-w-full truncate text-xs text-gray-400" data-testid="reader-used-chip">
