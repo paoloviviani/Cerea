@@ -25,6 +25,7 @@ import type {
 	ConnectorSwitchesRow,
 	McpOauthPending,
 	McpToken,
+	WithheldDownloadToken,
 } from "$lib/types/McpConnector";
 import type { AbortedGeneration } from "$lib/types/AbortedGeneration";
 import type { Generation, GenerationEvent } from "$lib/types/Generation";
@@ -298,6 +299,8 @@ export class Database {
 		const sharedArtifacts = db.collection<SharedArtifact>("sharedArtifacts");
 		const shareSettings = db.collection<ShareSettings>("shareSettings");
 		const mcpOauthPending = db.collection<McpOauthPending>("mcpOauthPending");
+		// One-time tokens for the owner's download of a privacy-withheld file.
+		const withheldDownloadTokens = db.collection<WithheldDownloadToken>("withheldDownloadTokens");
 		// A local connector's sign-in in flight (ADR 0102): who started it, for which device and
 		// server. No token or verifier: those stay on the machine.
 		const localConnectorOauth = db.collection<LocalConnectorOauth>("localConnectorOauth");
@@ -375,6 +378,7 @@ export class Database {
 			shareSettings,
 			mcpTokens,
 			mcpOauthPending,
+			withheldDownloadTokens,
 			localConnectorOauth,
 			codeDevices,
 			codeAudit,
@@ -428,6 +432,7 @@ export class Database {
 			sharedArtifacts,
 			mcpTokens,
 			mcpOauthPending,
+			withheldDownloadTokens,
 			localConnectorOauth,
 			codeDevices,
 			codeAudit,
@@ -577,6 +582,12 @@ export class Database {
 		mcpOauthPending
 			.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
 			.catch((e) => logger.error(e, "Error creating TTL index for mcpOauthPending"));
+		withheldDownloadTokens
+			.createIndex({ tokenHash: 1 }, { unique: true })
+			.catch((e) => logger.error(e, "Error creating index for withheldDownloadTokens"));
+		withheldDownloadTokens
+			.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
+			.catch((e) => logger.error(e, "Error creating TTL index for withheldDownloadTokens"));
 		localConnectorOauth
 			.createIndex({ state: 1 }, { unique: true })
 			.catch((e) => logger.error(e, "Error creating index for localConnectorOauth by state"));
