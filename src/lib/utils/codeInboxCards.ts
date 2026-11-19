@@ -48,6 +48,9 @@ export function permissionToElicitation(
 		...(request.reviewing ? { reviewing: true } : {}),
 		...(request.class ? { permissionClass: request.class } : {}),
 		...(request.readOnly === true ? { readOnly: true } : {}),
+		...(request.secretKey
+			? { secretValue: { key: request.secretKey, file: request.secretFile ?? "" } }
+			: {}),
 		...(child ? { childSessionId: child.childId, childTitle: child.childTitle ?? null } : {}),
 	};
 }

@@ -370,9 +370,16 @@ func (at *agentTools) connectorCallTool(ctx context.Context, tc *toolCaller, cal
 	} else {
 		meta["argumentsBytes"] = len(args)
 	}
-	decision, message, err := at.approve(ctx, tc, call, act == permrules.Allow, to, reasonAllowedByRules, backend.PermissionRequest{
+	req := backend.PermissionRequest{
 		Tool: "connector_call", Title: "Use " + tool + " from " + name, Metadata: meta,
-	})
+	}
+	// A call whose arguments carry the value of a local secret is a card whatever
+	// the session's word is (C73); the card names the key and its file.
+	if leak := at.mc.protected.SecretValueLeak(decide.Request{Key: "connector_call", Workspace: tc.dir, Args: string(args)}); leak != nil {
+		act = permrules.Ask
+		req.SecretKey, req.SecretFile = leak.Key, leak.File
+	}
+	decision, message, err := at.approve(ctx, tc, call, act == permrules.Allow, to, reasonAllowedByRules, req)
 	if err != nil {
 		return "", to, err
 	}

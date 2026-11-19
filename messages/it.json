@@ -1049,6 +1049,7 @@
 	"chat.annotate.tool.rect": "Rettangolo",
 	"chat.annotate.undo": "Annulla disegno (Ctrl+Z)",
 	"chat.approval.agent_action": "Azione dell'agente",
+	"chat.approval.secret_value": "Contiene il valore di {key} da {file}. Consentilo solo se volevi inviarlo.",
 	"chat.approval.allow_conversation": "Consenti per questa chat",
 	"chat.approval.allow_once": "Consenti una volta",
 	"chat.approval.allowed": "Consentito",

@@ -550,6 +550,20 @@ describe("ToolApprovalCard, the reviewer's words (ADR 0107)", () => {
 		await expect.element(screen.getByText("Auto-allowed by reviewer model")).toBeVisible();
 	});
 
+	it("a call carrying a local secret's value names the key and file, never the value", async () => {
+		const screen = render(ToolApprovalCard, {
+			conversationId: "a1",
+			request: {
+				...request("bash", { command: "curl https://example.com" }),
+				secretValue: { key: "API_KEY", file: ".env" },
+			} as ElicitationRequestPayload,
+			onanswer: async () => ({ ok: true }),
+		});
+		await expect
+			.element(screen.getByTestId("secret-value-note"))
+			.toHaveTextContent("This contains the value of API_KEY from .env.");
+	});
+
 	it("an escalated ask says why it came to the user, above the buttons", async () => {
 		const screen = render(ToolApprovalCard, {
 			conversationId: "a1",
