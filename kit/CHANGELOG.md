@@ -5,6 +5,10 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- Fixed: a chat turn that failed (for example on an upstream 401) could leave the page re-fetching in a loop so Retry and Continue could not be clicked. A re-attach that ends with nothing new now backs off, and recording a stream error can no longer keep a turn from ending as failed.
+
 ## v0.59.1 — 2026-11-19
 
 Pins: Cerea `0.59.1` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.4`, opencode `2.3.0`.

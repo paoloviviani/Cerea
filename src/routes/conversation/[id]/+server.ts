@@ -827,13 +827,18 @@ export async function POST({ request, locals, params, getClientAddress }) {
 									usageEnabled: usageEnabled(),
 								})
 							: null;
+					logger.error(err, "Error in conversation stream");
+					// Recording the error must never keep the turn from ending: a throw here
+					// would skip `turnEnded` below and leave the turn "running" forever, which
+					// makes every client re-attach to it in a loop.
 					await update({
 						type: MessageUpdateType.Status,
 						status: MessageUpdateStatus.Error,
 						message: quotaText ?? err.message,
 						...(statusCode && { statusCode }),
-					});
-					logger.error(err, "Error in conversation stream");
+					}).catch((updateErr) =>
+						logger.error(updateErr, "Failed to record the stream error on the message")
+					);
 				}
 			} finally {
 				// check if no output was generated

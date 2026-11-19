@@ -7,6 +7,7 @@ import {
 	isAssistantGenerationTerminal,
 	isConversationGenerationActive,
 	isTurnSubscribable,
+	createReattachGuard,
 	lastFailedTurnId,
 	turnStateOf,
 } from "./generationState";
@@ -270,5 +271,38 @@ describe("turn state as the authoritative liveness", () => {
 			updates: [{ type: MessageUpdateType.Status, status: MessageUpdateStatus.Finished }],
 		});
 		expect(isTurnSubscribable(legacyDone)).toBe(false);
+	});
+});
+
+describe("createReattachGuard", () => {
+	test("attaches at once the first time and after progress", () => {
+		const guard = createReattachGuard(1000, 30_000);
+		const message = assistantMessage({ generationId: "g1", materializedSeq: 3 });
+		expect(guard.delayFor(message, 0)).toBe(0);
+		guard.ended(message, 0);
+		const moved = assistantMessage({ generationId: "g1", materializedSeq: 5 });
+		expect(guard.delayFor(moved, 1)).toBe(0);
+	});
+
+	test("backs off exponentially when a re-attach ends with nothing new", () => {
+		const guard = createReattachGuard(1000, 4000);
+		const message = assistantMessage({ generationId: "g1", materializedSeq: 3 });
+		guard.ended(message, 0);
+		expect(guard.delayFor(message, 100)).toBe(900);
+		expect(guard.delayFor(message, 1000)).toBe(0);
+		guard.ended(message, 1000);
+		expect(guard.delayFor(message, 1000)).toBe(2000);
+		guard.ended(message, 3000);
+		guard.ended(message, 7000);
+		guard.ended(message, 11_000);
+		expect(guard.delayFor(message, 11_000)).toBe(4000);
+	});
+
+	test("reset forgets the last re-attach", () => {
+		const guard = createReattachGuard();
+		const message = assistantMessage({ generationId: "g1" });
+		guard.ended(message, 0);
+		guard.reset();
+		expect(guard.delayFor(message, 1)).toBe(0);
 	});
 });
