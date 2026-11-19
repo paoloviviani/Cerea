@@ -132,10 +132,11 @@ function becameCurrentAt(row: { createdAt: Date; latestAt?: Date | null }): numb
 export async function listFileVersions(
 	conversationId: ObjectId,
 	reference: string,
-	branch?: Branch
+	branch?: Branch,
+	exactMountName = false
 ): Promise<{ name: string; versions: FileVersion[]; attachment?: PlannedAttachment } | undefined> {
 	const wanted = bareName(reference);
-	const attachment = await attachmentNamed(conversationId, wanted, branch);
+	const attachment = await attachmentNamed(conversationId, wanted, branch, exactMountName);
 	// Numbers are the whole conversation's (a version keeps its number for good, whatever
 	// branch made it); the list shows only what the branch can see.
 	const rows = (await numberedRows(conversationId, wanted)).filter((row) => onBranch(row, branch));
@@ -232,7 +233,13 @@ export async function findConversationFile(
 	} = {}
 ): Promise<ConversationFile> {
 	const wanted = bareName(reference);
-	const listing = await listFileVersions(conversationId, reference, options.branch);
+	// A reference by `source` names a mount path: the mount name answers first.
+	const listing = await listFileVersions(
+		conversationId,
+		reference,
+		options.branch,
+		options.source !== undefined
+	);
 	if (!listing || (options.source === "attachment" && !listing.attachment)) {
 		const withheld = await withheldAttachmentNamed(conversationId, wanted);
 		if (withheld) return { ok: false, error: withheldMessage(withheld) };

@@ -17,7 +17,7 @@ const theirs = new ObjectId();
 
 type Stored = { owner: ObjectId; bytes: Buffer };
 function lookupOf(files: Record<string, Stored>, withheld: string[] = []) {
-	return vi.fn(async (conversationId: ObjectId, name: string) => {
+	return vi.fn(async (conversationId: ObjectId, name: string, _options?: { source?: string }) => {
 		if (withheld.includes(name)) {
 			return {
 				ok: false as const,
