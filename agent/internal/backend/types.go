@@ -238,6 +238,11 @@ type PermissionRequest struct {
 	// the ask is a bash command provably a plain read inside the workspace
 	// (decide.ReadOnlyCommand). Cerea answers it by rule in an Auto session.
 	ReadOnly bool `json:"readOnly,omitempty"`
+	// SecretKey and SecretFile are set by galopin alone: the command or tool call
+	// carries the value of that key in that local file (C73). Names only, never the
+	// value. Such an ask is a card in every mode.
+	SecretKey  string `json:"secretKey,omitempty"`
+	SecretFile string `json:"secretFile,omitempty"`
 }
 
 // Mode is a backend's named operating mode (opencode: agents with

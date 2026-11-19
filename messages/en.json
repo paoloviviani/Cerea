@@ -1038,6 +1038,7 @@
 	"chat.annotate.tool.rect": "Rectangle",
 	"chat.annotate.undo": "Undo drawing (Ctrl+Z)",
 	"chat.approval.agent_action": "Agent action",
+	"chat.approval.secret_value": "This contains the value of {key} from {file}. Only allow it if you meant to send it.",
 	"chat.approval.allow_conversation": "Allow for this chat",
 	"chat.approval.allow_once": "Allow once",
 	"chat.approval.allowed": "Allowed",

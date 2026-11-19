@@ -445,6 +445,10 @@ export interface PermissionRequest {
 	/** Set by the machine alone (never from agent metadata): a bash command provably a plain read
 	 * inside the workspace (ADR 0107 amendment). Null on the wire from a gateway is the same as absent. */
 	readOnly?: boolean | null;
+	/** Set by the machine alone (C73): the call carries the value of this key from this local file.
+	 * Names only, never the value. Null on the wire from a gateway is the same as absent. */
+	secretKey?: string | null;
+	secretFile?: string | null;
 	/** Added by Cerea, never sent by a machine: why the reviewer sent this ask to the user (ADR 0107). */
 	reviewNote?: string;
 	/** Added by Cerea, never sent by a machine: the reviewer is still deciding, so this is not yet the user's to answer. */

@@ -109,6 +109,8 @@ export interface ElicitationRequestPayload {
 	permissionClass?: string;
 	/** The machine's read-only stamp on a bash ask; null on the wire is absent. */
 	readOnly?: boolean | null;
+	/** The call carries the value of this key from this local file (names only, C73): the card says so. */
+	secretValue?: { key: string; file: string };
 }
 
 /** What a browse approval card shows. Server-authored text, never markup. */
