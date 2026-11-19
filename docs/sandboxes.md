@@ -44,6 +44,10 @@ What differs is the engine, which the tool's description says:
   plan as the browser (same names, the extracted text beside each file as `<name>.md`, the same size
   caps). A file a privacy rule withheld is never copied: it is neither planned nor readable.
   Files the document tools produced are not copied yet.
+- **Reading a big file back.** A run's stdout is cut at 8,000 characters, the same as the browser's; the
+  cut says how many characters there are in total and suggests slices (`print(text[6000:12000])`).
+  To send a file to a connector the model does not read it back at all: it passes a
+  `{"$file": "<name>"}` reference (see [Sending a file to a connector](connectors.md#sending-a-file-to-a-connector)).
 - **Files out.** Files the code writes under `/mnt/output/` come back as the conversation's files and
   show as download cards, kept as long as any deliverable (`CHAT_FILE_RETENTION_DAYS`). At most 20 files
   and 8 MB each per run; a figure drawn with matplotlib is saved as `figure-N.png` for the model, as in the browser.

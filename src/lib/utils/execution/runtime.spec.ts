@@ -9,6 +9,7 @@ import {
 	MAX_RUN_TIMEOUT_MS,
 	safeMountName,
 	clampOutput,
+	READ_SLICE_CHARS,
 	type HostToWorker,
 	type WorkerToHost,
 } from "./protocol";
@@ -409,7 +410,10 @@ describe("protocol helpers", () => {
 		const long = "x".repeat(MAX_OUTPUT_CHARS + 1);
 		const clamped = clampOutput(long);
 		expect(clamped.length).toBeLessThanOrEqual(MAX_OUTPUT_CHARS);
-		expect(clamped.endsWith("[output truncated]")).toBe(true);
+		// The marker names the total and the way to the rest: reading in slices.
+		expect(clamped).toContain(`output truncated: ${MAX_OUTPUT_CHARS + 1} characters in total`);
+		expect(clamped).toContain(`slices of at most ${READ_SLICE_CHARS} characters`);
+		expect(READ_SLICE_CHARS).toBeLessThan(MAX_OUTPUT_CHARS);
 		expect(clampOutput("short")).toBe("short");
 	});
 

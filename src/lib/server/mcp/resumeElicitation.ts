@@ -37,6 +37,7 @@ import {
 } from "$lib/server/textGeneration/builtinTools/toolApproval";
 import type { PendingToolApprovalCall, QueuedApprovalCall } from "$lib/types/McpElicitation";
 import { collections } from "$lib/server/database";
+import { resolveFileReferences } from "$lib/server/textGeneration/mcp/fileReferences";
 import { GENERATE_IMAGE_TOOL_NAME } from "$lib/server/textGeneration/builtinTools/generateImageTool";
 import {
 	AGENT_ACTING_TOOLS,
@@ -321,8 +322,24 @@ async function runApprovedCall(
 		};
 	}
 
+	// The call kept its `{"$file": ...}` references (the card showed them); the content is read now.
+	const fileRefs = await resolveFileReferences(
+		call.args,
+		owner?.conversationId
+			? { conversationId: owner.conversationId, messageId: owner.messageId }
+			: undefined
+	);
+	if (!fileRefs.ok) {
+		return {
+			type: MessageUpdateType.Tool,
+			subtype: MessageToolUpdateType.Error,
+			uuid: toolUuid,
+			message: fileRefs.error,
+		};
+	}
+
 	try {
-		const raw = await callMcpTool(server, mcp.toolName, call.args, {
+		const raw = await callMcpTool(server, mcp.toolName, fileRefs.args, {
 			signal,
 			timeoutMs: getMcpToolTimeoutMs(),
 		});
@@ -595,10 +612,28 @@ export async function resumeParkedToolCall({
 	const server = (await serversForResume(extraServers)).find((s) => s.name === pending.server);
 	if (!server) return { resumed: false, reason: `unknown server ${pending.server}`, updates: [] };
 
+	const fileRefs = await resolveFileReferences(pending.args, {
+		conversationId,
+		messageId: pending.messageId,
+	});
+	if (!fileRefs.ok) {
+		return {
+			resumed: true,
+			updates: [
+				{
+					type: MessageUpdateType.Tool,
+					subtype: MessageToolUpdateType.Error,
+					uuid: pending.toolUuid,
+					message: fileRefs.error,
+				},
+			],
+		};
+	}
+
 	let update: MessageUpdate;
 	let filesUpdate: MessageUpdate | undefined;
 	try {
-		const raw = await callMcpTool(server, pending.tool, pending.args, {
+		const raw = await callMcpTool(server, pending.tool, fileRefs.args, {
 			signal,
 			timeoutMs: getMcpToolTimeoutMs(),
 			resume: {

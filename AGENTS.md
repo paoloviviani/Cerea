@@ -334,7 +334,7 @@ One resolver, `mcpLocalsFor` (`mcp/selection.ts`), builds a turn's servers; neve
 add a second path. Connectors load on demand through `load_tools`, appending to
 the request so prompt caching holds. Tool output from outside is data
 (`textGeneration/untrusted.ts`): a new built-in that returns outside content must
-be added to `EXTERNAL_BUILTIN_TOOLS`. Approvals are unchanged. Workspace → Agents holds the one connector list, with an
+be added to `EXTERNAL_BUILTIN_TOOLS`. Approvals are unchanged. A connector tool's string argument may be `{"$file": "<name>"}` (optionally `"encoding": "base64"`): `textGeneration/mcp/fileReferences.ts` resolves it from the conversation's own files just before the call (also on resume), so the stored call keeps the reference; never resolve earlier. Workspace → Agents holds the one connector list, with an
 "apps on my computers" switch for local MCP clients ([docs/code-panel.md](docs/code-panel.md)).
 
 Full reference: [docs/dev/mcp-connectors.md](docs/dev/mcp-connectors.md).
