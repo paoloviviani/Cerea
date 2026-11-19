@@ -1915,6 +1915,8 @@
 	"chat.turn_failed.show": "Mostra i dettagli",
 	"chat.uploaded.withheld": "Trattenuto dalla regola di privacy '{rule}'",
 	"chat.uploaded.withheld_pipeline": "Trattenuto dalla regola di privacy '{rule}' (pipeline '{pipeline}')",
+	"chat.uploaded.withheld_download": "Scarica (trattenuto)",
+	"chat.uploaded.withheld_download_failed": "Impossibile avviare il download. Riprova.",
 	"chat.uploaded.gone": "quel file non è più disponibile",
 	"chat.uploaded.input_alt": "input dell'utente",
 	"chat.uploaded.paste_hint": "Se preferisci incollare i testi lunghi direttamente nella chat, puoi disattivarlo nella {#link}pagina delle impostazioni{/link}.",

@@ -21,7 +21,11 @@ export function withheldOf(
 }
 
 /** The stored entry for this owner's file, 404 when there is none and 403 when it is not theirs. */
-async function lookup(sha256: string, convId: Conversation["_id"] | string) {
+async function lookup(
+	sha256: string,
+	convId: Conversation["_id"] | string,
+	options?: { allowWithheld?: boolean }
+) {
 	// One filename can have several entries (the same bytes uploaded twice);
 	// `findOne` order is unspecified, so a withholding on any of them refuses.
 	const entries = await collections.blobStore.find("files", {
@@ -33,7 +37,7 @@ async function lookup(sha256: string, convId: Conversation["_id"] | string) {
 	}
 	for (const entry of entries) {
 		const withheld = withheldOf(entry.metadata);
-		if (withheld) error(403, withheldMessage(withheld));
+		if (withheld && !options?.allowWithheld) error(403, withheldMessage(withheld));
 	}
 	if (file.metadata?.conversation !== convId.toString()) {
 		error(403, "You don't have access to this file.");
@@ -106,6 +110,32 @@ export async function openFile(
 		mime: file.metadata.mime as string | undefined,
 		length: file.length,
 		...(range ? { range } : {}),
+	};
+}
+
+/**
+ * The bytes of a file a privacy rule withheld, for its owner's explicit
+ * download and nothing else. This is the one reader that may open them, and
+ * its only caller is the one-time-token route (`withheldDownloadToken`): the
+ * route has already checked the conversation's owner, the user gesture and
+ * the token. Refuses a file that is not withheld (404: the ordinary routes
+ * serve those), so it can never become a second way to read a normal file.
+ */
+export async function openWithheldFile(
+	sha256: string,
+	convId: Conversation["_id"] | string
+): Promise<StoredFileStream> {
+	const file = await lookup(sha256, convId, { allowWithheld: true });
+	if (!file) error(404, "File not found");
+	const entries = await collections.blobStore.find("files", {
+		filename: `${convId.toString()}-${sha256}`,
+	});
+	if (!entries.some((entry) => withheldOf(entry.metadata))) error(404, "File not found");
+	return {
+		stream: await collections.blobStore.open("files", file.id),
+		name: file.filename,
+		mime: file.metadata.mime as string | undefined,
+		length: file.length,
 	};
 }
 

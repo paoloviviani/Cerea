@@ -12,6 +12,11 @@ describe("network gate", () => {
 		expect(gateAllows("https://chat.example.org/pyodide/python_stdlib.zip", origin)).toBe(true);
 		// A different path on the app origin would carry the session cookie.
 		expect(gateAllows("/api/v2/user", origin)).toBe(false);
+		// The owner's withheld-file download is one of those: the sandbox cannot even ask for a token.
+		expect(gateAllows("/conversation/abc/withheld-download", origin)).toBe(false);
+		expect(gateAllows("/pyodide/../conversation/abc/withheld-download?token=x", origin)).toBe(
+			false
+		);
 		// The public Pyodide package index is the default micropip target.
 		expect(gateAllows("https://python.pyodide.org/pyodide/pyodide-lock.json", origin)).toBe(false);
 		expect(gateAllows("https://evil.example/leak?d=secret", origin)).toBe(false);

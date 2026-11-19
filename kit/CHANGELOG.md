@@ -5,6 +5,10 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- Privacy-withheld files: an image a privacy rule refused for vision is now withheld like a refused document (never mounted or read), and the owner of a conversation can save their own withheld file with a "Download (withheld)" click: a one-time token, valid 60 seconds, and unreachable from tools, connectors and the code sandbox.
+
 ## v0.59.1 — 2026-11-19
 
 Pins: Cerea `0.59.1` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.4`, opencode `2.3.0`.
