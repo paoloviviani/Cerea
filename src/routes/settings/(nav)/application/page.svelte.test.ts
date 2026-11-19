@@ -183,7 +183,23 @@ describe("Settings > Application, the web search opt-out", () => {
 		const screen = renderWithApp(ApplicationPage, {}, { context: withSettings({}), page });
 		await expect.element(screen.getByText("Use web search when available")).toBeVisible();
 		expect(row()?.disabled).toBe(true);
+		// Stored value defaults to on, but unavailable shows off.
+		expect(row()?.checked).toBe(false);
 		expect(document.body.textContent).toContain("Web search isn't set up here yet.");
+	});
+});
+
+describe("Settings > Application, web search when unavailable", () => {
+	it("shows off and disabled even when the stored value is on, without writing it", async () => {
+		page.data = { webSearchAvailable: false };
+		const ctx = stores();
+		const screen = renderWithApp(ApplicationPage, {}, { context: ctx, page });
+		await expect.element(screen.getByText("Use web search when available")).toBeVisible();
+		const input = document.querySelector<HTMLInputElement>('input[name="webSearchEnabled"]');
+		expect(input?.checked).toBe(false);
+		expect(input?.disabled).toBe(true);
+		const s = ctx.get("settings") as { update: ReturnType<typeof vi.fn> };
+		expect(s.update).not.toHaveBeenCalled();
 	});
 });
 

@@ -128,6 +128,8 @@
 	);
 
 	function getWebSearchDefault() {
+		// Display only: unavailable reads as off, the stored preference is untouched.
+		if (webSearchUnavailable) return false;
 		return $settings.webSearchEnabled !== false;
 	}
 	function setWebSearchDefault(v: boolean) {
