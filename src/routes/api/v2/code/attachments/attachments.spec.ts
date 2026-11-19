@@ -203,14 +203,38 @@ describe("limits", () => {
 		expect(stored.name).toBe("notes.txt");
 	});
 
-	it("refuses a type outside the allowlist, a missing message id, and an empty upload", async () => {
+	it("takes text of any extension, and refuses an unknown binary with 415, a missing message id, and an empty upload", async () => {
 		const device = await pairedDevice(alice);
 		const key = `code:${device}:s`;
-		const exe = new File(["MZ"], "x.exe", { type: "application/x-msdownload" });
-		expect(await status(upload(uploadEvent(alice, key, formWith("m", exe))))).toBe(400);
+		const bin = new File([Buffer.from([0x4d, 0x5a, 0x00, 0x01, 0xff])], "x.exe", {
+			type: "application/x-msdownload",
+		});
+		expect(await status(upload(uploadEvent(alice, key, formWith("m", bin))))).toBe(415);
+		const files = await uploadOk(
+			alice,
+			key,
+			formWith(
+				"m2",
+				new File(['<?xml version="1.0"?><mxfile/>'], "d.drawio", { type: "" }),
+				new File(['{"type":"excalidraw"}'], "s.excalidraw", { type: "application/octet-stream" }),
+				new File(["plain words"], "n.foo", { type: "" })
+			)
+		);
+		expect(files.map((f) => f.mime)).toEqual(["application/xml", "application/json", "text/plain"]);
+		// Served download-only whatever the type, an HTML-looking text included.
+		const html = await uploadOk(
+			alice,
+			key,
+			formWith("m3", new File(["<!doctype html><script>alert(1)</script>"], "p.html", { type: "" }))
+		);
+		const res = await serve(serveEvent(alice, key, html[0].value));
+		expect(res.headers.get("content-disposition")).toMatch(/^attachment/);
+		expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+		expect(res.headers.get("content-security-policy")).toContain("sandbox");
 		expect(await status(upload(uploadEvent(alice, key, formWith(null, png()))))).toBe(400);
 		expect(await status(upload(uploadEvent(alice, key, formWith("m"))))).toBe(400);
-		expect(await collections.blobStore.count("files", { "metadata.conversation": key })).toBe(0);
+		// Only the four text files landed; the refused binary and the bad requests stored nothing.
+		expect(await collections.blobStore.count("files", { "metadata.conversation": key })).toBe(4);
 	});
 });
 

@@ -8,34 +8,6 @@ export const TEXT_MIME_ALLOWLIST = [
 	"application/csv",
 ] as const;
 
-/**
- * Text formats browsers have no agreed type for: `.jsonl` / `.ndjson` arrive as
- * an empty type, `application/octet-stream`, `application/jsonl`,
- * `application/x-ndjson` or `application/json-lines`. They are accepted by
- * extension (the composer's `accept` takes the extensions) and stored as text.
- */
-export const TEXT_EXTENSION_ACCEPT = [".jsonl", ".ndjson"] as const;
-
-/** The text type a line-delimited JSON file is stored and sent under. */
-export const LINE_JSON_MIME = "text/plain";
-
-const LINE_JSON_EXTENSIONS = new Set(["jsonl", "ndjson"]);
-
-/** Whether the file name is a line-delimited JSON file (`.jsonl`, `.ndjson`). */
-export function isLineJsonName(name: string): boolean {
-	const ext = name.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] ?? "";
-	return LINE_JSON_EXTENSIONS.has(ext);
-}
-
-/**
- * The type to treat an attachment as, given what the browser declared: a
- * `.jsonl` / `.ndjson` file is text whatever the browser said (it says nothing
- * useful), every other file keeps its declared type.
- */
-export function attachmentMimeFor(name: string, declared: string): string {
-	return isLineJsonName(name) ? LINE_JSON_MIME : declared;
-}
-
 export const IMAGE_MIME_ALLOWLIST_DEFAULT = ["image/jpeg", "image/png"] as const;
 
 /**
@@ -84,16 +56,12 @@ export const AUDIO_MIME_ALLOWLIST = [
 ] as const;
 
 /**
- * What a knowledge base accepts, as an `accept` attribute: the extractable
- * documents and plain text. A convenience for the pickers; the server decides
- * from the bytes (`files/knowledgeUpload.ts`) and answers 415 for the rest.
+ * The `accept` attribute of a knowledge base's and a project's pickers: any
+ * file. Text is text whatever its extension, so the picker does not filter;
+ * the server decides from the bytes (`files/knowledgeUpload.ts`,
+ * `files/classifyUpload.ts`) and answers 415 for what it cannot read.
  */
-export const KNOWLEDGE_ACCEPT = [
-	...DOCUMENT_MIME_ALLOWLIST,
-	".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.epub",
-	"text/*",
-	".md,.markdown,.csv,.tsv,.json,.jsonl,.ndjson,.xml,.yaml,.yml,.txt",
-].join(",");
+export const KNOWLEDGE_ACCEPT = "*/*";
 
 /**
  * The per-file ceiling every attachment entry point enforces: chat's upload
@@ -139,7 +107,6 @@ export function maxAttachmentBytesFor(mime: string): number {
  */
 export const AGENT_ATTACHMENT_MIME_ALLOWLIST = [
 	...TEXT_MIME_ALLOWLIST,
-	...TEXT_EXTENSION_ACCEPT,
 	...DOCUMENT_MIME_ALLOWLIST,
 	"image/png",
 	"image/jpeg",

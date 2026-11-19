@@ -25,7 +25,11 @@ import {
 	MessageElicitationUpdateType,
 	type MessageUpdate,
 } from "$lib/types/MessageUpdate";
-import { AttachmentTooLargeError, uploadFile } from "$lib/server/files/uploadFile";
+import {
+	AttachmentTooLargeError,
+	UnsupportedAttachmentError,
+	uploadFile,
+} from "$lib/server/files/uploadFile";
 import { resolveHashFiles } from "$lib/server/files/resolveHashFiles";
 import { attachmentSizeRefusal } from "$lib/constants/mime";
 import { deleteConversationStorage } from "$lib/server/conversationStorage";
@@ -317,6 +321,7 @@ export async function POST({ request, locals, params, getClientAddress }) {
 		).catch((err) => {
 			// Past its limit once the bytes say what it is (not what was declared).
 			if (err instanceof AttachmentTooLargeError) error(413, err.message);
+			if (err instanceof UnsupportedAttachmentError) error(415, err.message);
 			throw err;
 		}),
 		// A file sent back by reference takes what the server recorded for it.

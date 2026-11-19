@@ -50,6 +50,15 @@ describe("pastedAttachments", () => {
 		expect(pasted.preventDefault).toBe(true);
 	});
 
+	it("keeps a pasted file of an unknown type where the composer takes text: the server decides", () => {
+		const drawio = new File(["<mxfile/>"], "d.drawio", { type: "" });
+		const scene = new File(["{}"], "s.excalidraw", { type: "application/octet-stream" });
+		const pasted = pastedAttachments(clipboard("", [drawio, scene, png]), {
+			mimeTypes: ["text/*"],
+		});
+		expect(pasted.files).toEqual([drawio, scene]);
+	});
+
 	it("tolerates a paste with no clipboard data", () => {
 		expect(pastedAttachments(null, { mimeTypes: [] }).files).toEqual([]);
 	});
