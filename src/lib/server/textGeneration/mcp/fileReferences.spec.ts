@@ -4,15 +4,20 @@ import { ObjectId } from "mongodb";
 vi.mock("$lib/server/execution/fileVersions", () => ({ branchOf: vi.fn(async () => undefined) }));
 vi.mock("../builtinTools/conversationFiles", () => ({ findConversationFile: vi.fn() }));
 
-const { resolveFileReferences, hasFileRefs, MAX_FILE_REF_BYTES, MAX_FILE_REF_TOTAL_BYTES } =
-	await import("./fileReferences");
+const {
+	resolveFileReferences,
+	hasFileRefs,
+	withFileRefNotes,
+	MAX_FILE_REF_BYTES,
+	MAX_FILE_REF_TOTAL_BYTES,
+} = await import("./fileReferences");
 
 const mine = new ObjectId();
 const theirs = new ObjectId();
 
 type Stored = { owner: ObjectId; bytes: Buffer };
 function lookupOf(files: Record<string, Stored>, withheld: string[] = []) {
-	return vi.fn(async (conversationId: ObjectId, name: string) => {
+	return vi.fn(async (conversationId: ObjectId, name: string, _options?: { source?: string }) => {
 		if (withheld.includes(name)) {
 			return {
 				ok: false as const,
@@ -31,6 +36,7 @@ function lookupOf(files: Record<string, Stored>, withheld: string[] = []) {
 			bytes: file.bytes,
 			sha256: "x",
 			origin: "output" as const,
+			tool: "sandbox",
 			version: 1,
 			versionCount: 1,
 			currentVersion: 1,
@@ -54,7 +60,7 @@ describe("resolveFileReferences", () => {
 			ctx,
 			lookupOf(files)
 		);
-		expect(r).toEqual({ ok: true, args: { path: "a.svg", content: svg }, resolved: 1 });
+		expect(r).toMatchObject({ ok: true, args: { path: "a.svg", content: svg }, resolved: 1 });
 	});
 
 	it("swaps a base64 reference for the file's bytes as base64", async () => {
@@ -63,7 +69,7 @@ describe("resolveFileReferences", () => {
 			ctx,
 			lookupOf(files)
 		);
-		expect(r).toEqual({
+		expect(r).toMatchObject({
 			ok: true,
 			args: { content: files["logo.png"].bytes.toString("base64") },
 			resolved: 1,
@@ -99,11 +105,13 @@ describe("resolveFileReferences", () => {
 		const args = {
 			a: "diagram.svg",
 			b: "file:diagram.svg",
-			c: '{"$file": "diagram.svg"}',
+			c: 'Use {"$file": "diagram.svg"} where a string goes, or "$file" alone',
 			d: { file: "diagram.svg" },
+			e: '{"not": "a reference"}',
+			f: '{"$file": broken json',
 		};
 		const r = await resolveFileReferences(args, ctx, lookup);
-		expect(r).toEqual({ ok: true, args, resolved: 0 });
+		expect(r).toEqual({ ok: true, args, resolved: 0, notes: [] });
 		expect(lookup).not.toHaveBeenCalled();
 		expect(hasFileRefs(args)).toBe(false);
 		expect(hasFileRefs({ x: [{ $file: "a" }] })).toBe(true);
@@ -181,5 +189,97 @@ describe("resolveFileReferences", () => {
 			lookupOf(files)
 		);
 		expect(r.ok).toBe(false);
+	});
+	describe("source selection", () => {
+		it("asks the lookup for the version each form means", async () => {
+			const lookup = lookupOf(files);
+			const sourceOf = async (ref: Record<string, unknown>) => {
+				lookup.mockClear();
+				const r = await resolveFileReferences({ c: ref }, ctx, lookup);
+				expect(r.ok).toBe(true);
+				return lookup.mock.calls[0][2]?.source;
+			};
+			expect(await sourceOf({ $file: "/mnt/data/diagram.svg" })).toBe("mounted");
+			expect(await sourceOf({ $file: "diagram.svg" })).toBe("mounted");
+			expect(await sourceOf({ $file: "/mnt/data/diagram.svg", original: true })).toBe("attachment");
+			expect(await sourceOf({ $file: "/mnt/output/diagram.svg" })).toBe("output");
+			// The name sent is without the root.
+			expect(lookup.mock.calls[0][1]).toBe("diagram.svg");
+		});
+
+		it("refuses `original` under /mnt/output and a non-boolean `original`", async () => {
+			const lookup = lookupOf(files);
+			for (const bad of [
+				{ $file: "/mnt/output/diagram.svg", original: true },
+				{ $file: "/mnt/data/diagram.svg", original: "yes" },
+			]) {
+				const r = await resolveFileReferences({ c: bad }, ctx, lookup);
+				expect(r.ok).toBe(false);
+			}
+			expect(lookup).not.toHaveBeenCalled();
+		});
+
+		it("refuses paths outside the two roots and `..`", async () => {
+			const lookup = lookupOf(files);
+			for (const bad of [
+				"/etc/passwd",
+				"/mnt/other/a.svg",
+				"/mnt/data/../output/a.svg",
+				"../a.svg",
+				"/mnt/data/",
+				"/mnt/output/x/../../a.svg",
+			]) {
+				const r = await resolveFileReferences({ c: { $file: bad } }, ctx, lookup);
+				expect(r.ok, bad).toBe(false);
+			}
+			expect(lookup).not.toHaveBeenCalled();
+		});
+	});
+
+	describe("stringified references", () => {
+		it("refuses a string that is a JSON reference, anywhere in the arguments", async () => {
+			const lookup = lookupOf(files);
+			for (const text of [
+				'{"$file": "/mnt/data/cerea-architecture.svg"}',
+				'  {"$file": "diagram.svg", "encoding": "base64"}\n',
+			]) {
+				const r = await resolveFileReferences(
+					{ files: [{ path: "a.svg", content: text }] },
+					ctx,
+					lookup
+				);
+				expect(r.ok).toBe(false);
+				if (!r.ok) {
+					expect(r.error).toContain("files[0].content");
+					expect(r.error).toContain("not a string");
+				}
+			}
+			expect(lookup).not.toHaveBeenCalled();
+		});
+
+		it("lets ordinary strings that mention $file pass through untouched", async () => {
+			const args = {
+				a: 'const x = {"$file": "d"}; // more',
+				b: '{"other": "$file"}',
+				c: "$file",
+			};
+			const r = await resolveFileReferences(args, ctx, lookupOf(files));
+			expect(r).toMatchObject({ ok: true, args, resolved: 0 });
+		});
+	});
+
+	it("notes, for each reference, the file that was sent", async () => {
+		const r = await resolveFileReferences(
+			{ files: [{ content: { $file: "/mnt/output/diagram.svg" } }] },
+			ctx,
+			lookupOf({ "diagram.svg": { owner: mine, bytes: Buffer.alloc(96733, 97) } })
+		);
+		expect(r.ok).toBe(true);
+		if (!r.ok) return;
+		expect(r.notes).toEqual([
+			"[file reference] files[0].content ← /mnt/output/diagram.svg (current version: produced by code, 96,733 bytes, sha256 x…)",
+		]);
+		expect(withFileRefNotes("done", r.notes)).toBe(`done\n${r.notes[0]}`);
+		expect(withFileRefNotes("done", [])).toBe("done");
 	});
 });

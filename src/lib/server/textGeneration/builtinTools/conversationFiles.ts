@@ -10,7 +10,7 @@ import {
 } from "$lib/server/execution/fileVersions";
 import type { BuiltinToolContext } from "./types";
 import { downloadFile, withheldMessage } from "$lib/server/files/downloadFile";
-import type { PlannedAttachment } from "$lib/utils/execution/attachmentNames";
+import { attachmentIsMounted, type PlannedAttachment } from "$lib/utils/execution/attachmentNames";
 import { MOUNT_ROOT } from "$lib/utils/execution/protocol";
 
 /** The name as the model sees it for a file in the sandbox: `/mnt/data/<name>` or the bare name. */
@@ -31,6 +31,8 @@ export interface FileVersion {
 	summary?: string;
 	/** The version the name resolves to now. */
 	current: boolean;
+	/** Produced rows: when it last became the newest content (ms; a restore moves it). */
+	becameCurrentAt?: number;
 	/** Stored rows only. */
 	mime?: string;
 }
@@ -49,6 +51,8 @@ export type ConversationFile =
 			versionCount: number;
 			/** The version a plain name resolves to now. */
 			currentVersion: number;
+			/** What made this version: "attachment", "sandbox" (code), a tool's name. */
+			tool: string;
 	  }
 	| { ok: false; error: string };
 
@@ -128,10 +132,11 @@ function becameCurrentAt(row: { createdAt: Date; latestAt?: Date | null }): numb
 export async function listFileVersions(
 	conversationId: ObjectId,
 	reference: string,
-	branch?: Branch
+	branch?: Branch,
+	exactMountName = false
 ): Promise<{ name: string; versions: FileVersion[]; attachment?: PlannedAttachment } | undefined> {
 	const wanted = bareName(reference);
-	const attachment = await attachmentNamed(conversationId, wanted, branch);
+	const attachment = await attachmentNamed(conversationId, wanted, branch, exactMountName);
 	// Numbers are the whole conversation's (a version keeps its number for good, whatever
 	// branch made it); the list shows only what the branch can see.
 	const rows = (await numberedRows(conversationId, wanted)).filter((row) => onBranch(row, branch));
@@ -171,16 +176,21 @@ export async function listFileVersions(
 			mime: row.mime,
 		});
 		liveAt.push(becameCurrentAt(row));
+		versions[versions.length - 1].becameCurrentAt = becameCurrentAt(row);
 	}
-	// The newest content of the name is current, produced file or attachment:
-	// an attachment re-uploaded under the name is the newest by construction,
-	// so the "(latest)" marker and the tools' default edit source land on it.
-	// A tie goes to the entry built later (a row over an attachment sent in the
-	// same millisecond), as the row-only comparison did before.
-	let latest = 0;
-	for (let i = 1; i < versions.length; i += 1) {
-		if (liveAt[i] >= liveAt[latest]) latest = i;
+	// What /mnt/data/<name> holds is current: the sandbox's own rule (`attachmentIsMounted`), so
+	// a reference to that path and the staged file cannot disagree. Among produced rows the one that
+	// became current last wins (a tie goes to the later row).
+	let newestRow = -1;
+	for (let i = versions.length - rows.length; i < versions.length; i += 1) {
+		if (newestRow < 0 || liveAt[i] >= liveAt[newestRow]) newestRow = i;
 	}
+	const attachmentIndex = attachment ? 0 : -1;
+	const latest =
+		attachmentIndex >= 0 &&
+		attachmentIsMounted(liveAt[0], newestRow >= 0 ? liveAt[newestRow] : undefined)
+			? attachmentIndex
+			: newestRow;
 	versions[latest].current = true;
 	// The numbers are the list's order, not the attachment-first one: an
 	// attachment numbered at upload sits among the rows it follows.
@@ -211,11 +221,26 @@ export async function listFileVersions(
 export async function findConversationFile(
 	conversationId: ObjectId,
 	reference: string,
-	options: { prefer?: "attachment" | "output"; version?: VersionRequest; branch?: Branch } = {}
+	options: {
+		prefer?: "attachment" | "output";
+		/**
+		 * Only this answers: the original `attachment` as uploaded, the newest `output` (produced file),
+		 * or the `mounted` file, byte for byte what /mnt/data/<name> holds in the sandbox now.
+		 */
+		source?: "attachment" | "output" | "mounted";
+		version?: VersionRequest;
+		branch?: Branch;
+	} = {}
 ): Promise<ConversationFile> {
 	const wanted = bareName(reference);
-	const listing = await listFileVersions(conversationId, reference, options.branch);
-	if (!listing) {
+	// A reference by `source` names a mount path: the mount name answers first.
+	const listing = await listFileVersions(
+		conversationId,
+		reference,
+		options.branch,
+		options.source !== undefined
+	);
+	if (!listing || (options.source === "attachment" && !listing.attachment)) {
 		const withheld = await withheldAttachmentNamed(conversationId, wanted);
 		if (withheld) return { ok: false, error: withheldMessage(withheld) };
 		return {
@@ -227,7 +252,26 @@ export async function findConversationFile(
 	const current = versions.find((v) => v.current) ?? versions[versions.length - 1];
 
 	let pick: FileVersion | undefined;
-	if (options.version !== undefined) {
+	if (options.source === "output") {
+		// The newest produced version on the branch, even when an attachment of the name is newer.
+		let newest: FileVersion | undefined;
+		for (const v of versions) {
+			if (v.origin !== "output") continue;
+			if (!newest || (v.becameCurrentAt ?? 0) >= (newest.becameCurrentAt ?? 0)) newest = v;
+		}
+		pick = newest;
+		if (!pick) {
+			return {
+				ok: false,
+				error: `No file named "${wanted}" was produced in this conversation. Use the name of a file you produced.`,
+			};
+		}
+	} else if (options.source === "mounted") {
+		// Byte for byte what the sandbox has at /mnt/data/<name>.
+		pick = current;
+	} else if (options.source === "attachment") {
+		pick = versions.find((v) => v.origin === "attachment") ?? current;
+	} else if (options.version !== undefined) {
 		pick =
 			options.version === "previous"
 				? versions[versions.indexOf(current) - 1]
@@ -273,7 +317,13 @@ export async function findConversationFile(
 		return bytes ? { name: wanted, bytes } : undefined;
 	};
 	let found = await read(pick);
-	if (!found && options.version === undefined && pick.origin === "output" && listing.attachment) {
+	if (
+		!found &&
+		options.version === undefined &&
+		!options.source &&
+		pick.origin === "output" &&
+		listing.attachment
+	) {
 		// A produced file whose bytes are gone: the attachment of that name is still the answer.
 		pick = versions.find((v) => v.origin === "attachment") ?? current;
 		found = await read(pick);
@@ -298,5 +348,6 @@ export async function findConversationFile(
 		version: pick.version,
 		versionCount: versions.length,
 		currentVersion: current.version,
+		tool: pick.tool,
 	};
 }

@@ -98,8 +98,24 @@ file into the call, which a large or binary file cannot survive (the reply is cu
 at the output limit). Instead the model passes a **file reference** where a string
 argument goes:
 
-- `{"$file": "diagram.svg"}` is the file's text (UTF-8);
-- `{"$file": "logo.png", "encoding": "base64"}` is the file's bytes as base64.
+- `{"$file": "/mnt/data/report.svg"}` is exactly what the code sandbox has at that path now:
+  the latest version of the file, whatever made it (an attachment, a document tool's edit,
+  or a file code wrote over the name). Cerea selects it with the same rule the sandbox
+  staging uses (`attachmentIsMounted`), so the two cannot disagree (UTF-8 text);
+- `{"$file": "/mnt/data/report.svg", "original": true}` is the user's upload as it was,
+  before any edit or same-name file (how to send "the files I attached");
+- `{"$file": "/mnt/output/diagram.svg"}` is the newest file produced in the chat under
+  that name;
+- `{"$file": "/mnt/output/logo.png", "encoding": "base64"}` is the file's bytes as base64;
+- a bare name (`{"$file": "diagram.svg"}`) means `/mnt/data/diagram.svg`.
+
+Other paths (outside those two roots, or with `..`) are refused, and a file a privacy rule
+withheld never resolves in any form. A string
+argument whose whole value is a `{"$file": ...}` object written as JSON text is also
+refused, with a message to pass an object instead, because it would otherwise be sent
+as literal text. After the call, the tool result carries one line per reference, such as
+`[file reference] content ← /mnt/data/cerea-architecture.svg (original attachment, 96,733 bytes, sha256 1a2b3c4d…)` or `(current version: produced by code, 103,138 bytes, sha256 …)`,
+so the model can check which file was sent; the line is not sent to the connector.
 
 Cerea swaps in the content on the server, after any approval and just before the
 call. Only an object with a `$file` key is ever rewritten, so an ordinary string (even

@@ -75,7 +75,13 @@ export function onBranch(row: { messageIds?: string[] }, branch: Branch | undefi
 export async function attachmentNamed(
 	conversationId: Conversation["_id"],
 	wanted: string,
-	branch?: Branch
+	branch?: Branch,
+	/**
+	 * Answer to the sandbox's mount name (`/mnt/data/<name>`) before the uploaded name: two uploads
+	 * called x.svg are mounted as `x.svg` and `x (2).svg`. The document tools keep the older
+	 * reading, where a re-upload of a name supersedes the first one.
+	 */
+	exactMountName = false
 ): Promise<{ planned: PlannedAttachment; at: Date } | undefined> {
 	const conversation = await collections.conversations.findOne(
 		{ _id: conversationId },
@@ -97,10 +103,13 @@ export async function attachmentNamed(
 	// The plan lists files in message order, so the last match is the newest
 	// (Array.findLast needs ES2023; this code compiles for ES2018).
 	let planned: PlannedAttachment | undefined;
+	let byUploadedName: PlannedAttachment | undefined;
 	for (const entry of planAttachments(files)) {
-		if (entry.file.type === "hash" && (entry.name === wanted || entry.file.name === wanted))
-			planned = entry;
+		if (entry.file.type !== "hash") continue;
+		if (exactMountName && entry.name === wanted) planned = entry;
+		else if (entry.name === wanted || entry.file.name === wanted) byUploadedName = entry;
 	}
+	planned ??= byUploadedName;
 	if (!planned) return undefined;
 	// When it was sent: the timestamp of the (last) message that carries it, the
 	// conversation's when the message carries none — the old reading, which

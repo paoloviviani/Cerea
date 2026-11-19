@@ -37,7 +37,10 @@ import {
 } from "$lib/server/textGeneration/builtinTools/toolApproval";
 import type { PendingToolApprovalCall, QueuedApprovalCall } from "$lib/types/McpElicitation";
 import { collections } from "$lib/server/database";
-import { resolveFileReferences } from "$lib/server/textGeneration/mcp/fileReferences";
+import {
+	resolveFileReferences,
+	withFileRefNotes,
+} from "$lib/server/textGeneration/mcp/fileReferences";
 import { GENERATE_IMAGE_TOOL_NAME } from "$lib/server/textGeneration/builtinTools/generateImageTool";
 import {
 	AGENT_ACTING_TOOLS,
@@ -382,7 +385,10 @@ async function runApprovedCall(
 				type: MessageUpdateType.Tool,
 				subtype: MessageToolUpdateType.Error,
 				uuid: toolUuid,
-				message: response.text || "The tool reported an error with no message.",
+				message: withFileRefNotes(
+					response.text || "The tool reported an error with no message.",
+					fileRefs.notes
+				),
 			};
 		}
 		return {
@@ -394,7 +400,7 @@ async function runApprovedCall(
 				call: { name: mcp.toolName, parameters: {} },
 				outputs: [
 					{
-						text: response.text ?? "",
+						text: withFileRefNotes(response.text ?? "", fileRefs.notes),
 						structured: response.structured,
 						content: response.content,
 					},
@@ -704,7 +710,10 @@ export async function resumeParkedToolCall({
 					type: MessageUpdateType.Tool,
 					subtype: MessageToolUpdateType.Error,
 					uuid: pending.toolUuid,
-					message: response.text || "The tool reported an error with no message.",
+					message: withFileRefNotes(
+						response.text || "The tool reported an error with no message.",
+						fileRefs.notes
+					),
 				}
 			: {
 					type: MessageUpdateType.Tool,
@@ -715,7 +724,7 @@ export async function resumeParkedToolCall({
 						call: { name: pending.tool, parameters: {} },
 						outputs: [
 							{
-								text: response.text ?? "",
+								text: withFileRefNotes(response.text ?? "", fileRefs.notes),
 								structured: response.structured,
 								content: response.content,
 							},

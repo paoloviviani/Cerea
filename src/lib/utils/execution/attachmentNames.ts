@@ -189,6 +189,21 @@ export function mountPlanByHash(
 	return names;
 }
 
+/**
+ * Whether an attachment, not a produced file of the same name, is what /mnt/data/<name> holds.
+ * The one rule the browser's mounter (staging) and the server's file lookup both use, so a
+ * reference to a mount path sends the bytes the sandbox shows there. A produced file shadows the
+ * attachment unless the attachment was sent strictly later than the newest produced version
+ * became current (`latestAt ?? createdAt`, ms); an attachment with no known send time is no newer.
+ */
+export function attachmentIsMounted(
+	attachmentSentAt: number | undefined,
+	newestProducedAt: number | undefined
+): boolean {
+	if (newestProducedAt === undefined) return true;
+	return attachmentSentAt !== undefined && attachmentSentAt > newestProducedAt;
+}
+
 /** The one line the model reads, when the code tool is on offer. */
 export function attachmentMountNotice(name: string): string {
 	return `Its full text is below, already read. The file is also available to code at ${MOUNT_ROOT}/${name} (its current version, if it has been edited), for computation such as counting, searching at scale or transforming, not to read it again.`;

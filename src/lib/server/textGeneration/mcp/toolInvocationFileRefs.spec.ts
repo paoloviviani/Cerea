@@ -164,4 +164,46 @@ describe("file references in a connector call, through executeToolCalls", () => 
 		);
 		expect(error).toMatchObject({ message: expect.stringContaining("No file named") });
 	});
+
+	it("tells the model which file was sent, in the tool result and not in the connector's arguments", async () => {
+		const conversationId = new ObjectId();
+		conversations.push(conversationId);
+		const xlsx = tinyXlsx();
+		await storeFile(conversationId, xlsx, "book.xlsx");
+		mcpMock.callMcpTool.mockResolvedValueOnce({ text: "committed", isError: false });
+
+		const events = await run(
+			conversationId,
+			"create_or_update_file",
+			JSON.stringify({
+				path: "book.xlsx",
+				content: { $file: "/mnt/output/book.xlsx", encoding: "base64" },
+			})
+		);
+		const complete = events.find((e) => e.type === "complete");
+		if (complete?.type !== "complete") throw new Error("no completion");
+		const text = JSON.stringify(complete.summary.toolRuns);
+		expect(text).toContain("committed");
+		expect(text).toContain("[file reference] content");
+		expect(text).toContain(
+			`/mnt/output/book.xlsx (current version: produced by download_bytes, ${xlsx.length.toLocaleString("en-US")} bytes, sha256 `
+		);
+		expect(JSON.stringify(mcpMock.callMcpTool.mock.calls[1][2])).not.toContain("[file reference]");
+	});
+
+	it("does not call the connector for a reference passed as a string", async () => {
+		const conversationId = new ObjectId();
+		conversations.push(conversationId);
+		const events = await run(
+			conversationId,
+			"create_or_update_file",
+			JSON.stringify({ path: "a.svg", content: '{"$file": "/mnt/data/a.svg"}' })
+		);
+		expect(mcpMock.callMcpTool).not.toHaveBeenCalled();
+		const updates = events.flatMap((e) => (e.type === "update" ? [e.update] : []));
+		const error = updates.find(
+			(u) => u.type === MessageUpdateType.Tool && u.subtype === MessageToolUpdateType.Error
+		);
+		expect(error).toMatchObject({ message: expect.stringContaining("not a string") });
+	});
 });
