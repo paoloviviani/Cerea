@@ -197,7 +197,7 @@ describe("resolveFileReferences", () => {
 				lookup.mockClear();
 				const r = await resolveFileReferences({ c: ref }, ctx, lookup);
 				expect(r.ok).toBe(true);
-				return lookup.mock.calls[0][2].source;
+				return lookup.mock.calls[0][2]?.source;
 			};
 			expect(await sourceOf({ $file: "/mnt/data/diagram.svg" })).toBe("mounted");
 			expect(await sourceOf({ $file: "diagram.svg" })).toBe("mounted");
