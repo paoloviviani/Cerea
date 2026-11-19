@@ -56,13 +56,13 @@ export interface Settings extends Timestamps {
 
 	/**
 	 * Web search through the gateway's own backends (`POST /v1/search`,
-	 * ADR 0058's plan phase 2). On by default for new accounts
-	 * (`DEFAULT_SETTINGS.webSearchEnabled === true`): absent on older
-	 * settings documents still resolves as off, and the tool itself is only
-	 * offered when the caller has at least one granted `kind: "search"` tier
-	 * (`searchModelIds.length > 0`) — the toggle expresses intent, the tier
-	 * is the permission, so a missing Pystino search endpoint simply withholds
-	 * the tool instead of failing the turn.
+	 * ADR 0058's plan phase 2). The user's opt-out: on unless this is `false`
+	 * (absent on older settings documents counts as on), and there is no
+	 * per-chat or per-message switch. The tool itself is only offered when
+	 * the caller has at least one granted `kind: "search"` tier
+	 * (`searchModelIds.length > 0`) — this expresses intent, the tier is the
+	 * permission, so a missing Pystino search endpoint simply withholds the
+	 * tool instead of failing the turn.
 	 */
 	webSearchEnabled?: boolean;
 
@@ -207,7 +207,7 @@ export const DEFAULT_SETTINGS = {
 	// New accounts start with web search on. The turn still withholds the
 	// tool when Pystino grants this caller no search backend, so deployments
 	// without a search endpoint are unaffected. Older documents with the field
-	// absent keep resolving as off (see `resolveWebSearchEnabled`).
+	// absent resolve as on too (see `resolveWebSearchEnabled`).
 	webSearchEnabled: true,
 	multimodalOverrides: {},
 	toolsOverrides: {},

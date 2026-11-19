@@ -16,7 +16,7 @@
 
 {#if mounts?.files.length || mounts?.skipped.length}
 	<div class="flex flex-wrap items-center gap-1.5 px-5 pb-1.5 text-xs">
-		<span class="text-[10px] font-semibold text-gray-400 uppercase dark:text-gray-500">
+		<span class="text-xxs font-semibold text-gray-400 uppercase dark:text-gray-500">
 			{m["chat.mounted.heading"]()}
 		</span>
 		{#each mounts.files as file (file.path)}
@@ -28,7 +28,7 @@
 					title={m["chat.mounted.stop"]({ path: file.path })}
 					onclick={() => void mounts?.remove(file.path)}
 				>
-					<CarbonClose class="text-[10px]" />
+					<CarbonClose class="text-xxs" />
 				</button>
 			</span>
 		{/each}

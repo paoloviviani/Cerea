@@ -47,11 +47,6 @@
 	// exists yet: they ride into the create request, so the conversation is
 	// attached before its first turn is ever generated.
 	let knowledgeBases: { id: string; name: string }[] = $state([]);
-	// Per-chat web search for the chat about to be created, starting at the
-	// app default. The toggle changes only this draft; the server stores it
-	// on the new conversation, never back to the default.
-	let webSearch: boolean = $state(false);
-	let webSearchSeeded = $state(false);
 	// Deciding up front: the composer pill for the chat about to be created,
 	// starting at the app default. Only an explicit toggle rides into the
 	// create request (tracked separately below) — untouched, the new chat
@@ -95,7 +90,6 @@
 			const createBody = JSON.stringify({
 				model,
 				knowledgeBaseIds: knowledgeBases.map((base) => base.id),
-				webSearch,
 				// An explicit up-front choice becomes the new chat's override;
 				// untouched, the field stays absent and the chat inherits.
 				...(toolApprovalTouched
@@ -231,13 +225,6 @@
 
 	let currentModel = $derived(findCurrentModel(data.models, data.oldModels, $settings.activeModel));
 
-	// Seed the draft toggle from the app default. Guarded so a toggle the
-	// user already made is never overwritten by a late settings load.
-	$effect(() => {
-		if (webSearchSeeded) return;
-		webSearch = $settings.webSearchEnabled === true;
-		webSearchSeeded = true;
-	});
 	// Same guard for the tool-approval pill: it starts at the setting, and
 	// the baseline remembers what "untouched" looked like so toggling twice
 	// back counts as untouched again.
@@ -268,7 +255,6 @@
 		bind:files
 		bind:draft
 		bind:knowledgeBases
-		bind:webSearch
 		bind:autoApproveTools
 	/>
 {:else}

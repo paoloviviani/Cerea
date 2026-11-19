@@ -435,7 +435,7 @@
 
 		{#if showArgs}
 			<div class="mt-2 mb-4 space-y-1 text-gray-500 dark:text-gray-400">
-				<div class="text-[10px] font-semibold text-gray-400 uppercase dark:text-gray-500">
+				<div class="text-xxs font-semibold text-gray-400 uppercase dark:text-gray-500">
 					{m["chat.approval.arguments"]()}
 				</div>
 				<pre

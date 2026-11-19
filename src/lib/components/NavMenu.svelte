@@ -96,7 +96,7 @@
 
 	/** The bottom block's rows, which are all the same shape. */
 	const ROW =
-		"flex h-8 flex-none items-center gap-1.5 rounded-lg px-2 text-left text-gray-500 hover:bg-gray-100 max-sm:h-10 dark:text-gray-400 dark:hover:bg-gray-700";
+		"flex h-8 flex-none items-center gap-1.5 rounded-lg px-2 text-left text-ink-muted hover:bg-gray-100 max-sm:h-10 dark:hover:bg-gray-700";
 	const ROW_ACTIVE =
 		"flex h-8 flex-none items-center gap-1.5 rounded-lg px-2 text-left bg-gray-100 font-semibold text-gray-900 max-sm:h-10 dark:bg-gray-700 dark:text-white";
 
@@ -343,7 +343,7 @@
 						<span
 							data-testid="sidebar-agents-badge"
 							aria-hidden="true"
-							class="min-w-4 rounded-full bg-amber-500 px-1 text-center text-[10px] leading-4 font-semibold text-white"
+							class="min-w-4 rounded-full bg-amber-500 px-1 text-center text-xxs leading-4 font-semibold text-white"
 							>{needsYouCount}</span
 						>
 					{/if}
@@ -379,7 +379,7 @@
 </div>
 
 <div
-	class="scrollbar-custom flex touch-pan-y flex-col gap-px overflow-y-auto rounded-r-xl border border-l-0 border-gray-100 from-sidebar px-2 pt-2 pb-3 text-[.9rem] max-sm:bg-linear-to-t md:bg-linear-to-l dark:border-transparent"
+	class="scrollbar-custom flex touch-pan-y flex-col gap-px overflow-y-auto rounded-r-xl border border-l-0 border-gray-100 from-sidebar px-2 pt-2 pb-3 text-sm max-sm:bg-linear-to-t md:bg-linear-to-l dark:border-transparent"
 >
 	{#if codeAgentsEnabled && effectiveView === "agents"}
 		<!-- While the sign-in is stale the tree draws no machines and no counts;
@@ -465,7 +465,7 @@
 				<span
 					data-testid="schedules-attention"
 					aria-hidden="true"
-					class="min-w-4 rounded-full bg-amber-500 px-1 text-center text-[10px] leading-4 font-semibold text-white"
+					class="min-w-4 rounded-full bg-amber-500 px-1 text-center text-xxs leading-4 font-semibold text-white"
 					>{scheduleAttention.count}</span
 				>
 			{/if}

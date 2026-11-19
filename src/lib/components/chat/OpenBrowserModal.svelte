@@ -90,7 +90,7 @@
 						autocomplete="off"
 						spellcheck="false"
 						placeholder={"example.com"}
-						class="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-[15px] text-gray-800 outline-hidden placeholder:text-ink-faint focus:ring-2 focus:ring-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:focus:ring-gray-700"
+						class="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 outline-hidden placeholder:text-ink-faint focus:ring-2 focus:ring-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:focus:ring-gray-700"
 					/>
 				</div>
 

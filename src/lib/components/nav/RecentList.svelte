@@ -206,10 +206,10 @@
 		`${ROW} ${
 			active
 				? "bg-gray-100 font-medium text-gray-900 dark:bg-gray-700 dark:text-white"
-				: "text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
+				: "text-ink-muted hover:bg-gray-100 dark:hover:bg-gray-700"
 		}`;
 	const BADGE =
-		"inline-flex max-w-[7rem] shrink-0 items-center gap-1 truncate rounded-full bg-gray-100 px-1.5 text-[.65rem] text-gray-500 dark:bg-gray-700 dark:text-gray-300";
+		"inline-flex max-w-[7rem] shrink-0 items-center gap-1 truncate rounded-full bg-gray-100 px-1.5 text-xxs text-gray-500 dark:bg-gray-700 dark:text-gray-300";
 </script>
 
 <div class="flex flex-col gap-px" data-testid="recent-list">
@@ -240,7 +240,7 @@
 					</span>
 				{/if}
 				<time
-					class="shrink-0 text-[.65rem] text-gray-400 dark:text-gray-500"
+					class="shrink-0 text-xxs text-gray-400 dark:text-gray-500"
 					datetime={new Date(item.activityAt).toISOString()}
 					data-testid="recent-time">{formatRelativeTime(item.activityAt, now)}</time
 				>
@@ -292,7 +292,7 @@
 					<span class="truncate">{item.machine.name}</span>
 				</span>
 				<time
-					class="shrink-0 text-[.65rem] text-gray-400 dark:text-gray-500"
+					class="shrink-0 text-xxs text-gray-400 dark:text-gray-500"
 					datetime={new Date(item.activityAt).toISOString()}
 					data-testid="recent-time">{formatRelativeTime(item.activityAt, now)}</time
 				>

@@ -20,9 +20,10 @@ import { paletteFields, palettePatch } from "$lib/server/paletteSettings";
 import { localeFields, localePatch, localeUnset } from "$lib/server/localeSettings";
 
 const settingsSchema = z.object({
-	// On by default for new accounts (DEFAULT_SETTINGS); absent on older
-	// documents still resolves as off. The tool itself also needs the
-	// console's search tier, so a missing backend withholds it.
+	// The user's opt-out from web search (the Settings switch "Use web search
+	// when available"): on unless `false`, and absent on older documents counts
+	// as on. The tool itself also needs the console's search tier, so a missing
+	// backend withholds it.
 	webSearchEnabled: z.boolean().optional(),
 	// Absent = `manual`. See the field doc in $lib/types/Settings.
 	toolApprovalPolicy: z.enum(["always-allow", "manual"]).optional(),

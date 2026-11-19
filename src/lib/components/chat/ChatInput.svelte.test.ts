@@ -112,7 +112,7 @@ const settingsContext = new Map<string, unknown>([["settings", writable({ active
 async function renderComposer(
 	params: Record<string, string>,
 	attached: { id: string; name: string }[] = [],
-	webSearch = false,
+	autoApproveTools = false,
 	pageData: Record<string, unknown> = {},
 	extraProps: Record<string, unknown> = {}
 ) {
@@ -124,7 +124,12 @@ async function renderComposer(
 	}
 	const mounted = renderWithApp(
 		ChatInput,
-		{ knowledgeBases: attached, mimeTypes: ["text/plain", "image/png"], webSearch, ...extraProps },
+		{
+			knowledgeBases: attached,
+			mimeTypes: ["text/plain", "image/png"],
+			autoApproveTools,
+			...extraProps,
+		},
 		{
 			page: {
 				params,
@@ -461,17 +466,20 @@ describe("ChatInput: composer toolbar order and attach-menu cascade", () => {
 		}
 	}
 
-	it("puts the attach trigger before the Web search pill", async () => {
+	it("puts the attach trigger before the permission shield", async () => {
 		stubFetch();
 		const { container } = await renderComposer({ id: CONV_ID });
 		const attach = find(container, 'button[aria-label="Add attachment"]');
-		const webSearch = [...container.querySelectorAll("button")].find((button) =>
-			button.textContent?.includes("Web search")
-		);
-		if (!webSearch) throw new Error("no Web search pill");
-		expect(
-			attach.compareDocumentPosition(webSearch) & Node.DOCUMENT_POSITION_FOLLOWING
-		).toBeTruthy();
+		const shield = find(container, '[data-testid="permission-shield"]');
+		expect(attach.compareDocumentPosition(shield) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+	});
+
+	it("shows no web search or asks-first chip in the composer row", async () => {
+		stubFetch();
+		const { container } = await renderComposer({ id: CONV_ID });
+		const labels = [...container.querySelectorAll("button")].map((b) => b.textContent?.trim());
+		expect(labels.join("|")).not.toContain("Web search");
+		expect(labels.join("|")).not.toContain("Asks first");
 	});
 
 	it("at phone width, the root menu and every submenu stay inside the viewport", async () => {
@@ -493,122 +501,94 @@ describe("ChatInput: composer toolbar order and attach-menu cascade", () => {
 		}
 	});
 
-	describe("ChatInput: web search is per-chat state", () => {
-		const findWebSearchPill = (container: HTMLElement): HTMLElement => {
-			const pill = [...container.querySelectorAll("button")].find((button) =>
-				button.textContent?.includes("Web search")
+	describe("ChatInput: the permission shield", () => {
+		const shieldOf = (container: HTMLElement) =>
+			find(container, '[data-testid="permission-shield"]');
+		const openShield = async (container: HTMLElement) => {
+			fireTap(shieldOf(container));
+			await waitSlow(() =>
+				expect(document.body.querySelector('[data-testid="permission-shield-ask"]')).not.toBeNull()
 			);
-			if (!pill) throw new Error("no Web search pill");
-			return pill as HTMLElement;
 		};
 
-		it("is disabled with a reason when the caller has no search backend", async () => {
-			const calls = stubFetch();
-			const { container } = await renderComposer({ id: CONV_ID }, [], true, {
-				webSearchAvailable: false,
-			});
-
-			const pill = findWebSearchPill(container) as HTMLButtonElement;
-			expect(pill.disabled).toBe(true);
-			expect(pill.getAttribute("aria-pressed")).toBe("false");
-			expect(pill.title).toBe("Web search isn't set up here yet.");
-			pill.click();
-			expect(calls.some((call) => call.method === "PATCH")).toBe(false);
-		});
-
-		it("is disabled with a reason when the model cannot use tools", async () => {
-			const calls = stubFetch();
-			const { container } = await renderComposer(
-				{ id: CONV_ID },
-				[],
-				true,
-				{ webSearchAvailable: true },
-				{ modelSupportsTools: false }
-			);
-			const pill = findWebSearchPill(container) as HTMLButtonElement;
-			expect(pill.disabled).toBe(true);
-			expect(pill.getAttribute("aria-pressed")).toBe("false");
-			expect(pill.title).toBe(
-				"This model cannot use tools, so it cannot search the web. Pick a model that supports tools."
-			);
-			pill.click();
-			expect(calls.some((call) => call.method === "PATCH")).toBe(false);
-		});
-
-		it("points an administrator at where to set it up", async () => {
+		it("is icon-only on the default (Ask): no label, no tint", async () => {
 			stubFetch();
-			const { container } = await renderComposer({ id: CONV_ID }, [], false, {
-				webSearchAvailable: false,
-				gatewayIsAdmin: true,
-			});
-			expect(findWebSearchPill(container).title).toContain("Admin → Web search");
+			const { container } = await renderComposer({ id: CONV_ID });
+			const shield = shieldOf(container);
+			expect(shield.getAttribute("data-mode")).toBe("ask");
+			expect(shield.textContent?.trim()).toBe("");
+			expect(shield.getAttribute("aria-label")).toBe("Permissions: Ask");
+			expect(container.querySelector('[data-testid="permission-shield-label"]')).toBeNull();
+			expect(shield.className).not.toContain("bg-accent-subtle");
 		});
 
-		it("is enabled when a search backend is granted", async () => {
+		it("wears a label and a tint when the chat is not on the default", async () => {
 			stubFetch();
-			const { container } = await renderComposer({ id: CONV_ID }, [], false, {
-				webSearchAvailable: true,
-			});
-			expect((findWebSearchPill(container) as HTMLButtonElement).disabled).toBe(false);
+			const { container } = await renderComposer({ id: CONV_ID }, [], true);
+			const shield = shieldOf(container);
+			expect(shield.getAttribute("data-mode")).toBe("allow");
+			expect(shield.textContent?.trim()).toBe("Allow");
+			expect(shield.getAttribute("aria-label")).toBe("Permissions: Allow");
+			expect(shield.className).toContain("bg-accent-subtle");
 		});
 
-		it("toggling on in a chat PATCHes the conversation, never the settings", async () => {
+		it("opens a menu with Ask, Allow and a link to the per-tool settings", async () => {
+			stubFetch();
+			const { container } = await renderComposer({ id: CONV_ID });
+			await openShield(container);
+			const items = [...document.body.querySelectorAll('[role="menuitemradio"]')].map((el) =>
+				el.textContent?.trim()
+			);
+			expect(items).toHaveLength(2);
+			expect(items[0]).toContain("Ask");
+			expect(items[1]).toContain("Allow");
+			expect(document.body.textContent).toContain("Per-tool settings…");
+		});
+
+		it("choosing Allow in a chat PATCHes the override, never the settings", async () => {
 			const calls = stubFetch();
 			const { container } = await renderComposer({ id: CONV_ID });
-
-			const pill = findWebSearchPill(container);
-			expect(pill.getAttribute("aria-pressed")).toBe("false");
-			pill.click();
+			await openShield(container);
+			find(document.body, '[data-testid="permission-shield-allow"]').click();
 
 			await waitSlow(() =>
 				expect(calls).toContainEqual({
 					method: "PATCH",
 					url: expect.stringContaining(`/conversation/${CONV_ID}`),
-					body: { webSearch: true },
+					body: { toolApprovalOverride: "always-allow" },
 				})
 			);
-			expect(pill.getAttribute("aria-pressed")).toBe("true");
-			// Settings hold *defaults*: the composer never POSTs them for a chat toggle.
+			await waitSlow(() => expect(shieldOf(container).getAttribute("data-mode")).toBe("allow"));
 			expect(calls.some((call) => call.url.includes("/settings"))).toBe(false);
 		});
 
-		it("toggling off PATCHes false, so an explicit off beats a default of on", async () => {
-			const calls = stubFetch();
-			const { container } = await renderComposer({ id: CONV_ID }, [], true);
-
-			const pill = findWebSearchPill(container);
-			expect(pill.getAttribute("aria-pressed")).toBe("true");
-			pill.click();
-
-			await waitSlow(() =>
-				expect(calls).toContainEqual({
-					method: "PATCH",
-					url: expect.stringContaining(`/conversation/${CONV_ID}`),
-					body: { webSearch: false },
-				})
-			);
-			expect(pill.getAttribute("aria-pressed")).toBe("false");
-		});
-
-		it("a refused toggle rolls back to what the server holds", async () => {
+		it("a refused change rolls back to what the server holds", async () => {
 			stubFetch({ patchStatus: 400 });
 			const { container } = await renderComposer({ id: CONV_ID });
-
-			const pill = findWebSearchPill(container);
-			pill.click();
-
-			await waitSlow(() => expect(pill.getAttribute("aria-pressed")).toBe("false"));
+			await openShield(container);
+			find(document.body, '[data-testid="permission-shield-allow"]').click();
+			await waitSlow(() => expect(shieldOf(container).getAttribute("data-mode")).toBe("ask"));
 		});
 
-		it("before a conversation exists, toggling stays local and PATCHes nothing", async () => {
+		it("before a conversation exists, choosing stays local and PATCHes nothing", async () => {
 			const calls = stubFetch();
 			const { container } = await renderComposer({});
-
-			const pill = findWebSearchPill(container);
-			pill.click();
-
-			await waitSlow(() => expect(pill.getAttribute("aria-pressed")).toBe("true"));
+			await openShield(container);
+			find(document.body, '[data-testid="permission-shield-allow"]').click();
+			await waitSlow(() => expect(shieldOf(container).getAttribute("data-mode")).toBe("allow"));
 			expect(calls.filter((call) => call.method === "PATCH")).toEqual([]);
+		});
+
+		it("is absent from a composer that has no chat tools (the agent's)", async () => {
+			stubFetch();
+			const { container } = await renderComposer(
+				{ id: CONV_ID },
+				[],
+				false,
+				{},
+				{ chatTools: false }
+			);
+			expect(container.querySelector('[data-testid="permission-shield"]')).toBeNull();
 		});
 	});
 

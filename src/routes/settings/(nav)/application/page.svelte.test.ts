@@ -148,6 +148,45 @@ describe("Settings > Application, the PyPI install option", () => {
 	});
 });
 
+describe("Settings > Application, the web search opt-out", () => {
+	const row = () => document.querySelector<HTMLInputElement>('input[name="webSearchEnabled"]');
+	const withSettings = (value: Record<string, unknown>) => {
+		const store = writable({ activeModel: "", ...value });
+		return new Map<unknown, unknown>([
+			[
+				"settings",
+				{ subscribe: store.subscribe, update: vi.fn(), instantSet: vi.fn(), set: vi.fn() },
+			],
+		]);
+	};
+
+	it("is on by default, also for a settings document that never stored it", async () => {
+		page.data = { webSearchAvailable: true };
+		const screen = renderWithApp(ApplicationPage, {}, { context: withSettings({}), page });
+		await expect.element(screen.getByText("Use web search when available")).toBeVisible();
+		expect(row()?.checked).toBe(true);
+	});
+
+	it("shows off only when the user stored false", async () => {
+		page.data = { webSearchAvailable: true };
+		const screen = renderWithApp(
+			ApplicationPage,
+			{},
+			{ context: withSettings({ webSearchEnabled: false }), page }
+		);
+		await expect.element(screen.getByText("Use web search when available")).toBeVisible();
+		expect(row()?.checked).toBe(false);
+	});
+
+	it("is disabled, with the reason, when no search backend is granted", async () => {
+		page.data = { webSearchAvailable: false };
+		const screen = renderWithApp(ApplicationPage, {}, { context: withSettings({}), page });
+		await expect.element(screen.getByText("Use web search when available")).toBeVisible();
+		expect(row()?.disabled).toBe(true);
+		expect(document.body.textContent).toContain("Web search isn't set up here yet.");
+	});
+});
+
 describe("Settings > Application, About this server", () => {
 	it("folds the version, gateway address and admin badge away, with a space before the commit", async () => {
 		page.data = { isAdmin: true };

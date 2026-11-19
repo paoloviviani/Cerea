@@ -33,7 +33,7 @@ describe("webSearchNoticeLine", () => {
 		expect(webSearchNoticeLine({ enabled: false, granted: true, toolsEnabled: true })).toBe(
 			WEB_SEARCH_OFF_LINE
 		);
-		expect(WEB_SEARCH_OFF_LINE).toContain("switch in the composer");
+		expect(WEB_SEARCH_OFF_LINE).toContain("Use web search when available");
 	});
 	it("says nothing when search works, or nothing is granted", () => {
 		expect(
@@ -56,19 +56,18 @@ describe("webSearchNoticeFor", () => {
 	const noTools = { model: { supportsTools: false }, locals } as never;
 	const tools = { model: { supportsTools: true }, locals } as never;
 
-	it("uses the chat, then project, then app default", async () => {
+	it("follows the user's setting (absent counts as on), then the project default", async () => {
 		mocks.granted = ["s"];
 		mocks.settings = { webSearchEnabled: undefined };
 		mocks.project = undefined;
-		expect(await webSearchNoticeFor(tools, {})).toBe(WEB_SEARCH_OFF_LINE);
-		mocks.settings = { webSearchEnabled: true };
+		expect(await webSearchNoticeFor(tools, {})).toBeUndefined();
 		expect(await webSearchNoticeFor(noTools, {})).toBe(WEB_SEARCH_NEEDS_TOOLS_LINE);
-		expect(await webSearchNoticeFor(noTools, { webSearch: false })).toBeUndefined();
+		mocks.settings = { webSearchEnabled: false };
+		expect(await webSearchNoticeFor(tools, {})).toBe(WEB_SEARCH_OFF_LINE);
+		expect(await webSearchNoticeFor(noTools, {})).toBeUndefined();
 		mocks.settings = { webSearchEnabled: undefined };
-		mocks.project = { defaultWebSearch: true };
-		expect(await webSearchNoticeFor(noTools, { projectId: "p" as never })).toBe(
-			WEB_SEARCH_NEEDS_TOOLS_LINE
-		);
+		mocks.project = { defaultWebSearch: false };
+		expect(await webSearchNoticeFor(tools, { projectId: "p" as never })).toBe(WEB_SEARCH_OFF_LINE);
 	});
 	it("lets forceTools win and skips when no backend is granted", async () => {
 		mocks.project = undefined;

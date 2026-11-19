@@ -112,7 +112,7 @@
 				{:else}
 					{#each grouped(files) as [storeName, group] (storeName)}
 						<div
-							class="px-2 pt-1.5 pb-0.5 text-[10px] font-semibold text-gray-400 uppercase dark:text-gray-500"
+							class="px-2 pt-1.5 pb-0.5 text-xxs font-semibold text-gray-400 uppercase dark:text-gray-500"
 						>
 							{storeName}
 						</div>

@@ -487,7 +487,7 @@
 				{#each tool as update, i (`${update.subtype}-${i}`)}
 					{#if update.subtype === MessageToolUpdateType.Call}
 						<div class="space-y-1">
-							<div class="text-[10px] font-semibold text-gray-400 uppercase dark:text-gray-500">
+							<div class="text-xxs font-semibold text-gray-400 uppercase dark:text-gray-500">
 								{m["chat.tool.input"]()}
 							</div>
 							<pre
@@ -497,7 +497,7 @@
 						</div>
 					{:else if update.subtype === MessageToolUpdateType.Error}
 						<div class="space-y-1">
-							<div class="text-[10px] font-semibold text-amber-600 uppercase dark:text-amber-400">
+							<div class="text-xxs font-semibold text-amber-600 uppercase dark:text-amber-400">
 								{m["chat.tool.error"]()}
 							</div>
 							<pre
@@ -505,7 +505,7 @@
 						</div>
 					{:else if isMessageToolResultUpdate(update) && update.result.status === ToolResultStatus.Success && update.result.display}
 						<div class="space-y-1">
-							<div class="text-[10px] font-semibold text-gray-400 uppercase dark:text-gray-500">
+							<div class="text-xxs font-semibold text-gray-400 uppercase dark:text-gray-500">
 								{m["chat.tool.output"]()}
 							</div>
 							{#each parseToolOutputs(update.result.outputs) as parsedOutput}
@@ -538,7 +538,7 @@
 						</div>
 					{:else if isMessageToolResultUpdate(update) && update.result.status === ToolResultStatus.Error && update.result.display}
 						<div class="space-y-1">
-							<div class="text-[10px] font-semibold text-amber-600 uppercase dark:text-amber-400">
+							<div class="text-xxs font-semibold text-amber-600 uppercase dark:text-amber-400">
 								{m["chat.tool.error"]()}
 							</div>
 							<pre

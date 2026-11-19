@@ -98,7 +98,7 @@
 
 <div class="flex flex-col">
 	<div
-		class="group flex h-8 items-center gap-1 rounded-lg pr-1 text-gray-500 hover:bg-gray-100 max-sm:h-10 dark:text-gray-400 dark:hover:bg-gray-700"
+		class="group flex h-8 items-center gap-1 rounded-lg pr-1 text-ink-faint hover:bg-gray-100 hover:text-ink-muted max-sm:h-10 dark:hover:bg-gray-700"
 		style="padding-left: {0.25 + depth * 0.75}rem"
 		class:ring-2={dropOver}
 		class:ring-accent={dropOver}

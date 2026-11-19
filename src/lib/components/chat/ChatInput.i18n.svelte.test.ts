@@ -54,7 +54,7 @@ describe("Composer, in the pseudo-locale", () => {
 		document.body.appendChild(host);
 		renderWithApp(
 			ChatInput,
-			{ knowledgeBases: [], mimeTypes: ["text/plain", "image/png"], webSearch: false },
+			{ knowledgeBases: [], mimeTypes: ["text/plain", "image/png"] },
 			{
 				page: {
 					params: { id: CONV_ID },

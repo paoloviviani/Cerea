@@ -128,7 +128,7 @@
 	);
 
 	function getWebSearchDefault() {
-		return $settings.webSearchEnabled === true;
+		return $settings.webSearchEnabled !== false;
 	}
 	function setWebSearchDefault(v: boolean) {
 		settings.update((s) => ({ ...s, webSearchEnabled: v }));
@@ -487,7 +487,10 @@
 					/>
 				</div>
 
-				<div class="flex flex-col gap-2 py-3 sm:flex-row sm:items-start sm:justify-between">
+				<div
+					id="tool-approvals"
+					class="flex scroll-mt-4 flex-col gap-2 py-3 sm:flex-row sm:items-start sm:justify-between"
+				>
 					<div>
 						<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
 							{m["settings.application.tool_approvals.title"]()}

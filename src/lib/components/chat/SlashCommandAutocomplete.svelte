@@ -81,7 +81,7 @@
 		id="slash-command-listbox"
 		role="listbox"
 		aria-label={m["chat.slash.label"]()}
-		class="pointer-events-auto scrollbar-custom max-h-64 w-72 max-w-[min(20rem,calc(100vw-2rem))] overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 text-[13px] shadow-lg dark:border-gray-700 dark:bg-gray-900"
+		class="pointer-events-auto scrollbar-custom max-h-64 w-72 max-w-[min(20rem,calc(100vw-2rem))] overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 text-xs shadow-lg dark:border-gray-700 dark:bg-gray-900"
 	>
 		{#if results.length === 0}
 			<p class="px-2.5 py-1.5 text-gray-400 dark:text-gray-500">{m["chat.slash.none"]()}</p>
@@ -90,7 +90,7 @@
 				<div role="group" aria-label={labels[entry.group]}>
 					<div
 						data-command-header={entry.group}
-						class="px-2.5 pt-2 pb-1 text-[10px] font-medium tracking-wide text-gray-400 uppercase dark:text-gray-500"
+						class="px-2.5 pt-2 pb-1 text-xxs font-medium tracking-wide text-gray-400 uppercase dark:text-gray-500"
 					>
 						{labels[entry.group]}
 					</div>

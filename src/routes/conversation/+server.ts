@@ -49,8 +49,9 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			 */
 			knowledgeBaseIds: z.array(z.unknown()).optional(),
 			/**
-			 * Per-chat web-search state for the new conversation. When absent
-			 * the server inherits: project default, then the app default.
+			 * Legacy per-chat web-search state. Accepted for older clients and
+			 * ignored: web search follows the user's setting (and the project's
+			 * default) at turn time.
 			 */
 			webSearch: z.boolean().optional(),
 			/**
@@ -151,17 +152,11 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		locals
 	);
 
-	// Per-chat web-search state for the new chat. Settings hold *defaults*, a
-	// chat holds *per-chat state*: an explicit body value wins, then the
-	// project's default (when created under one), then the app default, then
-	// off. Stored concretely so a later default change never rewrites an
-	// existing chat; legacy chats without the field keep resolving live at
-	// turn time.
-	const { resolveWebSearchEnabled } = await import("$lib/server/webSearchDefaults");
-	let initialWebSearch: boolean | undefined;
+	// Web search has no per-chat state any more (the user's setting and the
+	// project's default decide at turn time), but the client still seeds the
+	// project's defaults into the new chat's first render.
 	let seedProjectDefaults: { defaultWebSearch?: boolean } | undefined;
 	try {
-		const settingsDoc = await collections.settings.findOne(authCondition(locals));
 		const projectDoc =
 			projectId !== undefined
 				? await collections.projects.findOne(
@@ -169,10 +164,6 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 						{ projection: { defaultWebSearch: 1 } }
 					)
 				: null;
-		const projectDefault =
-			projectDoc && typeof projectDoc.defaultWebSearch === "boolean"
-				? projectDoc.defaultWebSearch
-				: undefined;
 		if (projectDoc) {
 			seedProjectDefaults = {
 				...(typeof projectDoc.defaultWebSearch === "boolean"
@@ -180,16 +171,8 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 					: {}),
 			};
 		}
-		const resolved = resolveWebSearchEnabled({
-			conversationWebSearch: values.webSearch,
-			projectDefault: typeof projectDefault === "boolean" ? projectDefault : undefined,
-			settingsEnabled: settingsDoc?.webSearchEnabled,
-		});
-		// Store only a positive inheritance or an explicit choice: absent means
-		// off, and an off-by-default chat needs no field to stay off.
-		if (values.webSearch !== undefined || resolved) initialWebSearch = resolved;
 	} catch {
-		if (values.webSearch !== undefined) initialWebSearch = values.webSearch;
+		// A project that cannot be read contributes no defaults.
 	}
 
 	// Always store sanitized titles
@@ -214,7 +197,6 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		...(locals.user ? { userId: locals.user._id } : { sessionId: locals.sessionId }),
 		...(projectId ? { projectId } : {}),
 		...(attachedKnowledgeBaseIds?.length ? { knowledgeBaseIds: attachedKnowledgeBaseIds } : {}),
-		...(initialWebSearch !== undefined ? { webSearch: initialWebSearch } : {}),
 		// An explicit up-front choice only; absent inherits the setting.
 		...(values.toolApprovalOverride !== undefined
 			? { toolApprovalOverride: values.toolApprovalOverride }
@@ -243,7 +225,6 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 				preprompt: values.preprompt,
 				rootMessageId,
 				id: conversationId,
-				...(initialWebSearch !== undefined ? { webSearch: initialWebSearch } : {}),
 				// An explicit up-front choice only; absent inherits the setting.
 				...(values.toolApprovalOverride !== undefined
 					? { toolApprovalOverride: values.toolApprovalOverride }

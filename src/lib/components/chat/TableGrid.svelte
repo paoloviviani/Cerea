@@ -148,7 +148,7 @@
 				data-testid="table-scroller"
 				class="table-scroll max-h-full max-w-full overflow-auto px-6 pb-3"
 			>
-				<table class="w-full border-collapse text-[13px]">
+				<table class="w-full border-collapse text-xs">
 					<thead class="sticky top-0 z-10">
 						<tr>
 							{#each table.header as head, col (col)}

@@ -79,8 +79,8 @@ with a link, **Remove from project** and, for your own chats, **Delete**), an
 **Artifacts** tab with what the assistant made in your own chats of the project
 (see [The Artifacts tabs](artifacts.md#the-artifacts-tabs)),
 **sharing** and the **defaults for
-new chats**: web search on or off; when the project leaves it unset, the app
-default applies. A project no longer picks the [connectors](connectors.md) new
+new chats**: web search on or off; when the project leaves it unset, your own
+web search setting applies. A project no longer picks the [connectors](connectors.md) new
 chats start with: that setting is retired, and connectors are switched on and
 off for you in Workspace → Connectors.
 

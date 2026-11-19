@@ -330,29 +330,30 @@ test.describe("/code composer at 1280×800", () => {
 });
 
 test.describe("chat composer at 390×844", () => {
-	test("the +, web search and tool-approval pills share one row inside the viewport", async ({
+	test("the +, the model picker and the shield share one row inside the viewport", async ({
 		page,
 	}) => {
 		await page.setViewportSize({ width: 390, height: 844 });
 		await page.goto(`${E2E_APP_BASE}/`);
 
 		const attach = page.getByRole("button", { name: "Add attachment" });
-		const webSearch = page.getByRole("button", { name: "Web search" });
-		const toolApproval = page.getByRole("button", {
-			name: /^(Asks first|Runs without asking)$/,
-		});
+		const model = page.getByRole("button", { name: "Model and effort" });
+		const shield = page.getByTestId("permission-shield");
 
 		await expect(attach).toBeVisible();
-		await expect(webSearch).toBeVisible();
-		await expect(toolApproval).toBeVisible();
+		await expect(model).toBeVisible();
+		await expect(shield).toBeVisible();
+		// The old always-visible chips are gone.
+		await expect(page.getByRole("button", { name: "Web search" })).toHaveCount(0);
+		await expect(
+			page.getByRole("button", { name: /^(Asks first|Runs without asking)$/ })
+		).toHaveCount(0);
 
-		const [attachBox, webBox, toolBox] = await Promise.all(
-			[attach, webSearch, toolApproval].map(box)
-		);
-		expect(overlapsVertically(attachBox, webBox)).toBe(true);
-		expect(overlapsVertically(attachBox, toolBox)).toBe(true);
+		const [attachBox, modelBox, shieldBox] = await Promise.all([attach, model, shield].map(box));
+		expect(overlapsVertically(attachBox, modelBox)).toBe(true);
+		expect(overlapsVertically(attachBox, shieldBox)).toBe(true);
 
-		// The `+` sits inside the viewport regardless of how the pills past it
+		// The `+` sits inside the viewport regardless of how the controls past it
 		// overflow — it must never scroll away with them.
 		expect(attachBox.x).toBeGreaterThanOrEqual(-0.5);
 		expect(attachBox.x + attachBox.width).toBeLessThanOrEqual(390 + 0.5);
@@ -364,9 +365,7 @@ test.describe("chat composer at 390×844", () => {
 		await page.screenshot({ path: "test-results/mobile-composer-chat-390.png" });
 	});
 
-	test("the model/effort row under the composer does not overflow the viewport", async ({
-		page,
-	}) => {
+	test("the model picker in the composer does not overflow the viewport", async ({ page }) => {
 		await page.setViewportSize({ width: 390, height: 844 });
 		await page.goto(`${E2E_APP_BASE}/`);
 
@@ -381,26 +380,45 @@ test.describe("chat composer at 390×844", () => {
 });
 
 test.describe("chat composer at 1280×800", () => {
-	test("keeps the model pill's text label and the tool pills' text", async ({ page }) => {
+	test("shows the model name, an icon-only shield and no tool chips", async ({ page }) => {
 		await page.setViewportSize({ width: 1280, height: 800 });
 		await page.goto(`${E2E_APP_BASE}/`);
 
-		await expect(page.getByRole("button", { name: "Model and effort" })).toContainText("Model:");
-		await expect(page.getByRole("button", { name: "Web search" })).toBeVisible();
-		await expect(page.getByRole("button", { name: "Asks first" })).toBeVisible();
+		await expect(page.getByRole("button", { name: "Model and effort" })).toBeVisible();
+		const shield = page.getByTestId("permission-shield");
+		await expect(shield).toBeVisible();
+		// Icon-only on the default: no visible label.
+		await expect(shield).toHaveText("");
+		await expect(page.getByRole("button", { name: "Web search" })).toHaveCount(0);
+		await expect(page.getByRole("button", { name: "Asks first" })).toHaveCount(0);
 
 		await page.screenshot({ path: "test-results/mobile-composer-chat-desktop.png" });
 	});
 
-	test("the +, the pills and send share one row", async ({ page }) => {
+	test("choosing Allow in the shield tints it with a label", async ({ page }) => {
+		await page.setViewportSize({ width: 1280, height: 800 });
+		await page.goto(`${E2E_APP_BASE}/`);
+
+		const shield = page.getByTestId("permission-shield");
+		await shield.click();
+		await page.getByTestId("permission-shield-allow").click();
+		await expect(shield).toHaveText("Allow");
+		await expect(shield).toHaveAttribute("data-mode", "allow");
+	});
+
+	test("the +, the model picker, the shield and send share one row", async ({ page }) => {
 		await page.setViewportSize({ width: 1280, height: 800 });
 		await page.goto(`${E2E_APP_BASE}/`);
 
 		const attach = page.getByRole("button", { name: "Add attachment" });
-		const webSearch = page.getByRole("button", { name: "Web search" });
+		const model = page.getByRole("button", { name: "Model and effort" });
+		const shield = page.getByTestId("permission-shield");
 		const send = page.getByRole("button", { name: "Send message" });
-		const [attachBox, webBox, sendBox] = await Promise.all([attach, webSearch, send].map(box));
-		expect(overlapsVertically(attachBox, webBox)).toBe(true);
+		const [attachBox, modelBox, shieldBox, sendBox] = await Promise.all(
+			[attach, model, shield, send].map(box)
+		);
+		expect(overlapsVertically(attachBox, modelBox)).toBe(true);
+		expect(overlapsVertically(attachBox, shieldBox)).toBe(true);
 		expect(overlapsVertically(attachBox, sendBox)).toBe(true);
 	});
 });

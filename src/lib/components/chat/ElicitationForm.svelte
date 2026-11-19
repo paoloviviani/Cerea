@@ -337,7 +337,7 @@
 		{#if showAnswers}
 			<div class="mt-2 mb-4 space-y-3 text-gray-500 dark:text-gray-400">
 				<div class="space-y-1">
-					<div class="text-[10px] font-semibold text-gray-400 uppercase dark:text-gray-500">
+					<div class="text-xxs font-semibold text-gray-400 uppercase dark:text-gray-500">
 						{m["chat.elicitation.asked"]()}
 					</div>
 					<p class="text-xs whitespace-pre-wrap">{request.message}</p>
@@ -347,7 +347,7 @@
 				</div>
 				{#if answered && Object.keys(answered).length > 0}
 					<div class="space-y-1">
-						<div class="text-[10px] font-semibold text-gray-400 uppercase dark:text-gray-500">
+						<div class="text-xxs font-semibold text-gray-400 uppercase dark:text-gray-500">
 							{m["chat.elicitation.answered"]()}
 						</div>
 						<dl class="rounded-lg bg-gray-100 p-2 text-xs dark:bg-gray-800/70">

@@ -219,7 +219,7 @@
 		defaultWebSearch =
 			typeof from?.defaultWebSearch === "boolean"
 				? from.defaultWebSearch
-				: $settings.webSearchEnabled === true;
+				: $settings.webSearchEnabled !== false;
 	}
 
 	// The phone's top bar names the project instead of "New Chat".
@@ -285,7 +285,7 @@
 				instructions !== project.instructions ||
 				indexPastChats !== project.indexPastChats ||
 				(Number(retrievalLimit) || 6) !== project.retrievalLimit ||
-				defaultWebSearch !== (project.defaultWebSearch ?? $settings.webSearchEnabled === true))
+				defaultWebSearch !== (project.defaultWebSearch ?? $settings.webSearchEnabled !== false))
 	);
 
 	function fields() {

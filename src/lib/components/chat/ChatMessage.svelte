@@ -1298,7 +1298,7 @@
 			>
 				{#if message.routerMetadata && (message.routerMetadata.route || message.routerMetadata.model || message.routerMetadata.provider) && (!isLast || !loading)}
 					<div
-						class="mr-2 flex items-center gap-1.5 truncate text-[.65rem] whitespace-nowrap text-ink-faint @xl:text-xs"
+						class="mr-2 flex items-center gap-1.5 truncate text-xxs whitespace-nowrap text-ink-faint @xl:text-xs"
 					>
 						{#if message.routerMetadata.route && message.routerMetadata.model}
 							<span

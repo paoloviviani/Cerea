@@ -115,14 +115,14 @@ describe("sub-agent tools", () => {
 	});
 });
 
-describe("web search enablement: per-chat state beats the passed default", () => {
+describe("web search enablement: the caller's default decides, never the chat", () => {
 	const searchParams = {
 		token: "caller-token",
 		searchModelIds: ["search-backend"],
 		allowedFetchUrls: new Set(["https://example.org/"]),
 	};
 
-	it("offers search tools when the caller default is on and the chat is unset", () => {
+	it("offers search tools when the caller default is on", () => {
 		const tools = getEnabledBuiltinTools({
 			conv: { _id: new ObjectId() },
 			webSearchEnabled: true,
@@ -131,24 +131,22 @@ describe("web search enablement: per-chat state beats the passed default", () =>
 		expect(tools.map((tool) => tool.name)).toContain("web_search");
 	});
 
-	it("withholds search tools when the chat explicitly opts out of a default of on", () => {
-		const tools = getEnabledBuiltinTools({
+	it("ignores a legacy per-chat value stored on the conversation", () => {
+		const off = getEnabledBuiltinTools({
 			conv: { _id: new ObjectId(), webSearch: false },
 			webSearchEnabled: true,
 			...searchParams,
 		});
-		expect(tools.map((tool) => tool.name)).not.toContain("web_search");
-	});
-
-	it("offers search tools when the chat opts in over a default of off", () => {
-		const tools = getEnabledBuiltinTools({
+		expect(off.map((tool) => tool.name)).toContain("web_search");
+		const on = getEnabledBuiltinTools({
 			conv: { _id: new ObjectId(), webSearch: true },
+			webSearchEnabled: false,
 			...searchParams,
 		});
-		expect(tools.map((tool) => tool.name)).toContain("web_search");
+		expect(on.map((tool) => tool.name)).not.toContain("web_search");
 	});
 
-	it("offers nothing when both chat and default are off", () => {
+	it("offers nothing when the caller default is off", () => {
 		const tools = getEnabledBuiltinTools({
 			conv: { _id: new ObjectId() },
 			...searchParams,
@@ -162,7 +160,8 @@ describe("web_fetch_structured enablement (ADR 0079): needs the playwright backe
 	// backend selected, and the renderer answering. Individual tests knock
 	// out exactly one of these to prove it is actually required.
 	const webAccessParams = {
-		conv: { _id: new ObjectId(), webSearch: true },
+		conv: { _id: new ObjectId() },
+		webSearchEnabled: true,
 		allowedFetchUrls: new Set(["https://example.org/"]),
 		playwrightReachable: true,
 	};

@@ -278,19 +278,12 @@ export function getEnabledBuiltinTools(params: {
 		})
 	);
 
-	// The gateway's own search backends, metered to this caller. Two switches,
-	// both meaningful: the per-chat state says they consent to web search in
-	// this conversation (inheriting project then app defaults at creation and
-	// at turn resolution — settings hold *defaults*, a chat holds *per-chat
-	// state*), and the console's search tier says the deployment permits it. The tool
+	// The gateway's own search backends, metered to this caller. Two switches:
+	// the caller's `webSearchEnabled` (the user's opt-out and the project
+	// default, folded by runMcpFlow; there is no per-chat switch), and the
+	// console's search tier, which says the deployment permits it. The tool
 	// withholds itself when either is missing.
-	//
-	// `conv.webSearch` wins over the passed default when set: an explicit
-	// per-chat `false` must override an app default of `true`, and vice
-	// versa. The caller (runMcpFlow) already folds the project layer into
-	// `webSearchEnabled`, so here the chain is per-chat > caller default.
-	const effectiveWebSearch = params.conv.webSearch ?? params.webSearchEnabled ?? false;
-	const webAccessEnabled = effectiveWebSearch;
+	const webAccessEnabled = params.webSearchEnabled ?? false;
 	if (webAccessEnabled && (params.searchModelIds?.length ?? 0) > 0) {
 		tools.push(
 			...createGatewaySearchBuiltins({

@@ -56,8 +56,8 @@ until you have signed in.
 
 **Every call to an MCP tool asks first, by default.** The approval card shows
 the tool and its arguments, and you can allow that one call, allow the tool for
-the rest of the chat, or deny it; the composer's **Tools ask first**
-pill changes that for the current chat. See [Tool approvals](chat.md#tool-approvals).
+the rest of the chat, or deny it; the composer's **shield**
+changes that for the current chat. See [Tool approvals](chat.md#tool-approvals).
 A server may also ask _you_ for something mid-turn (a choice, a confirmation),
 which appears as a form in the chat.
 

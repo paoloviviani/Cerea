@@ -130,12 +130,6 @@
 		/** Knowledge bases attached to THIS conversation; bound through to the composer. */
 		knowledgeBases?: { id: string; name: string }[];
 		/**
-		 * Web search for THIS conversation; bound through to the composer.
-		 * Per-chat state seeded by the page (conversation, then project, then
-		 * app default) — never the settings default directly.
-		 */
-		webSearch?: boolean;
-		/**
 		 * Tool-approval policy override for THIS conversation (ADR 0075); bound
 		 * through to the composer. `true` means gated calls (web_fetch, MCP
 		 * tools) run without asking in this chat, overriding the user's
@@ -170,7 +164,6 @@
 		onretry,
 		onshowAlternateMsg,
 		knowledgeBases = $bindable([]),
-		webSearch = $bindable(false),
 		autoApproveTools = $bindable(false),
 		conversationEffort,
 		conversationTitle = "",
@@ -577,9 +570,6 @@
 	// Respect per‑model multimodal toggle from settings (force enable)
 	let modelIsMultimodalOverride = $derived($settings.multimodalOverrides?.[settingsKey]);
 	let modelIsMultimodal = $derived((modelIsMultimodalOverride ?? currentModel.multimodal) === true);
-	let modelSupportsTools = $derived(
-		($settings.toolsOverrides?.[settingsKey] ?? currentModel.supportsTools) === true
-	);
 
 	// Always allow common text-like files; add images only when model is multimodal
 	import {
@@ -788,6 +778,7 @@
 		conversationKey={page.params?.id}
 		{onretry}
 		{onshowAlternateMsg}
+		centerComposerWhenEmpty
 		bind:this={column}
 	>
 		{#snippet overlay()}
@@ -861,6 +852,7 @@
 		{/snippet}
 		{#snippet introduction()}
 			<ChatIntroduction
+				docked
 				{currentModel}
 				{firstName}
 				showStarters={(page.data as { starterSuggestionsEnabled?: boolean })
@@ -1003,16 +995,50 @@
 										{draftKey}
 										bind:files
 										bind:knowledgeBases
-										bind:webSearch
 										bind:autoApproveTools
 										mimeTypes={activeMimeTypes}
 										onsubmit={handleSubmit}
 										{onPaste}
 										disabled={isReadOnly || lastIsError}
 										{modelIsMultimodal}
-										{modelSupportsTools}
 										bind:focused
 									>
+										{#snippet children()}
+											{#if models.find((m) => m.id === currentModel.id)}
+												<!-- Opens the picker, not the Models dialog. This control draws a
+											     caret and sits in the composer row, so it reads as "change what
+											     this chat runs on" — which is what it does. The Models dialog
+											     is a management surface: it sets the *default* and edits
+											     per-model settings. -->
+												<ModelEffortPicker
+													models={pickerModels}
+													currentId={currentModel.id}
+													{recentIds}
+													efforts={effortLevels}
+													effort={shownEffort}
+													onpickModel={pickModel}
+													onpickEffort={pickEffort}
+													onmore={() => {
+														if (requireAuthUser()) return;
+														pickerOpen = true;
+													}}
+													triggerClass="inline-flex h-7 min-w-0 max-w-56 items-center gap-1.5 rounded-full px-2 text-xs font-medium text-ink-muted transition-colors hover:bg-gray-100 hover:text-ink max-sm:h-8 max-sm:text-sm dark:hover:bg-white/10"
+												>
+													{#if currentModel.logoUrl}
+														<img
+															src={currentModel.logoUrl}
+															alt=""
+															class="size-3 flex-none rounded-sm border bg-white dark:border-gray-700"
+														/>
+													{/if}
+													<span class="truncate">{modelLabel(currentModel)}</span>
+												</ModelEffortPicker>
+											{:else}
+												<span class="inline-flex items-center text-xs text-ink-faint line-through">
+													{currentModel.id}
+												</span>
+											{/if}
+										{/snippet}
 										{#snippet trailingActions()}
 											<!-- Desktop only (see `trailingControls`'s own comment):
 											     the error-state ChatInput above has no pill row to
@@ -1088,54 +1114,18 @@
 				{/snippet}
 				<div
 					class={{
-						"mt-1.5 flex h-5 items-center self-stretch px-0.5 text-xs whitespace-nowrap text-ink-faint max-md:mb-2 max-sm:gap-2": true,
+						"mt-1.5 flex h-5 items-center justify-center self-stretch px-0.5 text-xs whitespace-nowrap text-ink-faint max-md:mb-2 max-sm:gap-2": true,
 						"max-sm:hidden": focused && isVirtualKeyboard(),
 					}}
 				>
-					{#if models.find((m) => m.id === currentModel.id)}
-						{#if loading && streamingToolCallName}
-							<span class="inline-flex items-center gap-1 text-xs whitespace-nowrap">
-								<LucideHammer class="size-3" />
-								{m["chat.window.using_tool"]()}
-								<span class="loading-dots font-medium">
-									{availableTools.find((t) => t.name === streamingToolCallName)?.displayName ??
-										streamingToolCallName}
-								</span>
+					{#if loading && streamingToolCallName}
+						<span class="inline-flex items-center gap-1 text-xs whitespace-nowrap">
+							<LucideHammer class="size-3" />
+							{m["chat.window.using_tool"]()}
+							<span class="loading-dots font-medium">
+								{availableTools.find((t) => t.name === streamingToolCallName)?.displayName ??
+									streamingToolCallName}
 							</span>
-						{:else}
-							<!-- Opens the picker, not the Models dialog. This control draws a
-							     caret and sits under the composer, so it reads as "change what
-							     this chat runs on" — which is what it now does. The Models
-							     dialog is a management surface: it sets the *default* and edits
-							     per-model settings, so reaching it from here meant the only way
-							     to move one conversation was to change every future one. -->
-							<ModelEffortPicker
-								models={pickerModels}
-								currentId={currentModel.id}
-								{recentIds}
-								efforts={effortLevels}
-								effort={shownEffort}
-								onpickModel={pickModel}
-								onpickEffort={pickEffort}
-								onmore={() => {
-									if (requireAuthUser()) return;
-									pickerOpen = true;
-								}}
-							>
-								<span class="shrink-0">{m["chat.window.model"]()}</span>
-								{#if currentModel.logoUrl}
-									<img
-										src={currentModel.logoUrl}
-										alt=""
-										class="size-3 flex-none rounded-sm border bg-white dark:border-gray-700"
-									/>
-								{/if}
-								<span class="truncate">{modelLabel(currentModel)}</span>
-							</ModelEffortPicker>
-						{/if}
-					{:else}
-						<span class="inline-flex items-center line-through dark:border-gray-700">
-							{currentModel.id}
 						</span>
 					{/if}
 					{#if !messages.length && !loading}

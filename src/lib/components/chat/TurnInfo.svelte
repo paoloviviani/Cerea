@@ -218,7 +218,7 @@
 					{/if}
 				</div>
 
-				<dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[13px]">
+				<dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-xs">
 					<dt class="text-ink-muted">{m["chat.turn_details.model"]()}</dt>
 					<dd class="text-right" data-testid="turn-info-model">{blank(stats?.model)}</dd>
 					<dt class="text-ink-muted">{m["chat.turn_details.input"]()}</dt>
@@ -254,27 +254,27 @@
 							{m["chat.turn_details.redaction.title"]()}
 						</h3>
 						{#if redaction.blocked}
-							<p class="mb-1.5 text-[13px] font-medium">
+							<p class="mb-1.5 text-xs font-medium">
 								{m["chat.turn_details.redaction.refused"]()}
 							</p>
 						{/if}
 						{#if redaction.applied && redaction.entities.length > 0}
-							<p class="text-[13px]" data-testid="turn-info-summary">
+							<p class="text-xs" data-testid="turn-info-summary">
 								{redactionSummary(redaction)}
 							</p>
-							<ul class="mt-2 space-y-1 text-[13px] text-ink-muted">
+							<ul class="mt-2 space-y-1 text-xs text-ink-muted">
 								{#each redaction.entities as entity, i (i)}
 									<li>{entityLine(entity)}</li>
 								{/each}
 							</ul>
 						{:else if !redaction.applied}
-							<p class="text-[13px]">{m["chat.turn_details.redaction.none"]()}</p>
+							<p class="text-xs">{m["chat.turn_details.redaction.none"]()}</p>
 						{/if}
 						{#if redaction.values && redaction.values.length > 0}
 							<h4 class="mt-3 mb-1 text-xs font-semibold text-ink-muted">
 								{m["chat.turn_details.redaction.values_title"]()}
 							</h4>
-							<ul class="space-y-0.5 text-[13px]" data-testid="turn-info-values">
+							<ul class="space-y-0.5 text-xs" data-testid="turn-info-values">
 								{#each redaction.values as value, i (i)}
 									<li class="break-words">
 										{m["chat.turn_details.redaction.value_row"]({
@@ -291,7 +291,7 @@
 								target="_blank"
 								rel="noopener noreferrer"
 								data-testid="turn-info-console-link"
-								class="mt-3 inline-block text-[13px] text-accent hover:underline"
+								class="mt-3 inline-block text-xs text-accent hover:underline"
 								>{m["chat.turn_details.redaction.see_all"]()}</a
 							>
 						{/if}

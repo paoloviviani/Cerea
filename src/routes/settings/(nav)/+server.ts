@@ -24,10 +24,10 @@ function boundedRecord<V extends z.ZodTypeAny>(value: V) {
 }
 
 const settingsSchema = z.object({
-	// On by default for new accounts (DEFAULT_SETTINGS); the field is the
-	// user's consent to web search, and the tool it enables also needs the
-	// console's search tier. Absent on older documents still resolves as off,
-	// and a missing search backend withholds the tool rather than failing.
+	// The user's opt-out from web search: on unless `false` (absent on older
+	// documents counts as on). The tool it enables also needs the console's
+	// search tier, and a missing search backend withholds the tool rather
+	// than failing.
 	webSearchEnabled: z.boolean().optional(),
 	// Absent means `manual` (every gated tool call asks). The v2 settings
 	// endpoint (`api/v2/user/settings`) carries this same field — the client

@@ -7,6 +7,8 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **A calmer composer.** The box now shows just three controls: **+** (attach and more), the **model** picker and a **shield** for permissions. The shield is a plain icon while the chat asks before using the web or a connector, and shows **Allow** when it does not; click it to choose, or open **Per-tool settings…**. The **Web search** and **Asks first** chips are gone. A new chat opens with the greeting and the box in the middle, and the box moves to the bottom once the conversation starts. The sidebar and the text sizes are quieter and more consistent too.
+- **Web search is always on, with an opt-out.** The assistant searches the web whenever an administrator has set up search; there is no per-chat switch any more. If you would rather it did not, turn off **Use web search when available** in **Settings → Application**. It is on by default, including for accounts that never chose, and it applies to all your chats. A project that turns web search off in its defaults still keeps it off for its chats.
 - **Cerea speaks Italian.** The whole interface is available in Italian (Italiano). It follows your browser's language until you choose one in **Settings → Application → Language**, where **Use my browser's language** goes back to following it. Dates, times, numbers and relative times use the chosen language's conventions. The assistant's own prompts, the documentation and the Authelia sign-in pages stay in English.
 
 ## v0.57.0 — 2026-11-17
