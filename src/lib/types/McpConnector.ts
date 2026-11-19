@@ -372,3 +372,20 @@ export interface LocalConnectorOauth {
 	createdAt: Date;
 	expiresAt: Date;
 }
+
+/**
+ * A one-time token for the owner's download of a file a privacy rule withheld.
+ * Only the SHA-256 of the token is stored, so a database read does not yield a
+ * usable token. Bound to who minted it, the conversation and the file; deleted
+ * when used; a TTL index sweeps the unused ones.
+ */
+export interface WithheldDownloadToken {
+	_id: ObjectId;
+	tokenHash: string;
+	/** The user id, or the anonymous session id. */
+	owner: string;
+	conversationId: ObjectId;
+	sha256: string;
+	createdAt: Date;
+	expiresAt: Date;
+}

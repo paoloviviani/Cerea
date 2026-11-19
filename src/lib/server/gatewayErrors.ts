@@ -89,6 +89,32 @@ function bodies(err: Loose): Loose[] {
 	return [err, inner, nested].filter((b): b is Loose => b !== null);
 }
 
+/**
+ * Whether a failure is the gateway's privacy refusal (Pystino's
+ * `RoutingRefusedError`: a 403 with code `routing_refused`), and which rule
+ * said so. Decided by the code, wherever the client put it (an OpenAI SDK
+ * error keeps the body on `error`); the message only names the rule.
+ */
+export function routingRefusal(err: unknown): { rule: string; pipeline?: string } | undefined {
+	const e = asRecord(err);
+	if (!e) return undefined;
+	const found = bodies(e);
+	if (!found.some((b) => b.code === "routing_refused")) return undefined;
+	const message = found.map((b) => asString(b.message)).find((m) => m !== null) ?? "";
+	return refusalRule(message);
+}
+
+/**
+ * The rule and pipeline a refusal message names, "unnamed" when it does not
+ * parse. Names may contain quotes, so the pipeline form takes the longest match.
+ */
+export function refusalRule(message: string): { rule: string; pipeline?: string } {
+	const both = /privacy rule '(.*)' \(pipeline '(.*)'\)/s.exec(message);
+	if (both) return { rule: both[1], pipeline: both[2] };
+	const only = /privacy rule '(.*?)'(?::\s|\.?\s*$)/s.exec(message);
+	return { rule: only?.[1] || "unnamed" };
+}
+
 export function isQuotaError(err: unknown): boolean {
 	return classifyGatewayError(err).kind === "quota";
 }
