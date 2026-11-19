@@ -45,6 +45,7 @@ const ALL_COLLECTIONS: Record<string, boolean> = {
 	mcpTokens: true,
 	mcpOauthPending: true,
 	localConnectorOauth: true, // a local connector's sign-in in flight; deleted on merge, erased with the account
+	withheldDownloadTokens: true, // one-time withheld-file links; owner is a string id; deleted on merge, erased with the account
 	codeDevices: true,
 	codeAudit: true,
 	codeSessionConnectors: true, // which connectors a coding session may use; owner-keyed, merged and erased with the account
@@ -678,6 +679,50 @@ describe("messageEvents and mcpOauthPending (delete-stray on merge, by-owner on 
 		if (!entry) throw new Error("mcpOauthPending must be registered");
 		expect(await entry.merge(stray, target)).toBe(1);
 		expect(await collections.mcpOauthPending.findOne({ userId: stray })).toBeNull();
+	});
+});
+
+describe("withheldDownloadTokens (delete-stray on merge, erased by string owner)", () => {
+	beforeAll(async () => {
+		await ready;
+	});
+
+	function row(owner: string) {
+		return {
+			_id: new ObjectId(),
+			tokenHash: `h-${new ObjectId().toString()}`,
+			owner,
+			conversationId: new ObjectId(),
+			sha256: "0".repeat(64),
+			createdAt: new Date(),
+			expiresAt: new Date(Date.now() + 60_000),
+		};
+	}
+
+	it("deletes the stray's links on merge, keeps the target's, and erases by owner", async () => {
+		const stray = new ObjectId();
+		const target = new ObjectId();
+		await collections.withheldDownloadTokens.insertMany([
+			row(stray.toString()),
+			row(target.toString()),
+		] as never);
+
+		const entry = USER_KEYED_COLLECTIONS.find((e) => e.name === "withheldDownloadTokens");
+		if (!entry) throw new Error("withheldDownloadTokens must be registered");
+		expect(await entry.merge(stray, target)).toBe(1);
+		expect(
+			await collections.withheldDownloadTokens.findOne({ owner: stray.toString() })
+		).toBeNull();
+		expect(
+			await collections.withheldDownloadTokens.findOne({ owner: target.toString() })
+		).not.toBeNull();
+
+		const ctx = { conversationIds: [] } as never;
+		expect(await entry.count?.(target, ctx)).toBe(1);
+		expect(await entry.erase(target, ctx)).toBe(1);
+		expect(
+			await collections.withheldDownloadTokens.findOne({ owner: target.toString() })
+		).toBeNull();
 	});
 });
 
