@@ -25,6 +25,7 @@
 	import { fileMatchesAllowlist } from "$lib/utils/mimeMatch";
 	import {
 		isAudioAttachmentMime,
+		attachmentsTotalFit,
 		maxAttachmentBytesFor,
 		TEXT_MIME_ALLOWLIST,
 		IMAGE_MIME_ALLOWLIST_DEFAULT,
@@ -191,6 +192,11 @@
 			}
 		}
 		if (accepted.length === 0) return;
+		// Together they must fit the request body, not only each on its own.
+		if (!attachmentsTotalFit([...files, ...accepted].map((file) => file.size))) {
+			errorToast.set(m["chat.dropzone.total_too_big"]());
+			return;
+		}
 		files = [...files, ...accepted];
 		await tick();
 		void focusTextarea();

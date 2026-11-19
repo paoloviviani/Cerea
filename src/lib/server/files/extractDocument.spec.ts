@@ -67,6 +67,7 @@ import { config } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
 import {
 	assertOcrConfigValid,
+	dataUri,
 	documentMime,
 	extractDocument,
 	resolveExtractorModel,
@@ -1498,5 +1499,16 @@ describe("direct OCR endpoint and a chosen reader", () => {
 		expect(answer.ok && answer.readerFallback).toBeFalsy();
 		expect(gatewayPostMock.mock.calls[0][2]).toMatchObject({ model: "docling" });
 		expect(fetchMock).not.toHaveBeenCalled();
+	});
+});
+
+describe("dataUri", () => {
+	it("encodes an ArrayBuffer, a Buffer and a sliced view the same way", () => {
+		const raw = new TextEncoder().encode("hello document");
+		const expected = `data:application/pdf;base64,${Buffer.from("hello document").toString("base64")}`;
+		expect(dataUri(raw.buffer.slice(0) as ArrayBuffer, "application/pdf")).toBe(expected);
+		expect(dataUri(Buffer.from("hello document"), "application/pdf")).toBe(expected);
+		const padded = new Uint8Array([9, 9, ...raw, 9]);
+		expect(dataUri(padded.subarray(2, 2 + raw.length), "application/pdf")).toBe(expected);
 	});
 });
