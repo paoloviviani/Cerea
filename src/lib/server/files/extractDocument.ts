@@ -50,7 +50,7 @@
  * OCR model in the hope that it copes (`resolveOfficeReader`, docs/knowledge.md).
  */
 
-import { isQuotaError } from "$lib/server/gatewayErrors";
+import { isQuotaError, refusalRule } from "$lib/server/gatewayErrors";
 import type { ExtractionFailureKind, WithheldByPrivacy } from "$lib/types/Message";
 import { config } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
@@ -441,12 +441,7 @@ export interface ExtractionFailure {
  */
 export function privacyRefusal(err: unknown): WithheldByPrivacy | undefined {
 	if (!(err instanceof GatewayCallFailed) || err.code !== "routing_refused") return undefined;
-	const message = err.message ?? "";
-	// Names may contain quotes: take up to the closing quote before " (pipeline '".
-	const both = /privacy rule '(.*)' \(pipeline '(.*)'\)/s.exec(message);
-	if (both) return { rule: both[1], pipeline: both[2] };
-	const only = /privacy rule '(.*?)'\.?\s*$/s.exec(message);
-	return { rule: only?.[1] || "unnamed" };
+	return refusalRule(err.message ?? "");
 }
 
 /**

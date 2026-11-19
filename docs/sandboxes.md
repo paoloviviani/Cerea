@@ -42,7 +42,9 @@ What differs is the engine, which the tool's description says:
   makes a new one, and the result tells the model its earlier state is gone.
 - **Files in.** The conversation's attachments are copied to `/mnt/data/<name>` on demand, by the same
   plan as the browser (same names, the extracted text beside each file as `<name>.md`, the same size
-  caps). A file a privacy rule withheld is never copied: it is neither planned nor readable.
+  caps). A file a privacy rule withheld is never copied: it is neither planned nor readable. This includes an image the gateway refused for vision under a
+  privacy rule. Its owner can still save it with the file card's "Download (withheld)" button, a
+  one-time link the sandbox cannot reach.
   Files the document tools produced are not copied yet.
 - **Reading a big file back.** A run's stdout is cut at 8,000 characters, the same as the browser's; the
   cut says how many characters there are in total and suggests slices (`print(text[6000:12000])`).
