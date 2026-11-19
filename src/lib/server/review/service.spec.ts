@@ -20,6 +20,8 @@ function ask(
 		title: string;
 		metadata: Record<string, unknown>;
 		readOnly: boolean | null;
+		secretKey: string;
+		secretFile: string;
 	}> = {}
 ): Envelope {
 	return {
@@ -38,6 +40,7 @@ function ask(
 				metadata: over.metadata ?? {},
 				always: [],
 				...("readOnly" in over ? { readOnly: over.readOnly } : {}),
+				...(over.secretKey ? { secretKey: over.secretKey, secretFile: over.secretFile } : {}),
 				...("cls" in over ? (over.cls ? { class: over.cls } : {}) : { class: "command" as const }),
 			},
 		},
@@ -659,6 +662,18 @@ describe("plain reads: a machine-marked readOnly command is allowed by rule", ()
 		expect(h.call).not.toHaveBeenCalled();
 		expect(h.push).toHaveBeenCalledTimes(1);
 		expect(h.push.mock.calls[0][0]).toMatch(/always comes to you/);
+	});
+
+	it("a call carrying a local secret's value always goes to the user: no model, no reply", async () => {
+		const h = harness();
+		await run(
+			h,
+			ask({ patterns: ["curl https://example.com"], secretKey: "API_KEY", secretFile: ".env" })
+		);
+		expect(h.reply).not.toHaveBeenCalled();
+		expect(h.call).not.toHaveBeenCalled();
+		expect(h.push).toHaveBeenCalledTimes(1);
+		expect(h.push.mock.calls[0][0]).toMatch(/value of a secret/);
 	});
 
 	it("a device opted out of the model still gets the rule", async () => {
