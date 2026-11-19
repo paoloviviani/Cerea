@@ -7,6 +7,7 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- Chat: the composer's model pill shows only the model name, not the effort level (set it from the pill's menu as before). On a phone the permissions chip next to it is no longer faded at the edge; a long model name is shortened first.
 - **Large attachments.** Cerea refuses, before sending and on the server, a message whose files together exceed 90 MB (the request limit is 100 MB), and builds the document-reading request with fewer copies of a large file in memory. Needs Pystino 0.33.5 or later (its document reader now accepts up to 32 MiB, was 25 MB, so a 25-30 MB attachment is read; `EXTRACTOR_MAX_BYTES` changes it).
 
 ## v0.59.1 — 2026-11-19

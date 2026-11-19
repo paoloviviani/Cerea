@@ -639,11 +639,16 @@ test.describe("owned machine agent: parity", () => {
 		// — names the backend's default model, not "Model".
 		const pill = page.getByRole("button", { name: "Model and effort" });
 		await expect(pill).toContainText("Mock Model", { timeout: 30_000 });
-		await expect(pill).toContainText("Default");
+		await expect(pill).not.toContainText("Default");
 		await pill.click();
+		await expect(page.getByRole("menuitem", { name: /Effort/ })).toContainText("Default");
 		await page.getByRole("menuitem", { name: /Effort/ }).click();
 		await page.getByRole("menuitem", { name: "High", exact: true }).click();
-		await expect(pill).toContainText("High", { timeout: 30_000 });
+		await pill.click();
+		await expect(page.getByRole("menuitem", { name: /Effort/ })).toContainText("High", {
+			timeout: 30_000,
+		});
+		await page.keyboard.press("Escape");
 
 		await mockOpenAI.setDefaultScenario({ content: ["Thought", " hard."], chunkDelayMs: 5 });
 		await send(page, "think about it");
