@@ -118,8 +118,12 @@ const MAX_TOOL_ROUNDS = 20;
  * always an argument that is too large for one reply (file content pasted inline), so the way out
  * is named: a `{"$file": ...}` reference, a split, or asking the person. Exported for the test.
  */
-export const TRUNCATED_TOOL_CALL_NUDGE =
-	'[SYSTEM: Your previous response hit the output limit before the tool call was complete, so the call was discarded and nothing was sent. The arguments were too large for one reply. Do not inline large or binary content again. If the content is a file (an attachment, or one you saved in the sandbox), pass it by reference instead: use {"$file": "<name>"} for text, or {"$file": "<name>", "encoding": "base64"} for binary, where the argument expects the content, and the server fills it in. Otherwise split the work across several smaller calls, or tell the user it is too large to send.]';
+export function truncatedToolCallNudge(fileRefs: boolean): string {
+	const way = fileRefs
+		? 'If the content is a file (an attachment, or one you saved in the sandbox), pass it by reference instead: use {"$file": "<name>"} for text, or {"$file": "<name>", "encoding": "base64"} for binary, where the argument expects the content, and the server fills it in. Otherwise split the work across several smaller calls, or tell the user it is too large to send.'
+		: "Split the work across several smaller calls, or tell the user it is too large to send.";
+	return `[SYSTEM: Your previous response hit the output limit before the tool call was complete, so the call was discarded and nothing was sent. The arguments were too large for one reply. Do not inline large or binary content again. ${way}]`;
+}
 
 // Each retry costs a tool round, so give up quickly and answer without the tool.
 const MAX_TRUNCATED_TOOL_CALL_RETRIES = 2;
@@ -783,6 +787,7 @@ export async function* runMcpFlow({
 		const toolPreprompt = buildToolPreprompt(oaTools, userTimezone, builtinTools, {
 			artifacts: artifactsEnabled && artifactsMode === "tags",
 			artifactsMode,
+			fileRefs: true,
 		});
 		const prepromptPieces: string[] = [];
 		// The administrator's instructions are the first thing the model reads,
@@ -1369,7 +1374,8 @@ export async function* runMcpFlow({
 						},
 						{
 							role: "user" as const,
-							content: TRUNCATED_TOOL_CALL_NUDGE,
+							// This flow always runs inside a conversation, so `$file` references resolve.
+							content: truncatedToolCallNudge(true),
 						},
 					];
 					continue;

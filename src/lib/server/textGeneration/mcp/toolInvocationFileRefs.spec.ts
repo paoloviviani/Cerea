@@ -5,6 +5,7 @@ import { deleteConversationDeliverables } from "$lib/server/execution/deliverabl
 import { MessageToolUpdateType, MessageUpdateType } from "$lib/types/MessageUpdate";
 import { parseToolArguments } from "./toolArgs";
 import { toPrimitive } from "./toolParams";
+import { createSchemaPreflightGuard } from "$lib/server/mcp/preflightGuard";
 import { tinyXlsx } from "$lib/server/mcp/resultFilesFixtures";
 
 const mcpMock = vi.hoisted(() => ({ callMcpTool: vi.fn() }));
@@ -27,6 +28,13 @@ const MAPPING = {
 		fnName: "create_or_update_file",
 		server: "github",
 		tool: "create_or_update_file",
+		// As GitHub publishes it: the content is a string, so an object is not valid there.
+		inputSchema: {
+			type: "object",
+			properties: { path: { type: "string" }, content: { type: "string" } },
+			required: ["path", "content"],
+			additionalProperties: false,
+		},
 	},
 };
 
@@ -41,7 +49,12 @@ afterEach(async () => {
 });
 beforeEach(() => mcpMock.callMcpTool.mockReset());
 
-async function run(conversationId: ObjectId, name: string, args: string) {
+async function run(
+	conversationId: ObjectId,
+	name: string,
+	args: string,
+	guard?: ReturnType<typeof createSchemaPreflightGuard>
+) {
 	const events = [];
 	for await (const event of executeToolCalls({
 		calls: [{ id: "call_1", name, arguments: args }],
@@ -51,6 +64,7 @@ async function run(conversationId: ObjectId, name: string, args: string) {
 		toPrimitive,
 		processToolOutput: (text: string) => ({ annotated: text, sources: [] }),
 		elicitation: { conversationId, messageId: "msg-1" },
+		...(guard ? { guard } : {}),
 	})) {
 		events.push(event);
 	}
@@ -96,6 +110,38 @@ describe("file references in a connector call, through executeToolCalls", () => 
 		const complete = events.find((e) => e.type === "complete");
 		if (complete?.type !== "complete") throw new Error("no completion");
 		expect(JSON.stringify(complete.summary.toolRuns)).not.toContain(b64.slice(0, 60));
+	});
+
+	it("passes the schema preflight of a string parameter: the guard checks the content, not the reference", async () => {
+		const conversationId = new ObjectId();
+		conversations.push(conversationId);
+		await storeFile(conversationId, tinyXlsx(), "book.xlsx");
+		mcpMock.callMcpTool.mockResolvedValueOnce({ text: "committed", isError: false });
+
+		const events = await run(
+			conversationId,
+			"create_or_update_file",
+			JSON.stringify({ path: "book.xlsx", content: { $file: "book.xlsx", encoding: "base64" } }),
+			createSchemaPreflightGuard(MAPPING)
+		);
+
+		expect(mcpMock.callMcpTool).toHaveBeenCalledTimes(2);
+		const updates = events.flatMap((e) => (e.type === "update" ? [e.update] : []));
+		expect(
+			updates.some(
+				(u) => u.type === MessageUpdateType.Tool && u.subtype === MessageToolUpdateType.Error
+			)
+		).toBe(false);
+		// And the schema still bites: a non-reference object where a string goes is refused.
+		mcpMock.callMcpTool.mockClear();
+		const refused = await run(
+			conversationId,
+			"create_or_update_file",
+			JSON.stringify({ path: "x", content: { other: 1 } }),
+			createSchemaPreflightGuard(MAPPING)
+		);
+		expect(mcpMock.callMcpTool).not.toHaveBeenCalled();
+		expect(JSON.stringify(refused)).toContain("do not match the schema");
 	});
 
 	it("does not call the connector for a file of another conversation", async () => {

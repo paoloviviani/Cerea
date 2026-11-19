@@ -751,7 +751,10 @@ export async function* executeToolCalls({
 				serverUrl: serverCfg.url,
 				tool: mappingEntry.tool,
 				fnName: p.call.name,
-				args: argsObj,
+				// The content the connector will get, so the schema preflight checks what is sent
+				// (a string parameter must not see the `{"$file": ...}` object). The card, the stored
+				// call and the logs keep `argsObj`, the reference.
+				args: callArgs,
 				callUuid: p.uuid,
 			});
 			if (verdict.update) updatesQueue.push(verdict.update);

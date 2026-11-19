@@ -20,7 +20,12 @@ export function buildToolPreprompt(
 	 * and the contract lives on the artifact tool's description, so the rule is
 	 * replaced by a one-line pointer to the tool instead.
 	 */
-	options?: { artifacts?: boolean; artifactsMode?: ArtifactsMode }
+	options?: {
+		artifacts?: boolean;
+		artifactsMode?: ArtifactsMode;
+		/** `{"$file": ...}` references can be resolved: the calls run inside a conversation (a sub-agent's do not). */
+		fileRefs?: boolean;
+	}
 ): string {
 	if (!Array.isArray(tools) || tools.length === 0) return "";
 	const names = tools
@@ -65,7 +70,11 @@ export function buildToolPreprompt(
 		`INTERACTIVE APPS: When asked to build an interactive application, game, or visualization without a specific language/framework preference, create a single self-contained HTML file with embedded CSS and JavaScript.`,
 		`If a tool generates an image, you can inline it directly: ![alt text](image_url).`,
 		`If a tool needs an image, set its image field ("input_image", "image", or "image_url") to a reference like "image_1", "image_2", etc. (ordered by when the user uploaded them).`,
-		`FILES IN TOOL ARGUMENTS: when a connector tool needs a file's content (committing a file, uploading, attaching) and the file is an attachment or something you saved in the sandbox, do not paste the content into the call: a large or binary file will not fit in one reply. Pass a reference object instead of the string, {"$file": "name.svg"} for text or {"$file": "logo.png", "encoding": "base64"} for binary, and the server fills in the content. Only files of this conversation can be named. Plain strings are never treated as references.`,
+		...(options?.fileRefs
+			? [
+					`FILES IN TOOL ARGUMENTS: when a connector tool needs a file's content (committing a file, uploading, attaching) and the file is an attachment or something you saved in the sandbox, do not paste the content into the call: a large or binary file will not fit in one reply. Pass a reference object instead of the string, {"$file": "name.svg"} for text or {"$file": "logo.png", "encoding": "base64"} for binary, and the server fills in the content. Only files of this conversation can be named. Plain strings are never treated as references.`,
+				]
+			: []),
 		`Default to image references; only use a full http(s) URL when the tool description explicitly asks for one, or reuse a URL a previous tool returned.`,
 	].join(" ");
 
