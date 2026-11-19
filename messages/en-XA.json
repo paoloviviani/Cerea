@@ -1093,6 +1093,7 @@
 	"chat.annotate.tool.rect": "[Ŕéćťáńǧľé]",
 	"chat.annotate.undo": "[Úńďó ďŕáŵíńǧ (Ćťŕľ+Ź)]",
 	"chat.approval.agent_action": "[Áǧéńť áćťíóń]",
+	"chat.approval.secret_value": "[Ťȟíś ćóńťáíńś ťȟé ǚáľúé óƒ {key} ƒŕóḿ {file}. Óńľý áľľóŵ íť íƒ ýóú ḿéáńť ťó śéńď íť.]",
 	"chat.approval.allow_conversation": "[Áľľóŵ ƒóŕ ťȟíś ćȟáť]",
 	"chat.approval.allow_once": "[Áľľóŵ óńćé]",
 	"chat.approval.allowed": "[Áľľóŵéď]",

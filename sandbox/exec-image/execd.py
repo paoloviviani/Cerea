@@ -53,6 +53,7 @@ MOUNT_ROOT = os.environ.get("EXECD_MOUNT_ROOT", "/mnt/data")
 CWD = os.environ.get("EXECD_CWD", "/workspace")
 #: The same bounds as the browser runtime (src/lib/utils/execution/protocol.ts).
 MAX_OUTPUT_CHARS = 8000
+READ_SLICE_CHARS = 6000
 MAX_LISTED_FILES = 200
 MAX_REQUEST_BYTES = 8 * 1024 * 1024
 WATCHDOG_GRACE_SECONDS = 5
@@ -64,9 +65,14 @@ class RunTimeout(BaseException):
 
 
 def clamp(text: str) -> str:
-    suffix = "… [output truncated]"
     if len(text) <= MAX_OUTPUT_CHARS:
         return text
+    # Keep in step with clampOutput in src/lib/utils/execution/protocol.ts.
+    suffix = (
+        f"… [output truncated: {len(text)} characters in total, only the start is shown. "
+        f"Read it in slices of at most {READ_SLICE_CHARS} characters, "
+        f"e.g. print(text[{READ_SLICE_CHARS}:{READ_SLICE_CHARS * 2}])]"
+    )
     return text[: max(0, MAX_OUTPUT_CHARS - len(suffix))] + suffix
 
 

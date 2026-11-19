@@ -86,6 +86,8 @@ func (mc *machine) askRequest(dir string, req backend.PermissionRequest) decide.
 	dr := decide.Request{Key: key, Patterns: patterns, Workspace: dir}
 	if key == "bash" {
 		dr.Command = askCommand(req.Metadata)
+	} else if len(req.Metadata) > 0 {
+		dr.Args = metadataText(req.Metadata)
 	}
 	return dr
 }
@@ -122,7 +124,53 @@ func (mc *machine) askClass(dir string, req backend.PermissionRequest) (string, 
 	}
 	dr := mc.askRequest(dir, req)
 	pol := mc.decidePolicy(rh)
+	// a call that carries a secret's value is never a plain read
+	if pol.Protected.SecretValueLeak(dr) != nil {
+		return string(decide.ClassOf(pol, dr)), false
+	}
 	return string(decide.ClassOf(pol, dr)), askReadOnly(pol, dr, req.Metadata)
+}
+
+// askLeak is the key and file of the local secret whose value an ask's call
+// carries, "" when it carries none (C73). Names only.
+func (mc *machine) askLeak(dir string, req backend.PermissionRequest) (string, string) {
+	if strings.HasPrefix(req.ID, "gp_") {
+		return req.SecretKey, req.SecretFile // set where galopin raised it
+	}
+	if leak := mc.protected.SecretValueLeak(mc.askRequest(dir, req)); leak != nil {
+		return leak.Key, leak.File
+	}
+	return "", ""
+}
+
+// metadataText is the string values of an ask's metadata (a tool call's
+// arguments), joined, for the secret-value check. Bounded; never logged.
+func metadataText(meta map[string]any) string {
+	var b strings.Builder
+	var walk func(v any, depth int)
+	walk = func(v any, depth int) {
+		if b.Len() > 1<<20 || depth > 8 {
+			return
+		}
+		switch x := v.(type) {
+		case string:
+			b.WriteString(x)
+			b.WriteByte('\n')
+		case json.RawMessage:
+			b.Write(x)
+			b.WriteByte('\n')
+		case map[string]any:
+			for _, e := range x {
+				walk(e, depth+1)
+			}
+		case []any:
+			for _, e := range x {
+				walk(e, depth+1)
+			}
+		}
+	}
+	walk(meta, 0)
+	return b.String()
 }
 
 // askReadOnly is the machine's read-only mark (ADR 0107 amendment): computed
@@ -157,6 +205,7 @@ func (mc *machine) installPermissions() {
 		mc.mat.WithdrawPending()
 	})
 	mc.mat.OnAskStamp(mc.askClass)
+	mc.mat.OnAskLeak(mc.askLeak)
 	mc.mat.OnAskFilter(func(dir string, req backend.PermissionRequest) bool {
 		rh, ok := mc.ruleHost()
 		if !ok {

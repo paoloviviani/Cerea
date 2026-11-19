@@ -319,6 +319,9 @@ async function judge(ctx: Ctx): Promise<Verdict> {
 	const { request, settings, deps, deviceId } = ctx;
 	const t = targetsOf(request);
 
+	// The machine found a local secret's value in the call (C73): always the user's.
+	if (request.secretKey)
+		return esc(ruleNote("it contains the value of a secret kept on this computer"));
 	const rule = staticEscalateReason({ tool: request.tool, targets: t.all });
 	if (rule) return esc(ruleNote(rule));
 

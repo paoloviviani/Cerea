@@ -488,6 +488,18 @@
 				</ul>
 			{/if}
 
+			{#if request.secretValue}
+				<p
+					class="mt-2 text-sm font-medium text-red-700 dark:text-red-300"
+					data-testid="secret-value-note"
+				>
+					{m["chat.approval.secret_value"]({
+						key: request.secretValue.key,
+						file: request.secretValue.file,
+					})}
+				</p>
+			{/if}
+
 			{#if request.reviewNote}
 				<p class="mt-2 text-sm text-gray-500 dark:text-gray-400" data-testid="review-note">
 					{request.reviewNote}

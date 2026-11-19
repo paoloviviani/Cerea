@@ -14,6 +14,14 @@ describe("buildToolPreprompt", () => {
 		expect(buildToolPreprompt([])).toBe("");
 	});
 
+	it("mentions $file references only when the calls run inside a conversation", () => {
+		const without = buildToolPreprompt([tool("a")]);
+		const withRefs = buildToolPreprompt([tool("a")], undefined, undefined, { fileRefs: true });
+		expect(without).not.toContain("FILES IN TOOL ARGUMENTS");
+		expect(withRefs).toContain("FILES IN TOOL ARGUMENTS");
+		expect(withRefs).toContain('{"$file": "name.svg"}');
+	});
+
 	it("lists tool names and includes grounding rules", () => {
 		const prompt = buildToolPreprompt([tool("web_search_exa"), tool("crawling_exa")]);
 		expect(prompt).toContain("web_search_exa, crawling_exa");

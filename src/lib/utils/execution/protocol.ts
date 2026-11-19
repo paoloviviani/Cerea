@@ -126,6 +126,9 @@ export const LOAD_TIMEOUT_MS = 90_000;
 /** A captured output larger than this is truncated with a marker. */
 export const MAX_OUTPUT_CHARS = 8_000;
 
+/** The slice size the truncation marker suggests: safely under MAX_OUTPUT_CHARS. */
+export const READ_SLICE_CHARS = 6_000;
+
 /** One file the runtime holds: absolute sandbox path and byte size. */
 export interface RuntimeFile {
 	path: string;
@@ -206,7 +209,9 @@ export function safeMountName(name: string): string | null {
 
 /** Truncate captured output to MAX_OUTPUT_CHARS with an explicit marker. */
 export function clampOutput(text: string): string {
-	const suffix = "… [output truncated]";
 	if (text.length <= MAX_OUTPUT_CHARS) return text;
+	// Names the total and the way to the rest, so a model that needs a big file's content reads it
+	// in slices instead of printing it whole again (keep in step with `clamp` in sandbox/exec-image/execd.py).
+	const suffix = `… [output truncated: ${text.length} characters in total, only the start is shown. Read it in slices of at most ${READ_SLICE_CHARS} characters, e.g. print(text[${READ_SLICE_CHARS}:${READ_SLICE_CHARS * 2}])]`;
 	return `${text.slice(0, Math.max(0, MAX_OUTPUT_CHARS - suffix.length))}${suffix}`;
 }

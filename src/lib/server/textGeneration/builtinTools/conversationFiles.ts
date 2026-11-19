@@ -250,12 +250,21 @@ export async function findConversationFile(
 		pick = listing.attachment && attachmentEntry ? attachmentEntry : current;
 	}
 
+	// A stored attachment that a privacy rule withheld answers 403 with the rule's own sentence:
+	// that, not "no such file", is what the caller must be told.
+	let refusal: string | undefined;
 	const read = async (entry: FileVersion): Promise<{ name: string; bytes: Buffer } | undefined> => {
 		if (entry.origin === "attachment" && listing.attachment) {
 			const stored = await downloadFile(
 				listing.attachment.file.value,
 				conversationId.toString()
-			).catch(() => undefined);
+			).catch((err: unknown) => {
+				const refused = err as { status?: number; body?: { message?: unknown } };
+				if (refused?.status === 403 && typeof refused.body?.message === "string") {
+					refusal = refused.body.message;
+				}
+				return undefined;
+			});
 			return stored
 				? { name: listing.attachment.file.name, bytes: Buffer.from(stored.value, "base64") }
 				: undefined;
@@ -269,6 +278,7 @@ export async function findConversationFile(
 		pick = versions.find((v) => v.origin === "attachment") ?? current;
 		found = await read(pick);
 	}
+	if (!found && refusal) return { ok: false, error: refusal };
 	if (!found) {
 		return {
 			ok: false,

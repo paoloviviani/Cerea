@@ -176,7 +176,7 @@ vi.mock("$lib/server/abortedGenerations", () => ({
 	AbortedGenerations: { getInstance: () => ({ getAbortTime: mocks.getAbortTime }) },
 }));
 
-const { runMcpFlow } = await import("./runMcpFlow");
+const { runMcpFlow, truncatedToolCallNudge } = await import("./runMcpFlow");
 
 type ScriptedCall = { id?: string; name?: string; arguments: string };
 
@@ -1007,6 +1007,31 @@ describe("runMcpFlow truncated tool calls", () => {
 		expect(String(retry.at(-2)?.content ?? "")).not.toHaveLength(0);
 		expect(retry.at(-1)?.role).toBe("user");
 		expect(String(retry.at(-1)?.content)).toContain("output limit");
+	});
+
+	it("tells the model why the call was cut and how to send a large file instead of a blind retry", async () => {
+		scriptRounds([
+			{
+				toolCalls: [{ id: "call_1", name: "do_thing", arguments: '{"content":"<svg' }],
+				finishReason: "length",
+			},
+			{ content: "ok" },
+		]);
+
+		await runFlow();
+
+		const nudge = String(requestMessages(1).at(-1)?.content);
+		expect(nudge).toContain("too large for one reply");
+		expect(nudge).toContain('{"$file": "<name>"}');
+		expect(nudge).toContain("base64");
+		expect(nudge).not.toContain("Retry with a smaller tool call");
+	});
+
+	it("names references in the nudge only where they can be resolved", () => {
+		expect(truncatedToolCallNudge(true)).toContain('{"$file": "<name>"}');
+		const plain = truncatedToolCallNudge(false);
+		expect(plain).toContain("too large for one reply");
+		expect(plain).not.toContain("$file");
 	});
 
 	it("runs a complete tool call even when the round hit the output limit", async () => {
