@@ -148,6 +148,61 @@ describe("Settings > Application, the PyPI install option", () => {
 	});
 });
 
+describe("Settings > Application, the web search opt-out", () => {
+	const row = () => document.querySelector<HTMLInputElement>('input[name="webSearchEnabled"]');
+	const withSettings = (value: Record<string, unknown>) => {
+		const store = writable({ activeModel: "", ...value });
+		return new Map<unknown, unknown>([
+			[
+				"settings",
+				{ subscribe: store.subscribe, update: vi.fn(), instantSet: vi.fn(), set: vi.fn() },
+			],
+		]);
+	};
+
+	it("is on by default, also for a settings document that never stored it", async () => {
+		page.data = { webSearchAvailable: true };
+		const screen = renderWithApp(ApplicationPage, {}, { context: withSettings({}), page });
+		await expect.element(screen.getByText("Use web search when available")).toBeVisible();
+		expect(row()?.checked).toBe(true);
+	});
+
+	it("shows off only when the user stored false", async () => {
+		page.data = { webSearchAvailable: true };
+		const screen = renderWithApp(
+			ApplicationPage,
+			{},
+			{ context: withSettings({ webSearchEnabled: false }), page }
+		);
+		await expect.element(screen.getByText("Use web search when available")).toBeVisible();
+		expect(row()?.checked).toBe(false);
+	});
+
+	it("is disabled, with the reason, when no search backend is granted", async () => {
+		page.data = { webSearchAvailable: false };
+		const screen = renderWithApp(ApplicationPage, {}, { context: withSettings({}), page });
+		await expect.element(screen.getByText("Use web search when available")).toBeVisible();
+		expect(row()?.disabled).toBe(true);
+		// Stored value defaults to on, but unavailable shows off.
+		expect(row()?.checked).toBe(false);
+		expect(document.body.textContent).toContain("Web search isn't set up here yet.");
+	});
+});
+
+describe("Settings > Application, web search when unavailable", () => {
+	it("shows off and disabled even when the stored value is on, without writing it", async () => {
+		page.data = { webSearchAvailable: false };
+		const ctx = stores();
+		const screen = renderWithApp(ApplicationPage, {}, { context: ctx, page });
+		await expect.element(screen.getByText("Use web search when available")).toBeVisible();
+		const input = document.querySelector<HTMLInputElement>('input[name="webSearchEnabled"]');
+		expect(input?.checked).toBe(false);
+		expect(input?.disabled).toBe(true);
+		const s = ctx.get("settings") as { update: ReturnType<typeof vi.fn> };
+		expect(s.update).not.toHaveBeenCalled();
+	});
+});
+
 describe("Settings > Application, About this server", () => {
 	it("folds the version, gateway address and admin badge away, with a space before the commit", async () => {
 		page.data = { isAdmin: true };

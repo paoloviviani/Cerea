@@ -107,19 +107,9 @@
 		}
 	});
 
-	// Web search for THIS conversation. Same seeding discipline as the bases:
-	// the stored per-chat value wins, then the project default, then the app
-	// default — and a same-conversation invalidation never clobbers a toggle
-	// this tab just made. (The app-default fallback reads the settings store
-	// declared below; the effect runs after init, so it is assigned by then.)
-	let webSearch: boolean = $state(
-		untrack(() => data.webSearch ?? data.projectDefaults?.defaultWebSearch ?? false)
-	);
-	let webSearchForConv: string | null = $state(null);
-
 	// Tool-approval policy for THIS conversation (ADR 0075): the chat override
 	// wins, else the user's setting, else `manual`. Same seeding discipline as
-	// `webSearch` above — the settings-store fallback is corrected once the
+	// the bases above — the settings-store fallback is corrected once the
 	// store is available, in the effect declared near it.
 	let autoApproveTools: boolean = $state(
 		untrack(() => data.toolApprovalOverride === "always-allow")
@@ -711,17 +701,6 @@
 	}
 
 	const settings = useSettingsStore();
-	// Runs after init (see the state declared near the top): first open seeds
-	// per-chat > project > app default; later runs only on conversation change.
-	$effect(() => {
-		if (webSearchForConv !== page.params.id) {
-			webSearchForConv = page.params.id ?? null;
-			webSearch =
-				data.webSearch ??
-				data.projectDefaults?.defaultWebSearch ??
-				$settings.webSearchEnabled === true;
-		}
-	});
 	$effect(() => {
 		if (toolApprovalForConv !== page.params.id) {
 			toolApprovalForConv = page.params.id ?? null;
@@ -866,7 +845,6 @@
 	preprompt={data.preprompt}
 	bind:files
 	bind:knowledgeBases
-	bind:webSearch
 	bind:autoApproveTools
 	conversationEffort={data.reasoningEffort}
 	onmessage={onMessage}

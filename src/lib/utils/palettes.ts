@@ -9,12 +9,12 @@
  */
 
 export const ACCENTS = ["blue", "violet", "teal", "green", "rose", "orange"] as const;
-export const NEUTRALS = ["neutral", "cool", "warm"] as const;
+export const NEUTRALS = ["warm", "neutral", "cool"] as const;
 
 /** The sidebar's surface: flat (today's look) or a distinct, tone-following one. */
 export const SIDEBARS = ["flat", "contrast"] as const;
 /** The decoration behind the main area, drawn from the accent. */
-export const BACKGROUNDS = ["none", "dots", "glow", "bold"] as const;
+export const BACKGROUNDS = ["none", "glow", "bold"] as const;
 
 export type Accent = (typeof ACCENTS)[number];
 export type Neutral = (typeof NEUTRALS)[number];
@@ -22,7 +22,7 @@ export type Sidebar = (typeof SIDEBARS)[number];
 export type Background = (typeof BACKGROUNDS)[number];
 
 export const DEFAULT_ACCENT: Accent = "blue";
-export const DEFAULT_NEUTRAL: Neutral = "neutral";
+export const DEFAULT_NEUTRAL: Neutral = "warm";
 export const DEFAULT_SIDEBAR: Sidebar = "flat";
 export const DEFAULT_BACKGROUND: Background = "none";
 
@@ -42,9 +42,9 @@ export const ACCENT_SWATCHES: Record<Accent, string> = {
 };
 
 export const NEUTRAL_SWATCHES: Record<Neutral, string> = {
+	warm: "#747371",
 	neutral: "#737373",
 	cool: "#6c747e",
-	warm: "#78726c",
 };
 
 /** An unknown or missing value is "not chosen", never an error: settings written by a newer build must not break an older one. */
@@ -82,6 +82,7 @@ export function parseSidebar(value: unknown): Sidebar | undefined {
 export function parseBackground(value: unknown): Background | undefined {
 	// "mesh" was Glow's name on test builds before 0.48.0; read it as Glow.
 	if (value === "mesh") return "glow";
+	// "dots" is gone: a saved "dots" reads as no pattern (it is not in BACKGROUNDS).
 	return BACKGROUNDS.find((v) => v === value);
 }
 

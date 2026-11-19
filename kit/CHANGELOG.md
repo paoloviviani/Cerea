@@ -5,6 +5,12 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Background tones: Warm is the new default, Neutral is the pure greys, and the dotted background is gone.** Warm is a faint off-white and grey, and it is what you get if you never chose a tone. Neutral is back to plain greys, and stays as you picked it if you had chosen it. Cool is unchanged. If you had picked the Dots background, your pages now show no pattern; Glow and Bold are still there.
+- **A calmer composer.** The box now shows just three controls: **+** (attach and more), the **model** picker and a **shield** for permissions. The shield is a plain icon while the chat asks before using the web or a connector, and shows **Allow** when it does not; click it to choose, or open **Per-tool settings…**. The **Web search** and **Asks first** chips are gone. A new chat opens with the greeting and the box in the middle, and the box moves to the bottom once the conversation starts. The sidebar and the text sizes are quieter and more consistent too.
+- **Web search is always on, with an opt-out.** The assistant searches the web whenever an administrator has set up search; there is no per-chat switch any more. If you would rather it did not, turn off **Use web search when available** in **Settings → Application**. It is on by default, including for accounts that never chose, and it applies to all your chats. A project that turns web search off in its defaults still keeps it off for its chats.
+
 ## v0.58.0 — 2026-11-19
 
 Pins: Cerea `0.58.0` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.4`, opencode `2.3.0`.

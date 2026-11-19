@@ -1312,7 +1312,7 @@
 			>
 				{#if message.routerMetadata && (message.routerMetadata.route || message.routerMetadata.model || message.routerMetadata.provider) && (!isLast || !loading)}
 					<div
-						class="mr-2 flex items-center gap-1.5 truncate text-[.65rem] whitespace-nowrap text-ink-faint @xl:text-xs"
+						class="mr-2 flex items-center gap-1.5 truncate text-xxs whitespace-nowrap text-ink-faint @xl:text-xs"
 					>
 						{#if message.routerMetadata.route && message.routerMetadata.model}
 							<span
@@ -1410,12 +1410,8 @@
 						     person's words, so it is drawn as a different voice — a
 						     tinted card, headed by who it is from and a link to them. -->
 						<div class="w-full px-5 py-3.5" data-testid="sent-by-agent">
-							<div
-								class="w-fit max-w-full rounded-xl border border-violet-200 bg-violet-50/70 px-3 py-2 dark:border-violet-800/50 dark:bg-violet-900/15"
-							>
-								<p
-									class="mb-1 flex min-w-0 items-center gap-1 text-xs font-medium text-violet-700 dark:text-violet-300"
-								>
+							<div class="w-fit max-w-full rounded-xl border border-line bg-sunken px-3 py-2">
+								<p class="mb-1 flex min-w-0 items-center gap-1 text-xs font-medium text-ink-muted">
 									<LucideBot class="size-3.5 shrink-0" />
 									<span class="shrink-0">{m["chat.message.from_agent"]()}</span>
 									{#if sessionLinks}

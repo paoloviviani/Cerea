@@ -33,8 +33,9 @@ list shows what the user's billing group may use. Example: "Explain this
 contract clause in plain language." Tip: ask for the form you want (a table, a
 short summary, steps). Settings → Usage shows the user's own spend.
 
-**Web search and fetch.** The Web search pill in the composer turns search on
-for the conversation. The assistant can also read a pasted link. Example:
+**Web search and fetch.** The assistant searches the web on its own when
+the administrator has set up search; a user can turn that off in Settings
+("Use web search when available"). The assistant can also read a pasted link. Example:
 "Search for the latest guidance on X and cite the sources." Tip: if a page
 comes back empty, the deployment may lack the headless browser.
 

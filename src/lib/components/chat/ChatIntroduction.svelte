@@ -22,6 +22,9 @@
 		onstarter?: (text: string, send: boolean) => void;
 		/** Show the starter chips (an administrator's switch, off by default). */
 		showStarters?: boolean;
+		/** Sits on the bottom edge of a box its caller sizes (the composer is centred
+		 * below it) instead of centring itself in the whole column. */
+		docked?: boolean;
 		children?: import("svelte").Snippet;
 	}
 
@@ -31,6 +34,7 @@
 		firstName = "",
 		showStarters = false,
 		onstarter,
+		docked = false,
 		children,
 	}: Props = $props();
 
@@ -130,7 +134,10 @@
 </script>
 
 <div
-	class="my-auto grid -translate-y-16 items-center justify-center gap-8 text-center md:-translate-y-12"
+	class={[
+		"grid items-center justify-center gap-8 text-center",
+		!docked && "my-auto -translate-y-16 md:-translate-y-12",
+	]}
 >
 	<div
 		class="flex items-center justify-center rounded-xl text-[1.6rem] font-semibold select-none md:text-[2.55rem]"

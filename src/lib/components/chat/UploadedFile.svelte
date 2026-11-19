@@ -460,7 +460,7 @@
 					<dd class="text-sm">{truncateMiddle(file.name, 28)}</dd>
 					<dt class="flex items-center gap-1.5 text-xs text-gray-400">
 						<span
-							class="rounded bg-gray-100 px-1 text-[10px] font-medium tracking-wide text-gray-600 uppercase dark:bg-gray-800 dark:text-gray-300"
+							class="rounded bg-gray-100 px-1 text-xxs font-medium tracking-wide text-gray-600 uppercase dark:bg-gray-800 dark:text-gray-300"
 							data-testid="audio-badge">{m["chat.uploaded.audio_badge"]()}</span
 						>
 						{#if audioSeconds}

@@ -115,7 +115,7 @@
 	class="group flex h-8 flex-none items-center gap-1.5 rounded-lg pr-1.5 pl-2 text-smd max-sm:h-9 sm:text-sm
 		{conv.id === page.params.id
 		? 'bg-accent-subtle font-medium text-accent'
-		: 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'}"
+		: 'text-ink-muted hover:bg-gray-100 dark:hover:bg-gray-700'}"
 >
 	{#if activeGenerations.has(conv.id)}
 		<span

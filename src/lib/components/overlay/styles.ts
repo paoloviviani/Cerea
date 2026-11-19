@@ -60,14 +60,14 @@ export const SUBTITLE = "text-sm text-ink-muted";
 /** The tinted strip under the header: a count, a state, and the actions. */
 export const STRIP =
 	"mb-6 flex justify-between rounded-lg p-4 max-sm:flex-col max-sm:gap-4 sm:items-center";
-export const STRIP_ACTIVE = "bg-accent-subtle";
+export const STRIP_ACTIVE = "bg-sunken";
 export const STRIP_IDLE = "bg-sunken";
 /**
  * The icon tile keeps a translucent accent wash rather than the subtle fill,
  * so it still reads as a tile when the strip behind it is the same subtle
  * fill. Callers add `grayscale` when the strip is idle.
  */
-export const STRIP_TILE = "flex size-10 items-center justify-center rounded-xl bg-accent/15";
+export const STRIP_TILE = "flex size-10 items-center justify-center rounded-xl bg-ink/5";
 export const STRIP_HEADLINE = "text-sm font-semibold text-ink";
 export const STRIP_DETAIL = "text-xs text-ink-muted";
 
@@ -107,8 +107,8 @@ export const STACK = "space-y-5";
  */
 export function card(active: boolean): string {
 	return active
-		? "rounded-lg border bg-linear-to-br transition-colors border-accent/20 bg-accent-subtle from-accent/5 to-transparent"
-		: "rounded-lg border bg-linear-to-br transition-colors border-line bg-surface from-ink/5 to-transparent";
+		? "rounded-lg border transition-colors border-accent/20 bg-accent-subtle"
+		: "rounded-lg border transition-colors border-line bg-surface";
 }
 export const CARD_BODY = "px-4 py-3.5";
 export const CARD_TITLE = "truncate font-semibold text-ink";
@@ -124,7 +124,7 @@ export const PILL =
 	"inline-flex shrink-0 items-center gap-1 rounded-full py-0.5 pr-2 pl-1.5 text-xs font-medium whitespace-nowrap";
 export const PILL_TONES = {
 	good: "bg-ok-subtle text-ok",
-	busy: "bg-accent-subtle text-accent",
+	busy: "bg-sunken text-ink-muted",
 	bad: "bg-danger-subtle text-danger",
 	warn: "bg-warn-subtle text-warn",
 	neutral: "bg-sunken text-ink-muted",
@@ -132,7 +132,7 @@ export const PILL_TONES = {
 export type PillTone = keyof typeof PILL_TONES;
 
 export const EMPTY =
-	"flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-line-strong p-8";
+	"flex flex-col items-center justify-center rounded-lg border border-dashed border-line-strong p-8";
 export const EMPTY_ICON = "mb-3 size-12 text-ink-faint";
 export const EMPTY_TITLE = "mb-1 text-sm font-medium text-ink";
 export const EMPTY_DETAIL = "mb-4 text-xs text-ink-muted";
@@ -151,4 +151,4 @@ export const SEARCH =
 	"w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm placeholder:text-ink-faint focus:border-accent focus:ring-1 focus:ring-accent focus:outline-hidden";
 export const ERROR =
 	"rounded-lg border border-danger/25 bg-danger-subtle px-3 py-2 text-sm text-danger";
-export const NOTICE = "rounded-lg bg-accent-subtle px-3 py-2 text-xs text-accent";
+export const NOTICE = "rounded-lg bg-sunken px-3 py-2 text-xs text-ink-muted";

@@ -20,10 +20,8 @@
 	import OpenBrowserModal from "./OpenBrowserModal.svelte";
 	import { listBrowserComputers, type BrowserComputer } from "$lib/browserApi";
 	import CarbonEarth from "~icons/carbon/earth";
-	import LucideShieldCheck from "~icons/lucide/shield-check";
 	import LucideMic from "~icons/lucide/mic";
-	import TogglePill from "$lib/components/TogglePill.svelte";
-	import { webSearchUnavailableReason } from "$lib/utils/webSearchAvailability";
+	import PermissionShield from "./PermissionShield.svelte";
 	import { fileMatchesAllowlist } from "$lib/utils/mimeMatch";
 	import {
 		isAudioAttachmentMime,
@@ -76,21 +74,13 @@
 		disabled?: boolean;
 		// tools removed
 		modelIsMultimodal?: boolean;
-		// False when the model cannot call tools: web search is only offered as a tool call.
-		modelSupportsTools?: boolean;
 		// Knowledge bases attached to THIS conversation, as {id, name} pairs.
 		// Bindable: the toggle updates it optimistically, and on the home page —
 		// where no conversation exists to PATCH — the list rides into the
 		// create-conversation body instead.
 		knowledgeBases?: { id: string; name: string }[];
-		// Web search for THIS conversation. Bindable per-chat state: the toggle
-		// flips it and PATCHes the conversation when one exists; on the home
-		// page the value rides into the create-conversation body instead.
-		// Settings hold *defaults*, a chat holds *per-chat state* — this never
-		// writes to `Settings.webSearchEnabled`.
-		webSearch?: boolean;
 		/** Chat's own tools in the attach row (MCP servers, knowledge bases,
-		 * web search, tool approval). Off for a composer that only wants the
+		 * the permission shield). Off for a composer that only wants the
 		 * file picker, such as an agent's: those tools do nothing there. */
 		chatTools?: boolean;
 		// Tool-approval policy override for THIS conversation (ADR 0075).
@@ -132,9 +122,7 @@
 		disabled = false,
 
 		modelIsMultimodal = false,
-		modelSupportsTools = true,
 		knowledgeBases = $bindable([]),
-		webSearch = $bindable(false),
 		chatTools = true,
 		autoApproveTools = $bindable(false),
 		children,
@@ -147,55 +135,13 @@
 		draftKey = null,
 	}: Props = $props();
 
-	// Per caller, from the root layout: no granted search backend means the
-	// switch could only ever do nothing, so it is shown disabled with why.
-	const webSearchUnavailable = $derived(
-		webSearchUnavailableReason({
-			...(page.data as { webSearchAvailable?: boolean; gatewayIsAdmin?: boolean }),
-			modelSupportsTools,
-		})
-	);
-
-	async function toggleWebSearch() {
-		if (webSearchUnavailable) return;
-		const previous = webSearch;
-		const next = !webSearch;
-		webSearch = next;
-
-		// No conversation yet: the create request carries the value, so the
-		// chat is initialized before the first turn is ever generated.
-		if (!page.params.id) return;
-
-		try {
-			const response = await fetch(`${base}/conversation/${page.params.id}`, {
-				method: "PATCH",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ webSearch: next }),
-			});
-			if (!response.ok) {
-				let message: string = m["chat.input.web_search_failed"]();
-				try {
-					message = ((await response.json()) as { message?: string }).message ?? message;
-				} catch {
-					// not JSON
-				}
-				throw new Error(message);
-			}
-		} catch (err) {
-			// Roll back the optimistic toggle so the pill never claims a state
-			// the server refused.
-			webSearch = previous;
-			errorToast.set(err instanceof Error ? err.message : m["chat.input.web_search_failed"]());
-		}
-	}
-
 	// The tool-approval gate (ADR 0075) resolves chat override, then the
 	// user's setting, then `manual`. Inside a conversation the flip is
 	// PATCHed onto it; on the home page there is nothing to PATCH yet, so
 	// it only flips the local state the create request reads.
-	async function toggleAutoApproveTools() {
+	async function setAutoApproveTools(next: boolean) {
 		const previous = autoApproveTools;
-		const next = !autoApproveTools;
+		if (previous === next) return;
 		autoApproveTools = next;
 		if (!page.params.id) return;
 
@@ -1380,43 +1326,15 @@
 					{@render children?.()}
 
 					{#if chatTools}
-						<!-- Web search through the gateway's own backends (ADR 0058's plan,
-			     phase 2). The toggle is the user's consent to spend; the tool
-			     itself only exists when the console has granted a search tier,
-			     so a toggle with nothing behind it costs nothing and changes
-			     nothing. -->
-						<!-- The wrapper carries the reason: a disabled button swallows
-						     hover, so its own title would never show. -->
-						<span class="contents" title={webSearchUnavailable ?? undefined}>
-							<TogglePill
-								compact
-								pressed={webSearch && !webSearchUnavailable}
-								disabled={!!webSearchUnavailable}
-								label={m["chat.input.web_search"]()}
-								title={webSearchUnavailable ?? m["chat.input.web_search_hint"]()}
-								onclick={toggleWebSearch}
-							>
-								{#snippet icon()}
-									<CarbonEarth class="size-3.5" />
-								{/snippet}
-							</TogglePill>
-						</span>
-
 						<!-- Chat-local override of the tool-approval policy (ADR 0075).
-				     Inside a conversation this PATCHes the override; on the home
-				     page there is no conversation yet, so it only flips the local
-				     state that rides into the create request. -->
-						<TogglePill
-							compact
-							pressed={autoApproveTools}
-							label={autoApproveTools ? m["chat.input.runs"]() : m["chat.input.asks"]()}
-							title={autoApproveTools ? m["chat.input.runs_hint"]() : m["chat.input.asks_hint"]()}
-							onclick={toggleAutoApproveTools}
-						>
-							{#snippet icon()}
-								<LucideShieldCheck class="size-3.5" />
-							{/snippet}
-						</TogglePill>
+						     Inside a conversation this PATCHes the override; on the home
+						     page there is no conversation yet, so it only flips the local
+						     state that rides into the create request. Web search has no
+						     control here: it follows the user's setting. -->
+						<PermissionShield
+							mode={autoApproveTools ? "allow" : "ask"}
+							onselect={(mode) => void setAutoApproveTools(mode === "allow")}
+						/>
 					{/if}
 				</div>
 

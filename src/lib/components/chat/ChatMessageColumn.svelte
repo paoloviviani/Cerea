@@ -96,6 +96,9 @@
 		tail?: Snippet;
 		/** The composer overlay's content; the column owns the overlay wrapper. */
 		composer: Snippet;
+		/** While the conversation is empty, centre the composer vertically
+		 * (greeting above it); it drops to the bottom once a message exists. */
+		centerComposerWhenEmpty?: boolean;
 	}
 
 	let {
@@ -124,7 +127,12 @@
 		introduction,
 		tail,
 		composer,
+		centerComposerWhenEmpty = false,
 	}: Props = $props();
+
+	const composerCentered = $derived(
+		centerComposerWhenEmpty && !historyPending && messages.length === 0 && !pending
+	);
 
 	const chatScroll = createChatScroll();
 	let scrollContainerEl: HTMLElement | undefined = $state();
@@ -527,6 +535,12 @@
 						{readOnly}
 					/>
 				</div>
+			{:else if composerCentered}
+				<!-- The greeting fills the upper half and sits on its bottom edge;
+				     the composer overlay below starts at the middle line. -->
+				<div class="flex h-1/2 flex-col justify-end pb-10">
+					{@render introduction?.()}
+				</div>
 			{:else}
 				{@render introduction?.()}
 			{/if}
@@ -550,11 +564,13 @@
 	     the scroller's scrollbar-gutter on classic-scrollbar platforms. -->
 	<div
 		bind:clientHeight={composerHeight}
-		class="composer-fade pointer-events-none absolute inset-x-0 bottom-0 z-0 mx-auto flex w-full
-		max-w-3xl flex-col items-center justify-center bg-linear-to-t from-page
-		via-page to-page/0 px-[calc(0.875rem+var(--scrollbar-gutter,0px))] pt-2 *:pointer-events-auto
-		max-sm:py-0 sm:px-[calc(1.25rem+var(--scrollbar-gutter,0px))]
-		md:pb-4 xl:max-w-4xl"
+		data-composer-centered={composerCentered ? "" : undefined}
+		class={[
+			"composer-fade pointer-events-none absolute inset-x-0 z-0 mx-auto flex w-full max-w-3xl flex-col items-center justify-center px-[calc(0.875rem+var(--scrollbar-gutter,0px))] *:pointer-events-auto sm:px-[calc(1.25rem+var(--scrollbar-gutter,0px))] xl:max-w-4xl",
+			composerCentered
+				? "top-1/2 bottom-auto"
+				: "bottom-0 bg-linear-to-t from-page via-page to-page/0 pt-2 max-sm:pt-0 max-sm:pb-2 md:pb-4",
+		]}
 	>
 		{@render composer()}
 	</div>

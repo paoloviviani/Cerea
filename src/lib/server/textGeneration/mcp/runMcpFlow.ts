@@ -302,9 +302,9 @@ export async function* runMcpFlow({
 			.filter((message) => message.from === "user")
 			.flatMap((message) => urlsInUserText(message.content))
 	);
-	// Settings hold *defaults*, a chat holds *per-chat state*: per-chat state
-	// (`conv.webSearch`) wins, then this conversation's project default, then
-	// the app default (`Settings.webSearchEnabled`), then off.
+	// Web search has no per-chat switch: the user's opt-out
+	// (`Settings.webSearchEnabled === false`) wins, then a project that turns
+	// it off, otherwise it is on (see `resolveWebSearchEnabled`).
 	let projectWebSearchDefault: boolean | undefined;
 	try {
 		if (conv.projectId) {
@@ -451,7 +451,6 @@ export async function* runMcpFlow({
 		searchModelIds: webSearch.granted,
 		searchBackend: webSearch.model ?? undefined,
 		webSearchEnabled: resolveWebSearchEnabled({
-			conversationWebSearch: conv.webSearch,
 			projectDefault: projectWebSearchDefault,
 			settingsEnabled: serverSettings?.webSearchEnabled,
 		}),

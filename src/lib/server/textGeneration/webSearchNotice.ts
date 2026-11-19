@@ -4,20 +4,20 @@ import { resolveWebSearchEnabled } from "$lib/server/webSearchDefaults";
 import type { Conversation } from "$lib/types/Conversation";
 import type { TextGenerationContext } from "./types";
 
-/** Web search is on for the chat and a backend is granted, but the model cannot call tools. */
+/** Web search is on for the user and a backend is granted, but the model cannot call tools. */
 export const WEB_SEARCH_NEEDS_TOOLS_LINE =
 	"Web search is on, but this model cannot use tools, so it cannot search. Pick a model that supports tools.";
 
-/** A backend is granted, the chat has search off, and the model could use it if the user switched it on. */
+/** A backend is granted, search is off for this user, and the model could use it if they switched it on. */
 export const WEB_SEARCH_OFF_LINE =
-	"Web search is off for this chat. There is a web search switch in the composer; if the user needs current information from the web, tell them to turn it on instead of saying you have no web access.";
+	'Web search is turned off in this user\'s settings. If the user needs current information from the web, tell them they can turn on "Use web search when available" in Settings instead of saying you have no web access.';
 
 /**
  * The one line that explains web search to the model when it would otherwise be
  * confused about it. Pure: the caller resolves the three facts.
  */
 export function webSearchNoticeLine(input: {
-	/** Whether search is on for this chat (per-chat, project, then app default). */
+	/** Whether search is on for this user (their setting, then the project default). */
 	enabled: boolean;
 	/** Whether the caller has at least one search backend granted. */
 	granted: boolean;
@@ -54,7 +54,6 @@ export async function webSearchNoticeFor(
 			? await collections.projects.findOne({ _id: conv.projectId })
 			: null;
 		const enabled = resolveWebSearchEnabled({
-			conversationWebSearch: conv.webSearch,
 			projectDefault:
 				typeof project?.defaultWebSearch === "boolean" ? project.defaultWebSearch : undefined,
 			settingsEnabled: settings?.webSearchEnabled,

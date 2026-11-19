@@ -294,7 +294,7 @@
 		class="flex h-10 w-full items-center gap-1.5 rounded-lg px-2 text-left hover:bg-gray-100 dark:hover:bg-gray-700"
 	>
 		<span
-			class="flex size-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[0.6rem] font-semibold text-white"
+			class="flex size-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xxs font-semibold text-white"
 		>
 			{initials}
 		</span>

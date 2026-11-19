@@ -35,7 +35,7 @@
 				{#if step.status === "completed"}
 					<CarbonCheckmark class="size-3.5 text-green-600 dark:text-green-500" />
 				{:else if step.status === "in_progress"}
-					<CarbonInProgress class="size-3.5 text-orange-600 dark:text-orange-400" />
+					<CarbonInProgress class="size-3.5 text-accent" />
 				{:else if step.status === "skipped"}
 					<CarbonSubtract class="size-3.5 text-gray-300 dark:text-gray-600" />
 				{:else}
@@ -45,7 +45,7 @@
 			<span class="min-w-0 break-words">{step.step}</span>
 			{#if step.priority === "high"}
 				<span
-					class="mt-0.5 shrink-0 rounded-sm bg-red-100 px-1 text-[10px] font-medium text-red-700 uppercase dark:bg-red-900/40 dark:text-red-300"
+					class="mt-0.5 shrink-0 rounded-sm bg-red-100 px-1 text-xxs font-medium text-red-700 uppercase dark:bg-red-900/40 dark:text-red-300"
 					data-testid="priority-high">{m["chat.plan.priority_high"]()}</span
 				>
 			{/if}

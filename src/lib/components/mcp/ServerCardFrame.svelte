@@ -72,9 +72,9 @@
 <!-- The card's own click is a pointer convenience; the name button is the keyboard path. -->
 <div
 	role="presentation"
-	class="rounded-lg border bg-linear-to-br transition-colors {onopen
+	class="rounded-lg border transition-colors {onopen
 		? 'cursor-pointer'
-		: ''} border-gray-200 bg-white from-black/5 dark:border-gray-700 dark:bg-gray-800 dark:from-white/5"
+		: ''} border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800"
 	data-testid={testid}
 	onclick={onCardClick}
 >

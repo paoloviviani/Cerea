@@ -101,7 +101,7 @@
 	{#each outputBlocks as block (block.label)}
 		<div class="space-y-1">
 			<div
-				class="text-[10px] font-semibold uppercase {block.tone === 'error'
+				class="text-xxs font-semibold uppercase {block.tone === 'error'
 					? 'text-amber-600 dark:text-amber-400'
 					: 'text-gray-400 dark:text-gray-500'}"
 			>

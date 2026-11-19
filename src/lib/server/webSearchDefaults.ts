@@ -1,21 +1,22 @@
 /**
- * Defaults-vs-state for web search.
+ * Whether web search is on for a turn.
  *
- * Settings hold *defaults*, a chat holds *per-chat state*: new chats inherit
- * the defaults, and nothing done inside a chat ever writes back to them.
+ * There is no per-chat or per-message switch: web search is on whenever the
+ * administrator has enabled it (the turn still withholds the tool when no
+ * search backend is granted). Two things can turn it off:
  *
- * Precedence chain (settled): per-chat state > project defaults (when in a
- * project) > app settings / workspace defaults > off.
+ * - the user's own opt-out (`Settings.webSearchEnabled === false`), which wins;
+ * - a project that explicitly sets its default to off (`Project.defaultWebSearch === false`).
+ *
+ * A settings document without the field (older accounts) counts as on.
  */
 export function resolveWebSearchEnabled(options: {
-	/** Per-chat state (`Conversation.webSearch`). `undefined` means "not set in this chat". */
-	conversationWebSearch?: boolean;
 	/** Project default (`Project.defaultWebSearch`). `undefined` means the project leaves it unset. */
-	projectDefault?: boolean;
-	/** App default (`Settings.webSearchEnabled`). Absent means off. */
-	settingsEnabled?: boolean;
+	projectDefault?: boolean | null;
+	/** User setting (`Settings.webSearchEnabled`). Absent means on. */
+	settingsEnabled?: boolean | null;
 }): boolean {
-	if (typeof options.conversationWebSearch === "boolean") return options.conversationWebSearch;
+	if (options.settingsEnabled === false) return false;
 	if (typeof options.projectDefault === "boolean") return options.projectDefault;
-	return options.settingsEnabled === true;
+	return true;
 }

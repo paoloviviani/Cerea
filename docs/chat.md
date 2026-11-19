@@ -185,7 +185,7 @@ of yours folds behind **Show more**. Text is set in Inter, 16px in the chat.
   differ.
 - **Accent colour:** Blue, Violet, Teal, Green, Rose or Orange. It colours
   buttons, links and the selected chat.
-- **Background tone:** Gray, Slate or Stone: cool or warm greys behind the text.
+- **Background tone:** Warm (the default), Neutral or Cool: warm, pure or cool greys behind the text.
 
 The accent colour and the background tone are saved on your account and
 applied before the page draws, so they follow you to every device.
@@ -374,23 +374,22 @@ When your account has an image model, the assistant can draw pictures: ask for o
 
 ![A chat answered with web search, showing the cited source.](assets/screenshots/chat-web-search.webp)
 
-The **Web search** pill in the composer switches search on **for this
-chat**. It is your consent to spend: the search runs through the
-deployment's search backends and is metered to you.
+There is no web search button in the composer: the assistant searches the web
+whenever it needs to, as long as an administrator has set up a search backend.
+The search runs through the deployment's search backends and is metered to you.
+If you would rather it never searched for you, turn off **Use web search when
+available** in **Settings → Application**. It is on for everyone until you do,
+and it applies to all your chats.
 
 If you have no search backend (none in the gateway, or none granted to you),
-the pill, the "on by default" switch in your settings and the project default
-are shown disabled with "Web search isn't set up on this deployment"; an
-administrator also sees where to fix it. Nothing is offered that could not
-work.
+the switch in your settings and the project default are shown disabled with
+"Web search isn't set up on this deployment"; an administrator also sees where
+to fix it. Nothing is offered that could not work.
 
 Search is offered to the model as a tool call, so a model that cannot use tools
-cannot search. For such a model the pill is shown disabled with "This model
-cannot use tools, so it cannot search the web. Pick a model that supports
-tools.", and if search is on anyway (from a default) the assistant says so
-instead of claiming it has no web access. When search is off for a chat but a
-backend is granted, the assistant knows the switch exists and tells you to turn
-it on.
+cannot search; the assistant says so instead of claiming it has no web access.
+When you have turned search off but a backend is granted, the assistant knows
+and tells you where to turn it back on.
 
 This is the deployment's own search, not the model's. **Administration → Web
 search** lists the search backends the gateway offers and lets an administrator
@@ -399,10 +398,9 @@ With none chosen, or when you are not granted the chosen one, the gateway uses
 your billing group's search policy, so the same question searches the same
 sources whoever asks it.
 
-Whether a new chat starts with search on follows a chain: the
-chat's own state, then the project's default (inside a project), then
-your app setting (on for new accounts; older accounts keep whatever they set),
-then off. Nothing done inside a chat writes back to the settings.
+Whether search is on for a turn follows your setting first: if you turned it
+off, it is off everywhere. Otherwise a project that turns it off in its defaults
+keeps it off for the chats inside that project, and everything else searches.
 
 When you paste a link, or search finds one, the assistant can also **fetch the
 page** and read it. Some sites stay empty until JavaScript has run. If the assistant reports a page as empty, your deployment may not have the headless browser that reads pages the way a browser does; that is an operator's choice.
@@ -422,8 +420,11 @@ rule applies to **Attach from URL**.
 
 Some tools act outside the chat, so by default (**Tools ask first**) they wait for you. (A [sub-agent](#plans-and-sub-agents) cannot wait for you, so it only uses what you have already allowed.) When the assistant wants to open a page that neither you nor a search result supplied, or to use a tool from a [connector](connectors.md), the answer pauses on an approval card showing what it wants to do and with what. You choose: allow this once, allow this tool for the rest of the chat, or deny. If it wants several, you approve each one. A card you leave unanswered is **denied** when its time runs out.
 
-The composer's **Tools ask first / Tools auto-approved** pill overrides the
-policy for **this chat only**; the app-wide default lives in your settings.
+The **shield** in the composer shows and changes the policy for **this chat
+only**: it is a plain icon while the chat asks first, and says **Allow** (with a
+tint) when you let tools run without asking. Click it to choose **Ask** or
+**Allow**, or open **Per-tool settings…** for the app-wide default, which lives
+in your settings.
 Python the assistant runs in the [in-browser sandbox](pyodide.md) never asks first: it runs in your own browser, with no network access, so it cannot act outside the chat.
 
 ## Location

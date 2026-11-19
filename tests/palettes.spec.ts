@@ -58,10 +58,7 @@ test.describe("Appearance", () => {
 		await expect(page.locator("html")).not.toHaveAttribute("data-neutral", /.*/);
 
 		await expect(page.getByRole("radio", { name: "Blue" })).toHaveAttribute("aria-checked", "true");
-		await expect(page.getByRole("radio", { name: "Neutral" })).toHaveAttribute(
-			"aria-checked",
-			"true"
-		);
+		await expect(page.getByRole("radio", { name: "Warm" })).toHaveAttribute("aria-checked", "true");
 
 		await page.goto(`${E2E_APP_BASE}/`);
 		await page.locator("textarea").first().fill("hello");
@@ -72,7 +69,7 @@ test.describe("Appearance", () => {
 		);
 	});
 
-	test("Teal + Warm: instant, saved, and in the server-rendered <html> after a reload", async ({
+	test("Teal + Neutral: instant, saved, and in the server-rendered <html> after a reload", async ({
 		page,
 	}) => {
 		await page.goto(SETTINGS);
@@ -90,20 +87,23 @@ test.describe("Appearance", () => {
 		expect((await firstSave).ok()).toBe(true);
 
 		const secondSave = saved(page);
-		await page.getByRole("radio", { name: "Warm" }).click();
-		await expect(html).toHaveAttribute("data-neutral", "warm");
+		await page.getByRole("radio", { name: "Neutral" }).click();
+		await expect(html).toHaveAttribute("data-neutral", "neutral");
 		expect((await secondSave).ok()).toBe(true);
 
 		// The document the server sends, before any script runs.
 		const served = await (await page.request.get(SETTINGS)).text();
 		expect(served).toMatch(/<html[^>]*data-accent="teal"/);
-		expect(served).toMatch(/<html[^>]*data-neutral="warm"/);
+		expect(served).toMatch(/<html[^>]*data-neutral="neutral"/);
 
 		await page.reload();
 		await expect(html).toHaveAttribute("data-accent", "teal");
-		await expect(html).toHaveAttribute("data-neutral", "warm");
+		await expect(html).toHaveAttribute("data-neutral", "neutral");
 		await expect(page.getByRole("radio", { name: "Teal" })).toHaveAttribute("aria-checked", "true");
-		await expect(page.getByRole("radio", { name: "Warm" })).toHaveAttribute("aria-checked", "true");
+		await expect(page.getByRole("radio", { name: "Neutral" })).toHaveAttribute(
+			"aria-checked",
+			"true"
+		);
 
 		// The send button, on the chat page.
 		await page.goto(`${E2E_APP_BASE}/`);
@@ -118,12 +118,12 @@ test.describe("Appearance", () => {
 		expect(c.solid).toBe("rgb(0, 120, 111)"); // bg-blue-600 → teal-700
 		expect(c.mid).toBe("rgb(0, 150, 137)"); // bg-blue-500 → teal-600
 		expect(c.subtle).toBe("rgb(240, 253, 250)"); // bg-blue-50 → teal-50
-		expect(c.ink).toBe("rgb(42, 37, 32)"); // text-gray-800 → warm 800
+		expect(c.ink).toBe("rgb(38, 38, 38)"); // text-gray-800 → neutral 800
 		expect(c.tint).toBe(c.tintExpected); // bg-blue-500/10 → teal-600 at 10%
-		await expect(page.locator("body")).toHaveCSS("background-color", "rgb(255, 249, 242)"); // warm page
+		await expect(page.locator("body")).toHaveCSS("background-color", "rgb(250, 250, 250)"); // neutral page
 	});
 
-	test("back to Blue + Neutral removes the attributes and the saved choice sticks", async ({
+	test("back to Blue + Warm removes the attributes and the saved choice sticks", async ({
 		page,
 	}) => {
 		await page.goto(SETTINGS);
@@ -139,7 +139,7 @@ test.describe("Appearance", () => {
 		await page.getByRole("radio", { name: "Blue" }).click();
 		await save;
 		save = saved(page);
-		await page.getByRole("radio", { name: "Neutral" }).click();
+		await page.getByRole("radio", { name: "Warm" }).click();
 		await save;
 		await expect(page.locator("html")).not.toHaveAttribute("data-accent", /.*/);
 		await expect(page.locator("html")).not.toHaveAttribute("data-neutral", /.*/);
@@ -155,7 +155,7 @@ test.describe("Appearance", () => {
 		await page.getByRole("radio", { name: "Teal" }).click();
 		await save;
 		const save2 = saved(page);
-		await page.getByRole("radio", { name: "Warm" }).click();
+		await page.getByRole("radio", { name: "Neutral" }).click();
 		await save2;
 
 		await page.reload();
@@ -177,10 +177,10 @@ test.describe("Appearance", () => {
 			accent: "#00d5be", // teal-400
 			subtle: "#022f2e", // teal-950
 			solid: "#00786f", // teal-700, pinned across themes
-			bg: "#110e09", // warm page
-			surface: "#221d19", // warm card
+			bg: "#0e0e0e", // neutral page
+			surface: "#1e1e1e", // neutral card
 		});
-		await expect(page.locator("body")).toHaveCSS("background-color", "rgb(17, 14, 9)");
+		await expect(page.locator("body")).toHaveCSS("background-color", "rgb(14, 14, 14)");
 	});
 
 	test("the swatches are a keyboard radio group", async ({ page }) => {
@@ -234,7 +234,7 @@ test.describe("Appearance", () => {
 		await expect(page.locator("body")).not.toHaveCSS("background-image", "none");
 		await expect(page.locator("nav.app-sidebar:visible")).toHaveCSS(
 			"background-color",
-			"rgb(233, 233, 233)"
+			"rgb(235, 233, 230)"
 		);
 
 		await page.goto(SETTINGS);

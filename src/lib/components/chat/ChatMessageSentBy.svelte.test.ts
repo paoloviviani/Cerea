@@ -52,7 +52,7 @@ describe("a user message another session wrote", () => {
 		expect(bubble?.className).toContain("dark:text-gray-100");
 		expect(bubble?.className).not.toContain("text-gray-500");
 		// Right-aligned in the tinted bubble, so a fast scroll tells it from a reply.
-		expect(bubble?.parentElement?.className).toContain("bg-blue-50");
+		expect(bubble?.parentElement?.className).toContain("bg-gray-100 dark:bg-raised");
 		expect(bubble?.parentElement?.parentElement?.className).toContain("items-end");
 	});
 });

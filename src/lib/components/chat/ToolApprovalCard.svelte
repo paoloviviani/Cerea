@@ -378,7 +378,7 @@
 
 {#snippet code(text: string)}
 	<code
-		class="rounded-sm bg-blue-50 px-1 py-px font-mono text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+		class="rounded-sm bg-gray-100 px-1 py-px font-mono text-gray-700 dark:bg-gray-800 dark:text-gray-300"
 		>{text}</code
 	>
 {/snippet}
@@ -422,7 +422,7 @@
 					{/if}{settledLabel}
 				</span>
 				<code
-					class="min-w-0 shrink truncate rounded-sm bg-blue-50 px-1 py-px font-mono text-xs text-blue-700 opacity-90 dark:bg-blue-900/30 dark:text-blue-300"
+					class="min-w-0 shrink truncate rounded-sm bg-gray-100 px-1 py-px font-mono text-xs text-gray-700 opacity-90 dark:bg-gray-800 dark:text-gray-300"
 					>{browse ? browse.sentence : toolApproval.tool}</code
 				>
 				<CarbonChevronRight
@@ -435,7 +435,7 @@
 
 		{#if showArgs}
 			<div class="mt-2 mb-4 space-y-1 text-gray-500 dark:text-gray-400">
-				<div class="text-[10px] font-semibold text-gray-400 uppercase dark:text-gray-500">
+				<div class="text-xxs font-semibold text-gray-400 uppercase dark:text-gray-500">
 					{m["chat.approval.arguments"]()}
 				</div>
 				<pre

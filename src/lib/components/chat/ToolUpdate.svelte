@@ -360,7 +360,7 @@
 					</span>
 					{#if !coordination}
 						<code
-							class="min-w-0 truncate rounded-sm bg-blue-50 px-1 py-px font-mono text-xs text-blue-700 opacity-90 dark:bg-blue-900/30 dark:text-blue-300"
+							class="min-w-0 truncate rounded-sm bg-gray-100 px-1 py-px font-mono text-xs text-gray-700 opacity-90 dark:bg-gray-800 dark:text-gray-300"
 						>
 							{availableTools.find((entry) => entry.name === toolFnName)?.displayName ?? toolFnName}
 						</code>
@@ -382,12 +382,12 @@
 					{#if coordination.href}
 						<a
 							href={coordination.href}
-							class="min-w-0 truncate rounded-sm bg-blue-50 px-1 py-px text-xs text-blue-700 underline-offset-2 hover:underline dark:bg-blue-900/30 dark:text-blue-300"
+							class="min-w-0 truncate rounded-sm bg-gray-100 px-1 py-px text-xs text-gray-700 underline-offset-2 hover:underline dark:bg-gray-800 dark:text-gray-300"
 							data-testid="session-link">{coordination.title}</a
 						>
 					{:else}
 						<span
-							class="min-w-0 truncate rounded-sm bg-blue-50 px-1 py-px text-xs text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+							class="min-w-0 truncate rounded-sm bg-gray-100 px-1 py-px text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300"
 							>{coordination.title}</span
 						>
 					{/if}
@@ -487,7 +487,7 @@
 				{#each tool as update, i (`${update.subtype}-${i}`)}
 					{#if update.subtype === MessageToolUpdateType.Call}
 						<div class="space-y-1">
-							<div class="text-[10px] font-semibold text-gray-400 uppercase dark:text-gray-500">
+							<div class="text-xxs font-semibold text-gray-400 uppercase dark:text-gray-500">
 								{m["chat.tool.input"]()}
 							</div>
 							<pre
@@ -497,7 +497,7 @@
 						</div>
 					{:else if update.subtype === MessageToolUpdateType.Error}
 						<div class="space-y-1">
-							<div class="text-[10px] font-semibold text-amber-600 uppercase dark:text-amber-400">
+							<div class="text-xxs font-semibold text-amber-600 uppercase dark:text-amber-400">
 								{m["chat.tool.error"]()}
 							</div>
 							<pre
@@ -505,7 +505,7 @@
 						</div>
 					{:else if isMessageToolResultUpdate(update) && update.result.status === ToolResultStatus.Success && update.result.display}
 						<div class="space-y-1">
-							<div class="text-[10px] font-semibold text-gray-400 uppercase dark:text-gray-500">
+							<div class="text-xxs font-semibold text-gray-400 uppercase dark:text-gray-500">
 								{m["chat.tool.output"]()}
 							</div>
 							{#each parseToolOutputs(update.result.outputs) as parsedOutput}
@@ -538,7 +538,7 @@
 						</div>
 					{:else if isMessageToolResultUpdate(update) && update.result.status === ToolResultStatus.Error && update.result.display}
 						<div class="space-y-1">
-							<div class="text-[10px] font-semibold text-amber-600 uppercase dark:text-amber-400">
+							<div class="text-xxs font-semibold text-amber-600 uppercase dark:text-amber-400">
 								{m["chat.tool.error"]()}
 							</div>
 							<pre

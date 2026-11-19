@@ -40,7 +40,8 @@
 	import { webSearchUnavailableReason } from "$lib/utils/webSearchAvailability";
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 	import { useAPIClient, handleResponse } from "$lib/APIClient";
-	import { onMount } from "svelte";
+	import { onMount, tick } from "svelte";
+	import { scrollToAnchor } from "$lib/utils/scrollToAnchor";
 	import { MediaQuery } from "svelte/reactivity";
 	import { browser } from "$app/environment";
 	import { getThemePreference, setTheme, type ThemePreference } from "$lib/switchTheme";
@@ -78,7 +79,6 @@
 	};
 	const BACKGROUND_LABELS: Record<Background, () => string> = {
 		none: m["settings.application.background.option.none"],
-		dots: m["settings.application.background.option.dots"],
 		glow: m["settings.application.background.option.glow"],
 		bold: m["settings.application.background.option.bold"],
 	};
@@ -128,7 +128,9 @@
 	);
 
 	function getWebSearchDefault() {
-		return $settings.webSearchEnabled === true;
+		// Display only: unavailable reads as off, the stored preference is untouched.
+		if (webSearchUnavailable) return false;
+		return $settings.webSearchEnabled !== false;
 	}
 	function setWebSearchDefault(v: boolean) {
 		settings.update((s) => ({ ...s, webSearchEnabled: v }));
@@ -209,6 +211,13 @@
 			$error = err instanceof Error ? err.message : String(err);
 		}
 	}
+
+	// Arriving at #tool-approvals (the composer shield's "Per-tool settings"):
+	// scroll the settings pane only, never the fixed app shell.
+	onMount(() => {
+		const id = location.hash.slice(1);
+		if (id) void tick().then(() => scrollToAnchor(id));
+	});
 </script>
 
 {#snippet code(text: string)}<code class="font-mono">{text}</code>{/snippet}
@@ -487,7 +496,10 @@
 					/>
 				</div>
 
-				<div class="flex flex-col gap-2 py-3 sm:flex-row sm:items-start sm:justify-between">
+				<div
+					id="tool-approvals"
+					class="flex scroll-mt-4 flex-col gap-2 py-3 sm:flex-row sm:items-start sm:justify-between"
+				>
 					<div>
 						<div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">
 							{m["settings.application.tool_approvals.title"]()}
