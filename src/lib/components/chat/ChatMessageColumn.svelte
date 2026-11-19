@@ -569,7 +569,7 @@
 			"composer-fade pointer-events-none absolute inset-x-0 z-0 mx-auto flex w-full max-w-3xl flex-col items-center justify-center px-[calc(0.875rem+var(--scrollbar-gutter,0px))] *:pointer-events-auto sm:px-[calc(1.25rem+var(--scrollbar-gutter,0px))] xl:max-w-4xl",
 			composerCentered
 				? "top-1/2 bottom-auto"
-				: "bottom-0 bg-linear-to-t from-page via-page to-page/0 pt-2 max-sm:py-0 md:pb-4",
+				: "bottom-0 bg-linear-to-t from-page via-page to-page/0 pt-2 max-sm:pt-0 max-sm:pb-2 md:pb-4",
 		]}
 	>
 		{@render composer()}

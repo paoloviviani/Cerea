@@ -1100,28 +1100,35 @@
 						</button>
 					{/if}
 				{/snippet}
-				<div
-					class={{
-						"mt-1.5 flex h-5 items-center justify-center self-stretch px-0.5 text-xs whitespace-nowrap text-ink-faint max-md:mb-2 max-sm:gap-2": true,
-						"max-sm:hidden": focused && isVirtualKeyboard(),
-					}}
-				>
-					{#if loading && streamingToolCallName}
-						<span class="inline-flex items-center gap-1 text-xs whitespace-nowrap">
-							<LucideHammer class="size-3" />
-							{m["chat.window.using_tool"]()}
-							<span class="loading-dots font-medium">
-								{availableTools.find((t) => t.name === streamingToolCallName)?.displayName ??
-									streamingToolCallName}
+				<!-- The status row exists only when it has something to say (the tool in use,
+				     or the caveat of a still-empty chat): an idle conversation reserves no
+				     band under the composer. The caveat is desktop-only, so on a phone an
+				     empty chat has no row either. -->
+				{#if (loading && streamingToolCallName) || (!messages.length && !loading)}
+					<div
+						class={{
+							"mt-1 flex h-4 items-center justify-center self-stretch px-0.5 text-xs whitespace-nowrap text-ink-faint max-md:mb-2 max-sm:gap-2": true,
+							"max-sm:hidden": focused && isVirtualKeyboard(),
+							"max-sm:hidden!": !(loading && streamingToolCallName),
+						}}
+					>
+						{#if loading && streamingToolCallName}
+							<span class="inline-flex items-center gap-1 text-xs whitespace-nowrap">
+								<LucideHammer class="size-3" />
+								{m["chat.window.using_tool"]()}
+								<span class="loading-dots font-medium">
+									{availableTools.find((t) => t.name === streamingToolCallName)?.displayName ??
+										streamingToolCallName}
+								</span>
 							</span>
-						</span>
-					{/if}
-					{#if !messages.length && !loading}
-						<span class="max-sm:hidden"
-							>{publicConfig.PUBLIC_CAVEAT || m["chat.window.caveat"]()}</span
-						>
-					{/if}
-				</div>
+						{/if}
+						{#if !messages.length && !loading}
+							<span class="max-sm:hidden"
+								>{publicConfig.PUBLIC_CAVEAT || m["chat.window.caveat"]()}</span
+							>
+						{/if}
+					</div>
+				{/if}
 			</div>
 		{/snippet}
 	</ChatMessageColumn>
