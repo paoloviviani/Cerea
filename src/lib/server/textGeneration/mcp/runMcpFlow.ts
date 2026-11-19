@@ -113,6 +113,18 @@ export type McpFlowResult =
 // itself instead of leaving the person with the last round's preamble.
 const MAX_TOOL_ROUNDS = 20;
 
+/**
+ * What the model is told when a tool call was cut off by the output limit. The cause is nearly
+ * always an argument that is too large for one reply (file content pasted inline), so the way out
+ * is named: a `{"$file": ...}` reference, a split, or asking the person. Exported for the test.
+ */
+export function truncatedToolCallNudge(fileRefs: boolean): string {
+	const way = fileRefs
+		? 'If the content is a file (an attachment, or one you saved in the sandbox), pass it by reference instead: use {"$file": "<name>"} for text, or {"$file": "<name>", "encoding": "base64"} for binary, where the argument expects the content, and the server fills it in. Otherwise split the work across several smaller calls, or tell the user it is too large to send.'
+		: "Split the work across several smaller calls, or tell the user it is too large to send.";
+	return `[SYSTEM: Your previous response hit the output limit before the tool call was complete, so the call was discarded and nothing was sent. The arguments were too large for one reply. Do not inline large or binary content again. ${way}]`;
+}
+
 // Each retry costs a tool round, so give up quickly and answer without the tool.
 const MAX_TRUNCATED_TOOL_CALL_RETRIES = 2;
 
@@ -775,6 +787,7 @@ export async function* runMcpFlow({
 		const toolPreprompt = buildToolPreprompt(oaTools, userTimezone, builtinTools, {
 			artifacts: artifactsEnabled && artifactsMode === "tags",
 			artifactsMode,
+			fileRefs: true,
 		});
 		const prepromptPieces: string[] = [];
 		// The administrator's instructions are the first thing the model reads,
@@ -1361,8 +1374,8 @@ export async function* runMcpFlow({
 						},
 						{
 							role: "user" as const,
-							content:
-								"[SYSTEM: Your previous response hit the output limit before the tool call was complete, so it was discarded. Retry with a smaller tool call — split large payloads across several calls and keep any inline file content short.]",
+							// This flow always runs inside a conversation, so `$file` references resolve.
+							content: truncatedToolCallNudge(true),
 						},
 					];
 					continue;

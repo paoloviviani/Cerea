@@ -27,6 +27,7 @@ import {
 import { deleteConversationAttachments } from "./deleteConversationAttachments";
 import { resolveHashFiles } from "./resolveHashFiles";
 import { findConversationFile } from "$lib/server/textGeneration/builtinTools/conversationFiles";
+import { resolveFileReferences } from "$lib/server/textGeneration/mcp/fileReferences";
 import { promptAttachments } from "$lib/server/code/promptAttachments";
 import { planAttachments } from "$lib/utils/execution/attachmentNames";
 
@@ -141,6 +142,39 @@ describe("a privacy-withheld upload", () => {
 		expect((found as { error: string }).error).toContain(
 			"withheld by the privacy rule 'no-health'"
 		);
+	});
+});
+
+describe("a withheld file named by a connector file reference, through the real lookup", () => {
+	it("is refused with the privacy reason even when the message's own copy lost the flag", async () => {
+		extractMock.mockResolvedValueOnce(REFUSED);
+		const conv = await conversationWith([]);
+		const file = await uploadFile(PDF(), conv, "t");
+		expect(file.withheld).toBeDefined();
+		// The stored bytes are withheld (the 403 is on the store), whatever the message row says.
+		const unflagged = { ...file, withheld: undefined };
+		await collections.conversations.updateOne(
+			{ _id: conv._id },
+			{ $set: { "messages.0.files": [unflagged] } }
+		);
+
+		const found = await findConversationFile(conv._id, "secret.pdf");
+		expect(found).toMatchObject({ ok: false });
+		expect((found as { error: string }).error).toContain(
+			"withheld by the privacy rule 'no-health'"
+		);
+
+		const resolved = await resolveFileReferences(
+			{ content: { $file: "secret.pdf" } },
+			{
+				conversationId: conv._id,
+			}
+		);
+		expect(resolved.ok).toBe(false);
+		if (!resolved.ok) {
+			expect(resolved.error).toContain("withheld by the privacy rule 'no-health'");
+			expect(resolved.error).not.toContain("secret words");
+		}
 	});
 });
 

@@ -90,6 +90,28 @@ saved, the result says that instead; the call itself still succeeds. A file
 with the same name and different content becomes a new version, as for any
 other file in the chat.
 
+## Sending a file to a connector
+
+The code sandbox has no network, so a connector (a GitHub commit, an upload) is the
+only way a file leaves the chat, and the model would otherwise have to paste the whole
+file into the call, which a large or binary file cannot survive (the reply is cut off
+at the output limit). Instead the model passes a **file reference** where a string
+argument goes:
+
+- `{"$file": "diagram.svg"}` is the file's text (UTF-8);
+- `{"$file": "logo.png", "encoding": "base64"}` is the file's bytes as base64.
+
+Cerea swaps in the content on the server, after any approval and just before the
+call. Only an object with a `$file` key is ever rewritten, so an ordinary string (even
+one that looks like a file name) is sent as written. The name is an attachment or a
+file produced in this chat (a sandbox run's output, a document tool's file, a file
+another connector returned); other chats' files are never reachable, and a file a
+privacy rule withheld answers with the rule's refusal instead of its content. A file
+over 8 MB (or references adding up to over 16 MB) is refused with a clear error and
+nothing is sent. The approval card, the stored message and the logs show the reference,
+never the content. **Deliberate decision (ADR 0113): file references are not redacted; withhold rules apply.** The file's raw bytes go to the connector you chose, as the file is yours; there is no redaction step, and a file a privacy rule withheld never resolves. If a call is still cut off by the output limit, the model is told the
+arguments were too large and to use a reference. Code: `textGeneration/mcp/fileReferences.ts`.
+
 ## Connectors for everybody
 
 An administrator can provide connectors to the whole deployment (see

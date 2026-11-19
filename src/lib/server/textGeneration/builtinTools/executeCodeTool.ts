@@ -123,6 +123,12 @@ function limitsLine(limits: SandboxLimits | null): string {
 	);
 }
 
+const FILE_HANDOFF_SENTENCE =
+	"To send a file you saved here to a connector tool, do not read it back and paste it into that " +
+	'call: pass {"$file": "<name>"} (or {"$file": "<name>", "encoding": "base64"} for binary) as the ' +
+	"argument and the server fills in the content. Stdout is cut at about 8000 characters; to read " +
+	"a long file or string yourself, print it in slices (text[0:6000], text[6000:12000], ...).";
+
 const browserDescription = () =>
 	"Run a Python snippet in the person's own browser sandbox and read the " +
 	"result, so you can iterate: run, read the output, fix, run again. " +
@@ -165,7 +171,9 @@ const browserDescription = () =>
 	"earlier tool results. It is not a stand-in for a tool you lack: it " +
 	"cannot search, fetch or call a service or connector, and must not " +
 	"simulate one with made-up data — say the capability is missing " +
-	"instead.\n\n" +
+	"instead. " +
+	FILE_HANDOFF_SENTENCE +
+	"\n\n" +
 	"Do not use this for code the person wants to read or keep — that " +
 	"belongs in a code block, which stays in the transcript and can be run " +
 	"manually. Each call spends one of this turn's few execute_code calls; " +
@@ -207,7 +215,9 @@ const serverDescription = (limits: SandboxLimits | null = null) =>
 	"It computes on data already in the conversation, attached files or earlier tool results. It " +
 	"is not a stand-in for a tool you lack: it cannot search, fetch or call a service or " +
 	"connector, and must not simulate one with made-up data — say the capability is missing " +
-	"instead.\n\n" +
+	"instead. " +
+	FILE_HANDOFF_SENTENCE +
+	"\n\n" +
 	"Do not use this for code the person wants to read or keep — that belongs in a code block. " +
 	"Each call spends one of this turn's few execute_code calls; prefer one decisive snippet over " +
 	"many fragments.";

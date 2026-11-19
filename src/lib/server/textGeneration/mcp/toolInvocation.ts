@@ -26,6 +26,7 @@ import { isExternalTool, markUntrustedResult } from "../untrusted";
 import { openDurableElicitation, type ElicitationSink } from "$lib/server/mcp/elicitation";
 import { turnAwaitingInput } from "$lib/server/generation/turnState";
 import { attachFileRefsToArgs, type FileRefResolver } from "./fileRefs";
+import { resolveFileReferences } from "./fileReferences";
 import type { ToolCallGuard } from "./toolGuard";
 import type { Client } from "@modelcontextprotocol/client";
 import type { ObjectId } from "mongodb";
@@ -720,6 +721,28 @@ export async function* executeToolCalls({
 		}
 		const client = clientMap.get(mappingEntry.server);
 
+		// `{"$file": ...}` references become the file's content only here, after approval and
+		// just before the call: the card, the guard, the stored message and the logs all keep the
+		// reference. A refusal (unknown, withheld, too big) is an ordinary tool error and nothing
+		// was dispatched or booked.
+		const fileRefs = await resolveFileReferences(
+			argsObj,
+			elicitation?.conversationId
+				? { conversationId: elicitation.conversationId, messageId: elicitation.messageId }
+				: undefined
+		);
+		if (!fileRefs.ok) {
+			results.push({ index, error: fileRefs.error, uuid: p.uuid, paramsClean: p.paramsClean });
+			updatesQueue.push({
+				type: MessageUpdateType.Tool,
+				subtype: MessageToolUpdateType.Error,
+				uuid: p.uuid,
+				message: fileRefs.error,
+			});
+			return;
+		}
+		const callArgs = fileRefs.args;
+
 		// Consulted before anything leaves the process: a refusal is an ordinary
 		// tool error the model recovers from, and nothing was dispatched.
 		let guardTicket: unknown;
@@ -728,7 +751,10 @@ export async function* executeToolCalls({
 				serverUrl: serverCfg.url,
 				tool: mappingEntry.tool,
 				fnName: p.call.name,
-				args: argsObj,
+				// The content the connector will get, so the schema preflight checks what is sent
+				// (a string parameter must not see the `{"$file": ...}` object). The card, the stored
+				// call and the logs keep `argsObj`, the reference.
+				args: callArgs,
 				callUuid: p.uuid,
 			});
 			if (verdict.update) updatesQueue.push(verdict.update);
@@ -758,7 +784,7 @@ export async function* executeToolCalls({
 			const rawResponse: McpToolTextResponse = await callMcpTool(
 				serverCfg,
 				mappingEntry.tool,
-				argsObj,
+				callArgs,
 				{
 					client,
 					signal: abortSignal,

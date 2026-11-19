@@ -78,7 +78,17 @@ class Interpreter(unittest.TestCase):
     def test_output_is_clamped_like_the_browsers(self):
         r = self.i.run("print('x' * 20000)", 10)
         self.assertLessEqual(len(r["stdout"]), execd.MAX_OUTPUT_CHARS)
-        self.assertTrue(r["stdout"].endswith("… [output truncated]"))
+        self.assertIn("output truncated: 20001 characters in total", r["stdout"])
+        self.assertIn(f"slices of at most {execd.READ_SLICE_CHARS} characters", r["stdout"])
+        self.assertLess(execd.READ_SLICE_CHARS, execd.MAX_OUTPUT_CHARS)
+
+    def test_a_big_file_reads_back_in_slices(self):
+        self.i.run("big = 'abcdef' * 2000", 10)
+        first = self.i.run(f"print(big[:{execd.READ_SLICE_CHARS}])", 10)["stdout"]
+        rest = self.i.run(f"print(big[{execd.READ_SLICE_CHARS}:])", 10)["stdout"]
+        self.assertNotIn("truncated", first)
+        self.assertNotIn("truncated", rest)
+        self.assertEqual((first.rstrip("\n") + rest.rstrip("\n")), "abcdef" * 2000)
 
     def test_a_run_past_its_limit_is_stopped_and_the_state_is_lost(self):
         self.i.run("kept = 1", 10)

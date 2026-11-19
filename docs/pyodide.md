@@ -125,7 +125,7 @@ version of the same artifact, not a new one.
 |           |                                                                                                                                                                                     |
 | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Time      | 60 seconds per run by default (operators can change it, up to 300). A longer run is stopped and the sandbox restarts; ask for the work in smaller steps, or on a sample of the data |
-| Output    | 8,000 characters per stream (stdout, stderr)                                                                                                                                        |
+| Output    | 8,000 characters per stream (stdout, stderr); a cut-off says the total and suggests reading in slices (`print(text[6000:12000])`)                                                   |
 | Files     | 50 MB per file loaded into a run; chat attachments 30 MB each and 100 MB together                                                                                                   |
 | Memory    | the WebAssembly heap; running out raises `MemoryError`                                                                                                                              |
 | Network   | none: no `fetch`, sockets, WebSockets or storage APIs, including through `pyfetch`, `micropip` or the `js` bridge                                                                   |
