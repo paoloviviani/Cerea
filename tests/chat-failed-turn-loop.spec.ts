@@ -113,3 +113,93 @@ test("a 401 on a later turn, and a reload afterwards, stay stable", async ({
 	expect(counts.stream - afterReload.stream).toBeLessThanOrEqual(1);
 	expect(counts.data - afterReload.data).toBeLessThanOrEqual(1);
 });
+
+const BIG_SCENE = JSON.stringify({
+	type: "excalidraw",
+	version: 2,
+	elements: Array.from({ length: 1500 }, (_, i) => ({
+		id: `el-${i}`,
+		type: "rectangle",
+		x: i,
+		y: i * 2,
+		width: 100,
+		height: 50,
+		seed: i * 7919,
+		versionNonce: i * 104729,
+		boundElements: [],
+		groupIds: [],
+	})),
+});
+
+async function sendWithScene(page: Page, name: string) {
+	await page.goto(`${E2E_APP_BASE}/`);
+	await page.getByLabel("Upload file").setInputFiles({
+		name,
+		mimeType: "application/octet-stream",
+		buffer: Buffer.from(BIG_SCENE),
+	});
+	await expect(page.getByText(name)).toBeVisible();
+	await page.getByPlaceholder("Ask anything").fill("what is in my drawing?");
+	await page.getByRole("button", SEND).click();
+	await page.waitForURL(/\/conversation\/[a-f0-9]{24}/);
+}
+
+function countAll(page: Page) {
+	const byUrl = new Map<string, number>();
+	page.on("request", (req) => {
+		const key =
+			req.method() +
+			" " +
+			req
+				.url()
+				.replace(/[a-f0-9]{24}/g, ":id")
+				.split("?")[0];
+		byUrl.set(key, (byUrl.get(key) ?? 0) + 1);
+	});
+	return byUrl;
+}
+
+for (const failing of [false, true]) {
+	test(`a big .excalidraw attachment ${failing ? "with a 401" : "alone"} is stable`, async ({
+		page,
+		mockOpenAI,
+	}) => {
+		test.setTimeout(120_000);
+		await mockOpenAI.setDefaultScenario(
+			failing
+				? {
+						errorStatus: 401,
+						errorMessage: "invalid API key",
+						nonStreamContent: "Excalidraw file content",
+					}
+				: {
+						content: ["Seen."],
+						chunkDelayMs: 10,
+						finishReason: "stop",
+						nonStreamContent: "Excalidraw file content",
+					}
+		);
+		const byUrl = countAll(page);
+		const errors: string[] = [];
+		page.on("pageerror", (e) => errors.push(String(e)));
+		await sendWithScene(page, "scene.excalidraw");
+		if (failing) {
+			await expect(page.getByTestId("turn-failed-retry")).toBeVisible({ timeout: 30_000 });
+		} else {
+			await expect(page.locator('[data-message-role="assistant"]').last()).toContainText("Seen.", {
+				timeout: 60_000,
+			});
+		}
+		await page.waitForTimeout(1500);
+		const before = new Map(byUrl);
+		await page.waitForTimeout(5000);
+		const growth = [...byUrl].filter(([k, v]) => v - (before.get(k) ?? 0) > 1);
+		expect(growth).toEqual([]);
+		if (failing) await expect(page.getByTestId("turn-failed-retry")).toBeVisible();
+		await page.reload();
+		await page.waitForTimeout(4000);
+		const afterReload = new Map(byUrl);
+		await page.waitForTimeout(5000);
+		expect([...byUrl].filter(([k, v]) => v - (afterReload.get(k) ?? 0) > 1)).toEqual([]);
+	});
+}
