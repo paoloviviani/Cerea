@@ -5,7 +5,11 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.58.0 — 2026-11-19
+
+Pins: Cerea `0.58.0` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.4`, opencode `2.3.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. Nothing to do on computers.
 
 - **Attach any text file.** A file is accepted if its content is text, whatever its extension: `.drawio`, `.excalidraw`, `.toml`, a `Makefile`, a log. The file picker no longer filters by extension, and dropping or pasting a file of an unfamiliar type is no longer turned away by the browser; Cerea reads the bytes, passes text to the model under its own file name and says "This file type isn't supported" for binary it cannot use. Chat, coding-agent attachments, project documents and knowledge bases share the rule.
 
