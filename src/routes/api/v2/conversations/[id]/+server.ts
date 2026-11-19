@@ -1,3 +1,4 @@
+import { reconcileWithTurnState } from "$lib/utils/generationState";
 import { error, type RequestHandler } from "@sveltejs/kit";
 import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";
 import { requireAuth } from "$lib/server/api/utils/requireAuth";
@@ -96,7 +97,9 @@ export const GET: RequestHandler = async ({ locals, params }) => {
 	}
 
 	// A code block's and an artifact cell's stored files, on their messages.
-	const messages = await withRunFiles(conversation._id, conversation.messages);
+	const messages = (await withRunFiles(conversation._id, conversation.messages)).map((message) =>
+		reconcileWithTurnState(message, turnState)
+	);
 
 	return superjsonResponse({
 		messages,

@@ -1,4 +1,5 @@
 import type { Message } from "$lib/types/Message";
+import type { TurnStateSnapshot } from "$lib/types/TurnState";
 import {
 	MessageUpdateStatus,
 	MessageUpdateType,
@@ -134,4 +135,75 @@ export function isTurnSubscribable(message?: Message): boolean {
 		);
 	}
 	return !legacyTerminal(message);
+}
+
+/**
+ * Stops a re-attach that ends at once, with nothing new, from looping. Each
+ * finished re-attach reloads the conversation, which re-triggers the re-attach
+ * for the same message; if the turn is not actually advancing (the server
+ * ended the stream immediately), that is an endless fetch loop that starves
+ * the page. A re-attach for a message state we already re-attached to and got
+ * nothing from is delayed with exponential back-off instead of re-run at once;
+ * any progress (new updates or a moved cursor) resets it.
+ */
+export function createReattachGuard(baseDelayMs = 1000, maxDelayMs = 30_000) {
+	let lastKey: string | undefined;
+	let streak = 0;
+	let lastEndedAt = 0;
+
+	const keyOf = (message: Message) =>
+		`${message.id}:${message.generationId ?? ""}:${message.materializedSeq ?? 0}:${message.updates?.length ?? 0}:${turnStateOf(message)?.state ?? ""}`;
+
+	return {
+		/** 0 = attach now; otherwise wait this many ms (and re-check) before attaching. */
+		delayFor(message: Message, now: number): number {
+			if (keyOf(message) !== lastKey) return 0;
+			const wait = Math.min(maxDelayMs, baseDelayMs * 2 ** Math.max(0, streak - 1));
+			return Math.max(0, lastEndedAt + wait - now);
+		},
+		/** Call when a re-attach on `message` (as it was at start) has ended. */
+		ended(message: Message, now: number): void {
+			const key = keyOf(message);
+			streak = key === lastKey ? streak + 1 : 1;
+			lastKey = key;
+			lastEndedAt = now;
+		},
+		reset(): void {
+			lastKey = undefined;
+			streak = 0;
+		},
+	};
+}
+
+/**
+ * The server's turn state document is the authority; the message's in-band
+ * updates are a copy that can lag or disagree (a run overtaken by a newer one
+ * wrote its own stale lifecycle last). When the document says the turn is over
+ * and the message does not say the same, return the message with the terminal
+ * state (and, for a failure, its error) appended, so every reader agrees and
+ * nothing re-attaches to a dead turn. Otherwise the message is returned as is.
+ */
+export function reconcileWithTurnState(message: Message, snapshot?: TurnStateSnapshot): Message {
+	if (!snapshot || snapshot.messageId !== message.id || message.from !== "assistant")
+		return message;
+	if (message.interrupted === true) return message;
+	if (snapshot.status !== "done" && snapshot.status !== "failed") return message;
+	const own = turnStateOf(message);
+	if (own?.state === snapshot.status) return message;
+	const updates = [...(message.updates ?? [])];
+	if (snapshot.status === "failed" && !streamErrorOf(message)) {
+		updates.push({
+			type: MessageUpdateType.Status,
+			status: MessageUpdateStatus.Error,
+			message: snapshot.error?.trim() || "The turn ended on an error.",
+		});
+	}
+	updates.push({
+		type: MessageUpdateType.TurnState,
+		state: snapshot.status,
+		serverNow: snapshot.serverNow,
+		...(snapshot.reason ? { reason: snapshot.reason } : {}),
+		...(snapshot.error ? { error: snapshot.error } : {}),
+	});
+	return { ...message, updates };
 }

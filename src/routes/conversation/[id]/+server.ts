@@ -53,7 +53,7 @@ import { applyUpdateToMessage } from "$lib/server/generation/applyUpdate";
 import { AbortRegistry } from "$lib/server/abortRegistry";
 import { settleTurnCost, turnGatewayToken } from "$lib/server/turnCostSettle";
 import { createGenerationWriter, type GenerationWriter } from "$lib/server/generation/writer";
-import { turnEnded, turnRunning } from "$lib/server/generation/turnState";
+import { turnHeldByAnother, turnEnded, turnRunning } from "$lib/server/generation/turnState";
 import { armTurnCap, classifyTurnAbort, untilCapped } from "$lib/server/generation/turnCap";
 import { clampStoppedContent } from "$lib/server/stopTruncation";
 import { MetricsServer } from "$lib/server/metrics";
@@ -840,13 +840,18 @@ export async function POST({ request, locals, params, getClientAddress }) {
 									usageEnabled: usageEnabled(),
 								})
 							: null;
+					logger.error(err, "Error in conversation stream");
+					// Recording the error must never keep the turn from ending: a throw here
+					// would skip `turnEnded` below and leave the turn "running" forever, which
+					// makes every client re-attach to it in a loop.
 					await update({
 						type: MessageUpdateType.Status,
 						status: MessageUpdateStatus.Error,
 						message: quotaText ?? err.message,
 						...(statusCode && { statusCode }),
-					});
-					logger.error(err, "Error in conversation stream");
+					}).catch((updateErr) =>
+						logger.error(updateErr, "Failed to record the stream error on the message")
+					);
 				}
 			} finally {
 				// check if no output was generated
@@ -892,7 +897,19 @@ export async function POST({ request, locals, params, getClientAddress }) {
 			});
 			if (endedUpdate) await update(endedUpdate);
 
-			await persistConversation(true);
+			// An overtaken run (a newer generation took the turn over while this one
+			// was finishing a slow call) must not write its stale snapshot over the
+			// newer producer's message: that left a message whose lifecycle the
+			// turn state contradicted, and every client re-attached to it forever.
+			const overtaken = (await writer.isSuperseded()) || (await turnHeldByAnother(turnKey));
+			if (overtaken) {
+				logger.warn(
+					{ conversationId: conversationKey, messageId: messageToWriteTo.id },
+					"[generation] run overtaken by a newer producer; not persisting its snapshot"
+				);
+			} else {
+				await persistConversation(true);
+			}
 
 			// The project's memory, written after the answer is already on its
 			// way out and deliberately not awaited. The same reasoning as the

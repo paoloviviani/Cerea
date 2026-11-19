@@ -185,3 +185,57 @@ export async function turnEnded(
 	}
 	return buildUpdate(status, outcome.error ? { error: outcome.error } : {});
 }
+
+/**
+ * Whether another producer now holds this turn. A run that was overtaken
+ * (a newer generation took the turn over while it was still finishing a slow
+ * call) must not write the message or the turn log: the newer producer's state,
+ * terminal or not, is the truth, and an old run's snapshot would put a
+ * lifecycle on the message that the state document contradicts.
+ */
+export async function turnHeldByAnother(key: TurnKey): Promise<boolean> {
+	try {
+		const doc = await collections.turnStates.findOne(
+			{ conversationId: key.conversationId, messageId: key.messageId },
+			{ projection: { producerId: 1 } }
+		);
+		return !!doc && doc.producerId !== key.producerId;
+	} catch (err) {
+		logger.error({ err }, "[turnState] failed to read the turn holder");
+		return false;
+	}
+}
+
+/**
+ * Close a turn nothing is producing: CAS on the exact non-terminal status the
+ * caller observed, so a run that woke up meanwhile wins. Returns the update to
+ * persist into the message, or null when the state moved on.
+ */
+export async function turnOrphaned(
+	conversationId: Conversation["_id"],
+	messageId: Message["id"],
+	expected: "running" | "awaiting_input" | "waiting",
+	error: string,
+	/** The `updatedAt` the caller saw when it judged the turn orphaned. When set,
+	 * a turn restarted since (Continue, a sweeper resume: `turnRunning` moves
+	 * `updatedAt`) no longer matches and is left alone. */
+	observedUpdatedAt?: Date
+): Promise<MessageTurnStateUpdate | null> {
+	const now = new Date();
+	try {
+		const result = await collections.turnStates.updateOne(
+			{
+				conversationId,
+				messageId,
+				status: expected,
+				...(observedUpdatedAt ? { updatedAt: observedUpdatedAt } : {}),
+			},
+			{ $set: { status: "failed" satisfies TurnStatus, endedAt: now, updatedAt: now, error } }
+		);
+		if (result.matchedCount === 0) return null;
+	} catch (err) {
+		logger.error({ err }, "[turnState] failed to close an orphaned turn");
+		return null;
+	}
+	return buildUpdate("failed", { error });
+}

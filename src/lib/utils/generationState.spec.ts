@@ -7,6 +7,9 @@ import {
 	isAssistantGenerationTerminal,
 	isConversationGenerationActive,
 	isTurnSubscribable,
+	createReattachGuard,
+	reconcileWithTurnState,
+	streamErrorOf,
 	lastFailedTurnId,
 	turnStateOf,
 } from "./generationState";
@@ -270,5 +273,79 @@ describe("turn state as the authoritative liveness", () => {
 			updates: [{ type: MessageUpdateType.Status, status: MessageUpdateStatus.Finished }],
 		});
 		expect(isTurnSubscribable(legacyDone)).toBe(false);
+	});
+});
+
+describe("createReattachGuard", () => {
+	test("attaches at once the first time and after progress", () => {
+		const guard = createReattachGuard(1000, 30_000);
+		const message = assistantMessage({ generationId: "g1", materializedSeq: 3 });
+		expect(guard.delayFor(message, 0)).toBe(0);
+		guard.ended(message, 0);
+		const moved = assistantMessage({ generationId: "g1", materializedSeq: 5 });
+		expect(guard.delayFor(moved, 1)).toBe(0);
+	});
+
+	test("backs off exponentially when a re-attach ends with nothing new", () => {
+		const guard = createReattachGuard(1000, 4000);
+		const message = assistantMessage({ generationId: "g1", materializedSeq: 3 });
+		guard.ended(message, 0);
+		expect(guard.delayFor(message, 100)).toBe(900);
+		expect(guard.delayFor(message, 1000)).toBe(0);
+		guard.ended(message, 1000);
+		expect(guard.delayFor(message, 1000)).toBe(2000);
+		guard.ended(message, 3000);
+		guard.ended(message, 7000);
+		guard.ended(message, 11_000);
+		expect(guard.delayFor(message, 11_000)).toBe(4000);
+	});
+
+	test("reset forgets the last re-attach", () => {
+		const guard = createReattachGuard();
+		const message = assistantMessage({ generationId: "g1" });
+		guard.ended(message, 0);
+		guard.reset();
+		expect(guard.delayFor(message, 1)).toBe(0);
+	});
+});
+
+describe("reconcileWithTurnState", () => {
+	const snapshot = (status: "done" | "failed" | "running", error?: string) => ({
+		messageId: "assistant-1" as Message["id"],
+		status,
+		serverNow: 1,
+		...(error ? { error } : {}),
+	});
+
+	test("a stale awaiting_input message becomes failed when the server says failed", () => {
+		const message = assistantMessage({
+			generationId: "a",
+			updates: [
+				{ type: MessageUpdateType.TurnState, state: "awaiting_input", serverNow: 0 },
+				{ type: MessageUpdateType.Status, status: MessageUpdateStatus.Finished },
+			],
+		});
+		expect(isTurnSubscribable(message)).toBe(true);
+		const fixed = reconcileWithTurnState(message, snapshot("failed", "401 invalid API key"));
+		expect(isTurnSubscribable(fixed)).toBe(false);
+		expect(turnStateOf(fixed)?.state).toBe("failed");
+		expect(streamErrorOf(fixed)).toBe("401 invalid API key");
+	});
+
+	test("leaves agreeing, running, other-message and interrupted messages alone", () => {
+		const failed = assistantMessage({
+			updates: [{ type: MessageUpdateType.TurnState, state: "failed", serverNow: 0 }],
+		});
+		expect(reconcileWithTurnState(failed, snapshot("failed"))).toBe(failed);
+		const running = assistantMessage();
+		expect(reconcileWithTurnState(running, snapshot("running"))).toBe(running);
+		expect(
+			reconcileWithTurnState(running, {
+				...snapshot("failed"),
+				messageId: "other" as Message["id"],
+			})
+		).toBe(running);
+		const stopped = assistantMessage({ interrupted: true });
+		expect(reconcileWithTurnState(stopped, snapshot("failed"))).toBe(stopped);
 	});
 });

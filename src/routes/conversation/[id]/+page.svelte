@@ -45,6 +45,7 @@
 	import {
 		isConversationGenerationActive,
 		isTurnSubscribable,
+		createReattachGuard,
 		streamErrorOf,
 	} from "$lib/utils/generationState";
 	import { noteServerNow } from "$lib/utils/clockSkew.svelte";
@@ -88,6 +89,9 @@
 	// Active reattach to a run this tab did not start. Aborted on navigation, stop, and
 	// conversation change.
 	let reattachController: AbortController | undefined;
+	// A re-attach that ends with nothing new must not re-run at once (see createReattachGuard).
+	const reattachGuard = createReattachGuard();
+	let reattachRetryTimer: ReturnType<typeof setTimeout> | undefined;
 
 	let files: File[] = $state([]);
 
@@ -510,8 +514,26 @@
 			return;
 		}
 
+		// The server's turn state is the authority: a finished or failed turn is never
+		// re-attached to, whatever the message's own updates say.
+		const serverTurn = data.turnState;
+		if (
+			serverTurn?.messageId === lastAssistant.id &&
+			(serverTurn.status === "done" || serverTurn.status === "failed")
+		) {
+			return;
+		}
+
+		const waitMs = reattachGuard.delayFor(lastAssistant, Date.now());
+		if (waitMs > 0) {
+			clearTimeout(reattachRetryTimer);
+			reattachRetryTimer = setTimeout(reattachToRun, waitMs);
+			return;
+		}
+
 		const controller = new AbortController();
 		reattachController = controller;
+		const startedOn = lastAssistant;
 		const runConvId = convId;
 		const streamingMode = resolveStreamingMode($settings);
 
@@ -543,6 +565,7 @@
 		} finally {
 			const aborted = controller.signal.aborted;
 			if (reattachController === controller) reattachController = undefined;
+			if (!aborted) reattachGuard.ended(startedOn, Date.now());
 			// Reconcile with the canonical message once the run ends. Skip on abort
 			// (navigation/stop refresh themselves) or if we have moved conversations.
 			if (!aborted && convId === runConvId) {
@@ -550,6 +573,8 @@
 			}
 		}
 	}
+
+	$effect(() => () => clearTimeout(reattachRetryTimer));
 
 	// Poll the conversation API until the last assistant message is terminal
 	// (interrupted, final answer, or error persisted), bounded at ~3.2s. Used
@@ -756,6 +781,8 @@
 			untrack(() => {
 				reattachController?.abort();
 				reattachController = undefined;
+				clearTimeout(reattachRetryTimer);
+				if (convChanged) reattachGuard.reset();
 				reattachToRun();
 			});
 		}
