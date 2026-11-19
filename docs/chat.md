@@ -205,7 +205,8 @@ picker. Changing the model in the composer changes it **for that
 chat**.
 
 For a model that thinks, **Effort** in the same pill offers the levels that
-model takes, plus **Default** (the model's own). Effort is per chat. A
+model takes, plus **Default** (the model's own). The pill itself shows only
+the model name; the current effort is shown on the **Effort** row. Effort is per chat. A
 preset that pins its own effort shows it read-only.
 
 The models themselves are managed in the **Workspace** page's **Models** tab.

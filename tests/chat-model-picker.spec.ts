@@ -27,6 +27,16 @@ async function pickEffort(page: Page, level: string) {
 	await page.getByRole("menuitem", { name: level, exact: true }).click();
 }
 
+/** The effort is not on the pill; read it from the Effort row in the menu. */
+async function expectEffort(page: Page, level: string) {
+	const pill = page.getByRole("button", { name: "Model and effort" });
+	await pill.click();
+	await expect(page.getByRole("menuitem", { name: /Effort/ })).toContainText(level, {
+		timeout: 30_000,
+	});
+	await page.keyboard.press("Escape");
+}
+
 async function lastEffortSent(mockOpenAI: {
 	requests(): Promise<Array<{ path: string; body: Record<string, unknown> }>>;
 }) {
@@ -47,10 +57,12 @@ test("effort is set on the pill, sent upstream, and kept per conversation", asyn
 	await page.goto(`${E2E_APP_BASE}/`);
 
 	const pill = page.getByRole("button", { name: "Model and effort" });
-	await expect(pill).toContainText("Default");
+	await expect(pill).not.toContainText("Default");
+	await expectEffort(page, "Default");
 	// On a new chat, the pick is the default new chats with this model start on.
 	await pickEffort(page, "High");
-	await expect(pill).toContainText("High");
+	await expect(pill).not.toContainText("High");
+	await expectEffort(page, "High");
 
 	await send(page, "think hard");
 	await page.waitForURL(/\/conversation\/[a-f0-9]{24}/);
@@ -59,19 +71,17 @@ test("effort is set on the pill, sent upstream, and kept per conversation", asyn
 
 	// In the conversation, the pick is this conversation's own.
 	await pickEffort(page, "Low");
-	await expect(pill).toContainText("Low");
+	await expectEffort(page, "Low");
 	await send(page, "think less");
 	await expect(page.getByText("Thought it over.").nth(1)).toBeVisible({ timeout: 30_000 });
 	await expect.poll(() => lastEffortSent(mockOpenAI)).toBe("low");
 
 	await page.reload();
-	await expect(page.getByRole("button", { name: "Model and effort" })).toContainText("Low", {
-		timeout: 30_000,
-	});
+	await expectEffort(page, "Low");
 
 	// A new chat still starts on the person's default, not this conversation's.
 	await page.goto(`${E2E_APP_BASE}/`);
-	await expect(page.getByRole("button", { name: "Model and effort" })).toContainText("High");
+	await expectEffort(page, "High");
 });
 
 test("@smoke the pill searches models and switches the conversation's model", async ({
@@ -90,7 +100,7 @@ test("@smoke the pill searches models and switches the conversation's model", as
 	await page.getByRole("button", { name: "Model and effort" }).click();
 	await page.getByRole("menuitem").filter({ hasText: "text-only" }).first().click();
 
-	// A model without effort: the pill drops the effort half.
+	// A model without effort: no Effort row in the menu.
 	await expect(page.getByRole("button", { name: "Model and effort" })).toContainText("text-only", {
 		timeout: 30_000,
 	});

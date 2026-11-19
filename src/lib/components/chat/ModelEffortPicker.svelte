@@ -1,6 +1,8 @@
 <!--
 	The composer's model pill, in the style of Claude's: one popover that
 	switches the model for this chat and, for a model that thinks, how hard.
+	The pill itself shows only the model; the effort is read and set in the
+	popover.
 
 	- A short list: the current model and the ones the
 	  person picked recently (at most six), each with its one-line
@@ -90,9 +92,6 @@
 		{disabled}
 	>
 		{@render children()}
-		{#if efforts}
-			<span class="shrink-0 text-ink-faint">· {effortLabel(effort)}</span>
-		{/if}
 		<CarbonCaretDown class="-ml-0.5 shrink-0 text-xxs" />
 	</DropdownMenu.Trigger>
 	<DropdownMenu.Portal>

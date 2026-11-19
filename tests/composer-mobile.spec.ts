@@ -187,7 +187,8 @@ test.describe("/code composer at 390×844", () => {
 			await expect(locator).toBeVisible();
 		}
 		await expect(modelEffort).toContainText("Coder Large With A Rather Long Name");
-		await expect(modelEffort).toContainText("High");
+		// The effort level is not shown on the pill.
+		await expect(modelEffort).not.toContainText("High");
 
 		const boxes = await Promise.all(all.map(box));
 		for (let i = 1; i < boxes.length; i++) {
@@ -216,7 +217,7 @@ test.describe("/code composer at 390×844", () => {
 		await expect(selector.getByRole("radio")).toHaveText(["Plan", "Ask", "Auto", "Allow"]);
 
 		// The model name itself truncates rather than pushing the row wider
-		// (the pill's own bounding box also carries the effort suffix and
+		// (the pill's own bounding box also carries the
 		// caret, so the truncating label span is checked directly).
 		const modelLabelBox = await box(modelEffort.locator("span").first());
 		expect(modelLabelBox.width).toBeLessThanOrEqual(80);

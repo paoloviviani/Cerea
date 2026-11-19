@@ -1327,7 +1327,7 @@
 				{/if}
 
 				<div
-					class="scrollbar-custom flex min-w-0 flex-1 flex-wrap items-center gap-1.5 max-sm:flex-nowrap max-sm:overflow-x-auto max-sm:mask-r-from-85%"
+					class="scrollbar-custom flex min-w-0 flex-1 flex-wrap items-center gap-1.5 max-sm:flex-nowrap max-sm:overflow-x-auto"
 				>
 					{@render children?.()}
 
