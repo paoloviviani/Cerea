@@ -19,7 +19,7 @@ describe("buildToolPreprompt", () => {
 		const withRefs = buildToolPreprompt([tool("a")], undefined, undefined, { fileRefs: true });
 		expect(without).not.toContain("FILES IN TOOL ARGUMENTS");
 		expect(withRefs).toContain("FILES IN TOOL ARGUMENTS");
-		expect(withRefs).toContain('{"$file": "name.svg"}');
+		expect(withRefs).toContain('{"$file": "/mnt/data/name.svg"}');
 	});
 
 	it("lists tool names and includes grounding rules", () => {

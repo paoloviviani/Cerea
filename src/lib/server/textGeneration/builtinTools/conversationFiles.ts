@@ -211,11 +211,17 @@ export async function listFileVersions(
 export async function findConversationFile(
 	conversationId: ObjectId,
 	reference: string,
-	options: { prefer?: "attachment" | "output"; version?: VersionRequest; branch?: Branch } = {}
+	options: {
+		prefer?: "attachment" | "output";
+		/** Only this origin answers: the attachment itself, or the newest produced file of the name. */
+		source?: "attachment" | "output";
+		version?: VersionRequest;
+		branch?: Branch;
+	} = {}
 ): Promise<ConversationFile> {
 	const wanted = bareName(reference);
 	const listing = await listFileVersions(conversationId, reference, options.branch);
-	if (!listing) {
+	if (!listing || (options.source === "attachment" && !listing.attachment)) {
 		const withheld = await withheldAttachmentNamed(conversationId, wanted);
 		if (withheld) return { ok: false, error: withheldMessage(withheld) };
 		return {
@@ -227,7 +233,19 @@ export async function findConversationFile(
 	const current = versions.find((v) => v.current) ?? versions[versions.length - 1];
 
 	let pick: FileVersion | undefined;
-	if (options.version !== undefined) {
+	if (options.source === "output") {
+		// The newest produced version on the branch, even when an attachment of the name is newer.
+		const produced = versions.filter((v) => v.origin === "output");
+		pick = current.origin === "output" ? current : produced[produced.length - 1];
+		if (!pick) {
+			return {
+				ok: false,
+				error: `No file named "${wanted}" was produced in this conversation. Use the name of a file you produced.`,
+			};
+		}
+	} else if (options.source === "attachment") {
+		pick = versions.find((v) => v.origin === "attachment") ?? current;
+	} else if (options.version !== undefined) {
 		pick =
 			options.version === "previous"
 				? versions[versions.indexOf(current) - 1]
@@ -273,7 +291,13 @@ export async function findConversationFile(
 		return bytes ? { name: wanted, bytes } : undefined;
 	};
 	let found = await read(pick);
-	if (!found && options.version === undefined && pick.origin === "output" && listing.attachment) {
+	if (
+		!found &&
+		options.version === undefined &&
+		!options.source &&
+		pick.origin === "output" &&
+		listing.attachment
+	) {
 		// A produced file whose bytes are gone: the attachment of that name is still the answer.
 		pick = versions.find((v) => v.origin === "attachment") ?? current;
 		found = await read(pick);

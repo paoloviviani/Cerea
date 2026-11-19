@@ -26,7 +26,7 @@ import { isExternalTool, markUntrustedResult } from "../untrusted";
 import { openDurableElicitation, type ElicitationSink } from "$lib/server/mcp/elicitation";
 import { turnAwaitingInput } from "$lib/server/generation/turnState";
 import { attachFileRefsToArgs, type FileRefResolver } from "./fileRefs";
-import { resolveFileReferences } from "./fileReferences";
+import { resolveFileReferences, withFileRefNotes } from "./fileReferences";
 import type { ToolCallGuard } from "./toolGuard";
 import type { Client } from "@modelcontextprotocol/client";
 import type { ObjectId } from "mongodb";
@@ -900,7 +900,9 @@ export async function* executeToolCalls({
 				return;
 			}
 
-			const { annotated } = processToolOutput(toolResponse.text ?? "");
+			const { annotated: toolText } = processToolOutput(toolResponse.text ?? "");
+			// Which file each reference stood for, for the model to check (not sent to the connector).
+			const annotated = withFileRefNotes(toolText, fileRefs.notes);
 
 			if (guardTicket !== undefined) {
 				// Raw text, not the annotated form: the guard parses identifiers out

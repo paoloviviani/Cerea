@@ -7,6 +7,8 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- Fixed: sending a file to a connector could send the wrong file or a piece of text. When a file the user attached and a file the assistant made had the same name, the attachment was silently sent; a file reference written as text was committed as literal text; and the assistant could not tell which file went out. References now name the file by its path (`/mnt/data/<name>` for attachments, `/mnt/output/<name>` for files the assistant made, newest version), an ambiguous bare name is refused with the choices listed, a reference written as text is refused, and each result says which file was sent. The assistant is also told to send an attachment as it is, not to recreate it.
+
 ## v0.60.0 — 2026-11-19
 
 Pins: Cerea `0.60.0` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.5`, opencode `2.3.0`.

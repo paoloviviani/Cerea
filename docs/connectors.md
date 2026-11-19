@@ -98,8 +98,20 @@ file into the call, which a large or binary file cannot survive (the reply is cu
 at the output limit). Instead the model passes a **file reference** where a string
 argument goes:
 
-- `{"$file": "diagram.svg"}` is the file's text (UTF-8);
-- `{"$file": "logo.png", "encoding": "base64"}` is the file's bytes as base64.
+- `{"$file": "/mnt/data/report.svg"}` is a file the user attached, as sent (UTF-8 text);
+- `{"$file": "/mnt/output/diagram.svg"}` is a file produced in the chat, its newest version;
+- `{"$file": "/mnt/output/logo.png", "encoding": "base64"}` is the file's bytes as base64.
+
+The path is the one the model is shown: `/mnt/data/<name>` for attachments, `/mnt/output/<name>`
+for produced files. A bare name (`{"$file": "diagram.svg"}`) works only when exactly one
+distinct file of the chat has that name; if an attachment and a produced file (or two files)
+share it, the call is refused and the error lists the candidates with their explicit paths
+and sizes. Other paths (outside those two roots, or with `..`) are refused. A string
+argument whose whole value is a `{"$file": ...}` object written as JSON text is also
+refused, with a message to pass an object instead, because it would otherwise be sent
+as literal text. After the call, the tool result carries one line per reference, such as
+`[file reference] content ← /mnt/data/cerea-architecture.svg (attachment, 96,733 bytes, sha256 1a2b3c4d…)`,
+so the model can check which file was sent; the line is not sent to the connector.
 
 Cerea swaps in the content on the server, after any approval and just before the
 call. Only an object with a `$file` key is ever rewritten, so an ordinary string (even
