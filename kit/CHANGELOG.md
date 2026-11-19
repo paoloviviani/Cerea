@@ -7,6 +7,12 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+## v0.60.1 — 2026-11-19
+
+Pins: Cerea `0.60.1` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.5`, opencode `2.3.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. Nothing to do on computers.
+
 - Fixed: sending a file to a connector could send the wrong file or a piece of text. When a file the user attached and a file the assistant made had the same name, the attachment was silently sent; a file reference written as text was committed as literal text; and the assistant could not tell which file went out. A reference to `/mnt/data/<name>` now sends exactly what the code sandbox has at that path (the latest version), `"original": true` sends the user's upload as it was, and `/mnt/output/<name>` sends the newest file the assistant made. A reference written as text is refused, two uploads with the same name are told apart, and each result says which file was sent. The assistant is also told to send an attachment as it is, not to recreate it.
 
 ## v0.60.0 — 2026-11-19
