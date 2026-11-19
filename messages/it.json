@@ -2940,7 +2940,6 @@
 	"settings.application.background.description": "Un tocco del tuo colore principale dietro la pagina.",
 	"settings.application.background.hint": "Disattivato quando il sistema chiede meno trasparenza o più contrasto.",
 	"settings.application.background.option.none": "Nessuno",
-	"settings.application.background.option.dots": "Puntini",
 	"settings.application.background.option.glow": "Alone",
 	"settings.application.background.option.bold": "Marcato",
 	"settings.application.language.title": "Lingua",

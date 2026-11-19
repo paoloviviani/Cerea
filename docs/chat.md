@@ -185,7 +185,7 @@ of yours folds behind **Show more**. Text is set in Inter, 16px in the chat.
   differ.
 - **Accent colour:** Blue, Violet, Teal, Green, Rose or Orange. It colours
   buttons, links and the selected chat.
-- **Background tone:** Gray, Slate or Stone: cool or warm greys behind the text.
+- **Background tone:** Warm (the default), Neutral or Cool: warm, pure or cool greys behind the text.
 
 The accent colour and the background tone are saved on your account and
 applied before the page draws, so they follow you to every device.

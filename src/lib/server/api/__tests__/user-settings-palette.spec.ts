@@ -59,6 +59,8 @@ describe.each([
 			["gray", "neutral"],
 			["slate", "cool"],
 			["stone", "warm"],
+			// A stored "neutral" stays the pure greys.
+			["neutral", "neutral"],
 		]) {
 			expect((await save(locals, { neutral: old })).status).toBe(200);
 			expect((await stored(locals))?.neutral).toBe(now);
@@ -67,10 +69,10 @@ describe.each([
 
 	it("persists the defaults explicitly, so going back to blue sticks", async () => {
 		const { locals } = await createTestUser();
-		await save(locals, { accent: "teal", neutral: "warm" });
-		await save(locals, { accent: "blue", neutral: "neutral" });
+		await save(locals, { accent: "teal", neutral: "neutral" });
+		await save(locals, { accent: "blue", neutral: "warm" });
 		const s = await stored(locals);
-		expect([s?.accent, s?.neutral]).toEqual(["blue", "neutral"]);
+		expect([s?.accent, s?.neutral]).toEqual(["blue", "warm"]);
 	});
 
 	it("ignores an unknown value instead of failing the save or wiping the choice", async () => {
@@ -120,7 +122,7 @@ describe("GET /api/v2/user/settings palette", () => {
 	it("reports the defaults for a person who never chose", async () => {
 		const { locals } = await createTestUser();
 		const s = await read(locals);
-		expect([s.accent, s.neutral]).toEqual(["blue", "neutral"]);
+		expect([s.accent, s.neutral]).toEqual(["blue", "warm"]);
 	});
 
 	it("reads a tone saved under its old name as its replacement", async () => {
@@ -154,7 +156,7 @@ describe("GET /api/v2/user/settings palette", () => {
 			hapticsEnabled: true,
 		} as never);
 		const s = await read(locals);
-		expect([s.accent, s.neutral]).toEqual(["orange", "neutral"]);
+		expect([s.accent, s.neutral]).toEqual(["orange", "warm"]);
 	});
 });
 
@@ -179,14 +181,14 @@ describe.each([
 
 	it("ignores unknown values and leaves a saved choice alone", async () => {
 		const { locals } = await createTestUser();
-		await save(locals, { sidebar: "contrast", background: "dots" });
+		await save(locals, { sidebar: "contrast", background: "bold" });
 		expect((await save(locals, { sidebar: "wide", background: 9 })).status).toBe(200);
 		const s = await stored(locals);
-		expect([s?.sidebar, s?.background]).toEqual(["contrast", "dots"]);
+		expect([s?.sidebar, s?.background]).toEqual(["contrast", "bold"]);
 		// An older client that omits them changes nothing either.
 		await save(locals, { accent: "teal" });
 		const t = await stored(locals);
-		expect([t?.sidebar, t?.background]).toEqual(["contrast", "dots"]);
+		expect([t?.sidebar, t?.background]).toEqual(["contrast", "bold"]);
 	});
 });
 
@@ -216,16 +218,16 @@ describe("paletteAttributesFor (the server-rendered <html>)", () => {
 	it("is empty for the defaults and for a person with no settings", async () => {
 		const { locals } = await createTestUser();
 		expect(await paletteAttributesFor(locals)).toBe("");
-		await post(locals, { accent: "blue", neutral: "neutral" });
+		await post(locals, { accent: "blue", neutral: "warm" });
 		expect(await paletteAttributesFor(locals)).toBe("");
 	});
 
 	it("carries only what differs from the default", async () => {
 		const { locals } = await createTestUser();
-		await post(locals, { accent: "teal", neutral: "neutral" });
-		expect(await paletteAttributesFor(locals)).toBe('data-accent="teal"');
 		await post(locals, { accent: "teal", neutral: "warm" });
-		expect(await paletteAttributesFor(locals)).toBe('data-accent="teal" data-neutral="warm"');
+		expect(await paletteAttributesFor(locals)).toBe('data-accent="teal"');
+		await post(locals, { accent: "teal", neutral: "neutral" });
+		expect(await paletteAttributesFor(locals)).toBe('data-accent="teal" data-neutral="neutral"');
 	});
 
 	it("never throws: a request with no identity renders the default", async () => {

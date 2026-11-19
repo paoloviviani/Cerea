@@ -54,16 +54,6 @@
 :root[data-background] body {
 	background-attachment: fixed;
 }
-:root[data-background="dots"] body {
-	background-size: 22px 22px;
-}
-/* Dots: none in the light theme (the page is calm off-white), a faint grid in the dark one. */
-:root.dark[data-background="dots"] body {
-	background-image: radial-gradient(
-		color-mix(in srgb, var(--bg-tint) 8%, transparent) 1.2px,
-		transparent 1.4px
-	);
-}
 :root[data-background="glow"] body {
 	background-image:
 		radial-gradient(

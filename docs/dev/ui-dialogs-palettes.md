@@ -46,12 +46,12 @@ with `Failed to parse URL from /chat/api/v2/...`. Every manager loads in
 ## Palettes: accent and background tone
 
 **Settings → Application settings → Appearance** offers an accent (Blue,
-Violet, Teal, Green, Rose, Orange) and a background tone (Gray, Slate, Stone),
+Violet, Teal, Green, Rose, Orange) and a background tone (Warm, the default; Neutral, the pure greys; Cool),
 stored as `Settings.accent` / `Settings.neutral` (`utils/palettes.ts`). The
 theme (System, Light, Dark) is separate and stays in `localStorage`. Three
 things to know:
 
-- **The defaults are the absence of an attribute.** `paletteAttributes()` emits
+- **The defaults (Blue, Warm) are the absence of an attribute.** A stored `neutral` is the pure greys and keeps `data-neutral="neutral"`; `dots` is gone and a stored one reads as no pattern. `paletteAttributes()` emits
   `data-accent` / `data-neutral` on `<html>` only for a non-default choice, so
   a person who never picked one, and a page drawn before settings load, is the
   unthemed app. `hooks/handle.ts` fills `%paletteAttrs%` in `app.html` from the

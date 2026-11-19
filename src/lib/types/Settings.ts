@@ -219,7 +219,7 @@ export const DEFAULT_SETTINGS = {
 	directPaste: false,
 	hapticsEnabled: true,
 	accent: "blue",
-	neutral: "neutral",
+	neutral: "warm",
 	sidebar: "flat",
 	background: "none",
 } satisfies SettingsEditable;

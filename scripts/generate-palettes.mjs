@@ -92,9 +92,9 @@ const ACCENTS = {
  *
  * Three background tones (Neutral, Cool, Warm) on ONE OKLCH lightness ladder.
  * They differ only in hue and chroma, so they behave identically (same
- * contrast, same elevation steps) and read as clearly different. Neutral has a
- * whisper of warmth; Cool is hue 255 and Warm hue 70, both faint enough that
- * Cool never drifts toward navy.
+ * contrast, same elevation steps) and read as clearly different. Neutral is the
+ * pure greys (no chroma); Warm (the default) has a faint warmth, an off-white
+ * and grey, never beige; Cool is hue 255, faint enough never to drift toward navy.
  *
  * Dark mode has an explicit elevation ladder, a steady lightness step per
  * level: page < sidebar < card (surface) < composer (surface-raised) < border.
@@ -120,13 +120,18 @@ const DARK_LADDER = { page: 0.165, sidebar: 0.2, card: 0.235, composer: 0.27, bo
 // Hairlines are quiet: default borders sit one small step off the ground (the ladder's 200
 // is for hover fills), and the quiet step is barely there. `strong` stays for focus edges.
 const LIGHT_BORDER = { border: 0.94, quiet: 0.962 };
+// Neutral keeps the classic, firmer hairlines: the ladder's own 200 and 100 in light,
+// a lighter edge in dark.
+const CLASSIC_BORDERS = { light: { border: 0.928, quiet: 0.967 }, dark: 0.31 };
 // One chroma per tone keeps the ramp simple; the low-lightness steps clip anyway.
 const TONES = {
-	// The default: a faint warmth (page is about #faf9f7), off-white and grey, never beige.
-	neutral: { hue: 85, chroma: 0.004 },
+	// Pure greys: light page #fafafa, dark page #0e0e0e.
+	neutral: { hue: 0, chroma: 0, borders: CLASSIC_BORDERS },
 	cool: { hue: 255, chroma: 0.018 },
-	warm: { hue: 70, chroma: 0.011 },
+	// The default: a faint warmth (page is about #faf9f7), off-white and grey, never beige.
+	warm: { hue: 85, chroma: 0.004 },
 };
+const DEFAULT_TONE = "warm";
 
 function oklchHex(L, C, H) {
 	return oklchToHex(`oklch(${L * 100}% ${C} ${H})`);
@@ -144,7 +149,7 @@ out(`/*
  * two attributes on <html> — \`data-accent\` and \`data-neutral\` (appearance.css adds
  * \`data-sidebar\` and \`data-background\`) — set on the server
  * from the person's settings so the first paint is already right. The default
- * (blue, neutral) is the *absence* of an attribute, so with neither present none
+ * (blue, warm) is the *absence* of an attribute, so with neither present none
  * of this applies and the look is exactly tokens.css.
  *
  * How it reaches the components without touching them: Tailwind 4 compiles
@@ -187,7 +192,9 @@ function accentBlock(name, { from, steps }) {
 	out(`}`);
 }
 
-function neutralBlock(name, { hue, chroma }) {
+function neutralBlock(name, { hue, chroma, borders }) {
+	const lightBorder = borders?.light ?? LIGHT_BORDER;
+	const darkBorder = borders?.dark ?? DARK_LADDER.border;
 	const at = (L) => oklchHex(L, chroma, hue);
 	const g = Object.fromEntries(STEPS.map((step) => [step, at(LADDER[step])]));
 	const note = (L) => `oklch(${L} ${chroma} ${hue})`;
@@ -197,7 +204,7 @@ function neutralBlock(name, { hue, chroma }) {
 		const root = dark ? ":root.dark" : ":root";
 		return (
 			`${root}[data-neutral="${name}"]` +
-			(name === "neutral" ? `,\n${root}:not([data-neutral])` : "")
+			(name === DEFAULT_TONE ? `,\n${root}:not([data-neutral])` : "")
 		);
 	};
 	out();
@@ -209,9 +216,9 @@ function neutralBlock(name, { hue, chroma }) {
 	out(`\t--colour-bg: ${g[50]};`);
 	out(`\t--colour-sidebar: ${g[50]};`);
 	out(`\t--colour-surface-sunken: ${g[100]};`);
-	out(`\t--colour-border: ${at(LIGHT_BORDER.border)};`);
+	out(`\t--colour-border: ${at(lightBorder.border)};`);
 	out(`\t--colour-border-strong: ${g[400]};`);
-	out(`\t--colour-border-quiet: ${at(LIGHT_BORDER.quiet)};`);
+	out(`\t--colour-border-quiet: ${at(lightBorder.quiet)};`);
 	out(`\t--colour-text: ${g[950]};`);
 	out(`\t--colour-text-muted: ${g[700]};`);
 	out(`\t--colour-text-faint: ${g[600]};`);
@@ -224,7 +231,7 @@ function neutralBlock(name, { hue, chroma }) {
 	out(`\t--colour-surface: ${at(DARK_LADDER.card)}; /* card */`);
 	out(`\t--colour-surface-raised: ${at(DARK_LADDER.composer)}; /* composer */`);
 	out(`\t--colour-surface-sunken: ${at(DARK_LADDER.page)};`);
-	out(`\t--colour-border: ${at(DARK_LADDER.border)};`);
+	out(`\t--colour-border: ${at(darkBorder)};`);
 	out(`\t--colour-border-strong: ${g[600]};`);
 	out(`\t--colour-border-quiet: ${at((DARK_LADDER.card + DARK_LADDER.composer) / 2)};`);
 	out(`\t--colour-text: ${g[100]};`);

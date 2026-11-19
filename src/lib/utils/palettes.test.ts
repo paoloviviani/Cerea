@@ -13,9 +13,9 @@ import {
 } from "./palettes";
 
 describe("palette values", () => {
-	it("offers the six accents and three tones, blue and neutral first", () => {
+	it("offers the six accents and three tones, blue and warm (the defaults) first", () => {
 		expect([...ACCENTS]).toEqual(["blue", "violet", "teal", "green", "rose", "orange"]);
-		expect([...NEUTRALS]).toEqual(["neutral", "cool", "warm"]);
+		expect([...NEUTRALS]).toEqual(["warm", "neutral", "cool"]);
 	});
 
 	it("parses only the fixed lists", () => {
@@ -38,23 +38,24 @@ describe("old tone ids", () => {
 		expect(parseNeutral("stone")).toBe("warm");
 		expect(parseNeutral("constructor")).toBeUndefined();
 		expect(paletteAttributes({ neutral: "slate" })).toBe('data-neutral="cool"');
-		expect(paletteAttributes({ neutral: "stone" })).toBe('data-neutral="warm"');
-		expect(paletteAttributes({ neutral: "neutral" })).toBe("");
+		expect(paletteAttributes({ neutral: "stone" })).toBe("");
+		// Warm is the default (no attribute); a stored Neutral is the pure greys and keeps its attribute.
+		expect(paletteAttributes({ neutral: "neutral" })).toBe('data-neutral="neutral"');
 	});
 });
 
 describe("paletteAttributes", () => {
 	it("is empty for the defaults, absent and unknown values", () => {
 		expect(paletteAttributes({})).toBe("");
-		expect(paletteAttributes({ accent: "blue", neutral: "neutral" })).toBe("");
+		expect(paletteAttributes({ accent: "blue", neutral: "warm" })).toBe("");
 		expect(paletteAttributes({ accent: "chartreuse", neutral: 7 })).toBe("");
 	});
 
 	it("emits just the attributes that differ", () => {
 		expect(paletteAttributes({ accent: "teal" })).toBe('data-accent="teal"');
 		expect(paletteAttributes({ neutral: "cool" })).toBe('data-neutral="cool"');
-		expect(paletteAttributes({ accent: "violet", neutral: "warm" })).toBe(
-			'data-accent="violet" data-neutral="warm"'
+		expect(paletteAttributes({ accent: "violet", neutral: "neutral" })).toBe(
+			'data-accent="violet" data-neutral="neutral"'
 		);
 	});
 
@@ -75,12 +76,12 @@ describe("applyPalette", () => {
 
 	it("sets, changes and removes the attributes, treating the defaults as none", () => {
 		const el = element();
-		applyPalette(el as unknown as HTMLElement, { accent: "teal", neutral: "warm" });
+		applyPalette(el as unknown as HTMLElement, { accent: "teal", neutral: "neutral" });
 		expect([...el.attrs]).toEqual([
 			["data-accent", "teal"],
-			["data-neutral", "warm"],
+			["data-neutral", "neutral"],
 		]);
-		applyPalette(el as unknown as HTMLElement, { accent: "rose", neutral: "neutral" });
+		applyPalette(el as unknown as HTMLElement, { accent: "rose", neutral: "warm" });
 		expect([...el.attrs]).toEqual([["data-accent", "rose"]]);
 		applyPalette(el as unknown as HTMLElement, { accent: "blue" });
 		expect(el.attrs.size).toBe(0);
@@ -90,18 +91,18 @@ describe("applyPalette", () => {
 describe("sidebar and background", () => {
 	it("accepts only the listed values, so an unknown one is not chosen", () => {
 		expect([...SIDEBARS]).toEqual(["flat", "contrast"]);
-		expect([...BACKGROUNDS]).toEqual(["none", "dots", "glow", "bold"]);
+		expect([...BACKGROUNDS]).toEqual(["none", "glow", "bold"]);
 		for (const v of SIDEBARS) expect(parseSidebar(v)).toBe(v);
 		for (const v of BACKGROUNDS) expect(parseBackground(v)).toBe(v);
-		for (const bad of ["stripes", "", null, undefined, 3, "Dots"]) {
+		for (const bad of ["stripes", "", null, undefined, 3, "Dots", "dots"]) {
 			expect(parseSidebar(bad)).toBeUndefined();
 			expect(parseBackground(bad)).toBeUndefined();
 		}
 	});
 
 	it("emits attributes only for non-defaults; old settings without the fields emit none", () => {
-		expect(paletteAttributes({ accent: "teal", neutral: "warm" })).toBe(
-			'data-accent="teal" data-neutral="warm"'
+		expect(paletteAttributes({ accent: "teal", neutral: "neutral" })).toBe(
+			'data-accent="teal" data-neutral="neutral"'
 		);
 		expect(paletteAttributes({ sidebar: "flat", background: "none" })).toBe("");
 		expect(paletteAttributes({ sidebar: "contrast" })).toBe('data-sidebar="contrast"');

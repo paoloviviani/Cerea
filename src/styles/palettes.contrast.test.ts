@@ -321,17 +321,22 @@ describe("dark elevation ladder", () => {
 });
 
 describe("the tones are clearly different", () => {
-	it("Cool is at least ΔE 3.5 from Neutral on the light page, and Warm too", () => {
+	it("Cool is at least ΔE 3.5 from Neutral and from Warm on the light page", () => {
 		const page = (n: string, dark: boolean) => hexOf(resolve("blue", n, dark), "--colour-bg");
 		expect(deltaE(page("neutral", false), page("cool", false))).toBeGreaterThanOrEqual(3.5);
-		// The default is a faint warmth (off-white), so Warm is told apart from it by less.
-		expect(deltaE(page("neutral", false), page("warm", false))).toBeGreaterThanOrEqual(1.2);
 		expect(deltaE(page("cool", false), page("warm", false))).toBeGreaterThanOrEqual(3.5);
+	});
+	it("Warm (the default) is a faint warmth, told apart from the pure greys", () => {
+		const page = (n: string, dark: boolean) => hexOf(resolve("blue", n, dark), "--colour-bg");
+		expect(deltaE(page("neutral", false), page("warm", false))).toBeGreaterThanOrEqual(1.2);
+		expect(hexOf(resolve("blue", "neutral", false), "--colour-bg")).toBe("#fafafa");
+		expect(hexOf(resolve("blue", "neutral", true), "--colour-bg")).toBe("#0e0e0e");
 	});
 	it("dark pages are told apart too", () => {
 		const page = (n: string) => hexOf(resolve("blue", n, true), "--colour-bg");
 		expect(deltaE(page("neutral"), page("cool"))).toBeGreaterThanOrEqual(2);
 		expect(deltaE(page("neutral"), page("warm"))).toBeGreaterThanOrEqual(0.5);
+		expect(deltaE(page("cool"), page("warm"))).toBeGreaterThanOrEqual(2);
 	});
 	it("Cool never turns navy: light page and ink stay near-neutral in lightness", () => {
 		const v = resolve("blue", "cool", false);
@@ -449,7 +454,7 @@ function over(bg: string, tint: string, alpha: number): string {
 }
 
 describe("palette contrast on the background patterns (WCAG AA, 4.5:1)", () => {
-	for (const pattern of ["dots", "glow", "bold"]) {
+	for (const pattern of ["glow", "bold"]) {
 		for (const accent of accents) {
 			for (const neutral of neutrals) {
 				for (const dark of [false, true]) {
