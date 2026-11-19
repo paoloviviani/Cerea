@@ -118,6 +118,8 @@ embedding a passage, searching.
 
 **When you reach a limit.** The reply that crosses your quota still completes; the next one fails with a message that says whose quota is used up ("Your monthly allowance of €10.00 is used up." or "Your group's monthly allowance of €10.00 is used up."), and points to Settings → Usage (or to your administrator where there is no Usage page). A spent quota is told apart from a short rate limit, which only asks you to wait; the same wording applies to sub-agents, images, voice, document reading and search. Where the deployment shows it, **Settings → Usage** says where you stand. If your deployment redacts personal data, names or numbers in an answer can come back as placeholders such as `<PERSON_…>`, and a message containing something your administrator blocks (an API key, say) is refused without being sent.
 
+**When an answer stops on an error.** If a reply fails part-way (a spent allowance, an upstream failure, the turn limit), the text and tool steps written so far stay on screen with the error beneath them, and the assistant is sent exactly what you see. **Retry** answers again from scratch; the failed attempt is not shown to the assistant. **Continue** keeps it and asks the assistant to go on from where it stopped.
+
 **What the model knows about time.** Every reply is generated knowing the
 current date and time **in your timezone** (the one your browser reports), as
 one line at the end of its instructions. When you write after more than an
