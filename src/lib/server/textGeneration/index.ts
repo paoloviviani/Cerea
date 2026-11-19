@@ -7,6 +7,7 @@ import {
 	MessageUpdateStatus,
 } from "$lib/types/MessageUpdate";
 import { generate } from "./generate";
+import { withholdRefusedImages } from "$lib/server/files/withholdRefusedImages";
 import { runMcpFlow } from "./mcp/runMcpFlow";
 import { mergeAsyncGenerators } from "$lib/utils/mergeAsyncGenerators";
 import type { TextGenerationContext } from "./types";
@@ -52,6 +53,16 @@ export async function* textGeneration(ctx: TextGenerationContext) {
 	const textGen = (async function* () {
 		try {
 			yield* textGenerationWithoutTitle(ctx, done);
+		} catch (err) {
+			// A privacy refusal of a request with pictures: withhold them, so no
+			// later turn can mount them in the sandbox. The error still propagates.
+			await withholdRefusedImages(
+				ctx.conv._id,
+				ctx.messages,
+				err,
+				modelReadsImages(ctx.model, ctx.forceMultimodal)
+			);
+			throw err;
 		} finally {
 			replyDone();
 		}
