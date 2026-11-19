@@ -1943,7 +1943,6 @@
 	"chat.window.model_retired_dismiss": "Dismiss",
 	"chat.window.model_gone_switch": "Choose another model",
 	"chat.window.switch_failed": "Could not switch model. Try again.",
-	"chat.window.using_tool": "Using a tool",
 	"chat.window.voice_failed": "Could not turn your voice into text. Try again.",
 	"admin.common.env_only": "This service reads configuration from the environment only, so this cannot be changed here. Set {#code}{name}{/code} where the other variables live.",
 	"admin.common.error_status": "Something went wrong ({status}). Try again.",

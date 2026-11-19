@@ -70,7 +70,6 @@
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 	import { pendingComposerPayload } from "$lib/stores/pendingComposerPayload";
 	import { fileMatchesAllowlist, mimeMatchesAllowlist } from "$lib/utils/mimeMatch";
-	import LucideHammer from "~icons/lucide/hammer";
 	import { useConversationsStore } from "$lib/stores/conversations.svelte";
 	import { MediaQuery } from "svelte/reactivity";
 
@@ -84,12 +83,6 @@
 	// Only this conversation's question; the store outlives a navigation by a tick.
 	let questionStore = $derived(firstQuestionFor(page.params.id));
 	let askQuestion = $derived($questionStore);
-	import {
-		isMessageToolCallUpdate,
-		isMessageToolErrorUpdate,
-		isMessageToolResultUpdate,
-	} from "$lib/utils/messageUpdates";
-	import type { ToolFront } from "$lib/types/Tool";
 
 	interface Props {
 		messages?: Message[];
@@ -489,25 +482,6 @@
 		},
 	});
 
-	// Expose currently running tool call name (if any) from the streaming assistant message
-	const availableTools: ToolFront[] = $derived.by(
-		() => (page.data as { tools?: ToolFront[] } | undefined)?.tools ?? []
-	);
-	let streamingToolCallName = $derived.by(() => {
-		const updates = streamingAssistantMessage?.updates ?? [];
-		if (!updates.length) return null;
-		const done = new Set<string>();
-		for (const u of updates) {
-			if (isMessageToolResultUpdate(u) || isMessageToolErrorUpdate(u)) done.add(u.uuid);
-		}
-		for (let i = updates.length - 1; i >= 0; i -= 1) {
-			const u = updates[i];
-			if (isMessageToolCallUpdate(u) && !done.has(u.uuid)) {
-				return u.call.name;
-			}
-		}
-		return null;
-	});
 	onDestroy(() => {
 		exportConversationStore.reset();
 	});
@@ -1100,33 +1074,14 @@
 						</button>
 					{/if}
 				{/snippet}
-				<!-- The status row exists only when it has something to say (the tool in use,
-				     or the caveat of a still-empty chat): an idle conversation reserves no
-				     band under the composer. The caveat is desktop-only, so on a phone an
-				     empty chat has no row either. -->
-				{#if (loading && streamingToolCallName) || (!messages.length && !loading)}
+				<!-- Only the caveat of a still-empty chat sits under the composer (desktop
+				     only). There is no "using tool…" line: the tool shows in the message
+				     itself, and a line appearing mid-turn made the composer jump. -->
+				{#if !messages.length && !loading}
 					<div
-						class={{
-							"mt-1 flex h-4 items-center justify-center self-stretch px-0.5 text-xs whitespace-nowrap text-ink-faint max-md:mb-2 max-sm:gap-2": true,
-							"max-sm:hidden": focused && isVirtualKeyboard(),
-							"max-sm:hidden!": !(loading && streamingToolCallName),
-						}}
+						class="mt-1 flex h-4 items-center justify-center self-stretch px-0.5 text-xs whitespace-nowrap text-ink-faint max-sm:hidden"
 					>
-						{#if loading && streamingToolCallName}
-							<span class="inline-flex items-center gap-1 text-xs whitespace-nowrap">
-								<LucideHammer class="size-3" />
-								{m["chat.window.using_tool"]()}
-								<span class="loading-dots font-medium">
-									{availableTools.find((t) => t.name === streamingToolCallName)?.displayName ??
-										streamingToolCallName}
-								</span>
-							</span>
-						{/if}
-						{#if !messages.length && !loading}
-							<span class="max-sm:hidden"
-								>{publicConfig.PUBLIC_CAVEAT || m["chat.window.caveat"]()}</span
-							>
-						{/if}
+						<span>{publicConfig.PUBLIC_CAVEAT || m["chat.window.caveat"]()}</span>
 					</div>
 				{/if}
 			</div>
@@ -1171,25 +1126,6 @@
 		}
 		100% {
 			box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
-		}
-	}
-
-	.loading-dots::after {
-		content: "";
-		animation: dots-content 0.9s steps(1, end) infinite;
-	}
-	@keyframes dots-content {
-		0% {
-			content: "";
-		}
-		33% {
-			content: ".";
-		}
-		66% {
-			content: "..";
-		}
-		88% {
-			content: "...";
 		}
 	}
 </style>

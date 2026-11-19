@@ -1974,7 +1974,6 @@
 	"chat.window.model_retired_dismiss": "Chiudi",
 	"chat.window.model_gone_switch": "Scegli un altro modello",
 	"chat.window.switch_failed": "Impossibile cambiare modello. Riprova.",
-	"chat.window.using_tool": "Uso di uno strumento",
 	"chat.window.voice_failed": "Impossibile trasformare la tua voce in testo. Riprova.",
 	"admin.common.env_only": "Questo servizio legge la configurazione solo dall'ambiente, quindi qui non si può modificare. Imposta {#code}{name}{/code} dove si trovano le altre variabili.",
 	"admin.common.error_status": "Qualcosa è andato storto ({status}). Riprova.",
