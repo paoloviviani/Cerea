@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-import { createHash } from "node:crypto";
 import { ObjectId } from "mongodb";
 
 vi.mock("$lib/server/execution/fileVersions", () => ({ branchOf: vi.fn(async () => undefined) }));
@@ -37,6 +36,7 @@ function lookupOf(files: Record<string, Stored>, withheld: string[] = []) {
 			bytes: file.bytes,
 			sha256: "x",
 			origin: "output" as const,
+			tool: "sandbox",
 			version: 1,
 			versionCount: 1,
 			currentVersion: 1,
@@ -191,71 +191,36 @@ describe("resolveFileReferences", () => {
 		expect(r.ok).toBe(false);
 	});
 	describe("source selection", () => {
-		type Entry = { name: string; source: "attachment" | "output"; text: string };
-		const sha = (text: string) => createHash("sha256").update(text).digest("hex");
-		/** Mirrors findConversationFile's `source`: only that origin answers. */
-		function lookupEntries(entries: Entry[]) {
-			return vi.fn(
-				async (_id: ObjectId, name: string, options: { source?: "attachment" | "output" }) => {
-					const found = entries.find(
-						(e) => e.name === name && (!options.source || e.source === options.source)
-					);
-					if (!found)
-						return { ok: false as const, error: `No file named "${name}" in this conversation.` };
-					return {
-						ok: true as const,
-						name,
-						bytes: Buffer.from(found.text),
-						sha256: sha(found.text),
-						origin: found.source,
-						version: 1,
-						versionCount: 1,
-						currentVersion: 1,
-					};
-				}
-			);
-		}
-		const both: Entry[] = [
-			{ name: "a.svg", source: "attachment", text: "THE USER'S" },
-			{ name: "a.svg", source: "output", text: "THE MODEL'S, LONGER" },
-		];
-
-		it("an explicit path picks its own source, even when both share the name", async () => {
-			const lookup = lookupEntries(both);
-			const data = await resolveFileReferences({ c: { $file: "/mnt/data/a.svg" } }, ctx, lookup);
-			expect(data).toMatchObject({ ok: true, args: { c: "THE USER'S" } });
-			const out = await resolveFileReferences({ c: { $file: "/mnt/output/a.svg" } }, ctx, lookup);
-			expect(out).toMatchObject({ ok: true, args: { c: "THE MODEL'S, LONGER" } });
+		it("asks the lookup for the version each form means", async () => {
+			const lookup = lookupOf(files);
+			const sourceOf = async (ref: Record<string, unknown>) => {
+				lookup.mockClear();
+				const r = await resolveFileReferences({ c: ref }, ctx, lookup);
+				expect(r.ok).toBe(true);
+				return lookup.mock.calls[0][2].source;
+			};
+			expect(await sourceOf({ $file: "/mnt/data/diagram.svg" })).toBe("mounted");
+			expect(await sourceOf({ $file: "diagram.svg" })).toBe("mounted");
+			expect(await sourceOf({ $file: "/mnt/data/diagram.svg", original: true })).toBe("attachment");
+			expect(await sourceOf({ $file: "/mnt/output/diagram.svg" })).toBe("output");
+			// The name sent is without the root.
+			expect(lookup.mock.calls[0][1]).toBe("diagram.svg");
 		});
 
-		it("refuses a bare name two different files share, listing both paths and sizes", async () => {
-			const r = await resolveFileReferences({ c: { $file: "a.svg" } }, ctx, lookupEntries(both));
-			expect(r.ok).toBe(false);
-			if (r.ok) return;
-			expect(r.error).toContain("ambiguous");
-			expect(r.error).toContain("/mnt/data/a.svg");
-			expect(r.error).toContain("/mnt/output/a.svg");
-			expect(r.error).toContain("10 bytes");
-			expect(r.error).toContain("19 bytes");
-		});
-
-		it("accepts a bare name that only one file has, or that both origins hold identically", async () => {
-			const only = await resolveFileReferences(
-				{ c: { $file: "a.svg" } },
-				ctx,
-				lookupEntries([both[1]])
-			);
-			expect(only).toMatchObject({ ok: true, args: { c: "THE MODEL'S, LONGER" } });
-			const same = await resolveFileReferences(
-				{ c: { $file: "a.svg" } },
-				ctx,
-				lookupEntries([both[0], { ...both[1], text: both[0].text }])
-			);
-			expect(same).toMatchObject({ ok: true, args: { c: "THE USER'S" } });
+		it("refuses `original` under /mnt/output and a non-boolean `original`", async () => {
+			const lookup = lookupOf(files);
+			for (const bad of [
+				{ $file: "/mnt/output/diagram.svg", original: true },
+				{ $file: "/mnt/data/diagram.svg", original: "yes" },
+			]) {
+				const r = await resolveFileReferences({ c: bad }, ctx, lookup);
+				expect(r.ok).toBe(false);
+			}
+			expect(lookup).not.toHaveBeenCalled();
 		});
 
 		it("refuses paths outside the two roots and `..`", async () => {
-			const lookup = lookupEntries(both);
+			const lookup = lookupOf(files);
 			for (const bad of [
 				"/etc/passwd",
 				"/mnt/other/a.svg",
@@ -312,7 +277,7 @@ describe("resolveFileReferences", () => {
 		expect(r.ok).toBe(true);
 		if (!r.ok) return;
 		expect(r.notes).toEqual([
-			"[file reference] files[0].content ← /mnt/output/diagram.svg (produced file, 96,733 bytes, sha256 x…)",
+			"[file reference] files[0].content ← /mnt/output/diagram.svg (current version: produced by code, 96,733 bytes, sha256 x…)",
 		]);
 		expect(withFileRefNotes("done", r.notes)).toBe(`done\n${r.notes[0]}`);
 		expect(withFileRefNotes("done", [])).toBe("done");

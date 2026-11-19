@@ -385,7 +385,10 @@ async function runApprovedCall(
 				type: MessageUpdateType.Tool,
 				subtype: MessageToolUpdateType.Error,
 				uuid: toolUuid,
-				message: response.text || "The tool reported an error with no message.",
+				message: withFileRefNotes(
+					response.text || "The tool reported an error with no message.",
+					fileRefs.notes
+				),
 			};
 		}
 		return {
@@ -707,7 +710,10 @@ export async function resumeParkedToolCall({
 					type: MessageUpdateType.Tool,
 					subtype: MessageToolUpdateType.Error,
 					uuid: pending.toolUuid,
-					message: response.text || "The tool reported an error with no message.",
+					message: withFileRefNotes(
+						response.text || "The tool reported an error with no message.",
+						fileRefs.notes
+					),
 				}
 			: {
 					type: MessageUpdateType.Tool,

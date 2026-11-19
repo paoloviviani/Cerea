@@ -96,11 +96,17 @@ export async function attachmentNamed(
 	);
 	// The plan lists files in message order, so the last match is the newest
 	// (Array.findLast needs ES2023; this code compiles for ES2018).
+	// The mount name is what the sandbox shows at /mnt/data/<name>, so an exact mount-name match
+	// wins; the uploaded name answers only when no mount name matches it (two uploads called x.svg
+	// are mounted as `x.svg` and `x (2).svg`).
 	let planned: PlannedAttachment | undefined;
+	let byUploadedName: PlannedAttachment | undefined;
 	for (const entry of planAttachments(files)) {
-		if (entry.file.type === "hash" && (entry.name === wanted || entry.file.name === wanted))
-			planned = entry;
+		if (entry.file.type !== "hash") continue;
+		if (entry.name === wanted) planned = entry;
+		else if (entry.file.name === wanted) byUploadedName = entry;
 	}
+	planned ??= byUploadedName;
 	if (!planned) return undefined;
 	// When it was sent: the timestamp of the (last) message that carries it, the
 	// conversation's when the message carries none — the old reading, which

@@ -11,14 +11,15 @@ import { findConversationFile, type ConversationFile } from "../builtinTools/con
  * hundred KB of SVG or base64 ends in a cut-off call). Instead the model writes a reference where a
  * string argument goes, naming the file by the path it is shown:
  *
- *     {"$file": "/mnt/data/report.pdf"}                       an attachment of the user, as sent
- *     {"$file": "/mnt/output/diagram.svg"}                    a file produced in the conversation (newest version)
+ *     {"$file": "/mnt/data/report.pdf"}                       what is at that path in the sandbox now (the latest version, whatever made it)
+ *     {"$file": "/mnt/data/report.pdf", "original": true}     the user's upload as it was, before any edit or same-name file
+ *     {"$file": "/mnt/output/diagram.svg"}                    the newest file produced in the conversation under that name
  *     {"$file": "/mnt/output/logo.png", "encoding": "base64"} the bytes as base64 (the default is UTF-8 text)
- *     {"$file": "diagram.svg"}                                a bare name, only when exactly one file has it
+ *     {"$file": "diagram.svg"}                                a bare name means /mnt/data/<name>
  *
- * The server swaps in the content just before the call. A bare name that an attachment and a
- * produced file (or two different files) share is refused with the candidates and their explicit
- * paths: a silent pick once sent the user's attachment instead of the model's own file.
+ * The server swaps in the content just before the call. `/mnt/data/<name>` is resolved with the same
+ * rule the sandbox staging uses (`attachmentIsMounted`), so it is byte for byte what code sees there;
+ * a silent pick once sent the user's attachment instead of the model's own file.
  *
  * An object with a `$file` key is the only thing that is ever rewritten. A string argument that is
  * nothing but such an object serialised as JSON is refused (it would otherwise be committed as
@@ -51,7 +52,7 @@ export type FileRefResult =
 type LookupFile = (
 	conversationId: ObjectId,
 	name: string,
-	options: { branch?: ReadonlySet<string>; source?: "attachment" | "output" }
+	options: { branch?: ReadonlySet<string>; source?: "attachment" | "output" | "mounted" }
 ) => Promise<ConversationFile>;
 
 const DATA_PREFIX = `${MOUNT_ROOT}/`;
@@ -122,39 +123,45 @@ interface ParsedRef {
 	written: string;
 	/** The name to look up, without the root. */
 	name: string;
-	/** Which store the path selects; `undefined` for a bare name. */
-	source?: "attachment" | "output";
+	/** Which version of the name answers. */
+	source: "attachment" | "output" | "mounted";
 	encoding: FileRefEncoding;
 }
 
 function parseRef(ref: Record<string, unknown>): ParsedRef | string {
 	const written = ref[FILE_REF_KEY];
 	if (typeof written !== "string" || !written.trim()) {
-		return `A file reference needs the file's path: {"$file": "${DATA_PREFIX}<name>"} for an attachment or {"$file": "${OUTPUT_PREFIX}<name>"} for a file you produced.`;
+		return `A file reference needs the file's path: {"$file": "${DATA_PREFIX}<name>"} or {"$file": "${OUTPUT_PREFIX}<name>"} for a file you produced.`;
 	}
 	for (const key of Object.keys(ref)) {
-		if (key !== FILE_REF_KEY && key !== "encoding") {
-			return `A file reference takes only "$file" and an optional "encoding" ("utf8" or "base64"), not "${key}".`;
+		if (key !== FILE_REF_KEY && key !== "encoding" && key !== "original") {
+			return `A file reference takes only "$file", an optional "encoding" ("utf8" or "base64") and an optional "original" (true), not "${key}".`;
 		}
 	}
 	const encoding = ref.encoding ?? "utf8";
 	if (encoding !== "utf8" && encoding !== "base64") {
 		return `A file reference's "encoding" is "utf8" (text, the default) or "base64" (binary), not ${JSON.stringify(encoding)}.`;
 	}
+	if (ref.original !== undefined && typeof ref.original !== "boolean") {
+		return `A file reference's "original" is true or false, not ${JSON.stringify(ref.original)}.`;
+	}
+	const original = ref.original === true;
 	const text = written.trim();
-	let source: ParsedRef["source"];
+	let source: ParsedRef["source"] = original ? "attachment" : "mounted";
 	let name = text;
 	if (text.startsWith(DATA_PREFIX)) {
-		source = "attachment";
 		name = text.slice(DATA_PREFIX.length);
 	} else if (text.startsWith(OUTPUT_PREFIX)) {
+		if (original) {
+			return `File reference "${text}": "original" means the user's upload, which is at "${DATA_PREFIX}<name>", not under ${OUTPUT_PREFIX}.`;
+		}
 		source = "output";
 		name = text.slice(OUTPUT_PREFIX.length);
 	} else if (text.startsWith("/")) {
-		return `File reference "${text}" is outside the conversation's files. Use "${DATA_PREFIX}<name>" for an attachment or "${OUTPUT_PREFIX}<name>" for a file you produced.`;
+		return `File reference "${text}" is outside the conversation's files. Use "${DATA_PREFIX}<name>" or "${OUTPUT_PREFIX}<name>".`;
 	}
 	if (!name || name.split("/").some((part) => part === ".." || part === "." || part === "")) {
-		return `File reference "${text}" is not a valid file path. Use "${DATA_PREFIX}<name>" for an attachment or "${OUTPUT_PREFIX}<name>" for a file you produced.`;
+		return `File reference "${text}" is not a valid file path. Use "${DATA_PREFIX}<name>" or "${OUTPUT_PREFIX}<name>".`;
 	}
 	return { written: text, name, source, encoding };
 }
@@ -172,49 +179,35 @@ function megabytes(bytes: number): string {
 type Found = Extract<ConversationFile, { ok: true }>;
 
 /** The explicit path a file answers to, as the model is shown it. */
-function pathOf(source: "attachment" | "output", name: string): string {
-	return `${source === "attachment" ? DATA_PREFIX : OUTPUT_PREFIX}${name}`;
+function pathOf(source: ParsedRef["source"], name: string): string {
+	return `${source === "output" ? OUTPUT_PREFIX : DATA_PREFIX}${name}`;
 }
 
 function sizeText(file: Found): string {
 	return `${file.bytes.length.toLocaleString("en-US")} bytes`;
 }
 
-type Picked =
-	{ ok: true; file: Found; source: "attachment" | "output" } | { ok: false; error: string };
+type Picked = { ok: true; file: Found } | { ok: false; error: string };
 
-/** The file a reference names: by its root when it has one, else the only file that has the name. */
 async function pickFile(
 	parsed: ParsedRef,
 	conversationId: ObjectId,
 	branch: ReadonlySet<string> | undefined,
 	lookup: LookupFile
 ): Promise<Picked> {
-	const options = (source: "attachment" | "output") => ({ source, ...(branch ? { branch } : {}) });
-	if (parsed.source) {
-		const file = await lookup(conversationId, parsed.name, options(parsed.source));
-		if (!file.ok) return { ok: false, error: `File reference "${parsed.written}": ${file.error}` };
-		return { ok: true, file, source: parsed.source };
-	}
-	const attachment = await lookup(conversationId, parsed.name, options("attachment"));
-	const output = await lookup(conversationId, parsed.name, options("output"));
-	if (attachment.ok && output.ok) {
-		if (attachment.sha256 === output.sha256)
-			return { ok: true, file: attachment, source: "attachment" };
-		return {
-			ok: false,
-			error:
-				`File reference "${parsed.written}" is ambiguous: two different files have that name. Nothing was sent. ` +
-				`Use the explicit path of the one you mean: ` +
-				`"${pathOf("attachment", parsed.name)}" (the user's attachment, ${sizeText(attachment)}) or ` +
-				`"${pathOf("output", parsed.name)}" (a file produced in this conversation, ${sizeText(output)}).`,
-		};
-	}
-	if (attachment.ok) return { ok: true, file: attachment, source: "attachment" };
-	if (output.ok) return { ok: true, file: output, source: "output" };
-	// Neither: a privacy rule's own refusal outranks "no such file".
-	const error = /^No file named/.test(attachment.error) ? output.error : attachment.error;
-	return { ok: false, error: `File reference "${parsed.written}": ${error}` };
+	const file = await lookup(conversationId, parsed.name, {
+		source: parsed.source,
+		...(branch ? { branch } : {}),
+	});
+	if (!file.ok) return { ok: false, error: `File reference "${parsed.written}": ${file.error}` };
+	return { ok: true, file };
+}
+
+/** What the model reads for the file that was sent: which version of the name it was. */
+function describeSent(file: Found): string {
+	const bytes = sizeText(file);
+	if (file.origin === "attachment") return `original attachment, ${bytes}`;
+	return `current version: produced by ${file.tool === "sandbox" ? "code" : file.tool}, ${bytes}`;
 }
 
 /**
@@ -254,12 +247,13 @@ export async function resolveFileReferences(
 		const parsed = parseRef(ref);
 		if (typeof parsed === "string") return { ok: false, error: parsed };
 		const { encoding } = parsed;
-		const key = `${encoding}:${parsed.written}`;
+		const key = `${encoding}:${parsed.source}:${parsed.written}`;
 		let hit = cache.get(key);
 		if (hit === undefined) {
 			const picked = await pickFile(parsed, ctx.conversationId, branch, lookup);
 			if (!picked.ok) return { ok: false, error: picked.error };
-			const { file, source } = picked;
+			const { file } = picked;
+			const { source } = parsed;
 			const shown = pathOf(source, parsed.name);
 			if (file.bytes.length > MAX_FILE_REF_BYTES) {
 				return {
@@ -280,10 +274,9 @@ export async function resolveFileReferences(
 					};
 				}
 			}
-			const label = source === "attachment" ? "attachment" : "produced file";
 			hit = {
 				content,
-				note: `${shown} (${label}, ${sizeText(file)}, sha256 ${file.sha256.slice(0, 8)}…)`,
+				note: `${shown} (${describeSent(file)}, sha256 ${file.sha256.slice(0, 8)}…)`,
 			};
 			cache.set(key, hit);
 		}

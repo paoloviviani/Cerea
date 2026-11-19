@@ -186,7 +186,7 @@ describe("file references in a connector call, through executeToolCalls", () => 
 		expect(text).toContain("committed");
 		expect(text).toContain("[file reference] content");
 		expect(text).toContain(
-			`/mnt/output/book.xlsx (produced file, ${xlsx.length.toLocaleString("en-US")} bytes, sha256 `
+			`/mnt/output/book.xlsx (current version: produced by download_bytes, ${xlsx.length.toLocaleString("en-US")} bytes, sha256 `
 		);
 		expect(JSON.stringify(mcpMock.callMcpTool.mock.calls[1][2])).not.toContain("[file reference]");
 	});

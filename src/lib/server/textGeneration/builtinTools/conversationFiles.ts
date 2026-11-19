@@ -10,7 +10,7 @@ import {
 } from "$lib/server/execution/fileVersions";
 import type { BuiltinToolContext } from "./types";
 import { downloadFile, withheldMessage } from "$lib/server/files/downloadFile";
-import type { PlannedAttachment } from "$lib/utils/execution/attachmentNames";
+import { attachmentIsMounted, type PlannedAttachment } from "$lib/utils/execution/attachmentNames";
 import { MOUNT_ROOT } from "$lib/utils/execution/protocol";
 
 /** The name as the model sees it for a file in the sandbox: `/mnt/data/<name>` or the bare name. */
@@ -31,6 +31,8 @@ export interface FileVersion {
 	summary?: string;
 	/** The version the name resolves to now. */
 	current: boolean;
+	/** Produced rows: when it last became the newest content (ms; a restore moves it). */
+	becameCurrentAt?: number;
 	/** Stored rows only. */
 	mime?: string;
 }
@@ -49,6 +51,8 @@ export type ConversationFile =
 			versionCount: number;
 			/** The version a plain name resolves to now. */
 			currentVersion: number;
+			/** What made this version: "attachment", "sandbox" (code), a tool's name. */
+			tool: string;
 	  }
 	| { ok: false; error: string };
 
@@ -171,16 +175,21 @@ export async function listFileVersions(
 			mime: row.mime,
 		});
 		liveAt.push(becameCurrentAt(row));
+		versions[versions.length - 1].becameCurrentAt = becameCurrentAt(row);
 	}
-	// The newest content of the name is current, produced file or attachment:
-	// an attachment re-uploaded under the name is the newest by construction,
-	// so the "(latest)" marker and the tools' default edit source land on it.
-	// A tie goes to the entry built later (a row over an attachment sent in the
-	// same millisecond), as the row-only comparison did before.
-	let latest = 0;
-	for (let i = 1; i < versions.length; i += 1) {
-		if (liveAt[i] >= liveAt[latest]) latest = i;
+	// What /mnt/data/<name> holds is current: the sandbox's own rule (`attachmentIsMounted`), so
+	// a reference to that path and the staged file cannot disagree. Among produced rows the one that
+	// became current last wins (a tie goes to the later row).
+	let newestRow = -1;
+	for (let i = versions.length - rows.length; i < versions.length; i += 1) {
+		if (newestRow < 0 || liveAt[i] >= liveAt[newestRow]) newestRow = i;
 	}
+	const attachmentIndex = attachment ? 0 : -1;
+	const latest =
+		attachmentIndex >= 0 &&
+		attachmentIsMounted(liveAt[0], newestRow >= 0 ? liveAt[newestRow] : undefined)
+			? attachmentIndex
+			: newestRow;
 	versions[latest].current = true;
 	// The numbers are the list's order, not the attachment-first one: an
 	// attachment numbered at upload sits among the rows it follows.
@@ -213,8 +222,11 @@ export async function findConversationFile(
 	reference: string,
 	options: {
 		prefer?: "attachment" | "output";
-		/** Only this origin answers: the attachment itself, or the newest produced file of the name. */
-		source?: "attachment" | "output";
+		/**
+		 * Only this answers: the original `attachment` as uploaded, the newest `output` (produced file),
+		 * or the `mounted` file, byte for byte what /mnt/data/<name> holds in the sandbox now.
+		 */
+		source?: "attachment" | "output" | "mounted";
 		version?: VersionRequest;
 		branch?: Branch;
 	} = {}
@@ -235,14 +247,21 @@ export async function findConversationFile(
 	let pick: FileVersion | undefined;
 	if (options.source === "output") {
 		// The newest produced version on the branch, even when an attachment of the name is newer.
-		const produced = versions.filter((v) => v.origin === "output");
-		pick = current.origin === "output" ? current : produced[produced.length - 1];
+		let newest: FileVersion | undefined;
+		for (const v of versions) {
+			if (v.origin !== "output") continue;
+			if (!newest || (v.becameCurrentAt ?? 0) >= (newest.becameCurrentAt ?? 0)) newest = v;
+		}
+		pick = newest;
 		if (!pick) {
 			return {
 				ok: false,
 				error: `No file named "${wanted}" was produced in this conversation. Use the name of a file you produced.`,
 			};
 		}
+	} else if (options.source === "mounted") {
+		// Byte for byte what the sandbox has at /mnt/data/<name>.
+		pick = current;
 	} else if (options.source === "attachment") {
 		pick = versions.find((v) => v.origin === "attachment") ?? current;
 	} else if (options.version !== undefined) {
@@ -322,5 +341,6 @@ export async function findConversationFile(
 		version: pick.version,
 		versionCount: versions.length,
 		currentVersion: current.version,
+		tool: pick.tool,
 	};
 }

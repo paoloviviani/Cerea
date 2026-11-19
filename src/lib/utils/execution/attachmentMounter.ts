@@ -1,6 +1,7 @@
 import { base } from "$app/paths";
 import { fetchWithinCap, FetchFailedError, OverCapError } from "./files";
 import {
+	attachmentIsMounted,
 	MAX_ATTACHMENT_FILE_BYTES,
 	checkAttachmentCaps,
 	planAttachments,
@@ -281,7 +282,7 @@ export class AttachmentMounter {
 			const attachment = this.#entries.get(name);
 			if (attachment?.original) {
 				const liveAt = Date.parse(file.latestAt ?? file.createdAt) || 0;
-				if (attachment.sentAt !== undefined && attachment.sentAt > liveAt) continue;
+				if (attachmentIsMounted(attachment.sentAt, liveAt)) continue;
 			}
 			try {
 				await this.mountProduced(name, file, held);
