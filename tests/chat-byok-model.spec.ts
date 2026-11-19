@@ -45,13 +45,12 @@ test("the owner sees their own model with the badge, picks it, and a message str
 	await mockOpenAI.setDefaultScenario({ content: ["Own", " key", " answer."], chunkDelayMs: 5 });
 	await page.goto(`${E2E_APP_BASE}/`);
 
-	const search = page.getByRole("textbox", { name: "Search models" });
+	const menu = page.getByRole("menu");
 	await expect(async () => {
-		if (!(await search.isVisible()))
+		if (!(await menu.isVisible()))
 			await page.getByRole("button", { name: "Model and effort" }).click();
-		await expect(search).toBeVisible({ timeout: 2_000 });
+		await expect(menu).toBeVisible({ timeout: 2_000 });
 	}).toPass({ timeout: 30_000 });
-	await search.fill("E2E Llama");
 	const row = page.getByRole("menuitem").filter({ hasText: "E2E Llama" });
 	await expect(row).toContainText("Your key");
 	await row.click();
@@ -71,12 +70,11 @@ test("the owner sees their own model with the badge, picks it, and a message str
 test("another user does not get it", async ({ page, db, session }) => {
 	await signIn(db, session.sessionId, "e2e-someone-else");
 	await page.goto(`${E2E_APP_BASE}/`);
-	const search = page.getByRole("textbox", { name: "Search models" });
+	const menu = page.getByRole("menu");
 	await expect(async () => {
-		if (!(await search.isVisible()))
+		if (!(await menu.isVisible()))
 			await page.getByRole("button", { name: "Model and effort" }).click();
-		await expect(search).toBeVisible({ timeout: 2_000 });
+		await expect(menu).toBeVisible({ timeout: 2_000 });
 	}).toPass({ timeout: 30_000 });
-	await search.fill("E2E Llama");
 	await expect(page.getByRole("menuitem").filter({ hasText: "E2E Llama" })).toHaveCount(0);
 });

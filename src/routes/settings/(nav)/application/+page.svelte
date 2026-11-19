@@ -40,7 +40,8 @@
 	import { webSearchUnavailableReason } from "$lib/utils/webSearchAvailability";
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 	import { useAPIClient, handleResponse } from "$lib/APIClient";
-	import { onMount } from "svelte";
+	import { onMount, tick } from "svelte";
+	import { scrollToAnchor } from "$lib/utils/scrollToAnchor";
 	import { MediaQuery } from "svelte/reactivity";
 	import { browser } from "$app/environment";
 	import { getThemePreference, setTheme, type ThemePreference } from "$lib/switchTheme";
@@ -209,6 +210,13 @@
 			$error = err instanceof Error ? err.message : String(err);
 		}
 	}
+
+	// Arriving at #tool-approvals (the composer shield's "Per-tool settings"):
+	// scroll the settings pane only, never the fixed app shell.
+	onMount(() => {
+		const id = location.hash.slice(1);
+		if (id) void tick().then(() => scrollToAnchor(id));
+	});
 </script>
 
 {#snippet code(text: string)}<code class="font-mono">{text}</code>{/snippet}

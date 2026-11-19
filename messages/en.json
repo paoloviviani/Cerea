@@ -1303,7 +1303,6 @@
 	"chat.effort_picker.label": "Model and effort",
 	"chat.effort_picker.more": "More models",
 	"chat.effort_picker.none": "No model matches.",
-	"chat.effort_picker.search": "Search models",
 	"chat.elicitation.answered": "Answered",
 	"chat.elicitation.asked": "Asked",
 	"chat.elicitation.cancelled": "Cancelled",

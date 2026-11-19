@@ -377,6 +377,45 @@ test.describe("chat composer at 390×844", () => {
 		const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
 		expect(scrollWidth).toBeLessThanOrEqual(390 + 1);
 	});
+
+	test("the model menu opens without a text field (no keyboard on phones)", async ({ page }) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		await page.goto(`${E2E_APP_BASE}/`);
+
+		const menu = page.getByRole("menu");
+		await expect(async () => {
+			if (!(await menu.isVisible()))
+				await page.getByRole("button", { name: "Model and effort" }).click();
+			await expect(menu).toBeVisible({ timeout: 2_000 });
+		}).toPass({ timeout: 30_000 });
+		await expect(menu.getByRole("textbox")).toHaveCount(0);
+		await expect(page.locator("input:focus, textarea:focus")).toHaveCount(0);
+	});
+
+	test("the shield's per-tool settings link lands on the row, with the app shell unshifted", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		await page.goto(`${E2E_APP_BASE}/`);
+
+		await page.getByTestId("permission-shield").click();
+		await page.getByTestId("permission-shield-settings").click();
+		await page.waitForURL(/\/settings\/application#tool-approvals$/);
+
+		const row = page.locator("#tool-approvals");
+		await expect(row).toBeInViewport();
+		// The bug: the hash scroll also scrolled the fixed, overflow-hidden app
+		// shell, sliding the page up and leaving the screen blank below it.
+		const shifted = await page.evaluate(() => {
+			let max = window.scrollY;
+			for (const el of document.querySelectorAll<HTMLElement>("*")) {
+				if (getComputedStyle(el).overflowY === "hidden") max = Math.max(max, el.scrollTop);
+			}
+			return max;
+		});
+		expect(shifted).toBe(0);
+		await expect(page.getByRole("heading", { level: 1 })).toBeInViewport();
+	});
 });
 
 test.describe("chat composer at 1280×800", () => {

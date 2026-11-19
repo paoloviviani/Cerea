@@ -2,7 +2,7 @@
 	The composer's model pill, in the style of Claude's: one popover that
 	switches the model for this chat and, for a model that thinks, how hard.
 
-	- A search field, then a short list: the current model and the ones the
+	- A short list: the current model and the ones the
 	  person picked recently (at most six), each with its one-line
 	  description and a check on the current one.
 	- "Effort ▸": the model's effort levels plus Default, only for a model
@@ -73,12 +73,12 @@
 		open = $bindable(false),
 	}: Props = $props();
 
-	let query = $state("");
-	let rows = $derived(shortList(models, currentId, recentIds, query));
+	// No search field here: on phones focusing one opens the keyboard and
+	// shoves the menu up. The full list ("More models") keeps its search.
+	let rows = $derived(shortList(models, currentId, recentIds, ""));
 
 	function pick(id: string) {
 		open = false;
-		query = "";
 		if (id !== currentId) onpickModel(id);
 	}
 </script>
@@ -102,21 +102,6 @@
 			align="start"
 			sideOffset={6}
 		>
-			<div class="p-1">
-				<!-- svelte-ignore a11y_autofocus -->
-				<input
-					class="h-8 w-full rounded-md border border-gray-200 bg-transparent px-2 text-sm outline-hidden focus:border-gray-400 dark:border-gray-600"
-					placeholder={m["chat.effort_picker.search"]()}
-					aria-label={m["chat.effort_picker.search"]()}
-					autofocus
-					bind:value={query}
-					onkeydown={(e) => {
-						// The menu's typeahead would otherwise eat the keystrokes.
-						e.stopPropagation();
-						if (e.key === "Enter" && rows[0]) pick(rows[0].id);
-					}}
-				/>
-			</div>
 			{#each rows as row (row.id)}
 				<DropdownMenu.Item
 					class="flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 text-sm select-none data-highlighted:bg-gray-100 dark:data-highlighted:bg-white/10"

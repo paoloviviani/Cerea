@@ -95,7 +95,9 @@
 				class={itemClass}
 				data-testid="permission-shield-settings"
 				onSelect={() => {
-					void goto(`${base}/settings/application#tool-approvals`);
+					// noScroll: SvelteKit's own hash scroll would shift the fixed
+					// app shell; the settings page scrolls its pane itself.
+					void goto(`${base}/settings/application#tool-approvals`, { noScroll: true });
 				}}
 			>
 				{m["chat.input.shield_per_tool"]()}

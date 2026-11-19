@@ -36,7 +36,9 @@
 	// Focused on open, after `Modal`'s own onMount has put focus on the
 	// dialog — a plain `autofocus` would lose that race, since effects run
 	// after mounts.
+	// Not on touch screens: focusing opens the keyboard and shoves the list up.
 	$effect(() => {
+		if (window.matchMedia?.("(pointer: coarse)").matches) return;
 		searchEl?.focus();
 	});
 
