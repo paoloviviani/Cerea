@@ -514,6 +514,16 @@
 			return;
 		}
 
+		// The server's turn state is the authority: a finished or failed turn is never
+		// re-attached to, whatever the message's own updates say.
+		const serverTurn = data.turnState;
+		if (
+			serverTurn?.messageId === lastAssistant.id &&
+			(serverTurn.status === "done" || serverTurn.status === "failed")
+		) {
+			return;
+		}
+
 		const waitMs = reattachGuard.delayFor(lastAssistant, Date.now());
 		if (waitMs > 0) {
 			clearTimeout(reattachRetryTimer);

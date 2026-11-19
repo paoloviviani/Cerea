@@ -7,7 +7,7 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
-- Fixed: a chat turn that failed (for example on an upstream 401) could leave the page re-fetching in a loop so Retry and Continue could not be clicked. A re-attach that ends with nothing new now backs off, and recording a stream error can no longer keep a turn from ending as failed.
+- Fixed: a chat whose turn failed right after a slow tool call overlapped a newer run (for example a 401 from the model) could spin the page in a re-attach loop, hiding Retry and Continue. An overtaken run no longer overwrites the message or the event log, conversations reconcile with the server's turn state, a re-attach that ends with nothing new backs off, and the reaper now closes turns stuck running or awaiting input with nothing behind them.
 
 ## v0.59.1 — 2026-11-19
 

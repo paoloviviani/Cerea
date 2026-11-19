@@ -8,6 +8,8 @@ import {
 	isConversationGenerationActive,
 	isTurnSubscribable,
 	createReattachGuard,
+	reconcileWithTurnState,
+	streamErrorOf,
 	lastFailedTurnId,
 	turnStateOf,
 } from "./generationState";
@@ -304,5 +306,46 @@ describe("createReattachGuard", () => {
 		guard.ended(message, 0);
 		guard.reset();
 		expect(guard.delayFor(message, 1)).toBe(0);
+	});
+});
+
+describe("reconcileWithTurnState", () => {
+	const snapshot = (status: "done" | "failed" | "running", error?: string) => ({
+		messageId: "assistant-1" as Message["id"],
+		status,
+		serverNow: 1,
+		...(error ? { error } : {}),
+	});
+
+	test("a stale awaiting_input message becomes failed when the server says failed", () => {
+		const message = assistantMessage({
+			generationId: "a",
+			updates: [
+				{ type: MessageUpdateType.TurnState, state: "awaiting_input", serverNow: 0 },
+				{ type: MessageUpdateType.Status, status: MessageUpdateStatus.Finished },
+			],
+		});
+		expect(isTurnSubscribable(message)).toBe(true);
+		const fixed = reconcileWithTurnState(message, snapshot("failed", "401 invalid API key"));
+		expect(isTurnSubscribable(fixed)).toBe(false);
+		expect(turnStateOf(fixed)?.state).toBe("failed");
+		expect(streamErrorOf(fixed)).toBe("401 invalid API key");
+	});
+
+	test("leaves agreeing, running, other-message and interrupted messages alone", () => {
+		const failed = assistantMessage({
+			updates: [{ type: MessageUpdateType.TurnState, state: "failed", serverNow: 0 }],
+		});
+		expect(reconcileWithTurnState(failed, snapshot("failed"))).toBe(failed);
+		const running = assistantMessage();
+		expect(reconcileWithTurnState(running, snapshot("running"))).toBe(running);
+		expect(
+			reconcileWithTurnState(running, {
+				...snapshot("failed"),
+				messageId: "other" as Message["id"],
+			})
+		).toBe(running);
+		const stopped = assistantMessage({ interrupted: true });
+		expect(reconcileWithTurnState(stopped, snapshot("failed"))).toBe(stopped);
 	});
 });

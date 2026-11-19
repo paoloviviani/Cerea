@@ -74,6 +74,12 @@ export interface GenerationWriter {
 	 * an event the persisted snapshot claims to cover.
 	 */
 	currentSeq(): number;
+	/**
+	 * Whether a newer generation has taken this turn over. An overtaken run must
+	 * not write the event log or the message: its sequence numbers collide with
+	 * the newer producer's and its snapshot predates the newer producer's end.
+	 */
+	isSuperseded(): Promise<boolean>;
 	finish(outcome: { status: GenerationStatus; error?: string }): Promise<void>;
 }
 
@@ -98,6 +104,7 @@ export interface CreateGenerationWriterParams {
 const NOOP_WRITER: GenerationWriter = {
 	push: () => {},
 	currentSeq: () => 0,
+	isSuperseded: async () => false,
 	finish: async () => {},
 };
 
@@ -151,6 +158,28 @@ export async function createGenerationWriter(
 
 	registerActiveRun(generationId, { conversationId, messageId });
 
+	// Once a newer generation exists for the turn this writer is overtaken for
+	// good (generations only move forward), so the answer is cached.
+	let superseded = false;
+	const checkSuperseded = async (): Promise<boolean> => {
+		if (superseded) return true;
+		try {
+			const newer = await collections.generations.countDocuments({
+				conversationId,
+				messageId,
+				generationId: { $ne: generationId },
+				startedAt: { $gt: now },
+			});
+			if (newer > 0) {
+				superseded = true;
+				logger.warn({ generationId, messageId }, "[generation] run superseded by a newer one");
+			}
+		} catch (err) {
+			logger.error({ err, generationId }, "[generation] failed to check supersession");
+		}
+		return superseded;
+	};
+
 	let seq = baseSeq;
 	let pending: GenerationEvent[] = [];
 	let flushTimer: ReturnType<typeof setTimeout> | undefined;
@@ -184,6 +213,7 @@ export async function createGenerationWriter(
 		const batch = pending;
 		pending = [];
 		return enqueue(async () => {
+			if (await checkSuperseded()) return;
 			await collections.generationEvents.insertMany(batch, { ordered: false });
 		});
 	};
@@ -205,6 +235,7 @@ export async function createGenerationWriter(
 		const flushed = flush();
 		return enqueue(async () => {
 			await flushed;
+			if (await checkSuperseded()) return;
 			// Persist every field the seq covers, not just content/reasoning: materializedSeq
 			// is the reattach cursor, so any tool/file/router event at or below it that is not
 			// written here would be skipped by a resuming reader and lost if the run dies before
@@ -255,8 +286,10 @@ export async function createGenerationWriter(
 			return at;
 		},
 
+		isSuperseded: checkSuperseded,
+
 		push(event: MessageUpdate) {
-			if (finished) return;
+			if (finished || superseded) return;
 			// Dropped, not logged: the heartbeat is the durable liveness signal, and at
 			// one keepalive per 100ms these would dominate the collection for no reader.
 			if (
