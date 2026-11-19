@@ -109,7 +109,7 @@ another connector returned); other chats' files are never reachable, and a file 
 privacy rule withheld answers with the rule's refusal instead of its content. A file
 over 8 MB (or references adding up to over 16 MB) is refused with a clear error and
 nothing is sent. The approval card, the stored message and the logs show the reference,
-never the content. If a call is still cut off by the output limit, the model is told the
+never the content. **Deliberate decision (ADR 0113): file references are not redacted; withhold rules apply.** The file's raw bytes go to the connector you chose, as the file is yours; there is no redaction step, and a file a privacy rule withheld never resolves. If a call is still cut off by the output limit, the model is told the
 arguments were too large and to use a reference. Code: `textGeneration/mcp/fileReferences.ts`.
 
 ## Connectors for everybody
