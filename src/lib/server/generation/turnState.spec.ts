@@ -11,7 +11,14 @@ import { ObjectId } from "mongodb";
 import { randomUUID } from "crypto";
 import { collections, ready } from "$lib/server/database";
 import { createGenerationWriter } from "./writer";
-import { turnAbandoned, turnAwaitingInput, turnEnded, turnRunning, turnWaiting } from "./turnState";
+import {
+	turnAbandoned,
+	turnAwaitingInput,
+	turnEnded,
+	turnOrphaned,
+	turnRunning,
+	turnWaiting,
+} from "./turnState";
 import { turnEventsAfter } from "./turnLog";
 import { MessageUpdateType, type MessageUpdate } from "$lib/types/MessageUpdate";
 
@@ -184,5 +191,32 @@ describe("turnAbandoned", () => {
 
 	it("returns null when the turn never had a state document", async () => {
 		expect(await turnAbandoned(new ObjectId(), randomUUID(), "nothing there")).toBeNull();
+	});
+});
+
+describe("turnOrphaned", () => {
+	it("fails the turn the reaper observed", async () => {
+		const conversationId = new ObjectId();
+		const messageId = randomUUID();
+		await turnRunning({ conversationId, messageId, producerId: randomUUID() });
+		const seen = (await stateDoc(conversationId, messageId))?.updatedAt;
+
+		const update = await turnOrphaned(conversationId, messageId, "running", "orphaned", seen);
+
+		expect(update).toMatchObject({ state: "failed", error: "orphaned" });
+		expect((await stateDoc(conversationId, messageId))?.status).toBe("failed");
+	});
+
+	it("leaves a turn restarted after the reaper looked at it running", async () => {
+		const conversationId = new ObjectId();
+		const messageId = randomUUID();
+		await turnRunning({ conversationId, messageId, producerId: randomUUID() });
+		const seen = (await stateDoc(conversationId, messageId))?.updatedAt;
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		// Continue (or a sweeper resume) starts a new producer on the same message.
+		await turnRunning({ conversationId, messageId, producerId: randomUUID() });
+
+		expect(await turnOrphaned(conversationId, messageId, "running", "orphaned", seen)).toBeNull();
+		expect((await stateDoc(conversationId, messageId))?.status).toBe("running");
 	});
 });

@@ -215,12 +215,21 @@ export async function turnOrphaned(
 	conversationId: Conversation["_id"],
 	messageId: Message["id"],
 	expected: "running" | "awaiting_input" | "waiting",
-	error: string
+	error: string,
+	/** The `updatedAt` the caller saw when it judged the turn orphaned. When set,
+	 * a turn restarted since (Continue, a sweeper resume: `turnRunning` moves
+	 * `updatedAt`) no longer matches and is left alone. */
+	observedUpdatedAt?: Date
 ): Promise<MessageTurnStateUpdate | null> {
 	const now = new Date();
 	try {
 		const result = await collections.turnStates.updateOne(
-			{ conversationId, messageId, status: expected },
+			{
+				conversationId,
+				messageId,
+				status: expected,
+				...(observedUpdatedAt ? { updatedAt: observedUpdatedAt } : {}),
+			},
 			{ $set: { status: "failed" satisfies TurnStatus, endedAt: now, updatedAt: now, error } }
 		);
 		if (result.matchedCount === 0) return null;

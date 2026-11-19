@@ -104,7 +104,14 @@ export async function reapOrphanTurnStates(now = Date.now()): Promise<number> {
 				});
 				if (asked > 0) continue;
 			}
-			const failed = await turnOrphaned(conversationId, messageId, status, ORPHAN_ERROR);
+			// Only the doc judged above: a turn restarted in between keeps running.
+			const failed = await turnOrphaned(
+				conversationId,
+				messageId,
+				status,
+				ORPHAN_ERROR,
+				doc.updatedAt
+			);
 			if (!failed) continue;
 			closed++;
 			await collections.conversations.updateOne({ _id: conversationId, "messages.id": messageId }, {
