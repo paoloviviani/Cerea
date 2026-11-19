@@ -216,7 +216,7 @@ gateway refuses files over 25 MB. Two features use it:
 - **Audio attachments** are transcribed once, at upload, and the transcript is
   kept beside the file (never re-transcribed per turn). Audio attachments may be up to
   25 MB (about 25 minutes of ordinary audio); every other attachment may be up to 30 MB.
-  The app's `BODY_SIZE_LIMIT` is 100 MB, so a few large files fit in one message.
+  The app's `BODY_SIZE_LIMIT` is 100 MB; the files of one message may weigh 90 MB together (checked in the composer and again on the server), so two or three large files fit.
 - **Dictation** with the microphone, when Administration → Assistant → Voice &
   audio is set to "Transcription model".
 

@@ -70,6 +70,19 @@ export const KNOWLEDGE_ACCEPT = "*/*";
  */
 export const MAX_ATTACHMENT_BYTES = 30 * 1024 * 1024;
 
+/**
+ * The most all attachments of one message may weigh together. The app's request
+ * body limit (`BODY_SIZE_LIMIT`, 100 MB) bounds the whole multipart request, so
+ * this leaves headroom for the prompt and the multipart framing: a message that
+ * is over it is refused with a clear text instead of an opaque 413.
+ */
+export const MAX_MESSAGE_ATTACHMENTS_BYTES = 90 * 1024 * 1024;
+
+/** Whether files of these sizes, taken together, fit in one message. */
+export function attachmentsTotalFit(sizes: readonly number[]): boolean {
+	return sizes.reduce((sum, n) => sum + n, 0) <= MAX_MESSAGE_ATTACHMENTS_BYTES;
+}
+
 /** The gateway's own cap on one transcription: what an audio attachment may be. */
 export const MAX_AUDIO_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 

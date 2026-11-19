@@ -5,6 +5,10 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Large attachments.** Cerea refuses, before sending and on the server, a message whose files together exceed 90 MB (the request limit is 100 MB), and builds the document-reading request with fewer copies of a large file in memory. Needs Pystino 0.33.5 or later (its document reader now accepts up to 32 MiB, was 25 MB, so a 25-30 MB attachment is read; `EXTRACTOR_MAX_BYTES` changes it).
+
 ## v0.59.1 — 2026-11-19
 
 Pins: Cerea `0.59.1` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.4`, opencode `2.3.0`.
