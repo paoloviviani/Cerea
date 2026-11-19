@@ -3,6 +3,7 @@ package decide
 import (
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -82,7 +83,7 @@ func (pr Protected) SecretValueLeak(r Request) *SecretLeak {
 // (which is also how a `git push` to a remote not yet configured is spelled).
 var outboundRe = regexp.MustCompile(`(?i)(^|[\s;&|(` + "`" + `'"=<>$])(curl|wget|nc|ncat|netcat|socat|telnet|ftp|sftp|ssh|scp|rsync|http|https|xh|httpie|aria2c)(\s|$)` +
 	`|(^|[\s;&|(` + "`" + `])(npm|pnpm|yarn|bun)\s+(\S+\s+)*publish\b` +
-	`|(^|[\s;&|(` + "`" + `])(twine\s+upload|cargo\s+publish|gem\s+push|poetry\s+publish|uv\s+publish|docker\s+push|git\s+push|mvn\s+(\S+\s+)*deploy|gh\s+release|flutter\s+pub\s+publish|dotnet\s+nuget\s+push)\b` +
+	`|(^|[\s;&|(` + "`" + `])(twine\s+upload|cargo\s+publish|gem\s+push|poetry\s+publish|uv\s+publish|docker\s+push|git\s+push|mvn\s+(\S+\s+)*deploy|gh\s+(release|issue|gist|repo|secret|variable|workflow|api|auth)|aws|gcloud|az|kubectl|psql|flutter\s+pub\s+publish|dotnet\s+nuget\s+push)\b` +
 	`|https?://|\b[\w.-]+@[\w.-]+:[\w./~-]`)
 
 func outbound(text string) bool { return outboundRe.MatchString(text) }
@@ -250,6 +251,20 @@ func parseSecrets(text string) []secretEntry {
 		}
 		out = append(out, secretEntry{key: key, needles: needlesFor(val)})
 	}
+	// A JSON document (a docker config, a kubeconfig in JSON) is read as JSON: every string
+	// leaf is a value, however the file is laid out
+	if t := strings.TrimSpace(text); strings.HasPrefix(t, "{") || strings.HasPrefix(t, "[") {
+		var doc any
+		if json.Unmarshal([]byte(t), &doc) == nil {
+			walkJSON(doc, "", func(key, val string) {
+				for _, g := range credURL.FindAllStringSubmatch(val, -1) {
+					put("password", g[1])
+				}
+				put(key, val)
+			})
+			return out
+		}
+	}
 	for _, line := range strings.Split(text, "\n") {
 		line = strings.TrimSpace(strings.TrimSuffix(line, "\r"))
 		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") || strings.HasPrefix(line, "//") && !strings.Contains(line, "=") {
@@ -277,17 +292,39 @@ func parseSecrets(text string) []secretEntry {
 	return out
 }
 
-func splitKV(line string) (key, val string, ok bool) {
-	for _, sep := range []string{"=", `": `, ": "} {
-		if i := strings.Index(line, sep); i > 0 {
-			key, val = line[:i], line[i+len(sep):]
-			if sep == `": ` {
-				key += `"`
-			}
-			return key, val, true
+// walkJSON calls fn with the nearest object key and every string leaf of a decoded document.
+func walkJSON(v any, key string, fn func(key, val string)) {
+	switch t := v.(type) {
+	case string:
+		fn(key, t)
+	case map[string]any:
+		for k, c := range t {
+			walkJSON(c, k, fn)
+		}
+	case []any:
+		for _, c := range t {
+			walkJSON(c, key, fn)
 		}
 	}
-	return "", "", false
+}
+
+// splitKV splits at the separator that comes first, so a value that itself holds
+// "=" or ": " (base64 padding) stays whole.
+func splitKV(line string) (key, val string, ok bool) {
+	best, bestSep := -1, ""
+	for _, sep := range []string{"=", `": `, ": "} {
+		if i := strings.Index(line, sep); i > 0 && (best < 0 || i < best) {
+			best, bestSep = i, sep
+		}
+	}
+	if best < 0 {
+		return "", "", false
+	}
+	key, val = line[:best], line[best+len(bestSep):]
+	if bestSep == `": ` {
+		key += `"`
+	}
+	return key, val, true
 }
 
 func unquote(v string) string {

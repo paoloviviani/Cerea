@@ -218,3 +218,56 @@ func mtimePlus(t *testing.T, p string) (ts time.Time) {
 	}
 	return fi.ModTime().Add(3 * time.Second)
 }
+
+func TestParseSecretsPaddedBase64(t *testing.T) {
+	const pad = "dXNlcjpwYXNzd29yZDEyMw=="
+	cases := map[string]string{
+		"json":     "{\n  \"auths\": {\"r.io\": {\"auth\": \"" + pad + "\"}}\n}",
+		"yaml":     "users:\n- user:\n    client-key-data: " + pad + "\n",
+		"yaml tok": "token: " + pad + "\n",
+		"env":      "TOKEN=" + pad + "\n",
+		"oneline":  `{"a": "plainlowercase words", "auth": "` + pad + `", "other": "Zq81xKp0TvR4mNb7Qw"}`,
+		"json2key": `{"auth": "` + pad + `", "other": "Zq81xKp0TvR4mNb7Qw"}`,
+	}
+	for name, text := range cases {
+		found := false
+		for _, e := range parseSecrets(text) {
+			for _, n := range e.needles {
+				if n == pad {
+					found = true
+				}
+			}
+		}
+		if !found {
+			t.Errorf("%s: padded value not registered", name)
+		}
+	}
+	got := map[string]bool{}
+	for _, e := range parseSecrets(cases["json2key"]) {
+		got[e.key] = true
+	}
+	if !got["auth"] || !got["other"] {
+		t.Errorf("one-line JSON keys: %v", got)
+	}
+}
+
+func TestSecretValueMoreOutboundTools(t *testing.T) {
+	p, _, ws := guardRig(t)
+	for _, c := range []string{
+		`gh issue create --title x --body ` + testSecret,
+		`gh gist create -d ` + testSecret + ` f.txt`,
+		`gh api repos/o/r -f token=` + testSecret,
+		`aws s3 cp f s3://b/` + testSecret,
+		`gcloud run deploy --set-env-vars K=` + testSecret,
+		`az storage blob upload --account-key ` + testSecret,
+		`kubectl create secret generic s --from-literal=k=` + testSecret,
+		`psql -c "insert into t values ('` + testSecret + `')"`,
+	} {
+		if l := p.Protected.SecretValueLeak(bashReq(ws, c)); l == nil || l.Key != "API_KEY" {
+			t.Errorf("not caught: %s", c)
+		}
+	}
+	if l := p.Protected.SecretValueLeak(bashReq(ws, `gh pr view 12 `+testSecret)); l != nil {
+		t.Errorf("read-only gh pr view was checked")
+	}
+}
