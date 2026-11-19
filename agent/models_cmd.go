@@ -77,6 +77,9 @@ func runModels(args []string) error {
 	// cross-process lock, adopts a rotation another process already did and
 	// persists a rotated refresh token.
 	token := func(context.Context) (string, error) { return accessTokenFor(path, creds) }
+	if creds.Engine == engineVibe {
+		return refreshVibeModelsCmd(ctx, creds, path, token)
+	}
 	if creds.Engine == engineGoose {
 		if err := refreshGooseModelsCmd(ctx, creds, path, token); err != nil {
 			return err

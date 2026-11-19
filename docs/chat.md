@@ -275,6 +275,16 @@ chat-only: the Agents panel ignores them.
 Attach a file with the composer's **+** (on a phone, it opens the file and photo picker), by dragging it onto the window, or by pasting: a long paste becomes a chip rather than flooding the box. Files are
 limited to **30 MB** each, except audio (up to **25 MB**).
 
+- **Text files of any kind** are attached as they are, whatever the extension:
+  `.drawio` (XML), `.excalidraw` (JSON), `.toml`, a `Makefile`, a log, source code. Cerea
+  decides by the content, not the name: a file whose bytes are text (UTF-8, or UTF-16
+  with a byte-order mark) is read by the model with its file name, and a large one is
+  handled like any large text (a drawing or other XML or JSON counts as data). A file
+  that is neither text nor an image, document or audio file (a program, an archive, a
+  video) is refused with "This file type isn't supported". The same rule applies to chat,
+  coding-agent attachments, project documents and knowledge bases. Attachments are only
+  ever served as downloads, never rendered, so an uploaded `.html` or `.svg` file cannot
+  run in Cerea.
 - **Images** go to a model that can see them.
 - **PDFs and Office documents** are bytes no model reads, so the gateway's
   document reader turns each into text. Word, Excel, PowerPoint, OpenDocument

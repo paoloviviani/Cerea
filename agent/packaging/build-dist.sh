@@ -22,6 +22,9 @@ for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
 done
 cp packaging/galopin.service packaging/org.cerea.galopin.plist "$out/"
 cp THIRD_PARTY_LICENSES "$out/"
+# The hash-pinned dependency lock of the Mistral Vibe engine; the installer fetches it
+# and checks it against the sha256 baked into install.sh (src/lib/vibeVersion.ts).
+cp packaging/vibe-requirements.txt "$out/"
 echo "built from Cerea $rev" > "$out/REVISION"
-(cd "$out" && sha256sum galopin-* > SHA256SUMS)
+(cd "$out" && sha256sum galopin-* vibe-requirements.txt > SHA256SUMS)
 echo "wrote $out ($rev)"

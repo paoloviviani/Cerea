@@ -42,7 +42,7 @@ with **exactly the same flags** after `start` (see
 [Running galopin in a container](#running-galopin-in-a-container)). In that mode
 the dialog adds a **Computer name** and **Keep the pairing across restarts**, and
 leaves out what a container does not need: the download links, **Install
-opencode** and the goose engine (the engine is always opencode). Every other
+opencode** and the goose and Mistral Vibe engines (the engine is always opencode). Every other
 option, and the list of computers waiting for confirmation, work the same.
 
 **Common options**, at the top:
@@ -65,7 +65,7 @@ the printed line carries every changed value whether it is open or not):
 | **Background subagents**                  | unticked: `--no-background-subagents`                                 | on                         | a task can keep running after its parent turn ends                                                                                                                                                             |
 | **No agent tools**                        | `--no-agent-tools`                                                    | installed                  | installs none of the agent tools (`session_*` and `schedule_*`), so sessions cannot start or message each other, and agents cannot make schedules                                                              |
 | **Local deny** (not in the dialog)        | `--deny CLASS`, repeatable (advanced, by hand)                        | none                       | refuses a class (`edit`, `command`, `web`, `outside`, `secrets`, `agents`, `tools`) on this computer whatever any session says; for an owner who does not fully trust the Cerea server                         |
-| **Coding engine**                         | `--engine goose` (opencode adds no flag)                              | opencode                   | the computer runs goose instead of opencode (see [The goose engine](#the-goose-engine)); in the dialog it is under Advanced                                                                                    |
+| **Coding engine**                         | `--engine goose` or `--engine vibe` (opencode adds no flag)           | opencode                   | the computer runs goose or Mistral Vibe instead of opencode (see [The goose engine](#the-goose-engine), [The Mistral Vibe engine](#the-mistral-vibe-engine)); in the dialog it is under Advanced               |
 | **Allow free models**                     | `--allow-free-models`                                                 | the gateway's models only  | models from providers other than the gateway's may be listed and used                                                                                                                                          |
 | **Keep opencode's own providers**         | `--allow-opencode-provider`                                           | gateway only               | opencode's built-in providers stay enabled next to the gateway's                                                                                                                                               |
 | **Workspace folders** (a list)            | `--workspace-root PATH`, one per entry                                | anywhere                   | workspaces may only be created under these folders                                                                                                                                                             |
@@ -212,6 +212,70 @@ To run another one anyway (a build you are testing), set `GALOPIN_GOOSE_BIN`;
 Sessions cannot reach your own goose's settings: `~/.config/goose` and
 `~/.local/share/goose` (and the XDG, `GOOSE_PATH_ROOT` and macOS forms) are
 protected like galopin's own files, and reading them is a secrets request. Links are followed: a settings folder linked into a workspace is still protected.
+
+### The Mistral Vibe engine
+
+A computer can run **Mistral Vibe** instead of opencode (`galopin enroll --engine vibe`;
+the Pair dialog's **Coding engine**, under Advanced, offers **Mistral Vibe** and prints
+the flag). The choice is kept like goose's: a re-enroll keeps it, `run` follows it.
+The install line (`install.sh | sh -s -- --engine vibe`) needs [uv](https://docs.astral.sh/uv/)
+and builds the pinned Vibe release into `galopin-vibe/venv` beside the galopin binary,
+from a lock that pins every package by hash and takes prebuilt wheels only, so no
+package's build scripts run. A Vibe you installed yourself (`uv tool`, `pipx`) is never
+used and never touched; to run another one anyway, set `GALOPIN_VIBE_BIN` to its
+`vibe-acp`, and `run` then logs a warning at every start. The Docker image does not
+carry Vibe, so the engine is not offered in the Docker pairing.
+
+What galopin sets up for Vibe:
+
+- **Its own Vibe home.** Vibe runs with `VIBE_HOME` set to a `vibe/` directory beside the
+  computer's credentials, never your `~/.vibe`. Its `config.toml` has one provider,
+  galopin's local proxy, with the proxy's secret as a header in that file (not in the
+  environment, which every command Vibe starts inherits), so the models and the billing are
+  the gateway's, and the token the proxy refreshes is the one used. The model list is the
+  gateway's chat models (`galopin models refresh` and every `run` start update it); Vibe's
+  own Mistral models are not selectable, so nothing can go around the gateway. Telemetry,
+  update checks, connectors and the model catalogue are off, and `VIBE_*` and provider
+  keys in galopin's environment are not passed on.
+- **Every tool call asks, and what holds the floor is spelled out.** Vibe runs in its `ask`
+  mode and galopin puts a session back in it after any mode change and on load;
+  `accept-edits`, `auto-approve` and `smart-approve` are not offered in Cerea, and Vibe's
+  own `enable_auto_approve` is off. Plan, Ask, Allow, Auto and the fixed floor apply as on
+  opencode, with these parts:
+  - _galopin decides_ every ask Vibe raises: protected paths (galopin's own state, `~/.vibe`
+    and `VIBE_HOME`, credential stores, `.env`), the secrets rules, the machine's deny list,
+    the command and path classes. Vibe's asks name only a call id; galopin completes each
+    from the call's own announcement, so the class and the path are the real ones.
+  - _Vibe's config makes sure it asks._ Shell commands, file reads, edits, writes and web
+    fetches all ask: Vibe's built-in "read-only commands run unasked" list is emptied
+    (`find` stays on it, and Vibe itself refuses `find -exec` and `-delete`), and file reads
+    ask although Vibe would allow them inside the workspace. A path outside the workspace
+    asks (`outside_workdir = "ask"`) instead of being refused where galopin cannot see it.
+  - _A repository's own `.vibe/` is never loaded._ Vibe loads a project's `.vibe/config.toml`
+    (and its `AGENTS.md` and project skills) only for a trusted folder; galopin keeps the
+    trust list empty and rewrites it empty at every start, and answers no trust question, so
+    a cloned repository cannot loosen the floor. The cost: a project's `AGENTS.md` is not read
+    by Vibe on a galopin computer.
+  - _What galopin cannot see._ A tool Vibe allows by itself never asks: its internal task
+    list, skills, scratchpad, scheduled prompts and goals. They do not reach files or the
+    shell without a tool call that asks. Vibe's session "always allow" is never chosen:
+    galopin answers each ask once, and an "always" from a user is galopin's own exception.
+- **Vibe's own session store.** Sessions live in the `vibe/` directory (not shared with
+  your Vibe, unlike goose's), listed and reopened from Cerea, including after galopin or
+  Vibe restarts. Vibe keeps a lock on a session it has open; if a reopen meets the lock of
+  an agent process that is still shutting down, galopin waits for it (a few seconds)
+  instead of failing.
+
+What differs from opencode: no subagent cards, no compaction command, and the model list
+shows only what the gateway offers. Usage comes from Vibe itself (it reports the context
+meter over its protocol), and the context window is the gateway's, with a floor of 13,334
+tokens that Vibe needs. Vibe sends no session identifier on its model calls, so the
+gateway's cost is metered for the computer but not split per session. Changes, history,
+model choice, connectors and the task list work as they do elsewhere. In the Agents panel
+the engine shows as **Mistral Vibe** with its mark.
+
+Sessions cannot reach your own Vibe's settings: `~/.vibe` and `VIBE_HOME` are protected
+like galopin's own files, and reading them is a secrets request.
 
 ### Your own goose, through galopin
 
@@ -1753,7 +1817,8 @@ Linux (or `$XDG_CONFIG_HOME`), `~/Library/Application Support` on macOS.
      if `--default` had changed it.
 4. **Delete the binaries.** `${GALOPIN_INSTALL_DIR:-~/.local/bin}/galopin` and
    the directory `${GALOPIN_INSTALL_DIR:-~/.local/bin}/galopin-goose/` (the
-   pinned goose the installer put there). If you installed opencode with the
+   pinned goose the installer put there) and, for the Mistral Vibe engine,
+   `${GALOPIN_INSTALL_DIR:-~/.local/bin}/galopin-vibe/` (its Python environment). If you installed opencode with the
    installer's `--with-opencode`, `~/.opencode/bin/opencode` is also from the
    installer; remove it if nothing else of yours uses it.
 5. **Delete galopin's own directory, `<config-dir>/galopin/`.** It holds only

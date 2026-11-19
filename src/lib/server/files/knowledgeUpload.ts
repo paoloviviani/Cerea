@@ -12,6 +12,7 @@
  */
 import { fileTypeFromBuffer } from "file-type";
 import { documentMime, isExtractableDocument } from "./extractDocument";
+import { textMimeFor } from "./classifyUpload";
 
 export const KNOWLEDGE_ACCEPTED_LABEL =
 	"PDF, Word, Excel, PowerPoint, OpenDocument, e-books and text files";
@@ -19,22 +20,6 @@ export const KNOWLEDGE_ACCEPTED_LABEL =
 export const KNOWLEDGE_REFUSED_MESSAGE =
 	"Images, archives and other binary files can't be added to a knowledge base. " +
 	`Accepted: ${KNOWLEDGE_ACCEPTED_LABEL}.`;
-
-/** The text types the extension names, for bytes that carry no signature. */
-const TEXT_EXTENSION_MIME: Record<string, string> = {
-	md: "text/markdown",
-	markdown: "text/markdown",
-	csv: "text/csv",
-	tsv: "text/tab-separated-values",
-	json: "application/json",
-	jsonl: "text/plain",
-	ndjson: "text/plain",
-	xml: "application/xml",
-	html: "text/html",
-	htm: "text/html",
-	yaml: "text/yaml",
-	yml: "text/yaml",
-};
 
 /** The share of control bytes a single-byte text may have before it is binary. */
 const MAX_CONTROL_RATIO = 0.01;
@@ -84,8 +69,8 @@ export function refusalMessage(bytes: Uint8Array): string {
 
 /**
  * The type a knowledge upload is stored under, or null when it is not
- * accepted. Extractable documents keep their sniffed type; text is stored as
- * the extension suggests (or `text/plain`), whatever the browser claimed.
+ * accepted. Extractable documents keep their sniffed type; text is stored under the type the name
+ * or the content suggests (`textMimeFor`), whatever the browser claimed.
  */
 export async function knowledgeUploadMime(bytes: Buffer, filename: string): Promise<string | null> {
 	const sniffed = (await fileTypeFromBuffer(bytes))?.mime;
@@ -98,6 +83,5 @@ export async function knowledgeUploadMime(bytes: Buffer, filename: string): Prom
 		return null;
 	}
 	if (!isPlainText(bytes)) return null;
-	const ext = filename.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] ?? "";
-	return TEXT_EXTENSION_MIME[ext] ?? "text/plain";
+	return textMimeFor(filename, "", bytes);
 }

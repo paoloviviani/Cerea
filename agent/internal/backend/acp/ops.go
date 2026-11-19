@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"galopin/internal/backend"
@@ -684,26 +685,48 @@ func (b *Backend) openSession(ctx context.Context, workspaceDir string, st *sess
 		return err
 	}
 	sessionID := st.id
-	st.mu.Lock()
-	if method == "session/load" {
-		// The replay rebuilds the transcript, so what is held is dropped first
-		// (a re-open after an agent restart would otherwise double it).
-		st.messages, st.todos = nil, nil
-		st.msgIndex, st.partIndex, st.partOwner = map[string]int{}, map[string]int{}, map[string]int{}
-		st.replaying, st.replayRole, st.replaySeq, st.replayMsgID = true, "", 0, ""
+	var (
+		raw json.RawMessage
+		ep  backend.MCPEndpoint
+	)
+	for attempt := 0; ; attempt++ {
+		st.mu.Lock()
+		if method == "session/load" {
+			// The replay rebuilds the transcript, so what is held is dropped first
+			// (a re-open after an agent restart would otherwise double it).
+			st.messages, st.todos = nil, nil
+			st.msgIndex, st.partIndex, st.partOwner = map[string]int{}, map[string]int{}, map[string]int{}
+			st.replaying, st.replayRole, st.replaySeq, st.replayMsgID = true, "", 0, ""
+		}
+		st.mu.Unlock()
+		callCtx, cancel := context.WithTimeout(ctx, rpcCallTimeout)
+		var servers []any
+		servers, ep = b.mcpServers()
+		params := map[string]any{"sessionId": sessionID, "cwd": workspaceDir, "mcpServers": servers}
+		if len(b.cfg.SessionMeta) > 0 {
+			params["_meta"] = b.cfg.SessionMeta
+		}
+		raw, err = conn.call(callCtx, method, params)
+		cancel()
+		st.mu.Lock()
+		st.replaying = false
+		st.mu.Unlock()
+		if err == nil || !isSessionBusy(err) || attempt >= len(openBusyDelays) {
+			break
+		}
+		// Another process holds the session (Vibe keeps a lock per open session: the
+		// previous agent process, still shutting down after a restart of galopin). It
+		// is gone within seconds; a load that waits for it beats an error the user sees.
+		if ep != nil {
+			ep.Revoke()
+		}
+		b.cfg.Logf("acp: %s %s: the session is open in another process, retrying in %s", method, sessionID, openBusyDelays[attempt])
+		select {
+		case <-time.After(openBusyDelays[attempt]):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
-	st.mu.Unlock()
-	callCtx, cancel := context.WithTimeout(ctx, rpcCallTimeout)
-	servers, ep := b.mcpServers()
-	params := map[string]any{"sessionId": sessionID, "cwd": workspaceDir, "mcpServers": servers}
-	if len(b.cfg.SessionMeta) > 0 {
-		params["_meta"] = b.cfg.SessionMeta
-	}
-	raw, err := conn.call(callCtx, method, params)
-	cancel()
-	st.mu.Lock()
-	st.replaying = false
-	st.mu.Unlock()
 	if err != nil {
 		if ep != nil {
 			ep.Revoke()
@@ -735,6 +758,17 @@ func (b *Backend) openSession(ctx context.Context, workspaceDir string, st *sess
 		b.trimReplays(sessionID)
 	}
 	return nil
+}
+
+// openBusyDelays are the waits between retries of a session/load or session/resume
+// that fails because another process holds the session (a variable for the tests).
+var openBusyDelays = []time.Duration{500 * time.Millisecond, time.Second, 2 * time.Second, 2 * time.Second, 2 * time.Second}
+
+// isSessionBusy reports Vibe's "Session is already open" answer (code -31002, the
+// agent's generic configuration error, so the message is what tells it apart).
+func isSessionBusy(err error) bool {
+	var re *rpcError
+	return errors.As(err, &re) && strings.Contains(strings.ToLower(re.Message), "already open")
 }
 
 func (b *Backend) promptCaps() acpAgentCapabilities {

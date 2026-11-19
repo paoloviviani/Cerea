@@ -25,16 +25,14 @@
  */
 
 import { ObjectId } from "mongodb";
-import { fileTypeFromBuffer } from "file-type";
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
 import { sha256 } from "$lib/utils/sha256";
-import { mimeMatchesAllowlist } from "$lib/utils/mimeMatch";
-import { MAX_ATTACHMENT_BYTES, TEXT_MIME_ALLOWLIST } from "$lib/constants/mime";
+import { MAX_ATTACHMENT_BYTES } from "$lib/constants/mime";
 import { PROJECT_DOCUMENTS_MAX_CHARS, PROJECT_DOCUMENTS_MAX_COUNT } from "$lib/types/Memory";
 import type { ProjectDocument, ProjectDocumentView } from "$lib/types/ProjectDocument";
 import type { User } from "$lib/types/User";
-import { documentMime, isExtractableDocument } from "$lib/server/files/extractDocument";
+import { classifyUpload, UNSUPPORTED_UPLOAD_MESSAGE } from "$lib/server/files/classifyUpload";
 import { deleteAttachments, deleteAttachmentsForMessage } from "$lib/server/files/attachmentStore";
 import { contentHash, store, writeAttachment } from "$lib/server/files/uploadFile";
 
@@ -60,41 +58,6 @@ export function projectOwnerKey(projectId: ObjectId | string): string {
 /** `project:<24 hex>` -> the id, for the orphan sweep. */
 export function parseProjectOwnerKey(key: string): string | null {
 	return /^project:([0-9a-f]{24})$/.exec(key)?.[1] ?? null;
-}
-
-/** Extensions read as text when the browser sent no useful type (`.md` often has none). */
-const TEXT_EXTENSIONS = new Set([
-	"txt",
-	"md",
-	"markdown",
-	"csv",
-	"tsv",
-	"json",
-	"jsonl",
-	"ndjson",
-	"xml",
-	"yaml",
-	"yml",
-	"log",
-	"rst",
-	"html",
-	"htm",
-	"tex",
-	"ini",
-	"toml",
-]);
-
-function extensionOf(name: string): string {
-	return name.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] ?? "";
-}
-
-/** The text type to treat a file as, or `null` when it is not text. */
-function textMime(file: File): string | null {
-	const declared = file.type.split(";")[0].trim();
-	if (declared && mimeMatchesAllowlist(declared, [...TEXT_MIME_ALLOWLIST])) return declared;
-	const ext = extensionOf(file.name);
-	if (!TEXT_EXTENSIONS.has(ext)) return null;
-	return ext === "md" || ext === "markdown" ? "text/markdown" : "text/plain";
 }
 
 export async function listProjectDocuments(projectId: ObjectId): Promise<ProjectDocument[]> {
@@ -163,16 +126,19 @@ export async function addProjectDocument(options: {
 	if (used >= PROJECT_DOCUMENTS_MAX_CHARS) throw overBudget(used);
 
 	const buffer = await file.arrayBuffer();
-	const sniffed = await fileTypeFromBuffer(buffer).then((type) => type?.mime ?? file.type);
-	const documentType = documentMime(sniffed, file.name);
-	const asText = isExtractableDocument(documentType) ? null : textMime(file);
-	if (!isExtractableDocument(documentType) && !asText) {
+	// What the bytes are decides, not the name: text of any extension is read
+	// as text, and a document is extracted. Anything else is refused.
+	const classified = await classifyUpload(file.name, file.type, new Uint8Array(buffer));
+	const isDocument = classified.kind === "document";
+	const asText = classified.kind === "text" ? classified.mime : null;
+	if (!isDocument && !asText) {
 		throw new ProjectDocumentError(
-			`${file.name} is not a type a project can read. Add a text file (.txt, .md, .csv, .json, .jsonl…) ` +
-				"or a document (PDF, Word, Excel, PowerPoint, OpenDocument, EPUB).",
+			`${file.name}: ${UNSUPPORTED_UPLOAD_MESSAGE} A project reads text files or documents ` +
+				"(PDF, Word, Excel, PowerPoint, OpenDocument, EPUB).",
 			415
 		);
 	}
+	const textBytes = classified.kind === "text" && classified.bytes ? classified.bytes : buffer;
 
 	// The writer names an entry by this hash, so a second copy of one file is
 	// known before anything is extracted (and billed). Documents stored before
@@ -195,7 +161,7 @@ export async function addProjectDocument(options: {
 	try {
 		// Documents go through the chat's writer; text is stored by it as bytes
 		// and read here. Either way the original lands first.
-		const typed = asText ? new File([buffer], file.name, { type: asText }) : file;
+		const typed = asText ? new File([textBytes as BlobPart], file.name, { type: asText }) : file;
 		const written = await writeAttachment(typed, ownerKey, token, { messageId });
 
 		let extractedSha: string | undefined;
@@ -203,7 +169,7 @@ export async function addProjectDocument(options: {
 		let pages: number | undefined;
 		let failure: ProjectDocument["failure"];
 		if (asText) {
-			text = new TextDecoder("utf-8", { fatal: false }).decode(buffer).trim();
+			text = new TextDecoder("utf-8", { fatal: false }).decode(textBytes).trim();
 			if (text.includes("\u0000")) {
 				throw new ProjectDocumentError(`${file.name} does not look like a text file.`, 415);
 			}

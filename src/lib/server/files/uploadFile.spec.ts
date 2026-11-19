@@ -94,16 +94,56 @@ describe("uploadFile: which type decides", () => {
 		}
 	);
 
-	it("a .ndjson file is text too, and a .bin file keeps its declared type", async () => {
-		const bytes = Buffer.from('{"a":1}\n');
+	it("a .ndjson file is text too, and an unknown binary is refused", async () => {
+		const bytes = Buffer.from('{"a":1}\n{"a":2}\n');
 		const nd = await uploadFile(fileOf(bytes, "rows.NDJSON", ""), conversation(), "tok");
 		expect(nd.mime).toBe("text/plain");
-		const bin = await uploadFile(
-			fileOf(bytes, "rows.bin", "application/octet-stream"),
-			conversation(),
-			"tok"
+		await expect(
+			uploadFile(
+				fileOf(
+					Buffer.from([0x01, 0x00, 0xff, 0xfe, 0x00, 0x80]),
+					"rows.bin",
+					"application/octet-stream"
+				),
+				conversation(),
+				"tok"
+			)
+		).rejects.toMatchObject({ status: 415, message: expect.stringMatching(/isn't supported/) });
+	});
+
+	it.each([
+		[
+			"diagram.drawio",
+			'<?xml version="1.0"?><mxfile host="x"><diagram/></mxfile>',
+			"application/xml",
+		],
+		["scene.excalidraw", '{"type":"excalidraw","elements":[]}', "application/json"],
+		["notes.foo", "just some words\nin a file\n", "text/plain"],
+		["Makefile", "all:\n\techo hi\n", "text/plain"],
+	])("%s is stored as text (%s) whatever the browser declared", async (name, body, mime) => {
+		for (const declared of ["", "application/octet-stream", "application/x-custom"]) {
+			const stored = await uploadFile(
+				fileOf(Buffer.from(body), name, declared),
+				conversation(),
+				"tok"
+			);
+			expect(stored).toMatchObject({ mime, name });
+		}
+		expect(extractMock).not.toHaveBeenCalled();
+	});
+
+	it("UTF-16 text with a BOM is stored as UTF-8", async () => {
+		const body = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from("hello wörld", "utf16le")]);
+		const conv = conversation();
+		const stored = await uploadFile(fileOf(body, "u16.foo", ""), conv, "tok");
+		expect(stored.mime).toBe("text/plain");
+		const files = await collections.blobStore.find("files", {
+			"metadata.conversation": conv._id.toString(),
+		});
+		const [entry] = files;
+		expect((await collections.blobStore.read("files", entry.id)).toString("utf-8")).toBe(
+			"hello wörld"
 		);
-		expect(bin.mime).toBe("application/octet-stream");
 	});
 
 	it("a real .docx is sniffed as docx and extracted under that type", async () => {
@@ -135,15 +175,11 @@ describe("uploadFile: which type decides", () => {
 		expect(stored.extracted).toBeDefined();
 	});
 
-	it("a compound file with no Office name is stored, not extracted, and not mislabelled", async () => {
-		const stored = await uploadFile(
-			fileOf(cfbBytes(), "installer.msi", "application/x-msi"),
-			conversation(),
-			"tok"
-		);
+	it("a compound file with no Office name is refused as unsupported, not extracted", async () => {
+		await expect(
+			uploadFile(fileOf(cfbBytes(), "installer.msi", "application/x-msi"), conversation(), "tok")
+		).rejects.toMatchObject({ status: 415 });
 		expect(extractMock).not.toHaveBeenCalled();
-		expect(stored.mime).toBe("application/x-cfb");
-		expect(stored.extractionError).toBeUndefined();
 	});
 
 	it("a PDF goes through as a PDF", async () => {

@@ -79,6 +79,10 @@ type sessionState struct {
 
 	pending map[string]pendingPermission // our local request id -> pending
 
+	// calls is the latest kind/title/rawInput/locations each tool call announced,
+	// by toolCallId, so a sparse permission ask can be completed (ask_enrich.go).
+	calls map[string]map[string]any
+
 	// spawnedBy is the session_spawn marker (in memory, like the session).
 	spawnedBy *backend.SpawnedBy
 	// mcp is this session's galopin MCP endpoint, revoked when it is deleted.
@@ -225,6 +229,16 @@ func (r *registry) getOrCreate(id, workspaceDir string) *sessionState {
 	r.sessionMu.Lock()
 	defer r.sessionMu.Unlock()
 	if st, ok := r.sessions[id]; ok {
+		// A notification can arrive before session/new's answer (Vibe sends the
+		// command list first) and create the state with no workspace: the caller
+		// that knows it fills it in, or the session is never listed for it.
+		if workspaceDir != "" {
+			st.mu.Lock()
+			if st.workspaceDir == "" {
+				st.workspaceDir = workspaceDir
+			}
+			st.mu.Unlock()
+		}
 		return st
 	}
 	st := newSessionState(id, workspaceDir)

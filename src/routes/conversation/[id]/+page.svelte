@@ -666,8 +666,24 @@
 		await writeMessage({ prompt: content });
 	}
 
-	async function onRetry(payload: { id: Message["id"]; content?: string }) {
+	async function onRetry(payload: {
+		id: Message["id"];
+		content?: string;
+		continueFromPartial?: boolean;
+	}) {
 		if (requireAuthUser()) return;
+
+		if (payload.continueFromPartial) {
+			// Continue a failed turn: its partial output stays in the thread and in the
+			// prompt, and a user turn asks the model to go on (never an assistant
+			// prefill, which Anthropic models reject). A plain send under the failed message.
+			messagesPath = createMessagesPath(messages, payload.id);
+			await writeMessage({
+				prompt: m["chat.turn_failed.continue_prompt"](),
+				messageId: payload.id,
+			});
+			return;
+		}
 
 		const lastMsgId = payload.id;
 		messagesPath = createMessagesPath(messages, lastMsgId);

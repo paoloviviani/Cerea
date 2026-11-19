@@ -118,17 +118,18 @@ function enrollFlagLines(opts: EnrollCommandOptions): string[] {
 
 export function buildEnrollCommand(opts: EnrollCommandOptions): string {
 	const origin = opts.origin.replace(/\/+$/, "");
-	const goose = policyChoicesOf(opts).engine === "goose";
-	// The served installer also installs the engine: the pinned goose release, or,
-	// with `--with-opencode`, the pinned opencode release; both are verified
-	// against checksums recorded in this repo. opencode lands in
+	const engine = policyChoicesOf(opts).engine;
+	// The served installer also installs the engine: the pinned goose or Mistral Vibe
+	// release, or, with `--with-opencode`, the pinned opencode release; all are verified
+	// against checksums or hashes recorded in this repo. opencode lands in
 	// $HOME/.opencode/bin, which galopin finds itself (agent opencode.go's
 	// Start), so no PATH export is needed here.
-	const engineArgs = goose
-		? " -s -- --engine goose"
-		: opts.installOpencode
-			? " -s -- --with-opencode"
-			: "";
+	const engineArgs =
+		engine === "goose" || engine === "vibe"
+			? ` -s -- --engine ${engine}`
+			: opts.installOpencode
+				? " -s -- --with-opencode"
+				: "";
 	const install = `curl -fsSL ${quoteShellArg(`${origin}/galopin/install.sh`)} | sh${engineArgs}`;
 
 	const enroll = [`${GALOPIN_BIN} enroll`, ...enrollFlagLines(opts)].join(CONT);

@@ -20,8 +20,8 @@ import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";
 import { authorizeCodeAttachmentKey } from "$lib/server/codeAttachments";
 import { requireCodeAgents } from "$lib/server/codeDevices";
 import { findAttachments, storeAttachment } from "$lib/server/files/attachmentStore";
-import { AGENT_ATTACHMENT_MIME_ALLOWLIST, MAX_ATTACHMENT_BYTES } from "$lib/constants/mime";
-import { fileMatchesAllowlist } from "$lib/utils/mimeMatch";
+import { MAX_ATTACHMENT_BYTES } from "$lib/constants/mime";
+import { UnsupportedAttachmentError } from "$lib/server/files/uploadFile";
 
 /** Per request, not per message: a surface that sends more uploads twice. */
 const MAX_FILES_PER_UPLOAD = 10;
@@ -32,17 +32,11 @@ const uploadSchema = z.object({
 	messageId: messageIdSchema,
 	files: z
 		.array(
-			z
-				.instanceof(File)
-				.refine((file) => file.size > 0, "An attachment is empty.")
-				// The declared type, as chat's composer checks it. The stored
-				// type is sniffed from the bytes (`writeAttachment`), and serving
-				// is download-only, so a mislabelled file cannot render as
-				// something else either way.
-				.refine(
-					(file) => fileMatchesAllowlist(file, AGENT_ATTACHMENT_MIME_ALLOWLIST),
-					"That file type cannot be attached."
-				)
+			z.instanceof(File).refine((file) => file.size > 0, "An attachment is empty.")
+			// No check on the declared type: the bytes decide (`writeAttachment`),
+			// text of any extension is accepted and any other binary is
+			// answered 415 below. Serving is download-only, so a mislabelled
+			// file cannot render as something else.
 		)
 		.min(1, "No files to attach.")
 		.max(MAX_FILES_PER_UPLOAD, `At most ${MAX_FILES_PER_UPLOAD} files per upload.`),
@@ -67,7 +61,12 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 	// billed to the caller, and ten at once is a burst nobody asked for.
 	const files = [];
 	for (const file of parsed.data.files) {
-		files.push(await storeAttachment(file, key, parsed.data.messageId, locals.token));
+		try {
+			files.push(await storeAttachment(file, key, parsed.data.messageId, locals.token));
+		} catch (err) {
+			if (err instanceof UnsupportedAttachmentError) error(415, err.message);
+			throw err;
+		}
 	}
 	return superjsonResponse({ files });
 };

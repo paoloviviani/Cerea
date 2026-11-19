@@ -22,6 +22,7 @@
 	import CarbonEarth from "~icons/carbon/earth";
 	import LucideMic from "~icons/lucide/mic";
 	import PermissionShield from "./PermissionShield.svelte";
+	import { fileMatchesAllowlist } from "$lib/utils/mimeMatch";
 	import {
 		isAudioAttachmentMime,
 		maxAttachmentBytesFor,
@@ -177,7 +178,11 @@
 		// The same limits the server enforces, said before anything is uploaded.
 		const accepted: File[] = [];
 		for (const file of selected) {
-			if (file.size <= maxAttachmentBytesFor(file.type)) {
+			if (!fileMatchesAllowlist(file, mimeTypes)) {
+				errorToast.set(
+					m["chat.dropzone.bad_type"]({ allowed: mimeTypes.join(", "), type: file.type })
+				);
+			} else if (file.size <= maxAttachmentBytesFor(file.type)) {
 				accepted.push(file);
 			} else if (isAudioAttachmentMime(file.type)) {
 				errorToast.set(m["chat.audio.too_long"]({ name: file.name }));
@@ -347,17 +352,26 @@
 
 	function openPickerWithAccept(accept: string) {
 		if (!fileInputEl) return;
-		const allAccept = mimeTypes.join(",");
+		const allAccept = pickerAccept;
 		fileInputEl.setAttribute("accept", accept);
 		fileInputEl.click();
 		queueMicrotask(() => fileInputEl?.setAttribute("accept", allAccept));
 	}
 
+	// Text is not filtered by extension: where the composer takes text, the
+	// picker offers every file, and a file that is neither text nor something
+	// the composer takes is refused after the pick (here for images and audio
+	// the composer does not offer, by the server for binary).
+	let pickerAccept = $derived(mimeTypes.includes("text/*") ? "" : mimeTypes.join(","));
+
 	function openFilePickerText() {
-		const textAccept =
-			mimeTypes.filter((mime) => !(mime === "image/*" || mime.startsWith("image/"))).join(",") ||
-			TEXT_MIME_ALLOWLIST.join(",");
-		openPickerWithAccept(textAccept);
+		openPickerWithAccept(
+			mimeTypes.includes("text/*")
+				? ""
+				: mimeTypes
+						.filter((mime) => !(mime === "image/*" || mime.startsWith("image/")))
+						.join(",") || TEXT_MIME_ALLOWLIST.join(",")
+		);
 	}
 
 	const audioAccept = AUDIO_MIME_ALLOWLIST.join(",");
@@ -1036,7 +1050,7 @@
 									e.preventDefault();
 								}
 							}}
-							accept={mimeTypes.join(",")}
+							accept={pickerAccept}
 						/>
 						{#if audioAttachmentsOn}
 							<input

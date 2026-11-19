@@ -78,6 +78,13 @@ export interface ScenarioScript {
 	/** Respond with this HTTP status instead of a stream. */
 	errorStatus?: number;
 	errorMessage?: string;
+	/**
+	 * Fail mid-stream: after the content (and any reasoning) tokens, send an
+	 * in-band `error` event instead of finishing, as a gateway does when a
+	 * quota runs out or the upstream dies part-way. The partial text has
+	 * already been streamed to the app by then.
+	 */
+	streamError?: string;
 	/** Delay before the first chunk, ms. */
 	initialDelayMs?: number;
 	/** Delay between chunks, ms. */
@@ -826,6 +833,11 @@ export async function startMockOpenAI(port: number = MOCK_OPENAI_PORT): Promise<
 			}
 
 			if (aborted) return;
+			if (script.streamError) {
+				send({ error: { message: script.streamError, type: "server_error" } });
+				res.end();
+				return;
+			}
 			send(chunk(model, {}, script.finishReason ?? "stop"));
 			sendReport();
 			res.write("data: [DONE]\n\n");

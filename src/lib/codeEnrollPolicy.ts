@@ -25,11 +25,11 @@ import { ENROLL_FLAGS } from "$lib/enrollFlags";
 export const DEFAULT_MAX_TERMINALS = 8;
 
 /** The coding engines a machine can run (ADR 0110); opencode is `enroll`'s default. */
-export type EnrollEngine = "opencode" | "goose";
+export type EnrollEngine = "opencode" | "goose" | "vibe";
 
 /** Everything the dialog lets a person choose about the machine's policy. */
 export interface EnrollPolicyChoices {
-	/** `--engine goose`; opencode (the default) prints nothing. */
+	/** `--engine goose` or `--engine vibe`; opencode (the default) prints nothing. */
 	engine: EnrollEngine;
 	allowTerminal: boolean;
 	/** Only meaningful, and only emitted, when `allowTerminal` is on. */
@@ -124,7 +124,8 @@ export function maxTerminalsProblem(value: number): string | null {
  * order. Defaults contribute nothing. */
 export function policyFlagArgs(choices: EnrollPolicyChoices): string[] {
 	const args: string[] = [];
-	if (choices.engine === "goose") args.push("--engine", "goose");
+	if (choices.engine === "goose" || choices.engine === "vibe")
+		args.push("--engine", choices.engine);
 	if (choices.billToDefault) {
 		args.push("--default-group");
 	}

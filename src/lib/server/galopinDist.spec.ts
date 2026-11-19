@@ -9,6 +9,7 @@ const env = vi.hoisted(() => ({ GALOPIN_DIST_DIR: "", PUBLIC_ORIGIN: "" }));
 vi.mock("$lib/server/config", () => ({ config: env }));
 
 const { GOOSE_SHA256, GOOSE_VERSION } = await import("$lib/gooseVersion");
+const { VIBE_LOCK_SHA256, VIBE_VERSION } = await import("$lib/vibeVersion");
 const { OPENCODE_SHA256 } = await import("$lib/opencodeVersion");
 const { OPENCODE_VERSION } = await import("$lib/codeEnrollCommand");
 const { serveGalopinFile, renderInstallScript, galopinOrigin, parseSha256Sums, GALOPIN_BINARIES } =
@@ -131,6 +132,44 @@ describe("install.sh", () => {
 		);
 	});
 
+	it("installs the pinned Mistral Vibe from a hash lock with uv, only with --engine vibe", () => {
+		const script = renderInstallScript("https://stack.example.org/chat", { enrollReady: true });
+		expect(script).toContain('if [ "$engine" = vibe ] && [ -n "$dovibe" ]; then');
+		// the lock is fetched from this deployment and must match the sha256 baked in here
+		expect(script).toContain('"$origin/galopin/vibe-requirements.txt"');
+		expect(script).toContain(`[ "$got" = "${VIBE_LOCK_SHA256}" ]`);
+		expect(VIBE_LOCK_SHA256).toMatch(/^[0-9a-f]{64}$/);
+		// every package by hash, wheels only (no build step runs), no config of the user's
+		expect(script).toContain("--require-hashes --no-deps --only-binary :all:");
+		expect(script).toContain("uv --no-config venv");
+		expect(script).toContain(`= "${VIBE_VERSION}" ]`);
+		// galopin's own directory: never over a Vibe the user installed themselves
+		expect(script).toContain('"$dir/galopin-vibe/venv"');
+		expect(script).toContain(" --engine vibe");
+		expect(script).toContain(`vibe_pinned=${VIBE_VERSION}`);
+		expect(script).toContain('if [ "$engine" = vibe ]; then upgrade_vibe; fi');
+		expect(script).not.toMatch(/@[A-Z0-9_]+@/);
+		const syntax = spawnSync("sh", ["-n"], { input: script });
+		expect(syntax.status, syntax.stderr.toString()).toBe(0);
+		// without uv the installer says what to do, and installs nothing
+		const home = mkdtempSync(join(tmpdir(), "galopin-novibe-"));
+		try {
+			const run = spawnSync("sh", ["-s", "--", "--engine", "vibe"], {
+				input: script,
+				env: {
+					PATH: "/nonexistent",
+					HOME: home,
+					TMPDIR: home,
+					GALOPIN_INSTALL_DIR: join(home, "bin"),
+				},
+				encoding: "utf8",
+			});
+			expect(run.status).not.toBe(0);
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
 	it("installs the pinned opencode, checksum-verified, only with --with-opencode", () => {
 		const script = renderInstallScript("https://stack.example.org/chat");
 		expect(script).toContain('if [ "$engine" = opencode ] && [ -n "$withopencode" ]; then');
@@ -178,7 +217,7 @@ describe("install.sh", () => {
 		expect(script.trimEnd().endsWith('main "$@"')).toBe(true);
 		expect(script).toMatch(/\nmain\(\) \{\n/);
 		// every placeholder of galopinUpgrade.sh was filled, and its comments are not shipped
-		expect(script).not.toMatch(/@[A-Z_]+@/);
+		expect(script).not.toMatch(/@[A-Z0-9_]+@/);
 		expect(script).not.toContain("shellcheck");
 		// the user's own process is matched by fields, never by a bare `pgrep -f`
 		expect(script).not.toMatch(/pgrep|pkill|killall/);

@@ -34,7 +34,6 @@
 	import StopGeneratingBtn from "../StopGeneratingBtn.svelte";
 	import type { Model } from "$lib/types/Model";
 	import FileDropzone from "./FileDropzone.svelte";
-	import RetryBtn from "../RetryBtn.svelte";
 	import { base } from "$app/paths";
 	import ChatMessageColumn from "./ChatMessageColumn.svelte";
 	import ModelEffortPicker from "./ModelEffortPicker.svelte";
@@ -104,7 +103,12 @@
 		files?: File[];
 		onmessage?: (content: string) => void;
 		onstop?: () => void;
-		onretry?: (payload: { id: Message["id"]; content?: string }) => void;
+		onretry?: (payload: {
+			id: Message["id"];
+			content?: string;
+			/** Keep the failed turn's partial output and ask the model to go on. */
+			continueFromPartial?: boolean;
+		}) => void;
 		onshowAlternateMsg?: (payload: { id: Message["id"] }) => void;
 		draft?: string;
 		/**
@@ -574,7 +578,6 @@
 	// Always allow common text-like files; add images only when model is multimodal
 	import {
 		TEXT_MIME_ALLOWLIST,
-		TEXT_EXTENSION_ACCEPT,
 		IMAGE_MIME_ALLOWLIST_DEFAULT,
 		DOCUMENT_MIME_ALLOWLIST,
 		AUDIO_MIME_ALLOWLIST,
@@ -584,7 +587,6 @@
 		Array.from(
 			new Set([
 				...TEXT_MIME_ALLOWLIST,
-				...TEXT_EXTENSION_ACCEPT,
 				// Documents whatever the model is: it never sees the bytes, only
 				// the text the gateway's extractor read out of them.
 				...DOCUMENT_MIME_ALLOWLIST,
@@ -926,20 +928,6 @@
 						</button>
 					</div>
 				{/if}
-				<div class="flex w-full gap-2 *:mb-3">
-					{#if !loading && lastIsError}
-						<RetryBtn
-							classNames="ml-auto"
-							onClick={() => {
-								if (lastMessage && lastMessage.ancestors) {
-									onretry?.({
-										id: lastMessage.id,
-									});
-								}
-							}}
-						/>
-					{/if}
-				</div>
 				<form
 					tabindex="-1"
 					aria-label={isFileUploadEnabled ? m["chat.window.dropzone"]() : undefined}

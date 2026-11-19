@@ -16,6 +16,8 @@
 	import Modal from "$lib/components/Modal.svelte";
 	import TogglePill from "$lib/components/TogglePill.svelte";
 	import * as s from "$lib/components/overlay/styles";
+	import EngineIcon from "$lib/components/code/EngineIcon.svelte";
+	import { engineKey, engineLabel } from "$lib/utils/engineLabel";
 	import IconCode from "~icons/carbon/code";
 	import IconTaskComplete from "~icons/carbon/task-complete";
 	import IconFolder from "~icons/carbon/folder";
@@ -48,7 +50,7 @@
 		turnState: CodeTurnState | null;
 		/** The state's word ("done"). */
 		stateLabel: string;
-		/** The engine's name ("opencode"), shown in the sheet header. */
+		/** The engine's backend id ("opencode", "acp:goose"), shown as its name and mark in the sheet header. */
 		engine?: string;
 		items: PaneItem[];
 		onselect: (id: PaneId) => void;
@@ -235,8 +237,9 @@
 			<h2 id="panels-sheet-title" class="text-base font-semibold text-ink">
 				{m["code.view.panels"]()}
 			</h2>
-			<p class="mb-3 text-xs text-ink-muted">
-				{engine ? `${engine} · ${stateLabel}` : stateLabel}
+			<p class="mb-3 flex items-center gap-1.5 text-xs text-ink-muted" data-testid="panels-engine">
+				{#if engine}<EngineIcon engine={engineKey(engine)} class="size-3.5 shrink-0" />{/if}
+				<span>{engine ? `${engineLabel(engine)} · ${stateLabel}` : stateLabel}</span>
 			</p>
 			<ul class="flex flex-col gap-1">
 				{#each items as item (item.id)}

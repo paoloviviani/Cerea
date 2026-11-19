@@ -183,11 +183,11 @@ describe("uploadFile: audio", () => {
 		get.mockResolvedValue(models);
 		const conv = conversation();
 		// Both decode to the same replacement characters, so hashing the decoded text would collide.
-		const a = new File([Buffer.from([0xff, 0xfe, 0x01])], "a.bin", {
-			type: "application/octet-stream",
+		const a = new File([Buffer.from([0xff, 0xfe, 0x01])], "a.png", {
+			type: "image/png",
 		});
-		const b = new File([Buffer.from([0xfd, 0xfc, 0x02])], "b.bin", {
-			type: "application/octet-stream",
+		const b = new File([Buffer.from([0xfd, 0xfc, 0x02])], "b.png", {
+			type: "image/png",
 		});
 		const [fa, fb] = [await uploadFile(a, conv, "tok"), await uploadFile(b, conv, "tok")];
 		expect(fa.value).not.toBe(fb.value);
@@ -195,18 +195,18 @@ describe("uploadFile: audio", () => {
 		expect(t.value).toBe("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
 	});
 
-	it("does not transcribe a file only the client calls audio, and stores no audio type for it", async () => {
+	it("does not transcribe a file only the client calls audio, and stores it as the text it is", async () => {
 		get.mockResolvedValue(models);
 		const text = new File([Buffer.from("just some words, no sound at all")], "words.mp3", {
 			type: "audio/mpeg",
 		});
 		const stored = await uploadFile(text, conversation(), "tok");
 		expect(postForm).not.toHaveBeenCalled();
-		expect(stored.mime).toBe("application/octet-stream");
+		expect(stored.mime).toBe("text/plain");
 		expect(stored.audio).toBeUndefined();
 	});
 
-	it("does not transcribe a video declared audio/mp4, and keeps its real type", async () => {
+	it("does not transcribe a video declared audio/mp4, and refuses it as unsupported", async () => {
 		get.mockResolvedValue(models);
 		const video = Buffer.concat([
 			Buffer.from([0, 0, 0, 0x18]),
@@ -219,13 +219,14 @@ describe("uploadFile: audio", () => {
 			Buffer.from("vide"),
 			Buffer.alloc(16),
 		]);
-		const stored = await uploadFile(
-			new File([video as BlobPart], "clip.m4a", { type: "audio/mp4" }),
-			conversation(),
-			"tok"
-		);
+		await expect(
+			uploadFile(
+				new File([video as BlobPart], "clip.m4a", { type: "audio/mp4" }),
+				conversation(),
+				"tok"
+			)
+		).rejects.toMatchObject({ status: 415 });
 		expect(postForm).not.toHaveBeenCalled();
-		expect(stored.mime).not.toMatch(/^audio\//);
 	});
 
 	it("stores the sniffed audio type, not the client's string", async () => {

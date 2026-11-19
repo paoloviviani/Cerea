@@ -25,6 +25,14 @@ var gooseVersion string
 // checksums, which upstream does not publish. Written only by bump-goose.sh.
 func GooseVersion() string { return strings.TrimSpace(gooseVersion) }
 
+//go:embed vibe-version
+var vibeVersion string
+
+// VibeVersion is the Mistral Vibe release galopin supports as an engine, from the
+// vibe-version file; vibe-requirements.txt beside it pins every dependency by hash
+// (pip's --require-hashes format). Written only by bump-vibe.sh.
+func VibeVersion() string { return strings.TrimSpace(vibeVersion) }
+
 //go:embed galopin.service
 var systemdUnit string
 

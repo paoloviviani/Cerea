@@ -38,7 +38,7 @@
 		 * common option that is not machine policy. */
 		installOpencode: boolean;
 		/** The command runs in the Docker image: it carries opencode and not
-		 * goose, so neither the install checkbox nor the goose engine is offered. */
+		 * goose or Vibe, so neither the install checkbox nor those engines are offered. */
 		docker?: boolean;
 	}
 
@@ -169,7 +169,8 @@
 					bind:value={choices.engine}
 				>
 					<option value="opencode">{m["code.enroll.engine_opencode"]()}</option>
-					{#if !docker}<option value="goose">{m["code.enroll.engine_goose"]()}</option>{/if}
+					{#if !docker}<option value="goose">{m["code.enroll.engine_goose"]()}</option>
+						<option value="vibe">{m["code.enroll.engine_vibe"]()}</option>{/if}
 				</select>
 				<span>
 					<span class="font-medium text-ink">{m["code.enroll.engine_label"]()}</span>

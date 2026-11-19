@@ -201,6 +201,15 @@ describe("the goose engine", () => {
 		expect(command).toContain("  --engine goose \\\n");
 	});
 
+	it("Mistral Vibe: the installer is asked for it and enroll gets --engine vibe", () => {
+		const command = buildEnrollCommand({ ...BASE_OPTIONS, engine: "vibe", installOpencode: true });
+		expect(command).toContain(
+			"curl -fsSL 'https://cerea.example.org/chat/galopin/install.sh' | sh -s -- --engine vibe &&"
+		);
+		expect(command).not.toContain("--with-opencode");
+		expect(command).toContain("  --engine vibe \\\n");
+	});
+
 	it("prints nothing for the default engine", () => {
 		expect(buildEnrollCommand({ ...BASE_OPTIONS, engine: "opencode" })).not.toContain("--engine");
 	});

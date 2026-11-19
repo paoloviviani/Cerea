@@ -48,7 +48,9 @@ const (
 // only for "sensitive" tools by goose's own judgement).
 var gooseHiddenModes = []string{"auto", "smart_approve"}
 
-func validEngine(e string) bool { return e == "" || e == engineOpencode || e == engineGoose }
+func validEngine(e string) bool {
+	return e == "" || e == engineOpencode || e == engineGoose || e == engineVibe
+}
 
 // gooseRootFor is the supervised goose's GOOSE_PATH_ROOT, beside the credentials.
 func gooseRootFor(credsPath string) string {

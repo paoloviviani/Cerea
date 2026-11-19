@@ -232,6 +232,7 @@ const SAME_AS_ENGLISH = new Set(
 		"galopin",
 		"opencode",
 		"goose",
+		"Mistral Vibe",
 		"OK",
 		"Email",
 		"Web",

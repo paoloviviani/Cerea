@@ -4,12 +4,12 @@
 #
 #   upgrade_precheck    enrollment present? engine? where is galopin? what is running?
 #                       (refuses, gives advice, or re-runs itself detached)
-#   upgrade_engines     which of opencode / goose to install
+#   upgrade_engines     which of opencode / goose / Mistral Vibe to install
 #   (downloads and checksum checks, all before anything is stopped)
 #   upgrade_stop        systemd user unit / the user's own foreground `galopin run`
 #   upgrade_backup      galopin's state, the old binary, opencode's database
 #   (atomic install of galopin; upgrade_check_new puts the old one back when it does not run)
-#   (atomic install of opencode / goose)
+#   (atomic install of opencode / goose / Mistral Vibe)
 #   upgrade_finish      browser runtime, a health check, start, summary
 #
 # `upgrade_on_exit` is the EXIT trap: after the stop, a failure or a signal restarts the old
@@ -37,6 +37,7 @@ newver=
 ocdata=
 oc_pinned=@OPENCODE_VERSION@
 goose_pinned=@GOOSE_VERSION@
+vibe_pinned=@VIBE_VERSION@
 
 unit_active() { systemctl --user is-active --quiet galopin.service >/dev/null 2>&1; }
 unit_enabled() { systemctl --user is-enabled --quiet galopin.service >/dev/null 2>&1; }
@@ -151,7 +152,7 @@ upgrade_precheck() {
 	state=$(dirname "$creds")
 
 	if [ -z "$engine_set" ]; then
-		case "$(upgrade_cred engine)" in goose) engine=goose ;; *) engine=opencode ;; esac
+		case "$(upgrade_cred engine)" in goose) engine=goose ;; vibe) engine=vibe ;; *) engine=opencode ;; esac
 	fi
 	if [ "$(upgrade_cred mode)" = connectors ]; then engine=none; fi
 
@@ -305,7 +306,7 @@ upgrade_backup() {
 	fi
 }
 
-# opencode (and goose) at the version this Cerea pins: installed when missing or older and
+# opencode (and goose, Mistral Vibe) at the version this Cerea pins: installed when missing or older and
 # galopin's own install; never downgraded; one installed elsewhere is left alone.
 upgrade_engines() {
 	if [ "$engine" = opencode ]; then
@@ -349,6 +350,26 @@ upgrade_engines() {
 			dogoose=
 			say "Note: goose at $(command -v goose) was not installed by galopin, so it is left alone; the version this Cerea pins is $goose_pinned."
 		fi
+	fi
+	if [ "$engine" = vibe ]; then upgrade_vibe; fi
+}
+
+# Mistral Vibe is kept at the pinned release the same way: installed when missing or not the
+# pinned version and galopin's own copy; one installed elsewhere is left alone.
+upgrade_vibe() {
+	mine="$dir/galopin-vibe/venv/bin/python"
+	dovibe=1
+	if [ -x "$mine" ]; then
+		now=$("$mine" -c 'import vibe; print(vibe.__version__)' 2>/dev/null </dev/null | head -n 1 || true)
+		if [ "$now" = "$vibe_pinned" ]; then
+			dovibe=
+			say "Mistral Vibe $vibe_pinned is already installed."
+		elif [ -n "$now" ] && ! upgrade_newer "$vibe_pinned" "$now"; then
+			dovibe=
+			say "Mistral Vibe $now is newer than the $vibe_pinned this Cerea pins; it is left alone."
+		fi
+	elif command -v vibe-acp >/dev/null 2>&1; then
+		say "Note: Mistral Vibe at $(command -v vibe-acp) was not installed by galopin; galopin runs its own pinned copy ($vibe_pinned), which is installed now."
 	fi
 }
 

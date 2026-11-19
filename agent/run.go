@@ -56,7 +56,9 @@ Usage:
   --no-shim           Don't start the local shim; --opencode-config must
                       already point opencode at a reachable provider (used
                       by tests, e.g. a mock LLM).
-  --backend NAME      Which backend to run: "opencode" (default), "goose"
+  --backend NAME      Which backend to run: "opencode" (default), "vibe"
+                      (Mistral Vibe with galopin's own home; what a machine
+                      enrolled with --engine vibe runs by itself), "goose"
                       (goose with galopin's own config; what a machine enrolled
                       with --engine goose runs by itself), "acp" (any ACP
                       agent — PROTOCOL.md §2).
@@ -125,9 +127,9 @@ func runRun(args []string) error {
 	}
 
 	switch opts.backendKind {
-	case "", "opencode", "acp", backendGoose:
+	case "", "opencode", "acp", backendGoose, backendVibe:
 	default:
-		return fmt.Errorf("unknown --backend %q (want \"opencode\", \"goose\" or \"acp\"; --connectors-only runs no backend)", opts.backendKind)
+		return fmt.Errorf("unknown --backend %q (want \"opencode\", \"goose\", \"vibe\" or \"acp\"; --connectors-only runs no backend)", opts.backendKind)
 	}
 	if opts.connectorsOnly {
 		conflict := opts.backendKind != ""
@@ -293,6 +295,12 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 		refreshGooseAtStart(ctx, &snapshot, credsPath, sh.Token)
 	}
 
+	// Vibe reads its config once at start, too.
+	if opts.backendKind == backendVibe && !opts.noRefreshModels && !opts.noShim {
+		snapshot := *creds
+		refreshVibeAtStart(ctx, &snapshot, credsPath, sh.Token)
+	}
+
 	if opts.backendKind == backendNone {
 		return runConnectorsOnly(ctx, opts, credsPath, stateDir, mcpPath, cereaOrigin, machineID, machineName, sh, pol)
 	}
@@ -331,7 +339,7 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 
 	mc := newMachine(reg, back, mat, pol)
 	home, _ := os.UserHomeDir()
-	mc.protected = decide.NewProtected(home, stateDir, gooseRootFor(credsPath), mcpPath)
+	mc.protected = decide.NewProtected(home, stateDir, gooseRootFor(credsPath), vibeHomeFor(credsPath), mcpPath)
 	auditLog, err := newAuditLogger(stateDir)
 	if err != nil {
 		return err
@@ -487,7 +495,7 @@ type runningBackend interface {
 // acp is the generic adapter any ACP agent can be plugged in behind).
 func startBackend(ctx context.Context, opts *runOptions, stateDir string, pol policy.Policy, live *policy.Live, logf func(string, ...any)) (runningBackend, error) {
 	home, _ := os.UserHomeDir()
-	protect := diffProtect(decide.NewProtected(home, stateDir, gooseRootFor(opts.credsPath)))
+	protect := diffProtect(decide.NewProtected(home, stateDir, gooseRootFor(opts.credsPath), vibeHomeFor(opts.credsPath)))
 	switch opts.backendKind {
 	case "", "opencode":
 		// galopin's own agent-coordination tools are installed unless the
@@ -522,6 +530,8 @@ func startBackend(ctx context.Context, opts *runOptions, stateDir string, pol po
 		return ocBackend, nil
 	case backendGoose:
 		return startGooseBackend(ctx, opts, opts.credsPath, stateDir, pol, protect, logf)
+	case backendVibe:
+		return startVibeBackend(ctx, opts, opts.credsPath, stateDir, pol, protect, logf)
 	case "acp":
 		cmd := strings.Fields(opts.acpCommand)
 		if len(cmd) == 0 {
@@ -836,6 +846,9 @@ func resolveBackendKind(flag string, connectorsOnly bool, creds *credentials) st
 	}
 	if flag == "" && creds.Engine == engineGoose {
 		return backendGoose
+	}
+	if flag == "" && creds.Engine == engineVibe {
+		return backendVibe
 	}
 	return flag
 }
