@@ -93,7 +93,12 @@ test("a slides artifact renders, steps, presents and downloads a PDF", async ({
 	// full screen late (the overlay shows first, then hands over to it), so look again until neither is up
 	const exit = page.getByRole("button", { name: "Exit presentation" });
 	await expect(async () => {
-		await page.evaluate(() => (document.fullscreenElement ? document.exitFullscreen() : undefined));
+		// Fire and forget: headless Chromium can leave the exitFullscreen() promise pending while it
+		// settles a full screen it granted late, and awaiting it would hold this attempt until the
+		// whole 15 s is spent. The checks below poll for the result instead
+		await page.evaluate(() => {
+			if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+		});
 		if (await exit.isVisible()) await exit.click();
 		expect(await page.evaluate(() => document.fullscreenElement === null)).toBe(true);
 		await expect(exit).toBeHidden({ timeout: 500 });

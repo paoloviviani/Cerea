@@ -210,6 +210,8 @@ type Materializer struct {
 	// the backend's history), its permission class; the answer is carried on
 	// the request as Class. Like the filter it is called without the lock held.
 	onAskStamp func(workspaceDir string, req backend.PermissionRequest) (class string, readOnly bool)
+	// onAskLeak marks an ask whose call carries a local secret's value (names only).
+	onAskLeak func(workspaceDir string, req backend.PermissionRequest) (key, file string)
 
 	outCh chan Envelope
 }
@@ -346,6 +348,13 @@ func (m *Materializer) OnAskStamp(fn func(workspaceDir string, req backend.Permi
 	m.onAskStamp = fn
 }
 
+// OnAskLeak installs the secret-value marker: for every ask that stays a card it
+// says which local secret's value the call carries (key, file), or "" for none.
+// Set before Start.
+func (m *Materializer) OnAskLeak(fn func(workspaceDir string, req backend.PermissionRequest) (key, file string)) {
+	m.onAskLeak = fn
+}
+
 // stampPending gives their class to the asks the materializer holds for
 // sessionID: the seeded ones, which never passed through a live event. Called
 // without the lock held.
@@ -369,8 +378,13 @@ func (m *Materializer) stampPending(sessionID string) {
 	m.mu.Unlock()
 	classes := make([]string, len(pending))
 	readOnly := make([]bool, len(pending))
+	leakKey := make([]string, len(pending))
+	leakFile := make([]string, len(pending))
 	for i, req := range pending {
 		classes[i], readOnly[i] = m.onAskStamp(dir, req)
+		if m.onAskLeak != nil {
+			leakKey[i], leakFile[i] = m.onAskLeak(dir, req)
+		}
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -378,6 +392,7 @@ func (m *Materializer) stampPending(sessionID string) {
 		if cur, ok := st.permissions[req.ID]; ok {
 			cur.Class = classes[i]
 			cur.ReadOnly = readOnly[i]
+			cur.SecretKey, cur.SecretFile = leakKey[i], leakFile[i]
 		}
 	}
 }
@@ -598,6 +613,11 @@ func (m *Materializer) ApplyBackendEvent(ctx context.Context, be backend.Backend
 		req := *be.Event.Request
 		// both fields are overwritten, whatever the agent's request carried
 		req.Class, req.ReadOnly = m.onAskStamp(be.WorkspaceDir, req)
+		if m.onAskLeak != nil {
+			req.SecretKey, req.SecretFile = m.onAskLeak(be.WorkspaceDir, req)
+		} else {
+			req.SecretKey, req.SecretFile = "", ""
+		}
 		be.Event.Request = &req
 	}
 	m.mu.Lock()

@@ -70,6 +70,9 @@ type Request struct {
 	Command string
 	// Workspace is the root directory of the session's workspace.
 	Workspace string
+	// Args is the text of a tool call's arguments (a connector or MCP tool, a
+	// web fetch), for the secret-value guard to search. Never shown or logged.
+	Args string
 }
 
 // State is the ROOT session's state: a subagent is decided by its root's.
@@ -106,6 +109,9 @@ type Result struct {
 	// in-project read and the like): the label a card carries.
 	Class  Class
 	Reason string
+	// Leak is set when the request carries the value of a local secret (step
+	// "secret-value"): the key and file, never the value.
+	Leak *SecretLeak
 }
 
 // Refusal texts, which the agent shows its model.
@@ -346,7 +352,7 @@ var priority = []Class{ClassSecrets, ClassLoop, ClassOutside, ClassCommand, Clas
 
 // classesOf is every class the request belongs to. An in-project read, galopin's
 // own bookkeeping tools and a safe-directory access belong to none.
-func (p Policy) classesOf(r Request, cat Category, sensitive bool) []Class {
+func (p Policy) classesOf(r Request, cat Category, sensitive bool, leak *SecretLeak) []Class {
 	var cs []Class
 	switch cat {
 	case Edit:
@@ -366,7 +372,7 @@ func (p Policy) classesOf(r Request, cat Category, sensitive bool) []Class {
 	case Brake:
 		cs = append(cs, ClassLoop)
 	}
-	if _, hit := p.Protected.SecretHit(r); sensitive || hit {
+	if _, hit := p.Protected.SecretHit(r); sensitive || hit || leak != nil {
 		cs = append(cs, ClassSecrets)
 	}
 	return cs
@@ -376,7 +382,7 @@ func (p Policy) classesOf(r Request, cat Category, sensitive bool) []Class {
 // carries as `class` (PROTOCOL.md §7).
 func ClassOf(p Policy, r Request) Class {
 	cat, sensitive := Classify(p, r)
-	return primary(p.classesOf(r, cat, sensitive))
+	return primary(p.classesOf(r, cat, sensitive, p.Protected.SecretValueLeak(r)))
 }
 
 func primary(cs []Class) Class {
@@ -398,7 +404,8 @@ func primary(cs []Class) Class {
 // config, and a repeating agent.
 func Decide(p Policy, s State, r Request) Result {
 	cat, sensitive := Classify(p, r)
-	classes := p.classesOf(r, cat, sensitive)
+	leak := p.Protected.SecretValueLeak(r)
+	classes := p.classesOf(r, cat, sensitive, leak)
 	class := primary(classes)
 	if _, hit := p.Protected.OwnHit(r); hit && cat != Internal {
 		return Result{Verdict: Reject, Step: "floor", Category: cat, Class: class, Reason: FloorReason}
@@ -424,6 +431,11 @@ func Decide(p Policy, s State, r Request) Result {
 	}
 	res.Category, res.Class = cat, class
 	switch {
+	case res.Verdict != Reject && leak != nil:
+		// The value of a local secret in an outbound command always comes to the
+		// user: not Auto's map, not Allow, not a limit, not an exception. Plan,
+		// a deny and the floor already refused above.
+		res.Verdict, res.Step, res.Leak = Card, "secret-value", leak
 	case res.Verdict == Once && loop:
 		res.Verdict, res.Step = Card, "loop"
 	case res.Verdict == Once && secret && res.Step != "exception-ask":
@@ -613,8 +625,12 @@ func AskAlwaysOK(p Policy, r Request) bool {
 	if _, hit := p.Protected.OwnHit(r); hit && cat != Internal {
 		return false
 	}
+	leak := p.Protected.SecretValueLeak(r)
+	if leak != nil {
+		return false // a secret's value in a command is a card every time
+	}
 	secret := false
-	for _, c := range p.classesOf(r, cat, sensitive) {
+	for _, c := range p.classesOf(r, cat, sensitive, leak) {
 		if c == ClassLoop {
 			return false
 		}
