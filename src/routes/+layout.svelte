@@ -330,7 +330,18 @@
 <NavigationLoadingBar />
 <CommandPalette conversations={convsStore.list} gatewayIsAdmin={data.gatewayIsAdmin} />
 
+<!--
+	The shell is overflow-hidden and must never scroll, but the browser still
+	scrolls such boxes for a hash jump, scrollIntoView or a focus — which slid
+	the whole app up and left the screen blank under it (Settings →
+	#tool-approvals on a phone). Snap it back whenever that happens.
+-->
 <div
+	onscroll={(e) => {
+		const shell = e.currentTarget;
+		if (shell.scrollTop !== 0) shell.scrollTop = 0;
+		if (shell.scrollLeft !== 0) shell.scrollLeft = 0;
+	}}
 	class="fixed grid h-[var(--app-dvh,100dvh)] w-screen grid-cols-1 grid-rows-[auto_1fr] overflow-hidden pb-[env(safe-area-inset-bottom)] text-smd {!isNavCollapsed
 		? 'md:grid-cols-[var(--nav-width)_1fr]'
 		: 'md:grid-cols-[0px_1fr]'} transition-[300ms] [transition-property:grid-template-columns] md:grid-rows-[1fr] dark:text-gray-300"

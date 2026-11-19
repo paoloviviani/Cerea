@@ -404,6 +404,10 @@ test.describe("chat composer at 390×844", () => {
 
 		const row = page.locator("#tool-approvals");
 		await expect(row).toBeInViewport();
+		// The shell got scrolled late (after the page's own scroll ran), so
+		// give any stray scroll time to land before checking.
+		await page.waitForTimeout(1_500);
+		await expect(row).toBeInViewport();
 		// The bug: the hash scroll also scrolled the fixed, overflow-hidden app
 		// shell, sliding the page up and leaving the screen blank below it.
 		const shifted = await page.evaluate(() => {
