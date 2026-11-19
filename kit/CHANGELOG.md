@@ -9,6 +9,8 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 - **A command that carries a secret's value always asks you.** Before a command that sends something off the computer runs (`curl`, `wget`, `nc`, `ssh`, `scp`, `rsync`, a package publish, a `git push` to a new remote, any URL), the computer checks whether it contains the value of a secret kept there: the values in the workspace's `.env*` files and in credential files such as `~/.aws/credentials` and `~/.npmrc` (12 characters or more, also base64, URL-encoded or hex). On a match the card always reaches you, in Auto and Allow too, and says which key and file, never the value. Connector and web calls whose arguments carry a value are checked the same. Everything is checked locally. Update the computer with `galopin upgrade`.
 
+- **Large attachments.** Cerea refuses, before sending and on the server, a message whose files together exceed 90 MB (the request limit is 100 MB), and builds the document-reading request with fewer copies of a large file in memory. Needs Pystino 0.33.5 or later (its document reader now accepts up to 32 MiB, was 25 MB, so a 25-30 MB attachment is read; `EXTRACTOR_MAX_BYTES` changes it).
+
 ## v0.59.1 — 2026-11-19
 
 Pins: Cerea `0.59.1` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.4`, opencode `2.3.0`.

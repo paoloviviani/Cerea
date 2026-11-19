@@ -1374,6 +1374,7 @@
 	"chat.dropzone.label": "[Ďŕóþ á ƒíľé ťó áďď íť ťó ťȟé ćȟáť]",
 	"chat.audio.too_long": "[{name} íś ťóó ľóńǧ ťó ťŕáńśćŕíƀé ȟéŕé: úþ ťó 25 ḾƁ (áƀóúť 25 ḿíńúťéś)]",
 	"chat.dropzone.too_big": "[Á ƒíľé íś ťóó ƀíǧ (30 ḾƁ áť ḿóśť).]",
+	"chat.dropzone.total_too_big": "[Ťȟéśé ƒíľéś áŕé ťóó ƀíǧ ťóǧéťȟéŕ: á ḿéśśáǧé ťáķéś úþ ťó 90 ḾƁ óƒ ƒíľéś íń áľľ.]",
 	"chat.effort.default": "[Ďéƒáúľť]",
 	"chat.effort_picker.custom": "[ćúśťóḿ]",
 	"chat.effort_picker.effort": "[Éƒƒóŕť]",

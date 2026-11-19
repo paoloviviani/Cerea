@@ -31,7 +31,11 @@ import {
 	uploadFile,
 } from "$lib/server/files/uploadFile";
 import { resolveHashFiles } from "$lib/server/files/resolveHashFiles";
-import { attachmentSizeRefusal } from "$lib/constants/mime";
+import {
+	attachmentSizeRefusal,
+	attachmentsTotalFit,
+	MAX_MESSAGE_ATTACHMENTS_BYTES,
+} from "$lib/constants/mime";
 import { deleteConversationStorage } from "$lib/server/conversationStorage";
 import { convertLegacyConversation } from "$lib/utils/tree/convertLegacyConversation";
 import { isMessageId } from "$lib/utils/tree/isMessageId";
@@ -251,6 +255,15 @@ export async function POST({ request, locals, params, getClientAddress }) {
 
 	if (location) {
 		locals.location = location;
+	}
+
+	// The files of one message together stay under the request body limit.
+	const uploaded = form.getAll("files").filter((entry): entry is File => entry instanceof File);
+	if (!attachmentsTotalFit(uploaded.map((file) => file.size))) {
+		error(
+			413,
+			`The attachments are too large together: a message takes up to ${MAX_MESSAGE_ATTACHMENTS_BYTES / 1024 / 1024} MB of files in all.`
+		);
 	}
 
 	const inputFiles = await Promise.all(
