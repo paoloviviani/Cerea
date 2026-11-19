@@ -1312,6 +1312,7 @@
 	"chat.dropzone.label": "Rilascia un file per aggiungerlo alla chat",
 	"chat.audio.too_long": "{name} è troppo lungo per essere trascritto qui: al massimo 25 MB (circa 25 minuti)",
 	"chat.dropzone.too_big": "Un file è troppo grande (al massimo 30 MB).",
+	"chat.dropzone.total_too_big": "Questi file sono troppo grandi insieme: un messaggio accetta al massimo 90 MB di file in tutto.",
 	"chat.effort.default": "Predefinito",
 	"chat.effort_picker.custom": "personalizzato",
 	"chat.effort_picker.effort": "Impegno",

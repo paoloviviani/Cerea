@@ -7,6 +7,7 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **Large attachments.** Cerea refuses, before sending and on the server, a message whose files together exceed 90 MB (the request limit is 100 MB), and builds the document-reading request with fewer copies of a large file in memory. Needs Pystino 0.33.5 or later (its document reader now accepts up to 32 MiB, was 25 MB, so a 25-30 MB attachment is read; `EXTRACTOR_MAX_BYTES` changes it).
 - Privacy-withheld files: an image a privacy rule refused for vision is now withheld like a refused document (never mounted or read), and the owner of a conversation can save their own withheld file with a "Download (withheld)" click: a one-time token, valid 60 seconds, and unreachable from tools, connectors and the code sandbox.
 
 ## v0.59.1 — 2026-11-19
