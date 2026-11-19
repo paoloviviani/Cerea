@@ -50,7 +50,7 @@
  * OCR model in the hope that it copes (`resolveOfficeReader`, docs/knowledge.md).
  */
 
-import { isQuotaError } from "$lib/server/gatewayErrors";
+import { isQuotaError, refusalRule } from "$lib/server/gatewayErrors";
 import type { ExtractionFailureKind, WithheldByPrivacy } from "$lib/types/Message";
 import { config } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
@@ -163,6 +163,22 @@ const DIRECT_OCR_MIME_ALLOWLIST = ["application/pdf"] as const;
  * opaque 413 from a third party.
  */
 const DIRECT_OCR_MAX_BYTES = 10 * 1024 * 1024;
+
+/**
+ * A `data:` URI of the document, built with as few full-size copies as
+ * possible: a Buffer *view* over the bytes (no copy), one base64 string, and
+ * the prefix joined onto it as a rope that V8 flattens only when the request
+ * body is serialised. A 30 MB file is thus held as the original plus one
+ * ~40 MB string and the JSON body, not the three string copies a template
+ * literal over `Buffer.from(...).toString(...)` used to make.
+ */
+export function dataUri(bytes: ArrayBuffer | Uint8Array, mime: string): string {
+	const view =
+		bytes instanceof Uint8Array
+			? Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+			: Buffer.from(bytes, 0, bytes.byteLength);
+	return "data:" + mime + ";base64," + view.toString("base64");
+}
 
 interface OcrPage {
 	/** 0-based page number. */
@@ -425,12 +441,7 @@ export interface ExtractionFailure {
  */
 export function privacyRefusal(err: unknown): WithheldByPrivacy | undefined {
 	if (!(err instanceof GatewayCallFailed) || err.code !== "routing_refused") return undefined;
-	const message = err.message ?? "";
-	// Names may contain quotes: take up to the closing quote before " (pipeline '".
-	const both = /privacy rule '(.*)' \(pipeline '(.*)'\)/s.exec(message);
-	if (both) return { rule: both[1], pipeline: both[2] };
-	const only = /privacy rule '(.*?)'\.?\s*$/s.exec(message);
-	return { rule: only?.[1] || "unnamed" };
+	return refusalRule(err.message ?? "");
 }
 
 /**
@@ -783,7 +794,7 @@ async function extractViaGateway(options: {
 	// and cannot redact it. Sending the bytes is what keeps the document inside
 	// the gateway's own reach — and with the local extractor, inside the
 	// deployment entirely.
-	const uri = `data:${mime};base64,${Buffer.from(bytes).toString("base64")}`;
+	const uri = dataUri(bytes, mime);
 
 	const timeoutMs = ocrTimeoutMs();
 	try {
@@ -966,7 +977,7 @@ async function extractDocumentDirect(options: {
 		};
 	}
 
-	const uri = `data:${mime};base64,${Buffer.from(bytes).toString("base64")}`;
+	const uri = dataUri(bytes, mime);
 	const apiKey = config.CHAT_OCR_API_KEY?.trim();
 
 	let response: Response;

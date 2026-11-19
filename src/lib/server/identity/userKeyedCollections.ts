@@ -955,6 +955,29 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		merge: (stray) => deleteStrayRows(collections.localConnectorOauth, "userId", stray),
 		erase: (userId) => eraseByField(collections.localConnectorOauth, "userId", userId),
 	},
+	{
+		name: "withheldDownloadTokens",
+		owner: "owner (a stringified userId, or an anonymous sessionId)",
+		mergeRule: "delete-stray",
+		eraseRule: "custom",
+		// A one-time download link for a withheld file, minted for the stray's
+		// own conversation: it is short-lived and tied to that owner, so it is
+		// dropped rather than handed to the target, who can mint a fresh one.
+		merge: async (stray) => {
+			const { deletedCount } = await collections.withheldDownloadTokens.deleteMany({
+				owner: stray.toString(),
+			});
+			return deletedCount;
+		},
+		erase: async (userId) => {
+			const { deletedCount } = await collections.withheldDownloadTokens.deleteMany({
+				owner: userId.toString(),
+			});
+			return deletedCount;
+		},
+		count: (userId) =>
+			collections.withheldDownloadTokens.countDocuments({ owner: userId.toString() }),
+	},
 ];
 
 /**

@@ -42,7 +42,9 @@ What differs is the engine, which the tool's description says:
   makes a new one, and the result tells the model its earlier state is gone.
 - **Files in.** The conversation's attachments are copied to `/mnt/data/<name>` on demand, by the same
   plan as the browser (same names, the extracted text beside each file as `<name>.md`, the same size
-  caps). A file a privacy rule withheld is never copied: it is neither planned nor readable.
+  caps). A file a privacy rule withheld is never copied: it is neither planned nor readable. This includes an image the gateway refused for vision under a
+  privacy rule. Its owner can still save it with the file card's "Download (withheld)" button, a
+  one-time link the sandbox cannot reach.
   Files the document tools produced are not copied yet.
 - **Files out.** Files the code writes under `/mnt/output/` come back as the conversation's files and
   show as download cards, kept as long as any deliverable (`CHAT_FILE_RETENTION_DAYS`). At most 20 files

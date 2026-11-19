@@ -1398,7 +1398,7 @@
 			{#if message.files?.length}
 				<div class="flex w-full flex-wrap justify-end gap-4">
 					{#each message.files as file}
-						<UploadedFile {file} canClose={false} {fileBaseUrl} />
+						<UploadedFile {file} canClose={false} {fileBaseUrl} canDownloadWithheld={!readOnly} />
 					{/each}
 				</div>
 			{/if}

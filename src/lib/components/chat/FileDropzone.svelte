@@ -2,7 +2,11 @@
 	import { m } from "$lib/paraglide/messages";
 	import { requireAuthUser } from "$lib/utils/auth";
 	import { fileMatchesAllowlist } from "$lib/utils/mimeMatch";
-	import { isAudioAttachmentMime, maxAttachmentBytesFor } from "$lib/constants/mime";
+	import {
+		attachmentsTotalFit,
+		isAudioAttachmentMime,
+		maxAttachmentBytesFor,
+	} from "$lib/constants/mime";
 	import CarbonImage from "~icons/carbon/image";
 
 	interface Props {
@@ -54,6 +58,12 @@
 									: m["chat.dropzone.too_big"]()
 							);
 							files = [];
+							return;
+						}
+
+						// the files of one message together must fit the request body
+						if (!attachmentsTotalFit([...files, file].map((f) => f.size))) {
+							setErrorMsg(m["chat.dropzone.total_too_big"]());
 							return;
 						}
 
