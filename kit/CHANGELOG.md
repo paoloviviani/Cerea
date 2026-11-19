@@ -5,7 +5,11 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.59.1 — 2026-11-19
+
+Pins: Cerea `0.59.1` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.4`, opencode `2.3.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. Nothing to do on computers.
 
 - Chat: the "Using tool…" line under the composer is gone; it made the composer jump mid-turn. The tool still shows in the message.
 
