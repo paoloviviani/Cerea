@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -38,20 +39,36 @@ func (h *fakeHandler) Handle(_ context.Context, op string, args json.RawMessage)
 type serverConn struct {
 	t    *testing.T
 	conn *websocket.Conn
+	// over is set when the owning test starts tearing down. A scripted
+	// handler can outlive its test (hijacked websocket connections are not
+	// waited on by httptest.Server.Close), and calling t.Fatalf from it then
+	// panics "Fail in goroutine after Test... has completed", which fails the
+	// whole package. Once over, a failed read/write just ends the handler.
+	over *atomic.Bool
+}
+
+// fatalf fails the test, unless the test is already over, in which case the
+// handler goroutine just exits (the connection died because the test ended).
+func (s *serverConn) fatalf(format string, args ...any) {
+	s.t.Helper()
+	if s.over.Load() {
+		runtime.Goexit()
+	}
+	s.t.Fatalf(format, args...)
 }
 
 func (s *serverConn) readType(want string) map[string]any {
 	s.t.Helper()
 	_, raw, err := s.conn.Read(context.Background())
 	if err != nil {
-		s.t.Fatalf("reading %s: %v", want, err)
+		s.fatalf("reading %s: %v", want, err)
 	}
 	var m map[string]any
 	if err := json.Unmarshal(raw, &m); err != nil {
-		s.t.Fatalf("frame not JSON: %v", err)
+		s.fatalf("frame not JSON: %v", err)
 	}
 	if m["type"] != want {
-		s.t.Fatalf("frame type = %v, want %s (frame: %s)", m["type"], want, raw)
+		s.fatalf("frame type = %v, want %s (frame: %s)", m["type"], want, raw)
 	}
 	return m
 }
@@ -63,25 +80,29 @@ func (s *serverConn) send(v any) {
 		s.t.Fatal(err)
 	}
 	if err := s.conn.Write(context.Background(), websocket.MessageText, body); err != nil {
-		s.t.Fatalf("writing frame: %v", err)
+		s.fatalf("writing frame: %v", err)
 	}
 }
 
 func newFakeCereaServer(t *testing.T, drive func(*serverConn, *http.Request)) *httptest.Server {
 	t.Helper()
 	var srv *httptest.Server
+	over := new(atomic.Bool)
 	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 			Subprotocols: []string{"pystino-machine.v1"},
 		})
 		if err != nil {
-			t.Errorf("server accept: %v", err)
+			if !over.Load() {
+				t.Errorf("server accept: %v", err)
+			}
 			return
 		}
-		sc := &serverConn{t: t, conn: conn}
+		sc := &serverConn{t: t, conn: conn, over: over}
 		drive(sc, r)
 	}))
 	t.Cleanup(srv.Close)
+	t.Cleanup(func() { over.Store(true) }) // runs first (LIFO)
 	return srv
 }
 
