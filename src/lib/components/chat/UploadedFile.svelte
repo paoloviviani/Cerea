@@ -356,8 +356,12 @@
 	});
 	function claim(event?: Event): boolean {
 		const target = event?.currentTarget;
-		// An event of a source that has since been replaced.
-		if (target instanceof HTMLImageElement && target.getAttribute("src") !== tileSrc) return false;
+		// An event of a picture element that has since been replaced (see the key below).
+		if (
+			target instanceof HTMLImageElement &&
+			(!target.isConnected || target.getAttribute("src") !== tileSrc)
+		)
+			return false;
 		if (handledSrc === tileSrc) return false;
 		handledSrc = tileSrc;
 		return true;
@@ -566,15 +570,18 @@
 						<CarbonDocumentBlank class="text-3xl" />
 					</div>
 				{:else}
-					<img
-						bind:this={tileImg}
-						src={tileSrc}
-						alt={file.name}
-						class="h-36 w-28 object-cover transition-opacity duration-200 motion-reduce:transition-none"
-						class:opacity-0={!tileShown}
-						onload={tileLoaded}
-						onerror={tileError}
-					/>
+					<!-- A new element for the original after a refused thumbnail: events of the old one are stale. -->
+					{#key tileSrc}
+						<img
+							bind:this={tileImg}
+							src={tileSrc}
+							alt={file.name}
+							class="h-36 w-28 object-cover transition-opacity duration-200 motion-reduce:transition-none"
+							class:opacity-0={!tileShown}
+							onload={tileLoaded}
+							onerror={tileError}
+						/>
+					{/key}
 					{#if tileSkeleton}
 						<Skeleton
 							variant="block"
