@@ -202,18 +202,24 @@ test.describe("an approval is applied by the server", () => {
 		await send(page, "start the agent");
 		await expect(lastAssistant(page).getByRole("button", { name: "Allow once" })).toBeVisible();
 		const conversationId = /conversation\/([a-f0-9]{24})/.exec(page.url())?.[1];
+		const convOid = new ObjectId(conversationId);
 		const stopped = await page.request.post(
 			`${E2E_APP_URL}/conversation/${conversationId}/stop-generating`,
 			{ headers: { origin: E2E_APP_URL, "content-type": "application/json" }, data: {} }
 		);
 		expect(stopped.ok()).toBe(true);
 		await expect
-			.poll(async () => (await db.collection("turnStates").findOne({}))?.status)
+			.poll(
+				async () => (await db.collection("turnStates").findOne({ conversationId: convOid }))?.status
+			)
 			.toBe("failed");
 		// The prompt "expires" after the stop, and a sweep (30 s) passes.
 		await db
 			.collection("mcpElicitations")
-			.updateMany({}, { $set: { expiresAt: new Date(Date.now() - 1000) } });
+			.updateMany(
+				{ conversationId: convOid },
+				{ $set: { expiresAt: new Date(Date.now() - 1000) } }
+			);
 		await page.waitForTimeout(35_000);
 		// A click on the card that is still on screen is refused by the server.
 		const answered = await page.request.post(
@@ -221,15 +227,19 @@ test.describe("an approval is applied by the server", () => {
 			{
 				headers: { origin: E2E_APP_URL, "content-type": "application/json" },
 				data: {
-					elicitationId: (await db.collection("mcpElicitations").findOne({}))?.elicitationId,
+					elicitationId: (
+						await db.collection("mcpElicitations").findOne({ conversationId: convOid })
+					)?.elicitationId,
 					action: "accept",
 				},
 			}
 		);
 		expect(answered.status()).toBe(409);
 		expect(resumes((await mockOpenAI.requests()) as Req[])).toHaveLength(0);
-		expect((await db.collection("turnStates").findOne({}))?.status).toBe("failed");
-		expect(await db.collection("parkedCalls").countDocuments({})).toBe(0);
+		expect((await db.collection("turnStates").findOne({ conversationId: convOid }))?.status).toBe(
+			"failed"
+		);
+		expect(await db.collection("parkedCalls").countDocuments({ conversationId: convOid })).toBe(0);
 	});
 
 	test("an approval that expires is denied and the turn continues once", async ({
