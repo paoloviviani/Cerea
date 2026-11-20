@@ -7,10 +7,15 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
-Fixed:
+## v0.60.5 — 2026-11-20
+
+Pins: Cerea `0.60.5` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.6`, opencode `2.3.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`.
 
 - Audio attachments: `.opus` and `.m4a` files (and the audio-only MP4 and 3GPP files phones record) are accepted again. Users attaching them for transcription got "unsupported" before anything was transcribed, because of how the file's type was named (Opus in Ogg, Android's `audio/mp4a-latm`, or no type at all). Dictation takes the same names. Audio Cerea cannot take now says why and which formats work (MP3, M4A, WAV, OGG/Opus, FLAC, WebM); raw AAC asks for an export as M4A or MP3.
 - A turn that made several tool calls at once now waits for all of them before continuing. When a fast code result arrived while a slower connector call of the same step was still running, the turn used to carry on without the slow call's answer. Users see one continuation with every result, an approval is applied by the server even if the tab was closed, and Stop ends the whole step.
+- Pystino 0.33.6 is included. Admin privacy: for what users may add, the rules now say explicitly "any type" or "only these types". Read rules no longer have "Redact with": the migration drops it from existing read rules and records each one in the admin audit log.
 
 ## v0.60.4 — 2026-11-20
 
