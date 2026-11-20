@@ -706,10 +706,8 @@ test.describe("owned machine agent: parity", () => {
 		await expect(transcript.getByText("Answer two.", { exact: true })).toHaveCount(0);
 		await expect(page.getByText("second question")).toHaveCount(1);
 		await expect(transcript.getByText("Answer one.")).toBeVisible();
-		// Let the re-sent turn finish before the reload: the machine keeps its history once the turn is
-		// done, and a reload that lands mid-turn replays a half-written answer (CI showed the second
-		// question with an empty assistant bubble that never filled in)
-		await settle();
+		// No wait for the turn to settle: a page reload can land while it is still being written
+		// (the machine's resync must not drop what it wrote meanwhile)
 
 		// The same survives a reload: it is the machine's history now.
 		await page.reload();
@@ -718,6 +716,63 @@ test.describe("owned machine agent: parity", () => {
 		// The fork action is named Fork now.
 		await page.locator('[data-message-role="assistant"]').last().hover();
 		await expect(page.getByRole("button", { name: "Fork from here" }).last()).toBeVisible();
+	});
+
+	test("reload mid-turn: the running reply picks up where it was and completes", async ({
+		page,
+		db,
+		session,
+		mockOpenAI,
+	}) => {
+		await openSession(page, db, session.sessionId);
+		const transcript = page.locator('[data-message-role="assistant"]');
+		await mockOpenAI.setDefaultScenario({
+			content: ["Slow", " answer", " arrives", " bit", " by", " bit", " and", " ends", " here."],
+			chunkDelayMs: 600,
+		});
+		await send(page, "tell me slowly");
+		await expect(transcript.getByText("Slow")).toBeVisible({ timeout: 60_000 });
+		// The turn is still running: the end of the reply has not been written yet
+		await expect(transcript.getByText("ends here.")).toHaveCount(0);
+		await page.reload();
+		await expect(transcript.getByText("Slow answer arrives bit by bit and ends here.")).toBeVisible(
+			{
+				timeout: 60_000,
+			}
+		);
+		await expect(page.getByRole("img", { name: "done", exact: true })).toBeVisible({
+			timeout: 60_000,
+		});
+	});
+
+	test("reload mid-turn after a retry: the re-sent reply completes", async ({
+		page,
+		db,
+		session,
+		mockOpenAI,
+	}) => {
+		await openSession(page, db, session.sessionId);
+		const transcript = page.locator('[data-message-role="assistant"]');
+		const settle = () =>
+			expect(page.getByRole("img", { name: "done", exact: true })).toBeVisible({ timeout: 60_000 });
+		await mockOpenAI.setDefaultScenario({ content: ["Answer", " one."], chunkDelayMs: 5 });
+		await send(page, "first question");
+		await expect(transcript.getByText("Answer one.")).toBeVisible({ timeout: 60_000 });
+		await settle();
+		await mockOpenAI.setDefaultScenario({
+			content: ["Again", " slowly", " and", " steadily", " to", " the", " very", " end."],
+			chunkDelayMs: 600,
+		});
+		await transcript.last().hover();
+		await page.getByRole("button", { name: "Retry" }).last().click();
+		await page.getByRole("dialog").getByRole("button", { name: "Roll back and send" }).click();
+		await expect(transcript.getByText("Again")).toBeVisible({ timeout: 60_000 });
+		await expect(transcript.getByText("very end.")).toHaveCount(0);
+		await page.reload();
+		await expect(transcript.getByText("Again slowly and steadily to the very end.")).toBeVisible({
+			timeout: 60_000,
+		});
+		await expect(transcript.getByText("Answer one.", { exact: true })).toHaveCount(0);
 	});
 
 	test("subagent approvals: a child's bash permission surfaces as a labelled card mid-turn, and approving lets the child finish", async ({

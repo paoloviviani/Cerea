@@ -182,10 +182,18 @@ async function scrollToTop(page: Page): Promise<void> {
 	const box = await page.locator('[aria-label="Chat messages"]').boundingBox();
 	if (!box) throw new Error("the transcript has no box");
 	await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-	await page.mouse.wheel(0, -1_000_000);
+	// A reader whose first flick did not move the page flicks again: a wheel the browser drops (CI saw
+	// one that left the transcript exactly at the bottom for the whole 15 s) is not the thing under test
 	await expect
-		.poll(() =>
-			page.evaluate(() => document.querySelector('[aria-label="Chat messages"]')?.scrollTop ?? -1)
+		.poll(
+			async () => {
+				const top = await page.evaluate(
+					() => document.querySelector('[aria-label="Chat messages"]')?.scrollTop ?? -1
+				);
+				if (top > 1) await page.mouse.wheel(0, -1_000_000);
+				return top;
+			},
+			{ intervals: [250, 500, 500, 1_000], timeout: 15_000 }
 		)
 		.toBeLessThanOrEqual(1);
 }

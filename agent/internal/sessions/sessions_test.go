@@ -17,6 +17,9 @@ type fakeBackend struct {
 	transcripts map[string]backend.Transcript
 	replies     []replyCall
 	replyErr    error
+	// afterTranscriptRead runs once the transcript has been read and before it is
+	// returned: what a turn does while the backend answers the fetch.
+	afterTranscriptRead func()
 }
 
 type replyCall struct {
@@ -70,7 +73,11 @@ func (f *fakeBackend) Models(context.Context, string) ([]backend.Model, error) {
 	panic("not used by these tests")
 }
 func (f *fakeBackend) Transcript(_ context.Context, _ string, sessionID string) (backend.Transcript, error) {
-	return f.transcripts[sessionID], nil
+	tr := f.transcripts[sessionID]
+	if f.afterTranscriptRead != nil {
+		f.afterTranscriptRead()
+	}
+	return tr, nil
 }
 func (f *fakeBackend) Subscribe(context.Context) (<-chan backend.BackendEvent, error) {
 	panic("not used by these tests: they drive ApplyBackendEvent directly")
@@ -602,5 +609,53 @@ func TestSnapshotCarriesRetryUntilStatusChanges(t *testing.T) {
 	apply(backend.Event{Kind: backend.EventStatus, Status: backend.StatusBusy})
 	if tr := snap(); tr.Retry != nil {
 		t.Errorf("Retry = %+v after busy, want nil", tr.Retry)
+	}
+}
+
+// A resync fetches the transcript and swaps it in. A turn running while the fetch is
+// out writes parts the fetched copy never had: the swap must keep them, or every
+// later snapshot (a page reload) shows the finished reply with no text.
+func TestResyncKeepsWhatARunningTurnWroteDuringTheFetch(t *testing.T) {
+	ctx := context.Background()
+	back := newFakeBackend()
+	mat := New(back, policy.Default())
+	mat.Track("/work", backend.Session{ID: "s1"})
+	back.transcripts["s1"] = backend.Transcript{
+		Status: backend.StatusBusy,
+		Messages: []backend.TranscriptEntry{
+			{Message: backend.Message{ID: "u1", Role: "user"}, Parts: []backend.Part{{ID: "pu1", MessageID: "u1", Role: "user", Type: backend.PartText, Text: "question"}}},
+			{Message: backend.Message{ID: "a1", Role: "assistant"}},
+		},
+	}
+	live := func(ev backend.Event) {
+		mat.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/work", SessionID: "s1", Event: ev})
+	}
+	// The fetch has read the transcript (an empty assistant message); the reply is written
+	// before the swap lands.
+	back.afterTranscriptRead = func() {
+		back.afterTranscriptRead = nil
+		live(textPart("a1", "t1", "Answer two, again."))
+	}
+	mat.resync(ctx, "/work", "s1")
+
+	res, err := mat.Sync(ctx, "s1", "", 0)
+	if err != nil || res.Snapshot == nil {
+		t.Fatalf("sync: %+v %v", res, err)
+	}
+	var got string
+	var ids []string
+	for _, e := range res.Snapshot.Messages {
+		ids = append(ids, e.Message.ID)
+		for _, p := range e.Parts {
+			if e.Message.ID == "a1" {
+				got += p.Text
+			}
+		}
+	}
+	if got != "Answer two, again." {
+		t.Fatalf("the reply's text was lost to the swap: %q (messages %v)", got, ids)
+	}
+	if len(ids) != 2 || ids[0] != "u1" || ids[1] != "a1" {
+		t.Fatalf("messages = %v, want [u1 a1]", ids)
 	}
 }

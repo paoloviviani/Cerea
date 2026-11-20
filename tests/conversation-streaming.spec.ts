@@ -253,3 +253,27 @@ async function seedForRetry(db: import("mongodb").Db, sessionId: string): Promis
 	} as never);
 	return _id.toString();
 }
+
+test("a page reload mid-turn picks the running reply up and finishes it", async ({
+	page,
+	mockOpenAI,
+}) => {
+	test.setTimeout(60_000);
+	await mockOpenAI.setDefaultScenario({
+		content: ["First", " part", " of", " a", " slow", " reply", " that", " ends", " here."],
+		chunkDelayMs: 500,
+		finishReason: "stop",
+	});
+	await startConversation(page, "reload me mid-turn");
+	await expect(page.locator('[data-message-role="assistant"]').getByText("First")).toBeVisible({
+		timeout: 30_000,
+	});
+	await expect(page.getByText("ends here.")).toHaveCount(0);
+	await page.reload();
+	await expect(
+		page
+			.locator('[data-message-role="assistant"]')
+			.getByText("First part of a slow reply that ends here.")
+	).toBeVisible({ timeout: 30_000 });
+	await expect(page.getByRole("button", STOP)).toHaveCount(0, { timeout: 30_000 });
+});
