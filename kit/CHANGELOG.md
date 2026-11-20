@@ -7,6 +7,8 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- Fixed: attaching several photos on a phone pushed the message box and the send button off the screen. Attachments now show as one small row of thumbnails above the message box that scrolls sideways, so the box and the send button stay in view however many files users attach.
+
 ## v0.60.1 — 2026-11-19
 
 Pins: Cerea `0.60.1` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.5`, opencode `2.3.0`.
