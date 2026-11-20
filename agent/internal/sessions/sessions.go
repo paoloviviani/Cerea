@@ -90,6 +90,9 @@ type sessionState struct {
 	// whose fetch began earlier (two overlapped) is discarded, or it would
 	// revert what the newer one took.
 	lastResyncAt int64
+	// generation is bumped by Reseed; a resync whose fetch began in an older
+	// one holds a pre-revert transcript and is discarded.
+	generation int
 
 	permissionOrder []string
 	permissions     map[string]*backend.PermissionRequest
@@ -699,8 +702,10 @@ func (m *Materializer) resync(ctx context.Context, workspaceDir, sessionID strin
 	// What the fetch below can know: everything up to this seq. A message a
 	// live event wrote to after it is newer than the transcript.
 	var fetchedAt int64
+	var generation int
 	if ok {
 		fetchedAt = st.seq
+		generation = st.generation
 	}
 	m.mu.Unlock()
 	if !ok {
@@ -711,7 +716,7 @@ func (m *Materializer) resync(ctx context.Context, workspaceDir, sessionID strin
 		return
 	}
 	m.mu.Lock()
-	if fetchedAt < st.lastResyncAt {
+	if fetchedAt < st.lastResyncAt || generation != st.generation {
 		// a resync whose fetch began later has already applied a newer copy
 		m.mu.Unlock()
 		return
@@ -1321,6 +1326,7 @@ func (m *Materializer) Reseed(sessionID string) {
 	if !ok {
 		return
 	}
+	st.generation++
 	st.seeded = false
 	st.ring = nil
 	st.messageOrder = nil

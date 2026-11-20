@@ -858,3 +858,24 @@ func TestOverlappingResyncsDoNotLetTheOlderFetchWin(t *testing.T) {
 		t.Fatalf("the older resync reverted the newer one: %q", got)
 	}
 }
+
+// A resync in flight across a Reseed (a revert) holds the pre-revert transcript: it must not apply.
+func TestResyncStartedBeforeAReseedIsDiscarded(t *testing.T) {
+	ctx := context.Background()
+	back := newFakeBackend()
+	mat := New(back, policy.Default())
+	mat.Track("/work", backend.Session{ID: "s1"})
+	back.transcripts["s1"] = backend.Transcript{Status: backend.StatusIdle, Messages: []backend.TranscriptEntry{{
+		Message: backend.Message{ID: "a1", Role: "assistant"},
+		Parts:   []backend.Part{{ID: "t1", MessageID: "a1", Role: "assistant", Type: backend.PartText, Text: "reverted away"}},
+	}}}
+	back.afterTranscriptRead = func() {
+		back.afterTranscriptRead = nil
+		mat.Reseed("s1")
+		back.transcripts["s1"] = backend.Transcript{Status: backend.StatusIdle}
+	}
+	mat.resync(ctx, "/work", "s1")
+	if got := partsOf(t, mat, "s1", "a1"); len(got) != 0 {
+		t.Fatalf("the pre-revert transcript was applied: %+v", got)
+	}
+}

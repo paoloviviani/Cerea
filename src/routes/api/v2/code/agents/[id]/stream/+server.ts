@@ -223,20 +223,25 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 	// permissions seed here — a waiting question re-announces on the
 	// child's next event.
 	const seenChildAsks = new Set<string>();
-	for (const [childId, title] of childTitles) {
-		try {
-			const childSync = await link.sessionSync({ sessionId: childId });
-			if (!("snapshot" in childSync)) continue;
-			for (const permission of childSync.snapshot.permissions ?? []) {
-				if (seenChildAsks.has(permission.id)) continue;
-				seenChildAsks.add(permission.id);
-				initial.push(permissionRequestToUpdate(permission, { childId, childTitle: title }));
+	const seedChildAsks = async (): Promise<AgentStreamUpdate[]> => {
+		const cards: AgentStreamUpdate[] = [];
+		for (const [childId, title] of childTitles) {
+			try {
+				const childSync = await link.sessionSync({ sessionId: childId });
+				if (!("snapshot" in childSync)) continue;
+				for (const permission of childSync.snapshot.permissions ?? []) {
+					if (seenChildAsks.has(permission.id)) continue;
+					seenChildAsks.add(permission.id);
+					cards.push(permissionRequestToUpdate(permission, { childId, childTitle: title }));
+				}
+			} catch {
+				// One child's history failing to load must not fail the parent's
+				// stream — the live tail still carries whatever it asks next.
 			}
-		} catch {
-			// One child's history failing to load must not fail the parent's
-			// stream — the live tail still carries whatever it asks next.
 		}
-	}
+		return cards;
+	};
+	initial.push(...(await seedChildAsks()));
 
 	// An ask the seed already turned into a card must not fold a second
 	// time when its live envelope drains below: the ask was emitted before
@@ -309,6 +314,7 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 			const signal = request.signal;
 			let closed = false;
 			let lastEmit = Date.now();
+			let onClose: (() => void) | undefined;
 			let currentEpoch = sync.epoch;
 			const enc = (s: string) => controller.enqueue(encoder.encode(s));
 			// `id` is the watched session's own (epoch, seq) cursor, which the
@@ -341,6 +347,7 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 				unsubscribeNotes?.();
 				unsubscribeReleases?.();
 				clearInterval(heartbeat);
+				onClose?.();
 				clearTimeout(lifetime);
 				clearTimeout(reauthTimer);
 				signal.removeEventListener("abort", onAbort);
@@ -427,8 +434,58 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 				// A re-sync (below) covers every envelope up to its own cursor.
 				let coveredEpoch: string | null = null;
 				let coveredSeq = -1;
-				const resetAt = new Map<string, number>();
+				// Resets are coalesced in one window per stream: a divergence inside
+				// the window waits for it to end (one reset covers however many
+				// parts diverged), it is never dropped.
+				let lastResetAt = 0;
+				let resetDue = false;
+				let resetTimer: ReturnType<typeof setTimeout> | undefined;
+				const resync = async (): Promise<boolean> => {
+					lastResetAt = Date.now();
+					resetDue = false;
+					let fresh;
+					try {
+						fresh = await link.sessionSync({
+							sessionId,
+							...(pagingCapable ? { limit: SNAPSHOT_PAGE_LIMIT } : {}),
+						});
+					} catch {
+						return false;
+					}
+					if (closed || !("snapshot" in fresh)) return false;
+					const freshId = `${fresh.epoch}:${fresh.seq}`;
+					const freshThinking = newThinkingState();
+					const updates = snapshotToUpdates(fresh.snapshot, imageUrl, sessionId, freshThinking);
+					if (fresh.snapshot.hasMore !== undefined) {
+						updates.push({
+							type: "historyMeta",
+							hasMore: fresh.snapshot.hasMore,
+							...(fresh.snapshot.before ? { before: fresh.snapshot.before } : {}),
+						});
+					}
+					// The reset empties the client, subagent cards included: they are
+					// seeded again, as at open.
+					seenChildAsks.clear();
+					updates.push(...(await seedChildAsks()));
+					const framed: AgentStreamUpdate[] = [];
+					for (const update of updates) framed.push(await withFiles(update));
+					if (closed) return false;
+					currentEpoch = fresh.epoch;
+					coveredEpoch = fresh.epoch;
+					coveredSeq = fresh.seq;
+					lastAssistantError = lastAssistantErrorOf(fresh.snapshot);
+					userMessageIds = userMessageIdsOf(fresh.snapshot);
+					commandMarkers = commandMarkersOf(fresh.snapshot);
+					thinking = freshThinking;
+					emitReset(freshId);
+					for (const update of framed) emit(freshId, update);
+					emit(freshId, { type: "historyDone" });
+					return true;
+				};
+				onClose = () => clearTimeout(resetTimer);
 				for (;;) {
+					if (closed) return;
+					if (resetDue) await resync();
 					if (closed) return;
 					const next = buffered.shift();
 					if (next !== undefined) {
@@ -459,44 +516,18 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 						// A part event for text the client already holds, that is not an
 						// extension of it: the backend replaced the part (healing text a
 						// gap truncated). Deltas cannot say that, so the client is reset
-						// and re-folded from a fresh snapshot, once per part per window.
-						if (
-							!child &&
-							next.event.kind === "part" &&
-							partDiverges(thinking, next.event) &&
-							Date.now() - (resetAt.get(next.event.part.id) ?? 0) >= RESET_MIN_INTERVAL_MS
-						) {
-							resetAt.set(next.event.part.id, Date.now());
-							let fresh;
-							try {
-								fresh = await link.sessionSync({
-									sessionId,
-									...(pagingCapable ? { limit: SNAPSHOT_PAGE_LIMIT } : {}),
-								});
-							} catch {
-								fresh = undefined;
-							}
-							if (fresh && "snapshot" in fresh) {
-								const freshId = `${fresh.epoch}:${fresh.seq}`;
-								currentEpoch = fresh.epoch;
-								coveredEpoch = fresh.epoch;
-								coveredSeq = fresh.seq;
-								lastAssistantError = lastAssistantErrorOf(fresh.snapshot);
-								userMessageIds = userMessageIdsOf(fresh.snapshot);
-								commandMarkers = commandMarkersOf(fresh.snapshot);
-								thinking = newThinkingState();
-								const updates = snapshotToUpdates(fresh.snapshot, imageUrl, sessionId, thinking);
-								if (fresh.snapshot.hasMore !== undefined) {
-									updates.push({
-										type: "historyMeta",
-										hasMore: fresh.snapshot.hasMore,
-										...(fresh.snapshot.before ? { before: fresh.snapshot.before } : {}),
-									});
-								}
-								emitReset(freshId);
-								for (const update of updates) emit(freshId, await withFiles(update));
-								emit(freshId, { type: "historyDone" });
-								continue;
+						// and re-folded from a fresh snapshot, coalesced per stream window.
+						if (!child && next.event.kind === "part" && partDiverges(thinking, next.event)) {
+							const wait = lastResetAt + RESET_MIN_INTERVAL_MS - Date.now();
+							if (wait <= 0) {
+								if (await resync()) continue;
+								if (closed) return;
+							} else if (!resetTimer) {
+								resetTimer = setTimeout(() => {
+									resetTimer = undefined;
+									resetDue = true;
+									notify();
+								}, wait);
 							}
 						}
 						if (!child && next.event.kind === "message") {

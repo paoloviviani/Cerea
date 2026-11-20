@@ -1,9 +1,9 @@
 /**
- * Subagent approvals and questions surfacing in the parent view: the
- * root-keyed subscription in `machines.ts`, the labelled fold on the SSE
- * bridge, and the reply routes forwarding to the child's own request.
+ * The stream's correction of text the backend replaced (a non-prefix `part`
+ * event for a part already routed): one `reset` + fresh snapshot +
+ * `historyDone`, coalesced per stream window, with subagent cards re-seeded.
  * Driven end to end against a fake machine over a real WebSocket, like
- * `machine-forwarder.spec.ts`.
+ * `subagent-approvals.spec.ts`.
  */
 import { createServer, type Server } from "node:http";
 import { randomUUID } from "node:crypto";
@@ -19,6 +19,7 @@ import {
 import { testRequest, TEST_ORIGIN } from "$lib/server/__tests__/testRequest";
 import { acceptMachineConnection } from "$lib/server/code/machines";
 import type { MachinePrincipal } from "$lib/server/code/machineAuth";
+import { OpError } from "$lib/types/machineProtocol";
 import { FakeMachine } from "../../../../../../tests/fake-machine";
 import { GET as forwarderGET, POST as forwarderPOST } from "../[...path]/+server";
 import { PATCH as devicesPATCH } from "../devices/+server";
@@ -178,71 +179,266 @@ async function readFramesUntil(
 	throw new Error("the expected frame never arrived on the stream");
 }
 
+const WINDOW_MS = 5000;
+
+type Frame = { type?: string };
+const typeOf = (d: unknown) => (d as Frame).type;
+
+async function openStream(machine: FakeMachine) {
+	const deviceId = machine.deviceId as string;
+	const { workspace } = await createWorkspace(deviceId);
+	const { agent } = await createSession(deviceId, workspace.id);
+	return { agent, workspace, deviceId };
+}
+
+async function watch(agentId: string, deviceId: string) {
+	const controller = new AbortController();
+	const res = await testRequest(streamGET, {
+		path: `/api/v2/code/agents/${agentId}/stream?device=${deviceId}`,
+		params: { id: agentId },
+		locals: user.locals,
+		signal: controller.signal,
+	});
+	expect(res.status).toBe(200);
+	const reader = res.body?.getReader();
+	if (!reader) throw new Error("no body");
+	await readFramesUntil(reader, (d) => typeOf(d) === "historyDone");
+	return { reader, controller };
+}
+
+const part = (id: string, text: string) =>
+	({ kind: "part", part: { id, messageId: "m1", role: "assistant", type: "text", text } }) as const;
+
+function setTranscript(machine: FakeMachine, agentId: string, texts: Record<string, string>) {
+	machine.model.transcripts.set(agentId, {
+		messages: [
+			{
+				message: { id: "m1", role: "assistant", createdAt: new Date().toISOString() },
+				parts: Object.entries(texts).map(([id, text]) => ({
+					id,
+					messageId: "m1",
+					role: "assistant" as const,
+					type: "text" as const,
+					text,
+				})),
+			},
+		],
+		permissions: [],
+		status: "idle",
+		usage: null,
+		todos: [],
+	});
+}
+
+/** Frames until the sentinel part's text is seen. */
+async function framesThroughSentinel(
+	reader: ReadableStreamDefaultReader<Uint8Array>,
+	sentinel: string
+): Promise<unknown[]> {
+	const seen: unknown[] = [];
+	await readFramesUntil(
+		reader,
+		(d) => {
+			seen.push(d);
+			return JSON.stringify(d).includes(sentinel);
+		},
+		60
+	);
+	return seen;
+}
+
 /** Text that grew is a delta; text the backend replaced (not an extension) cannot be a
  * delta, so the stream resets the client and re-sends the session whole. */
 describe("the stream corrects text the backend replaced", () => {
 	it("resets with the full text on a non-prefix replacement, not on a prefix extension", async () => {
 		const machine = await connectAndPair();
-		const deviceId = machine.deviceId as string;
-		const { workspace } = await createWorkspace(deviceId);
-		const { agent } = await createSession(deviceId, workspace.id);
+		const { agent, deviceId } = await openStream(machine);
+		const { reader, controller } = await watch(agent.id, deviceId);
 
-		const controller = new AbortController();
-		const res = await testRequest(streamGET, {
-			path: `/api/v2/code/agents/${agent.id}/stream?device=${deviceId}`,
-			params: { id: agent.id },
-			locals: user.locals,
-			signal: controller.signal,
-		});
-		expect(res.status).toBe(200);
-		const reader = res.body?.getReader();
-		expect(reader).toBeTruthy();
-		if (!reader) return;
-		await readFramesUntil(reader, (d) => (d as { type?: string }).type === "historyDone");
-
-		const part = (id: string, text: string) =>
-			({
-				kind: "part",
-				part: { id, messageId: "m1", role: "assistant", type: "text", text },
-			}) as const;
 		machine.pushEvent(agent.id, part("p1", "Hel"));
 		await readFramesUntil(reader, (d) => JSON.stringify(d).includes("Hel"));
 
-		// A prefix extension and a sentinel: no reset in between.
 		machine.pushEvent(agent.id, part("p1", "Hello"));
 		machine.pushEvent(agent.id, part("p9", "sentinel"));
-		const seen: unknown[] = [];
-		await readFramesUntil(reader, (d) => {
-			seen.push(d);
-			return JSON.stringify(d).includes("sentinel");
-		});
-		expect(seen.some((d) => (d as { type?: string }).type === "reset")).toBe(false);
+		const seen = await framesThroughSentinel(reader, "sentinel");
+		expect(seen.some((d) => typeOf(d) === "reset")).toBe(false);
 
-		// The backend replaces the text: the stream resets and re-sends everything.
-		machine.model.transcripts.set(agent.id, {
-			messages: [
-				{
-					message: { id: "m1", role: "assistant", createdAt: new Date().toISOString() },
-					parts: [
-						{ id: "p1", messageId: "m1", role: "assistant", type: "text", text: "Goodbye world" },
-					],
-				},
-			],
-			permissions: [],
-			status: "idle",
-			usage: null,
-			todos: [],
-		});
+		setTranscript(machine, agent.id, { p1: "Goodbye world" });
 		machine.pushEvent(agent.id, part("p1", "Goodbye world"));
 		const frames: unknown[] = [];
 		await readFramesUntil(reader, (d) => {
 			frames.push(d);
-			return (d as { type?: string }).type === "historyDone";
+			return typeOf(d) === "historyDone";
 		});
-		const types = frames.map((d) => (d as { type?: string }).type);
+		const types = frames.map(typeOf);
 		expect(types[0]).toBe("reset");
 		expect(types.filter((t) => t === "reset")).toHaveLength(1);
 		expect(JSON.stringify(frames)).toContain("Goodbye world");
+
+		controller.abort();
+		machine.close();
+	});
+
+	it("skips what the fresh snapshot already covers and coalesces many divergences into one reset", async () => {
+		const machine = await connectAndPair();
+		const { agent, deviceId } = await openStream(machine);
+		const { reader, controller } = await watch(agent.id, deviceId);
+
+		for (const id of ["a", "b", "c"]) machine.pushEvent(agent.id, part(id, `${id}-old`));
+		await framesThroughSentinel(reader, "c-old");
+
+		setTranscript(machine, agent.id, { a: "a-new", b: "b-new", c: "c-new" });
+		for (const id of ["a", "b", "c"]) machine.pushEvent(agent.id, part(id, `${id}-new`));
+		// a delta already inside the snapshot's cursor: its envelope is skipped
+		machine.pushEvent(agent.id, {
+			kind: "delta",
+			messageId: "m1",
+			partId: "a",
+			role: "assistant",
+			field: "text",
+			delta: "COVERED",
+		});
+		const frames: unknown[] = [];
+		await readFramesUntil(reader, (d) => {
+			frames.push(d);
+			return typeOf(d) === "historyDone";
+		});
+		// whatever else was buffered is covered: the sentinel, pushed after, is the next thing
+		machine.pushEvent(agent.id, part("z", "sentinel"));
+		frames.push(...(await framesThroughSentinel(reader, "sentinel")));
+		expect(frames.filter((d) => typeOf(d) === "reset")).toHaveLength(1);
+		expect(JSON.stringify(frames)).not.toContain("COVERED");
+
+		controller.abort();
+		machine.close();
+	});
+
+	it("corrects a divergence that fell inside the window once it ends", async () => {
+		const machine = await connectAndPair();
+		const { agent, deviceId } = await openStream(machine);
+		const { reader, controller } = await watch(agent.id, deviceId);
+
+		machine.pushEvent(agent.id, part("a", "a-old"));
+		machine.pushEvent(agent.id, part("b", "b-old"));
+		await framesThroughSentinel(reader, "b-old");
+
+		setTranscript(machine, agent.id, { a: "a-new", b: "b-old" });
+		machine.pushEvent(agent.id, part("a", "a-new"));
+		await readFramesUntil(reader, (d) => typeOf(d) === "historyDone");
+
+		// inside the window: held, then corrected when it ends
+		setTranscript(machine, agent.id, { a: "a-new", b: "b-newer" });
+		machine.pushEvent(agent.id, part("b", "b-newer"));
+		const started = Date.now();
+		const frames: unknown[] = [];
+		await readFramesUntil(reader, (d) => {
+			frames.push(d);
+			return typeOf(d) === "historyDone";
+		});
+		expect(Date.now() - started).toBeGreaterThan(WINDOW_MS / 2);
+		expect(frames.map(typeOf)[0]).toBe("reset");
+		expect(JSON.stringify(frames)).toContain("b-newer");
+
+		controller.abort();
+		machine.close();
+	}, 30_000);
+
+	it("keeps a waiting subagent's approval card across a reset", async () => {
+		const machine = await connectAndPair();
+		const { agent, workspace, deviceId } = await openStream(machine);
+		const now = new Date().toISOString();
+		machine.model.sessions.push({
+			id: "child-1",
+			workspaceId: workspace.id,
+			backend: "opencode",
+			title: "Researcher",
+			status: "busy",
+			pendingPermissions: 1,
+			modeId: null,
+			modelId: null,
+			parentId: agent.id,
+			createdAt: now,
+			updatedAt: now,
+			usage: null,
+		});
+		machine.model.transcripts.set("child-1", {
+			messages: [],
+			permissions: [
+				{
+					id: "perm-1",
+					sessionId: "child-1",
+					tool: "bash",
+					title: "run tests",
+					patterns: [],
+					metadata: {},
+					always: [],
+				},
+			],
+			status: "busy",
+			usage: null,
+			todos: [],
+		});
+		const { reader, controller } = await (async () => {
+			const c = new AbortController();
+			const res = await testRequest(streamGET, {
+				path: `/api/v2/code/agents/${agent.id}/stream?device=${deviceId}`,
+				params: { id: agent.id },
+				locals: user.locals,
+				signal: c.signal,
+			});
+			const r = res.body?.getReader();
+			if (!r) throw new Error("no body");
+			const opening = await readFramesUntil(r, (d) => typeOf(d) === "historyDone");
+			void opening;
+			return { reader: r, controller: c };
+		})();
+
+		machine.pushEvent(agent.id, part("p1", "old"));
+		await readFramesUntil(reader, (d) => JSON.stringify(d).includes("old"));
+		setTranscript(machine, agent.id, { p1: "new" });
+		machine.pushEvent(agent.id, part("p1", "new"));
+		const frames: unknown[] = [];
+		await readFramesUntil(reader, (d) => {
+			frames.push(d);
+			return typeOf(d) === "historyDone";
+		});
+		expect(frames.map(typeOf)[0]).toBe("reset");
+		const card = frames.find((d) => typeOf(d) === "elicitation");
+		expect(JSON.stringify(card)).toContain("Subagent Researcher: run tests");
+
+		controller.abort();
+		machine.close();
+	});
+
+	it("carries on with the old behaviour when the re-sync fails", async () => {
+		const machine = await connectAndPair();
+		const { agent, deviceId } = await openStream(machine);
+		const { reader, controller } = await watch(agent.id, deviceId);
+
+		machine.pushEvent(agent.id, part("p1", "old"));
+		await readFramesUntil(reader, (d) => JSON.stringify(d).includes("old"));
+		machine.onOp("session.sync", () => {
+			throw new OpError("unavailable", "not connected");
+		});
+		machine.pushEvent(agent.id, part("p1", "different"));
+		machine.pushEvent(agent.id, part("p9", "sentinel"));
+		const frames = await framesThroughSentinel(reader, "sentinel");
+		expect(frames.some((d) => typeOf(d) === "reset")).toBe(false);
+
+		controller.abort();
+		machine.close();
+	});
+
+	it("does not reset for a subagent's diverging part", async () => {
+		const machine = await connectAndPair();
+		const { agent, deviceId } = await openStream(machine);
+		const { reader, controller } = await watch(agent.id, deviceId);
+
+		machine.pushEvent("child-1", part("cp", "child old"), agent.id);
+		machine.pushEvent("child-1", part("cp", "something else"), agent.id);
+		machine.pushEvent(agent.id, part("p9", "sentinel"));
+		const frames = await framesThroughSentinel(reader, "sentinel");
+		expect(frames.some((d) => typeOf(d) === "reset")).toBe(false);
 
 		controller.abort();
 		machine.close();
