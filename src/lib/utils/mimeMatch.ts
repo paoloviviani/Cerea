@@ -1,11 +1,20 @@
 /**
+ * A media type without its parameters, lowercased and trimmed:
+ * `Audio/Ogg; codecs=opus` is `audio/ogg`. Every comparison of a type is made
+ * on this, so a codec parameter never makes a known type unknown.
+ */
+export function mimeEssence(mime: string): string {
+	return (mime ?? "").split(";")[0].trim().toLowerCase();
+}
+
+/**
  * Match a concrete MIME type against an allowlist that may contain wildcards
  * ("image/*" for any subtype, or a wildcard type). Shared by every entry point
  * that accepts user files (paste, drop, programmatic attachments) so they all
  * agree on what is allowed.
  */
 export function mimeMatchesAllowlist(mime: string, allowlist: readonly string[]): boolean {
-	const [type, subtype] = mime.split("/");
+	const [type, subtype] = mimeEssence(mime).split("/");
 	return allowlist.some((allowed) => {
 		const [allowedType, allowedSubtype] = allowed.split("/");
 		return (
@@ -34,7 +43,7 @@ export function fileMatchesAllowlist(
 		return true;
 	}
 	if (mimeMatchesAllowlist(file.type, allowlist)) return true;
-	const type = file.type.toLowerCase();
+	const type = mimeEssence(file.type);
 	if (type.startsWith("image/") || type.startsWith("audio/")) return false;
 	return allowlist.some((entry) => entry.toLowerCase() === "text/*");
 }

@@ -43,6 +43,29 @@ beforeEach(() => {
 	vi.stubGlobal("fetch", fetchMock);
 });
 
+describe("POST /api/transcribe: audio types named in other ways", () => {
+	it("takes Opus and m4a under the names phones and browsers give them", async () => {
+		transcribeMock.mockResolvedValue({ ok: true, text: "ok", model: "whisper" });
+		const cases: [string, string, string][] = [
+			["audio/ogg; codecs=opus", "audio/ogg", "dictation.ogg"],
+			["audio/x-opus+ogg", "audio/ogg", "dictation.ogg"],
+			["audio/opus", "audio/ogg", "dictation.ogg"],
+			["audio/x-m4a", "audio/mp4", "dictation.m4a"],
+			["audio/mp4a-latm", "audio/mp4", "dictation.m4a"],
+		];
+		for (const [type, mime, filename] of cases) {
+			transcribeMock.mockClear();
+			const res = await post(new Uint8Array([1, 2, 3]), type);
+			expect(await res.json()).toEqual({ text: "ok" });
+			expect(transcribeMock.mock.calls[0][0]).toMatchObject({ mime, filename });
+		}
+	});
+
+	it("still refuses a type that is not audio we transcribe", async () => {
+		await expect(post(new Uint8Array([1]), "audio/aac")).rejects.toMatchObject({ status: 400 });
+	});
+});
+
 describe("POST /api/transcribe through the gateway", () => {
 	it("sends the recording as the user, with their bill-to, and returns the text", async () => {
 		transcribeMock.mockResolvedValue({ ok: true, text: "hello world", model: "whisper" });

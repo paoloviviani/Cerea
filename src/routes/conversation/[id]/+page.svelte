@@ -246,7 +246,7 @@
 					// a 30 MB file would be copied as a 40 MB string on each side. Audio
 					// carries no base64 at all; the rest keep it only for the message on
 					// screen (its preview and download before the page reloads).
-					isAudioAttachmentMime(file.type)
+					isAudioAttachmentMime(file.type, file.name)
 						? Promise.resolve({
 								type: "base64" as const,
 								value: "",

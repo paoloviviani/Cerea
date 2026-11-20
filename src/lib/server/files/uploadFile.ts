@@ -12,6 +12,7 @@ import {
 	MAX_AUDIO_ATTACHMENT_BYTES,
 	maxAttachmentBytesFor,
 } from "$lib/constants/mime";
+import { transcriptionFilename } from "./audioAttachment";
 import { classifyUpload, UNSUPPORTED_UPLOAD_MESSAGE } from "./classifyUpload";
 import { extractDocument, isExtractableDocument, type Extraction } from "./extractDocument";
 
@@ -141,7 +142,7 @@ export async function writeAttachment(
 	const sniffedOnly = (await fileTypeFromBuffer(buffer))?.mime;
 	const sniffed = sniffedOnly ?? file.type;
 	const classified = await classifyUpload(file.name, file.type, new Uint8Array(buffer));
-	if (classified.kind === "unsupported") throw new UnsupportedAttachmentError();
+	if (classified.kind === "unsupported") throw new UnsupportedAttachmentError(classified.message);
 	// UTF-16 text is stored as UTF-8, the encoding the prompt reads it in.
 	if (classified.kind === "text" && classified.bytes) {
 		buffer = classified.bytes.buffer.slice(
@@ -171,7 +172,7 @@ export async function writeAttachment(
 		const heard = await transcribeAudio({
 			bytes: buffer,
 			mime: audio,
-			filename: file.name,
+			filename: transcriptionFilename(file.name, audio),
 			token,
 			// The gateway's own cap: audio attachments go up to 25 MB.
 			maxBytes: MAX_AUDIO_ATTACHMENT_BYTES,

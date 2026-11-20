@@ -5,6 +5,7 @@
  * the turn gets it labelled, or a sentence saying why there is none.
  */
 import type { MessageFile } from "$lib/types/Message";
+import { mimeEssence } from "$lib/utils/mimeMatch";
 
 /**
  * What the bytes sniff as, mapped to the one type stored and sent on: only
@@ -30,7 +31,89 @@ const SNIFFED_AUDIO: Record<string, string> = {
 const CONTAINERS: Record<string, string> = {
 	"video/mp4": "audio/mp4",
 	"video/webm": "audio/webm",
+	// Phone recorders write audio-only 3GPP/QuickTime/M4V files, which
+	// `file-type` names by brand as video.
+	"video/3gpp": "audio/mp4",
+	"video/3gpp2": "audio/mp4",
+	"video/quicktime": "audio/mp4",
+	"video/x-m4v": "audio/mp4",
 };
+
+/** Other names for the same audio a client may declare (dictation trusts it: the bytes are not sniffed). */
+const DECLARED_ALIASES: Record<string, string> = {
+	"audio/mp3": "audio/mpeg",
+	"audio/wave": "audio/wav",
+	"audio/mp4a-latm": "audio/mp4",
+	"audio/x-mp4a-latm": "audio/mp4",
+	"audio/3gpp": "audio/mp4",
+	"audio/3gpp2": "audio/mp4",
+	"audio/x-opus+ogg": "audio/ogg",
+	"audio/x-ogg": "audio/ogg",
+};
+
+/**
+ * The audio type a declared `Content-Type` stands for (parameters ignored,
+ * aliases folded), with the extension to name it by; null when it is not one
+ * we transcribe.
+ */
+export function declaredAudio(contentType: string): { mime: string; extension: string } | null {
+	const type = mimeEssence(contentType);
+	const mime = SNIFFED_AUDIO[type] ?? DECLARED_ALIASES[type];
+	return mime ? { mime, extension: EXTENSION[mime] } : null;
+}
+
+/** The extension a transcription server keys off, per type sent. */
+const EXTENSION: Record<string, string> = {
+	"audio/mpeg": "mp3",
+	"audio/mp4": "m4a",
+	"audio/wav": "wav",
+	"audio/ogg": "ogg",
+	"audio/flac": "flac",
+	"audio/webm": "webm",
+};
+
+/**
+ * The file name sent to the transcription model: the user's name with the
+ * extension of the type the bytes proved to be. Whisper-compatible servers
+ * pick the decoder from the extension, and a recorder's own (`.opus`, `.3gp`,
+ * `.amr`, none) is not always one they know.
+ */
+export function transcriptionFilename(name: string, mime: string): string {
+	const ext = EXTENSION[mime];
+	if (!ext) return name;
+	const base = name.replace(/^.*[\\/]/, "").replace(/\.[^./\\]*$/, "") || "audio";
+	return `${base}.${ext}`;
+}
+
+/** What may be attached, in words, for a refusal. */
+export const SUPPORTED_AUDIO_TEXT = "MP3, M4A (MP4 audio), WAV, OGG/Opus, FLAC and WebM";
+
+/**
+ * Why audio the bytes name is not taken, or null when the file does not look
+ * like audio at all (the caller's generic message then stands).
+ */
+export function unsupportedAudioMessage(
+	sniffed: string | undefined,
+	name: string,
+	declared: string,
+	bytes: Uint8Array
+): string | null {
+	const type = mimeEssence(sniffed ?? "");
+	if (type === "audio/aac") {
+		return "AAC files (.aac) aren't supported for transcription. Export the recording as M4A or MP3 and attach that.";
+	}
+	if (CONTAINERS[type] && hasVideoTrack(type, bytes)) {
+		return `This file has a video track, so it isn't transcribed. Attach audio only: ${SUPPORTED_AUDIO_TEXT}.`;
+	}
+	const declaredAudio = mimeEssence(declared).startsWith("audio/");
+	const namedAudio = /\.(mp3|m4a|aac|wav|ogg|oga|opus|flac|weba|3gp|3gpp|amr|wma|aiff?)$/i.test(
+		name
+	);
+	if (type.startsWith("audio/") || declaredAudio || (namedAudio && !sniffed)) {
+		return `This audio format isn't supported for transcription. Supported: ${SUPPORTED_AUDIO_TEXT}.`;
+	}
+	return null;
+}
 
 /** Whether `needle` occurs in `bytes` (ASCII). */
 function contains(bytes: Uint8Array, needle: string): boolean {
@@ -72,10 +155,12 @@ function hasVideoTrack(sniffed: string, bytes: Uint8Array): boolean {
  */
 export function audioMime(sniffed: string | undefined, bytes: Uint8Array): string | null {
 	if (!sniffed) return null;
-	const direct = SNIFFED_AUDIO[sniffed];
+	// `file-type` names Opus-in-Ogg `audio/ogg; codecs=opus`: compare the type alone.
+	const type = mimeEssence(sniffed);
+	const direct = SNIFFED_AUDIO[type];
 	if (direct) return direct;
-	const container = CONTAINERS[sniffed];
-	if (container && !hasVideoTrack(sniffed, bytes)) return container;
+	const container = CONTAINERS[type];
+	if (container && !hasVideoTrack(type, bytes)) return container;
 	return null;
 }
 

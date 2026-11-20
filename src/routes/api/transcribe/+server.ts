@@ -6,6 +6,7 @@ import {
 	TRANSCRIPTION_CAP_MINUTES,
 	warnLegacyTranscription,
 } from "$lib/server/transcription";
+import { declaredAudio } from "$lib/server/files/audioAttachment";
 import { recorderAllowed } from "$lib/server/dictation";
 import { error, json } from "@sveltejs/kit";
 import { config } from "$lib/server/config";
@@ -16,16 +17,6 @@ import { logger } from "$lib/server/logger";
 const MAX_AUDIO_SIZE = TRANSCRIPTION_MAX_BYTES; // the gateway's own cap
 const TOO_LONG = `This recording is too long to transcribe (up to about ${TRANSCRIPTION_CAP_MINUTES} minutes). Record a shorter one.`;
 const TRANSCRIPTION_TIMEOUT = 60000; // 60 seconds
-
-const ALLOWED_CONTENT_TYPES = [
-	"audio/webm",
-	"audio/ogg",
-	"audio/wav",
-	"audio/flac",
-	"audio/mpeg",
-	"audio/mp4",
-	"audio/x-wav",
-];
 
 /**
  * Dictation by a transcription model: the composer sends one recording, this
@@ -53,9 +44,10 @@ export async function POST({ request, locals }) {
 	// Normalize content-type: Safari sends "audio/webm; codecs=opus" (with space)
 	// but HF API expects "audio/webm;codecs=opus" (no space)
 	const contentType = rawContentType.replace(/;\s+/g, ";");
-	const isAllowed = ALLOWED_CONTENT_TYPES.some((type) => contentType.includes(type));
+	// Compared on the type alone, with the other names of the same audio folded in.
+	const audio = declaredAudio(contentType);
 
-	if (!isAllowed) {
+	if (!audio) {
 		logger.warn({ contentType }, "Unsupported audio format for transcription");
 		throw error(400, `Unsupported audio format: ${contentType}`);
 	}
@@ -68,11 +60,10 @@ export async function POST({ request, locals }) {
 	if (!legacyTranscriptionConfigured()) {
 		const audioBuffer = await request.arrayBuffer();
 		if (audioBuffer.byteLength > MAX_AUDIO_SIZE) throw error(413, TOO_LONG);
-		const extension = contentType.match(/audio\/(?:x-)?([a-z0-9]+)/)?.[1] ?? "webm";
 		const heard = await transcribeAudio({
 			bytes: audioBuffer,
-			mime: contentType.split(";")[0],
-			filename: `dictation.${extension}`,
+			mime: audio.mime,
+			filename: `dictation.${audio.extension}`,
 			token,
 			billHeaders: billToHeader(locals?.billingOrganization),
 		});

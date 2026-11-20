@@ -11,7 +11,7 @@
 import { fileTypeFromBuffer } from "file-type";
 import { TEXT_MIME_ALLOWLIST } from "$lib/constants/mime";
 import { mimeMatchesAllowlist } from "$lib/utils/mimeMatch";
-import { audioMime } from "./audioAttachment";
+import { audioMime, unsupportedAudioMessage } from "./audioAttachment";
 import { documentMime, isExtractableDocument } from "./extractDocument";
 
 /** How much of a file is read to decide whether it is text. */
@@ -132,7 +132,8 @@ export type UploadClass =
 	| { kind: "image"; mime: string }
 	/** `bytes` is set when the text had to be re-encoded (UTF-16 becomes UTF-8). */
 	| { kind: "text"; mime: string; bytes?: Buffer }
-	| { kind: "unsupported"; mime: string };
+	/** `message` says why, when it is more than "not a known type" (audio we cannot take). */
+	| { kind: "unsupported"; mime: string; message?: string };
 
 /** What the browser said, minus an empty or generic type. */
 function declaredText(declared: string): boolean {
@@ -188,5 +189,10 @@ export async function classifyUpload(
 				: { kind: "text", mime };
 		}
 	}
-	return { kind: "unsupported", mime: "application/octet-stream" };
+	const message = unsupportedAudioMessage(sniffedOnly, name, declaredType, bytes);
+	return {
+		kind: "unsupported",
+		mime: "application/octet-stream",
+		...(message ? { message } : {}),
+	};
 }

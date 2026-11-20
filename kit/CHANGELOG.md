@@ -7,6 +7,10 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+Fixed:
+
+- Audio attachments: `.opus` and `.m4a` files (and the audio-only MP4 and 3GPP files phones record) are accepted again. Users attaching them for transcription got "unsupported" before anything was transcribed, because of how the file's type was named (Opus in Ogg, Android's `audio/mp4a-latm`, or no type at all). Dictation takes the same names. Audio Cerea cannot take now says why and which formats work (MP3, M4A, WAV, OGG/Opus, FLAC, WebM); raw AAC asks for an export as M4A or MP3.
+
 ## v0.60.4 — 2026-11-20
 
 Pins: Cerea `0.60.4` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.5`, opencode `2.3.0`.
