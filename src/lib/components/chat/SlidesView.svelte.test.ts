@@ -524,4 +524,64 @@ describe("SlidesView", { timeout: 60_000 }, () => {
 			release(new Response(""));
 		});
 	});
+
+	describe("presenting", () => {
+		// The browser's full screen, faked: the promise requestFullscreen() returns never settles (headless
+		// Chromium can leave it pending), and the grant is announced by fullscreenchange alone
+		let current: Element | null = null;
+		const exitFullscreen = vi.fn(async () => {
+			current = null;
+			document.dispatchEvent(new Event("fullscreenchange"));
+		});
+		function grant(iframe: HTMLIFrameElement) {
+			current = iframe;
+			document.dispatchEvent(new Event("fullscreenchange"));
+		}
+		beforeEach(() => {
+			current = null;
+			exitFullscreen.mockClear();
+			Object.defineProperty(document, "fullscreenElement", {
+				configurable: true,
+				get: () => current,
+			});
+			document.exitFullscreen = exitFullscreen as never;
+		});
+		afterEach(() => {
+			// @ts-expect-error remove the fake so the real getter shows through again
+			delete document.fullscreenElement;
+		});
+
+		async function present() {
+			const { screen, iframe } = await mount();
+			iframe.requestFullscreen = () => new Promise<void>(() => {});
+			const root = () => document.querySelector("[data-testid=slides-view]") as HTMLElement;
+			await screen.getByRole("button", { name: "Present full screen" }).click();
+			return { screen, iframe, root };
+		}
+
+		it("hands a full screen that arrives after leaving straight back, even if the request never settles", async () => {
+			const { screen, iframe, root } = await present();
+			expect(root().dataset.presenting).toBe("true");
+			await screen.getByRole("button", { name: "Exit presentation" }).click();
+			expect(root().dataset.presenting).toBe("false");
+			grant(iframe);
+			await vi.waitFor(() => expect(exitFullscreen).toHaveBeenCalledTimes(1));
+			expect(current).toBeNull();
+			expect(root().dataset.presenting).toBe("false");
+		});
+
+		it("follows a full screen granted while presenting, and ends presenting when it is left", async () => {
+			const { screen, iframe, root } = await present();
+			grant(iframe);
+			await vi.waitFor(() =>
+				expect(document.querySelector("button[aria-label='Exit presentation']")).toBeNull()
+			);
+			expect(root().dataset.presenting).toBe("true");
+			// Left the browser's own way (Escape): the view follows
+			current = null;
+			document.dispatchEvent(new Event("fullscreenchange"));
+			await vi.waitFor(() => expect(root().dataset.presenting).toBe("false"));
+			expect(screen).toBeTruthy();
+		});
+	});
 });

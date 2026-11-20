@@ -89,20 +89,30 @@ test("a slides artifact renders, steps, presents and downloads a PDF", async ({
 	await expect(
 		frame.getByRole("heading", { name: "Fewer escalations, faster onboarding", level: 1 })
 	).toBeVisible();
-	// Leave: the browser's own full screen, or the overlay's exit button. The browser may grant the
-	// full screen late (the overlay shows first, then hands over to it), so look again until neither is up
+	// Leave. The view shows its overlay at once and hands over to the browser's full screen if that is
+	// granted (possibly late); either way it follows the browser's fullscreenchange, so wait on its own
+	// state rather than on the raw API
+	const view = panel.getByTestId("slides-view");
+	await expect(view).toHaveAttribute("data-presenting", "true");
 	const exit = page.getByRole("button", { name: "Exit presentation" });
-	await expect(async () => {
-		// Fire and forget: headless Chromium can leave the exitFullscreen() promise pending while it
-		// settles a full screen it granted late, and awaiting it would hold this attempt until the
-		// whole 15 s is spent. The checks below poll for the result instead
+	if (await exit.isVisible()) {
+		// The overlay's button; if the full screen was granted just now it goes away, and the
+		// browser's own exit (what Escape does) leaves instead. Not awaited: headless Chromium can
+		// leave the exitFullscreen() promise pending
+		await exit.click({ timeout: 2_000 }).catch(() =>
+			page.evaluate(() => {
+				if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+			})
+		);
+	} else {
 		await page.evaluate(() => {
 			if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
 		});
-		if (await exit.isVisible()) await exit.click();
-		expect(await page.evaluate(() => document.fullscreenElement === null)).toBe(true);
-		await expect(exit).toBeHidden({ timeout: 500 });
-	}).toPass({ timeout: 15_000 });
+	}
+	await expect(view).toHaveAttribute("data-presenting", "false");
+	await expect(exit).toBeHidden();
+	// A full screen granted after leaving is handed back by the view, so this settles by itself
+	await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
 
 	// The stack has a renderer, so the PDF button makes the vector PDF on the server:
 	// a page per slide, with text that can be selected
