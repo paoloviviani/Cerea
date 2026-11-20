@@ -7,7 +7,14 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+## v0.60.3 — 2026-11-20
+
+Pins: Cerea `0.60.3` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.5`, opencode `2.3.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. Update computers with `galopin upgrade` (a reload during an agent turn keeps the reply's text).
+
 - Photos attached to a message now load together. A conversation with several large pictures used to show them one after another, each downloading the full-size original; now every picture shows as a small, light version in a tile of fixed size with a soft shimmer, and they appear at the same time. The full picture still opens when users click it.
+- Fixed: reloading the page during an agent turn no longer leaves an empty reply. The turn's text so far is kept when the computer resyncs, and the reply continues to fill in.
 
 ## v0.60.2 — 2026-11-20
 
