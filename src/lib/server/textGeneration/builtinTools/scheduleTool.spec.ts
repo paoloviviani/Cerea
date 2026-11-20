@@ -183,6 +183,7 @@ describe("confirming the card", () => {
 	it("creates the chat schedule as the person, from this conversation, with their own token", async () => {
 		const id = await parkProposal("accept", "once");
 		const outcome = await resumeParkedToolCall({
+			viaServer: true,
 			conversationId,
 			elicitationId: id,
 			token: "session-token",
@@ -207,7 +208,11 @@ describe("confirming the card", () => {
 
 	it("creates nothing when the person declines, and tells the model so", async () => {
 		const id = await parkProposal("decline");
-		const outcome = await resumeParkedToolCall({ conversationId, elicitationId: id });
+		const outcome = await resumeParkedToolCall({
+			conversationId,
+			elicitationId: id,
+			viaServer: true,
+		});
 
 		expect(await collections.schedules.countDocuments({})).toBe(0);
 		expect(outcome.updates.find((u) => "subtype" in u && u.subtype === "error")).toMatchObject({
@@ -218,6 +223,7 @@ describe("confirming the card", () => {
 	it("never grants the tool for the rest of the conversation, whatever scope the click carried", async () => {
 		const id = await parkProposal("accept", "conversation");
 		const outcome = await resumeParkedToolCall({
+			viaServer: true,
 			conversationId,
 			elicitationId: id,
 			token: "session-token",
@@ -232,6 +238,7 @@ describe("confirming the card", () => {
 		await collections.scheduleGrants.deleteMany({});
 		const id = await parkProposal("accept", "once");
 		const outcome = await resumeParkedToolCall({
+			viaServer: true,
 			conversationId,
 			elicitationId: id,
 			token: "session-token",

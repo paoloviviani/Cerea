@@ -774,7 +774,11 @@ describe("the approval click (resume)", () => {
 			{ deviceId, workspaceId: "ws1", prompt: "Look at the failing build" },
 			"accept"
 		);
-		const outcome = await resumeParkedToolCall({ conversationId, elicitationId: id });
+		const outcome = await resumeParkedToolCall({
+			conversationId,
+			elicitationId: id,
+			viaServer: true,
+		});
 		expect(ops("session.create")).toHaveLength(1);
 		expect(ops("session.prompt")).toHaveLength(1);
 		const result = outcome.updates.find((u) => "subtype" in u && u.subtype === "result");
@@ -796,7 +800,11 @@ describe("the approval click (resume)", () => {
 			{ deviceId, workspaceId: "ws1", prompt: "x" },
 			"decline"
 		);
-		const outcome = await resumeParkedToolCall({ conversationId, elicitationId: id });
+		const outcome = await resumeParkedToolCall({
+			conversationId,
+			elicitationId: id,
+			viaServer: true,
+		});
 		expect(ops("session.create")).toHaveLength(0);
 		expect(outcome.updates.find((u) => "subtype" in u && u.subtype === "error")).toMatchObject({
 			message: expect.stringContaining("declined"),
@@ -814,7 +822,11 @@ describe("the approval click (resume)", () => {
 			{ deviceId, sessionId: session.id, prompt: "x" },
 			"accept"
 		);
-		const outcome = await resumeParkedToolCall({ conversationId, elicitationId: id });
+		const outcome = await resumeParkedToolCall({
+			conversationId,
+			elicitationId: id,
+			viaServer: true,
+		});
 		expect(ops("session.prompt")).toHaveLength(0);
 		expect(outcome.updates.find((u) => "subtype" in u && u.subtype === "error")).toMatchObject({
 			message: expect.stringContaining("sign in again"),
