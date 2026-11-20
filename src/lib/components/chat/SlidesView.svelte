@@ -118,8 +118,19 @@
 
 	onMount(() => {
 		window.addEventListener("message", onMessage);
+		// The browser's full screen is driven by this event alone, never by the promise that
+		// requestFullscreen() returns: headless Chromium can leave that promise pending while it
+		// still grants the full screen (late), and the grant can land after the viewer already left
 		const onFullscreen = () => {
-			if (!document.fullscreenElement && presenting && fullscreenNative) presenting = false;
+			const ours = Boolean(iframeEl) && document.fullscreenElement === iframeEl;
+			if (ours && !presenting) {
+				void document.exitFullscreen().catch(() => undefined);
+			} else if (ours) {
+				fullscreenNative = true;
+			} else if (presenting && fullscreenNative) {
+				presenting = false;
+				fullscreenNative = false;
+			}
 		};
 		document.addEventListener("fullscreenchange", onFullscreen);
 		return () => document.removeEventListener("fullscreenchange", onFullscreen);
@@ -130,28 +141,25 @@
 		pdfAbort?.abort();
 	});
 
-	async function present() {
+	function present() {
 		presenting = true;
 		fullscreenNative = false;
+		// The overlay shows at once; if the browser grants the full screen, fullscreenchange hands over to it
+		// (and back to nothing when it is left). A refusal leaves the overlay, so there is nothing to await
 		try {
-			if (iframeEl?.requestFullscreen) {
-				await iframeEl.requestFullscreen();
-				// Left while the browser was still deciding: the full screen arrives late, so hand it back
-				if (!presenting) {
-					if (document.fullscreenElement) void document.exitFullscreen();
-					return;
-				}
-				fullscreenNative = true;
-			}
+			void iframeEl?.requestFullscreen?.()?.catch(() => undefined);
 		} catch {
-			// Fall back to the in-page overlay below
+			// Fall back to the in-page overlay
 		}
 		iframeEl?.focus();
 	}
 
 	function exitPresenting() {
-		if (document.fullscreenElement) void document.exitFullscreen();
 		presenting = false;
+		fullscreenNative = false;
+		if (iframeEl && document.fullscreenElement === iframeEl)
+			void document.exitFullscreen().catch(() => undefined);
+		// A full screen still being granted is handed back by the fullscreenchange listener
 	}
 
 	function onWindowKeydown(ev: KeyboardEvent) {
@@ -311,7 +319,11 @@
 
 <svelte:window onkeydown={onWindowKeydown} />
 
-<div class="flex h-full min-h-0 flex-col" data-testid="slides-view">
+<div
+	class="flex h-full min-h-0 flex-col"
+	data-testid="slides-view"
+	data-presenting={presenting ? "true" : "false"}
+>
 	<div class="relative min-h-0 flex-1 bg-white dark:bg-gray-900">
 		{#if srcdoc}
 			<iframe

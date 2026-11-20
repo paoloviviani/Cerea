@@ -706,6 +706,10 @@ test.describe("owned machine agent: parity", () => {
 		await expect(transcript.getByText("Answer two.", { exact: true })).toHaveCount(0);
 		await expect(page.getByText("second question")).toHaveCount(1);
 		await expect(transcript.getByText("Answer one.")).toBeVisible();
+		// Let the re-sent turn finish before the reload: the machine keeps its history once the turn is
+		// done, and a reload that lands mid-turn replays a half-written answer (CI showed the second
+		// question with an empty assistant bubble that never filled in)
+		await settle();
 
 		// The same survives a reload: it is the machine's history now.
 		await page.reload();
