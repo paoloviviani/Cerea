@@ -6,10 +6,12 @@
 	 * `$lib/utils/composerFiles`). Previews are the files' own bytes (base64),
 	 * so nothing is fetched before the message is sent.
 	 *
-	 * `compact` renders a left-aligned strip of small thumbnails: the mode the
-	 * agent composer uses, where the strip sits in its own row above the
-	 * input. An image preview at the full chip size inside that composer's
-	 * single row is what squeezed the textarea to a sliver.
+	 * The strip is always one compact, horizontally scrolling row of small
+	 * thumbnails (images as 56 px tiles; other files as one-line chips), so
+	 * any number of attachments, however tall, leaves the text box and send
+	 * button where they were. A full-size preview per photo is what pushed
+	 * them off a phone's screen. `compact` only left-aligns the row (the
+	 * agent composer); chat centres it from md up.
 	 */
 	import { fly } from "svelte/transition";
 	import { cubicInOut } from "svelte/easing";
@@ -51,13 +53,14 @@
 {#if sources?.length && !hidden}
 	<div
 		in:fly|local={sources.length === 1 ? { y: -20, easing: cubicInOut } : undefined}
-		class="flex flex-row flex-wrap gap-2.5 rounded-xl pb-3 {compact
+		data-testid="composer-file-strip"
+		class="mb-1 flex w-full flex-row flex-nowrap items-center gap-2.5 overflow-x-auto overflow-y-hidden px-1 pt-2 pb-3 {compact
 			? 'justify-start'
-			: 'justify-center'}"
+			: 'justify-start md:justify-center'} [&>*]:shrink-0"
 	>
 		{#each sources as source, index}
 			{#await source then src}
-				{#if compact && src.mime.startsWith("image/")}
+				{#if src.mime.startsWith("image/")}
 					<!-- A thumbnail, not a preview: the image's bytes ride along with
 					     the message, so a small tile is all the reminder a person
 					     needs before sending. -->

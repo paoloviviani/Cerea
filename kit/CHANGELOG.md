@@ -9,6 +9,7 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 - Fixed: photos from a phone reached the model sideways and too small. Cerea now turns an image upright by its EXIF orientation before sending it, and sends up to 2048 px on the longest side (it was 1024) and about 5 MB per image (it was 1 MB), never enlarging, with JPEG quality lowered before size. Together the images of one request stay under 32 MB. A photographed page of small print, such as a table of 7-digit codes, is now legible to a vision model. Change the limits per model with `imageLimits` in a `MODELS` entry (`maxWidth`, `maxHeight`, `maxSizeInMB`, `totalBudgetMB`).
 - New: the assistant can look at an image itself. A new `view_image` tool shows a picture of the conversation (an attachment, or a file it made) to a model that can see images, optionally one region cut from the full-resolution original (`crop`) or turned (`rotate`), so it can zoom into dense print. Images the assistant saves from code are shown to users, not to the model, and it is now told to use `view_image` to see them.
+- Fixed: attaching several photos on a phone pushed the message box and the send button off the screen. Attachments now show as one small row of thumbnails above the message box that scrolls sideways, so the box and the send button stay in view however many files users attach.
 
 ## v0.60.1 — 2026-11-19
 
