@@ -6,11 +6,62 @@ import { z, type util } from "zod";
 export interface ImageProcessorOptions<TMimeType extends string = string> {
 	supportedMimeTypes: TMimeType[];
 	preferredMimeType: TMimeType;
+	/** Cap on one image's bytes (decimal MB), applied by lowering JPEG quality first, then the size. */
 	maxSizeInMB: number;
+	/** The box an image is fitted into, aspect kept, never upscaled. */
 	maxWidth: number;
 	maxHeight: number;
+	/** What all the images of one request may add up to (decimal MB); more shrinks them proportionally. */
+	totalBudgetMB: number;
 }
-export type ImageProcessor<TMimeType extends string = string> = (file: MessageFile) => Promise<{
+
+/**
+ * The one default for every image a model is sent (attachments, tool pictures, the endpoint): the long
+ * edge is 2048 px, so a phone photo of an A4 page (3024x4032) keeps small print legible at 1536x2048.
+ * The byte cap is 3.75 MB, which is about 5 MB once base64-encoded: the smallest per-image limit among
+ * the providers behind the gateway (Anthropic's is 5 MB). The total keeps a request with several images
+ * far below the gateway's 64 MiB `/v1` body limit (base64 adds a third).
+ */
+export const DEFAULT_IMAGE_LIMITS = {
+	maxWidth: 2048,
+	maxHeight: 2048,
+	maxSizeInMB: 3.75,
+	totalBudgetMB: 32,
+} as const;
+
+export const DEFAULT_IMAGE_PROCESSOR_OPTIONS: ImageProcessorOptions<string> = {
+	supportedMimeTypes: ["image/png", "image/jpeg"],
+	preferredMimeType: "image/jpeg",
+	...DEFAULT_IMAGE_LIMITS,
+};
+
+/** What a model entry (MODELS `imageLimits`, or an endpoint's `multimodal.image`) may set. */
+export type ImageLimitsOverride = Partial<
+	Pick<ImageProcessorOptions, "maxWidth" | "maxHeight" | "maxSizeInMB" | "totalBudgetMB">
+>;
+
+/**
+ * The image options for a model: the shared defaults, then the endpoint's `multimodal.image`, then the
+ * model's own `imageLimits` (the field a MODELS override sets).
+ */
+export function imageProcessorOptionsFor(model: {
+	imageLimits?: ImageLimitsOverride;
+	endpoints?: ReadonlyArray<
+		{ multimodal?: { image?: Partial<ImageProcessorOptions> } } | undefined
+	>;
+}): ImageProcessorOptions {
+	return {
+		...DEFAULT_IMAGE_PROCESSOR_OPTIONS,
+		...model.endpoints?.[0]?.multimodal?.image,
+		...model.imageLimits,
+	};
+}
+
+export type ImageProcessorCall = { maxBytes?: number };
+export type ImageProcessor<TMimeType extends string = string> = (
+	file: MessageFile,
+	call?: ImageProcessorCall
+) => Promise<{
 	image: Buffer;
 	mime: TMimeType;
 }>;
@@ -34,58 +85,133 @@ export function createImageProcessorOptionsValidator<TMimeType extends string = 
 			maxSizeInMB: z.number().positive().default(defaults.maxSizeInMB),
 			maxWidth: z.number().int().positive().default(defaults.maxWidth),
 			maxHeight: z.number().int().positive().default(defaults.maxHeight),
+			totalBudgetMB: z.number().positive().default(defaults.totalBudgetMB),
 		})
 		.default(defaults);
 }
 
+/** Width and height as the picture is drawn once its EXIF orientation is applied (5-8 swap the axes). */
+export function orientedSize(metadata: { width?: number; height?: number; orientation?: number }): {
+	width: number;
+	height: number;
+} {
+	const { width, height, orientation } = metadata;
+	if (width === undefined || height === undefined) throw Error("Failed to read image size");
+	return orientation !== undefined && orientation >= 5
+		? { width: height, height: width }
+		: { width, height };
+}
+
+/** The qualities tried, in order, when an image does not fit its byte cap, before its size is lowered. */
+const JPEG_QUALITIES = [85, 75, 65, 55, 45];
+const SHRINK_STEP = 0.85;
+
+/**
+ * Fits an image to what a model is sent: EXIF orientation applied (phone photos are stored sideways with a
+ * tag, and the tag is dropped on re-encoding), long edge capped and never upscaled, bytes capped by lowering
+ * JPEG quality before lowering the size. An image that is upright, small enough and in a supported format
+ * is returned as it came.
+ */
 export function makeImageProcessor<TMimeType extends string = string>(
 	options: ImageProcessorOptions<TMimeType>
 ): ImageProcessor<TMimeType> {
-	return async (file) => {
+	return async (file, call) => {
 		const { supportedMimeTypes, preferredMimeType, maxSizeInMB, maxWidth, maxHeight } = options;
 		const { mime, value } = file;
 
 		const buffer = Buffer.from(value, "base64");
-		let sharpInst = sharp(buffer);
-
-		const metadata = await sharpInst.metadata();
+		const metadata = await sharp(buffer).metadata();
 		if (!metadata) throw Error("Failed to read image metadata");
-		const { width, height } = metadata;
-		if (width === undefined || height === undefined) throw Error("Failed to read image size");
+		const { width, height } = orientedSize(metadata);
+		const needsRotation = metadata.orientation !== undefined && metadata.orientation > 1;
 
+		const byteCap = Math.max(1, Math.min(maxSizeInMB * 1000 * 1000, call?.maxBytes ?? Infinity));
 		const tooLargeInSize = width > maxWidth || height > maxHeight;
-		const tooLargeInBytes = buffer.byteLength > maxSizeInMB * 1000 * 1000;
+		const tooLargeInBytes = buffer.byteLength > byteCap;
 
 		const outputMime = chooseMimeType(supportedMimeTypes, preferredMimeType, mime, {
 			preferSizeReduction: tooLargeInBytes,
 		});
+		if (!tooLargeInSize && !tooLargeInBytes && !needsRotation && outputMime === mime) {
+			return { image: buffer, mime: outputMime };
+		}
 
-		// Resize if necessary
-		if (tooLargeInSize || tooLargeInBytes) {
-			const size = chooseImageSize({
-				mime: outputMime,
-				width,
-				height,
-				maxWidth,
-				maxHeight,
-				maxSizeInMB,
-			});
-			if (size.width !== width || size.height !== height) {
-				sharpInst = resizeImage(sharpInst, size.width, size.height);
+		let target = fitBox(width, height, maxWidth, maxHeight);
+		for (;;) {
+			const qualities = outputMime === "image/jpeg" ? JPEG_QUALITIES : [undefined];
+			let last: Buffer | undefined;
+			for (const quality of qualities) {
+				last = await encode(buffer, outputMime, target, quality);
+				if (last.byteLength <= byteCap) return { image: last, mime: outputMime };
 			}
+			// Even the lowest quality is too big: take the size down a step and start again.
+			const next = {
+				width: Math.floor(target.width * SHRINK_STEP),
+				height: Math.floor(target.height * SHRINK_STEP),
+			};
+			if (next.width < 16 || next.height < 16) {
+				if (last) return { image: last, mime: outputMime };
+				throw Error(`Failed to resize image to fit within ${maxSizeInMB}MB`);
+			}
+			target = next;
 		}
-
-		// Convert format if necessary
-		// We always want to convert the image when the file was too large in bytes
-		// so we can guarantee that ideal options are used, which are expected when
-		// choosing the image size
-		if (outputMime !== mime || tooLargeInBytes) {
-			sharpInst = convertImage(sharpInst, outputMime);
-		}
-
-		const processedImage = await sharpInst.toBuffer();
-		return { image: processedImage, mime: outputMime };
 	};
+}
+
+function fitBox(
+	width: number,
+	height: number,
+	maxWidth: number,
+	maxHeight: number
+): { width: number; height: number } {
+	const scale = Math.min(1, maxWidth / width, maxHeight / height);
+	return scale === 1
+		? { width, height }
+		: {
+				width: Math.max(1, Math.round(width * scale)),
+				height: Math.max(1, Math.round(height * scale)),
+			};
+}
+
+async function encode(
+	buffer: Buffer,
+	mime: string,
+	size: { width: number; height: number },
+	quality: number | undefined
+): Promise<Buffer> {
+	// rotate() with no angle applies the EXIF orientation and clears the tag.
+	let inst = sharp(buffer).rotate().resize({
+		width: size.width,
+		height: size.height,
+		fit: "fill",
+		withoutEnlargement: true,
+	});
+	if (mime === "image/jpeg") inst = inst.flatten({ background: "#ffffff" });
+	return convertImage(inst, mime, quality).toBuffer();
+}
+
+/**
+ * Processes a batch (one request's images) and, when the results add up to more than `budgetBytes`,
+ * processes them again with every image's byte cap lowered by the same proportion.
+ */
+export async function processWithBudget(
+	files: MessageFile[],
+	processor: ImageProcessor,
+	budgetBytes: number
+): Promise<Array<{ image: Buffer; mime: string }>> {
+	let results = await Promise.all(files.map((file) => processor(file)));
+	for (let pass = 0; pass < 3; pass += 1) {
+		const total = results.reduce((sum, r) => sum + r.image.byteLength, 0);
+		if (total <= budgetBytes) break;
+		const factor = (budgetBytes / total) * 0.95;
+		const previous = results;
+		results = await Promise.all(
+			files.map((file, i) =>
+				processor(file, { maxBytes: Math.floor(previous[i].image.byteLength * factor) })
+			)
+		);
+	}
+	return results;
 }
 
 const outputFormats = ["png", "jpeg", "webp", "avif", "tiff", "gif"] as const;
@@ -93,14 +219,16 @@ type OutputImgFormat = (typeof outputFormats)[number];
 const isOutputFormat = (format: string): format is (typeof outputFormats)[number] =>
 	outputFormats.includes(format as OutputImgFormat);
 
-export function convertImage(sharpInst: Sharp, outputMime: string): Sharp {
+export function convertImage(sharpInst: Sharp, outputMime: string, quality?: number): Sharp {
 	const [type, format] = outputMime.split("/");
 	if (type !== "image") throw Error(`Requested non-image mime type: ${outputMime}`);
 	if (!isOutputFormat(format)) {
 		throw Error(`Requested to convert to an unsupported format: ${format}`);
 	}
 
-	return sharpInst[format]();
+	return quality !== undefined && (format === "jpeg" || format === "webp" || format === "avif")
+		? sharpInst[format]({ quality })
+		: sharpInst[format]();
 }
 
 // heic/heif requires proprietary license
@@ -145,67 +273,4 @@ function chooseMimeType<T extends readonly string[]>(
 
 	const smallestMime = mimesBySizeDesc.findLast((m) => supportedMimes.includes(m));
 	return smallestMime ?? preferredMime;
-}
-
-interface ImageSizeOptions {
-	mime: string;
-	width: number;
-	height: number;
-	maxWidth: number;
-	maxHeight: number;
-	maxSizeInMB: number;
-}
-
-/** Resizes the image to fit within the specified size in MB by guessing the output size */
-export function chooseImageSize({
-	mime,
-	width,
-	height,
-	maxWidth,
-	maxHeight,
-	maxSizeInMB,
-}: ImageSizeOptions): { width: number; height: number } {
-	const biggestDiscrepency = Math.max(1, width / maxWidth, height / maxHeight);
-
-	let selectedWidth = Math.ceil(width / biggestDiscrepency);
-	let selectedHeight = Math.ceil(height / biggestDiscrepency);
-
-	do {
-		const estimatedSize = estimateImageSizeInBytes(mime, selectedWidth, selectedHeight);
-		if (estimatedSize < maxSizeInMB * 1024 * 1024) {
-			return { width: selectedWidth, height: selectedHeight };
-		}
-		selectedWidth = Math.floor(selectedWidth / 1.1);
-		selectedHeight = Math.floor(selectedHeight / 1.1);
-	} while (selectedWidth > 1 && selectedHeight > 1);
-
-	throw Error(`Failed to resize image to fit within ${maxSizeInMB}MB`);
-}
-
-const mimeToCompressionRatio: Record<string, number> = {
-	"image/png": 1 / 2,
-	"image/jpeg": 1 / 10,
-	"image/webp": 1 / 4,
-	"image/avif": 1 / 5,
-	"image/tiff": 1,
-	"image/gif": 1 / 5,
-};
-
-/**
- * Guesses the side of an image in MB based on its format and dimensions
- * Should guess the worst case
- **/
-function estimateImageSizeInBytes(mime: string, width: number, height: number): number {
-	const compressionRatio = mimeToCompressionRatio[mime];
-	if (!compressionRatio) throw Error(`Unsupported image format: ${mime}`);
-
-	const bitsPerPixel = 32; // Assuming 32-bit color depth for 8-bit R G B A
-	const bytesPerPixel = bitsPerPixel / 8;
-	const uncompressedSize = width * height * bytesPerPixel;
-
-	return uncompressedSize * compressionRatio;
-}
-
-export function resizeImage(sharpInst: Sharp, maxWidth: number, maxHeight: number): Sharp {
-	return sharpInst.resize({ width: maxWidth, height: maxHeight, fit: "inside" });
 }

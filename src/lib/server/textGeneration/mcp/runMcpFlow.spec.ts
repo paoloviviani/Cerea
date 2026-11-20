@@ -159,6 +159,7 @@ vi.mock("$lib/server/textGeneration/utils/prepareFiles", () => ({
 }));
 
 vi.mock("$lib/server/endpoints/images", () => ({
+	imageProcessorOptionsFor: () => ({ totalBudgetMB: 32 }),
 	// Hands an image back as it came, like the real processor does for one inside the limits.
 	makeImageProcessor: () => async (file: { value: string; mime: string }) => ({
 		image: Buffer.from(file.value, "base64"),
@@ -2290,7 +2291,7 @@ describe("runMcpFlow and look_doc", () => {
 		const last = requestMessages(2);
 		expect(images(last)).toBe(1); // not two: the first call's picture was replaced
 		expect(JSON.stringify(last)).toContain(
-			"[images from an earlier look_doc call removed; call look_doc again if you need them]"
+			"[images from an earlier tool call removed; call the tool again if you need them]"
 		);
 		// the surviving one is the second call's
 		expect(JSON.stringify(last.at(-1))).toContain("slide 2");

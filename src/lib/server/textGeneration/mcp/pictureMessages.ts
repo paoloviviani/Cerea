@@ -11,7 +11,7 @@ export const MAX_IMAGES_PER_TURN = 18;
 
 /** What an older picture message becomes when a newer one replaces it. */
 export const PICTURES_REMOVED =
-	"[images from an earlier look_doc call removed; call look_doc again if you need them]";
+	"[images from an earlier tool call removed; call the tool again if you need them]";
 
 export interface ToolPictures {
 	id: string;

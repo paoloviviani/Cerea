@@ -121,6 +121,21 @@ describe("the execute_code tool", () => {
 		}
 	});
 
+	it("says saved images are shown to the user, not the model, only while view_image is offered", () => {
+		for (const kind of ["server", "browser"]) {
+			expect(executeCodeDescription(kind, null, true)).toContain(
+				"shown to the person, not to you: to see one yourself"
+			);
+			expect(executeCodeDescription(kind, null, true)).toContain("view_image");
+			expect(executeCodeDescription(kind)).not.toContain("view_image");
+		}
+		const offered = createExecuteCodeBuiltin({ viewImageOffered: true })[0];
+		expect(offered?.definition.function.description).toContain("view_image");
+		expect(createExecuteCodeBuiltin()[0]?.definition.function.description).not.toContain(
+			"view_image"
+		);
+	});
+
 	it("tells the model where deliverables go and what a time-limit stop does", () => {
 		const description = createExecuteCodeBuiltin()[0]?.definition.function.description ?? "";
 		expect(description).toContain("only files written under /mnt/output/");

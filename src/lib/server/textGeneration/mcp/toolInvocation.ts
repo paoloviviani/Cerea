@@ -127,30 +127,54 @@ export interface ExecuteToolCallsParams {
 	 * to what the user attaches. Pictures a builtin returns are fitted through it; absent sends them as they are.
 	 */
 	imageProcessor?: ImageProcessor;
+	/** What one round's pictures may add up to, in bytes (see `processWithBudget`). Absent: no total. */
+	imageBudgetBytes?: number;
 }
 
 /** The pictures through the turn's image processor; one it cannot fit is dropped with a note in its place. */
 async function fitImages(
 	images: BuiltinToolImage[],
-	processor: ImageProcessor | undefined
+	processor: ImageProcessor | undefined,
+	budgetBytes?: number
 ): Promise<BuiltinToolImage[]> {
 	if (!processor) return images;
-	const out: BuiltinToolImage[] = [];
-	for (const image of images) {
+	const files = images.map((image) => ({
+		type: "base64" as const,
+		name: image.label,
+		value: image.base64,
+		mime: image.mime,
+	}));
+	// Each picture on its own first, so one that cannot be fitted is dropped alone; then the batch is held to
+	// the budget when there is one.
+	const fitted: Array<{ image: Buffer; mime: string } | undefined> = [];
+	for (const file of files) {
 		try {
-			const fitted = await processor({
-				type: "base64",
-				name: image.label,
-				value: image.base64,
-				mime: image.mime,
-			});
-			out.push({ ...image, mime: fitted.mime, base64: fitted.image.toString("base64") });
+			fitted.push(await processor(file));
 		} catch (err) {
 			logger.warn({ err }, "[builtin] a picture could not be fitted to the model's image limits");
-			out.push({ ...image, mime: "", base64: "" });
+			fitted.push(undefined);
 		}
 	}
-	return out;
+	let results = fitted;
+	const total = fitted.reduce((sum, r) => sum + (r?.image.byteLength ?? 0), 0);
+	if (budgetBytes !== undefined && total > budgetBytes) {
+		const factor = (budgetBytes / total) * 0.95;
+		results = await Promise.all(
+			files.map(async (file, i) => {
+				const first = fitted[i];
+				if (!first) return undefined;
+				return processor(file, { maxBytes: Math.floor(first.image.byteLength * factor) }).catch(
+					() => first
+				);
+			})
+		);
+	}
+	return images.map((image, i) => {
+		const r = results[i];
+		return r
+			? { ...image, mime: r.mime, base64: r.image.toString("base64") }
+			: { ...image, mime: "", base64: "" };
+	});
 }
 
 /** Where a gated call dispatches: an MCP server, or the `web_fetch` builtin. */
@@ -225,6 +249,7 @@ export async function* executeToolCalls({
 	toolApproval,
 	toolBlocker,
 	imageProcessor,
+	imageBudgetBytes,
 }: ExecuteToolCallsParams): AsyncGenerator<ToolExecutionEvent, void, undefined> {
 	const effectiveTimeoutMs = toolTimeoutMs ?? getMcpToolTimeoutMs();
 	const toolMessages: ChatCompletionMessageParam[] = [];
@@ -1057,7 +1082,10 @@ export async function* executeToolCalls({
 	if (pictures.length > 0) {
 		const ready: ToolPictures[] = [];
 		for (const picture of pictures) {
-			ready.push({ ...picture, images: await fitImages(picture.images, imageProcessor) });
+			ready.push({
+				...picture,
+				images: await fitImages(picture.images, imageProcessor, imageBudgetBytes),
+			});
 		}
 		toolMessages.push(...pictureMessages(ready));
 	}

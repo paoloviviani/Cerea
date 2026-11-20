@@ -38,7 +38,7 @@ import { createToolBlocker } from "./toolBlocker";
 import type { TextGenerationContext } from "../types";
 import { buildImageRefResolver } from "./fileRefs";
 import { prepareMessagesWithFiles } from "$lib/server/textGeneration/utils/prepareFiles";
-import { makeImageProcessor } from "$lib/server/endpoints/images";
+import { imageProcessorOptionsFor, makeImageProcessor } from "$lib/server/endpoints/images";
 import { logger } from "$lib/server/logger";
 import { AbortedGenerations } from "$lib/server/abortedGenerations";
 import { withoutContentLength } from "$lib/server/undiciCompat";
@@ -584,13 +584,9 @@ export async function* runMcpFlow({
 	}
 
 	const resolveFileRef = buildImageRefResolver(messages);
-	const imageProcessor = makeImageProcessor({
-		supportedMimeTypes: ["image/png", "image/jpeg"],
-		preferredMimeType: "image/jpeg",
-		maxSizeInMB: 1,
-		maxWidth: 1024,
-		maxHeight: 1024,
-	});
+	const imageOptions = imageProcessorOptionsFor(model);
+	const imageProcessor = makeImageProcessor(imageOptions);
+	const imageBudgetBytes = imageOptions.totalBudgetMB * 1000 * 1000;
 
 	// Declared outside the try so the catch can see it: whether the user has been shown
 	// anything for this turn, which decides whether a failure is recoverable.
@@ -761,6 +757,7 @@ export async function* runMcpFlow({
 			imageProcessor,
 			mmEnabled,
 			{
+				imageBudgetBytes,
 				replayToolHistory: true,
 				attachReasoning: mayEchoReasoning,
 				// The model serving THIS turn: gates reasoning_content to only
@@ -1566,6 +1563,7 @@ export async function* runMcpFlow({
 					toolBlocker,
 					// Pictures a tool returns are fitted to the same image limits as the user's attachments.
 					imageProcessor,
+					imageBudgetBytes,
 					// The pre-call checkpoint (ADR 0075): every MCP call is gated the
 					// same way `web_fetch` already is, under the policy resolved above.
 					toolApproval: {

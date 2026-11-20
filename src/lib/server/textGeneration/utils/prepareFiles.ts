@@ -8,7 +8,7 @@ import { CLIPBOARD_MIME, isTextFile, largeContentBlock } from "./largeContent";
 import { stripThink } from "$lib/utils/stripThink";
 import { isExternalToolName, markUntrustedResult } from "../untrusted";
 import { stripLoneSurrogates } from "./loneSurrogates";
-import type { makeImageProcessor } from "$lib/server/endpoints/images";
+import { processWithBudget, type makeImageProcessor } from "$lib/server/endpoints/images";
 import {
 	MessageToolUpdateType,
 	MessageUpdateType,
@@ -453,8 +453,21 @@ export async function prepareMessagesWithFiles(
 		 * Absent, the history is sent as stored (artifacts off for the model).
 		 */
 		artifactHistory?: ArtifactHistoryOptions;
+		/**
+		 * What all the images of this request may add up to, in bytes. Past it every image is
+		 * re-encoded smaller by the same proportion, so a long conversation of photos stays under the
+		 * gateway's request size limit. Absent: no total (each image still has its own cap).
+		 */
+		imageBudgetBytes?: number;
 	}
 ): Promise<OpenAI.Chat.Completions.ChatCompletionMessageParam[]> {
+	if (isMultimodal && options?.imageBudgetBytes !== undefined) {
+		imageProcessor = await budgetedImageProcessor(
+			rawMessages,
+			imageProcessor,
+			options.imageBudgetBytes
+		);
+	}
 	let messages = rawMessages;
 	let artifactTail: string | null = null;
 	if (options?.artifactHistory) {
@@ -639,6 +652,27 @@ function appendToLastUserMessage(out: ChatMessageParam[], tail: string): void {
 	}
 }
 
+/**
+ * Processes every image the request will carry in one batch and answers `imageProcessor` from that
+ * result, so the request's total can be held to a budget (see `processWithBudget`).
+ */
+async function budgetedImageProcessor(
+	messages: EndpointMessage[],
+	imageProcessor: ReturnType<typeof makeImageProcessor>,
+	budgetBytes: number
+): Promise<ReturnType<typeof makeImageProcessor>> {
+	const images = messages
+		.filter((message) => message.from === "user")
+		.flatMap((message) => message.files ?? [])
+		.filter((file) => file.mime.startsWith("image/"));
+	if (images.length < 2) return imageProcessor;
+	const results = await processWithBudget(images, imageProcessor, budgetBytes);
+	const byFile = new Map(images.map((file, i) => [file, results[i]]));
+	return (async (file: MessageFile) => byFile.get(file) ?? imageProcessor(file)) as ReturnType<
+		typeof makeImageProcessor
+	>;
+}
+
 async function prepareFiles(
 	imageProcessor: ReturnType<typeof makeImageProcessor>,
 	files: MessageFile[],
@@ -654,7 +688,7 @@ async function prepareFiles(
 
 	let imageParts: OpenAI.Chat.Completions.ChatCompletionContentPartImage[] = [];
 	if (isMultimodal && imageFiles.length > 0) {
-		const processedFiles = await Promise.all(imageFiles.map(imageProcessor));
+		const processedFiles = await Promise.all(imageFiles.map((file) => imageProcessor(file)));
 		imageParts = processedFiles.map((file) => ({
 			type: "image_url" as const,
 			image_url: {

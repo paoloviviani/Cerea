@@ -15,6 +15,7 @@ import type { ProjectAgentProfile } from "$lib/types/AgentSession";
 import { createConvertDocumentBuiltin } from "./convertDocumentTool";
 import { createDocumentBuiltins, type DocumentTurnState } from "./documentTools";
 import { createLookDocBuiltins } from "./lookDocTool";
+import { createViewImageBuiltin } from "./viewImageTool";
 import { createGenerateImageBuiltin } from "./generateImageTool";
 import type { PictureState } from "../mcp/pictureMessages";
 import type { DocumentCapabilities } from "$lib/server/documents/client";
@@ -38,6 +39,7 @@ export { isNestedAgentTool } from "./nestedAgent";
 export { DELEGATE_TOOL_NAME, RESEARCH_TOOL_NAME } from "./delegateTool";
 export { CONVERT_DOCUMENT_TOOL_NAME } from "./convertDocumentTool";
 export { LOOK_DOC_TOOL_NAME } from "./lookDocTool";
+export { VIEW_IMAGE_TOOL_NAME } from "./viewImageTool";
 export { GENERATE_IMAGE_TOOL_NAME } from "./generateImageTool";
 export { SCHEDULE_TOOL_NAME } from "./scheduleTool";
 export { BROWSE_TOOL_NAME } from "./browseTool";
@@ -233,7 +235,12 @@ export function getEnabledBuiltinTools(params: {
 
 	// Gated on the deployment-level flag alone: absent flag = fences only,
 	// exactly today's behavior. The tool withholds itself when the flag is off.
-	tools.push(...createExecuteCodeBuiltin({ unattended: params.unattended }));
+	tools.push(
+		...createExecuteCodeBuiltin({
+			unattended: params.unattended,
+			viewImageOffered: params.modelSeesImages === true,
+		})
+	);
 
 	// PDF conversion through the deployment's Gotenberg (the kit's `office`
 	// profile). Gated on `CHAT_GOTENBERG_URL` alone: unset, nothing registers.
@@ -250,6 +257,11 @@ export function getEnabledBuiltinTools(params: {
 		tools.push(
 			...createLookDocBuiltins(params.documentCapabilities, documentTurn, params.pictureState)
 		);
+	}
+
+	// Looking at an image file of the conversation (a photo, a crop made in the sandbox): any model that sees images.
+	if (params.modelSeesImages === true) {
+		tools.push(...createViewImageBuiltin(params.pictureState));
 	}
 
 	// Drawing images: only for a person an image model resolved for, and a model that calls tools.

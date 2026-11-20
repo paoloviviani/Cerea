@@ -394,3 +394,17 @@ describe("generate_image", () => {
 		);
 	});
 });
+
+describe("view_image", () => {
+	const names = (extra: Partial<Parameters<typeof getEnabledBuiltinTools>[0]>) =>
+		getEnabledBuiltinTools({ conv: { _id: new ObjectId() }, ...extra }).map((tool) => tool.name);
+
+	it("is offered when the model sees images, with or without a document service", () => {
+		expect(names({ modelSeesImages: true })).toContain("view_image");
+	});
+
+	it("is absent for a text-only model", () => {
+		expect(names({ modelSeesImages: false })).not.toContain("view_image");
+		expect(names({})).not.toContain("view_image");
+	});
+});

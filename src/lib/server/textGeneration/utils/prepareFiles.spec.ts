@@ -1,8 +1,13 @@
 import { markUntrustedResult } from "../untrusted";
 import { describe, expect, it } from "vitest";
+import sharp from "sharp";
 import { prepareMessagesWithFiles } from "./prepareFiles";
 import type { EndpointMessage } from "$lib/server/endpoints/endpoints";
-import type { makeImageProcessor } from "$lib/server/endpoints/images";
+import {
+	DEFAULT_IMAGE_PROCESSOR_OPTIONS,
+	makeImageProcessor as realImageProcessor,
+	type makeImageProcessor,
+} from "$lib/server/endpoints/images";
 import {
 	MessageToolUpdateType,
 	MessageUpdateType,
@@ -1142,5 +1147,60 @@ describe("telling the model where an attachment is in the sandbox", () => {
 			const out = await prepareMessagesWithFiles(attached(), imageProcessor, false, options);
 			expect(textOf(out)).not.toContain("/mnt/data");
 		}
+	});
+});
+
+describe("prepareMessagesWithFiles images", () => {
+	const noisy = async (side: number, orientation?: number) => {
+		const raw = Buffer.alloc(side * side * 3);
+		for (let i = 0; i < raw.length; i += 1) raw[i] = (i * 2654435761) >>> 24;
+		let inst = sharp(raw, { raw: { width: side, height: side, channels: 3 } });
+		if (orientation) inst = inst.withMetadata({ orientation });
+		return (await inst.jpeg({ quality: 95 }).toBuffer()).toString("base64");
+	};
+	const userWith = (...values: string[]): EndpointMessage[] => [
+		{
+			from: "user",
+			content: "read these",
+			files: values.map((value, i) => ({
+				type: "base64" as const,
+				name: `p${i}.jpg`,
+				value,
+				mime: "image/jpeg",
+			})),
+		},
+	];
+	const bytesOf = (prepared: Awaited<ReturnType<typeof prepareMessagesWithFiles>>) => {
+		const content = prepared[0].content as Array<{ type: string; image_url?: { url: string } }>;
+		return content
+			.filter((part) => part.type === "image_url")
+			.map((part) => Buffer.from((part.image_url?.url ?? "").split(",")[1], "base64"));
+	};
+
+	it("holds all of a request's images to the total budget, shrinking each", async () => {
+		const processor = realImageProcessor(DEFAULT_IMAGE_PROCESSOR_OPTIONS);
+		const messages = userWith(...(await Promise.all([1500, 1500, 1500].map((n) => noisy(n)))));
+		const free = bytesOf(await prepareMessagesWithFiles(messages, processor, true));
+		const natural = free.reduce((n, b) => n + b.byteLength, 0);
+		const budget = Math.floor(natural / 2);
+		const held = bytesOf(
+			await prepareMessagesWithFiles(messages, processor, true, { imageBudgetBytes: budget })
+		);
+		expect(held.reduce((n, b) => n + b.byteLength, 0)).toBeLessThanOrEqual(budget);
+		for (const [i, b] of held.entries()) expect(b.byteLength).toBeLessThan(free[i].byteLength);
+	});
+
+	it("sends an EXIF-sideways attachment upright", async () => {
+		const processor = realImageProcessor(DEFAULT_IMAGE_PROCESSOR_OPTIONS);
+		const raw = Buffer.alloc(300 * 200 * 3, 128);
+		const sideways = (
+			await sharp(raw, { raw: { width: 300, height: 200, channels: 3 } })
+				.withMetadata({ orientation: 6 })
+				.jpeg()
+				.toBuffer()
+		).toString("base64");
+		const [sent] = bytesOf(await prepareMessagesWithFiles(userWith(sideways), processor, true));
+		const meta = await sharp(sent).metadata();
+		expect([meta.width, meta.height, meta.orientation]).toEqual([200, 300, undefined]);
 	});
 });

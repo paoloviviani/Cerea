@@ -67,6 +67,19 @@ const modelConfig = z.object({
 	multimodal: z.boolean().default(false),
 	multimodalAcceptedMimetypes: z.array(z.string()).optional(),
 	/**
+	 * How images are fitted before they reach this model (attachments and pictures a tool returns). Any
+	 * field left out keeps the default: 2048 px on each side, 3.75 MB per image, 32 MB per request.
+	 * Set it in a MODELS override, e.g. `"imageLimits": {"maxWidth": 1568, "maxHeight": 1568}`.
+	 */
+	imageLimits: z
+		.object({
+			maxWidth: z.number().int().positive().optional(),
+			maxHeight: z.number().int().positive().optional(),
+			maxSizeInMB: z.number().positive().optional(),
+			totalBudgetMB: z.number().positive().optional(),
+		})
+		.optional(),
+	/**
 	 * A MODELS override only: `false` switches pictures in tool turns (`look_doc`) off for this model, `true`
 	 * switches them on where the gateway's listing would have them off. The outcome is `toolImagesOff`.
 	 */

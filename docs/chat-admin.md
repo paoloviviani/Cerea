@@ -418,13 +418,33 @@ General
 - Ask before anything that sends, buys, deletes or changes something outside the chat.
 ```
 
+## Image limits
+
+Every image sent to a model (attachments, and pictures a tool returns) is turned
+upright by its EXIF orientation and fitted to the model's limits: the longest
+side at most **2048 px**, each image at most **3.75 MB** (about 5 MB once encoded,
+the smallest per-image limit among the providers), never enlarged. A picture
+that is too big loses JPEG quality first and size only after that. All the images
+of one request together stay under **32 MB**; past that every image is shrunk by
+the same proportion, so a long conversation of photos stays under the gateway's
+64 MiB `/v1` body limit. To change them for one model, set `imageLimits` on its
+`MODELS` entry; any field left out keeps its default:
+
+```
+MODELS='[{"id": "my-model", "imageLimits": {"maxWidth": 1568, "maxHeight": 1568, "maxSizeInMB": 3.75, "totalBudgetMB": 32}}]'
+```
+
+(`maxSizeInMB` is decimal megabytes of the file itself; an endpoint's own
+`multimodal.image` block takes the same fields and is overridden by `imageLimits`.)
+
 ## Images in tool results
 
-When the assistant looks at pages of a document (`look_doc`), the pictures go
+When the assistant looks at pages of a document (`look_doc`), or at an image file
+of the chat (`view_image`), the pictures go
 to the model inside a tool turn. Some models mishandle that, so Pystino has a
 per-model capability, **Images in tool results**, on by default for every model
 that accepts images. To switch it off for one model, use the console's model
-page: the chat stops offering `look_doc` to that model. Without Pystino, set
+page: the chat stops offering `look_doc` and `view_image` to that model. Without Pystino, set
 `"toolImages": false` on the model's `MODELS` entry. If an endpoint rejects a
 request carrying pictures, the chat retries once without them and the turn
 carries on. See [Office files](office.md#the-assistant-looking-at-a-file).
