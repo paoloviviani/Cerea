@@ -102,8 +102,8 @@ export function unsupportedAudioMessage(
 	if (type === "audio/aac") {
 		return "AAC files (.aac) aren't supported for transcription. Export the recording as M4A or MP3 and attach that.";
 	}
-	if (CONTAINERS[type] && hasVideoTrack(type, bytes)) {
-		return `This file has a video track, so it isn't transcribed. Attach audio only: ${SUPPORTED_AUDIO_TEXT}.`;
+	if (CONTAINERS[type] && !isAudioOnlyContainer(type, bytes)) {
+		return `This file has a video track, or its tracks can't be read, so it isn't transcribed. Attach audio only: ${SUPPORTED_AUDIO_TEXT}.`;
 	}
 	const declaredAudio = mimeEssence(declared).startsWith("audio/");
 	const namedAudio = /\.(mp3|m4a|aac|wav|ogg|oga|opus|flac|weba|3gp|3gpp|amr|wma|aiff?)$/i.test(
@@ -132,6 +132,12 @@ function contains(bytes: Uint8Array, needle: string): boolean {
  */
 function hasVideoTrack(sniffed: string, bytes: Uint8Array): boolean {
 	if (sniffed === "video/webm") return contains(bytes, "V_");
+	return handlerKinds(bytes).has("vide");
+}
+
+/** The track kinds an MP4/MOV declares in its `hdlr` boxes. */
+function handlerKinds(bytes: Uint8Array): Set<string> {
+	const kinds = new Set<string>();
 	const buffer = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 	for (
 		let at = buffer.indexOf("hdlr", 0, "latin1");
@@ -139,9 +145,21 @@ function hasVideoTrack(sniffed: string, bytes: Uint8Array): boolean {
 		at = buffer.indexOf("hdlr", at + 4, "latin1")
 	) {
 		// hdlr: version/flags (4), pre_defined (4), then the handler type.
-		if (buffer.toString("latin1", at + 12, at + 16) === "vide") return true;
+		kinds.add(buffer.toString("latin1", at + 12, at + 16));
 	}
-	return false;
+	return kinds;
+}
+
+/**
+ * Whether a container is audio only. A WebM must name no video codec; an MP4
+ * family file must positively declare a sound track (`soun`) and no picture:
+ * one with no handler at all (malformed, or a QuickTime `cmov` whose boxes are
+ * compressed) cannot be told, so it is not audio.
+ */
+function isAudioOnlyContainer(sniffed: string, bytes: Uint8Array): boolean {
+	if (sniffed === "video/webm") return !hasVideoTrack(sniffed, bytes);
+	const kinds = handlerKinds(bytes);
+	return kinds.has("soun") && !kinds.has("vide");
 }
 
 /**
@@ -160,7 +178,7 @@ export function audioMime(sniffed: string | undefined, bytes: Uint8Array): strin
 	const direct = SNIFFED_AUDIO[type];
 	if (direct) return direct;
 	const container = CONTAINERS[type];
-	if (container && !hasVideoTrack(type, bytes)) return container;
+	if (container && isAudioOnlyContainer(type, bytes)) return container;
 	return null;
 }
 
