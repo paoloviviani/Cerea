@@ -53,6 +53,9 @@ What differs is the engine, which the tool's description says:
 - **Files out.** Files the code writes under `/mnt/output/` come back as the conversation's files and
   show as download cards, kept as long as any deliverable (`CHAT_FILE_RETENTION_DAYS`). At most 20 files
   and 8 MB each per run; a figure drawn with matplotlib is saved as `figure-N.png` for the model, as in the browser.
+  An image the code saves is shown to the user, not to the model: when the model can see images it
+  has the `view_image` tool (the file at `/mnt/output/<name>` or `/mnt/data/<name>`, with an optional
+  `crop` and `rotate`) to look at it, for example to zoom into a region of a photographed page.
 - **Rich output.** Results come back as text, like the browser's: a DataFrame prints as a table. (A
   full Jupyter kernel, with inline HTML tables and widgets, is not used: the exec daemon in the image,
   `sandbox/exec-image/execd.py`, is a small standard-library program that keeps one interpreter and

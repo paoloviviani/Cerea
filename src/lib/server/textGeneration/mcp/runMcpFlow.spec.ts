@@ -158,7 +158,16 @@ vi.mock("$lib/server/textGeneration/utils/prepareFiles", () => ({
 	},
 }));
 
-vi.mock("$lib/server/endpoints/images", () => ({
+vi.mock("$lib/server/endpoints/images", async (importOriginal) => ({
+	...(await importOriginal<typeof import("$lib/server/endpoints/images")>()),
+	imageProcessorOptionsFor: () => ({
+		supportedMimeTypes: ["image/png", "image/jpeg"],
+		preferredMimeType: "image/jpeg",
+		maxWidth: 2048,
+		maxHeight: 2048,
+		maxSizeInMB: 3.75,
+		totalBudgetMB: 45,
+	}),
 	// Hands an image back as it came, like the real processor does for one inside the limits.
 	makeImageProcessor: () => async (file: { value: string; mime: string }) => ({
 		image: Buffer.from(file.value, "base64"),
@@ -2290,7 +2299,7 @@ describe("runMcpFlow and look_doc", () => {
 		const last = requestMessages(2);
 		expect(images(last)).toBe(1); // not two: the first call's picture was replaced
 		expect(JSON.stringify(last)).toContain(
-			"[images from an earlier look_doc call removed; call look_doc again if you need them]"
+			"[images from an earlier tool call removed; call the tool again if you need them]"
 		);
 		// the surviving one is the second call's
 		expect(JSON.stringify(last.at(-1))).toContain("slide 2");
@@ -2383,6 +2392,16 @@ describe("runMcpFlow and look_doc", () => {
 				model: { ...context().model, multimodal: true },
 			} as never);
 			expect(result).toBe("completed");
+		});
+
+		it("also retries on a 413: a request too large for the gateway falls back to no pictures", async () => {
+			await realLookDocAfterFirst();
+			script(413);
+			const { result, updates } = await runFlow({
+				model: { ...context().model, multimodal: true },
+			} as never);
+			expect(result).toBe("completed");
+			expect(finalAnswer(updates)).toBe("from the text only");
 		});
 
 		it("leaves a 429 to the upstream retry: the same pictures are sent again", async () => {

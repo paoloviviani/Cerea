@@ -20,7 +20,11 @@ import {
 } from "$lib/server/mcp/httpClient";
 import { getClient } from "$lib/server/mcp/clientPool";
 import type { BuiltinTool, BuiltinToolImage } from "../builtinTools/types";
-import type { ImageProcessor } from "$lib/server/endpoints/images";
+import {
+	fitBatchToBudget,
+	type ImageBudget,
+	type ImageProcessor,
+} from "$lib/server/endpoints/images";
 import { pictureMessages, type ToolPictures } from "./pictureMessages";
 import { isExternalTool, markUntrustedResult } from "../untrusted";
 import { openDurableElicitation, type ElicitationSink } from "$lib/server/mcp/elicitation";
@@ -127,30 +131,64 @@ export interface ExecuteToolCallsParams {
 	 * to what the user attaches. Pictures a builtin returns are fitted through it; absent sends them as they are.
 	 */
 	imageProcessor?: ImageProcessor;
+	/**
+	 * What one round's pictures may add up to together, in bytes, after the attachments of the request
+	 * (see `fitBatchToBudget`). Absent: no total.
+	 */
+	imageBudget?: ImageBudget;
 }
 
-/** The pictures through the turn's image processor; one it cannot fit is dropped with a note in its place. */
-async function fitImages(
-	images: BuiltinToolImage[],
-	processor: ImageProcessor | undefined
-): Promise<BuiltinToolImage[]> {
-	if (!processor) return images;
-	const out: BuiltinToolImage[] = [];
-	for (const image of images) {
-		try {
-			const fitted = await processor({
-				type: "base64",
+/**
+ * All of a round's pictures (every call's, in call order) through the turn's image processor, held to
+ * one budget together (see `fitBatchToBudget`). A picture the processor cannot fit is dropped with a note
+ * in its place, alone.
+ */
+async function fitPictures(
+	groups: ToolPictures[],
+	processor: ImageProcessor | undefined,
+	budget: ImageBudget | undefined
+): Promise<ToolPictures[]> {
+	if (!processor) return groups;
+	const entries = groups.flatMap((group, g) =>
+		group.images.map((image, i) => ({
+			g,
+			i,
+			file: {
+				type: "base64" as const,
 				name: image.label,
 				value: image.base64,
 				mime: image.mime,
-			});
-			out.push({ ...image, mime: fitted.mime, base64: fitted.image.toString("base64") });
+			},
+		}))
+	);
+	// Each picture on its own first, so one that cannot be fitted is left out of the batch.
+	const usable: typeof entries = [];
+	for (const entry of entries) {
+		try {
+			await processor(entry.file);
+			usable.push(entry);
 		} catch (err) {
 			logger.warn({ err }, "[builtin] a picture could not be fitted to the model's image limits");
-			out.push({ ...image, mime: "", base64: "" });
 		}
 	}
-	return out;
+	const fitted = new Map<(typeof entries)[number], { image: Buffer; mime: string }>();
+	if (usable.length > 0) {
+		const files = usable.map((entry) => entry.file);
+		const results = budget
+			? await fitBatchToBudget(files, processor, budget)
+			: await Promise.all(files.map((file) => processor(file)));
+		usable.forEach((entry, k) => fitted.set(entry, results[k]));
+	}
+	return groups.map((group, g) => ({
+		...group,
+		images: group.images.map((image, i) => {
+			const entry = entries.find((e) => e.g === g && e.i === i);
+			const r = entry && fitted.get(entry);
+			return r
+				? { ...image, mime: r.mime, base64: r.image.toString("base64") }
+				: { ...image, mime: "", base64: "" };
+		}),
+	}));
 }
 
 /** Where a gated call dispatches: an MCP server, or the `web_fetch` builtin. */
@@ -225,6 +263,7 @@ export async function* executeToolCalls({
 	toolApproval,
 	toolBlocker,
 	imageProcessor,
+	imageBudget,
 }: ExecuteToolCallsParams): AsyncGenerator<ToolExecutionEvent, void, undefined> {
 	const effectiveTimeoutMs = toolTimeoutMs ?? getMcpToolTimeoutMs();
 	const toolMessages: ChatCompletionMessageParam[] = [];
@@ -1055,11 +1094,7 @@ export async function* executeToolCalls({
 	// the round's tool messages as an assistant bridge and one user message of image parts: the model's
 	// next request carries them, and roles still alternate (tool, assistant, user).
 	if (pictures.length > 0) {
-		const ready: ToolPictures[] = [];
-		for (const picture of pictures) {
-			ready.push({ ...picture, images: await fitImages(picture.images, imageProcessor) });
-		}
-		toolMessages.push(...pictureMessages(ready));
+		toolMessages.push(...pictureMessages(await fitPictures(pictures, imageProcessor, imageBudget)));
 	}
 
 	yield {

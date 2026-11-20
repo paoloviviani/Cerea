@@ -29,6 +29,7 @@ export const EXTERNAL_BUILTIN_TOOLS: ReadonlySet<string> = new Set([
 	"web_fetch_structured",
 	"web_search",
 	"look_doc",
+	"view_image",
 	"doc_read",
 	"doc_outline",
 	// What an agent session wrote from repository content (ADR 0106): a session

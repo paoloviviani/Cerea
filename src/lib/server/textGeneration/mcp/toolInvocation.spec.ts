@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ObjectId } from "mongodb";
+import sharp from "sharp";
+import { historyImageOptions, makeImageProcessor } from "$lib/server/endpoints/images";
 import { collections, ready } from "$lib/server/database";
 import { MessageToolUpdateType, MessageUpdateType } from "$lib/types/MessageUpdate";
 import { ToolResultStatus } from "$lib/types/Tool";
@@ -879,6 +881,72 @@ describe("pictures a builtin returns", () => {
 		expect(JSON.stringify(message)).toContain(
 			`data:image/jpeg;base64,${Buffer.from("small").toString("base64")}`
 		);
+	});
+
+	it("are held to one budget together across the round's calls, the oldest shrunk first", async () => {
+		const noise = Buffer.alloc(1400 * 1400 * 3);
+		for (let i = 0; i < noise.length; i += 1) noise[i] = (i * 2654435761) >>> 24;
+		const jpeg = (
+			await sharp(noise, { raw: { width: 1400, height: 1400, channels: 3 } })
+				.jpeg({ quality: 95 })
+				.toBuffer()
+		).toString("base64");
+		const viewer: BuiltinTool = {
+			name: "view_image",
+			definition: { type: "function", function: { name: "view_image" } },
+			execute: async () => ({
+				resultText: "ok",
+				imagesOf: "photo.jpg",
+				images: [{ mime: "image/jpeg", base64: jpeg, label: "photo.jpg" }],
+			}),
+		};
+		const options = {
+			supportedMimeTypes: ["image/png", "image/jpeg"],
+			preferredMimeType: "image/jpeg",
+			maxWidth: 2048,
+			maxHeight: 2048,
+			maxSizeInMB: 3.75,
+			totalBudgetMB: 45,
+		};
+		const processor = makeImageProcessor(options);
+		const bytesSent = async (imageBudget: ExecuteToolCallsParams["imageBudget"]) => {
+			const events = [];
+			for await (const event of executeToolCalls({
+				calls: Array.from({ length: 7 }, (_, i) => ({
+					id: `call_${i}`,
+					name: "view_image",
+					arguments: "{}",
+				})),
+				mapping: MAPPING,
+				servers: SERVERS,
+				parseArgs: parseToolArguments,
+				toPrimitive,
+				processToolOutput,
+				builtinTools: [viewer],
+				imageProcessor: processor,
+				imageBudget,
+			})) {
+				events.push(event);
+			}
+			const picture = summaryOf(events).toolMessages.at(-1) as {
+				content: Array<{ type: string; image_url?: { url: string } }>;
+			};
+			return picture.content
+				.filter((part) => part.type === "image_url")
+				.reduce(
+					(n, part) =>
+						n + Buffer.from((part.image_url?.url ?? "").split(",")[1], "base64").byteLength,
+					0
+				);
+		};
+		const free = await bytesSent(undefined);
+		const budget = Math.floor(free * 0.6);
+		const held = await bytesSent({
+			bytes: budget,
+			historyProcessor: makeImageProcessor(historyImageOptions(options)),
+		});
+		expect(free).toBeGreaterThan(budget);
+		expect(held).toBeLessThanOrEqual(budget);
 	});
 
 	it("say so when one cannot be fitted, instead of sending it", async () => {

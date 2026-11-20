@@ -11,7 +11,7 @@ export const MAX_IMAGES_PER_TURN = 18;
 
 /** What an older picture message becomes when a newer one replaces it. */
 export const PICTURES_REMOVED =
-	"[images from an earlier look_doc call removed; call look_doc again if you need them]";
+	"[images from an earlier tool call removed; call the tool again if you need them]";
 
 export interface ToolPictures {
 	id: string;
@@ -88,6 +88,8 @@ export const IMAGES_UNAVAILABLE_ERROR =
 /** Shared between the request loop and look_doc for one turn. */
 export interface PictureState {
 	unavailable: boolean;
+	/** Images shown to the model this turn by every picture tool together (look_doc, view_image): one cap. */
+	shown?: number;
 }
 
 /** Whether any message of the request is a picture message. */
@@ -113,9 +115,12 @@ export function withoutPictures(
 	return out;
 }
 
-/** The endpoint answered "this request is not acceptable": 400 or 422. Not auth, throttling, timeouts or 5xx. */
+/**
+ * The endpoint answered "this request is not acceptable": 400 or 422, or 413 (the body was too large, which
+ * pictures can cause). Not auth, throttling, timeouts or 5xx.
+ */
 export function isRejectedRequest(err: unknown): boolean {
 	const status =
 		typeof err === "object" && err !== null ? (err as { status?: unknown }).status : undefined;
-	return status === 400 || status === 422;
+	return status === 400 || status === 413 || status === 422;
 }
