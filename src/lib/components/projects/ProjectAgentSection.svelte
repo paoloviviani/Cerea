@@ -14,6 +14,9 @@
 	stored value is carried through untouched while the machine is unchanged.
 -->
 <script lang="ts">
+	import { delayedLoading } from "$lib/utils/delayedLoading.svelte";
+	import SkeletonBusy from "$lib/components/skeleton/SkeletonBusy.svelte";
+	import SkeletonRows from "$lib/components/skeleton/SkeletonRows.svelte";
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
 	import { m } from "$lib/paraglide/messages";
@@ -45,6 +48,7 @@
 	const ENDPOINT = $derived(`${base}/api/v2/projects/${projectId}/agent-profile`);
 
 	let loading = $state(true);
+	const sk = delayedLoading(() => loading);
 	/** The profile API answered 404: nothing to configure here. */
 	let hidden = $state(false);
 	let saved = $state<ProjectAgentProfile | null>(null);
@@ -263,8 +267,12 @@
 		{m["projects.agent.only_you"]()}
 	</p>
 
-	{#if loading}
-		<p class="text-sm text-ink-muted">{m["projects.agent.workspace_loading"]()}</p>
+	{#if sk.visible}
+		<SkeletonBusy label={m["projects.agent.workspace_loading"]()}>
+			<SkeletonRows count={2} rowHeight="2.5rem" />
+		</SkeletonBusy>
+	{:else if loading}
+		<!-- inside the delay: nothing yet -->
 	{:else if codeReauth.required}
 		<CodeReauthCard compact />
 	{:else if noMachines}

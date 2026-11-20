@@ -8,6 +8,9 @@
 	reads this as "everything goes after N days".
 -->
 <script lang="ts">
+	import { delayedLoading } from "$lib/utils/delayedLoading.svelte";
+	import SkeletonBusy from "$lib/components/skeleton/SkeletonBusy.svelte";
+	import SkeletonFormRow from "$lib/components/skeleton/SkeletonFormRow.svelte";
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
 	import { m } from "$lib/paraglide/messages";
@@ -36,6 +39,7 @@
 	let saved = $state(30);
 	let preview = $state<Summary["expiring"] | null>(null);
 	let loading = $state(true);
+	const sk = delayedLoading(() => loading);
 	let busy = $state(false);
 	let failure = $state<string | null>(null);
 	let note = $state<string | null>(null);
@@ -206,8 +210,12 @@
 		</p>
 	{/if}
 
-	{#if loading}
-		<p class="text-sm text-gray-500">{m["admin.common.loading"]()}</p>
+	{#if sk.visible}
+		<SkeletonBusy label={m["admin.common.loading"]()}>
+			<SkeletonFormRow count={3} />
+		</SkeletonBusy>
+	{:else if loading}
+		<!-- inside the delay: nothing yet -->
 	{:else if summary}
 		{#if !summary.configurable}
 			<p

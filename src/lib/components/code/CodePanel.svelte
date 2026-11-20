@@ -30,6 +30,9 @@
 	import { codeDeviceList, useCodeDevicePoll } from "$lib/stores/codeDeviceList.svelte";
 	import { openMobileNav } from "$lib/components/MobileNav.svelte";
 	import * as s from "$lib/components/overlay/styles";
+	import { delayedLoading } from "$lib/utils/delayedLoading.svelte";
+	import SkeletonBusy from "$lib/components/skeleton/SkeletonBusy.svelte";
+	import SkeletonCard from "$lib/components/skeleton/SkeletonCard.svelte";
 
 	interface Props {
 		/** The deployment flag. The route 404s without it; this is the backstop message. */
@@ -44,6 +47,14 @@
 	const selectedDeviceId = $derived(page.url.searchParams.get("device") ?? undefined);
 	const selectedAgentId = $derived(page.url.searchParams.get("agent") ?? undefined);
 	const selectedWorkspaceId = $derived(page.url.searchParams.get("ws") ?? undefined);
+	// One placeholder for the whole pane: the sign-in probe, then the machine list, are one wait
+	// to the user, so the pane goes from placeholder to its screen in a single step.
+	const paneLoading = $derived(
+		enabled &&
+			(!codeReauth.checked ||
+				(!codeReauth.required && !(selectedAgentId && selectedDeviceId) && codeDeviceList.loading))
+	);
+	const sk = delayedLoading(() => paneLoading);
 	const selected = $derived(codeDeviceList.devices.find((d) => d.id === selectedDeviceId));
 
 	// The device list is the shared poll `CodeNavTree` already runs
@@ -89,11 +100,14 @@
 			<p class={s.EMPTY_TITLE}>{m["code.panel.disabled_title"]()}</p>
 			<p class={s.EMPTY_DETAIL}>{m["code.panel.disabled_detail"]()}</p>
 		</div>
-	{:else if !codeReauth.checked}
-		<div class="pointer-events-auto {s.EMPTY}">
-			<IconLaptop class={s.EMPTY_ICON} />
-			<p class={s.EMPTY_TITLE}>{m["code.panel.loading"]()}</p>
+	{:else if sk.visible}
+		<div class="pointer-events-auto p-6">
+			<SkeletonBusy label={m["code.panel.loading"]()} class="mx-auto flex max-w-2xl flex-col gap-4">
+				<SkeletonCard count={3} />
+			</SkeletonBusy>
 		</div>
+	{:else if !codeReauth.checked}
+		<!-- inside the delay: nothing yet -->
 	{:else if codeReauth.required}
 		<CodeReauthCard />
 	{:else}
@@ -105,10 +119,7 @@
 					workspaceId={selectedWorkspaceId}
 				/>
 			{:else if codeDeviceList.loading}
-				<div class="pointer-events-auto {s.EMPTY}">
-					<IconLaptop class={s.EMPTY_ICON} />
-					<p class={s.EMPTY_TITLE}>{m["code.panel.loading"]()}</p>
-				</div>
+				<!-- inside the delay: nothing yet -->
 			{:else if selected?.status === "pending"}
 				<div class="pointer-events-auto scrollbar-custom min-h-0 flex-1 overflow-y-auto p-6">
 					<div class={s.EMBEDDED}>

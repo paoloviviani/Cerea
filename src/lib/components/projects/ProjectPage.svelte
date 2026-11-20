@@ -36,6 +36,9 @@
 	page body runs on the server, where a relative fetch has no origin.
 -->
 <script lang="ts">
+	import { delayedLoading } from "$lib/utils/delayedLoading.svelte";
+	import SkeletonBusy from "$lib/components/skeleton/SkeletonBusy.svelte";
+	import SkeletonFormRow from "$lib/components/skeleton/SkeletonFormRow.svelte";
 	import { modelLabel } from "$lib/utils/customModelEntries";
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
@@ -134,6 +137,7 @@
 	let stores = $state<VectorStore[]>([]);
 	let groups = $state<BillableGroup[]>([]);
 	let loading = $state(!creating);
+	const sk = delayedLoading(() => loading);
 	let busy = $state(false);
 	let failure = $state<string | null>(null);
 	let notice = $state<string | null>(null);
@@ -661,8 +665,12 @@
 			<p class="{s.ERROR} mb-4" role="alert">{failure}</p>
 		{/if}
 
-		{#if loading}
-			<p class={s.SUBTITLE}>{m["projects.page.loading"]()}</p>
+		{#if sk.visible}
+			<SkeletonBusy label={m["projects.page.loading"]()}>
+				<SkeletonFormRow count={4} />
+			</SkeletonBusy>
+		{:else if loading}
+			<!-- inside the delay: nothing yet -->
 		{:else if !creating && !project}
 			<div class={s.EMPTY}>
 				<LucideFolderOpen class={s.EMPTY_ICON} />

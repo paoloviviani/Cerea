@@ -14,6 +14,9 @@
 	relative fetch has no origin.
 -->
 <script lang="ts">
+	import { delayedLoading } from "$lib/utils/delayedLoading.svelte";
+	import SkeletonBusy from "$lib/components/skeleton/SkeletonBusy.svelte";
+	import SkeletonRows from "$lib/components/skeleton/SkeletonRows.svelte";
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
 	import { m } from "$lib/paraglide/messages";
@@ -38,6 +41,7 @@
 	let documents = $state<ProjectDocumentView[]>([]);
 	let used = $state(0);
 	let loading = $state(true);
+	const sk = delayedLoading(() => loading);
 	let busy = $state(false);
 	let dragging = $state(false);
 	let failure = $state<string | null>(null);
@@ -227,8 +231,12 @@
 		class={dragging ? "rounded-lg ring-2 ring-accent" : ""}
 		data-testid="project-documents-drop"
 	>
-		{#if loading}
-			<p class={s.SUBTITLE}>{m["projects.documents.loading"]()}</p>
+		{#if sk.visible}
+			<SkeletonBusy label={m["projects.documents.loading"]()}>
+				<SkeletonRows count={3} rowHeight="3rem" />
+			</SkeletonBusy>
+		{:else if loading}
+			<!-- inside the delay: nothing yet -->
 		{:else if documents.length === 0}
 			<div class={s.EMPTY}>
 				<LucideFileText class={s.EMPTY_ICON} />

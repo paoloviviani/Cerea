@@ -937,6 +937,7 @@
 	"app.layout.project": "Project",
 	"app.layout.title": "{name} - Chat with AI models",
 	"app.loading_bar.label": "Loading chat",
+	"app.skeleton.loading": "Loading…",
 	"app.mobile_nav.close_menu": "Close menu",
 	"app.mobile_nav.files_title": "Files and chat export",
 	"app.mobile_nav.open_files": "Open files panel",

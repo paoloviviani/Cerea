@@ -19,6 +19,9 @@
 	panel's `confirm()` there (matching the connectors section).
 -->
 <script lang="ts">
+	import { delayedLoading } from "$lib/utils/delayedLoading.svelte";
+	import SkeletonBusy from "$lib/components/skeleton/SkeletonBusy.svelte";
+	import SkeletonCard from "$lib/components/skeleton/SkeletonCard.svelte";
 	import { onMount, untrack } from "svelte";
 	import { base } from "$app/paths";
 	import { m } from "$lib/paraglide/messages";
@@ -71,6 +74,7 @@
 	let userSkills = $state<UserSkill[]>([]);
 	let adminSkills = $state<DeploymentSkill[]>([]);
 	let loading = $state(true);
+	const sk = delayedLoading(() => loading);
 	let failure = $state<string | null>(null);
 
 	// The create/edit form holds raw SKILL.md text: what is stored is what
@@ -452,8 +456,12 @@
 				</div>
 
 				<div class="space-y-5">
-					{#if loading}
-						<p class="text-sm text-gray-500 dark:text-gray-400">{m["skills.manager.loading"]()}</p>
+					{#if sk.visible}
+						<SkeletonBusy label={m["skills.manager.loading"]()}>
+							<SkeletonCard count={3} />
+						</SkeletonBusy>
+					{:else if loading}
+						<!-- inside the delay: nothing yet -->
 					{:else if adminSkills.length === 0}
 						<div class={s.EMPTY}>
 							<IconDocument class={s.EMPTY_ICON} />
@@ -564,8 +572,12 @@
 				</div>
 
 				<div class="space-y-5">
-					{#if loading}
-						<p class="text-sm text-gray-500 dark:text-gray-400">{m["skills.manager.loading"]()}</p>
+					{#if sk.visible}
+						<SkeletonBusy label={m["skills.manager.loading"]()}>
+							<SkeletonCard count={3} />
+						</SkeletonBusy>
+					{:else if loading}
+						<!-- inside the delay: nothing yet -->
 					{:else}
 						{#if userSkills.length === 0}
 							<div class={s.EMPTY}>

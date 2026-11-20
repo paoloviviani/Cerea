@@ -7,6 +7,9 @@
 	Cerea connectors too, under their own approval; it is on by default. Default list: none.
 -->
 <script lang="ts">
+	import { delayedLoading } from "$lib/utils/delayedLoading.svelte";
+	import SkeletonBusy from "$lib/components/skeleton/SkeletonBusy.svelte";
+	import SkeletonFormRow from "$lib/components/skeleton/SkeletonFormRow.svelte";
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
 	import { m } from "$lib/paraglide/messages";
@@ -20,6 +23,7 @@
 	}
 
 	let loading = $state(true);
+	const sk = delayedLoading(() => loading);
 	let loadFailure = $state<string | null>(null);
 	interface Computer {
 		deviceId: string;
@@ -99,8 +103,12 @@
 			{m["workspace.agents.local.intro"]()}
 		</p>
 	</div>
-	{#if loading}
-		<p class="text-sm text-gray-600 dark:text-gray-400">{m["workspace.agents.loading"]()}</p>
+	{#if sk.visible}
+		<SkeletonBusy label={m["workspace.agents.loading"]()}>
+			<SkeletonFormRow count={3} />
+		</SkeletonBusy>
+	{:else if loading}
+		<!-- inside the delay: nothing yet -->
 	{:else if loadFailure}
 		<p class="text-sm text-red-600" role="alert">{loadFailure}</p>
 	{:else if options.length === 0 && computers.every((c) => c.options.length === 0)}

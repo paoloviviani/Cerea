@@ -13,6 +13,9 @@
 	it is a decision rather than an accident.
 -->
 <script lang="ts">
+	import { delayedLoading } from "$lib/utils/delayedLoading.svelte";
+	import SkeletonBusy from "$lib/components/skeleton/SkeletonBusy.svelte";
+	import SkeletonFormRow from "$lib/components/skeleton/SkeletonFormRow.svelte";
 	import ScopesField from "$lib/components/mcp/ScopesField.svelte";
 	import * as s from "$lib/components/overlay/styles";
 	import { onMount } from "svelte";
@@ -36,6 +39,7 @@
 
 	let connectors = $state<McpConnectorView[]>([]);
 	let loading = $state(true);
+	const sk = delayedLoading(() => loading);
 	let busy = $state(false);
 	let failure = $state<string | null>(null);
 	let adding = $state(false);
@@ -757,8 +761,12 @@
 		</div>
 	{/if}
 
-	{#if loading}
-		<p class="text-sm text-gray-500">{m["admin.common.loading"]()}</p>
+	{#if sk.visible}
+		<SkeletonBusy label={m["admin.common.loading"]()}>
+			<SkeletonFormRow count={3} />
+		</SkeletonBusy>
+	{:else if loading}
+		<!-- inside the delay: nothing yet -->
 	{:else if shared.length === 0 && envServers.length === 0}
 		<p class="text-sm text-gray-600 dark:text-gray-400">
 			{m["admin.connectors.none"]()}

@@ -12,6 +12,9 @@
 	server, where a relative fetch has no origin.
 -->
 <script lang="ts">
+	import { delayedLoading } from "$lib/utils/delayedLoading.svelte";
+	import SkeletonBusy from "$lib/components/skeleton/SkeletonBusy.svelte";
+	import SkeletonCard from "$lib/components/skeleton/SkeletonCard.svelte";
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
 	import { m } from "$lib/paraglide/messages";
@@ -29,6 +32,7 @@
 
 	let projects = $state<ProjectView[]>([]);
 	let loading = $state(true);
+	const sk = delayedLoading(() => loading);
 	let failure = $state<string | null>(null);
 
 	const conversationTotal = $derived(
@@ -83,8 +87,12 @@
 		</div>
 
 		<div class={s.STACK}>
-			{#if loading}
-				<p class={s.SUBTITLE}>{m["projects.manager.loading"]()}</p>
+			{#if sk.visible}
+				<SkeletonBusy region="projects" label={m["projects.manager.loading"]()}>
+					<SkeletonCard count={3} />
+				</SkeletonBusy>
+			{:else if loading}
+				<!-- inside the delay: nothing yet -->
 			{:else if projects.length === 0}
 				<div class={s.EMPTY}>
 					<LucideFolderOpen class={s.EMPTY_ICON} />

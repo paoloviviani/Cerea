@@ -7,6 +7,9 @@
 	browser has blocked. The permission prompt appears only on the click.
 -->
 <script lang="ts">
+	import { delayedLoading } from "$lib/utils/delayedLoading.svelte";
+	import SkeletonBusy from "$lib/components/skeleton/SkeletonBusy.svelte";
+	import SkeletonFormRow from "$lib/components/skeleton/SkeletonFormRow.svelte";
 	import * as s from "$lib/components/overlay/styles";
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
@@ -65,6 +68,7 @@
 
 	let view = $state<State | null>(null);
 	let loadError = $state<string | null>(null);
+	const sk = delayedLoading(() => view === null && loadError === null);
 	let support = $state<PushSupport>({ ok: true });
 	let thisFingerprint = $state<string | null>(null);
 	let busy = $state(false);
@@ -191,8 +195,12 @@
 		>
 			{loadError}
 		</p>
+	{:else if sk.visible}
+		<SkeletonBusy region="notifications" label={m["settings.notifications.loading"]()}>
+			<SkeletonFormRow count={3} />
+		</SkeletonBusy>
 	{:else if !view}
-		<p class="text-sm text-gray-500 dark:text-gray-400">{m["settings.notifications.loading"]()}</p>
+		<!-- inside the delay: nothing yet -->
 	{:else if !view.configured}
 		<div
 			class="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-xs dark:border-gray-700 dark:bg-gray-800"

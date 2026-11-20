@@ -39,6 +39,10 @@
 	} from "$lib/utils/codeFiles";
 	import { formatCompactAge } from "$lib/utils/relativeTime";
 	import * as s from "$lib/components/overlay/styles";
+	import { delayedLoading } from "$lib/utils/delayedLoading.svelte";
+	import SkeletonBusy from "$lib/components/skeleton/SkeletonBusy.svelte";
+	import SkeletonRows from "$lib/components/skeleton/SkeletonRows.svelte";
+	import Skeleton from "$lib/components/skeleton/Skeleton.svelte";
 
 	interface Props {
 		deviceId: string;
@@ -150,6 +154,8 @@
 	};
 	const href = (agent: CodeAgentSession) =>
 		`${base}/code?device=${deviceId}&ws=${workspaceId}&agent=${agent.id}`;
+	const skPath = delayedLoading(() => workspace === undefined);
+	const skSessions = delayedLoading(() => agents === null);
 </script>
 
 <div class="pointer-events-none flex h-full min-h-0 flex-1 flex-col" data-testid="workspace-screen">
@@ -182,7 +188,9 @@
 									{workspace.path}
 								</p>
 							{:else}
-								<p class="text-xs text-ink-faint">{m["code.workspace.loading"]()}</p>
+								<span class="block h-4">
+									{#if skPath.visible}<Skeleton width="12rem" height="0.75rem" />{/if}
+								</span>
 							{/if}
 						</div>
 						<button
@@ -214,8 +222,12 @@
 							>
 								{m["code.workspace.sessions"]()}
 							</h2>
-							{#if agents === null}
-								<p class="text-xs text-ink-faint">{m["code.workspace.loading"]()}</p>
+							{#if skSessions.visible}
+								<SkeletonBusy label={m["code.workspace.loading"]()}>
+									<SkeletonRows count={4} rowHeight="2.75rem" />
+								</SkeletonBusy>
+							{:else if agents === null}
+								<!-- inside the delay: nothing yet -->
 							{:else if sorted.length === 0}
 								<p class="text-xs text-ink-muted" data-testid="workspace-no-sessions">
 									{m["code.workspace.no_sessions"]()}

@@ -947,6 +947,7 @@
 	"app.layout.project": "Progetto",
 	"app.layout.title": "{name} - Chatta con modelli di IA",
 	"app.loading_bar.label": "Caricamento della chat",
+	"app.skeleton.loading": "Caricamento…",
 	"app.mobile_nav.close_menu": "Chiudi il menu",
 	"app.mobile_nav.files_title": "File ed esportazione della chat",
 	"app.mobile_nav.open_files": "Apri il pannello dei file",
