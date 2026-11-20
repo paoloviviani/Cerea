@@ -198,6 +198,29 @@ describe.sequential("GET /conversation/[id]/output/[sha256]?thumb=", () => {
 		});
 	}, 60_000);
 
+	it("refuses a PNG past the lower pixel cap that non-JPEG pictures get, and says SVG has no thumbnail", async () => {
+		const { locals } = await createTestUser();
+		const conv = await createTestConversation(locals);
+		const big = await sharp({
+			create: { width: 7000, height: 6000, channels: 3, background: "#000" },
+		})
+			.png({ compressionLevel: 9 })
+			.toBuffer();
+		const sha = await store(conv, big, {}, "image/png");
+		await expect(get(locals, conv._id.toString(), sha, "?thumb=320")).rejects.toMatchObject({
+			status: 413,
+		});
+		const svg = await store(
+			conv,
+			Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>'),
+			{},
+			"image/svg+xml"
+		);
+		await expect(get(locals, conv._id.toString(), svg, "?thumb=320")).rejects.toMatchObject({
+			status: 415,
+		});
+	}, 60_000);
+
 	it("keeps its cache within the byte bound", async () => {
 		const { locals } = await createTestUser();
 		const conv = await createTestConversation(locals);

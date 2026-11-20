@@ -13,6 +13,7 @@
 	import { base } from "$app/paths";
 	import Skeleton from "../skeleton/Skeleton.svelte";
 	import { getImageGroup } from "$lib/utils/imageGroup.svelte";
+	import { isThumbnailable } from "$lib/utils/thumbnailable";
 	import { TEXT_MIME_ALLOWLIST } from "$lib/constants/mime";
 	import { sidePane } from "$lib/stores/sidePane.svelte";
 	import { isOfficeDocument } from "$lib/utils/officeFormats";
@@ -316,7 +317,11 @@
 	let thumbFailed = $state(false);
 	let tileBroken = $state(false);
 	const tileSrc = $derived(
-		file.type === "hash" && fileBaseUrl === undefined && !thumbFailed && !file.binary
+		file.type === "hash" &&
+			fileBaseUrl === undefined &&
+			!thumbFailed &&
+			!file.binary &&
+			isThumbnailable(file.mime)
 			? fileUrl + "?thumb=320"
 			: file.type === "base64"
 				? `data:${file.mime};base64,${file.value}`
@@ -337,7 +342,10 @@
 		group.register(tileId);
 		return () => group.unregister(tileId);
 	});
-	// A picture that finished before the page hydrated fired its events unheard.
+	// A picture that finished before the page hydrated fired its events unheard; Svelte replays them
+	// during hydration and the check below sees the same state, so each outcome is taken once per
+	// source (a second call for the same source would count a failed thumbnail as a failed original).
+	let handledSrc = "";
 	$effect(() => {
 		if (!inGroup || !tileImg) return;
 		void tileSrc;
@@ -346,15 +354,25 @@
 			else tileError();
 		}
 	});
-	function tileLoaded(): void {
+	function claim(event?: Event): boolean {
+		const target = event?.currentTarget;
+		// An event of a source that has since been replaced.
+		if (target instanceof HTMLImageElement && target.getAttribute("src") !== tileSrc) return false;
+		if (handledSrc === tileSrc) return false;
+		handledSrc = tileSrc;
+		return true;
+	}
+	function tileLoaded(event?: Event): void {
+		if (!claim(event)) return;
 		const img = tileImg;
 		const done = () => imageGroup?.settle(tileId, true);
 		if (img && typeof img.decode === "function") img.decode().then(done, done);
 		else done();
 	}
-	function tileError(): void {
-		// No thumbnail (an older server, a format it does not make): try the original once.
-		if (!thumbFailed && file.type === "hash" && fileBaseUrl === undefined) {
+	function tileError(event?: Event): void {
+		if (!claim(event)) return;
+		// No thumbnail (an older server, a picture it refuses): try the original once.
+		if (!thumbFailed && tileSrc !== fileUrl && file.type === "hash") {
 			thumbFailed = true;
 			return;
 		}

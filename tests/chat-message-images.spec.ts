@@ -173,7 +173,12 @@ test("the tiles of a message appear together, in boxes that never change size", 
 	const { id } = await seedPhotos(db, seedConversation);
 	await installRecorder(page);
 	// Each picture arrives at a different time.
-	const delays = [100, 1300, 400, 1000, 200, 800, 600];
+	// The slowest is past the 2 s cap: a runner under load is that slow, so the cap is lifted here
+	// (the cap itself has its own test below).
+	await page.addInitScript(() => {
+		(globalThis as { __ceraeImageGroupCapMs?: number }).__ceraeImageGroupCapMs = 15_000;
+	});
+	const delays = [100, 2600, 400, 1000, 200, 800, 600];
 	let n = 0;
 	await page.route("**/output/*", async (route) => {
 		const delay = delays[n++ % delays.length] ?? 0;
@@ -253,3 +258,89 @@ test("thumbnails that are ready at once show no placeholder", async ({
 	const rec = await recorded(page);
 	expect(rec.shimmer).toBe(false);
 });
+
+/** One stored picture of any type in a conversation: what a message with a single attachment holds. */
+async function seedOne(
+	db: Db,
+	seedConversation: (input: Record<string, unknown>) => Promise<ObjectId>,
+	file: { name: string; mime: string; bytes: Buffer }
+): Promise<ObjectId> {
+	const sha = createHash("sha256").update(file.bytes).digest("hex");
+	const id = await seedConversation({
+		messages: [
+			{ from: "system", content: "" },
+			{
+				from: "user",
+				content: "one picture",
+				extra: { files: [{ type: "hash", name: file.name, mime: file.mime, value: sha }] },
+			},
+			{ from: "assistant", content: "Got it." },
+		],
+	});
+	const bucket = new GridFSBucket(db, { bucketName: "files" });
+	await new Promise<void>((resolve, reject) => {
+		const stream = bucket.openUploadStream(`${id.toString()}-${sha}`, {
+			metadata: { conversation: id.toString(), mime: file.mime },
+		});
+		stream.once("finish", () => resolve());
+		stream.once("error", reject);
+		stream.end(file.bytes);
+	});
+	return id;
+}
+
+const tileImg = (page: Page) => page.locator('[data-testid="message-image-tile"] img');
+
+test("a picture with no thumbnail format (SVG) shows its original, not the file icon", async ({
+	page,
+	db,
+	seedConversation,
+}) => {
+	const id = await seedOne(db, seedConversation, {
+		name: "logo.svg",
+		mime: "image/svg+xml",
+		bytes: Buffer.from(
+			'<svg xmlns="http://www.w3.org/2000/svg" width="200" height="300"><rect width="200" height="300" fill="#36c"/></svg>'
+		),
+	});
+	const requested: string[] = [];
+	page.on("request", (req) => {
+		if (req.url().includes("/output/")) requested.push(req.url());
+	});
+	await page.goto(`${E2E_APP_BASE}/conversation/${id.toString()}`);
+	await expect(page.locator('[data-testid="message-image-tile"][data-shown="true"]')).toHaveCount(
+		1
+	);
+	await expect(tileImg(page)).toHaveCount(1);
+	expect(requested.every((url) => !url.includes("thumb="))).toBe(true);
+	expect(requested.length).toBeGreaterThan(0);
+});
+
+for (const status of [413, 415, 422]) {
+	test(`a thumbnail the server refuses (${status}) falls back to the original, even when it fails before hydration`, async ({
+		page,
+		db,
+		seedConversation,
+	}) => {
+		const id = await seedOne(db, seedConversation, {
+			name: "scan.jpg",
+			mime: "image/jpeg",
+			bytes: await photo(1),
+		});
+		const requested: string[] = [];
+		page.on("request", (req) => {
+			if (req.url().includes("/output/")) requested.push(req.url());
+		});
+		await page.route(/\/output\/[0-9a-f]{64}\?thumb=/, (route) =>
+			route.fulfill({ status, body: "no thumbnail" })
+		);
+		await page.goto(`${E2E_APP_BASE}/conversation/${id.toString()}`);
+		await expect(page.locator('[data-testid="message-image-tile"][data-shown="true"]')).toHaveCount(
+			1
+		);
+		// The picture itself, not the file icon.
+		await expect(tileImg(page)).toHaveCount(1);
+		await expect(tileImg(page)).not.toHaveAttribute("src", /thumb=/);
+		expect(requested.some((url) => !url.includes("thumb="))).toBe(true);
+	});
+}

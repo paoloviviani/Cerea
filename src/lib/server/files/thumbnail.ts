@@ -10,12 +10,12 @@
  */
 import { error } from "@sveltejs/kit";
 import sharp from "sharp";
-import { IMAGE_PIXEL_LIMIT, SHARP_INPUT } from "$lib/server/endpoints/images";
+import { IMAGE_PIXEL_LIMIT } from "$lib/server/endpoints/images";
+import { isThumbnailable } from "$lib/utils/thumbnailable";
 
 /** The long edges a thumbnail may have; anything else is a 400, so the cache keys stay few. */
 export const THUMB_SIZES = [160, 320, 640] as const;
 /** Formats that are decoded as pictures; anything else (SVG, PDF, text) has no thumbnail. */
-const THUMBNAILABLE = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"]);
 export const THUMB_CACHE_BYTES = 32 * 1024 * 1024;
 /** Content-addressed: the URL names the bytes, so a browser may keep the answer for a year. */
 export const THUMB_CACHE_CONTROL = "private, max-age=31536000, immutable";
@@ -76,9 +76,36 @@ export function thumbEtag(sha256: string, size: number): string {
 	return `"${sha256}-t${size}"`;
 }
 
-async function render(bytes: Buffer, size: number): Promise<Buffer> {
+/** A JPEG decodes at a fraction of its size (shrink-on-load); anything else decodes whole, so it gets a lower cap. */
+export const THUMB_PIXEL_LIMIT = 40_000_000;
+/** How many pictures are decoded at once: a 40 MP PNG is about 160 MB of pixels. */
+export const THUMB_RENDERS = 2;
+
+/** At most `limit` of the tasks run at once; the rest wait their turn, in order. */
+export function createSemaphore(limit: number) {
+	let active = 0;
+	const waiting: Array<() => void> = [];
+	return async function run<T>(task: () => Promise<T>): Promise<T> {
+		if (active >= limit) await new Promise<void>((resolve) => waiting.push(resolve));
+		active += 1;
+		try {
+			return await task();
+		} finally {
+			active -= 1;
+			waiting.shift()?.();
+		}
+	};
+}
+const limited = createSemaphore(THUMB_RENDERS);
+
+function render(bytes: Buffer, size: number, mime: string): Promise<Buffer> {
+	return limited(() => renderNow(bytes, size, mime));
+}
+
+async function renderNow(bytes: Buffer, size: number, mime: string): Promise<Buffer> {
 	try {
-		return await sharp(bytes, SHARP_INPUT)
+		const limit = mime === "image/jpeg" ? IMAGE_PIXEL_LIMIT : THUMB_PIXEL_LIMIT;
+		return await sharp(bytes, { limitInputPixels: limit })
 			// Upright by the EXIF orientation, which the re-encode then drops.
 			.rotate()
 			.resize({ width: size, height: size, fit: "inside", withoutEnlargement: true })
@@ -87,10 +114,7 @@ async function render(bytes: Buffer, size: number): Promise<Buffer> {
 	} catch (err) {
 		const message = err instanceof Error ? err.message : "";
 		if (/pixel limit/i.test(message)) {
-			error(
-				413,
-				`This image is too large to preview (the limit is ${IMAGE_PIXEL_LIMIT / 1e6} megapixels).`
-			);
+			error(413, "This image is too large to preview.");
 		}
 		error(422, "This image cannot be previewed.");
 	}
@@ -109,7 +133,7 @@ export async function thumbnailResponse(options: {
 }): Promise<Response> {
 	const { sha256, size, request } = options;
 	const mime = options.mime?.split(";")[0]?.trim().toLowerCase();
-	if (!mime || !THUMBNAILABLE.has(mime)) error(415, "This file has no thumbnail.");
+	if (!mime || !isThumbnailable(mime)) error(415, "This file has no thumbnail.");
 
 	const etag = thumbEtag(sha256, size);
 	const headers: Record<string, string> = {
@@ -128,7 +152,7 @@ export async function thumbnailResponse(options: {
 	if (!body) {
 		let pending = inflight.get(key);
 		if (!pending) {
-			pending = options.read().then((bytes) => render(bytes, size));
+			pending = options.read().then((bytes) => render(bytes, size, mime));
 			inflight.set(key, pending);
 			pending.then(
 				(made) => {

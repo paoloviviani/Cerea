@@ -1,8 +1,14 @@
 import { getContext, onDestroy, setContext } from "svelte";
 import { delayedLoading } from "$lib/utils/delayedLoading.svelte";
-import { createImageGroupMachine, type TileState } from "$lib/utils/imageGroup";
+import { createImageGroupMachine, IMAGE_GROUP_CAP_MS, type TileState } from "$lib/utils/imageGroup";
 
 const KEY = Symbol("image-group");
+
+/** The cap, 2 s. A spec may set `globalThis.__ceraeImageGroupCapMs` (an init script) for a slow runner; nothing in the app does. */
+function capMs(): number {
+	const set = (globalThis as { __ceraeImageGroupCapMs?: unknown }).__ceraeImageGroupCapMs;
+	return typeof set === "number" && set > 0 ? set : IMAGE_GROUP_CAP_MS;
+}
 
 export interface ImageGroup {
 	register(id: string): void;
@@ -23,7 +29,7 @@ export function provideImageGroup(): ImageGroup {
 	let changes = 0;
 	const machine = createImageGroupMachine(() => {
 		version = ++changes;
-	});
+	}, capMs());
 	const delayed = delayedLoading(() => {
 		void version;
 		return machine.loading;
