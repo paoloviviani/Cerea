@@ -27,6 +27,7 @@ import { createGenerationWriter } from "./writer";
 import { applyUpdateToMessage } from "./applyUpdate";
 import { turnAbandoned, turnEnded, turnRunning } from "./turnState";
 import { compressUpdatesForStorage } from "./compressUpdates";
+import { liveProducerCount, ROUND_DEFER_MS, roundBlocker } from "./roundJoin";
 
 const SWEEP_BATCH = 5;
 /** A row this many attempts deep is not going to resume; stop burning turns on it. */
@@ -119,7 +120,7 @@ export async function wakeParkedCallEarly(
 	return true;
 }
 
-async function abandon(park: ParkedCall, reason: string): Promise<void> {
+export async function abandon(park: ParkedCall, reason: string): Promise<void> {
 	logger.warn({ parkedCallId: park.parkedCallId, reason }, "[parked] abandoning a parked call");
 	await collections.parkedCalls.updateOne(
 		{ _id: park._id },
@@ -405,12 +406,83 @@ async function resumeParkedCallInner(park: ParkedCall): Promise<void> {
 	}
 }
 
+/**
+ * The user stopped the turn: its round is over, so nothing parked for it may
+ * resume it later. Rows are abandoned; the turn's state is closed here only when
+ * no producer is running it (a running one ends the turn itself, as stopped).
+ */
+export async function endRoundOnStop(
+	conversationId: ParkedCall["conversationId"]
+): Promise<number> {
+	const rows = await collections.parkedCalls.find({ conversationId, status: "waiting" }).toArray();
+	for (const row of rows) {
+		const claimed = await collections.parkedCalls.updateOne(
+			{ _id: row._id, status: "waiting" },
+			{
+				$set: {
+					status: "abandoned",
+					abandonedReason: "stopped by the user",
+					updatedAt: new Date(),
+				},
+			}
+		);
+		if (claimed.matchedCount === 0) continue;
+		if ((await liveProducerCount(row.conversationId, row.messageId)) > 0) continue;
+		const failedUpdate = await turnAbandoned(
+			row.conversationId,
+			row.messageId,
+			"The turn was stopped."
+		);
+		if (failedUpdate) {
+			await collections.conversations
+				.updateOne({ _id: row.conversationId, "messages.id": row.messageId }, {
+					$push: { "messages.$.updates": failedUpdate },
+					$set: { "messages.$.updatedAt": new Date(), updatedAt: new Date() },
+				} as never)
+				.catch((err) => logger.error({ err }, "[parked] failed to persist the stopped turn state"));
+		}
+	}
+	return rows.length;
+}
+
+/**
+ * Give a claimed row back because the round it belongs to is still open (see
+ * roundJoin.ts). The claim counted an attempt; a deferral is not a failed one.
+ * The answer the row may already carry stays on it.
+ */
+async function deferClaim(park: ParkedCall): Promise<void> {
+	const now = new Date();
+	await collections.parkedCalls.updateOne(
+		{ _id: park._id, status: "resuming" },
+		{
+			$set: {
+				status: "waiting",
+				resumeAt: new Date(now.getTime() + ROUND_DEFER_MS),
+				updatedAt: now,
+			},
+			$inc: { attempts: -1 },
+			$unset: { takenAt: "" },
+		}
+	);
+}
+
 export async function sweepParkedCalls(): Promise<void> {
 	for (let i = 0; i < SWEEP_BATCH; i += 1) {
 		const park = await claimDueCall(new Date());
 		if (!park) return;
 		if (park.attempts > MAX_ATTEMPTS) {
 			await abandon(park, `gave up after ${park.attempts} attempts`);
+			continue;
+		}
+		// One answer of a round is not the round: a sibling call may still be running in the
+		// producer that dispatched it, or waiting on the user. Resume only when all are in.
+		const blocker = await roundBlocker(park.conversationId, park.messageId);
+		if (blocker) {
+			logger.info(
+				{ parkedCallId: park.parkedCallId, blocker },
+				"[parked] the turn's round is still open; resume deferred"
+			);
+			await deferClaim(park);
 			continue;
 		}
 		logger.info(

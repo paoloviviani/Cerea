@@ -19,7 +19,8 @@ import type { TextGenerationContext } from "$lib/server/textGeneration/types";
 import { settleTurnCost, turnGatewayToken } from "$lib/server/turnCostSettle";
 import { createGenerationWriter } from "./writer";
 import { applyUpdateToMessage } from "./applyUpdate";
-import { turnEnded, turnRunning } from "./turnState";
+import { turnAwaitingInput, turnEnded, turnRunning } from "./turnState";
+import { parkedRowOpen, waitForProducers } from "./roundJoin";
 import { compressUpdatesForStorage } from "./compressUpdates";
 
 const SWEEP_BATCH = 20;
@@ -85,6 +86,9 @@ async function denyAndResume(row: McpElicitation): Promise<void> {
 	// `claimExpired` only ever claims a `pending.kind === "tool-approval"` row.
 	if (!pending || pending.kind !== "tool-approval") return;
 
+	// The round's producer may still be finishing a sibling call (C155): the refusal is
+	// recorded after it has ended, so the turn the resume reads is complete.
+	await waitForProducers(row.conversationId, pending.messageId, { maxMs: 5 * 60_000 });
 	const conv = await collections.conversations.findOne({ _id: row.conversationId });
 	if (!conv) return;
 	const message = conv.messages.find((m) => m.id === pending.messageId);
@@ -182,7 +186,10 @@ async function denyAndResume(row: McpElicitation): Promise<void> {
 
 		// A queued call behind this one may itself need its own prompt: leave
 		// the turn parked on THAT one rather than continuing the model now.
-		if (!outcome.parkedAgain) {
+		// A parked call of the same round (a code run) resumes the turn by itself when it lands.
+		const roundOpen = !outcome.parkedAgain && (await parkedRowOpen(conv._id, message.id));
+		if (roundOpen) apply(await turnAwaitingInput(turnKey));
+		if (!outcome.parkedAgain && !roundOpen) {
 			const ctx: TextGenerationContext = {
 				model,
 				endpoint: await model.getEndpoint(),
