@@ -8,6 +8,41 @@ import { ObjectId } from "mongodb";
 import { collections, ready } from "$lib/server/database";
 import { POST } from "../[...path]/+server";
 
+/**
+ * A retry answers with the row as it is the moment the response is read, and the ingest it started runs
+ * behind it. Left alone that ingest ends within milliseconds (here it fails: there is no vector database),
+ * so whether the answer said "pending" or already "failed" depended on which got to Mongo first. The
+ * ingest's first vector-database call (`ensureSchema`) waits on `gate` instead, so the answer is always the claimed row; the
+ * `afterEach` lets it finish and waits for it, so nothing outlives the test.
+ */
+const gate = vi.hoisted(() => {
+	const state = {
+		open: false,
+		release: () => {},
+		wait: undefined as Promise<void> | undefined,
+		reset() {
+			state.open = false;
+			state.wait = new Promise<void>((resolve) => {
+				state.release = () => {
+					state.open = true;
+					resolve();
+				};
+			});
+		},
+	};
+	return state;
+});
+vi.mock("$lib/server/knowledge/db", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("$lib/server/knowledge/db")>();
+	return {
+		...actual,
+		ensureSchema: async () => {
+			await gate.wait;
+			throw new Error("no vector database in this test");
+		},
+	};
+});
+
 vi.mock("$lib/server/admin", () => ({
 	callerIdentity: async (locals: App.Locals) => ({
 		email: locals.user?.email ?? null,
@@ -59,6 +94,7 @@ async function seedStore(): Promise<ObjectId> {
 }
 
 beforeEach(async () => {
+	gate.reset();
 	await collections.knowledgeConfig.deleteMany({});
 	await collections.knowledgeConfig.insertOne({
 		embeddingModel: "embed-1",
@@ -88,6 +124,16 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+	vi.restoreAllMocks();
+	// Let the ingest the retry started end, and wait until it has, before its rows go.
+	gate.release();
+	await vi.waitFor(async () => {
+		const open = await collections.knowledgeDocuments.countDocuments({
+			storeId: { $in: [storeId, otherStoreId] },
+			status: "pending",
+		});
+		expect(open).toBe(0);
+	});
 	await collections.vectorStores.deleteMany({ _id: { $in: [storeId, otherStoreId] } });
 	await collections.knowledgeDocuments.deleteMany({ storeId: { $in: [storeId, otherStoreId] } });
 	await collections.knowledgeConfig.deleteMany({});
@@ -95,6 +141,27 @@ afterEach(async () => {
 
 describe("retry a failed document", () => {
 	it("starts it again for the owner and for an editor", async () => {
+		// A slow runner: the answer's own read of the row comes well after the ingest has had its turn.
+		// (The ingest is held at `gate`, so that turn changes nothing.)
+		const realFind = collections.knowledgeDocuments.findOne.bind(collections.knowledgeDocuments);
+		let sinceClaim = 0;
+		const realUpdate = collections.knowledgeDocuments.updateOne.bind(
+			collections.knowledgeDocuments
+		);
+		vi.spyOn(collections.knowledgeDocuments, "updateOne").mockImplementation(((
+			...args: Parameters<typeof realUpdate>
+		) => {
+			if (JSON.stringify(args[1]).includes('"pending"')) sinceClaim = 0;
+			return realUpdate(...args);
+		}) as typeof realUpdate);
+		vi.spyOn(collections.knowledgeDocuments, "findOne").mockImplementation((async (
+			...args: Parameters<typeof realFind>
+		) => {
+			sinceClaim += 1;
+			// The first read after a claim is the ingest's own; the second is the answer's.
+			if (sinceClaim === 2) await new Promise((resolve) => setTimeout(resolve, 250));
+			return realFind(...args);
+		}) as typeof realFind);
 		for (const who of [owner, editor]) {
 			await collections.knowledgeDocuments.updateOne(
 				{ _id: docId },
@@ -105,7 +172,19 @@ describe("retry a failed document", () => {
 			const body = await res.json();
 			expect(body.id).toBe(docId.toString());
 			expect(body.error).toBeNull();
+			expect(body.status).toBe("pending");
 		}
+	});
+
+	it("answers with the row as it is, even when the ingest has already failed again", async () => {
+		gate.release();
+		const res = await retry(owner, storeId, docId);
+		expect(res.status).toBe(200);
+		await vi.waitFor(async () => {
+			const row = await collections.knowledgeDocuments.findOne({ _id: docId });
+			expect(row?.status).toBe("failed");
+			expect(row?.error).toBe("Indexing failed.");
+		});
 	});
 
 	it("refuses a viewer", async () => {
