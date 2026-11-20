@@ -104,6 +104,7 @@ afterEach(async () => {
 	const ids = createdConversationIds.splice(0);
 	if (ids.length === 0) return;
 	await collections.mcpElicitations.deleteMany({ conversationId: { $in: ids } });
+	await collections.parkedCalls.deleteMany({ conversationId: { $in: ids } });
 	await collections.conversations.deleteMany({ _id: { $in: ids } });
 	await collections.turnStates.deleteMany({ conversationId: { $in: ids } });
 	await collections.generations.deleteMany({ conversationId: { $in: ids } });

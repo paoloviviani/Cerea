@@ -33,7 +33,10 @@ vi.mock("$lib/server/models", () => ({
 
 import { collections, ready } from "$lib/server/database";
 import { endRoundOnStop, sweepParkedCalls } from "./parkedSweeper";
-import { parkedRowOpen, roundBlocker } from "./roundJoin";
+import { deferDelayMs, otherParkedRows, roundBlocker } from "./roundJoin";
+import { submitElicitationAnswer } from "$lib/server/mcp/elicitation";
+import { resumeParkedToolCall } from "$lib/server/mcp/resumeElicitation";
+import { turnAwaitingInput } from "./turnState";
 import type { ParkedCall } from "$lib/types/ParkedCall";
 import type { Generation } from "$lib/types/Generation";
 
@@ -46,6 +49,10 @@ beforeAll(async () => {
 });
 
 afterEach(async () => {
+	// A sweep the answer endpoint kicked may still be running: let it finish before the data goes.
+	await vi.waitFor(async () => {
+		expect(await collections.parkedCalls.countDocuments({ status: "resuming" })).toBe(0);
+	});
 	seen.resumes.length = 0;
 	await collections.parkedCalls.deleteMany({});
 	await collections.generations.deleteMany({});
@@ -164,7 +171,7 @@ describe("a round's join (C155)", () => {
 
 		// Code answered; the MCP call has not. No second producer, no resume.
 		expect(seen.resumes).toHaveLength(0);
-		const held = await collections.parkedCalls.findOne({});
+		const held = await collections.parkedCalls.findOne({ conversationId });
 		expect(held?.status).toBe("waiting");
 		// A deferral is not a failed attempt, and the answer is still on the row.
 		expect(held?.attempts).toBe(0);
@@ -183,7 +190,7 @@ describe("a round's join (C155)", () => {
 		]);
 		expect(uuids).toContain(`result:${MCP_UUID}`);
 		expect(uuids).toContain(`result:${CODE_UUID}`);
-		expect((await collections.parkedCalls.findOne({}))?.status).toBe("resumed");
+		expect((await collections.parkedCalls.findOne({ conversationId }))?.status).toBe("resumed");
 	});
 
 	it("resumes exactly once when both arrivals complete the round at the same moment", async () => {
@@ -241,7 +248,7 @@ describe("a round's join (C155)", () => {
 		await sweepParkedCalls();
 
 		expect(seen.resumes).toHaveLength(0);
-		const row = await collections.parkedCalls.findOne({});
+		const row = await collections.parkedCalls.findOne({ conversationId });
 		expect(row?.status).toBe("abandoned");
 		expect(row?.abandonedReason).toBe("stopped by the user");
 	});
@@ -261,51 +268,147 @@ describe("a round's join (C155)", () => {
 		expect(seen.resumes).toHaveLength(1);
 	});
 
-	it("holds a code answer while an approval of the same round is unanswered, then resumes once it is answered", async () => {
-		await seedRound();
-		await codeRow();
+	/** A tool approval of the round, shown and waiting for the user. */
+	async function openApproval(elicitationId: string) {
 		await collections.mcpElicitations.insertOne({
 			_id: new ObjectId(),
-			elicitationId: "elic-1",
+			elicitationId,
 			conversationId,
 			status: "pending",
-			request: {} as never,
+			request: { elicitationId, server: "web_fetch", mode: "form", message: "?", fields: [] },
 			expiresAt: new Date(Date.now() + 60_000),
 			pending: {
 				kind: "tool-approval",
+				tool: "web_fetch",
+				args: { url: "https://unseen.test/" },
+				queue: [],
 				messageId: "asst-1",
 				toolCallId: "call-mcp",
 				toolUuid: MCP_UUID,
-			} as never,
+			},
 			createdAt: new Date(),
 			updatedAt: new Date(),
-		});
+		} as never);
+	}
+
+	it("holds a code answer while an approval is unanswered, and until the approval's RESULT is applied (answered is not consumed)", async () => {
+		await seedRound();
+		await codeRow();
+		await openApproval("elic-1");
 
 		expect(await roundBlocker(conversationId, "asst-1")).toBe("approval");
 		await sweepParkedCalls();
 		expect(seen.resumes).toHaveLength(0);
 
-		// The user answers; the approved call's result lands in the turn.
-		await collections.mcpElicitations.updateOne(
-			{ elicitationId: "elic-1" },
-			{ $set: { status: "resolved" } }
-		);
-		await collections.conversations.updateOne({ _id: conversationId, "messages.id": "asst-1" }, {
-			$push: { "messages.$.updates": mcpResult("approved result") },
-		} as never);
+		// The user answers through the real endpoint logic. The browser sends nothing else.
+		const answered = await submitElicitationAnswer({
+			elicitationId: "elic-1",
+			conversationId,
+			action: "decline",
+		});
+		expect(answered).toMatchObject({ ok: true, resume: false });
+
+		// Answered, result not applied yet: a concurrent sweeper must not resume the turn
+		// without the approval's result (the window of the first fix).
+		const blockedWhile = await collections.mcpElicitations.findOne({ elicitationId: "elic-1" });
+		expect(blockedWhile?.status).toBe("resolved");
+		await Promise.all([sweepParkedCalls(), sweepParkedCalls(), sweepParkedCalls()]);
+		await vi.waitFor(async () => {
+			const row = await collections.mcpElicitations.findOne({ elicitationId: "elic-1" });
+			expect(row?.consumedAt).toBeInstanceOf(Date);
+		});
+		// The server applied the refusal through the real resume path, then left the model to the
+		// parked code call, which was still waiting for the approval: no model run yet.
+		expect(seen.resumes).toHaveLength(0);
+		const conv = await collections.conversations.findOne({ _id: conversationId });
+		const updates = conv?.messages.find((m) => m.id === "asst-1")?.updates ?? [];
+		expect(
+			updates.some((u) => u.type === "tool" && u.subtype === "error" && u.uuid === MCP_UUID)
+		).toBe(true);
+
 		await makeDue();
 		await sweepParkedCalls();
 
 		expect(seen.resumes).toHaveLength(1);
-		expect(seen.resumes[0].updates.map((u) => `${u.subtype}:${u.uuid}`)).toContain(
-			`result:${MCP_UUID}`
-		);
+		const uuids = seen.resumes[0].updates.map((u) => `${u.subtype}:${u.uuid}`);
+		expect(uuids).toContain(`error:${MCP_UUID}`);
+		expect(uuids).toContain(`result:${CODE_UUID}`);
 	});
 
-	it("tells an approval answer that a parked call of its round is left to resume the turn", async () => {
+	it("applies an approved call on the server, with no browser request, and resumes the model once", async () => {
 		await seedRound();
-		expect(await parkedRowOpen(conversationId, "asst-1")).toBe(false);
-		await codeRow({ outcome: undefined, resumeAt: new Date(Date.now() + 60_000) });
-		expect(await parkedRowOpen(conversationId, "asst-1")).toBe(true);
+		await collections.conversations.updateOne({ _id: conversationId, "messages.id": "asst-1" }, {
+			$push: { "messages.$.updates": mcpResult("unused") },
+		} as never);
+		await openApproval("elic-2");
+
+		// Accepting with no connector to run it on: the real resume path records an error result.
+		await submitElicitationAnswer({ elicitationId: "elic-2", conversationId, action: "accept" });
+		await vi.waitFor(async () => {
+			expect(seen.resumes).toHaveLength(1);
+		});
+		const row = await collections.mcpElicitations.findOne({ elicitationId: "elic-2" });
+		expect(row?.consumedAt).toBeInstanceOf(Date);
+	});
+
+	it("ignores a browser's resume request for a tool approval, so the call cannot run twice", async () => {
+		await seedRound();
+		await openApproval("elic-3");
+		await collections.mcpElicitations.updateOne(
+			{ elicitationId: "elic-3" },
+			{ $set: { status: "resolved", action: "accept" } }
+		);
+
+		const outcome = await resumeParkedToolCall({ conversationId, elicitationId: "elic-3" });
+
+		expect(outcome.resumed).toBe(false);
+		expect(outcome.updates).toEqual([]);
+	});
+
+	it("counts another parked row of the turn", async () => {
+		await seedRound();
+		expect(await otherParkedRows(conversationId, "asst-1")).toBe(0);
+		const row = await codeRow({ outcome: undefined, resumeAt: new Date(Date.now() + 60_000) });
+		expect(await otherParkedRows(conversationId, "asst-1")).toBe(1);
+		expect(await otherParkedRows(conversationId, "asst-1", row._id)).toBe(0);
+	});
+
+	it("abandons a row that was claimed but not started when the user stops", async () => {
+		await seedRound();
+		await codeRow({ status: "resuming", takenAt: new Date() });
+
+		await endRoundOnStop(conversationId);
+
+		expect((await collections.parkedCalls.findOne({ conversationId }))?.status).toBe("abandoned");
+	});
+
+	it("closes a turn left awaiting_input when the user stops mid-round, even with the producer still winding down", async () => {
+		await seedRound();
+		await codeRow();
+		await producerRunning();
+		// The park moved the turn to awaiting_input while the producer still runs its slow call.
+		await turnAwaitingInput({ conversationId, messageId: "asst-1", producerId: "gen-p" });
+
+		await endRoundOnStop(conversationId);
+
+		const state = await collections.turnStates.findOne({ conversationId });
+		expect(state?.status).toBe("failed");
+		expect(state?.error).toBe("The turn was stopped.");
+	});
+
+	it("backs off a deferred resume: 3 s doubling to 60 s, counted on the row", async () => {
+		expect([0, 1, 2, 10].map(deferDelayMs)).toEqual([3_000, 6_000, 12_000, 60_000]);
+		await seedRound();
+		await codeRow();
+		await producerRunning();
+
+		await sweepParkedCalls();
+		await makeDue();
+		await sweepParkedCalls();
+
+		const row = await collections.parkedCalls.findOne({ conversationId });
+		expect(row?.deferrals).toBe(2);
+		expect(row?.attempts).toBe(0);
+		expect((row?.resumeAt.getTime() ?? 0) - Date.now()).toBeGreaterThan(4_000);
 	});
 });

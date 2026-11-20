@@ -145,6 +145,11 @@ export interface McpElicitation extends Timestamps {
 	/** Absent for a 2026-era prompt: nothing is waiting, so nothing expires. */
 	expiresAt?: Date;
 	resolvedAt?: Date;
+	/**
+	 * A tool approval: when its result (the approved call's output, or the refusal) was applied to
+	 * the turn. Resolved is not consumed: until then the round it belongs to is still open.
+	 */
+	consumedAt?: Date;
 	pending?: PendingCall;
 }
 

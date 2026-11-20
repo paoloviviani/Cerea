@@ -1,27 +1,9 @@
-import { conversationOwnerFilter, resolveConversationModel } from "$lib/server/customModels";
-import { effectiveReasoningEffort } from "$lib/server/reasoningEffort";
-import { randomUUID } from "crypto";
-import type { ObjectId } from "mongodb";
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
-import { mcpLocalsFor } from "$lib/server/mcp/selection";
 import { onExit } from "$lib/server/exitHandler";
-import { buildSubtree } from "$lib/utils/tree/buildSubtree";
-import { textGeneration } from "$lib/server/textGeneration";
-import { resumeParkedToolCall } from "$lib/server/mcp/resumeElicitation";
-import {
-	MessageUpdateStatus,
-	MessageUpdateType,
-	type MessageUpdate,
-} from "$lib/types/MessageUpdate";
 import type { McpElicitation } from "$lib/types/McpElicitation";
-import type { TextGenerationContext } from "$lib/server/textGeneration/types";
-import { settleTurnCost, turnGatewayToken } from "$lib/server/turnCostSettle";
-import { createGenerationWriter } from "./writer";
-import { applyUpdateToMessage } from "./applyUpdate";
-import { turnAwaitingInput, turnEnded, turnRunning } from "./turnState";
-import { parkedRowOpen, waitForProducers } from "./roundJoin";
-import { compressUpdatesForStorage } from "./compressUpdates";
+import { sweepParkedCalls } from "./parkedSweeper";
+import { queueApprovalResume } from "./roundJoin";
 
 const SWEEP_BATCH = 20;
 const SWEEP_INTERVAL_MS = 30_000;
@@ -48,208 +30,27 @@ async function claimExpired(): Promise<McpElicitation | null> {
 	return claimed?.value ?? null;
 }
 
-/**
- * Rebuild the identity the parked turn ran as. There is no request to read one
- * from, so it comes from whoever opened the prompt (`PendingToolApprovalCall.userId`/
- * `sessionId`) and the stored session — a resume can only ever act as that user.
- */
-async function rebuildIdentity(userId?: ObjectId, sessionId?: string) {
-	const user = userId
-		? ((await collections.users.findOne({ _id: userId })) ?? undefined)
-		: undefined;
-	const session = userId
-		? await collections.sessions.find({ userId }).sort({ updatedAt: -1 }).next()
-		: sessionId
-			? await collections.sessions.findOne({ sessionId })
-			: null;
-	const token = session?.oauth?.token;
-	const tokenExpired = Boolean(token?.expiresAt && token.expiresAt.getTime() <= Date.now());
-	const settings = await collections.settings.findOne(
-		userId ? { userId } : { sessionId: sessionId ?? "" }
-	);
-	const locals: App.Locals = {
-		user,
-		sessionId: session?.sessionId ?? sessionId ?? "",
-		isAdmin: false,
-		...(token?.value && !tokenExpired ? { token: token.value } : {}),
-		...(settings?.billingOrganization ? { billingOrganization: settings.billingOrganization } : {}),
-	};
-	return {
-		locals,
-		settings,
-	};
-}
-
-/** Deny one expired prompt (already claimed) and let the parked turn continue with the refusal. */
-async function denyAndResume(row: McpElicitation): Promise<void> {
-	const pending = row.pending;
-	// `claimExpired` only ever claims a `pending.kind === "tool-approval"` row.
-	if (!pending || pending.kind !== "tool-approval") return;
-
-	// The round's producer may still be finishing a sibling call (C155): the refusal is
-	// recorded after it has ended, so the turn the resume reads is complete.
-	await waitForProducers(row.conversationId, pending.messageId, { maxMs: 5 * 60_000 });
-	const conv = await collections.conversations.findOne({ _id: row.conversationId });
-	if (!conv) return;
-	const message = conv.messages.find((m) => m.id === pending.messageId);
-	if (!message || message.from !== "assistant") return;
-	// A custom model resumes on its base, like a fresh turn (`resolveConversationModel`).
-	const model = (await resolveConversationModel(conv.model, conversationOwnerFilter(conv)))?.model;
-	if (!model) return;
-
-	const { locals, settings } = await rebuildIdentity(pending.userId, pending.sessionId);
-
-	// The connectors this turn may use. A resume has no request to read them from, and without
-	// this every round after the park ran with the built-in tools only (the model then hunted
-	// for the missing connector among the skills). The same resolver as a fresh turn: the
-	// deployment's policies, the person's switches and what the conversation has loaded
-	// (ADR 0104). Best effort: a failure leaves the built-in tools, as a fresh turn's does.
-	try {
-		locals.mcp = await mcpLocalsFor(conv, pending.userId);
-	} catch (err) {
-		logger.warn({ err }, "[approval] could not restore the turn's MCP selection");
-	}
-
-	const generationId = randomUUID();
-	const promptedAt = new Date();
-	const abortController = new AbortController();
-
-	message.generationId = generationId;
-	await collections.conversations.updateOne(
-		{ _id: conv._id, "messages.id": message.id },
-		{ $set: { "messages.$.generationId": generationId, updatedAt: new Date() } }
-	);
-
-	const writer = await createGenerationWriter({
-		generationId,
-		conversationId: conv._id,
-		messageId: message.id,
-		continueFromSeq: message.materializedSeq,
-		...(pending.userId ? { userId: pending.userId } : {}),
-		...(locals.sessionId ? { sessionId: locals.sessionId } : {}),
-		snapshot: () => ({
-			content: message.content,
-			reasoning: message.reasoning,
-			files: message.files,
-			routerMetadata: message.routerMetadata,
-			stats: message.stats,
-			updates: compressUpdatesForStorage(message.updates),
-		}),
-	});
-
-	const apply = (event: MessageUpdate) => {
-		const applied = applyUpdateToMessage(event, {
-			message,
-			conv,
-			initialContent: message.content,
-		});
-		if (applied.skipped) return;
-		writer.push(event);
-	};
-
-	const persist = async () => {
-		message.materializedSeq = writer.currentSeq();
-		await collections.conversations.updateOne(
-			{ _id: conv._id },
-			{
-				$set: {
-					messages: conv.messages.map((m) => ({
-						...m,
-						updates: compressUpdatesForStorage(m.updates),
-					})),
-					updatedAt: new Date(),
-				},
-			}
-		);
-	};
-
-	const turnKey = {
-		conversationId: conv._id,
-		messageId: message.id,
-		producerId: generationId,
-		...(pending.userId ? { userId: pending.userId } : {}),
-		...(locals.sessionId ? { sessionId: locals.sessionId } : {}),
-	};
-
-	let hasError = false;
-	try {
-		apply(await turnRunning(turnKey));
-
-		// Already denied by the claim above; this re-issues nothing (the call
-		// never ran) and just produces the refusal the model reads.
-		const outcome = await resumeParkedToolCall({
-			conversationId: conv._id,
-			elicitationId: row.elicitationId,
-			generationId,
-		});
-		for (const update of outcome.updates) apply(update);
-
-		// A queued call behind this one may itself need its own prompt: leave
-		// the turn parked on THAT one rather than continuing the model now.
-		// A parked call of the same round (a code run) resumes the turn by itself when it lands.
-		const roundOpen = !outcome.parkedAgain && (await parkedRowOpen(conv._id, message.id));
-		if (roundOpen) apply(await turnAwaitingInput(turnKey));
-		if (!outcome.parkedAgain && !roundOpen) {
-			const ctx: TextGenerationContext = {
-				model,
-				endpoint: await model.getEndpoint(),
-				conv,
-				messages: buildSubtree(conv, message.id),
-				promptedAt,
-				ip: "tool-approval-sweeper",
-				username: locals.user?.username,
-				forceMultimodal: settings?.multimodalOverrides?.[model.id],
-				forceTools: settings?.toolsOverrides?.[model.id],
-				reasoningEffort: effectiveReasoningEffort(conv, settings, model.id),
-				reasoningOverride: settings?.reasoningOverrides?.[model.id],
-				artifactsOverride: settings?.artifactsOverrides?.[model.id],
-				locals,
-				abortController,
-				generationId,
-				messageId: message.id,
-			};
-			for await (const event of textGeneration(ctx)) apply(event);
-		}
-
-		apply({ type: MessageUpdateType.Status, status: MessageUpdateStatus.Finished });
-		const endedUpdate = await turnEnded(turnKey, { failed: false });
-		if (endedUpdate) apply(endedUpdate);
-	} catch (err) {
-		hasError = true;
-		logger.error(
-			{ err, elicitationId: row.elicitationId },
-			"[tool-approval] deny-timeout resume failed"
-		);
-		const errorMessage = err instanceof Error ? err.message : "The resumed turn failed.";
-		apply({
-			type: MessageUpdateType.Status,
-			status: MessageUpdateStatus.Error,
-			message: errorMessage,
-		});
-		const failedUpdate = await turnEnded(turnKey, { failed: true, error: errorMessage });
-		if (failedUpdate) apply(failedUpdate);
-	} finally {
-		await persist();
-		await writer.finish({ status: hasError ? "error" : "completed" });
-		settleTurnCost({
-			conversationId: conv._id,
-			messageId: message.id,
-			token: turnGatewayToken(locals),
-		});
-	}
-}
-
 export async function sweepExpiredToolApprovals(): Promise<void> {
 	for (let i = 0; i < SWEEP_BATCH; i += 1) {
 		const row = await claimExpired();
-		if (!row) return;
-		await denyAndResume(row).catch((err) =>
+		if (!row) break;
+		// Denied above; the refusal is applied like any answered approval, by the parked sweeper
+		// (which also decides, with the rest of the round, whether the model runs).
+		const pending = row.pending;
+		if (!pending || pending.kind !== "tool-approval") continue;
+		await queueApprovalResume({
+			elicitationId: row.elicitationId,
+			conversationId: row.conversationId,
+			...(row.generationId ? { generationId: row.generationId } : {}),
+			pending,
+		}).catch((err) =>
 			logger.error(
 				{ err, elicitationId: row.elicitationId },
 				"[tool-approval] deny-timeout sweep failed"
 			)
 		);
 	}
+	await sweepParkedCalls();
 }
 
 export class ToolApprovalSweeper {

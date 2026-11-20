@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { ObjectId } from "mongodb";
 import type { Client } from "@modelcontextprotocol/client";
 import { collections } from "$lib/server/database";
+import { queueApprovalResume } from "$lib/server/generation/roundJoin";
 import { logger } from "$lib/server/logger";
 import type { McpElicitation, PendingMcpCall } from "$lib/types/McpElicitation";
 import type {
@@ -306,6 +307,21 @@ export async function submitElicitationAnswer({
 	);
 	if (updated.matchedCount === 0) return { ok: false, status: 409, error: "Already answered." };
 
+	// A tool approval is applied by the server, not by the browser's next request: the approved
+	// call runs even if the tab is closed, and the turn resumes only when its round is complete.
+	if (doc.pending?.kind === "tool-approval") {
+		await queueApprovalResume({
+			elicitationId,
+			conversationId,
+			...(doc.generationId ? { generationId: doc.generationId } : {}),
+			pending: { ...doc.pending, tool: doc.pending.tool },
+		});
+		void import("$lib/server/generation/parkedSweeper").then((m) =>
+			m.sweepParkedCalls().catch((err) => logger.error({ err }, "[approval] sweep failed"))
+		);
+		return { ok: true, resume: false, messageId: doc.pending.messageId };
+	}
+
 	return {
 		ok: true,
 		resume: doc.pending !== undefined,
@@ -415,4 +431,16 @@ export async function parkedMessageId(
 		{ projection: { pending: 1 } }
 	);
 	return row?.pending?.messageId;
+}
+
+/** Whether the server itself applies this prompt's answer (a tool approval), so no browser resume is wanted. */
+export async function isServerResumed(
+	conversationId: ObjectId,
+	elicitationId: string
+): Promise<boolean> {
+	const row = await collections.mcpElicitations.findOne(
+		{ elicitationId, conversationId },
+		{ projection: { pending: 1 } }
+	);
+	return row?.pending?.kind === "tool-approval";
 }

@@ -53,12 +53,7 @@ import { applyUpdateToMessage } from "$lib/server/generation/applyUpdate";
 import { AbortRegistry } from "$lib/server/abortRegistry";
 import { settleTurnCost, turnGatewayToken } from "$lib/server/turnCostSettle";
 import { createGenerationWriter, type GenerationWriter } from "$lib/server/generation/writer";
-import {
-	turnAwaitingInput,
-	turnHeldByAnother,
-	turnEnded,
-	turnRunning,
-} from "$lib/server/generation/turnState";
+import { turnHeldByAnother, turnEnded, turnRunning } from "$lib/server/generation/turnState";
 import { armTurnCap, classifyTurnAbort, untilCapped } from "$lib/server/generation/turnCap";
 import { clampStoppedContent } from "$lib/server/stopTruncation";
 import { MetricsServer } from "$lib/server/metrics";
@@ -362,16 +357,11 @@ export async function POST({ request, locals, params, getClientAddress }) {
 		if (!parked || parked.from !== "assistant") {
 			error(404, "No parked message to resume");
 		}
-		// The answer may arrive while the run that dispatched this round is still finishing
-		// a sibling call (C155): wait for it to end, then read the turn it left behind.
-		const { waitForProducers } = await import("$lib/server/generation/roundJoin");
-		if (await waitForProducers(convId, parked.id)) {
-			const fresh = await collections.conversations.findOne({
-				_id: convId,
-				...authCondition(locals),
-			});
-			// In place: closures above hold this object.
-			if (fresh) Object.assign(conv, fresh);
+		// A tool approval is applied by the server (see submitElicitationAnswer): a resume
+		// request for one from a browser would run the call twice.
+		const { isServerResumed } = await import("$lib/server/mcp/elicitation");
+		if (await isServerResumed(convId, resumeElicitationId)) {
+			error(409, "This approval is applied by the server.");
 		}
 		messageToWriteToId = parked.id;
 		messagesForPrompt = buildSubtree(conv, parked.id);
@@ -734,9 +724,6 @@ export async function POST({ request, locals, params, getClientAddress }) {
 				locals.showRedactionValues = userSettings?.showRedactionValues === true;
 
 				let parkedAgain = false;
-				// A sibling call of the round (a code run) still resumes the turn itself: this
-				// answer is recorded and the model is not run on a round that is not complete.
-				let roundOpen = false;
 				if (resumeElicitationId) {
 					const { resumeParkedToolCall } = await import("$lib/server/mcp/resumeElicitation");
 					const outcome = await resumeParkedToolCall({
@@ -758,15 +745,6 @@ export async function POST({ request, locals, params, getClientAddress }) {
 					);
 					for (const event of outcome.updates) await update(event);
 					parkedAgain = outcome.parkedAgain === true;
-					const { parkedRowOpen } = await import("$lib/server/generation/roundJoin");
-					roundOpen = !parkedAgain && (await parkedRowOpen(convId, messageToWriteTo.id));
-					if (roundOpen) {
-						await update(await turnAwaitingInput(turnKey));
-						logger.info(
-							{ conversationId: id, messageId: messageToWriteTo.id },
-							"[round] approval answered; the round has a parked call left, not resuming"
-						);
-					}
 					// The grant just landed in the database; `conv` here was read before
 					// that write, and a continuation further down this same turn (another
 					// tool round) reads gating off THIS object, not a fresh one.
@@ -806,7 +784,7 @@ export async function POST({ request, locals, params, getClientAddress }) {
 				};
 				// run the text generation and send updates to the client. Skipped when the
 				// resumed call asked something else: the model has no round to answer yet.
-				if (!parkedAgain && !roundOpen) {
+				if (!parkedAgain) {
 					for await (const event of untilCapped(textGeneration(ctx), ctrl.signal))
 						await update(event);
 				}
