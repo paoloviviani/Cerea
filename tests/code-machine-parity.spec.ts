@@ -718,6 +718,13 @@ test.describe("owned machine agent: parity", () => {
 		await expect(page.getByRole("button", { name: "Fork from here" }).last()).toBeVisible();
 	});
 
+	// A page reload while a turn runs replays the machine's history and tails the rest. This is the
+	// reconnect path (session.sync); galopin's resync after a dropped line or a gap is covered by
+	// the Go tests in agent/internal/sessions. The reply is ~12 s long and each spec reloads as soon as
+	// the first words show, with the turn still running (no "done" yet), so the reload cannot land late.
+	const SLOW_REPLY = Array.from({ length: 24 }, (_, i) => `w${i} `);
+	const SLOW_TEXT = SLOW_REPLY.join("").trim();
+
 	test("reload mid-turn: the running reply picks up where it was and completes", async ({
 		page,
 		db,
@@ -726,20 +733,12 @@ test.describe("owned machine agent: parity", () => {
 	}) => {
 		await openSession(page, db, session.sessionId);
 		const transcript = page.locator('[data-message-role="assistant"]');
-		await mockOpenAI.setDefaultScenario({
-			content: ["Slow", " answer", " arrives", " bit", " by", " bit", " and", " ends", " here."],
-			chunkDelayMs: 600,
-		});
+		await mockOpenAI.setDefaultScenario({ content: SLOW_REPLY, chunkDelayMs: 500 });
 		await send(page, "tell me slowly");
-		await expect(transcript.getByText("Slow")).toBeVisible({ timeout: 60_000 });
-		// The turn is still running: the end of the reply has not been written yet
-		await expect(transcript.getByText("ends here.")).toHaveCount(0);
+		await expect(transcript.getByText("w0")).toBeVisible({ timeout: 60_000 });
+		await expect(page.getByRole("img", { name: "done", exact: true })).toHaveCount(0);
 		await page.reload();
-		await expect(transcript.getByText("Slow answer arrives bit by bit and ends here.")).toBeVisible(
-			{
-				timeout: 60_000,
-			}
-		);
+		await expect(transcript.getByText(SLOW_TEXT)).toBeVisible({ timeout: 60_000 });
 		await expect(page.getByRole("img", { name: "done", exact: true })).toBeVisible({
 			timeout: 60_000,
 		});
@@ -759,19 +758,14 @@ test.describe("owned machine agent: parity", () => {
 		await send(page, "first question");
 		await expect(transcript.getByText("Answer one.")).toBeVisible({ timeout: 60_000 });
 		await settle();
-		await mockOpenAI.setDefaultScenario({
-			content: ["Again", " slowly", " and", " steadily", " to", " the", " very", " end."],
-			chunkDelayMs: 600,
-		});
+		await mockOpenAI.setDefaultScenario({ content: SLOW_REPLY, chunkDelayMs: 500 });
 		await transcript.last().hover();
 		await page.getByRole("button", { name: "Retry" }).last().click();
 		await page.getByRole("dialog").getByRole("button", { name: "Roll back and send" }).click();
-		await expect(transcript.getByText("Again")).toBeVisible({ timeout: 60_000 });
-		await expect(transcript.getByText("very end.")).toHaveCount(0);
+		await expect(transcript.getByText("w0")).toBeVisible({ timeout: 60_000 });
+		await expect(page.getByRole("img", { name: "done", exact: true })).toHaveCount(0);
 		await page.reload();
-		await expect(transcript.getByText("Again slowly and steadily to the very end.")).toBeVisible({
-			timeout: 60_000,
-		});
+		await expect(transcript.getByText(SLOW_TEXT)).toBeVisible({ timeout: 60_000 });
 		await expect(transcript.getByText("Answer one.", { exact: true })).toHaveCount(0);
 	});
 

@@ -659,3 +659,84 @@ func TestResyncKeepsWhatARunningTurnWroteDuringTheFetch(t *testing.T) {
 		t.Fatalf("messages = %v, want [u1 a1]", ids)
 	}
 }
+
+func partsOf(t *testing.T, mat *Materializer, session, msg string) map[string]backend.Part {
+	t.Helper()
+	res, err := mat.Sync(context.Background(), session, "", 0)
+	if err != nil || res.Snapshot == nil {
+		t.Fatalf("sync: %+v %v", res, err)
+	}
+	out := map[string]backend.Part{}
+	for _, e := range res.Snapshot.Messages {
+		if e.Message.ID == msg {
+			for _, p := range e.Parts {
+				out[p.ID] = p
+			}
+		}
+	}
+	return out
+}
+
+// What a resync is for: the transcript holds state the live events never delivered (a dropped
+// oversized line). A live event for the same message during the fetch must not make the stale
+// live copy of an untouched part win.
+func TestResyncTakesTheTranscriptsPartsThatNoLiveEventTouchedOnARunningMessage(t *testing.T) {
+	ctx := context.Background()
+	back := newFakeBackend()
+	mat := New(back, policy.Default())
+	mat.Track("/work", backend.Session{ID: "s1"})
+	live := func(ev backend.Event) {
+		mat.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/work", SessionID: "s1", Event: ev})
+	}
+	live(backend.Event{Kind: backend.EventMessage, Message: &backend.Message{ID: "a1", Role: "assistant"}})
+	// The tool is running as far as live events know; its completion was a dropped line.
+	live(backend.Event{Kind: backend.EventPart, Part: &backend.Part{ID: "p2", MessageID: "a1", Role: "assistant", Type: backend.PartTool, CallID: "c2", Tool: "shot", ToolStatus: backend.ToolRunning}})
+	// A text part whose deltas were partly lost.
+	live(textPart("a1", "t1", "Hel"))
+	back.transcripts["s1"] = backend.Transcript{
+		Status: backend.StatusBusy,
+		Messages: []backend.TranscriptEntry{{
+			Message: backend.Message{ID: "a1", Role: "assistant"},
+			Parts: []backend.Part{
+				{ID: "t1", MessageID: "a1", Role: "assistant", Type: backend.PartText, Text: "Hello wor"},
+				{ID: "p2", MessageID: "a1", Role: "assistant", Type: backend.PartTool, CallID: "c2", Tool: "shot", ToolStatus: backend.ToolCompleted,
+					Attachments: []backend.ToolAttachment{{SHA256: "a", Mime: "image/png", Size: 3}}},
+			},
+		}},
+	}
+	// During the fetch the running turn writes to the same message, but not to p2 or t1.
+	back.afterTranscriptRead = func() {
+		back.afterTranscriptRead = nil
+		live(backend.Event{Kind: backend.EventMessage, Message: &backend.Message{ID: "a1", Role: "assistant", ModelID: "m"}})
+	}
+	mat.resync(ctx, "/work", "s1")
+
+	parts := partsOf(t, mat, "s1", "a1")
+	if got := parts["p2"]; got.ToolStatus != backend.ToolCompleted || len(got.Attachments) != 1 {
+		t.Fatalf("the tool part kept its stale live copy: %+v", got)
+	}
+	if got := parts["t1"].Text; got != "Hello wor" {
+		t.Fatalf("the text kept its truncated live copy: %q", got)
+	}
+	// Later deltas apply on top of the transcript's text.
+	live(backend.Event{Kind: backend.EventDelta, MessageID: "a1", PartID: "t1", Field: "text", Delta: "ld"})
+	if got := partsOf(t, mat, "s1", "a1")["t1"].Text; got != "Hello world" {
+		t.Fatalf("text after a later delta = %q", got)
+	}
+	// The completed tool part is announced to connected viewers.
+	announced := false
+	for {
+		select {
+		case env := <-mat.Events():
+			if env.Event.Kind == backend.EventPart && env.Event.Part != nil && env.Event.Part.CallID == "c2" && env.Event.Part.ToolStatus == backend.ToolCompleted {
+				announced = true
+			}
+			continue
+		default:
+		}
+		break
+	}
+	if !announced {
+		t.Fatal("the completed tool part was not re-announced")
+	}
+}

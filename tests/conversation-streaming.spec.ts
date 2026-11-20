@@ -259,21 +259,14 @@ test("a page reload mid-turn picks the running reply up and finishes it", async 
 	mockOpenAI,
 }) => {
 	test.setTimeout(60_000);
-	await mockOpenAI.setDefaultScenario({
-		content: ["First", " part", " of", " a", " slow", " reply", " that", " ends", " here."],
-		chunkDelayMs: 500,
-		finishReason: "stop",
-	});
+	const words = Array.from({ length: 24 }, (_, i) => `w${i} `);
+	await mockOpenAI.setDefaultScenario({ content: words, chunkDelayMs: 500, finishReason: "stop" });
 	await startConversation(page, "reload me mid-turn");
-	await expect(page.locator('[data-message-role="assistant"]').getByText("First")).toBeVisible({
-		timeout: 30_000,
-	});
-	await expect(page.getByText("ends here.")).toHaveCount(0);
+	const reply = page.locator('[data-message-role="assistant"]');
+	await expect(reply.getByText("w0")).toBeVisible({ timeout: 30_000 });
+	// Still running: the Stop button is up, so the reload cannot land after the turn
+	await expect(page.getByRole("button", STOP)).toBeVisible();
 	await page.reload();
-	await expect(
-		page
-			.locator('[data-message-role="assistant"]')
-			.getByText("First part of a slow reply that ends here.")
-	).toBeVisible({ timeout: 30_000 });
+	await expect(reply.getByText(words.join("").trim())).toBeVisible({ timeout: 45_000 });
 	await expect(page.getByRole("button", STOP)).toHaveCount(0, { timeout: 30_000 });
 });
