@@ -3,9 +3,12 @@ package link
 import (
 	"context"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/coder/websocket"
 )
 
 func livenessLink(srvURL string, mut func(*Config)) *Link {
@@ -103,5 +106,43 @@ func TestHealthyPeerIsNotRedialled(t *testing.T) {
 	time.Sleep(time.Second)
 	if conns.Load() != 1 || !l.Connected() {
 		t.Fatalf("healthy link was dropped: conns=%d connected=%v", conns.Load(), l.Connected())
+	}
+}
+
+// TestScriptedHandlerOutlivingItsTestDoesNotPanic pins the harness fix for the
+// CI flake "Fail in goroutine after TestDeadPeerIsRedialledImmediately has
+// completed": a handler still blocked in readType when its test ends (the
+// liveness tests finish as soon as the redial is *accepted*, before the
+// handler has read the new hello) used to call t.Fatalf on a finished test.
+func TestScriptedHandlerOutlivingItsTestDoesNotPanic(t *testing.T) {
+	gate := make(chan struct{})
+	reached := make(chan struct{})
+	outcome := make(chan any, 1)
+
+	t.Run("inner", func(t *testing.T) {
+		srv := newFakeCereaServer(t, func(sc *serverConn, r *http.Request) {
+			defer func() { outcome <- recover() }()
+			close(reached)
+			<-gate
+			sc.readType("hello") // the client is gone: the read fails
+		})
+		c, _, err := websocket.Dial(context.Background(), "ws"+strings.TrimPrefix(srv.URL, "http"), &websocket.DialOptions{
+			Subprotocols: []string{"pystino-machine.v1"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		<-reached
+		c.CloseNow()
+	}) // inner test is complete here
+
+	close(gate)
+	select {
+	case v := <-outcome:
+		if v != nil {
+			t.Fatalf("handler panicked after its test completed: %v", v)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("handler never finished")
 	}
 }

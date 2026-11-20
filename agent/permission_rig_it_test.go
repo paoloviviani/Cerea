@@ -52,6 +52,8 @@ type permRig struct {
 	// session runs (the backend's overlay is what carries it otherwise).
 	bypass bool
 	agents map[string]string
+	// noFloor mirrors permRigOpts.noFloor: no floor marker will ever show.
+	noFloor bool
 }
 
 type permRigOpts struct {
@@ -85,7 +87,7 @@ func newPermRig(t *testing.T, o permRigOpts) *permRig {
 	if _, err := exec.LookPath("opencode"); err != nil {
 		t.Skipf("opencode not on PATH: %v", err)
 	}
-	r := &permRig{t: t, mock: startMockLLM(t, itFreePort(t)), root: rigRoot(t)}
+	r := &permRig{t: t, mock: startMockLLM(t, itFreePort(t)), root: rigRoot(t), noFloor: o.noFloor}
 	baseURL, apiKey, modelName := r.mock+"/v1", "test-secret", "mock-model"
 	if o.real != nil {
 		baseURL, apiKey, modelName = o.real.baseURL, o.real.apiKey, o.real.model
@@ -389,9 +391,15 @@ func (r *permRig) rawSession(rules []permrules.Rule) backend.Session {
 func (r *permRig) agentRules(agent string) []permrules.Rule {
 	r.t.Helper()
 	// opencode 2 answers GET /api/agent with the agents loaded so far while a
-	// location is still opening: read until the same answer comes twice.
+	// location is still opening, and that partial answer (the built-in agents
+	// before the galopin-owned config layer arrives: build allows everything)
+	// can repeat unchanged for longer than one poll, so "the same answer twice"
+	// is not proof of a complete read (it flaked in CI with "agent build key
+	// external_directory = allow", right after the floor patch's restart).
+	// The complete answer is the one carrying the floor's own marker (execute
+	// denied on build, written only by the floor config), as in checkFloor.
 	var last string
-	for attempt := 0; attempt < 20; attempt++ {
+	for attempt := 0; attempt < 60; attempt++ {
 		raw := r.raw(http.MethodGet, "/api/agent?location[directory]="+url.QueryEscape(r.work), nil)
 		var all struct {
 			Data []struct {
@@ -402,7 +410,18 @@ func (r *permRig) agentRules(agent string) []permrules.Rule {
 		if err := json.Unmarshal(raw, &all); err != nil {
 			r.t.Fatal(err)
 		}
-		if string(raw) == last {
+		loaded := r.noFloor
+		for _, a := range all.Data {
+			if a.ID != "build" {
+				continue
+			}
+			for _, p := range a.Permissions {
+				if p["action"] == "execute" && p["effect"] == "deny" {
+					loaded = true
+				}
+			}
+		}
+		if loaded && string(raw) == last {
 			for _, a := range all.Data {
 				if a.ID == agent {
 					return rulesFromV2Maps(a.Permissions)
