@@ -288,7 +288,12 @@ limited to **30 MB** each, except audio (up to **25 MB**).
   coding-agent attachments, project documents and knowledge bases. Attachments are only
   ever served as downloads, never rendered, so an uploaded `.html` or `.svg` file cannot
   run in Cerea.
-- **Images** go to a model that can see them.
+- **Images** go to a model that can see them. Phone photos are turned upright first (their EXIF
+  orientation is applied) and fitted to at most 2048 px on the longest side and about 5 MB, never
+  enlarged, so small print in a photographed page stays legible; the sizes are per model (see
+  [Image limits](chat-admin.md#image-limits)). The assistant can also look at an image again, or at
+  one region of it at full resolution, with the `view_image` tool (see
+  [Images in tool results](chat-admin.md#images-in-tool-results)).
 - **PDFs and Office documents** are bytes no model reads, so the gateway's
   document reader turns each into text. Word, Excel, PowerPoint, OpenDocument
   and EPUB files always go to the deployment's own reader, and old Word `.doc`

@@ -17,7 +17,13 @@ import { redactionRequestHeaders } from "$lib/server/turnStats";
 import { turnTagHeader } from "$lib/server/turnCost";
 import type { Endpoint } from "../endpoints";
 import type OpenAI from "openai";
-import { createImageProcessorOptionsValidator, makeImageProcessor } from "../images";
+import {
+	DEFAULT_IMAGE_PROCESSOR_OPTIONS,
+	createImageProcessorOptionsValidator,
+	historyImageOptions,
+	imageProcessorOptionsFor,
+	makeImageProcessor,
+} from "../images";
 import { prepareMessagesWithFiles } from "$lib/server/textGeneration/utils/prepareFiles";
 import { withoutContentLength } from "$lib/server/undiciCompat";
 import {
@@ -41,17 +47,8 @@ export const endpointOAIParametersSchema = z.object({
 	extraBody: z.record(z.any()).optional(),
 	multimodal: z
 		.object({
-			image: createImageProcessorOptionsValidator({
-				supportedMimeTypes: [
-					// Restrict to the most widely-supported formats
-					"image/png",
-					"image/jpeg",
-				],
-				preferredMimeType: "image/jpeg",
-				maxSizeInMB: 1,
-				maxWidth: 1024,
-				maxHeight: 1024,
-			}),
+			// Restricted to the most widely-supported formats; the limits are the shared default.
+			image: createImageProcessorOptionsValidator(DEFAULT_IMAGE_PROCESSOR_OPTIONS),
 		})
 		.default({}),
 	/* enable use of max_completion_tokens in place of max_tokens */
@@ -122,7 +119,15 @@ export async function endpointOai(
 		fetch: customFetch,
 	});
 
-	const imageProcessor = makeImageProcessor(multimodal.image);
+	const imageOptions = imageProcessorOptionsFor({
+		endpoints: [{ multimodal }],
+		imageLimits: model.imageLimits,
+	});
+	const imageProcessor = makeImageProcessor(imageOptions);
+	const imageBudget = {
+		bytes: imageOptions.totalBudgetMB * 1000 * 1000,
+		historyProcessor: makeImageProcessor(historyImageOptions(imageOptions)),
+	};
 
 	if (completion === "completions") {
 		return async ({
@@ -204,6 +209,7 @@ export async function endpointOai(
 			// reasoning_content to history this same model actually produced.
 			let messagesOpenAI: OpenAI.Chat.Completions.ChatCompletionMessageParam[] =
 				await prepareMessagesWithFiles(messages, imageProcessor, isMultimodal ?? model.multimodal, {
+					imageBudget,
 					attachReasoning: reasoningOverride ?? model.preservesReasoning !== false,
 					currentProducerModel: model.id ?? model.name,
 					contextLengthTokens: model.contextLength,

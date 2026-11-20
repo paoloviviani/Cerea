@@ -60,7 +60,7 @@ describe("withoutOlderPictures", () => {
 		expect(out[0]).toBe(messages[0]);
 		expect(out[2]).toBe(messages[2]);
 		expect(PICTURES_REMOVED).toBe(
-			"[images from an earlier look_doc call removed; call look_doc again if you need them]"
+			"[images from an earlier tool call removed; call the tool again if you need them]"
 		);
 	});
 });

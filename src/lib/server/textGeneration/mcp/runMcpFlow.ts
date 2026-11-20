@@ -38,7 +38,12 @@ import { createToolBlocker } from "./toolBlocker";
 import type { TextGenerationContext } from "../types";
 import { buildImageRefResolver } from "./fileRefs";
 import { prepareMessagesWithFiles } from "$lib/server/textGeneration/utils/prepareFiles";
-import { makeImageProcessor } from "$lib/server/endpoints/images";
+import {
+	historyImageOptions,
+	imageProcessorOptionsFor,
+	makeImageProcessor,
+	remainingImageBudget,
+} from "$lib/server/endpoints/images";
 import { logger } from "$lib/server/logger";
 import { AbortedGenerations } from "$lib/server/abortedGenerations";
 import { withoutContentLength } from "$lib/server/undiciCompat";
@@ -584,13 +589,13 @@ export async function* runMcpFlow({
 	}
 
 	const resolveFileRef = buildImageRefResolver(messages);
-	const imageProcessor = makeImageProcessor({
-		supportedMimeTypes: ["image/png", "image/jpeg"],
-		preferredMimeType: "image/jpeg",
-		maxSizeInMB: 1,
-		maxWidth: 1024,
-		maxHeight: 1024,
-	});
+	const imageOptions = imageProcessorOptionsFor(model);
+	const imageProcessor = makeImageProcessor(imageOptions);
+	// One budget for the whole request: the attachments' images are fitted first (and say what they came
+	// to), and each round's tool pictures get what is left, never less than a small floor.
+	const imageStats = { bytes: 0 };
+	const historyProcessor = makeImageProcessor(historyImageOptions(imageOptions));
+	const imageTotalBytes = imageOptions.totalBudgetMB * 1000 * 1000;
 
 	// Declared outside the try so the catch can see it: whether the user has been shown
 	// anything for this turn, which decides whether a failure is recoverable.
@@ -761,6 +766,7 @@ export async function* runMcpFlow({
 			imageProcessor,
 			mmEnabled,
 			{
+				imageBudget: { bytes: imageTotalBytes, historyProcessor, stats: imageStats },
 				replayToolHistory: true,
 				attachReasoning: mayEchoReasoning,
 				// The model serving THIS turn: gates reasoning_content to only
@@ -1009,7 +1015,7 @@ export async function* runMcpFlow({
 					if (!isRejectedRequest(err) || !hasPictureMessage(messagesOpenAI)) throw err;
 					logger.warn(
 						{ model: model.id ?? model.name, status: (err as { status?: number }).status },
-						"[mcp] the no-tools request with look_doc images was refused (400/422); retrying without them"
+						"[mcp] the no-tools request with look_doc images was refused (400/413/422); retrying without them"
 					);
 					pictureState.unavailable = true;
 					messagesOpenAI = withoutPictures(messagesOpenAI);
@@ -1144,7 +1150,7 @@ export async function* runMcpFlow({
 						status: (err as { status?: number }).status,
 						err: String(err),
 					},
-					"[mcp] the request with look_doc images was refused (400/422); retrying without them"
+					"[mcp] the request with look_doc images was refused (400/413/422); retrying without them"
 				);
 				pictureState.unavailable = true;
 				messagesOpenAI = withoutPictures(messagesOpenAI);
@@ -1566,6 +1572,10 @@ export async function* runMcpFlow({
 					toolBlocker,
 					// Pictures a tool returns are fitted to the same image limits as the user's attachments.
 					imageProcessor,
+					imageBudget: {
+						bytes: remainingImageBudget(imageTotalBytes, imageStats.bytes),
+						historyProcessor,
+					},
 					// The pre-call checkpoint (ADR 0075): every MCP call is gated the
 					// same way `web_fetch` already is, under the policy resolved above.
 					toolApproval: {

@@ -239,7 +239,10 @@ assistant can look at pages of a Word, Excel, PowerPoint or PDF file in the chat
 (the `look_doc` tool): after it makes or redesigns a deck or document it checks
 the layout and fixes what is broken (text running out of a box, a cut-off table,
 an empty slide). It can also read a scanned or image-only PDF, or a form, as it
-really looks. This is for the assistant; you keep the preview above.
+really looks. This is for the assistant; you keep the preview above. For an image file (a photo, a scan, a chart the
+assistant saved) the same models have `view_image`, which shows the picture, or one region of it cut
+from the full-resolution original (`crop`, in pixels or fractions) or turned (`rotate`), so dense
+print can be read in pieces.
 
 - **It looks sparingly.** At most 6 pages or slides per call, about 1,000 tokens
   or more for each, and not after small text edits.

@@ -110,6 +110,17 @@ const FIGURE_SENTENCE =
 	"as well as being offered for download. So you can tell the person the figure is on screen. " +
 	"SVG files are download only.";
 
+/**
+ * Said only while `view_image` is offered: an image saved here is shown to the person, never to the model,
+ * so the model is told how to look at one itself.
+ */
+export const VIEW_IMAGE_SENTENCE =
+	` Images you save to ${OUTPUT_ROOT}/ are shown to the person, not to you: to see one yourself ` +
+	"(a crop or an enlarged region you made, a figure you drew), call view_image on it. ";
+
+const figureSentence = (viewImage: boolean) =>
+	viewImage ? FIGURE_SENTENCE + VIEW_IMAGE_SENTENCE : FIGURE_SENTENCE;
+
 /** One line of facts about this sandbox's share of the host, when the manager has said. */
 function limitsLine(limits: SandboxLimits | null): string {
 	if (!limits) return "";
@@ -129,7 +140,7 @@ const FILE_HANDOFF_SENTENCE =
 	"argument and the server fills in the content. Stdout is cut at about 8000 characters; to read " +
 	"a long file or string yourself, print it in slices (text[0:6000], text[6000:12000], ...).";
 
-const browserDescription = () =>
+const browserDescription = (viewImage = false) =>
 	"Run a Python snippet in the person's own browser sandbox and read the " +
 	"result, so you can iterate: run, read the output, fix, run again. " +
 	"Invoke this tool through the function-calling mechanism, as a real " +
@@ -147,7 +158,7 @@ const browserDescription = () =>
 	"than telling them to install it themselves.\n\n" +
 	"You see the truncated stdout, stderr and the last expression's result " +
 	"yourself, plus the names of files the run saved to the output folder. " +
-	FIGURE_SENTENCE +
+	figureSentence(viewImage) +
 	"\n\n" +
 	`Where files go: only files written under ${OUTPUT_ROOT}/ (for example ` +
 	`${OUTPUT_ROOT}/report.xlsx) are offered to the person as download cards ` +
@@ -184,7 +195,7 @@ const browserDescription = () =>
  * packages installed and no network, keeps variables between calls within a conversation, and
  * reads and writes the same two folders; the browser's has micropip and loses state on a restart.
  */
-const serverDescription = (limits: SandboxLimits | null = null) =>
+const serverDescription = (limits: SandboxLimits | null = null, viewImage = false) =>
 	"Run a Python snippet in a sandbox on the server and read the result, so you can iterate: run, " +
 	"read the output, fix, run again. " +
 	"Invoke this tool through the function-calling mechanism, as a real tool call — never by " +
@@ -199,7 +210,7 @@ const serverDescription = (limits: SandboxLimits | null = null) =>
 	"result tells you, and you must run the earlier steps again).\n\n" +
 	"You see the truncated stdout, stderr and the last expression's result yourself, plus the " +
 	"names of files the run saved to the output folder. " +
-	FIGURE_SENTENCE +
+	figureSentence(viewImage) +
 	"\n\n" +
 	`Where files go: only files written under ${OUTPUT_ROOT}/ (for example ` +
 	`${OUTPUT_ROOT}/report.xlsx) are offered to the person as download cards ` +
@@ -222,11 +233,17 @@ const serverDescription = (limits: SandboxLimits | null = null) =>
 	"Each call spends one of this turn's few execute_code calls; prefer one decisive snippet over " +
 	"many fragments.";
 
-export function executeCodeDescription(kind: string, limits: SandboxLimits | null = null): string {
-	return kind === "server" ? serverDescription(limits) : browserDescription();
+export function executeCodeDescription(
+	kind: string,
+	limits: SandboxLimits | null = null,
+	viewImage = false
+): string {
+	return kind === "server" ? serverDescription(limits, viewImage) : browserDescription(viewImage);
 }
 
-export function createExecuteCodeBuiltin(options: { unattended?: boolean } = {}): BuiltinTool[] {
+export function createExecuteCodeBuiltin(
+	options: { unattended?: boolean; viewImageOffered?: boolean } = {}
+): BuiltinTool[] {
 	if (!isExecuteCodeEnabled()) return [];
 	// Fixed for the turn, like the rest of this closure: the tool is described for the engine
 	// that will run it, and a fallback to the browser mid-turn is handled by the backend itself.
@@ -243,7 +260,11 @@ export function createExecuteCodeBuiltin(options: { unattended?: boolean } = {})
 				type: "function",
 				function: {
 					name: EXECUTE_CODE_TOOL_NAME,
-					description: executeCodeDescription(backendKind, sandboxLimits()),
+					description: executeCodeDescription(
+						backendKind,
+						sandboxLimits(),
+						options.viewImageOffered === true
+					),
 					parameters: {
 						type: "object",
 						properties: {
