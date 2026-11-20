@@ -15,7 +15,7 @@ import { McpServer, fromJsonSchema } from "@modelcontextprotocol/server";
 export const MOCK_MCP_PORT = Number(process.env.MOCK_MCP_PORT ?? 8789);
 
 /** Tool names exposed by this server, for assertions in specs. */
-export const MOCK_MCP_TOOLS = ["echo", "add"] as const;
+export const MOCK_MCP_TOOLS = ["echo", "add", "slow"] as const;
 
 /** One tool invocation, recorded for assertions. */
 export interface RecordedToolCall {
@@ -72,6 +72,25 @@ function buildServer(record: (call: RecordedToolCall) => void): McpServer {
 		({ a, b }) => {
 			record({ name: "add", args: { a, b }, at: Date.now() });
 			return { content: [{ type: "text" as const, text: String(a + b) }] };
+		}
+	);
+
+	// Answers after `ms` milliseconds: a call that is still running while its round's other calls
+	// (a code run, an approval) have already been answered (C155).
+	server.registerTool(
+		"slow",
+		{
+			description: "Waits the given milliseconds, then returns the text.",
+			inputSchema: fromJsonSchema<{ ms: number; text: string }>({
+				type: "object",
+				properties: { ms: { type: "number" }, text: { type: "string" } },
+				required: ["ms", "text"],
+			}),
+		},
+		async ({ ms, text }) => {
+			record({ name: "slow", args: { ms, text }, at: Date.now() });
+			await new Promise((resolve) => setTimeout(resolve, ms));
+			return { content: [{ type: "text" as const, text }] };
 		}
 	);
 

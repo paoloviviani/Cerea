@@ -283,6 +283,19 @@ export async function submitElicitationAnswer({
 		return { ok: false, status: 409, error: "This request has expired." };
 	}
 
+	// An approval of a turn that ended (stopped, failed) is not answerable: nothing would apply it.
+	if (doc.pending?.kind === "tool-approval") {
+		const ended = await collections.turnStates.findOne(
+			{
+				conversationId,
+				messageId: doc.pending.messageId,
+				status: { $in: ["failed", "done"] },
+			},
+			{ projection: { _id: 1 } }
+		);
+		if (ended) return { ok: false, status: 409, error: "This turn has ended." };
+	}
+
 	let validated: Record<string, ElicitationValue> | undefined;
 	if (action === "accept") {
 		if (doc.request.mode === "form") {

@@ -233,6 +233,14 @@ async function resumeParkedCallInner(park: ParkedCall): Promise<void> {
 	const model = (await resolveConversationModel(conv.model, conversationOwnerFilter(conv)))?.model;
 	if (!model) return abandon(park, `model ${conv.model} is no longer available`);
 
+	// A turn that already ended (the user stopped it, or it failed) is never resumed by a late
+	// answer, an expiry or a sweep.
+	const ended = await collections.turnStates.findOne(
+		{ conversationId: conv._id, messageId: message.id, status: { $in: ["failed", "done"] } },
+		{ projection: { _id: 1 } }
+	);
+	if (ended) return abandon(park, "the turn already ended");
+
 	const { locals, settings, tokenExpired } = await rebuildIdentity(park);
 
 	// The connectors this turn may use. A resume has no request to read them from, and without
@@ -316,7 +324,7 @@ async function resumeParkedCallInner(park: ParkedCall): Promise<void> {
 
 	let hasError = false;
 	try {
-		apply(await turnRunning(turnKey));
+		apply(await turnRunning(turnKey, { keepEnded: true }));
 
 		// A tool approval (answered by the user or expired): the SERVER applies the answer, so the
 		// approved call runs whether or not the tab that clicked is still open. The round decides
@@ -450,6 +458,19 @@ async function resumeParkedCallInner(park: ParkedCall): Promise<void> {
 					{ $set: { consumedAt: new Date() } }
 				)
 				.catch((err) => logger.error({ err }, "[parked] failed to mark the approval consumed"));
+			// Siblings that were put off waiting for this result are due now, not after their backoff.
+			await collections.parkedCalls
+				.updateMany(
+					{
+						conversationId: park.conversationId,
+						messageId: park.messageId,
+						status: "waiting",
+						deferrals: { $gt: 0 },
+						_id: { $ne: park._id },
+					},
+					{ $set: { resumeAt: new Date(), updatedAt: new Date() } }
+				)
+				.catch((err) => logger.error({ err }, "[parked] failed to wake the round's siblings"));
 		}
 	}
 }
@@ -468,6 +489,29 @@ export async function endRoundOnStop(
 		.find({ conversationId, status: { $in: ["waiting", "resuming"] } })
 		.toArray();
 	const messages = new Set<string>();
+	// An unanswered tool approval of the turn is closed with it: left pending, it would expire
+	// later (or be clicked) and queue a resume on a turn the user stopped. Cancelled and
+	// consumed, it cannot be answered and the deny sweeper never claims it.
+	const now = new Date();
+	const approvals = await collections.mcpElicitations
+		.find({ conversationId, status: "pending", "pending.kind": "tool-approval" })
+		.toArray();
+	for (const approval of approvals) {
+		const closed = await collections.mcpElicitations.updateOne(
+			{ _id: approval._id, status: "pending" },
+			{
+				$set: {
+					status: "resolved",
+					action: "cancel",
+					resolvedAt: now,
+					consumedAt: now,
+					updatedAt: now,
+					stopped: true,
+				},
+			}
+		);
+		if (closed.matchedCount > 0 && approval.pending) messages.add(approval.pending.messageId);
+	}
 	for (const row of rows) {
 		const claimed = await collections.parkedCalls.updateOne(
 			{ _id: row._id, status: { $in: ["waiting", "resuming"] } },

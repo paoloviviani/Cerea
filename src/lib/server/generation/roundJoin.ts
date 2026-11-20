@@ -168,3 +168,39 @@ export async function queueApprovalResume(row: {
 		{ upsert: true }
 	);
 }
+
+/**
+ * One-off at startup, for the upgrade: an approval answered on the code that preceded server-side
+ * application (resolved, never consumed, no parked row) would otherwise be lost, because a
+ * browser's resume request for it is now refused. Queues the row for each such approval answered
+ * in the last 24 hours; idempotent, and cheap when there are none.
+ */
+export async function backfillApprovalResumes(): Promise<number> {
+	const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+	const rows = await collections.mcpElicitations
+		.find({
+			status: "resolved",
+			"pending.kind": "tool-approval",
+			consumedAt: { $exists: false },
+			resolvedAt: { $gte: since },
+		})
+		.limit(500)
+		.toArray();
+	let queued = 0;
+	for (const row of rows) {
+		const pending = row.pending;
+		if (!pending || pending.kind !== "tool-approval") continue;
+		const exists = await collections.parkedCalls.countDocuments({
+			parkedCallId: row.elicitationId,
+		});
+		if (exists > 0) continue;
+		await queueApprovalResume({
+			elicitationId: row.elicitationId,
+			conversationId: row.conversationId,
+			...(row.generationId ? { generationId: row.generationId } : {}),
+			pending,
+		});
+		queued += 1;
+	}
+	return queued;
+}

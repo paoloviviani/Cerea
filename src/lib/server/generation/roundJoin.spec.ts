@@ -33,7 +33,8 @@ vi.mock("$lib/server/models", () => ({
 
 import { collections, ready } from "$lib/server/database";
 import { endRoundOnStop, sweepParkedCalls } from "./parkedSweeper";
-import { deferDelayMs, otherParkedRows, roundBlocker } from "./roundJoin";
+import { backfillApprovalResumes, deferDelayMs, otherParkedRows, roundBlocker } from "./roundJoin";
+import { sweepExpiredToolApprovals } from "./toolApprovalSweeper";
 import { submitElicitationAnswer } from "$lib/server/mcp/elicitation";
 import { resumeParkedToolCall } from "$lib/server/mcp/resumeElicitation";
 import { turnAwaitingInput } from "./turnState";
@@ -326,7 +327,7 @@ describe("a round's join (C155)", () => {
 			updates.some((u) => u.type === "tool" && u.subtype === "error" && u.uuid === MCP_UUID)
 		).toBe(true);
 
-		await makeDue();
+		// The approval's apply woke the deferred code row: no waiting out its backoff.
 		await sweepParkedCalls();
 
 		expect(seen.resumes).toHaveLength(1);
@@ -410,5 +411,77 @@ describe("a round's join (C155)", () => {
 		expect(row?.deferrals).toBe(2);
 		expect(row?.attempts).toBe(0);
 		expect((row?.resumeAt.getTime() ?? 0) - Date.now()).toBeGreaterThan(4_000);
+	});
+
+	it("Stop closes an unanswered approval: its expiry later does nothing, a late click is refused, the turn stays stopped", async () => {
+		await seedRound();
+		await codeRow();
+		await openApproval("elic-stop");
+		await turnAwaitingInput({ conversationId, messageId: "asst-1", producerId: "gen-p" });
+
+		await endRoundOnStop(conversationId);
+
+		const closed = await collections.mcpElicitations.findOne({ elicitationId: "elic-stop" });
+		expect(closed).toMatchObject({ status: "resolved", action: "cancel", stopped: true });
+		expect(closed?.consumedAt).toBeInstanceOf(Date);
+		// The prompt expires after the stop: the deny sweeper must not queue anything.
+		await collections.mcpElicitations.updateOne(
+			{ elicitationId: "elic-stop" },
+			{ $set: { expiresAt: new Date(Date.now() - 1000) } }
+		);
+		await sweepExpiredToolApprovals();
+		expect(await collections.parkedCalls.countDocuments({ parkedCallId: "elic-stop" })).toBe(0);
+		// A click on the card that was still on screen is refused.
+		expect(
+			await submitElicitationAnswer({
+				elicitationId: "elic-stop",
+				conversationId,
+				action: "accept",
+			})
+		).toMatchObject({ ok: false, status: 409 });
+		await makeDue();
+		await sweepParkedCalls();
+		expect(seen.resumes).toHaveLength(0);
+		expect((await collections.turnStates.findOne({ conversationId }))?.status).toBe("failed");
+	});
+
+	it("never resumes a turn that already ended, and never turns it back into a running one", async () => {
+		await seedRound();
+		await codeRow();
+		await collections.turnStates.insertOne({
+			_id: new ObjectId(),
+			conversationId,
+			messageId: "asst-1",
+			producerId: "gen-p",
+			status: "failed",
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		} as never);
+
+		await sweepParkedCalls();
+
+		expect(seen.resumes).toHaveLength(0);
+		expect((await collections.parkedCalls.findOne({ conversationId }))?.status).toBe("abandoned");
+		expect((await collections.turnStates.findOne({ conversationId }))?.status).toBe("failed");
+	});
+
+	it("applies an approval answered before the upgrade (resolved, no row), once", async () => {
+		await seedRound();
+		await openApproval("elic-old");
+		await collections.mcpElicitations.updateOne(
+			{ elicitationId: "elic-old" },
+			{ $set: { status: "resolved", action: "decline", resolvedAt: new Date() } }
+		);
+
+		expect(await backfillApprovalResumes()).toBeGreaterThanOrEqual(1);
+		expect(await backfillApprovalResumes()).toBe(0);
+		await sweepParkedCalls();
+
+		await vi.waitFor(async () => {
+			const row = await collections.mcpElicitations.findOne({ elicitationId: "elic-old" });
+			expect(row?.consumedAt).toBeInstanceOf(Date);
+		});
+		expect(seen.resumes).toHaveLength(1);
+		expect(await collections.parkedCalls.countDocuments({ parkedCallId: "elic-old" })).toBe(1);
 	});
 });

@@ -150,6 +150,8 @@ export interface McpElicitation extends Timestamps {
 	 * the turn. Resolved is not consumed: until then the round it belongs to is still open.
 	 */
 	consumedAt?: Date;
+	/** Closed because the user stopped the turn: cancelled, never applied. */
+	stopped?: boolean;
 	pending?: PendingCall;
 }
 
