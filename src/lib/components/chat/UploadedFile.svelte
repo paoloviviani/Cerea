@@ -11,6 +11,8 @@
 	import IconMic from "~icons/lucide/mic";
 	import EosIconsLoading from "~icons/eos-icons/loading";
 	import { base } from "$app/paths";
+	import Skeleton from "../skeleton/Skeleton.svelte";
+	import { getImageGroup } from "$lib/utils/imageGroup.svelte";
 	import { TEXT_MIME_ALLOWLIST } from "$lib/constants/mime";
 	import { sidePane } from "$lib/stores/sidePane.svelte";
 	import { isOfficeDocument } from "$lib/utils/officeFormats";
@@ -300,6 +302,65 @@
 				? Math.floor((file.value.length * 3) / 4)
 				: null
 	);
+	// The picture tile: a small version for a stored image, and the group's say on when it shows.
+	const imageGroup = getImageGroup();
+	const tileId = $props.id();
+	const inGroup = $derived(
+		imageGroup !== undefined &&
+			file.type === "hash" &&
+			!file.binary &&
+			isImage(file.mime) &&
+			!withheld
+	);
+	let tileImg = $state<HTMLImageElement>();
+	let thumbFailed = $state(false);
+	let tileBroken = $state(false);
+	const tileSrc = $derived(
+		file.type === "hash" && fileBaseUrl === undefined && !thumbFailed && !file.binary
+			? fileUrl + "?thumb=320"
+			: file.type === "base64"
+				? `data:${file.mime};base64,${file.value}`
+				: fileUrl
+	);
+	const tileShown = $derived(
+		!inGroup || (imageGroup?.revealed === true && imageGroup.state(tileId) === "loaded")
+	);
+	const tileSkeleton = $derived(
+		inGroup &&
+			!tileShown &&
+			imageGroup !== undefined &&
+			(imageGroup.shimmer || (imageGroup.revealed && imageGroup.state(tileId) === "pending"))
+	);
+	$effect(() => {
+		if (!inGroup || !imageGroup) return;
+		const group = imageGroup;
+		group.register(tileId);
+		return () => group.unregister(tileId);
+	});
+	// A picture that finished before the page hydrated fired its events unheard.
+	$effect(() => {
+		if (!inGroup || !tileImg) return;
+		void tileSrc;
+		if (tileImg.complete) {
+			if (tileImg.naturalWidth > 0) tileLoaded();
+			else tileError();
+		}
+	});
+	function tileLoaded(): void {
+		const img = tileImg;
+		const done = () => imageGroup?.settle(tileId, true);
+		if (img && typeof img.decode === "function") img.decode().then(done, done);
+		else done();
+	}
+	function tileError(): void {
+		// No thumbnail (an older server, a format it does not make): try the original once.
+		if (!thumbFailed && file.type === "hash" && fileBaseUrl === undefined) {
+			thumbFailed = true;
+			return;
+		}
+		tileBroken = true;
+		imageGroup?.settle(tileId, false);
+	}
 	function formatSize(bytes: number): string {
 		if (bytes < 1024) return `${bytes} B`;
 		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -471,14 +532,40 @@
 >
 	<div class="group relative flex items-center rounded-xl shadow-xs">
 		{#if isImage(file.mime) && !withheld}
-			<div class="h-36 overflow-hidden rounded-xl">
-				<img
-					src={file.type === "base64"
-						? `data:${file.mime};base64,${file.value}`
-						: outputBase + "/" + file.value}
-					alt={file.name}
-					class="h-36 bg-gray-200 object-cover dark:bg-gray-800"
-				/>
+			<!-- A fixed box, so the row never changes size while the pictures load. The tiles of one
+			     message appear together (`imageGroup.ts`) and the picture is a small one (`?thumb=`):
+			     the full image is what the lightbox and the download open. -->
+			<div
+				class="relative h-36 w-28 flex-none overflow-hidden rounded-xl"
+				data-testid="message-image-tile"
+				data-shown={tileShown}
+			>
+				{#if tileBroken}
+					<div
+						class="grid h-full w-full place-items-center bg-gray-200 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+						title={file.name}
+					>
+						<CarbonDocumentBlank class="text-3xl" />
+					</div>
+				{:else}
+					<img
+						bind:this={tileImg}
+						src={tileSrc}
+						alt={file.name}
+						class="h-36 w-28 object-cover transition-opacity duration-200 motion-reduce:transition-none"
+						class:opacity-0={!tileShown}
+						onload={tileLoaded}
+						onerror={tileError}
+					/>
+					{#if tileSkeleton}
+						<Skeleton
+							variant="block"
+							width="100%"
+							height="100%"
+							class="absolute inset-0 rounded-none"
+						/>
+					{/if}
+				{/if}
 			</div>
 		{:else if isAudio(file.mime) && !withheld}
 			<div
