@@ -7,6 +7,8 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- Code panel: a reply that was cut short by a brief connection drop now corrects itself on screen. After the drop, users could keep seeing a truncated answer until they reloaded; the final text now replaces it by itself. A removed step no longer reappears after a reconnect, and two overlapping recoveries can no longer undo each other.
+
 ## v0.60.3 — 2026-11-20
 
 Pins: Cerea `0.60.3` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.5`, opencode `2.3.0`.

@@ -281,6 +281,10 @@ export interface ThinkingState {
 	 * the message) ends first, so a part the machine never announced loses
 	 * nothing. */
 	held: Map<string, string>;
+	/** Part id → the text routed to the client so far (the part's own text,
+	 * without the gap separators between reasoning parts). `partDiverges`
+	 * compares a later `part` event against it. */
+	routed: Map<string, string>;
 	/** The part whose think block is open on the client, if any. */
 	openPart: string | null;
 	/** The last todo list this stream sent, per session (content, status,
@@ -292,7 +296,7 @@ export interface ThinkingState {
 }
 
 export function newThinkingState(): ThinkingState {
-	return { kinds: new Map(), held: new Map(), openPart: null, todos: new Map() };
+	return { kinds: new Map(), held: new Map(), routed: new Map(), openPart: null, todos: new Map() };
 }
 
 const streamToken = (token: string, partId?: string): AgentStreamUpdate => ({
@@ -310,6 +314,7 @@ function routeText(
 	text: string
 ): AgentStreamUpdate[] {
 	if (!text) return [];
+	state.routed.set(partId, (state.routed.get(partId) ?? "") + text);
 	if (kind === "reasoning") {
 		if (state.openPart === null) {
 			state.openPart = partId;
@@ -341,6 +346,25 @@ function releaseHeld(state: ThinkingState): AgentStreamUpdate[] {
  * thinking block that is still open. */
 const isSideChannel = (update: AgentStreamUpdate) =>
 	update.type === "usage" || update.type === "childActivity" || update.type === "compaction";
+
+/**
+ * Whether a live `part` event replaces text the client already holds rather
+ * than extending it. galopin turns a growing text part into deltas, so a
+ * `part` event for a part already routed only arrives when its text is not an
+ * extension (PROTOCOL.md §7: a non-prefix change under the same id) — the
+ * bridge cannot express that as a frame, so it re-syncs the client with a
+ * `reset` and the whole snapshot. A shorter prefix or an equal text is no
+ * change; text never routed (a part not seen yet) is no divergence.
+ */
+export function partDiverges(state: ThinkingState, event: NormalizedEvent): boolean {
+	if (event.kind !== "part" || event.part.role === "user") return false;
+	const part = event.part;
+	if (!((part.type === "text" && !part.synthetic) || part.type === "reasoning")) return false;
+	const routed = state.routed.get(part.id);
+	if (routed === undefined) return false;
+	const text = part.text ?? "";
+	return !text.startsWith(routed) && !routed.startsWith(text);
+}
 
 /** What the thinking state does with one live event's frames: a part event
  * learns the part's type (and releases what waited on it); a delta is routed
@@ -1015,7 +1039,20 @@ export function snapshotToUpdates(
 ): AgentStreamUpdate[] {
 	const updates: AgentStreamUpdate[] = [];
 	let lastAssistantError: string | undefined;
-	if (thinking) seedThinking(transcript, thinking);
+	if (thinking) {
+		seedThinking(transcript, thinking);
+		// What the snapshot below sends is every part's whole text, so that is
+		// what the client holds for it.
+		thinking.routed.clear();
+		for (const { parts } of transcript.messages ?? []) {
+			for (const part of parts ?? []) {
+				if (part.role === "user") continue;
+				if (part.type === "reasoning" || (part.type === "text" && !part.synthetic)) {
+					if (part.text) thinking.routed.set(part.id, part.text);
+				}
+			}
+		}
+	}
 	const openPart = thinking?.openPart ?? null;
 	// The task plan goes where it last changed: right after the message that
 	// holds the last `todowrite` call, never at the end of the transcript

@@ -740,3 +740,142 @@ func TestResyncTakesTheTranscriptsPartsThatNoLiveEventTouchedOnARunningMessage(t
 		t.Fatal("the completed tool part was not re-announced")
 	}
 }
+
+// After a gap, deltas keep arriving while the fetch is out: the live copy of the text part wins
+// over the transcript's older read, and opencode's final part.updated heals whatever the gap lost.
+func TestResyncTextStreamingDuringTheFetchKeepsLiveDeltasAndHealsOnTheFinalPart(t *testing.T) {
+	ctx := context.Background()
+	back := newFakeBackend()
+	mat := New(back, policy.Default())
+	mat.Track("/work", backend.Session{ID: "s1"})
+	live := func(ev backend.Event) {
+		mat.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/work", SessionID: "s1", Event: ev})
+	}
+	live(backend.Event{Kind: backend.EventMessage, Message: &backend.Message{ID: "a1", Role: "assistant"}})
+	live(textPart("a1", "t1", "Hel"))
+	back.transcripts["s1"] = backend.Transcript{
+		Status: backend.StatusBusy,
+		Messages: []backend.TranscriptEntry{{
+			Message: backend.Message{ID: "a1", Role: "assistant"},
+			Parts:   []backend.Part{{ID: "t1", MessageID: "a1", Role: "assistant", Type: backend.PartText, Text: "Hel"}},
+		}},
+	}
+	back.afterTranscriptRead = func() {
+		back.afterTranscriptRead = nil
+		live(backend.Event{Kind: backend.EventDelta, MessageID: "a1", PartID: "t1", Field: "text", Delta: "lo wor"})
+	}
+	mat.resync(ctx, "/work", "s1")
+	if got := partsOf(t, mat, "s1", "a1")["t1"].Text; got != "Hello wor" {
+		t.Fatalf("live deltas lost to the swap: %q", got)
+	}
+	live(textPart("a1", "t1", "Hello world"))
+	if got := partsOf(t, mat, "s1", "a1")["t1"].Text; got != "Hello world" {
+		t.Fatalf("final part did not heal the text: %q", got)
+	}
+}
+
+// A part removed live while the fetch is out must not come back from the transcript's older
+// copy, and a removed tool part must not be re-announced.
+func TestResyncDoesNotResurrectAPartRemovedDuringTheFetch(t *testing.T) {
+	ctx := context.Background()
+	back := newFakeBackend()
+	mat := New(back, policy.Default())
+	mat.Track("/work", backend.Session{ID: "s1"})
+	live := func(ev backend.Event) {
+		mat.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/work", SessionID: "s1", Event: ev})
+	}
+	live(backend.Event{Kind: backend.EventMessage, Message: &backend.Message{ID: "a1", Role: "assistant"}})
+	live(textPart("a1", "t1", "keep"))
+	live(backend.Event{Kind: backend.EventPart, Part: &backend.Part{ID: "p2", MessageID: "a1", Role: "assistant", Type: backend.PartTool, CallID: "c2", Tool: "shot", ToolStatus: backend.ToolCompleted}})
+	back.transcripts["s1"] = backend.Transcript{
+		Status: backend.StatusBusy,
+		Messages: []backend.TranscriptEntry{{
+			Message: backend.Message{ID: "a1", Role: "assistant"},
+			Parts: []backend.Part{
+				{ID: "t1", MessageID: "a1", Role: "assistant", Type: backend.PartText, Text: "keep"},
+				{ID: "p2", MessageID: "a1", Role: "assistant", Type: backend.PartTool, CallID: "c2", Tool: "shot", ToolStatus: backend.ToolCompleted},
+			},
+		}},
+	}
+	for drained := false; !drained; {
+		select {
+		case <-mat.Events():
+		default:
+			drained = true
+		}
+	}
+	back.afterTranscriptRead = func() {
+		back.afterTranscriptRead = nil
+		live(backend.Event{Kind: backend.EventPartRemoved, MessageID: "a1", PartID: "p2"})
+	}
+	mat.resync(ctx, "/work", "s1")
+	parts := partsOf(t, mat, "s1", "a1")
+	if _, back := parts["p2"]; back {
+		t.Fatalf("a part removed during the fetch came back: %+v", parts)
+	}
+	if parts["t1"].Text != "keep" {
+		t.Fatalf("other parts lost: %+v", parts)
+	}
+	for {
+		select {
+		case env := <-mat.Events():
+			if env.Event.Kind == backend.EventPart && env.Event.Part != nil && env.Event.Part.ID == "p2" {
+				t.Fatalf("the removed tool part was re-announced")
+			}
+			continue
+		default:
+		}
+		break
+	}
+}
+
+// Two resyncs can overlap (a reconnect and an oversized line). The one whose fetch began earlier
+// must not apply after the newer one, or it reverts what the newer one took.
+func TestOverlappingResyncsDoNotLetTheOlderFetchWin(t *testing.T) {
+	ctx := context.Background()
+	back := newFakeBackend()
+	mat := New(back, policy.Default())
+	mat.Track("/work", backend.Session{ID: "s1"})
+	live := func(ev backend.Event) {
+		mat.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/work", SessionID: "s1", Event: ev})
+	}
+	tr := func(text string) backend.Transcript {
+		return backend.Transcript{Status: backend.StatusBusy, Messages: []backend.TranscriptEntry{{
+			Message: backend.Message{ID: "a1", Role: "assistant"},
+			Parts:   []backend.Part{{ID: "t1", MessageID: "a1", Role: "assistant", Type: backend.PartText, Text: text}},
+		}}}
+	}
+	back.transcripts["s1"] = tr("old")
+	back.afterTranscriptRead = func() {
+		// resync A has read "old"; before it applies, a later event and a whole second resync run
+		back.afterTranscriptRead = nil
+		live(backend.Event{Kind: backend.EventMessage, Message: &backend.Message{ID: "z9", Role: "assistant"}})
+		back.transcripts["s1"] = tr("newer")
+		mat.resync(ctx, "/work", "s1")
+	}
+	mat.resync(ctx, "/work", "s1")
+	if got := partsOf(t, mat, "s1", "a1")["t1"].Text; got != "newer" {
+		t.Fatalf("the older resync reverted the newer one: %q", got)
+	}
+}
+
+// A resync in flight across a Reseed (a revert) holds the pre-revert transcript: it must not apply.
+func TestResyncStartedBeforeAReseedIsDiscarded(t *testing.T) {
+	ctx := context.Background()
+	back := newFakeBackend()
+	mat := New(back, policy.Default())
+	mat.Track("/work", backend.Session{ID: "s1"})
+	back.transcripts["s1"] = backend.Transcript{Status: backend.StatusIdle, Messages: []backend.TranscriptEntry{{
+		Message: backend.Message{ID: "a1", Role: "assistant"},
+		Parts:   []backend.Part{{ID: "t1", MessageID: "a1", Role: "assistant", Type: backend.PartText, Text: "reverted away"}},
+	}}}
+	back.afterTranscriptRead = func() {
+		back.afterTranscriptRead = nil
+		mat.Reseed("s1")
+		back.transcripts["s1"] = backend.Transcript{Status: backend.StatusIdle}
+	}
+	mat.resync(ctx, "/work", "s1")
+	if got := partsOf(t, mat, "s1", "a1"); len(got) != 0 {
+		t.Fatalf("the pre-revert transcript was applied: %+v", got)
+	}
+}

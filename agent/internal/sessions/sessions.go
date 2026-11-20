@@ -82,6 +82,17 @@ type sessionState struct {
 	// reads it to tell what a transcript fetched earlier cannot have known
 	// about, one part at a time (see resync).
 	touched map[string]int64
+	// removed is the seq of the live event that removed a part (a tombstone),
+	// so a resync whose fetch began before the removal does not bring the part
+	// back from the transcript's older copy.
+	removed map[string]int64
+	// lastResyncAt is the fetchedAt of the newest resync applied; a resync
+	// whose fetch began earlier (two overlapped) is discarded, or it would
+	// revert what the newer one took.
+	lastResyncAt int64
+	// generation is bumped by Reseed; a resync whose fetch began in an older
+	// one holds a pre-revert transcript and is discarded.
+	generation int
 
 	permissionOrder []string
 	permissions     map[string]*backend.PermissionRequest
@@ -105,6 +116,7 @@ func newSessionState(workspaceDir, sessionID string) *sessionState {
 		partOrder:    map[string][]string{},
 		parts:        map[string]map[string]*backend.Part{},
 		touched:      map[string]int64{},
+		removed:      map[string]int64{},
 		permissions:  map[string]*backend.PermissionRequest{},
 		questions:    map[string]*backend.QuestionRequest{},
 	}
@@ -648,6 +660,9 @@ func (m *Materializer) ApplyBackendEvent(ctx context.Context, be backend.Backend
 		if key := touchKey(ev); key != "" {
 			st.touched[key] = env.Seq
 		}
+		if ev.Kind == backend.EventPartRemoved {
+			st.removed[partKey(ev.MessageID, ev.PartID)] = env.Seq
+		}
 	}
 	children := m.drainChildrenLocked()
 	var childAsk *backend.PermissionRequest
@@ -687,8 +702,10 @@ func (m *Materializer) resync(ctx context.Context, workspaceDir, sessionID strin
 	// What the fetch below can know: everything up to this seq. A message a
 	// live event wrote to after it is newer than the transcript.
 	var fetchedAt int64
+	var generation int
 	if ok {
 		fetchedAt = st.seq
+		generation = st.generation
 	}
 	m.mu.Unlock()
 	if !ok {
@@ -699,13 +716,19 @@ func (m *Materializer) resync(ctx context.Context, workspaceDir, sessionID strin
 		return
 	}
 	m.mu.Lock()
+	if fetchedAt < st.lastResyncAt || generation != st.generation {
+		// a resync whose fetch began later has already applied a newer copy
+		m.mu.Unlock()
+		return
+	}
+	st.lastResyncAt = fetchedAt
 	reseedKeepingLiveLocked(st, tr, fetchedAt)
 	var envs []Envelope
 	for _, entry := range tr.Messages {
 		for _, p := range entry.Parts {
 			// A part a live event wrote after the fetch is newer than the transcript's copy, which
 			// was already announced live; every other tool part is announced from the transcript
-			if p.Type != backend.PartTool || st.touched[partKey(p.MessageID, p.ID)] > fetchedAt {
+			if p.Type != backend.PartTool || st.touched[partKey(p.MessageID, p.ID)] > fetchedAt || st.removed[partKey(p.MessageID, p.ID)] > 0 {
 				continue
 			}
 			part := p
@@ -955,6 +978,7 @@ func reseedKeepingLiveLocked(st *sessionState, tr backend.Transcript, fetchedAt 
 	oldParts := st.parts
 	oldPartOrder := st.partOrder
 	oldTouched := st.touched
+	oldRemoved := st.removed
 	st.seeded = false
 	st.ring = nil
 	st.messageOrder = nil
@@ -962,7 +986,24 @@ func reseedKeepingLiveLocked(st *sessionState, tr backend.Transcript, fetchedAt 
 	st.partOrder = map[string][]string{}
 	st.parts = map[string]map[string]*backend.Part{}
 	st.touched = map[string]int64{}
+	st.removed = map[string]int64{}
 	mergeSeedLocked(st, tr)
+	// A part removed live after the fetch began is gone, whatever the
+	// transcript still says (unless a later live write recreated it).
+	for key, rseq := range oldRemoved {
+		if rseq <= fetchedAt || rseq < oldTouched[key] {
+			continue
+		}
+		st.removed[key] = fetchedAt + 1
+	}
+	for id, parts := range st.parts {
+		for pid := range parts {
+			if st.removed[partKey(id, pid)] > 0 {
+				delete(parts, pid)
+				st.partOrder[id] = removeString(st.partOrder[id], pid)
+			}
+		}
+	}
 	for _, id := range oldOrder {
 		liveInfo := oldTouched[messageKey(id)] > fetchedAt
 		var liveParts []string
@@ -1285,6 +1326,7 @@ func (m *Materializer) Reseed(sessionID string) {
 	if !ok {
 		return
 	}
+	st.generation++
 	st.seeded = false
 	st.ring = nil
 	st.messageOrder = nil
@@ -1292,6 +1334,7 @@ func (m *Materializer) Reseed(sessionID string) {
 	st.partOrder = map[string][]string{}
 	st.parts = map[string]map[string]*backend.Part{}
 	st.touched = map[string]int64{}
+	st.removed = map[string]int64{}
 }
 
 // ChildSummary counts sessionID's subagents from the tree edges the
