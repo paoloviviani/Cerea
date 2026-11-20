@@ -706,10 +706,8 @@ test.describe("owned machine agent: parity", () => {
 		await expect(transcript.getByText("Answer two.", { exact: true })).toHaveCount(0);
 		await expect(page.getByText("second question")).toHaveCount(1);
 		await expect(transcript.getByText("Answer one.")).toBeVisible();
-		// Let the re-sent turn finish before the reload: the machine keeps its history once the turn is
-		// done, and a reload that lands mid-turn replays a half-written answer (CI showed the second
-		// question with an empty assistant bubble that never filled in)
-		await settle();
+		// No wait for the turn to settle: a page reload can land while it is still being written
+		// (the machine's resync must not drop what it wrote meanwhile)
 
 		// The same survives a reload: it is the machine's history now.
 		await page.reload();
@@ -718,6 +716,57 @@ test.describe("owned machine agent: parity", () => {
 		// The fork action is named Fork now.
 		await page.locator('[data-message-role="assistant"]').last().hover();
 		await expect(page.getByRole("button", { name: "Fork from here" }).last()).toBeVisible();
+	});
+
+	// A page reload while a turn runs replays the machine's history and tails the rest. This is the
+	// reconnect path (session.sync); galopin's resync after a dropped line or a gap is covered by
+	// the Go tests in agent/internal/sessions. The reply is ~12 s long and each spec reloads as soon as
+	// the first words show, with the turn still running (no "done" yet), so the reload cannot land late.
+	const SLOW_REPLY = Array.from({ length: 24 }, (_, i) => `w${i} `);
+	const SLOW_TEXT = SLOW_REPLY.join("").trim();
+
+	test("reload mid-turn: the running reply picks up where it was and completes", async ({
+		page,
+		db,
+		session,
+		mockOpenAI,
+	}) => {
+		await openSession(page, db, session.sessionId);
+		const transcript = page.locator('[data-message-role="assistant"]');
+		await mockOpenAI.setDefaultScenario({ content: SLOW_REPLY, chunkDelayMs: 500 });
+		await send(page, "tell me slowly");
+		await expect(transcript.getByText("w0")).toBeVisible({ timeout: 60_000 });
+		await expect(page.getByRole("img", { name: "done", exact: true })).toHaveCount(0);
+		await page.reload();
+		await expect(transcript.getByText(SLOW_TEXT)).toBeVisible({ timeout: 60_000 });
+		await expect(page.getByRole("img", { name: "done", exact: true })).toBeVisible({
+			timeout: 60_000,
+		});
+	});
+
+	test("reload mid-turn after a retry: the re-sent reply completes", async ({
+		page,
+		db,
+		session,
+		mockOpenAI,
+	}) => {
+		await openSession(page, db, session.sessionId);
+		const transcript = page.locator('[data-message-role="assistant"]');
+		const settle = () =>
+			expect(page.getByRole("img", { name: "done", exact: true })).toBeVisible({ timeout: 60_000 });
+		await mockOpenAI.setDefaultScenario({ content: ["Answer", " one."], chunkDelayMs: 5 });
+		await send(page, "first question");
+		await expect(transcript.getByText("Answer one.")).toBeVisible({ timeout: 60_000 });
+		await settle();
+		await mockOpenAI.setDefaultScenario({ content: SLOW_REPLY, chunkDelayMs: 500 });
+		await transcript.last().hover();
+		await page.getByRole("button", { name: "Retry" }).last().click();
+		await page.getByRole("dialog").getByRole("button", { name: "Roll back and send" }).click();
+		await expect(transcript.getByText("w0")).toBeVisible({ timeout: 60_000 });
+		await expect(page.getByRole("img", { name: "done", exact: true })).toHaveCount(0);
+		await page.reload();
+		await expect(transcript.getByText(SLOW_TEXT)).toBeVisible({ timeout: 60_000 });
+		await expect(transcript.getByText("Answer one.", { exact: true })).toHaveCount(0);
 	});
 
 	test("subagent approvals: a child's bash permission surfaces as a labelled card mid-turn, and approving lets the child finish", async ({
