@@ -1243,20 +1243,19 @@
 	     `· effort ⌄`), with "Model:" and the model's name as its content.
 	     The daemon's loading and failure states keep the quiet-text look
 	     too. Only the machine-policy footer differs from chat's. -->
-	{#if models === null && !modelsFailure}
-		<span class="text-xs whitespace-nowrap text-gray-400/90 opacity-60">
-			{m["code.composer.loading_models"]()}
-		</span>
-	{:else if modelsFailure}
+	{#if modelsFailure}
 		<span class="text-xs whitespace-nowrap text-gray-400/90 opacity-60" title={modelsFailure}>
 			{m["code.composer.models_failed"]()}
 		</span>
-	{:else if !models?.length}
+	{:else if models !== null && !models.length}
 		<span class="text-xs whitespace-nowrap text-gray-400/90 opacity-60">
 			{m["code.composer.no_models"]()}
 		</span>
 	{:else}
+		<!-- One pill for loading and loaded alike, so an open menu stays open when the lists
+		     arrive: placeholder rows first, then the models and effort levels together. -->
 		<ModelEffortPicker
+			loading={models === null}
 			bind:open={modelPickerOpen}
 			models={pickerModels}
 			currentId={currentModel?.id ?? agent?.modelId ?? ""}
@@ -1271,8 +1270,12 @@
 			onmore={() => (modelDialogOpen = true)}
 			disabled={applying === "model" || applying === "effort"}
 		>
-			<span class="shrink-0">{m["code.composer.model_prefix"]()}</span>
-			<span class="truncate" title={modelLabel}>{modelLabel}</span>
+			{#if models === null}
+				<span class="opacity-60">{m["code.composer.loading_models"]()}</span>
+			{:else}
+				<span class="shrink-0">{m["code.composer.model_prefix"]()}</span>
+				<span class="truncate" title={modelLabel}>{modelLabel}</span>
+			{/if}
 			{#snippet footer()}
 				{#if modelsHidden > 0}
 					<div class={menuNoteClass}>

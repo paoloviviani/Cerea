@@ -15,6 +15,7 @@
 	import { delayedLoading } from "$lib/utils/delayedLoading.svelte";
 	import SkeletonBusy from "$lib/components/skeleton/SkeletonBusy.svelte";
 	import SkeletonCard from "$lib/components/skeleton/SkeletonCard.svelte";
+	import SkeletonRows from "$lib/components/skeleton/SkeletonRows.svelte";
 	import { onMount, untrack } from "svelte";
 	import { base as appBase } from "$app/paths";
 	import { m } from "$lib/paraglide/messages";
@@ -76,6 +77,10 @@
 	let readerChoice = $state("");
 	let loading = $state(true);
 	const sk = delayedLoading(() => loading);
+	// The detail view's first load (a base opened from the list, or arrived on by address): its
+	// own region. Reopening the same base after an upload or a re-index keeps what is on screen.
+	let detailLoading = $state(untrack(() => Boolean(initialId)));
+	const detailSk = delayedLoading(() => detailLoading);
 	let failure = $state<string | null>(null);
 
 	const indexed = $derived(stores.reduce((total, store) => total + store.file_counts.completed, 0));
@@ -104,11 +109,11 @@
 	// server, where a relative fetch has no origin to resolve against.
 	// `initialId` is the address somebody arrived on, not a prop that changes
 	// under the dialog.
-	onMount(() =>
-		load().then(() => {
-			if (initialId) void openDetail(initialId);
-		})
-	);
+	onMount(() => {
+		// A base arrived on by address loads beside the list, not after it.
+		if (initialId) void openDetail(initialId);
+		return load();
+	});
 
 	function tone(store: VectorStore): { tone: s.PillTone; label: string } {
 		if (store.file_counts.failed > 0)
@@ -345,6 +350,7 @@
 		notice = null;
 		preview = null;
 		view = "detail";
+		if (current?.id !== id) detailLoading = true;
 		try {
 			const [base, docs] = await Promise.all([
 				gwGet<VectorStore>(`vector_stores/${id}`),
@@ -361,6 +367,8 @@
 			}
 		} catch (err) {
 			failure = err instanceof GatewayError ? err.message : m["knowledge.manager.open_failed"]();
+		} finally {
+			detailLoading = false;
 		}
 	}
 
@@ -926,6 +934,15 @@
 					</button>
 				</div>
 			</form>
+		{:else if detailSk.visible}
+			<SkeletonBusy region="knowledge-detail" label={m["knowledge.manager.loading"]()}>
+				<div class={s.STACK}>
+					<SkeletonCard count={1} />
+					<SkeletonRows count={3} rowHeight="3.5rem" />
+				</div>
+			</SkeletonBusy>
+		{:else if !current && detailLoading}
+			<!-- inside the delay: nothing yet -->
 		{:else if current}
 			<div class={s.STACK}>
 				<div class="{s.STRIP} {current.file_counts.completed > 0 ? s.STRIP_ACTIVE : s.STRIP_IDLE}">

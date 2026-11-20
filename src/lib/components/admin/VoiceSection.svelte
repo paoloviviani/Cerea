@@ -59,7 +59,11 @@
 
 	async function load() {
 		try {
-			const response = await fetch(`${base}/api/v2/admin/dictation`);
+			// Both requests at once, and the pane waits for both: the model field never pops in later.
+			const [response, modelResponse] = await Promise.all([
+				fetch(`${base}/api/v2/admin/dictation`),
+				fetch(`${base}/api/v2/admin/transcription`).catch(() => null),
+			]);
 			if (!response.ok) {
 				const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
 				throw new Error(
@@ -70,19 +74,13 @@
 			mode = data.mode;
 			saved = data.mode;
 			legacy = Boolean(data.legacyTranscription);
-			await loadModel();
+			if (modelResponse?.ok) applyModel(await modelResponse.json());
 			configurable = data.configurable;
 		} catch (err) {
 			failure = err instanceof Error ? err.message : m["admin.common.read_failed"]();
 		} finally {
 			loading = false;
 		}
-	}
-
-	async function loadModel() {
-		const response = await fetch(`${base}/api/v2/admin/transcription`);
-		if (!response.ok) return;
-		applyModel(await response.json());
 	}
 
 	function applyModel(data: {

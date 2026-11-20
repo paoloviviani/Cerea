@@ -10,6 +10,10 @@
 	import { m } from "$lib/paraglide/messages";
 	import DocumentReaderPicker from "$lib/components/knowledge/DocumentReaderPicker.svelte";
 
+	/** Called once the first request has answered (or failed), so the pane around this row can
+	 * reveal in one step instead of the row popping in. */
+	let { onsettled }: { onsettled?: () => void } = $props();
+
 	let models = $state<string[]>([]);
 	let defaultReader = $state<string | null>(null);
 	let value = $state("");
@@ -35,6 +39,8 @@
 			loaded = true;
 		} catch {
 			// Nothing to offer without the list; the row stays out.
+		} finally {
+			onsettled?.();
 		}
 	});
 
