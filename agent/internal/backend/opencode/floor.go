@@ -338,18 +338,18 @@ func rulesFromV1Object(p map[string]any) []rule {
 	return out
 }
 
-// checkFloor reads every agent opencode reports and looks for a call that
-// would run without asking galopin. A custom agent's own allows are closed with
-// a per-agent patch and one more start; a built-in agent that still allows
-// something (a release that changed one) is only reported, because the floor
-// table is what the live test compares against the binary.
-func (b *Backend) checkFloor(ctx context.Context) {
-	// The agents list is partial while the location loads: read until the floor's own
-	// marker (Code Mode denied, written only by floorContent) shows on the build agent.
+// agentEntriesWithFloor is agentEntries, repeated until the floor's own marker
+// shows on the build agent of that location. A location that has just opened
+// (or reopened after a restart) answers with the agents loaded so far, and that
+// partial answer, the built-ins before the galopin-owned config layer arrives,
+// can hold still for longer than agentEntries' two-equal-answers test waits, so
+// only the marker proves the answer is complete. The wait is bounded: a project
+// that never shows it (the floor is not in force there) is judged as read.
+func (b *Backend) agentEntriesWithFloor(ctx context.Context, dir string) ([]map[string]any, error) {
 	var entries []map[string]any
 	var err error
 	for attempt := 0; attempt < 40; attempt++ {
-		entries, err = b.agentEntries(ctx, "")
+		entries, err = b.agentEntries(ctx, dir)
 		if err != nil || hasFloorMarker(entries) {
 			break
 		}
@@ -360,6 +360,18 @@ func (b *Backend) checkFloor(ctx context.Context) {
 		case <-time.After(250 * time.Millisecond):
 		}
 	}
+	return entries, err
+}
+
+// checkFloor reads every agent opencode reports and looks for a call that
+// would run without asking galopin. A custom agent's own allows are closed with
+// a per-agent patch and one more start; a built-in agent that still allows
+// something (a release that changed one) is only reported, because the floor
+// table is what the live test compares against the binary.
+func (b *Backend) checkFloor(ctx context.Context) {
+	// The agents list is partial while the location loads: read until the floor's own
+	// marker (Code Mode denied, written only by floorContent) shows on the build agent.
+	entries, err := b.agentEntriesWithFloor(ctx, "")
 	if err != nil {
 		b.cfg.Logf("opencode: could not read the agents to check the permission floor: %v", err)
 		return
@@ -372,7 +384,7 @@ func (b *Backend) checkFloor(ctx context.Context) {
 	// machine allows project config): the floor is checked in each, not only in the server's.
 	_, _ = b.ListSessions(ctx, "")
 	for _, dir := range b.asm.seenDirs() {
-		more, derr := b.agentEntries(ctx, dir)
+		more, derr := b.agentEntriesWithFloor(ctx, dir)
 		if derr != nil {
 			b.cfg.Logf("opencode: could not read the agents of %s to check the permission floor: %v", dir, derr)
 			continue
