@@ -7,6 +7,8 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- Photos attached to a message now load together. A conversation with several large pictures used to show them one after another, each downloading the full-size original; now every picture shows as a small, light version in a tile of fixed size with a soft shimmer, and they appear at the same time. The full picture still opens when users click it.
+
 ## v0.60.2 — 2026-11-20
 
 Pins: Cerea `0.60.2` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.5`, opencode `2.3.0`.

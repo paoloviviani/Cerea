@@ -58,6 +58,23 @@ export async function downloadFile(
 	return { type: "base64", name: file.filename, value: buffer.toString("base64"), mime };
 }
 
+/**
+ * The same lookup and access checks as `downloadFile` (a withheld file, another owner's file and a
+ * missing one refuse alike), without reading a byte: what a thumbnail needs to answer a conditional
+ * request, and `read` to fetch the bytes once it must make one.
+ */
+export async function statFile(
+	sha256: string,
+	convId: Conversation["_id"] | string
+): Promise<{ mime: string | undefined; length: number; read: () => Promise<Buffer> }> {
+	const file = await lookup(sha256, convId);
+	return {
+		mime: file.metadata.mime as string | undefined,
+		length: file.length,
+		read: () => collections.blobStore.read("files", file.id),
+	};
+}
+
 /** One stored file as a stream, for responses: nothing is collected in memory. */
 export interface StoredFileStream {
 	stream: Readable;
