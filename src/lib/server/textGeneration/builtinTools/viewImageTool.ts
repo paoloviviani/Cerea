@@ -1,14 +1,20 @@
 import sharp from "sharp";
 import { MOUNT_ROOT, OUTPUT_ROOT } from "$lib/utils/execution/protocol";
 import { logger } from "$lib/server/logger";
-import { orientedSize } from "$lib/server/endpoints/images";
+import {
+	ImageTooLargeError,
+	SHARP_INPUT,
+	orientedSize,
+	readImageMetadata,
+} from "$lib/server/endpoints/images";
 import { branchOfCall, findConversationFile } from "./conversationFiles";
 import {
 	IMAGES_UNAVAILABLE_ERROR,
 	MAX_IMAGES_PER_TURN,
 	type PictureState,
 } from "../mcp/pictureMessages";
-import type { BuiltinTool } from "./types";
+import type { ObjectId } from "mongodb";
+import type { BuiltinTool, BuiltinToolContext, BuiltinToolResult } from "./types";
 
 export const VIEW_IMAGE_TOOL_NAME = "view_image";
 
@@ -102,6 +108,103 @@ function parseReference(
 	return { name, source };
 }
 
+/** One `view_image` call, once the turn's caps have let it through. */
+async function showImage(
+	args: Record<string, unknown>,
+	ctx: BuiltinToolContext,
+	conversationId: ObjectId
+): Promise<BuiltinToolResult> {
+	if (typeof args.file !== "string" || !args.file.trim()) {
+		return {
+			error: `Give \`file\`: the path of an image, e.g. ${MOUNT_ROOT}/photo.jpg or ${OUTPUT_ROOT}/chart.png.`,
+		};
+	}
+	const reference = parseReference(args.file);
+	if ("error" in reference) return { error: reference.error };
+	const rotate = parseRotate(args.rotate);
+	if (!rotate.ok) return { error: rotate.error };
+
+	const file = await findConversationFile(conversationId, reference.name, {
+		source: reference.source,
+		branch: await branchOfCall(ctx),
+	});
+	if (!file.ok) return { error: file.error };
+	if (file.bytes.byteLength > MAX_IMAGE_BYTES) {
+		return {
+			error: `"${file.name}" is larger than the ${MAX_IMAGE_BYTES / (1024 * 1024)} MB view_image opens.`,
+		};
+	}
+
+	let metadata: sharp.Metadata;
+	try {
+		metadata = await readImageMetadata(file.bytes, file.name);
+	} catch (err) {
+		if (err instanceof ImageTooLargeError) return { error: err.message };
+		return {
+			error:
+				`"${file.name}" is not an image view_image can open` +
+				(/\.(pdf|docx?|xlsx?|pptx?)$/i.test(file.name)
+					? ": for pages of a Word, Excel, PowerPoint or PDF file use look_doc."
+					: "."),
+		};
+	}
+	let size: { width: number; height: number };
+	try {
+		size = orientedSize(metadata);
+	} catch {
+		return { error: `"${file.name}" has no readable size.` };
+	}
+	const crop = parseCrop(args, size);
+	if (!crop.ok) return { error: crop.error };
+
+	try {
+		let bytes = file.bytes;
+		let mime = file.mime?.startsWith("image/") ? file.mime : `image/${metadata.format ?? "png"}`;
+		let shown = size;
+		if (crop.box || rotate.degrees) {
+			// Orientation first (rotate() with no angle), then the crop in upright coordinates, then
+			// the turn; lossless, so a model reading digits sees the source's pixels.
+			let inst = sharp(file.bytes, SHARP_INPUT).rotate();
+			if (crop.box)
+				inst = inst.extract({
+					left: crop.box.x,
+					top: crop.box.y,
+					width: crop.box.width,
+					height: crop.box.height,
+				});
+			const upright = await inst.png().toBuffer();
+			bytes = rotate.degrees
+				? await sharp(upright, SHARP_INPUT).rotate(rotate.degrees).png().toBuffer()
+				: upright;
+			mime = "image/png";
+			const out = await sharp(bytes, SHARP_INPUT).metadata();
+			shown = { width: out.width ?? size.width, height: out.height ?? size.height };
+		}
+		const area = crop.box
+			? `region x ${crop.box.x}, y ${crop.box.y}, ${crop.box.width} x ${crop.box.height} px`
+			: "the whole picture";
+		return {
+			resultText:
+				`${file.name} is ${size.width} x ${size.height} px (upright). ` +
+				`Showing ${area}${rotate.degrees ? `, turned ${rotate.degrees} degrees clockwise` : ""}` +
+				` (${shown.width} x ${shown.height} px before it is fitted to your image limits), next to this result. ` +
+				// The picture rides in this turn's requests only: a later turn replays this text, not it.
+				"Shown to you as an image in this turn only; call view_image again to see it later.",
+			imagesOf: `${file.name}, ${area}`,
+			images: [
+				{
+					mime,
+					base64: bytes.toString("base64"),
+					label: `${file.name}, ${area}`,
+				},
+			],
+		};
+	} catch (err) {
+		logger.warn({ err }, "view_image_failed");
+		return { error: `"${file.name}" could not be read as an image.` };
+	}
+}
+
 /**
  * `view_image`: shows the model an image file of the conversation (an attachment, or a file a run or a tool
  * made), optionally one region of it, enlarged, or turned. An image saved by code reaches the user, never
@@ -115,7 +218,9 @@ function parseReference(
  */
 export function createViewImageBuiltin(pictureState?: PictureState): BuiltinTool[] {
 	let calls = 0;
-	let imagesShown = 0;
+	// One count of images shown this turn with look_doc, through the turn's PictureState.
+	const shown: PictureState = pictureState ?? { unavailable: false };
+	shown.shown ??= 0;
 	return [
 		{
 			name: VIEW_IMAGE_TOOL_NAME,
@@ -177,101 +282,20 @@ export function createViewImageBuiltin(pictureState?: PictureState): BuiltinTool
 					};
 				}
 				calls += 1;
-				if (imagesShown >= MAX_IMAGES_PER_TURN) {
+				if ((shown.shown ?? 0) >= MAX_IMAGES_PER_TURN) {
 					return {
-						error: `view_image has already shown you ${imagesShown} images this turn, and the limit is ${MAX_IMAGES_PER_TURN}. Say what you saw and let the user ask for more.`,
+						error: `${VIEW_IMAGE_TOOL_NAME} has already shown you ${shown.shown} images this turn, and the limit is ${MAX_IMAGES_PER_TURN}. Say what you saw and let the user ask for more.`,
 					};
 				}
-				if (typeof args.file !== "string" || !args.file.trim()) {
-					return {
-						error: `Give \`file\`: the path of an image, e.g. ${MOUNT_ROOT}/photo.jpg or ${OUTPUT_ROOT}/chart.png.`,
-					};
-				}
-				const reference = parseReference(args.file);
-				if ("error" in reference) return { error: reference.error };
-				const rotate = parseRotate(args.rotate);
-				if (!rotate.ok) return { error: rotate.error };
-
-				const file = await findConversationFile(ctx.conversationId, reference.name, {
-					source: reference.source,
-					branch: await branchOfCall(ctx),
-				});
-				if (!file.ok) return { error: file.error };
-				if (file.bytes.byteLength > MAX_IMAGE_BYTES) {
-					return {
-						error: `"${file.name}" is larger than the ${MAX_IMAGE_BYTES / (1024 * 1024)} MB view_image opens.`,
-					};
-				}
-
-				let metadata: sharp.Metadata;
+				// Reserved now, before the first await: parallel calls of one round cannot all pass the check.
+				shown.shown = (shown.shown ?? 0) + 1;
+				let kept = false;
 				try {
-					metadata = await sharp(file.bytes).metadata();
-				} catch {
-					return {
-						error:
-							`"${file.name}" is not an image view_image can open` +
-							(/\.(pdf|docx?|xlsx?|pptx?)$/i.test(file.name)
-								? ": for pages of a Word, Excel, PowerPoint or PDF file use look_doc."
-								: "."),
-					};
-				}
-				let size: { width: number; height: number };
-				try {
-					size = orientedSize(metadata);
-				} catch {
-					return { error: `"${file.name}" has no readable size.` };
-				}
-				const crop = parseCrop(args, size);
-				if (!crop.ok) return { error: crop.error };
-
-				try {
-					let bytes = file.bytes;
-					let mime = file.mime?.startsWith("image/")
-						? file.mime
-						: `image/${metadata.format ?? "png"}`;
-					let shown = size;
-					if (crop.box || rotate.degrees) {
-						// Orientation first (rotate() with no angle), then the crop in upright coordinates, then
-						// the turn; lossless, so a model reading digits sees the source's pixels.
-						let inst = sharp(file.bytes).rotate();
-						if (crop.box)
-							inst = inst.extract({
-								left: crop.box.x,
-								top: crop.box.y,
-								width: crop.box.width,
-								height: crop.box.height,
-							});
-						const upright = await inst.png().toBuffer();
-						bytes = rotate.degrees
-							? await sharp(upright).rotate(rotate.degrees).png().toBuffer()
-							: upright;
-						mime = "image/png";
-						const out = await sharp(bytes).metadata();
-						shown = { width: out.width ?? size.width, height: out.height ?? size.height };
-					}
-					imagesShown += 1;
-					const area = crop.box
-						? `region x ${crop.box.x}, y ${crop.box.y}, ${crop.box.width} x ${crop.box.height} px`
-						: "the whole picture";
-					return {
-						resultText:
-							`${file.name} is ${size.width} x ${size.height} px (upright). ` +
-							`Showing ${area}${rotate.degrees ? `, turned ${rotate.degrees} degrees clockwise` : ""}` +
-							` (${shown.width} x ${shown.height} px before it is fitted to your image limits), next to this result. ` +
-							// The picture rides in this turn's requests only: a later turn replays this text, not it.
-							"Shown to you as an image in this turn only; call view_image again to see it later.",
-						imagesOf: `${file.name}, ${area}`,
-						images: [
-							{
-								mime,
-								base64: bytes.toString("base64"),
-								label: `${file.name}, ${area}`,
-							},
-						],
-					};
-				} catch (err) {
-					logger.warn({ err }, "view_image_failed");
-					return { error: `"${file.name}" could not be read as an image.` };
+					const result = await showImage(args, ctx, ctx.conversationId);
+					kept = !("error" in result);
+					return result;
+				} finally {
+					if (!kept) shown.shown = Math.max(0, (shown.shown ?? 1) - 1);
 				}
 			},
 		},

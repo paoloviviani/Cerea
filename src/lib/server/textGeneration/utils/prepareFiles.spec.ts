@@ -5,7 +5,10 @@ import { prepareMessagesWithFiles } from "./prepareFiles";
 import type { EndpointMessage } from "$lib/server/endpoints/endpoints";
 import {
 	DEFAULT_IMAGE_PROCESSOR_OPTIONS,
+	fitBatchToBudget,
+	historyImageOptions,
 	makeImageProcessor as realImageProcessor,
+	remainingImageBudget,
 	type makeImageProcessor,
 } from "$lib/server/endpoints/images";
 import {
@@ -1177,17 +1180,54 @@ describe("prepareMessagesWithFiles images", () => {
 			.map((part) => Buffer.from((part.image_url?.url ?? "").split(",")[1], "base64"));
 	};
 
-	it("holds all of a request's images to the total budget, shrinking each", async () => {
+	const history = () => realImageProcessor(historyImageOptions(DEFAULT_IMAGE_PROCESSOR_OPTIONS));
+
+	it("holds all of a request's images to the total budget, shrinking the oldest first", async () => {
 		const processor = realImageProcessor(DEFAULT_IMAGE_PROCESSOR_OPTIONS);
 		const messages = userWith(...(await Promise.all([1500, 1500, 1500].map((n) => noisy(n)))));
 		const free = bytesOf(await prepareMessagesWithFiles(messages, processor, true));
 		const natural = free.reduce((n, b) => n + b.byteLength, 0);
-		const budget = Math.floor(natural / 2);
+		const budget = natural - 1;
 		const held = bytesOf(
-			await prepareMessagesWithFiles(messages, processor, true, { imageBudgetBytes: budget })
+			await prepareMessagesWithFiles(messages, processor, true, {
+				imageBudget: { bytes: budget, historyProcessor: history() },
+			})
 		);
 		expect(held.reduce((n, b) => n + b.byteLength, 0)).toBeLessThanOrEqual(budget);
-		for (const [i, b] of held.entries()) expect(b.byteLength).toBeLessThan(free[i].byteLength);
+		expect(held[0].byteLength).toBeLessThan(free[0].byteLength); // the oldest shrank
+		expect(held[2].equals(free[2])).toBe(true); // the newest did not change
+	});
+
+	it("keeps attachments plus a round of tool pictures under one total: 7 photos, then 7 views", async () => {
+		const processor = realImageProcessor(DEFAULT_IMAGE_PROCESSOR_OPTIONS);
+		const files = await Promise.all(Array.from({ length: 7 }, () => noisy(1500)));
+		const natural = (
+			await Promise.all(
+				files.map((value) => processor({ type: "base64", name: "p", value, mime: "image/jpeg" }))
+			)
+		).reduce((n, r) => n + r.image.byteLength, 0);
+		const total = Math.floor(natural * 1.5); // room for the attachments and about half again
+		const stats = { bytes: 0 };
+		await prepareMessagesWithFiles(userWith(...files), processor, true, {
+			imageBudget: { bytes: total, historyProcessor: history(), stats },
+		});
+		expect(stats.bytes).toBeLessThanOrEqual(total);
+		// The round's pictures (seven views of the same photos) get what is left: together, one total.
+		const pictures = await fitBatchToBudget(
+			files.map((value, i) => ({
+				type: "base64" as const,
+				name: `v${i}`,
+				value,
+				mime: "image/jpeg",
+			})),
+			processor,
+			{ bytes: remainingImageBudget(total, stats.bytes), historyProcessor: history() }
+		);
+		const used = stats.bytes + pictures.reduce((n, r) => n + r.image.byteLength, 0);
+		expect(used).toBeLessThanOrEqual(total + 2_000_000); // the floor the pictures are never given less than
+		expect(pictures.reduce((n, r) => n + r.image.byteLength, 0)).toBeLessThanOrEqual(
+			remainingImageBudget(total, stats.bytes)
+		);
 	});
 
 	it("sends an EXIF-sideways attachment upright", async () => {

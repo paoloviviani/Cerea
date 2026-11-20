@@ -168,7 +168,9 @@ export function createLookDocBuiltins(
 	);
 	const office = isGotenbergEnabled();
 	let calls = 0;
-	let imagesShown = 0;
+	// Shared with view_image through the turn's PictureState, so the turn has one cap on images shown.
+	const shownState: PictureState = pictureState ?? { unavailable: false };
+	shownState.shown ??= 0;
 
 	return [
 		{
@@ -239,7 +241,9 @@ export function createLookDocBuiltins(
 					return { error: "There is no conversation to take the file from." };
 				if (calls >= MAX_LOOK_CALLS_PER_TURN) return { error: TURN_LIMIT_MESSAGE };
 				calls += 1;
-				if (imagesShown >= MAX_IMAGES_PER_TURN) return { error: IMAGE_LIMIT_MESSAGE(imagesShown) };
+				if ((shownState.shown ?? 0) >= MAX_IMAGES_PER_TURN) {
+					return { error: IMAGE_LIMIT_MESSAGE(shownState.shown ?? 0) };
+				}
 				if (typeof args.file !== "string" || !args.file.trim()) {
 					return { error: "Give `file`: the name of a file in this conversation, e.g. deck.pptx." };
 				}
@@ -347,14 +351,14 @@ export function createLookDocBuiltins(
 						}
 						rendered = await renderPdf(pdf, { ...size, ...extra }, { signal: ctx.abortSignal });
 					}
-					if (imagesShown + rendered.pages.length > MAX_IMAGES_PER_TURN) {
+					if ((shownState.shown ?? 0) + rendered.pages.length > MAX_IMAGES_PER_TURN) {
 						return {
 							error:
-								`${IMAGE_LIMIT_MESSAGE(imagesShown)} This call would add ${rendered.pages.length} more; ` +
+								`${IMAGE_LIMIT_MESSAGE(shownState.shown ?? 0)} This call would add ${rendered.pages.length} more; ` +
 								"ask for fewer pages.",
 						};
 					}
-					imagesShown += rendered.pages.length;
+					shownState.shown = (shownState.shown ?? 0) + rendered.pages.length;
 					const shown = rendered.pages.map((p) => p.page);
 					const more = rendered.page_count - shown.length;
 					const formats = [...new Set(rendered.pages.map((p) => p.format.toUpperCase()))].join(

@@ -20,6 +20,7 @@ import type OpenAI from "openai";
 import {
 	DEFAULT_IMAGE_PROCESSOR_OPTIONS,
 	createImageProcessorOptionsValidator,
+	historyImageOptions,
 	imageProcessorOptionsFor,
 	makeImageProcessor,
 } from "../images";
@@ -123,7 +124,10 @@ export async function endpointOai(
 		imageLimits: model.imageLimits,
 	});
 	const imageProcessor = makeImageProcessor(imageOptions);
-	const imageBudgetBytes = imageOptions.totalBudgetMB * 1000 * 1000;
+	const imageBudget = {
+		bytes: imageOptions.totalBudgetMB * 1000 * 1000,
+		historyProcessor: makeImageProcessor(historyImageOptions(imageOptions)),
+	};
 
 	if (completion === "completions") {
 		return async ({
@@ -205,7 +209,7 @@ export async function endpointOai(
 			// reasoning_content to history this same model actually produced.
 			let messagesOpenAI: OpenAI.Chat.Completions.ChatCompletionMessageParam[] =
 				await prepareMessagesWithFiles(messages, imageProcessor, isMultimodal ?? model.multimodal, {
-					imageBudgetBytes,
+					imageBudget,
 					attachReasoning: reasoningOverride ?? model.preservesReasoning !== false,
 					currentProducerModel: model.id ?? model.name,
 					contextLengthTokens: model.contextLength,

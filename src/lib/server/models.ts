@@ -3,6 +3,7 @@ import { config } from "$lib/server/config";
 import type { ChatTemplateInput } from "$lib/types/Template";
 import { z } from "zod";
 import endpoints, { endpointSchema, type Endpoint } from "./endpoints/endpoints";
+import { imageLimitsSchema } from "./endpoints/images";
 
 import JSON5 from "json5";
 import { logger } from "$lib/server/logger";
@@ -68,17 +69,11 @@ const modelConfig = z.object({
 	multimodalAcceptedMimetypes: z.array(z.string()).optional(),
 	/**
 	 * How images are fitted before they reach this model (attachments and pictures a tool returns). Any
-	 * field left out keeps the default: 2048 px on each side, 3.75 MB per image, 32 MB per request.
+	 * field left out keeps the default: 2048 px on each side, 3.75 MB per image, 45 MB per request.
+	 * Bounds: 256-8192 px, 0.25-20 MB per image, at most 45 MB per request.
 	 * Set it in a MODELS override, e.g. `"imageLimits": {"maxWidth": 1568, "maxHeight": 1568}`.
 	 */
-	imageLimits: z
-		.object({
-			maxWidth: z.number().int().positive().optional(),
-			maxHeight: z.number().int().positive().optional(),
-			maxSizeInMB: z.number().positive().optional(),
-			totalBudgetMB: z.number().positive().optional(),
-		})
-		.optional(),
+	imageLimits: imageLimitsSchema.optional(),
 	/**
 	 * A MODELS override only: `false` switches pictures in tool turns (`look_doc`) off for this model, `true`
 	 * switches them on where the gateway's listing would have them off. The outcome is `toolImagesOff`.

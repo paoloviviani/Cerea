@@ -424,14 +424,21 @@ Every image sent to a model (attachments, and pictures a tool returns) is turned
 upright by its EXIF orientation and fitted to the model's limits: the longest
 side at most **2048 px**, each image at most **3.75 MB** (about 5 MB once encoded,
 the smallest per-image limit among the providers), never enlarged. A picture
-that is too big loses JPEG quality first and size only after that. All the images
-of one request together stay under **32 MB**; past that every image is shrunk by
-the same proportion, so a long conversation of photos stays under the gateway's
-64 MiB `/v1` body limit. To change them for one model, set `imageLimits` on its
-`MODELS` entry; any field left out keeps its default:
+that is too big loses JPEG quality first and size only after that. A source image of more
+than 100 megapixels is refused rather than decoded. All the images of one request
+together (attachments, and the pictures of a round of tool calls) stay under
+**45 MB** of files, about 60 MB once encoded, under the gateway's 64 MiB `/v1`
+body limit: when they would not, the **oldest** images are re-encoded once at a
+fixed smaller size (1024 px, 1 MB) and the newest keep full detail, so an image's
+bytes never depend on how many others the conversation has and the provider's
+prompt cache is not broken by a new photo. If a request is still refused as too
+large (400, 413 or 422), the chat retries it once without the pictures. To change
+the limits for one model, set `imageLimits` on its `MODELS` entry; any field left
+out keeps its default, and a value outside the bounds (256-8192 px, 0.25-20 MB per
+image, at most 45 MB per request) makes the `MODELS` setting invalid:
 
 ```
-MODELS='[{"id": "my-model", "imageLimits": {"maxWidth": 1568, "maxHeight": 1568, "maxSizeInMB": 3.75, "totalBudgetMB": 32}}]'
+MODELS='[{"id": "my-model", "imageLimits": {"maxWidth": 1568, "maxHeight": 1568, "maxSizeInMB": 3.75, "totalBudgetMB": 45}}]'
 ```
 
 (`maxSizeInMB` is decimal megabytes of the file itself; an endpoint's own

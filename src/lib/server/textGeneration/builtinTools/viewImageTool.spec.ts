@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ObjectId } from "mongodb";
 import sharp from "sharp";
+import { crc32 } from "node:zlib";
 
 const files = vi.hoisted(() => ({ find: vi.fn() }));
 vi.mock("./conversationFiles", async (importOriginal) => ({
@@ -174,6 +175,58 @@ describe("view_image", () => {
 		expect(await t.execute({ file: "photo.jpg" }, ctx())).toMatchObject({
 			error: expect.stringContaining("not available"),
 		});
+	});
+});
+
+/** A PNG that is only a header claiming side x side pixels. */
+function pngHeader(side: number): Buffer {
+	const chunk = (type: string, data: Buffer) => {
+		const body = Buffer.concat([Buffer.from(type), data]);
+		const out = Buffer.alloc(12 + data.length);
+		out.writeUInt32BE(data.length, 0);
+		body.copy(out, 4);
+		out.writeUInt32BE(crc32(body), 8 + data.length);
+		return out;
+	};
+	const ihdr = Buffer.alloc(13);
+	ihdr.writeUInt32BE(side, 0);
+	ihdr.writeUInt32BE(side, 4);
+	ihdr.set([8, 2, 0, 0, 0], 8);
+	return Buffer.concat([
+		Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+		chunk("IHDR", ihdr),
+		chunk("IDAT", Buffer.from([0x78, 0x9c, 3, 0, 0, 0, 0, 1])),
+		chunk("IEND", Buffer.alloc(0)),
+	]);
+}
+
+describe("view_image caps", () => {
+	it("holds the per-turn image cap against parallel calls of one round", async () => {
+		files.find.mockResolvedValue(found(await image(100, 100)));
+		const state = { unavailable: false, shown: 16 };
+		const [t] = createViewImageBuiltin(state);
+		const results = await Promise.all(
+			Array.from({ length: 6 }, () => t.execute({ file: "photo.jpg" }, ctx()))
+		);
+		// 16 already shown, cap 18: exactly two of six parallel calls get a picture.
+		expect(results.filter((r) => "images" in r)).toHaveLength(2);
+		expect(results.filter((r) => "error" in r)).toHaveLength(4);
+		expect(state.shown).toBe(18);
+	});
+
+	it("gives a refused call's slot back", async () => {
+		files.find.mockResolvedValue({ ok: false, error: "No file named x" });
+		const state = { unavailable: false, shown: 0 };
+		const [t] = createViewImageBuiltin(state);
+		await t.execute({ file: "x.jpg" }, ctx());
+		expect(state.shown).toBe(0);
+	});
+
+	it("refuses a decompression bomb with a clear error", async () => {
+		const header = pngHeader(40_000);
+		files.find.mockResolvedValue(found(header, "bomb.png"));
+		const result = await run({ file: "bomb.png" });
+		expect(result).toMatchObject({ error: expect.stringContaining("too large to read") });
 	});
 });
 

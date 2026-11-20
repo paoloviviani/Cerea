@@ -252,6 +252,27 @@ describe("look_doc through the preview cache", () => {
 		expect(out).not.toMatchObject({ resultText: expect.stringContaining("LibreOffice") });
 	});
 
+	it("shares one images-per-turn count with view_image through the turn's picture state", async () => {
+		files.find.mockResolvedValue({
+			ok: true,
+			name: "form.pdf",
+			bytes: PDF,
+			sha256: "a".repeat(64),
+			origin: "attachment",
+		});
+		const state = { unavailable: false, shown: 17 };
+		const [look] = createLookDocBuiltins(CAPS, undefined, state);
+		// Pages 1-2 would be images 18 and 19: over the cap that view_image has already used up.
+		const over = await look.execute({ file: "form.pdf", pages: "1-2" }, ctx());
+		expect(over).toMatchObject({ error: expect.stringContaining("limit is 18") });
+		expect(state.shown).toBe(17);
+		await look.execute({ file: "form.pdf", pages: 1 }, ctx());
+		expect(state.shown).toBe(18);
+		expect(await look.execute({ file: "form.pdf", pages: 1 }, ctx())).toMatchObject({
+			error: expect.stringContaining("already shown you 18"),
+		});
+	});
+
 	it("returns the images with a label each, how many pages exist, and how to ask for others", async () => {
 		files.find.mockResolvedValue(pptx());
 		const out = await tool().execute({ file: "deck.pptx" }, ctx());

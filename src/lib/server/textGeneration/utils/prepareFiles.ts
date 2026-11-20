@@ -8,7 +8,11 @@ import { CLIPBOARD_MIME, isTextFile, largeContentBlock } from "./largeContent";
 import { stripThink } from "$lib/utils/stripThink";
 import { isExternalToolName, markUntrustedResult } from "../untrusted";
 import { stripLoneSurrogates } from "./loneSurrogates";
-import { processWithBudget, type makeImageProcessor } from "$lib/server/endpoints/images";
+import {
+	fitBatchToBudget,
+	type ImageBudget,
+	type makeImageProcessor,
+} from "$lib/server/endpoints/images";
 import {
 	MessageToolUpdateType,
 	MessageUpdateType,
@@ -454,19 +458,16 @@ export async function prepareMessagesWithFiles(
 		 */
 		artifactHistory?: ArtifactHistoryOptions;
 		/**
-		 * What all the images of this request may add up to, in bytes. Past it every image is
-		 * re-encoded smaller by the same proportion, so a long conversation of photos stays under the
-		 * gateway's request size limit. Absent: no total (each image still has its own cap).
+		 * The request-wide image budget (see `fitBatchToBudget`): all the attachments' images are fitted
+		 * together, the oldest shrunk to a fixed smaller size when they add up to more than it. Absent: no
+		 * total (each image still has its own cap). `stats.bytes` is filled in with what the images came
+		 * to, so the round's tool pictures can be given what is left.
 		 */
-		imageBudgetBytes?: number;
+		imageBudget?: ImageBudget & { stats?: { bytes: number } };
 	}
 ): Promise<OpenAI.Chat.Completions.ChatCompletionMessageParam[]> {
-	if (isMultimodal && options?.imageBudgetBytes !== undefined) {
-		imageProcessor = await budgetedImageProcessor(
-			rawMessages,
-			imageProcessor,
-			options.imageBudgetBytes
-		);
+	if (isMultimodal && options?.imageBudget) {
+		imageProcessor = await budgetedImageProcessor(rawMessages, imageProcessor, options.imageBudget);
 	}
 	let messages = rawMessages;
 	let artifactTail: string | null = null;
@@ -659,14 +660,15 @@ function appendToLastUserMessage(out: ChatMessageParam[], tail: string): void {
 async function budgetedImageProcessor(
 	messages: EndpointMessage[],
 	imageProcessor: ReturnType<typeof makeImageProcessor>,
-	budgetBytes: number
+	budget: ImageBudget & { stats?: { bytes: number } }
 ): Promise<ReturnType<typeof makeImageProcessor>> {
 	const images = messages
 		.filter((message) => message.from === "user")
 		.flatMap((message) => message.files ?? [])
 		.filter((file) => file.mime.startsWith("image/"));
-	if (images.length < 2) return imageProcessor;
-	const results = await processWithBudget(images, imageProcessor, budgetBytes);
+	if (images.length === 0) return imageProcessor;
+	const results = await fitBatchToBudget(images, imageProcessor, budget);
+	if (budget.stats) budget.stats.bytes = results.reduce((n, r) => n + r.image.byteLength, 0);
 	const byFile = new Map(images.map((file, i) => [file, results[i]]));
 	return (async (file: MessageFile) => byFile.get(file) ?? imageProcessor(file)) as ReturnType<
 		typeof makeImageProcessor
