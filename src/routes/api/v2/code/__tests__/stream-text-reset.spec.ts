@@ -222,7 +222,7 @@ describe("the stream corrects text the backend replaced", () => {
 		machine.model.transcripts.set(agent.id, {
 			messages: [
 				{
-					message: { id: "m1", role: "assistant" },
+					message: { id: "m1", role: "assistant", createdAt: new Date().toISOString() },
 					parts: [
 						{ id: "p1", messageId: "m1", role: "assistant", type: "text", text: "Goodbye world" },
 					],

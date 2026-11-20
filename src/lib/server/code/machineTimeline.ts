@@ -1046,9 +1046,9 @@ export function snapshotToUpdates(
 		thinking.routed.clear();
 		for (const { parts } of transcript.messages ?? []) {
 			for (const part of parts ?? []) {
-				if (part.role === "user" || !part.text) continue;
+				if (part.role === "user") continue;
 				if (part.type === "reasoning" || (part.type === "text" && !part.synthetic)) {
-					thinking.routed.set(part.id, part.text);
+					if (part.text) thinking.routed.set(part.id, part.text);
 				}
 			}
 		}
