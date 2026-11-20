@@ -56,7 +56,7 @@ export type CodeExecutionOutcome = RunOutcome & {
  * carries the outcome once it answers, or nothing but the deadline if the
  * browser never answers (sweeper turns that into the unavailable fallback).
  */
-export type ParkedCallKind = "timer" | "code";
+export type ParkedCallKind = "timer" | "code" | "approval";
 
 /**
  * A tool call that ended its turn and expects to be resumed.
@@ -135,6 +135,9 @@ export interface ParkedCall extends Timestamps {
 	runner?: "server";
 	/** `kind: "code"`: told to the model with the result, e.g. that the call ran in the browser as a fallback. */
 	notice?: string;
+
+	/** Times a resume was put off because the turn's round was still open; drives the backoff. */
+	deferrals?: number;
 
 	/** Set when a sweeper claims the row, so two pods cannot resume the same turn. */
 	takenAt?: Date;

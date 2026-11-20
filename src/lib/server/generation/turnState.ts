@@ -45,8 +45,22 @@ function buildUpdate(
 }
 
 /** A producer took (or resumed) the turn. */
-export async function turnRunning(key: TurnKey): Promise<MessageTurnStateUpdate> {
+export async function turnRunning(
+	key: TurnKey,
+	opts: { keepEnded?: boolean } = {}
+): Promise<MessageTurnStateUpdate> {
 	const now = new Date();
+	// A late resumer (a sweep, an expiry) must not turn a failed or finished turn back into a
+	// running one; only an explicit new start (the route) may.
+	if (opts.keepEnded) {
+		const doc = await collections.turnStates.findOne(
+			{ conversationId: key.conversationId, messageId: key.messageId },
+			{ projection: { status: 1 } }
+		);
+		if (doc && (doc.status === "failed" || doc.status === "done")) {
+			return buildUpdate(doc.status as TurnStatus);
+		}
+	}
 	await collections.turnStates
 		.updateOne(
 			{ conversationId: key.conversationId, messageId: key.messageId },

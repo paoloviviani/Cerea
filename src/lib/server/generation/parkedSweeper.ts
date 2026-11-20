@@ -25,8 +25,16 @@ import type { TextGenerationContext } from "$lib/server/textGeneration/types";
 import { settleTurnCost, turnGatewayToken } from "$lib/server/turnCostSettle";
 import { createGenerationWriter } from "./writer";
 import { applyUpdateToMessage } from "./applyUpdate";
-import { turnAbandoned, turnEnded, turnRunning } from "./turnState";
+import {
+	turnAbandoned,
+	turnAwaitingInput,
+	turnEnded,
+	turnOrphaned,
+	turnRunning,
+} from "./turnState";
+import { resumeParkedToolCall } from "$lib/server/mcp/resumeElicitation";
 import { compressUpdatesForStorage } from "./compressUpdates";
+import { deferDelayMs, liveProducerCount, otherParkedRows, roundBlocker } from "./roundJoin";
 
 const SWEEP_BATCH = 5;
 /** A row this many attempts deep is not going to resume; stop burning turns on it. */
@@ -119,7 +127,7 @@ export async function wakeParkedCallEarly(
 	return true;
 }
 
-async function abandon(park: ParkedCall, reason: string): Promise<void> {
+export async function abandon(park: ParkedCall, reason: string): Promise<void> {
 	logger.warn({ parkedCallId: park.parkedCallId, reason }, "[parked] abandoning a parked call");
 	await collections.parkedCalls.updateOne(
 		{ _id: park._id },
@@ -200,6 +208,12 @@ export async function resumeParkedCall(park: ParkedCall): Promise<void> {
 	const leaseRenewer = setInterval(() => void renewClaim(park), LEASE_RENEW_MS);
 	leaseRenewer.unref?.();
 	try {
+		// Stopped between the claim and here: the row is abandoned, so there is nothing to start.
+		const stillClaimed = await collections.parkedCalls.countDocuments({
+			_id: park._id,
+			status: "resuming",
+		});
+		if (stillClaimed === 0) return;
 		await resumeParkedCallInner(park);
 	} finally {
 		clearInterval(leaseRenewer);
@@ -218,6 +232,14 @@ async function resumeParkedCallInner(park: ParkedCall): Promise<void> {
 	// A custom model resumes on its base, like a fresh turn (`resolveConversationModel`).
 	const model = (await resolveConversationModel(conv.model, conversationOwnerFilter(conv)))?.model;
 	if (!model) return abandon(park, `model ${conv.model} is no longer available`);
+
+	// A turn that already ended (the user stopped it, or it failed) is never resumed by a late
+	// answer, an expiry or a sweep.
+	const ended = await collections.turnStates.findOne(
+		{ conversationId: conv._id, messageId: message.id, status: { $in: ["failed", "done"] } },
+		{ projection: { _id: 1 } }
+	);
+	if (ended) return abandon(park, "the turn already ended");
 
 	const { locals, settings, tokenExpired } = await rebuildIdentity(park);
 
@@ -302,7 +324,30 @@ async function resumeParkedCallInner(park: ParkedCall): Promise<void> {
 
 	let hasError = false;
 	try {
-		apply(await turnRunning(turnKey));
+		apply(await turnRunning(turnKey, { keepEnded: true }));
+
+		// A tool approval (answered by the user or expired): the SERVER applies the answer, so the
+		// approved call runs whether or not the tab that clicked is still open. The round decides
+		// whether the model runs: a parked sibling (a code run) resumes the turn itself when it lands.
+		let skipModel = false;
+		if (park.kind === "approval") {
+			const outcome = await resumeParkedToolCall({
+				conversationId: conv._id,
+				elicitationId: park.parkedCallId,
+				generationId,
+				extraServers: locals.mcp?.servers,
+				signal: abortController.signal,
+				token: locals.token,
+				viaServer: true,
+			});
+			for (const update of outcome.updates) apply(update);
+			if (outcome.grantedTools?.length) {
+				conv.approvedTools = [...new Set([...(conv.approvedTools ?? []), ...outcome.grantedTools])];
+			}
+			skipModel =
+				outcome.parkedAgain === true || (await otherParkedRows(conv._id, message.id, park._id)) > 0;
+			if (skipModel) apply(await turnAwaitingInput(turnKey));
+		}
 
 		if (park.kind === "code") {
 			// Settles the execution card for every subscriber and on replay: the
@@ -318,32 +363,35 @@ async function resumeParkedCallInner(park: ParkedCall): Promise<void> {
 		// "environment unavailable" fallback the prompt teaches the model to fall
 		// back from to a fence.
 		const resumeResultText =
-			park.kind === "code"
-				? codeResumeResultText(park, tokenExpired)
-				: `Waited for: ${park.reason}. You are now resumed.` +
-					(tokenExpired
-						? " NOTE: the signed-in session expired while you waited, so tools that need " +
-							"the sign-in may be unauthenticated. If one fails that way, say so rather than retrying."
-						: "");
-		apply({
-			type: MessageUpdateType.Tool,
-			subtype: MessageToolUpdateType.Result,
-			uuid: park.toolUuid,
-			result: {
-				status: ToolResultStatus.Success,
-				call: {
-					name: park.kind === "code" ? EXECUTE_CODE_TOOL_NAME : "wait",
-					parameters: {},
-				},
-				outputs: [
-					{
-						text: resumeResultText,
+			park.kind === "approval"
+				? ""
+				: park.kind === "code"
+					? codeResumeResultText(park, tokenExpired)
+					: `Waited for: ${park.reason}. You are now resumed.` +
+						(tokenExpired
+							? " NOTE: the signed-in session expired while you waited, so tools that need " +
+								"the sign-in may be unauthenticated. If one fails that way, say so rather than retrying."
+							: "");
+		if (park.kind !== "approval")
+			apply({
+				type: MessageUpdateType.Tool,
+				subtype: MessageToolUpdateType.Result,
+				uuid: park.toolUuid,
+				result: {
+					status: ToolResultStatus.Success,
+					call: {
+						name: park.kind === "code" ? EXECUTE_CODE_TOOL_NAME : "wait",
+						parameters: {},
 					},
-				],
-				display: true,
-				external: false,
-			},
-		});
+					outputs: [
+						{
+							text: resumeResultText,
+						},
+					],
+					display: true,
+					external: false,
+				},
+			});
 
 		const ctx: TextGenerationContext = {
 			model,
@@ -366,7 +414,7 @@ async function resumeParkedCallInner(park: ParkedCall): Promise<void> {
 			messageId: message.id,
 		};
 
-		for await (const event of textGeneration(ctx)) apply(event);
+		if (!skipModel) for await (const event of textGeneration(ctx)) apply(event);
 		// A resumed turn may park again — on another wait, or on a question. Either
 		// way this run's lifecycle closes with `finished`, matching what the route
 		// does when a fresh turn parks: the client derives liveness from the LAST
@@ -399,10 +447,129 @@ async function resumeParkedCallInner(park: ParkedCall): Promise<void> {
 			token: turnGatewayToken(locals),
 		});
 		await collections.parkedCalls.updateOne(
-			{ _id: park._id },
+			{ _id: park._id, status: "resuming" },
 			{ $set: { status: "resumed", resumedAt: new Date(), updatedAt: new Date() } }
 		);
+		// The approval's result is in the turn now: it no longer holds the round open.
+		if (park.kind === "approval") {
+			await collections.mcpElicitations
+				.updateOne(
+					{ elicitationId: park.parkedCallId, conversationId: park.conversationId },
+					{ $set: { consumedAt: new Date() } }
+				)
+				.catch((err) => logger.error({ err }, "[parked] failed to mark the approval consumed"));
+			// Siblings that were put off waiting for this result are due now, not after their backoff.
+			await collections.parkedCalls
+				.updateMany(
+					{
+						conversationId: park.conversationId,
+						messageId: park.messageId,
+						status: "waiting",
+						deferrals: { $gt: 0 },
+						_id: { $ne: park._id },
+					},
+					{ $set: { resumeAt: new Date(), updatedAt: new Date() } }
+				)
+				.catch((err) => logger.error({ err }, "[parked] failed to wake the round's siblings"));
+		}
 	}
+}
+
+/**
+ * The user stopped the turn: its round is over, so nothing parked for it may
+ * resume it later. Rows are abandoned; the turn's state is closed here only when
+ * no producer is running it (a running one ends the turn itself, as stopped).
+ */
+export async function endRoundOnStop(
+	conversationId: ParkedCall["conversationId"]
+): Promise<number> {
+	// `resuming` too: a claimed row whose run has not started must not start after the stop
+	// (a run that already started re-checks its claim, see resumeParkedCall).
+	const rows = await collections.parkedCalls
+		.find({ conversationId, status: { $in: ["waiting", "resuming"] } })
+		.toArray();
+	const messages = new Set<string>();
+	// An unanswered tool approval of the turn is closed with it: left pending, it would expire
+	// later (or be clicked) and queue a resume on a turn the user stopped. Cancelled and
+	// consumed, it cannot be answered and the deny sweeper never claims it.
+	const now = new Date();
+	const approvals = await collections.mcpElicitations
+		.find({ conversationId, status: "pending", "pending.kind": "tool-approval" })
+		.toArray();
+	for (const approval of approvals) {
+		const closed = await collections.mcpElicitations.updateOne(
+			{ _id: approval._id, status: "pending" },
+			{
+				$set: {
+					status: "resolved",
+					action: "cancel",
+					resolvedAt: now,
+					consumedAt: now,
+					updatedAt: now,
+					stopped: true,
+				},
+			}
+		);
+		if (closed.matchedCount > 0 && approval.pending) messages.add(approval.pending.messageId);
+	}
+	for (const row of rows) {
+		const claimed = await collections.parkedCalls.updateOne(
+			{ _id: row._id, status: { $in: ["waiting", "resuming"] } },
+			{
+				$set: {
+					status: "abandoned",
+					abandonedReason: "stopped by the user",
+					updatedAt: new Date(),
+				},
+			}
+		);
+		if (claimed.matchedCount > 0) messages.add(row.messageId);
+	}
+	for (const messageId of messages) {
+		// A producer that was aborted ends its turn with a CAS on `running`, which a park
+		// (`awaiting_input`) already moved past; with nothing parked any more, close the turn
+		// as stopped here. A state a live run still holds as `running` is left to that run.
+		let stopped = await turnOrphaned(
+			conversationId,
+			messageId,
+			"awaiting_input",
+			"The turn was stopped."
+		);
+		stopped ??= await turnOrphaned(conversationId, messageId, "waiting", "The turn was stopped.");
+		if ((await liveProducerCount(conversationId, messageId)) === 0) {
+			stopped ??= await turnOrphaned(conversationId, messageId, "running", "The turn was stopped.");
+		}
+		if (stopped) {
+			await collections.conversations
+				.updateOne({ _id: conversationId, "messages.id": messageId }, {
+					$push: { "messages.$.updates": stopped },
+					$set: { "messages.$.updatedAt": new Date(), updatedAt: new Date() },
+				} as never)
+				.catch((err) => logger.error({ err }, "[parked] failed to persist the stopped turn state"));
+		}
+	}
+	return rows.length;
+}
+
+/**
+ * Give a claimed row back because the round it belongs to is still open (see
+ * roundJoin.ts). The claim counted an attempt; a deferral is not a failed one.
+ * The answer the row may already carry stays on it.
+ */
+async function deferClaim(park: ParkedCall): Promise<void> {
+	const now = new Date();
+	await collections.parkedCalls.updateOne(
+		{ _id: park._id, status: "resuming" },
+		{
+			$set: {
+				status: "waiting",
+				resumeAt: new Date(now.getTime() + deferDelayMs(park.deferrals ?? 0)),
+				updatedAt: now,
+			},
+			$inc: { attempts: -1, deferrals: 1 },
+			$unset: { takenAt: "" },
+		}
+	);
 }
 
 export async function sweepParkedCalls(): Promise<void> {
@@ -411,6 +578,20 @@ export async function sweepParkedCalls(): Promise<void> {
 		if (!park) return;
 		if (park.attempts > MAX_ATTEMPTS) {
 			await abandon(park, `gave up after ${park.attempts} attempts`);
+			continue;
+		}
+		// One answer of a round is not the round: a sibling call may still be running in the
+		// producer that dispatched it, or waiting on the user. Resume only when all are in.
+		const blocker = await roundBlocker(park.conversationId, park.messageId, {
+			rowId: park._id,
+			...(park.kind === "approval" ? { elicitationId: park.parkedCallId } : {}),
+		});
+		if (blocker) {
+			logger.debug(
+				{ parkedCallId: park.parkedCallId, blocker },
+				"[parked] the turn's round is still open; resume deferred"
+			);
+			await deferClaim(park);
 			continue;
 		}
 		logger.info(

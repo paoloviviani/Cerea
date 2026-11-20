@@ -436,10 +436,17 @@ export async function resumeParkedToolCall({
 	extraServers = [],
 	signal,
 	token,
+	viaServer = false,
 }: {
 	conversationId: ObjectId;
 	elicitationId: string;
 	generationId?: string;
+	/**
+	 * The server's own resume (the parked sweeper). A tool approval is applied only this way: the
+	 * answer queues a parked row, so the approved call runs even when the tab that clicked is gone,
+	 * and a browser's resume request for one is ignored rather than running it twice.
+	 */
+	viaServer?: boolean;
 	extraServers?: McpServerConfig[];
 	signal?: AbortSignal;
 	/** The approving person's token, from the request this resume runs inside. Absent for a sweeper. */
@@ -465,6 +472,9 @@ export async function resumeParkedToolCall({
 		return { resumed: false, reason: "no answered prompt to resume", updates: [] };
 	}
 	const { inputResponses } = taken;
+	if (pending.kind === "tool-approval" && !viaServer) {
+		return { resumed: false, reason: "a tool approval is applied by the server", updates: [] };
+	}
 
 	// Nothing emitted this while the run was over, so the transcript still shows an open
 	// form. Settling it here is what lets a reloaded page render the answer instead.

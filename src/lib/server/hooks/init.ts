@@ -21,6 +21,7 @@ import { GenerationReaper } from "$lib/server/generation/reaper";
 import { ParkedCallSweeper } from "$lib/server/generation/parkedSweeper";
 import { OrphanSweeper } from "$lib/server/knowledge/orphanSweep";
 import { failInterruptedIngests } from "$lib/server/knowledge/service";
+import { backfillApprovalResumes } from "$lib/server/generation/roundJoin";
 import { ToolApprovalSweeper } from "$lib/server/generation/toolApprovalSweeper";
 import { DeliverableReaper } from "$lib/server/execution/deliverables";
 import { adminTokenManager } from "$lib/server/adminToken";
@@ -84,6 +85,10 @@ export async function initServer(): Promise<void> {
 	// Deny-timeout for the tool-approval gate (ADR 0075): fails closed when
 	// nobody answers, rather than parking the turn forever.
 	ToolApprovalSweeper.getInstance();
+	// Approvals answered just before an upgrade: the server applies them now (C155).
+	void backfillApprovalResumes().catch((err) =>
+		logger.error({ err }, "[approval] backfill of answered approvals failed")
+	);
 	// 30-day retention for persisted execute_code deliverables (ADR 0073's amendment).
 	DeliverableReaper.getInstance();
 	// Daily backstop for the knowledge pipeline's deleteDerived: orphan

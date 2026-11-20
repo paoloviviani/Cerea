@@ -1,6 +1,7 @@
 import { authCondition } from "$lib/server/auth";
 import { collections } from "$lib/server/database";
 import { AbortRegistry } from "$lib/server/abortRegistry";
+import { endRoundOnStop } from "$lib/server/generation/parkedSweeper";
 import { error } from "@sveltejs/kit";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
@@ -51,6 +52,10 @@ export async function POST({ params, locals, request }) {
 	);
 
 	AbortRegistry.getInstance().abort(conversationId.toString());
+
+	// Stop ends the turn's round: a code run, wait or approval parked for it must not
+	// resume the turn after the user stopped it (C155).
+	await endRoundOnStop(conversationId).catch(() => 0);
 
 	return new Response();
 }

@@ -357,6 +357,12 @@ export async function POST({ request, locals, params, getClientAddress }) {
 		if (!parked || parked.from !== "assistant") {
 			error(404, "No parked message to resume");
 		}
+		// A tool approval is applied by the server (see submitElicitationAnswer): a resume
+		// request for one from a browser would run the call twice.
+		const { isServerResumed } = await import("$lib/server/mcp/elicitation");
+		if (await isServerResumed(convId, resumeElicitationId)) {
+			error(409, "This approval is applied by the server.");
+		}
 		messageToWriteToId = parked.id;
 		messagesForPrompt = buildSubtree(conv, parked.id);
 	} else if (isRetry && messageId) {

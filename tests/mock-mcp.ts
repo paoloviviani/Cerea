@@ -37,7 +37,7 @@ export interface MockMcp {
 	close(): Promise<void>;
 }
 
-function buildServer(record: (call: RecordedToolCall) => void): McpServer {
+function buildServer(record: (call: RecordedToolCall) => void, withSlow: boolean): McpServer {
 	const server = new McpServer(
 		{ name: "mock-mcp", version: "1.0.0" },
 		{ capabilities: { tools: {} } }
@@ -75,10 +75,32 @@ function buildServer(record: (call: RecordedToolCall) => void): McpServer {
 		}
 	);
 
+	// Answers after `ms` milliseconds: a call that is still running while its round's other calls
+	// (a code run, an approval) have already been answered (C155).
+	if (withSlow)
+		server.registerTool(
+			"slow",
+			{
+				description: "Waits the given milliseconds, then returns the text.",
+				inputSchema: fromJsonSchema<{ ms: number; text: string }>({
+					type: "object",
+					properties: { ms: { type: "number" }, text: { type: "string" } },
+					required: ["ms", "text"],
+				}),
+			},
+			async ({ ms, text }) => {
+				record({ name: "slow", args: { ms, text }, at: Date.now() });
+				await new Promise((resolve) => setTimeout(resolve, ms));
+				return { content: [{ type: "text" as const, text }] };
+			}
+		);
+
 	return server;
 }
 
 export interface MockMcpOptions {
+	/** Also expose the `slow` tool (the e2e stack's server does; unit specs list exactly echo and add). */
+	slow?: boolean;
 	/**
 	 * Guard `/mcp` with a static bearer token, the way an API-key MCP server
 	 * does: without `Authorization: Bearer <token>` it answers a bare 401 —
@@ -158,7 +180,10 @@ export async function startMockMcp(
 				}
 			}
 			// Stateless: a fresh server + transport per request, torn down after.
-			const server = buildServer((call) => record(credential ? { ...call, credential } : call));
+			const server = buildServer(
+				(call) => record(credential ? { ...call, credential } : call),
+				options.slow === true
+			);
 			const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
 			res.on("close", () => {
 				void transport.close();
@@ -201,7 +226,7 @@ const invokedDirectly =
 	process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 
 if (invokedDirectly) {
-	startMockMcp().then((mock) => {
+	startMockMcp(undefined, { slow: true }).then((mock) => {
 		console.log(`[mock-mcp] listening on ${mock.url}`);
 	});
 }
