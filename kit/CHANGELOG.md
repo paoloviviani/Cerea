@@ -10,7 +10,7 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 Fixed:
 
 - Audio attachments: `.opus` and `.m4a` files (and the audio-only MP4 and 3GPP files phones record) are accepted again. Users attaching them for transcription got "unsupported" before anything was transcribed, because of how the file's type was named (Opus in Ogg, Android's `audio/mp4a-latm`, or no type at all). Dictation takes the same names. Audio Cerea cannot take now says why and which formats work (MP3, M4A, WAV, OGG/Opus, FLAC, WebM); raw AAC asks for an export as M4A or MP3.
-- Fixed: a turn that made several tool calls at once now waits for all of them before continuing. When a fast code result arrived while a slower connector call of the same step was still running, the turn used to carry on without the slow call's answer. Users see one continuation with every result, and Stop ends the whole step.
+- A turn that made several tool calls at once now waits for all of them before continuing. When a fast code result arrived while a slower connector call of the same step was still running, the turn used to carry on without the slow call's answer. Users see one continuation with every result, an approval is applied by the server even if the tab was closed, and Stop ends the whole step.
 
 ## v0.60.4 — 2026-11-20
 
