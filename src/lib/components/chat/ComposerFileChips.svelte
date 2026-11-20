@@ -34,7 +34,7 @@
 	let sources = $derived(
 		files?.map<Promise<MessageFile>>((file) =>
 			// A recording up to 25 MB is not read for its chip: it is sent as binary.
-			(isAudioAttachmentMime(file.type) ? Promise.resolve("") : file2base64(file)).then(
+			(isAudioAttachmentMime(file.type, file.name) ? Promise.resolve("") : file2base64(file)).then(
 				(value) => ({
 					type: "base64",
 					value,

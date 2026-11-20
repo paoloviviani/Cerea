@@ -66,6 +66,34 @@ function wav(): Buffer {
 	return Buffer.concat([header, data]);
 }
 
+/** The first Ogg page of an Opus stream, as a recorder writes it. */
+function oggOpus(): Buffer {
+	return Buffer.concat([
+		Buffer.from("OggS"),
+		Buffer.from([0, 2]),
+		Buffer.alloc(20),
+		Buffer.from([1, 19]),
+		Buffer.from("OpusHead"),
+		Buffer.from([1, 1, 0x38, 0x01, 0x80, 0xbb, 0, 0, 0, 0, 0]),
+		Buffer.alloc(200),
+	]);
+}
+
+/** An audio-only MP4 of this brand: `ftyp`, then one sound track's `hdlr`. */
+function mp4Audio(brand: string): Buffer {
+	const box = (type: string, payload: Buffer) => {
+		const head = Buffer.alloc(8);
+		head.writeUInt32BE(8 + payload.length, 0);
+		head.write(type, 4, "latin1");
+		return Buffer.concat([head, payload]);
+	};
+	return Buffer.concat([
+		box("ftyp", Buffer.concat([Buffer.from(brand, "latin1"), Buffer.alloc(4)])),
+		box("hdlr", Buffer.concat([Buffer.alloc(8), Buffer.from("soun"), Buffer.alloc(12)])),
+		Buffer.alloc(400),
+	]);
+}
+
 type Recorded = Awaited<ReturnType<MockOpenAIControl["requests"]>>[number];
 const transcriptions = (requests: Recorded[]) =>
 	requests.filter((r) => r.path === "/v1/audio/transcriptions");
@@ -133,6 +161,51 @@ test("an attached audio file is transcribed once and the model reads the transcr
 	await expect(page.locator('[data-message-role="assistant"]')).toHaveCount(2);
 	expect(transcriptions(await mockOpenAI.requests())).toHaveLength(1);
 });
+
+// Phones report these files with types the picker did not list, or none at all.
+for (const [name, mimeType, buffer, sent] of [
+	["voice note.opus", "", oggOpus(), { filename: "voice note.ogg", fileType: "audio/ogg" }],
+	["opus.opus", "audio/x-opus+ogg", oggOpus(), { filename: "opus.ogg", fileType: "audio/ogg" }],
+	[
+		"recording.m4a",
+		"audio/mp4a-latm",
+		mp4Audio("M4A "),
+		{ filename: "recording.m4a", fileType: "audio/mp4" },
+	],
+	["call.m4a", "", mp4Audio("3gp4"), { filename: "call.m4a", fileType: "audio/mp4" }],
+] as const) {
+	test(`an attached ${name} (declared "${mimeType}") is accepted and transcribed`, async ({
+		page,
+		db,
+		session,
+		mockOpenAI,
+	}) => {
+		await signIn(db, session.sessionId);
+		await mockOpenAI.setDefaultScenario("plainText");
+		await page.goto(`${E2E_APP_BASE}/`);
+		await waitForHydration(page);
+
+		await page.getByLabel("Upload file").setInputFiles({ name, mimeType, buffer });
+		await expect(page.getByText(name)).toBeVisible();
+		await expect(page.getByTestId("audio-badge")).toBeVisible();
+
+		await page.getByPlaceholder("Ask anything").fill("what was said?");
+		await page.getByRole("button", { name: "Send message" }).click();
+		await page.waitForURL(/\/conversation\/[a-f0-9]{24}/);
+		await expect(page.locator('[data-message-role="assistant"]').last()).toContainText(
+			"Hello from the mock server."
+		);
+
+		const heard = transcriptions(await mockOpenAI.requests());
+		expect(heard).toHaveLength(1);
+		expect(heard[0].body).toMatchObject(sent);
+		// The chip in the conversation has its facts (the transcript's duration) once
+		// the message is stored; only then does a click open the panel.
+		await expect(page.getByTestId("audio-duration")).toHaveText("0:07");
+		await page.getByTestId("audio-chip").click();
+		await expect(page.getByTestId("audio-transcript")).toHaveText(MOCK_TRANSCRIPT);
+	});
+}
 
 test("dictation by the transcription model puts the transcript in the message box", async ({
 	page,

@@ -1,3 +1,5 @@
+import { mimeEssence } from "$lib/utils/mimeMatch";
+
 // Centralized MIME allowlists used across client and server
 // Keep these lists minimal and consistent with server processing.
 
@@ -53,6 +55,33 @@ export const AUDIO_MIME_ALLOWLIST = [
 	"audio/webm",
 	"audio/flac",
 	"audio/x-flac",
+	// What other platforms call the same files: Android reports m4a as
+	// `audio/mp4a-latm` or `audio/3gpp`, Opus as `audio/x-opus+ogg`. Raw AAC
+	// (`audio/aac`, `.aac`) is let through so the server can say, in words,
+	// that it is not supported and to export as M4A or MP3.
+	"audio/mp4a-latm",
+	"audio/x-mp4a-latm",
+	"audio/3gpp",
+	"audio/3gpp2",
+	"audio/x-opus+ogg",
+	"audio/x-ogg",
+	"audio/aac",
+	"audio/x-aac",
+	// By extension, for files a browser gives no type at all (Android often
+	// does for .opus and .m4a). The server's sniffing of the bytes decides.
+	".mp3",
+	".m4a",
+	".mp4",
+	".aac",
+	".wav",
+	".ogg",
+	".oga",
+	".opus",
+	".flac",
+	".webm",
+	".weba",
+	".3gp",
+	".3gpp",
 ] as const;
 
 /**
@@ -90,8 +119,18 @@ export const MAX_AUDIO_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 export const AUDIO_TOO_LONG_TEXT = "too long to transcribe here: up to 25 MB (about 25 minutes)";
 
 /** Whether a declared type is one of the audio types an attachment may be. */
-export function isAudioAttachmentMime(mime: string): boolean {
-	return (AUDIO_MIME_ALLOWLIST as readonly string[]).includes(mime.toLowerCase());
+export function isAudioAttachmentMime(mime: string, name?: string): boolean {
+	const essence = mimeEssence(mime);
+	if ((AUDIO_MIME_ALLOWLIST as readonly string[]).includes(essence)) return true;
+	// A type the browser left empty: the audio extension says it (a .webm or
+	// .mp4 with a type of its own stays whatever that type says).
+	const lower = (name ?? "").toLowerCase();
+	return (
+		essence === "" &&
+		(AUDIO_MIME_ALLOWLIST as readonly string[]).some(
+			(entry) => entry.startsWith(".") && lower.endsWith(entry)
+		)
+	);
 }
 
 /** Why one attachment is refused for its size, or null when it fits. */
@@ -100,15 +139,15 @@ export function attachmentSizeRefusal(file: {
 	size: number;
 	type: string;
 }): string | null {
-	if (file.size <= maxAttachmentBytesFor(file.type)) return null;
-	return isAudioAttachmentMime(file.type)
+	if (file.size <= maxAttachmentBytesFor(file.type, file.name)) return null;
+	return isAudioAttachmentMime(file.type, file.name)
 		? `${file.name} is ${AUDIO_TOO_LONG_TEXT}.`
 		: `${file.name} is too large: files are limited to ${MAX_ATTACHMENT_BYTES / 1024 / 1024} MB.`;
 }
 
 /** The size limit of one attachment: 25 MB for audio (the gateway's transcription cap), 30 MB for everything else. */
-export function maxAttachmentBytesFor(mime: string): number {
-	return isAudioAttachmentMime(mime) ? MAX_AUDIO_ATTACHMENT_BYTES : MAX_ATTACHMENT_BYTES;
+export function maxAttachmentBytesFor(mime: string, name?: string): number {
+	return isAudioAttachmentMime(mime, name) ? MAX_AUDIO_ATTACHMENT_BYTES : MAX_ATTACHMENT_BYTES;
 }
 
 /**

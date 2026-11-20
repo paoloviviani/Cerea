@@ -94,3 +94,73 @@ describe("classifyUpload", () => {
 		expect(result.kind === "text" && result.bytes?.toString("utf-8")).toBe("héllo");
 	});
 });
+
+describe("classifyUpload: audio the browsers and phones name in their own ways", () => {
+	const box = (type: string, payload: Buffer) => {
+		const head = Buffer.alloc(8);
+		head.writeUInt32BE(8 + payload.length, 0);
+		head.write(type, 4, "latin1");
+		return Buffer.concat([head, payload]);
+	};
+	const handler = (kind: "vide" | "soun") =>
+		box("hdlr", Buffer.concat([Buffer.alloc(8), Buffer.from(kind, "latin1"), Buffer.alloc(12)]));
+	/** An MP4-family file: an `ftyp` of this brand, then one track per kind. */
+	const mp4 = (brand: string, ...kinds: ("vide" | "soun")[]) =>
+		Buffer.concat([
+			box("ftyp", Buffer.concat([Buffer.from(brand, "latin1"), Buffer.alloc(4)])),
+			...kinds.map(handler),
+		]);
+	/** The first Ogg page of an Opus stream: `OpusHead` is what `file-type` looks for. */
+	const oggOpus = () =>
+		Buffer.concat([
+			Buffer.from("OggS"),
+			Buffer.from([0, 2]),
+			Buffer.alloc(20),
+			Buffer.from([1, 19]),
+			Buffer.from("OpusHead"),
+			Buffer.from([1, 1, 0x38, 0x01, 0x80, 0xbb, 0, 0, 0, 0, 0]),
+			Buffer.alloc(40),
+		]);
+
+	it("takes Opus in Ogg whatever the browser says or leaves empty", async () => {
+		for (const declared of [
+			"",
+			"audio/ogg",
+			"audio/opus",
+			"audio/x-opus+ogg",
+			"audio/ogg; codecs=opus",
+		]) {
+			expect(await classifyUpload("note.opus", declared, oggOpus())).toEqual({
+				kind: "audio",
+				mime: "audio/ogg",
+			});
+		}
+	});
+
+	it("takes an M4A, and the audio-only MP4 and 3GPP files phone recorders write", async () => {
+		for (const brand of ["M4A ", "isom", "mp42", "3gp4", "3gp5", "3g2a", "qt  ", "M4V "]) {
+			expect(await classifyUpload("rec.m4a", "", mp4(brand, "soun"))).toEqual({
+				kind: "audio",
+				mime: "audio/mp4",
+			});
+		}
+	});
+
+	it("does not take a 3GPP or MP4 file that has a picture", async () => {
+		for (const brand of ["3gp4", "isom"]) {
+			const result = await classifyUpload("clip.3gp", "video/3gpp", mp4(brand, "vide", "soun"));
+			expect(result.kind).toBe("unsupported");
+			expect((result as { message?: string }).message).toMatch(/video track/);
+		}
+	});
+
+	it("says in words that raw AAC is not taken, and what is", async () => {
+		const adts = Buffer.concat([
+			Buffer.from([0xff, 0xf1, 0x50, 0x80, 0x02, 0x1f, 0xfc]),
+			Buffer.alloc(200),
+		]);
+		const result = await classifyUpload("memo.aac", "audio/aac", adts);
+		expect(result.kind).toBe("unsupported");
+		expect((result as { message?: string }).message).toMatch(/AAC.*M4A or MP3/);
+	});
+});
