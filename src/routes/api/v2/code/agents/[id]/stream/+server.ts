@@ -38,6 +38,7 @@ import {
 	providerRefusalReason,
 	trackedErrorReason,
 	newThinkingState,
+	partDiverges,
 	seedThinking,
 	permissionRequestToUpdate,
 	snapshotToUpdates,
@@ -62,6 +63,10 @@ const MAX_LIFETIME_MS = 30 * 60_000;
  * `limit`), when the machine advertised history paging: older ones the view
  * fetches page by page as the reader scrolls up. */
 const SNAPSHOT_PAGE_LIMIT = 40;
+
+/** The least time between two resets for the same part: a replacement that
+ * keeps coming must not turn the stream into a loop of snapshots. */
+const RESET_MIN_INTERVAL_MS = 5000;
 
 /** What the stream sends, then closes, when the sign-in behind it lapses:
  * a distinct SSE event, so the client can tell "sign in again" from an
@@ -129,6 +134,7 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 		}
 	}
 
+	const pagingCapable = device.backends.some((b) => b.capabilities.historyPaging === true);
 	let sync;
 	try {
 		// History paging (§6): Cerea asks the newest page only when this
@@ -137,7 +143,6 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 		// machine double-checks on its side: it trims only when its backend
 		// can also serve the older pages, so `hasMore` never promises a page
 		// session.history cannot give.
-		const pagingCapable = device.backends.some((b) => b.capabilities.historyPaging === true);
 		sync = await link.sessionSync({
 			sessionId,
 			...(clientEpoch ? { epoch: clientEpoch, afterSeq: clientSeq } : {}),
@@ -419,10 +424,21 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 					if (closed || !ask || reviewNoteFor(requestId)?.allowed) return;
 					emit(null, permissionRequestToUpdate(ask.request, ask.child));
 				});
+				// A re-sync (below) covers every envelope up to its own cursor.
+				let coveredEpoch: string | null = null;
+				let coveredSeq = -1;
+				const resetAt = new Map<string, number>();
 				for (;;) {
 					if (closed) return;
 					const next = buffered.shift();
 					if (next !== undefined) {
+						if (
+							next.sessionId === sessionId &&
+							next.epoch === coveredEpoch &&
+							next.seq <= coveredSeq
+						) {
+							continue;
+						}
 						const id = `${next.epoch}:${next.seq}`;
 						if (next.epoch !== currentEpoch) {
 							currentEpoch = next.epoch;
@@ -440,6 +456,49 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 						}
 						learnTitle(next);
 						const child = childOf(next.sessionId);
+						// A part event for text the client already holds, that is not an
+						// extension of it: the backend replaced the part (healing text a
+						// gap truncated). Deltas cannot say that, so the client is reset
+						// and re-folded from a fresh snapshot, once per part per window.
+						if (
+							!child &&
+							next.event.kind === "part" &&
+							partDiverges(thinking, next.event) &&
+							Date.now() - (resetAt.get(next.event.part.id) ?? 0) >= RESET_MIN_INTERVAL_MS
+						) {
+							resetAt.set(next.event.part.id, Date.now());
+							let fresh;
+							try {
+								fresh = await link.sessionSync({
+									sessionId,
+									...(pagingCapable ? { limit: SNAPSHOT_PAGE_LIMIT } : {}),
+								});
+							} catch {
+								fresh = undefined;
+							}
+							if (fresh && "snapshot" in fresh) {
+								const freshId = `${fresh.epoch}:${fresh.seq}`;
+								currentEpoch = fresh.epoch;
+								coveredEpoch = fresh.epoch;
+								coveredSeq = fresh.seq;
+								lastAssistantError = lastAssistantErrorOf(fresh.snapshot);
+								userMessageIds = userMessageIdsOf(fresh.snapshot);
+								commandMarkers = commandMarkersOf(fresh.snapshot);
+								thinking = newThinkingState();
+								const updates = snapshotToUpdates(fresh.snapshot, imageUrl, sessionId, thinking);
+								if (fresh.snapshot.hasMore !== undefined) {
+									updates.push({
+										type: "historyMeta",
+										hasMore: fresh.snapshot.hasMore,
+										...(fresh.snapshot.before ? { before: fresh.snapshot.before } : {}),
+									});
+								}
+								emitReset(freshId);
+								for (const update of updates) emit(freshId, await withFiles(update));
+								emit(freshId, { type: "historyDone" });
+								continue;
+							}
+						}
 						if (!child && next.event.kind === "message") {
 							if (next.event.message.role === "assistant") {
 								lastAssistantError = providerRefusalReason(next.event.message.error);

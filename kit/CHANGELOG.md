@@ -7,6 +7,7 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- Code panel: a reply that was cut short by a brief connection drop now corrects itself on screen. After the drop, users could keep seeing a truncated answer until they reloaded; the final text now replaces it by itself. A removed step no longer reappears after a reconnect, and two overlapping recoveries can no longer undo each other.
 - Photos attached to a message now load together. A conversation with several large pictures used to show them one after another, each downloading the full-size original; now every picture shows as a small, light version in a tile of fixed size with a soft shimmer, and they appear at the same time. The full picture still opens when users click it.
 
 ## v0.60.2 — 2026-11-20
