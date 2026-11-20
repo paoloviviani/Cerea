@@ -723,7 +723,7 @@ func (m *Materializer) resync(ctx context.Context, workspaceDir, sessionID strin
 		for _, p := range entry.Parts {
 			// A part a live event wrote after the fetch is newer than the transcript's copy, which
 			// was already announced live; every other tool part is announced from the transcript
-			if p.Type != backend.PartTool || st.touched[partKey(p.MessageID, p.ID)] > fetchedAt {
+			if p.Type != backend.PartTool || st.touched[partKey(p.MessageID, p.ID)] > fetchedAt || st.removed[partKey(p.MessageID, p.ID)] > 0 {
 				continue
 			}
 			part := p
