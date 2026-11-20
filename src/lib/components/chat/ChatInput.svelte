@@ -183,9 +183,9 @@
 				errorToast.set(
 					m["chat.dropzone.bad_type"]({ allowed: mimeTypes.join(", "), type: file.type })
 				);
-			} else if (file.size <= maxAttachmentBytesFor(file.type)) {
+			} else if (file.size <= maxAttachmentBytesFor(file.type, file.name)) {
 				accepted.push(file);
-			} else if (isAudioAttachmentMime(file.type)) {
+			} else if (isAudioAttachmentMime(file.type, file.name)) {
 				errorToast.set(m["chat.audio.too_long"]({ name: file.name }));
 			} else {
 				errorToast.set(m["chat.dropzone.too_big"]());

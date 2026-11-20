@@ -566,6 +566,10 @@ export async function startMockOpenAI(port: number = MOCK_OPENAI_PORT): Promise<
 					model: /name="model"\r\n\r\n([^\r]*)/.exec(raw)?.[1] ?? null,
 					bytes: raw.length,
 					authorization: req.headers.authorization ?? null,
+					// The file part's name and type: what the model is told it is.
+					filename: /name="file"; filename="([^"]*)"/.exec(raw)?.[1] ?? null,
+					fileType:
+						/name="file"; filename="[^"]*"\r\nContent-Type: ([^\r]*)/i.exec(raw)?.[1] ?? null,
 				},
 				at: Date.now(),
 			});

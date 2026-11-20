@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
 	audioMime,
 	formatDuration,
+	declaredAudio,
 	labelledTranscript,
 	missingTranscriptNotice,
+	transcriptionFilename,
 } from "./audioAttachment";
 
 /** A box in an MP4: size, type, payload. */
@@ -83,5 +85,40 @@ describe("transcript wording", () => {
 		expect(text).toContain("no transcript");
 		expect(text).toContain("No transcription model is set up.");
 		expect(missingTranscriptNotice("a.mp3", undefined)).toContain("not recorded");
+	});
+});
+
+describe("audioMime: the sniffed type is compared without its parameters", () => {
+	it("takes Opus in Ogg, which file-type names with its codec", () => {
+		expect(audioMime("audio/ogg; codecs=opus", new Uint8Array())).toBe("audio/ogg");
+		expect(audioMime("Audio/Ogg;codecs=opus", new Uint8Array())).toBe("audio/ogg");
+	});
+
+	it("takes the 3GPP, QuickTime and M4V containers when they hold no video", () => {
+		for (const sniffed of ["video/3gpp", "video/3gpp2", "video/quicktime", "video/x-m4v"]) {
+			expect(audioMime(sniffed, mp4Of("soun"))).toBe("audio/mp4");
+			expect(audioMime(sniffed, mp4Of("vide", "soun"))).toBeNull();
+		}
+	});
+});
+
+describe("transcriptionFilename and declaredAudio", () => {
+	it("names the file by the type the bytes proved to be", () => {
+		expect(transcriptionFilename("voice note.opus", "audio/ogg")).toBe("voice note.ogg");
+		expect(transcriptionFilename("rec.3gp", "audio/mp4")).toBe("rec.m4a");
+		expect(transcriptionFilename("rec", "audio/mp4")).toBe("rec.m4a");
+		expect(transcriptionFilename("a.b.mp3", "audio/mpeg")).toBe("a.b.mp3");
+	});
+
+	it("folds the aliases a client may declare for dictation", () => {
+		expect(declaredAudio("audio/ogg; codecs=opus")).toEqual({
+			mime: "audio/ogg",
+			extension: "ogg",
+		});
+		expect(declaredAudio("audio/x-opus+ogg")?.mime).toBe("audio/ogg");
+		expect(declaredAudio("audio/mp4a-latm")?.mime).toBe("audio/mp4");
+		expect(declaredAudio("audio/webm;codecs=opus")?.extension).toBe("webm");
+		expect(declaredAudio("audio/aac")).toBeNull();
+		expect(declaredAudio("text/plain")).toBeNull();
 	});
 });

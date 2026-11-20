@@ -51,9 +51,9 @@
 						}
 
 						// if the file is past its limit (25 MB audio, 30 MB the rest) abort
-						if (file.size > maxAttachmentBytesFor(file.type)) {
+						if (file.size > maxAttachmentBytesFor(file.type, file.name)) {
 							setErrorMsg(
-								isAudioAttachmentMime(file.type)
+								isAudioAttachmentMime(file.type, file.name)
 									? m["chat.audio.too_long"]({ name: file.name })
 									: m["chat.dropzone.too_big"]()
 							);

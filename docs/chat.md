@@ -316,7 +316,8 @@ limited to **30 MB** each, except audio (up to **25 MB**).
   remote OCR model is the PDF reader, it reads the scan itself and no pages are
   rendered. Whether a model sees images is its **vision** switch under
   Workspace → Models.
-- **Audio** (mp3, m4a, wav, ogg/opus, webm, flac) is transcribed by the
+- **Audio** (mp3, m4a, wav, ogg/opus, webm, flac; also the audio-only MP4 and 3GPP
+  files phones record) is transcribed by the
   deployment's transcription model, **once, when you attach the file**, as you
   (it is metered per audio minute with your account), and the transcript is
   stored beside the file. The assistant reads the transcript, labelled with the
@@ -325,7 +326,11 @@ limited to **30 MB** each, except audio (up to **25 MB**).
   minutes of ordinary audio, the gateway's own limit); a recording the transcription service cannot take is kept
   and the assistant is told it has no transcript. The audio goes to the provider
   that serves the model and is not screened by redaction. Audio is not
-  offered when no transcription model is available to you.
+  offered when no transcription model is available to you. What a file is
+  comes from its contents, not its name or the type your browser reports, so an
+  `.opus` or `.m4a` a phone gives no type is still taken. Raw AAC (`.aac`) is
+  not supported: export it as M4A or MP3. A file with a video track is not
+  transcribed.
 - **A document with no readable text** (a scan the reader could not make sense of) is not skipped silently. The assistant is told the file had no readable text, and why when the reader said, so it says so rather than answering as if nothing were attached.
 - **Code the assistant runs** finds the chat's attachments at
   `/mnt/data/<name>`, with the text read from each beside it as `<name>.md`
