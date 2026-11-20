@@ -8,6 +8,7 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 ## Unreleased
 
 - Interface: screens no longer fill in piece by piece. While a list or settings page loads, it shows shimmering placeholder lines the size of the real content (and nothing at all if the data arrives within a moment), then the whole page appears at once with no jump. This covers the chats, artifacts, projects and knowledge lists, the sidebar's projects and computers, the Agents pane, the settings and administration pages, and the greeting on the new-chat page. Refreshing a page that is already open keeps what is on screen. Users who prefer reduced motion see the placeholders without animation.
+- Fixed: attaching several photos on a phone pushed the message box and the send button off the screen. Attachments now show as one small row of thumbnails above the message box that scrolls sideways, so the box and the send button stay in view however many files users attach.
 
 ## v0.60.1 — 2026-11-19
 

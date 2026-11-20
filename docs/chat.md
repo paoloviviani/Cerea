@@ -275,7 +275,7 @@ chat-only: the Agents panel ignores them.
 
 ## Attachments
 
-Attach a file with the composer's **+** (on a phone, it opens the file and photo picker), by dragging it onto the window, or by pasting: a long paste becomes a chip rather than flooding the box. Files are
+Attach a file with the composer's **+** (on a phone, it opens the file and photo picker), by dragging it onto the window, or by pasting: a long paste becomes a chip rather than flooding the box. Attachments wait above the message box as one compact row of small thumbnails (scrolling sideways when there are many), so the box and the send button stay in view. Files are
 limited to **30 MB** each, except audio (up to **25 MB**).
 
 - **Text files of any kind** are attached as they are, whatever the extension:
