@@ -318,19 +318,16 @@ describe("a round's join (C155)", () => {
 			const row = await collections.mcpElicitations.findOne({ elicitationId: "elic-1" });
 			expect(row?.consumedAt).toBeInstanceOf(Date);
 		});
-		// The server applied the refusal through the real resume path, then left the model to the
-		// parked code call, which was still waiting for the approval: no model run yet.
-		expect(seen.resumes).toHaveLength(0);
+		// The server applied the refusal through the real resume path; the parked code call that
+		// was waiting for it is woken at once (no backoff) and the model runs, once.
 		const conv = await collections.conversations.findOne({ _id: conversationId });
 		const updates = conv?.messages.find((m) => m.id === "asst-1")?.updates ?? [];
 		expect(
 			updates.some((u) => u.type === "tool" && u.subtype === "error" && u.uuid === MCP_UUID)
 		).toBe(true);
 
-		// The approval's apply woke the deferred code row: no waiting out its backoff.
 		await sweepParkedCalls();
-
-		expect(seen.resumes).toHaveLength(1);
+		await vi.waitFor(() => expect(seen.resumes).toHaveLength(1));
 		const uuids = seen.resumes[0].updates.map((u) => `${u.subtype}:${u.uuid}`);
 		expect(uuids).toContain(`error:${MCP_UUID}`);
 		expect(uuids).toContain(`result:${CODE_UUID}`);
