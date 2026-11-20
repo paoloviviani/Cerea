@@ -6,6 +6,7 @@ import {
 	labelledTranscript,
 	missingTranscriptNotice,
 	transcriptionFilename,
+	unsupportedAudioMessage,
 } from "./audioAttachment";
 
 /** A box in an MP4: size, type, payload. */
@@ -120,5 +121,29 @@ describe("transcriptionFilename and declaredAudio", () => {
 		expect(declaredAudio("audio/webm;codecs=opus")?.extension).toBe("webm");
 		expect(declaredAudio("audio/aac")).toBeNull();
 		expect(declaredAudio("text/plain")).toBeNull();
+	});
+});
+
+describe("audioMime: an MP4-family container must declare a sound track", () => {
+	const noHandler = Buffer.concat([box("ftyp", Buffer.from("isom")), Buffer.alloc(300)]);
+
+	it("refuses one with no handler at all (malformed, or a compressed QuickTime moov)", () => {
+		for (const sniffed of [
+			"video/mp4",
+			"video/3gpp",
+			"video/3gpp2",
+			"video/quicktime",
+			"video/x-m4v",
+		]) {
+			expect(audioMime(sniffed, noHandler)).toBeNull();
+			expect(audioMime(sniffed, mp4Of("soun"))).toBe("audio/mp4");
+			expect(audioMime(sniffed, mp4Of("soun", "vide"))).toBeNull();
+		}
+	});
+
+	it("says why it was refused", () => {
+		expect(unsupportedAudioMessage("video/quicktime", "a.m4a", "", noHandler)).toMatch(
+			/video track/
+		);
 	});
 });
