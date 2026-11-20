@@ -20,6 +20,7 @@
 	import CarbonCopy from "~icons/carbon/copy";
 	import CarbonCheckmark from "~icons/carbon/checkmark";
 	import UploadedFile from "./UploadedFile.svelte";
+	import ImageGroup from "./ImageGroup.svelte";
 
 	import MarkdownRenderer from "./MarkdownRenderer.svelte";
 	import OpenReasoningResults from "./OpenReasoningResults.svelte";
@@ -1032,11 +1033,11 @@
 				: 'answer-card rounded-2xl border border-line bg-linear-to-br from-page px-3 py-2.5 sm:px-4 sm:py-3 dark:from-surface dark:to-surface/60'}"
 		>
 			{#if message.files?.length}
-				<div class="flex h-fit flex-wrap gap-x-5 gap-y-2">
+				<ImageGroup class="flex h-fit flex-wrap gap-x-5 gap-y-2">
 					{#each message.files as file (file.value)}
 						<UploadedFile {file} canClose={false} />
 					{/each}
-				</div>
+				</ImageGroup>
 			{/if}
 
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -1396,11 +1397,11 @@
 	>
 		<div class="flex w-full flex-col gap-2">
 			{#if message.files?.length}
-				<div class="flex w-full flex-wrap justify-end gap-4">
+				<ImageGroup class="flex w-full flex-wrap justify-end gap-4">
 					{#each message.files as file}
 						<UploadedFile {file} canClose={false} {fileBaseUrl} canDownloadWithheld={!readOnly} />
 					{/each}
-				</div>
+				</ImageGroup>
 			{/if}
 
 			<div class="flex w-full flex-row flex-nowrap">
