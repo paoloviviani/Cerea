@@ -167,11 +167,18 @@
 	const searching = $derived(query.trim() !== "");
 
 	/**
+	 * How long the rows wait for the project names. Past it the rows appear with the plain
+	 * "Project" badge, and the names fill every badge in one update whenever they arrive.
+	 */
+	const NAMES_WAIT_MS = 1500;
+	let namesGaveUp = false;
+
+	/**
 	 * Names for the project badge, fetched once, by whichever load runs first. A project that is
 	 * not in the answer (or a failed request) is badged as just "Project" rather than blocking.
 	 */
 	function ensureNames(): Promise<unknown> {
-		namesReady ??= fetch(`${base}/api/v2/projects`)
+		namesReady ??= fetch(`${base}/api/v2/projects`, { signal: AbortSignal.timeout(15_000) })
 			.then((response) => (response.ok ? response.json() : { data: [] }))
 			.then(({ data }: { data: ProjectView[] }) => {
 				projectNames = Object.fromEntries(data.map((project) => [project.id, project.name]));
@@ -202,7 +209,14 @@
 				.then(handleResponse);
 			// The project badges' names arrive from a second request: reveal the rows only once
 			// both are in, so a badge never says "Project" and then changes to the name.
-			await names;
+			if (!namesGaveUp) {
+				let timer: ReturnType<typeof setTimeout> | undefined;
+				const capped = new Promise<"cap">((resolve) => {
+					timer = setTimeout(() => resolve("cap"), NAMES_WAIT_MS);
+				});
+				if ((await Promise.race([names, capped])) === "cap") namesGaveUp = true;
+				clearTimeout(timer);
+			}
 			if (mine !== generation) return;
 			rows = reset ? result.conversations : [...rows, ...result.conversations];
 			hasMore = result.hasMore;
@@ -440,7 +454,7 @@
 			{/if}
 
 			{#if sk.visible}
-				<SkeletonBusy label={m["chat.list.loading"]()}>
+				<SkeletonBusy region="chats" label={m["chat.list.loading"]()}>
 					<SkeletonRows count={7} leading rowHeight="3.5rem" />
 				</SkeletonBusy>
 			{:else if rows.length > 0}

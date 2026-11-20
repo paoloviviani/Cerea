@@ -196,7 +196,7 @@
 			{loadError}
 		</p>
 	{:else if sk.visible}
-		<SkeletonBusy label={m["settings.notifications.loading"]()}>
+		<SkeletonBusy region="notifications" label={m["settings.notifications.loading"]()}>
 			<SkeletonFormRow count={3} />
 		</SkeletonBusy>
 	{:else if !view}

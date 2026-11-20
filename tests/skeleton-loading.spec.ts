@@ -76,9 +76,9 @@ async function delay(page: Page, pattern: RegExp, ms: number) {
 	});
 }
 
-/** Counts every time a skeleton region is inserted, from the first paint on. */
-async function watchSkeletons(page: Page) {
-	await page.addInitScript(() => {
+/** Counts every time the named skeleton region is inserted, from the first paint on. */
+async function watchSkeletons(page: Page, region: string) {
+	await page.addInitScript((region) => {
 		const w = window as unknown as { __skeletons: number };
 		w.__skeletons = 0;
 		new MutationObserver((records) => {
@@ -86,12 +86,11 @@ async function watchSkeletons(page: Page) {
 				for (const n of r.addedNodes)
 					if (
 						n instanceof Element &&
-						(n.matches("[data-testid=skeleton-region]") ||
-							n.querySelector("[data-testid=skeleton-region]"))
+						(n.matches(`[data-region=${region}]`) || n.querySelector(`[data-region=${region}]`))
 					)
 						w.__skeletons++;
 		}).observe(document, { childList: true, subtree: true });
-	});
+	}, region);
 }
 const skeletonsSeen = (page: Page) =>
 	page.evaluate(() => (window as unknown as { __skeletons: number }).__skeletons);
@@ -112,7 +111,7 @@ for (const vp of VIEWPORTS) {
 			await delay(page, /\/api\/v2\/projects$/, 1500);
 			await page.goto(`${E2E_APP_BASE}/projects`, { waitUntil: "domcontentloaded" });
 
-			const region = page.getByTestId("skeleton-region");
+			const region = page.locator("[data-region=projects]");
 			await expect(region.first()).toBeVisible();
 			await expect(region.first()).toHaveAttribute("aria-busy", "true");
 			await expect(region.first()).toContainText("Loading");
@@ -125,16 +124,16 @@ for (const vp of VIEWPORTS) {
 			});
 			for (const name of ["Bravo", "Charlie", "Delta"]) {
 				await expect(page.getByRole("link", { name: new RegExp(name) }).first()).toBeVisible({
-					timeout: 0,
+					timeout: 1,
 				});
 			}
-			await expect(page.getByTestId("skeleton-region")).toHaveCount(0);
+			await expect(page.locator("[data-region=projects]")).toHaveCount(0);
 		});
 
 		test("a fast response never shows a skeleton", async ({ page, db, session }) => {
 			const userId = await installUserSession(db, session.sessionId);
 			await seedProjects(db, userId, ["Alpha", "Bravo"]);
-			await watchSkeletons(page);
+			await watchSkeletons(page, "projects");
 			await delay(page, /\/api\/v2\/projects$/, 40);
 			await page.goto(`${E2E_APP_BASE}/projects`);
 			await expect(page.getByRole("link", { name: /Alpha/ }).first()).toBeVisible();
@@ -160,7 +159,7 @@ for (const vp of VIEWPORTS) {
 			await delay(page, /\/api\/v2\/projects$/, 1500);
 			await page.goto(`${E2E_APP_BASE}/chats`, { waitUntil: "domcontentloaded" });
 
-			await expect(page.getByTestId("skeleton-region").first()).toBeVisible();
+			await expect(page.locator("[data-region=chats]")).toBeVisible();
 			await expect(page.getByTestId("chats-row")).toHaveCount(0);
 			await expect(page.getByTestId("chats-row")).toHaveCount(3, { timeout: 20_000 });
 			// At the first reveal the badge already carries the project's name, never "Project".
@@ -168,6 +167,40 @@ for (const vp of VIEWPORTS) {
 				await expect(row).toContainText("Mortgage", { timeout: 1 });
 			}
 		});
+
+		for (const mode of ["fails", "hangs", "arrives late"] as const) {
+			test(`chats list: a project-names request that ${mode} still shows the chats`, async ({
+				page,
+				db,
+				session,
+			}) => {
+				const userId = await installUserSession(db, session.sessionId);
+				const [projectId] = await seedProjects(db, userId, ["Mortgage"]);
+				for (const title of ["One", "Two"]) {
+					await seedConversation(db, session.sessionId, {
+						title,
+						raw: { userId, updatedAt: new Date(), projectId },
+					});
+				}
+				await page.goto(`${E2E_APP_BASE}/`);
+				await page.route(/\/api\/v2\/projects$/, async (route) => {
+					if (mode === "fails") return route.abort();
+					if (mode === "hangs") return new Promise(() => {});
+					await new Promise((resolve) => setTimeout(resolve, 3500));
+					return route.continue();
+				});
+				await page.goto(`${E2E_APP_BASE}/chats`, { waitUntil: "domcontentloaded" });
+				// Within the wait cap plus slack, never forever; the badge falls back to "Project".
+				await expect(page.getByTestId("chats-row")).toHaveCount(2, { timeout: 6000 });
+				await expect(page.getByTestId("chats-row").first()).toContainText("Project");
+				if (mode === "arrives late") {
+					// The names then fill every badge in at once.
+					for (const row of await page.getByTestId("chats-row").all()) {
+						await expect(row).toContainText("Mortgage", { timeout: 10_000 });
+					}
+				}
+			});
+		}
 
 		test("notifications settings: header and tabs do not move when the pane arrives", async ({
 			page,
@@ -178,9 +211,11 @@ for (const vp of VIEWPORTS) {
 			await delay(page, /\/api\/v2\/push$/, 1500);
 			await page.goto(`${E2E_APP_BASE}/settings/notifications`, { waitUntil: "domcontentloaded" });
 			const heading = page.getByRole("heading", { name: "Settings", exact: true });
-			await expect(page.getByTestId("skeleton-region")).toBeVisible();
+			await expect(page.locator("[data-region=notifications]")).toBeVisible();
 			const before = await heading.boundingBox();
-			await expect(page.getByTestId("skeleton-region")).toHaveCount(0, { timeout: 20_000 });
+			await expect(page.locator("[data-region=notifications]")).toHaveCount(0, {
+				timeout: 20_000,
+			});
 			const after = await heading.boundingBox();
 			expect(after).toEqual(before);
 		});

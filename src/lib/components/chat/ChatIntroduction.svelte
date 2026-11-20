@@ -160,7 +160,7 @@
 		<span
 			class={picked
 				? "opacity-100 transition-opacity duration-200 motion-reduce:transition-none"
-				: "opacity-0"}
+				: "intro-pending"}
 			data-testid="intro-title"
 		>
 			{#if phrase && gloss}
@@ -273,3 +273,17 @@
 	</div>
 	<div class="h-40 sm:h-24"></div> -->
 </div>
+
+<style>
+	/* Hidden until the greeting is picked after hydration. The animation is the fallback: with no
+	   JavaScript, or a failed hydration, the app name shows after 600 ms anyway. */
+	.intro-pending {
+		opacity: 0;
+		animation: intro-reveal 0s linear 600ms forwards;
+	}
+	@keyframes intro-reveal {
+		to {
+			opacity: 1;
+		}
+	}
+</style>

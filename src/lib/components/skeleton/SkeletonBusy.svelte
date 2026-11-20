@@ -5,13 +5,21 @@
 	import { m } from "$lib/paraglide/messages";
 	interface Props {
 		label?: string;
+		/** A name for tests and scoping, rendered as `data-region`. */
+		region?: string;
 		class?: string;
 		children: Snippet;
 	}
-	let { label, class: className = "", children }: Props = $props();
+	let { label, region, class: className = "", children }: Props = $props();
 </script>
 
-<div class={className} aria-busy="true" role="status" data-testid="skeleton-region">
+<div
+	class={className}
+	data-region={region}
+	aria-busy="true"
+	role="status"
+	data-testid="skeleton-region"
+>
 	<span class="sr-only">{label ?? m["app.skeleton.loading"]()}</span>
 	{@render children()}
 </div>

@@ -88,7 +88,7 @@
 
 		<div class={s.STACK}>
 			{#if sk.visible}
-				<SkeletonBusy label={m["projects.manager.loading"]()}>
+				<SkeletonBusy region="projects" label={m["projects.manager.loading"]()}>
 					<SkeletonCard count={3} />
 				</SkeletonBusy>
 			{:else if loading}
