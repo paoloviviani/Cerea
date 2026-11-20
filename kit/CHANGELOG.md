@@ -7,6 +7,8 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- Fixed: a turn that made several tool calls at once now waits for all of them before continuing. When a fast code result arrived while a slower connector call of the same step was still running, the turn used to carry on without the slow call's answer. Users see one continuation with every result, and Stop ends the whole step.
+
 ## v0.60.4 — 2026-11-20
 
 Pins: Cerea `0.60.4` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.5`, opencode `2.3.0`.

@@ -370,11 +370,11 @@ export async function POST({ request, locals, params, getClientAddress }) {
 				_id: convId,
 				...authCondition(locals),
 			});
-			if (fresh) conv = fresh;
+			// In place: closures above hold this object.
+			if (fresh) Object.assign(conv, fresh);
 		}
-		const settledParked = conv.messages.find((message) => message.id === parked.id) ?? parked;
-		messageToWriteToId = settledParked.id;
-		messagesForPrompt = buildSubtree(conv, settledParked.id);
+		messageToWriteToId = parked.id;
+		messagesForPrompt = buildSubtree(conv, parked.id);
 	} else if (isRetry && messageId) {
 		// two cases, if we're retrying a user message with a newPrompt set,
 		// it means we're editing a user message
