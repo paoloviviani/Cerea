@@ -323,7 +323,10 @@ describe("ChatInput: attaching knowledge bases", () => {
 		expect(input).toBeTruthy();
 		const accept = input.getAttribute("accept")?.split(",") ?? [];
 		expect(accept.length).toBeGreaterThan(0);
-		expect(accept.every((t) => t.startsWith("audio/"))).toBe(true);
+		// Audio types, and audio extensions for the files a phone gives no type.
+		expect(accept.every((t) => t.startsWith("audio/") || /^\.[a-z0-9]+$/.test(t))).toBe(true);
+		expect(accept).toContain(".opus");
+		expect(accept).toContain(".m4a");
 	});
 
 	it("the menu has no Create an image item unless an image model resolves for the user", async () => {
