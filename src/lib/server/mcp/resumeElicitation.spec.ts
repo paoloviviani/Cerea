@@ -455,7 +455,11 @@ describe("resuming a tool-approval prompt (ADR 0075)", () => {
 			scope: "once",
 		});
 
-		const outcome = await resumeParkedToolCall({ conversationId, elicitationId: id });
+		const outcome = await resumeParkedToolCall({
+			viaServer: true,
+			conversationId,
+			elicitationId: id,
+		});
 
 		expect(outcome.resumed).toBe(true);
 		const result = outcome.updates.find((u) => "subtype" in u && u.subtype === "result") as
@@ -485,7 +489,12 @@ describe("resuming a tool-approval prompt (ADR 0075)", () => {
 			args: { url },
 			scope: "once",
 		});
-		const outcome = await resumeParkedToolCall({ conversationId, elicitationId: id, token });
+		const outcome = await resumeParkedToolCall({
+			viaServer: true,
+			conversationId,
+			elicitationId: id,
+			token,
+		});
 		return outcome.updates.find(
 			(u) => "subtype" in u && (u.subtype === "result" || u.subtype === "error")
 		) as
@@ -525,7 +534,11 @@ describe("resuming a tool-approval prompt (ADR 0075)", () => {
 			scope: "conversation",
 		});
 
-		const outcome = await resumeParkedToolCall({ conversationId, elicitationId: id });
+		const outcome = await resumeParkedToolCall({
+			viaServer: true,
+			conversationId,
+			elicitationId: id,
+		});
 
 		expect(outcome.grantedTools).toEqual(["web_fetch"]);
 		const conv = await collections.conversations.findOne({ _id: conversationId });
@@ -541,7 +554,11 @@ describe("resuming a tool-approval prompt (ADR 0075)", () => {
 			args: { url },
 		});
 
-		const outcome = await resumeParkedToolCall({ conversationId, elicitationId: id });
+		const outcome = await resumeParkedToolCall({
+			viaServer: true,
+			conversationId,
+			elicitationId: id,
+		});
 
 		expect(fetchPageMock).not.toHaveBeenCalled();
 		expect(outcome.updates.find((u) => "subtype" in u && u.subtype === "error")).toMatchObject({
@@ -563,6 +580,7 @@ describe("resuming a tool-approval prompt (ADR 0075)", () => {
 		});
 
 		const outcome = await resumeParkedToolCall({
+			viaServer: true,
 			conversationId,
 			elicitationId: id,
 			extraServers: SERVERS,
@@ -585,6 +603,7 @@ describe("resuming a tool-approval prompt (ADR 0075)", () => {
 			scope: "once",
 		});
 		const outcome = await resumeParkedToolCall({
+			viaServer: true,
 			conversationId,
 			elicitationId: id,
 			extraServers: SERVERS,
@@ -630,7 +649,11 @@ describe("resuming a tool-approval prompt (ADR 0075)", () => {
 			scope: "once",
 		});
 
-		const outcome = await resumeParkedToolCall({ conversationId, elicitationId: id });
+		const outcome = await resumeParkedToolCall({
+			viaServer: true,
+			conversationId,
+			elicitationId: id,
+		});
 
 		expect(calls.seen).toEqual([]);
 		expect(JSON.stringify(outcome.updates)).toContain("Unknown MCP server: search");
@@ -669,7 +692,11 @@ describe("resuming a tool-approval prompt (ADR 0075)", () => {
 			],
 		});
 
-		const outcome = await resumeParkedToolCall({ conversationId, elicitationId: id });
+		const outcome = await resumeParkedToolCall({
+			viaServer: true,
+			conversationId,
+			elicitationId: id,
+		});
 
 		// Both calls ran: the queued one was auto-cleared by the conversation-scope
 		// grant the first click just made, with no second prompt in between.
@@ -709,7 +736,11 @@ describe("resuming a tool-approval prompt (ADR 0075)", () => {
 			],
 		});
 
-		const outcome = await resumeParkedToolCall({ conversationId, elicitationId: id });
+		const outcome = await resumeParkedToolCall({
+			viaServer: true,
+			conversationId,
+			elicitationId: id,
+		});
 
 		expect(outcome.parkedAgain).toBe(true);
 		expect(calls.seen).toHaveLength(0);
@@ -749,7 +780,11 @@ describe("resuming a tool-approval prompt (ADR 0075)", () => {
 			scope: "once",
 		});
 
-		const outcome = await resumeParkedToolCall({ conversationId, elicitationId: id });
+		const outcome = await resumeParkedToolCall({
+			viaServer: true,
+			conversationId,
+			elicitationId: id,
+		});
 
 		expect(fetchPageMock).not.toHaveBeenCalled();
 		expect(accessibilitySnapshotWithPlaywright).toHaveBeenCalledWith(url);
@@ -783,7 +818,12 @@ describe("resuming a tool-approval prompt (ADR 0075)", () => {
 			scope: "once",
 		});
 
-		const outcome = await resumeParkedToolCall({ conversationId, elicitationId: id, token: "tok" });
+		const outcome = await resumeParkedToolCall({
+			viaServer: true,
+			conversationId,
+			elicitationId: id,
+			token: "tok",
+		});
 
 		expect(generateImagesMock).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -836,7 +876,12 @@ describe("resuming a tool-approval prompt (ADR 0075)", () => {
 			scope: "conversation",
 			queue: [queued(1), queued(2)],
 		});
-		const outcome = await resumeParkedToolCall({ conversationId, elicitationId: id, token: "tok" });
+		const outcome = await resumeParkedToolCall({
+			viaServer: true,
+			conversationId,
+			elicitationId: id,
+			token: "tok",
+		});
 		expect(generateImagesMock).toHaveBeenCalledTimes(1);
 		const errors = outcome.updates.filter((u) => "subtype" in u && u.subtype === "error");
 		expect(errors).toHaveLength(2);
@@ -852,7 +897,11 @@ describe("resuming a tool-approval prompt (ADR 0075)", () => {
 			args: { prompt: "a fox" },
 			scope: "once",
 		});
-		const outcome = await resumeParkedToolCall({ conversationId, elicitationId: id });
+		const outcome = await resumeParkedToolCall({
+			viaServer: true,
+			conversationId,
+			elicitationId: id,
+		});
 		expect(generateImagesMock).not.toHaveBeenCalled();
 		expect(outcome.updates.some((u) => "subtype" in u && u.subtype === "error")).toBe(true);
 	});
@@ -865,7 +914,12 @@ describe("resuming a tool-approval prompt (ADR 0075)", () => {
 			tool: "generate_image",
 			args: { prompt: "a fox" },
 		});
-		await resumeParkedToolCall({ conversationId, elicitationId: id, token: "tok" });
+		await resumeParkedToolCall({
+			viaServer: true,
+			conversationId,
+			elicitationId: id,
+			token: "tok",
+		});
 		expect(generateImagesMock).not.toHaveBeenCalled();
 	});
 
@@ -878,7 +932,11 @@ describe("resuming a tool-approval prompt (ADR 0075)", () => {
 			scope: "once",
 		});
 
-		const outcome = await resumeParkedToolCall({ conversationId, elicitationId: id });
+		const outcome = await resumeParkedToolCall({
+			viaServer: true,
+			conversationId,
+			elicitationId: id,
+		});
 
 		expect(fetchPageMock).not.toHaveBeenCalled();
 		const error = outcome.updates.find((u) => "subtype" in u && u.subtype === "error") as
