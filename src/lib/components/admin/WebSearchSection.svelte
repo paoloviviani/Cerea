@@ -8,6 +8,9 @@
 	anchor id is what the old `/admin/web-search` URL redirects to.
 -->
 <script lang="ts">
+	import { delayedLoading } from "$lib/utils/delayedLoading.svelte";
+	import SkeletonBusy from "$lib/components/skeleton/SkeletonBusy.svelte";
+	import SkeletonFormRow from "$lib/components/skeleton/SkeletonFormRow.svelte";
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
 	import { m } from "$lib/paraglide/messages";
@@ -24,6 +27,7 @@
 	let status = $state<Status | null>(null);
 	let choice = $state("");
 	let loading = $state(true);
+	const sk = delayedLoading(() => loading);
 	let saving = $state(false);
 	let failure = $state<string | null>(null);
 	let notice = $state<string | null>(null);
@@ -98,8 +102,12 @@
 		</p>
 	{/if}
 
-	{#if loading}
-		<p class="text-sm text-gray-500">{m["admin.common.loading"]()}</p>
+	{#if sk.visible}
+		<SkeletonBusy label={m["admin.common.loading"]()}>
+			<SkeletonFormRow count={3} />
+		</SkeletonBusy>
+	{:else if loading}
+		<!-- inside the delay: nothing yet -->
 	{:else if status}
 		<label class="flex flex-col gap-1">
 			<span class="text-sm font-medium">{m["admin.web_search.backend.label"]()}</span>

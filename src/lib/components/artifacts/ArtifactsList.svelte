@@ -43,6 +43,10 @@
 	import LucideAppWindow from "~icons/lucide/app-window";
 	import LucideShapes from "~icons/lucide/shapes";
 	import LucideWorkflow from "~icons/lucide/workflow";
+	import { delayedLoading } from "$lib/utils/delayedLoading.svelte";
+	import SkeletonBusy from "$lib/components/skeleton/SkeletonBusy.svelte";
+	import SkeletonRows from "$lib/components/skeleton/SkeletonRows.svelte";
+	import Skeleton from "$lib/components/skeleton/Skeleton.svelte";
 	import LucidePresentation from "~icons/lucide/presentation";
 
 	interface Row {
@@ -67,6 +71,8 @@
 	let rows = $state<Row[]>([]);
 	let hasMore = $state(false);
 	let loading = $state(true);
+	/** The first load only: a page of more rows or a refresh keeps the rows on screen. */
+	const sk = delayedLoading(() => loading && rows.length === 0);
 	let failure = $state<string | null>(null);
 	let nextPage = 0;
 	/** Bumped on every new filter, so a slow answer to an old one is dropped. */
@@ -244,8 +250,10 @@
 						]()}{/if}
 				</p>
 				<p class={s.STRIP_DETAIL} role="status" aria-live="polite">
-					{#if loading && rows.length === 0}
-						{m["artifacts.list.loading"]()}
+					{#if (loading && rows.length === 0) || sk.visible}
+						<span class="inline-block h-[1.1em] w-28 align-middle">
+							{#if sk.visible}<Skeleton width="7rem" height="0.75rem" />{/if}
+						</span>
 					{:else if searching}
 						{m["artifacts.list.count_found"]({ count: rows.length, more: hasMore ? "+" : "" })}
 					{:else}
@@ -302,7 +310,11 @@
 		<p class={s.ERROR} role="alert">{failure}</p>
 	{/if}
 
-	{#if rows.length > 0}
+	{#if sk.visible}
+		<SkeletonBusy label={m["artifacts.list.loading"]()}>
+			<SkeletonRows count={7} leading rowHeight="3.5rem" />
+		</SkeletonBusy>
+	{:else if rows.length > 0}
 		<ul class="flex flex-col gap-2" data-testid="artifacts-rows">
 			{#each rows as row (rowKey(row))}
 				{@const Icon = iconFor(row)}
@@ -382,7 +394,7 @@
 			<InfiniteScroll onvisible={more} />
 		{/if}
 	{:else if loading}
-		<p class={s.SUBTITLE}>{m["artifacts.list.loading"]()}</p>
+		<!-- inside the delay: nothing yet, neither a skeleton nor the empty state -->
 	{:else if !failure}
 		<div class={s.EMPTY} data-testid={searching ? "artifacts-no-results" : "artifacts-empty"}>
 			<LucideShapes class={s.EMPTY_ICON} />

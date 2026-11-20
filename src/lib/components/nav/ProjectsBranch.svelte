@@ -38,6 +38,8 @@
 	import { page } from "$app/state";
 	import TreeBranch from "./TreeBranch.svelte";
 	import TreeLeaf from "./TreeLeaf.svelte";
+	import SkeletonRegion from "$lib/components/skeleton/SkeletonRegion.svelte";
+	import SkeletonRows from "$lib/components/skeleton/SkeletonRows.svelte";
 	import RowMenu from "./RowMenu.svelte";
 	import NavConversationItem from "../NavConversationItem.svelte";
 	import { regenerateChatTitle } from "$lib/utils/regenerateTitle";
@@ -446,122 +448,130 @@
 		<CarbonFolder class="size-3.5 shrink-0" />
 	{/snippet}
 
-	{#if !cache.loaded}
-		<TreeLeaf label={m["nav.projects.loading"]()} depth={1} />
-	{:else if cache.failed}
-		<TreeLeaf
-			label={m["nav.projects.unavailable"]()}
-			depth={1}
-			title={m["nav.projects.load_failed"]()}
-		/>
-	{:else if cache.projects.length === 0}
-		<TreeLeaf label={m["nav.projects.none"]()} depth={1} onclick={() => openProject()} />
-	{:else}
-		{#each cache.projects as project (project.id)}
-			<TreeBranch
-				label={project.name}
-				href="{base}/projects/{project.id}"
+	<SkeletonRegion loading={!cache.loaded} label={m["nav.projects.loading"]()}>
+		{#snippet skeleton()}
+			<SkeletonRows count={3} rowHeight="2rem" indent="1rem" />
+		{/snippet}
+		{#if cache.failed}
+			<TreeLeaf
+				label={m["nav.projects.unavailable"]()}
 				depth={1}
-				badge={project.conversationCount || undefined}
-				open={cache.expanded[project.id] ?? false}
-				onactivate={() => toggleFolder(project)}
-				onadd={() => startChat(project)}
-				addTitle={m["nav.projects.new_chat"]()}
-				acceptsChat={() => chatDrag.current !== null && chatDrag.current.projectId !== project.id}
-				ondropchat={() => dropOn(project)}
-			>
-				{#snippet icon()}
-					<CarbonFolder class="size-3.5 shrink-0" />
-				{/snippet}
+				title={m["nav.projects.load_failed"]()}
+			/>
+		{:else if cache.projects.length === 0}
+			<TreeLeaf label={m["nav.projects.none"]()} depth={1} onclick={() => openProject()} />
+		{:else}
+			{#each cache.projects as project (project.id)}
+				<TreeBranch
+					label={project.name}
+					href="{base}/projects/{project.id}"
+					depth={1}
+					badge={project.conversationCount || undefined}
+					open={cache.expanded[project.id] ?? false}
+					onactivate={() => toggleFolder(project)}
+					onadd={() => startChat(project)}
+					addTitle={m["nav.projects.new_chat"]()}
+					acceptsChat={() => chatDrag.current !== null && chatDrag.current.projectId !== project.id}
+					ondropchat={() => dropOn(project)}
+				>
+					{#snippet icon()}
+						<CarbonFolder class="size-3.5 shrink-0" />
+					{/snippet}
 
-				{#snippet actions()}
-					<RowMenu label={project.name}>
-						{#snippet children(close)}
-							<button
-								type="button"
-								role="menuitem"
-								onclick={() => {
-									close();
-									void openProject(project.id);
-								}}
-								class="flex h-8 w-full items-center gap-2 px-3 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
-							>
-								<CarbonSettings class="size-3.5" />
-								{m["nav.projects.settings"]()}
-							</button>
-							{#if project.owned}
+					{#snippet actions()}
+						<RowMenu label={project.name}>
+							{#snippet children(close)}
 								<button
 									type="button"
 									role="menuitem"
-									disabled={busy}
 									onclick={() => {
 										close();
-										deleting = project;
+										void openProject(project.id);
 									}}
-									class="flex h-8 w-full items-center gap-2 px-3 text-left text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-900/20"
+									class="flex h-8 w-full items-center gap-2 px-3 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
 								>
-									<CarbonTrash class="size-3.5" />
-									{m["nav.projects.delete"]()}
+									<CarbonSettings class="size-3.5" />
+									{m["nav.projects.settings"]()}
 								</button>
-							{/if}
-						{/snippet}
-					</RowMenu>
-				{/snippet}
+								{#if project.owned}
+									<button
+										type="button"
+										role="menuitem"
+										disabled={busy}
+										onclick={() => {
+											close();
+											deleting = project;
+										}}
+										class="flex h-8 w-full items-center gap-2 px-3 text-left text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-900/20"
+									>
+										<CarbonTrash class="size-3.5" />
+										{m["nav.projects.delete"]()}
+									</button>
+								{/if}
+							{/snippet}
+						</RowMenu>
+					{/snippet}
 
-				{#if chatsFailed[project.id]}
-					<TreeLeaf
-						label={m["nav.projects.chats_failed"]()}
-						depth={2}
-						onclick={() => loadChats(project.id)}
-						title={m["nav.projects.try_again"]()}
-					/>
-				{:else if cache.chats[project.id] === undefined}
-					<TreeLeaf label={m["nav.projects.loading"]()} depth={2} />
-				{:else if cache.chats[project.id].length === 0}
-					<TreeLeaf
-						label={m["nav.projects.no_chats"]()}
-						depth={2}
-						onclick={() => startChat(project)}
-						title={m["nav.projects.start_chat"]()}
-					/>
-				{:else}
-					<!-- The guide begins at the folder's disclosure-arrow centre. Its
+					{#if chatsFailed[project.id]}
+						<TreeLeaf
+							label={m["nav.projects.chats_failed"]()}
+							depth={2}
+							onclick={() => loadChats(project.id)}
+							title={m["nav.projects.try_again"]()}
+						/>
+					{:else if cache.chats[project.id] === undefined}
+						<SkeletonRegion loading label={m["nav.projects.loading"]()}>
+							{#snippet skeleton()}
+								<SkeletonRows count={2} rowHeight="2rem" indent="2.25rem" />
+							{/snippet}
+							<!-- never shown: only the placeholder renders while this folder has no list -->
+						</SkeletonRegion>
+					{:else if cache.chats[project.id].length === 0}
+						<TreeLeaf
+							label={m["nav.projects.no_chats"]()}
+							depth={2}
+							onclick={() => startChat(project)}
+							title={m["nav.projects.start_chat"]()}
+						/>
+					{:else}
+						<!-- The guide begins at the folder's disclosure-arrow centre. Its
 					     padding plus the shared row's own padding leaves chat titles
 					     aligned with the other depth-two leaves. -->
-					<div
-						class="ml-[1.375rem] flex flex-col gap-px border-l border-gray-200 pl-2.5 dark:border-gray-700"
-					>
-						{#each cache.chats[project.id] as conversation (conversation.id)}
-							{@const sidebarConv = {
-								id: conversation.id,
-								title: convsStore?.titles[conversation.id] ?? conversation.title,
-								model: conversation.model,
-								projectId: project.id,
-								updatedAt: new Date(conversation.updatedAt),
-								lastActivityAt: new Date(conversation.lastActivityAt ?? conversation.updatedAt),
-								...(conversation.titleByUser ? { titleByUser: true as const } : {}),
-							} as ConvSidebar}
-							<NavConversationItem
-								conv={sidebarConv}
-								oneditConversationTitle={(payload) =>
-									renameChat(project.id, payload.id, payload.title)}
-								ondeleteConversation={(id) => destroyChat(project.id, id)}
-								onregenerateTitle={(id) => regenerateChat(id)}
-							/>
-						{/each}
-					</div>
-				{/if}
-				{#if !chatsFailed[project.id] && cache.chats[project.id] !== undefined && (cache.others[project.id] ?? 0) > 0}
-					<p
-						class="ml-[1.375rem] px-2.5 py-1 text-xs text-gray-500 dark:text-gray-400"
-						data-testid="project-others-count"
-					>
-						{m["projects.page.chats.others_count"]({ count: cache.others[project.id] })}
-					</p>
-				{/if}
-			</TreeBranch>
-		{/each}
-	{/if}
+						<div
+							class="ml-[1.375rem] flex flex-col gap-px border-l border-gray-200 pl-2.5 dark:border-gray-700"
+						>
+							{#each cache.chats[project.id] as conversation (conversation.id)}
+								{@const sidebarConv = {
+									id: conversation.id,
+									title: convsStore?.titles[conversation.id] ?? conversation.title,
+									model: conversation.model,
+									projectId: project.id,
+									updatedAt: new Date(conversation.updatedAt),
+									lastActivityAt: new Date(conversation.lastActivityAt ?? conversation.updatedAt),
+									...(conversation.titleByUser ? { titleByUser: true as const } : {}),
+								} as ConvSidebar}
+								<NavConversationItem
+									conv={sidebarConv}
+									oneditConversationTitle={(payload) =>
+										renameChat(project.id, payload.id, payload.title)}
+									ondeleteConversation={(id) => destroyChat(project.id, id)}
+									onregenerateTitle={(id) => regenerateChat(id)}
+								/>
+							{/each}
+						</div>
+					{/if}
+					{#if !chatsFailed[project.id] && cache.chats[project.id] !== undefined && (cache.others[project.id] ?? 0) > 0}
+						<p
+							class="ml-[1.375rem] px-2.5 py-1 text-xs text-gray-500 dark:text-gray-400"
+							data-testid="project-others-count"
+						>
+							{m["projects.page.chats.others_count"]({ count: cache.others[project.id] })}
+						</p>
+					{/if}
+				</TreeBranch>
+			{/each}
+		{/if}
+	</SkeletonRegion>
 </TreeBranch>
 
 {#if deleting}

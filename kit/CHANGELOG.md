@@ -7,6 +7,8 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- Interface: screens no longer fill in piece by piece. While a list or settings page loads, it shows shimmering placeholder lines the size of the real content (and nothing at all if the data arrives within a moment), then the whole page appears at once with no jump. This covers the chats, artifacts, projects and knowledge lists, the sidebar's projects and computers, the Agents pane, the settings and administration pages, and the greeting on the new-chat page. Refreshing a page that is already open keeps what is on screen. Users who prefer reduced motion see the placeholders without animation.
+
 ## v0.60.1 — 2026-11-19
 
 Pins: Cerea `0.60.1` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.5`, opencode `2.3.0`.

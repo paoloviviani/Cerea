@@ -115,6 +115,9 @@
 	];
 
 	let phrase = $state("");
+	// The name is in the server HTML but the greeting replaces it right after hydration: keep that
+	// slot invisible (same box, so nothing moves) until the greeting is picked, then reveal it once.
+	let picked = $state(false);
 
 	// What each built-in greeting means, for a user who has never met it. A phrase an
 	// operator adds has no gloss here and is printed plain.
@@ -130,6 +133,7 @@
 	onMount(() => {
 		const rotation = [publicConfig.PUBLIC_APP_NAME, ...phrases];
 		phrase = rotation[Math.floor(Math.random() * rotation.length)] ?? "";
+		picked = true;
 	});
 </script>
 
@@ -153,25 +157,32 @@
 		     says Cerea, Com'è?, Va bin — not a name with a whisper beside
 		     it. Empty until onMount picks, so the SSR payload (pinned by
 		     the SSR test) carries the name only. -->
-		{#if phrase && gloss}
-			<span>
-				<button
-					type="button"
-					class="cursor-help font-[inherit] select-none hover:text-gray-600 dark:hover:text-gray-300"
-					title={gloss}
-					aria-label="{phrase} — {gloss}"
-					data-testid="intro-phrase"
-					onclick={() => (glossOpen = !glossOpen)}
-					onblur={() => (glossOpen = false)}
-				>
-					{phrase}
-				</button>
-			</span>
-		{:else if phrase}
-			{phrase}
-		{:else}
-			{publicConfig.PUBLIC_APP_NAME}
-		{/if}
+		<span
+			class={picked
+				? "opacity-100 transition-opacity duration-200 motion-reduce:transition-none"
+				: "opacity-0"}
+			data-testid="intro-title"
+		>
+			{#if phrase && gloss}
+				<span>
+					<button
+						type="button"
+						class="cursor-help font-[inherit] select-none hover:text-gray-600 dark:hover:text-gray-300"
+						title={gloss}
+						aria-label="{phrase} — {gloss}"
+						data-testid="intro-phrase"
+						onclick={() => (glossOpen = !glossOpen)}
+						onblur={() => (glossOpen = false)}
+					>
+						{phrase}
+					</button>
+				</span>
+			{:else if phrase}
+				{phrase}
+			{:else}
+				{publicConfig.PUBLIC_APP_NAME}
+			{/if}
+		</span>
 	</div>
 	{#if glossOpen}
 		<span role="status" class="-mt-5 text-sm text-ink-muted" data-testid="intro-gloss">

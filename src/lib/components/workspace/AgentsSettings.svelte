@@ -6,6 +6,9 @@
 	save. The administrator only switches reviewers on for the deployment.
 -->
 <script lang="ts">
+	import { delayedLoading } from "$lib/utils/delayedLoading.svelte";
+	import SkeletonBusy from "$lib/components/skeleton/SkeletonBusy.svelte";
+	import SkeletonFormRow from "$lib/components/skeleton/SkeletonFormRow.svelte";
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
 	import { m } from "$lib/paraglide/messages";
@@ -34,6 +37,7 @@
 	}
 
 	let loading = $state(true);
+	const sk = delayedLoading(() => loading);
 	let loadFailure = $state<string | null>(null);
 	let killSwitchOn = $state(false);
 	let deploymentEnabled = $state(true);
@@ -197,8 +201,12 @@
 			>
 		</div>
 
-		{#if loading}
-			<p class="text-sm text-gray-500">{m["workspace.agents.loading"]()}</p>
+		{#if sk.visible}
+			<SkeletonBusy label={m["workspace.agents.loading"]()}>
+				<SkeletonFormRow count={4} />
+			</SkeletonBusy>
+		{:else if loading}
+			<!-- inside the delay: nothing yet -->
 		{:else if loadFailure}
 			<p class="text-sm text-red-600" role="alert">{loadFailure}</p>
 		{:else}

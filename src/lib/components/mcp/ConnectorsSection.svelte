@@ -15,6 +15,9 @@
 	saying how it went.
 -->
 <script lang="ts">
+	import { delayedLoading } from "$lib/utils/delayedLoading.svelte";
+	import SkeletonBusy from "$lib/components/skeleton/SkeletonBusy.svelte";
+	import SkeletonCard from "$lib/components/skeleton/SkeletonCard.svelte";
 	import ScopesField from "./ScopesField.svelte";
 	import * as s from "$lib/components/overlay/styles";
 	import { m } from "$lib/paraglide/messages";
@@ -53,6 +56,7 @@
 	// on, and a copy held by a dialog that is destroyed when it closes cannot
 	// tell them.
 	const loading = $derived(!$connectorsLoaded);
+	const sk = delayedLoading(() => loading);
 	let failure = $state<string | null>(null);
 	let busy = $state(false);
 	/** Which connector an in-flight row action belongs to, so only its icon spins. */
@@ -1079,8 +1083,12 @@
 		<ConnectorDetailSheet connector={detail} onclose={() => (detail = null)} />
 	{/if}
 
-	{#if loading}
-		<p class="text-sm text-gray-600 dark:text-gray-400">{m["mcp.connectors.loading"]()}</p>
+	{#if sk.visible}
+		<SkeletonBusy label={m["mcp.connectors.loading"]()}>
+			<SkeletonCard count={4} />
+		</SkeletonBusy>
+	{:else if loading}
+		<!-- inside the delay: nothing yet -->
 	{:else}
 		<div>
 			<div class="flex items-start justify-between gap-3">

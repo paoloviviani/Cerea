@@ -17,6 +17,9 @@
 	disagreed with the prompt would be worse than one that said nothing.
 -->
 <script lang="ts">
+	import { delayedLoading } from "$lib/utils/delayedLoading.svelte";
+	import SkeletonBusy from "$lib/components/skeleton/SkeletonBusy.svelte";
+	import SkeletonRows from "$lib/components/skeleton/SkeletonRows.svelte";
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
 	import { m } from "$lib/paraglide/messages";
@@ -34,6 +37,7 @@
 
 	let memories = $state<MemoryView[]>([]);
 	let loading = $state(true);
+	const sk = delayedLoading(() => loading);
 	let failure = $state<string | null>(null);
 	let adding = $state(false);
 	let draft = $state("");
@@ -273,8 +277,12 @@
 			</div>
 		{/if}
 
-		{#if loading}
-			<p class={s.SUBTITLE}>{m["memory.manager.loading"]()}</p>
+		{#if sk.visible}
+			<SkeletonBusy label={m["memory.manager.loading"]()}>
+				<SkeletonRows count={4} rowHeight="3rem" />
+			</SkeletonBusy>
+		{:else if loading}
+			<!-- inside the delay: nothing yet -->
 		{:else if memories.length === 0}
 			<div class={s.EMPTY}>
 				<LucideBrain class={s.EMPTY_ICON} />

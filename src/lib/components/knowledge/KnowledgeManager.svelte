@@ -12,6 +12,9 @@
 	`/api/v2/gateway`, which attaches the session's token server-side.
 -->
 <script lang="ts">
+	import { delayedLoading } from "$lib/utils/delayedLoading.svelte";
+	import SkeletonBusy from "$lib/components/skeleton/SkeletonBusy.svelte";
+	import SkeletonCard from "$lib/components/skeleton/SkeletonCard.svelte";
 	import { onMount, untrack } from "svelte";
 	import { base as appBase } from "$app/paths";
 	import { m } from "$lib/paraglide/messages";
@@ -72,6 +75,7 @@
 	// The reader chosen on the create form: "" is the deployment's default.
 	let readerChoice = $state("");
 	let loading = $state(true);
+	const sk = delayedLoading(() => loading);
 	let failure = $state<string | null>(null);
 
 	const indexed = $derived(stores.reduce((total, store) => total + store.file_counts.completed, 0));
@@ -731,8 +735,12 @@
 					</p>
 				{/if}
 
-				{#if loading}
-					<p class={s.SUBTITLE}>{m["knowledge.manager.loading"]()}</p>
+				{#if sk.visible}
+					<SkeletonBusy label={m["knowledge.manager.loading"]()}>
+						<SkeletonCard count={3} />
+					</SkeletonBusy>
+				{:else if loading}
+					<!-- inside the delay: nothing yet -->
 				{:else if stores.length === 0}
 					<div class={s.EMPTY}>
 						<LucideLibrary class={s.EMPTY_ICON} />

@@ -10,6 +10,9 @@
 	Application tab's own billing-org fetch below).
 -->
 <script lang="ts">
+	import { delayedLoading } from "$lib/utils/delayedLoading.svelte";
+	import SkeletonBusy from "$lib/components/skeleton/SkeletonBusy.svelte";
+	import SkeletonFormRow from "$lib/components/skeleton/SkeletonFormRow.svelte";
 	import { onMount } from "svelte";
 	import { page } from "$app/state";
 	import { invalidateAll } from "$app/navigation";
@@ -28,6 +31,7 @@
 	let sections = $state<UsageSection[]>([]);
 	let summary = $state<QuotaSummary | null>(null);
 	let loading = $state(true);
+	const sk = delayedLoading(() => loading);
 	let loadError = $state<string | null>(null);
 
 	// Billing group state, moved verbatim from
@@ -112,8 +116,12 @@
 	</div>
 {:else}
 	<div class="flex w-full flex-col gap-4">
-		{#if loading}
-			<p class="text-sm text-gray-500 dark:text-gray-400">{m["settings.usage.loading"]()}</p>
+		{#if sk.visible}
+			<SkeletonBusy label={m["settings.usage.loading"]()}>
+				<SkeletonFormRow count={4} />
+			</SkeletonBusy>
+		{:else if loading}
+			<!-- inside the delay: nothing yet -->
 		{:else if loadError}
 			<div
 				class="rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm text-gray-500 shadow-xs dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400"

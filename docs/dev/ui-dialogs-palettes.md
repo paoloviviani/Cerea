@@ -65,3 +65,26 @@ things to know:
 - **Palettes are Cerea-only.** `tokens.css` stays a byte copy of Pystino's; the
   palettes override it from their own file. The swatch colours in
   `utils/palettes.ts` are checked against the CSS by a test.
+
+## Loading states: skeletons, never "Loading…" text
+
+A region shows **either its skeleton or its complete content**, never half, and
+never a line of "Loading…" text. The pieces live in `src/lib/components/skeleton/`:
+
+- `Skeleton` (line, block, circle) is one shimmering shape, coloured from the text
+  token so it follows light/dark and the Warm/Neutral/Cool tones; the shimmer is
+  frozen under `prefers-reduced-motion`.
+- `SkeletonRows` (sidebar and list rows), `SkeletonMessage`, `SkeletonFormRow`
+  (settings rows) and `SkeletonCard` are the composed ones. Give them the same
+  height as the real rows, so the swap moves nothing.
+- `SkeletonRegion` (or `SkeletonBusy` inside a hand-written `{#if}`) wraps the
+  placeholder in `aria-busy="true"` with an sr-only label; reuse the region's
+  existing `*.loading` message as the label.
+
+Timing is one shared rule, `delayedLoading` (`src/lib/utils/delayedLoading.svelte.ts`):
+a load under 150 ms shows nothing, and a skeleton that appeared stays at least
+300 ms. Render the skeleton while `sk.visible`, nothing while `loading` but not
+yet visible, the content otherwise. Pass it the **first load only** (`loading &&
+rows.length === 0`): a refresh or poll keeps the old content in place and swaps it
+atomically, with no skeleton. When a region needs two requests (the chats list
+and its project names), await both before revealing it.

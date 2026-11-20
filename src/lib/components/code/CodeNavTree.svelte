@@ -22,6 +22,9 @@
 <script lang="ts">
 	import { agentDisplayTitle } from "$lib/utils/codeAgentTitle";
 	import * as s from "$lib/components/overlay/styles";
+	import { delayedLoading } from "$lib/utils/delayedLoading.svelte";
+	import SkeletonBusy from "$lib/components/skeleton/SkeletonBusy.svelte";
+	import SkeletonRows from "$lib/components/skeleton/SkeletonRows.svelte";
 	import { m } from "$lib/paraglide/messages";
 	import { onMount, untrack } from "svelte";
 	import { page } from "$app/state";
@@ -121,6 +124,7 @@
 	bindCodeCacheOwner(page.data.user?.id);
 	$effect(() => bindCodeCacheOwner(page.data.user?.id));
 	const trees = $derived(codeTreeCache.trees);
+	const sk = delayedLoading(() => codeDeviceList.loading);
 	let pairingOpen = $state(false);
 	let workspaceDialogFor = $state<string | null>(null);
 	let agentDialogFor = $state<CodeWorkspace | null>(null);
@@ -547,11 +551,12 @@
 			</p>
 		</div>
 	{/if}
-	{#if codeDeviceList.loading}
-		<p class="flex items-center gap-2 px-2 py-3 text-sm text-gray-500 dark:text-gray-400">
-			<IconRenew class="size-4 animate-spin" />
-			{m["code.nav.loading"]()}
-		</p>
+	{#if sk.visible}
+		<SkeletonBusy label={m["code.nav.loading"]()}>
+			<SkeletonRows count={4} leading rowHeight="2rem" />
+		</SkeletonBusy>
+	{:else if codeDeviceList.loading}
+		<!-- inside the delay: nothing yet -->
 	{:else if codeDeviceList.devices.length === 0}
 		<div class="px-2 py-3 text-sm text-gray-500 dark:text-gray-400">
 			<p class="flex items-center gap-1.5">

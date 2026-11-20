@@ -48,6 +48,10 @@
 	import { useConversationsStore } from "$lib/stores/conversations.svelte";
 	import { useNotificationsStore } from "$lib/stores/notifications.svelte";
 	import { projectsChanged } from "$lib/stores/projectsRevision";
+	import { delayedLoading } from "$lib/utils/delayedLoading.svelte";
+	import SkeletonBusy from "$lib/components/skeleton/SkeletonBusy.svelte";
+	import SkeletonRows from "$lib/components/skeleton/SkeletonRows.svelte";
+	import Skeleton from "$lib/components/skeleton/Skeleton.svelte";
 
 	interface ChatRow {
 		id: { toString(): string } | string;
@@ -118,9 +122,12 @@
 	let hasMore = $state(false);
 	let loading = $state(true);
 	let failure = $state<string | null>(null);
+	/** The first load only: a page of more rows or a refresh keeps the rows on screen. */
+	const sk = delayedLoading(() => loading && rows.length === 0);
 	let projectNames = $state<Record<string, string>>({});
 	let searchEl: HTMLInputElement | undefined = $state();
 
+	let namesReady: Promise<unknown> | undefined;
 	let nextPage = 0;
 	/** Bumped on every new search, so a slow answer to an old one is dropped. */
 	let generation = 0;
@@ -159,6 +166,20 @@
 
 	const searching = $derived(query.trim() !== "");
 
+	/**
+	 * Names for the project badge, fetched once, by whichever load runs first. A project that is
+	 * not in the answer (or a failed request) is badged as just "Project" rather than blocking.
+	 */
+	function ensureNames(): Promise<unknown> {
+		namesReady ??= fetch(`${base}/api/v2/projects`)
+			.then((response) => (response.ok ? response.json() : { data: [] }))
+			.then(({ data }: { data: ProjectView[] }) => {
+				projectNames = Object.fromEntries(data.map((project) => [project.id, project.name]));
+			})
+			.catch(() => undefined);
+		return namesReady;
+	}
+
 	async function load(reset: boolean) {
 		if (reset) {
 			generation++;
@@ -167,6 +188,7 @@
 		}
 		const mine = generation;
 		const asked = nextPage;
+		const names = ensureNames();
 		try {
 			const result = await client.conversations
 				.get({
@@ -178,6 +200,9 @@
 					},
 				})
 				.then(handleResponse);
+			// The project badges' names arrive from a second request: reveal the rows only once
+			// both are in, so a badge never says "Project" and then changes to the name.
+			await names;
 			if (mine !== generation) return;
 			rows = reset ? result.conversations : [...rows, ...result.conversations];
 			hasMore = result.hasMore;
@@ -250,14 +275,6 @@
 	onMount(() => {
 		searchEl?.focus();
 		void load(true);
-		// Names for the project badge. A project that is not in the answer (or a
-		// failed request) is badged as just "Project" rather than blocking the list.
-		fetch(`${base}/api/v2/projects`)
-			.then((response) => (response.ok ? response.json() : { data: [] }))
-			.then(({ data }: { data: ProjectView[] }) => {
-				projectNames = Object.fromEntries(data.map((project) => [project.id, project.name]));
-			})
-			.catch(() => undefined);
 		return () => {
 			clearTimeout(debounce);
 			clearTimeout(idle);
@@ -346,8 +363,10 @@
 								]()}{/if}
 						</p>
 						<p class={s.STRIP_DETAIL} role="status" aria-live="polite">
-							{#if loading && rows.length === 0}
-								{m["chat.list.loading"]()}
+							{#if (loading && rows.length === 0) || sk.visible}
+								<span class="inline-block h-[1.1em] w-28 align-middle">
+									{#if sk.visible}<Skeleton width="7rem" height="0.75rem" />{/if}
+								</span>
 							{:else if searching}
 								{m["chat.list.count_found"]({ count: rows.length, more: hasMore ? "+" : "" })}
 							{:else if archivedTab}
@@ -420,7 +439,11 @@
 				<p class="{s.ERROR} mb-4">{failure}</p>
 			{/if}
 
-			{#if rows.length > 0}
+			{#if sk.visible}
+				<SkeletonBusy label={m["chat.list.loading"]()}>
+					<SkeletonRows count={7} leading rowHeight="3.5rem" />
+				</SkeletonBusy>
+			{:else if rows.length > 0}
 				<ul class="flex flex-col gap-2" data-testid="chats-list">
 					{#each rows as row (String(row.id))}
 						<li class="relative">
@@ -485,7 +508,7 @@
 					<InfiniteScroll onvisible={more} />
 				{/if}
 			{:else if loading}
-				<p class={s.SUBTITLE}>{m["chat.list.loading"]()}</p>
+				<!-- inside the delay: nothing yet, neither a skeleton nor the empty state -->
 			{:else if !failure}
 				<div class={s.EMPTY} data-testid={searching ? "chats-no-results" : "chats-empty"}>
 					<IconChat class={s.EMPTY_ICON} />
