@@ -58,6 +58,7 @@ import { armTurnCap, classifyTurnAbort, untilCapped } from "$lib/server/generati
 import { clampStoppedContent } from "$lib/server/stopTruncation";
 import { MetricsServer } from "$lib/server/metrics";
 import { randomUUID } from "$lib/utils/randomUuid";
+import { PARENT_NOT_FOUND_MESSAGE } from "$lib/utils/sendRefusals";
 import { applyConversationSettings, saveGeneratedTitle } from "$lib/server/conversationSettings";
 import { userDocumentReader } from "$lib/server/files/userReader";
 
@@ -415,6 +416,24 @@ export async function POST({ request, locals, params, getClientAddress }) {
 			messagesForPrompt = promptForRetry(conv, messageId);
 		}
 	} else {
+		// The parent must be a message of THIS conversation's stored tree. A tab that sends in
+		// the instant after a turn ends can still hold the ids it minted itself for the
+		// optimistic messages (it swaps them for the server's on its post-turn refresh), and
+		// addChildren would take that id on trust: the failure then surfaced as a plain
+		// Error out of buildSubtree, a 500 with the generic toast. A refusal the client can
+		// act on instead: 409, and it re-syncs and sends again.
+		if (conv.messages.length > 0) {
+			if (!messageId) {
+				error(400, "Missing the message this one replies to.");
+			}
+			if (!conv.messages.some((message) => message.id === messageId)) {
+				logger.warn(
+					{ conversationId: id, parentId: messageId, messageCount: conv.messages.length },
+					"[send] parent message not in the stored conversation; asking the client to resync"
+				);
+				error(409, PARENT_NOT_FOUND_MESSAGE);
+			}
+		}
 		// just a normal linear conversation, so we add the user message
 		// and the blank assistant message back to back
 		const newUserMessageId = addChildren(

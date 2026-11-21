@@ -3,7 +3,7 @@
 	import ChatWindow from "$lib/components/chat/ChatWindow.svelte";
 	import { consumePendingFiles } from "$lib/utils/pendingFiles";
 	import { isAborted } from "$lib/stores/isAborted";
-	import { onMount, untrack } from "svelte";
+	import { onMount, tick, untrack } from "svelte";
 	import { page } from "$app/state";
 	import {
 		clearDeviceLocation,
@@ -14,6 +14,7 @@
 	import { chatDraftKey, keepUnsentSendAsDraft, restoresSendText } from "$lib/utils/composerDraft";
 	import { UrlDependency } from "$lib/types/UrlDependency";
 	import { safeInvalidate } from "$lib/utils/safeInvalidate";
+	import { PARENT_NOT_FOUND_MESSAGE } from "$lib/utils/sendRefusals";
 	import { base } from "$app/paths";
 	import { ERROR_MESSAGES, error } from "$lib/stores/errors";
 	import { keepChat, markAbandonedFirstChat } from "$lib/stores/abandonedChat";
@@ -201,17 +202,29 @@
 		});
 	});
 
+	// The post-turn refresh that swaps the ids this tab minted for its optimistic messages
+	// with the server's. A send in that gap would name a parent the server does not know.
+	let postTurnSync: Promise<void> | undefined;
+
 	async function writeMessage({
 		prompt,
-		messageId = messagesPath.at(-1)?.id ?? undefined,
+		messageId: explicitMessageId,
 		isRetry = false,
 		resumeElicitationId,
+		resentAfterSync = false,
 	}: {
 		prompt?: string;
 		messageId?: ReturnType<typeof v4>;
 		isRetry?: boolean;
 		resumeElicitationId?: string;
+		/** Set on the single automatic re-send after the server asked this tab to sync. */
+		resentAfterSync?: boolean;
 	}): Promise<void> {
+		// Wait for the refresh the last turn started, then take the parent from what it
+		// loaded: the send is the click's, only its parent id waits for the server's ids.
+		if (postTurnSync) await postTurnSync;
+		const messageId = explicitMessageId ?? messagesPath.at(-1)?.id ?? undefined;
+		let resyncAndResend = false;
 		modelGoneMessage = null;
 		// Retrying in place makes this chat the user's again.
 		if (isRetry) keepChat(convId);
@@ -378,6 +391,19 @@
 			).catch((err) => {
 				// A user abort rejects the fetch; that is not an error worth a toast
 				if (!$isAborted && !(err instanceof DOMException && err.name === "AbortError")) {
+					// The server does not hold the parent this tab named: refresh below and
+					// send once more, quietly (a second refusal is shown like any other).
+					if (
+						err instanceof SendRefusedError &&
+						err.status === 409 &&
+						err.message === PARENT_NOT_FOUND_MESSAGE &&
+						!resentAfterSync &&
+						!isRetry &&
+						!resumeElicitationId
+					) {
+						resyncAndResend = true;
+						return;
+					}
 					error.set(err.message);
 					if (err instanceof SendRefusedError && err.status === 410) modelGoneMessage = err.message;
 					// The server never accepted this send (a rejected POST or a
@@ -497,8 +523,21 @@
 				if (stoppedHere) {
 					await waitForTerminalPersist(convId);
 				}
-				await Promise.all([safeInvalidate(UrlDependency.Conversation), convsStore.refresh()]);
+				const sync = (async () => {
+					await Promise.all([safeInvalidate(UrlDependency.Conversation), convsStore.refresh()]);
+					// Let the effect that copies the load data into `messages` run.
+					await tick();
+				})();
+				postTurnSync = sync;
+				try {
+					await sync;
+				} finally {
+					if (postTurnSync === sync) postTurnSync = undefined;
+				}
 			}
+		}
+		if (resyncAndResend) {
+			await writeMessage({ prompt, resentAfterSync: true });
 		}
 	}
 
