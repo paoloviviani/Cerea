@@ -7,7 +7,14 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
-- Agents can now work across a user's computers. An agent on one computer can list, read, message and start sessions on another computer of the same user, which matters most with cloud workspaces, where each workspace is its own computer. Every use asks first: a card shows exactly what will be sent and where, offers Allow once or Reject (there is no "always" for another computer), and nothing is sent until the user allows it in Cerea. Plan refuses, the Auto reviewer never decides one, and a session started this way begins on Ask and does not report back. A message arrives marked as coming from an agent on another computer. It is on by default, with a switch for each user under Workspace, Agents, "Let my agents talk to my other computers"; an administrator can turn it off for everyone with `CODE_RELAYED_COORDINATION_ENABLED=false`, and a computer's owner can refuse it there with `galopin policy set --no-relayed-coordination`. It needs one chat server (set `CHAT_REPLICAS` if you run more, and relayed coordination reports computers connected elsewhere as unreachable). Update computers with `galopin upgrade`; an older computer keeps working with its own sessions only.
+## v0.61.0 — 2026-11-21
+
+Pins: Cerea `0.61.0` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.6`, opencode `2.3.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. Update computers with `galopin upgrade`.
+
+- **Agents can work across a user's computers.** An agent on one computer can list, read, message and start sessions on another computer of the same user. This matters most with cloud workspaces, where each workspace is its own computer. It always asks first: a card shows exactly what will be sent and where, and offers Allow once or Reject (there is no "always" for another computer). Nothing is sent until the user allows it in Cerea. It only ever reaches the same user's computers, never another user's. Plan refuses it, the Auto reviewer never decides one, and a session started this way begins on Ask and does not report back. A message arrives marked as coming from an agent on another computer. It is on by default, with a switch for each user under Workspace, Agents, "Let my agents talk to my other computers"; an administrator can turn it off for everyone with `CODE_RELAYED_COORDINATION_ENABLED=false`, and a computer's owner can refuse it there with `galopin policy set --no-relayed-coordination`. Both computers need `galopin upgrade`; an older computer keeps working with its own sessions only.
+- **For operators: new `CHAT_REPLICAS` setting.** Relayed coordination needs a single chat server. Leave `CHAT_REPLICAS` unset (or 1) for one chat server; if you run more, set it to the count, and computers connected to another replica are reported as unreachable.
 
 ## v0.60.7 — 2026-11-21
 
