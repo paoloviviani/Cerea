@@ -121,7 +121,13 @@ const streamOf = (text: string) =>
 		{ headers: { "Content-Type": "application/jsonl" } }
 	);
 
-type Post = { id?: string; inputs?: string; is_retry?: boolean };
+type Post = {
+	id?: string;
+	inputs?: string;
+	is_retry?: boolean;
+	userMessageId?: string;
+	assistantMessageId?: string;
+};
 let posts: Post[];
 let respond: (post: Post) => Response;
 
@@ -282,6 +288,71 @@ describe("a send right after a turn", () => {
 		type("two");
 		await vi.waitFor(() => expect(posts).toHaveLength(2));
 		await vi.waitFor(() => expect(box().value).toBe("two"));
+		await settle(300);
+		expect(posts).toHaveLength(2);
+		screen.unmount();
+	});
+});
+
+/** The tree the server holds after "two", stored under exactly the ids the tab proposed. */
+const treeWithProposed = (userId: string, assistantId: string) => [
+	msg("u0", "user", "one", [], ["a0"]),
+	msg("a0", "assistant", "first answer", ["u0"], [userId]),
+	msg(userId, "user", "two", ["u0", "a0"], [assistantId]),
+	msg(assistantId, "assistant", "ok", ["u0", "a0", userId], []),
+];
+
+describe("client-proposed message ids (C156)", () => {
+	it("sends the ids it minted, and the next send needs no swap after the refresh", async () => {
+		const { screen, type } = await mount();
+		let proposed: { user: string; assistant: string } | undefined;
+		appNavigation().invalidate.mockImplementation(async () => {
+			proposed = {
+				user: posts[0].userMessageId ?? "",
+				assistant: posts[0].assistantMessageId ?? "",
+			};
+			await screen.rerender({
+				data: dataFor(treeWithProposed(proposed.user, proposed.assistant)),
+			} as never);
+			return undefined;
+		});
+		type("two");
+		await vi.waitFor(() => expect(posts).toHaveLength(1));
+		const v4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+		expect(posts[0].userMessageId).toMatch(v4);
+		expect(posts[0].assistantMessageId).toMatch(v4);
+		expect(posts[0].userMessageId).not.toBe(posts[0].assistantMessageId);
+		await vi.waitFor(() => expect(proposed).toBeDefined());
+		await settle();
+		type("three");
+		await vi.waitFor(() => expect(posts).toHaveLength(2));
+		// The parent is the id held before the refresh and after it: the same one.
+		expect(posts[1]).toMatchObject({ inputs: "three", id: proposed?.assistant });
+		await settle(300);
+		expect(posts).toHaveLength(2);
+		screen.unmount();
+	});
+
+	it("a Retry right after a reply names the same assistant id and proposes a new one", async () => {
+		const { screen, type } = await mount();
+		appNavigation().invalidate.mockImplementation(async () => {
+			await screen.rerender({
+				data: dataFor(
+					treeWithProposed(posts[0].userMessageId ?? "", posts[0].assistantMessageId ?? "")
+				),
+			} as never);
+			return undefined;
+		});
+		type("two");
+		await vi.waitFor(() => expect(posts).toHaveLength(1));
+		await settle();
+		const retries = screen.container.querySelectorAll('[data-testid="msg-action-retry"]');
+		(retries[retries.length - 1] as HTMLButtonElement).click();
+		await vi.waitFor(() => expect(posts).toHaveLength(2));
+		expect(posts[1]).toMatchObject({ is_retry: true, id: posts[0].assistantMessageId });
+		expect(posts[1].assistantMessageId).toBeDefined();
+		expect(posts[1].assistantMessageId).not.toBe(posts[0].assistantMessageId);
+		expect(posts[1].userMessageId).toBeUndefined();
 		await settle(300);
 		expect(posts).toHaveLength(2);
 		screen.unmount();

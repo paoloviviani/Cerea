@@ -444,6 +444,7 @@ async function resumeParkedCallInner(park: ParkedCall): Promise<void> {
 		settleTurnCost({
 			conversationId: conv._id,
 			messageId: message.id,
+			scopedTag: message.turnTagVersion === 2,
 			token: turnGatewayToken(locals),
 		});
 		await collections.parkedCalls.updateOne(

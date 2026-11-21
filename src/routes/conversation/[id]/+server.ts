@@ -58,7 +58,9 @@ import { armTurnCap, classifyTurnAbort, untilCapped } from "$lib/server/generati
 import { clampStoppedContent } from "$lib/server/stopTruncation";
 import { MetricsServer } from "$lib/server/metrics";
 import { randomUUID } from "$lib/utils/randomUuid";
-import { PARENT_NOT_FOUND_MESSAGE } from "$lib/utils/sendRefusals";
+import { PARENT_NOT_FOUND_MESSAGE, MESSAGE_ID_IN_USE_MESSAGE } from "$lib/utils/sendRefusals";
+import { isV4Uuid } from "$lib/utils/tree/isV4Uuid";
+import { messageIdHasTurnRecords } from "$lib/server/generation/turnRecords";
 import { applyConversationSettings, saveGeneratedTitle } from "$lib/server/conversationSettings";
 import { userDocumentReader } from "$lib/server/files/userReader";
 
@@ -131,6 +133,8 @@ export async function POST({ request, locals, params, getClientAddress }) {
 		id: messageId,
 		is_retry: isRetry,
 		resumeElicitationId,
+		userMessageId: proposedUserId,
+		assistantMessageId: proposedAssistantId,
 		generationId,
 		timezone,
 		location,
@@ -149,6 +153,12 @@ export async function POST({ request, locals, params, getClientAddress }) {
 			is_retry: z.optional(z.boolean()),
 			/** Continue the tool call a durable elicitation parked, before generating. */
 			resumeElicitationId: z.optional(z.string().uuid()),
+			/**
+			 * Ids the tab minted for the messages this send creates (C156), so it never has to
+			 * swap them for the server's. Validated below; absent for older tabs and API callers.
+			 */
+			userMessageId: z.optional(z.string()),
+			assistantMessageId: z.optional(z.string()),
 			timezone: z.optional(z.string()),
 			/** Device coordinates, rounded; ignored unless the person's setting is "device". */
 			location: deviceLocationSchema,
@@ -184,6 +194,35 @@ export async function POST({ request, locals, params, getClientAddress }) {
 			error(409, PARENT_NOT_FOUND_MESSAGE);
 		}
 	}
+
+	// The ids the tab proposes for the messages this send creates. Refused before anything is
+	// metered or stored, and never overwritten or attached: an id already in this conversation
+	// is a 409 whatever the message it names. A turn that resumes a parked message creates none.
+	for (const proposed of [proposedUserId, proposedAssistantId]) {
+		if (proposed !== undefined && !isV4Uuid(proposed)) error(400, "Invalid message id");
+	}
+	if (proposedUserId && proposedUserId === proposedAssistantId) {
+		error(400, "The user and assistant message ids must differ");
+	}
+	if (!resumeElicitationId) {
+		for (const proposed of [proposedUserId, proposedAssistantId]) {
+			if (proposed && conv.messages.some((message) => message.id === proposed)) {
+				logger.warn({ conversationId: id }, "[send] proposed message id already in use");
+				error(409, MESSAGE_ID_IN_USE_MESSAGE);
+			}
+		}
+		// An id the message list no longer holds can still own turn records (events, a parked
+		// call, a turn state): taking it would continue that turn's event log or wake its
+		// parked call onto the new message.
+		for (const proposed of [proposedUserId, proposedAssistantId]) {
+			if (proposed && (await messageIdHasTurnRecords(conv._id, proposed))) {
+				logger.warn({ conversationId: id }, "[send] proposed message id owns turn records");
+				error(409, MESSAGE_ID_IN_USE_MESSAGE);
+			}
+		}
+	}
+	// A 409 here is practically impossible from the page (it mints fresh v4 ids per send) and
+	// shows there as a generic error toast; it exists for other callers and for a collision.
 
 	// A new generation invalidates any stale stop marker for this conversation.
 	// The abortedGenerations collection is the cross-pod abort channel:
@@ -410,17 +449,20 @@ export async function POST({ request, locals, params, getClientAddress }) {
 					createdAt: new Date(),
 					updatedAt: new Date(),
 				},
-				messageId
+				messageId,
+				proposedUserId
 			);
 			messageToWriteToId = addChildren(
 				conv,
 				{
 					from: "assistant",
 					content: "",
+					turnTagVersion: 2,
 					createdAt: new Date(),
 					updatedAt: new Date(),
 				},
-				newUserMessageId
+				newUserMessageId,
+				proposedAssistantId
 			);
 			messagesForPrompt = buildSubtree(conv, newUserMessageId);
 		} else if (messageToRetry.from === "assistant") {
@@ -428,8 +470,15 @@ export async function POST({ request, locals, params, getClientAddress }) {
 			// just add a sibling to the assistant answer where we can write to
 			messageToWriteToId = addSibling(
 				conv,
-				{ from: "assistant", content: "", createdAt: new Date(), updatedAt: new Date() },
-				messageId
+				{
+					from: "assistant",
+					content: "",
+					turnTagVersion: 2,
+					createdAt: new Date(),
+					updatedAt: new Date(),
+				},
+				messageId,
+				proposedAssistantId
 			);
 			// The branch up to the question only: the failed or unwanted attempt is not
 			// part of what the model sees (see promptForRetry).
@@ -447,7 +496,8 @@ export async function POST({ request, locals, params, getClientAddress }) {
 				createdAt: new Date(),
 				updatedAt: new Date(),
 			},
-			messageId
+			messageId,
+			proposedUserId
 		);
 
 		messageToWriteToId = addChildren(
@@ -455,10 +505,12 @@ export async function POST({ request, locals, params, getClientAddress }) {
 			{
 				from: "assistant",
 				content: "",
+				turnTagVersion: 2,
 				createdAt: new Date(),
 				updatedAt: new Date(),
 			},
-			newUserMessageId
+			newUserMessageId,
+			proposedAssistantId
 		);
 		// build the prompt from the user message
 		messagesForPrompt = buildSubtree(conv, newUserMessageId);
@@ -968,6 +1020,7 @@ export async function POST({ request, locals, params, getClientAddress }) {
 			settleTurnCost({
 				conversationId: convId,
 				messageId: messageToWriteTo.id,
+				scopedTag: messageToWriteTo.turnTagVersion === 2,
 				token: turnGatewayToken(locals),
 			});
 			clearInterval(abortMarkerWatcher);

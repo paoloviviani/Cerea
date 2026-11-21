@@ -88,7 +88,7 @@ test("the cost is read from the gateway by the turn's tag when the overlay opens
 	await expect(page.getByText("Tagged answer.")).toBeVisible({ timeout: 30_000 });
 
 	const request = (await chatRequests(mockOpenAI)).at(-1);
-	expect(request?.headers?.["x-pystino-tag"]).toMatch(/^turn:[0-9a-f-]{36}$/);
+	expect(request?.headers?.["x-pystino-tag"]).toMatch(/^turn:[0-9a-f]{24}:[0-9a-f-]{36}$/);
 
 	await page.getByTestId("turn-info-dot").click();
 	await expect(page.getByTestId("turn-info-cost")).toContainText("0.0125", { timeout: 15_000 });

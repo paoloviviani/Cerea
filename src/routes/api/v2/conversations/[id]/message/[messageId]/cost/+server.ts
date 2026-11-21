@@ -32,8 +32,8 @@ export const GET: RequestHandler = async ({ locals, params }) => {
 		});
 	}
 	// The credential the turn's own requests used: the user's token, or the
-	// deployment's key when it does not use personal tokens (the tag is unique
-	// to the turn either way).
+	// deployment's key when it does not use personal tokens (the tag names the
+	// conversation and the message, so it is unique to the turn either way).
 	// A cost the stream reported is provisional (main model only): when the gateway cannot say
 	// better, it stands.
 	const provisional = message.stats?.cost
@@ -42,7 +42,10 @@ export const GET: RequestHandler = async ({ locals, params }) => {
 	const token = turnGatewayToken(locals);
 	if (!token) return superjsonResponse(provisional ?? { available: false });
 
-	const result = await turnGatewayCost(token, messageId);
+	const result = await turnGatewayCost(token, messageId, {
+		conversationId: conversation._id.toString(),
+		scopedTag: message.turnTagVersion === 2,
+	});
 	if (result.status === "unavailable")
 		return superjsonResponse(provisional ?? { available: false });
 	if (result.status === "pending")

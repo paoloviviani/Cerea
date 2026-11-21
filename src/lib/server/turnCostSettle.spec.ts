@@ -62,7 +62,11 @@ describe("settleTurnCost", () => {
 			})
 		);
 		expect(read).toHaveBeenCalledTimes(1);
-		expect(read).toHaveBeenCalledWith("tok", ASSISTANT);
+		expect(read).toHaveBeenCalledWith(
+			"tok",
+			ASSISTANT,
+			expect.objectContaining({ conversationId: chat._id })
+		);
 	});
 
 	it("keeps the in-stream sum when nothing settled or the gateway is unavailable", async () => {
@@ -78,8 +82,11 @@ describe("settleTurnCost", () => {
 	it("keeps the in-stream sum for a gateway without tags (404) or none (503)", async () => {
 		for (const status of [404, 503]) {
 			const chat = await setup({ cost: "0.0010 USD" });
-			const read = vi.fn((token: string, id: string) =>
-				turnGatewayCost(token, id, { sleep: async () => {} })
+			const read = vi.fn((token: string, id: string, o: { conversationId: unknown }) =>
+				turnGatewayCost(token, id, {
+					conversationId: String(o.conversationId),
+					sleep: async () => {},
+				})
 			);
 			const spy = vi.spyOn(gateway, "get");
 			spy.mockRejectedValue(new GatewayCallFailed(status, "nope"));

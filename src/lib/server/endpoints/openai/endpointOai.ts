@@ -170,7 +170,7 @@ export async function endpointOai(
 						: {}),
 					// Which group pays, when the person chose one (ADR 0061).
 					...billToHeader(locals?.billingOrganization),
-					...turnTagHeader(messageId),
+					...turnTagHeader(messageId, conversationId),
 				},
 				signal: req.signal,
 			});
@@ -278,7 +278,7 @@ export async function endpointOai(
 							// Which group pays, when the person chose one (ADR 0061).
 							...billToHeader(locals?.billingOrganization),
 							...redactionRequestHeaders(locals),
-							...turnTagHeader(messageId),
+							...turnTagHeader(messageId, conversationId),
 						},
 						signal: req.signal,
 					}
@@ -300,7 +300,7 @@ export async function endpointOai(
 							// Which group pays, when the person chose one (ADR 0061).
 							...billToHeader(locals?.billingOrganization),
 							...redactionRequestHeaders(locals),
-							...turnTagHeader(messageId),
+							...turnTagHeader(messageId, conversationId),
 						},
 						signal: abortSignal,
 					}

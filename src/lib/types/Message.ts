@@ -90,6 +90,13 @@ export type Message = Partial<Timestamps> & {
 	 */
 	stats?: TurnStats;
 
+	/**
+	 * 2 on an answer created once the gateway usage tag named the conversation
+	 * (`turn:<conversation>:<message>`). Absent on older answers, whose tag was `turn:<message>`:
+	 * only those may be read under the legacy tag (turnCost.ts).
+	 */
+	turnTagVersion?: 2;
+
 	// needed for conversation trees
 	ancestors?: Message["id"][];
 

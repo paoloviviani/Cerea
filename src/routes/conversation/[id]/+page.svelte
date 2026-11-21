@@ -202,8 +202,11 @@
 		});
 	});
 
-	// The post-turn refresh that swaps the ids this tab minted for its optimistic messages
-	// with the server's. A send in that gap would name a parent the server does not know.
+	// The post-turn refresh of the load data. Message ids are stable since C156 (the server
+	// stores the ids this tab proposes), so a send in that gap names a parent the server
+	// holds. The wait stays only because that refresh replaces `messages` wholesale: one
+	// landing while a new send streams would drop its in-flight messages. It also still
+	// covers a server older than this tab, which mints its own ids (then the 409 re-sync).
 	let postTurnSync: Promise<void> | undefined;
 	/** How long a send waits for that refresh; the server's 409 covers anything still stale. */
 	const POST_TURN_SYNC_WAIT_MS = 5000;
@@ -326,6 +329,12 @@
 				)
 			);
 
+			// The ids this send gives the messages it creates; the server stores exactly these
+			// (C156), so the thread needs no swap for the server's after the turn.
+			const userMessageId = v4();
+			const assistantMessageId = v4();
+			let sentUserId: string | undefined;
+			let sentAssistantId: string | undefined;
 			let messageToWriteToId: Message["id"] | undefined = undefined;
 			// used for building the prompt, subtree of the conversation that goes from the latest message to the root
 
@@ -358,7 +367,8 @@
 							content: prompt,
 							files: messageToRetry.files,
 						},
-						messageId
+						messageId,
+						userMessageId
 					);
 					messageToWriteToId = addChildren(
 						{
@@ -366,8 +376,11 @@
 							rootMessageId,
 						},
 						{ from: "assistant", content: "" },
-						newUserMessageId
+						newUserMessageId,
+						assistantMessageId
 					);
+					sentUserId = userMessageId;
+					sentAssistantId = assistantMessageId;
 				} else if (messageToRetry?.from === "assistant") {
 					// we're retrying an assistant message, to generate a new answer
 					// just add a sibling to the assistant answer where we can write to
@@ -377,8 +390,10 @@
 							rootMessageId,
 						},
 						{ from: "assistant", content: "" },
-						messageId
+						messageId,
+						assistantMessageId
 					);
+					sentAssistantId = assistantMessageId;
 				}
 			} else {
 				// just a normal linear conversation, so we add the user message
@@ -393,7 +408,8 @@
 						content: prompt ?? "",
 						files: base64Files,
 					},
-					messageId
+					messageId,
+					userMessageId
 				);
 
 				if (!rootMessageId) {
@@ -409,8 +425,11 @@
 						from: "assistant",
 						content: "",
 					},
-					newUserMessageId
+					newUserMessageId,
+					assistantMessageId
 				);
+				sentUserId = userMessageId;
+				sentAssistantId = assistantMessageId;
 			}
 
 			const userMessage = messages.find((message) => message.id === messageId);
@@ -428,6 +447,8 @@
 					inputs: prompt,
 					messageId,
 					isRetry,
+					...(sentUserId ? { userMessageId: sentUserId } : {}),
+					...(sentAssistantId ? { assistantMessageId: sentAssistantId } : {}),
 					...(resumeElicitationId ? { resumeElicitationId } : {}),
 					generationId: activeGenerationId,
 					files: isRetry ? userMessage?.files : base64Files,

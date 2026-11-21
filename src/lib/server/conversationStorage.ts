@@ -17,6 +17,7 @@ import { deleteConversationAttachments } from "$lib/server/files/deleteConversat
 import { deleteDerived } from "$lib/server/knowledge/deleteDerived";
 import { legacyShares } from "$lib/server/legacyShares";
 import { logger } from "$lib/server/logger";
+import { deleteTurnRecords } from "$lib/server/generation/turnRecords";
 import { deleteConversationWebFetchCache } from "$lib/server/webFetchCache";
 import { deleteConversationBrowserScopes } from "$lib/server/browser/kept";
 import { deleteConversationSharedArtifacts } from "$lib/server/sharing/shares";
@@ -90,6 +91,7 @@ export async function deleteConversationStorage(
 		deleteConversationBrowserScopes(conversationId),
 		releaseSandboxes(conversationId),
 		deleteConversationSharedArtifacts(conversationId),
+		deleteTurnRecords(conversationId),
 	]);
 	// The first two log their own failures. These do not, and they are the
 	// privacy ones; the daily orphan sweep retries what they leave.
@@ -122,6 +124,10 @@ export async function deleteConversationStorage(
 			{ err: artifactShares.reason },
 			"conversation_artifact_share_delete_failed: the links keep resolving until removed"
 		);
+	}
+	const turnRecords = results[8];
+	if (turnRecords.status === "rejected") {
+		logger.error({ err: turnRecords.reason }, "conversation_turn_records_delete_failed");
 	}
 	if (derived.status === "rejected") {
 		logger.error(

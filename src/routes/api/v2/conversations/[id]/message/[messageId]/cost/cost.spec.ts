@@ -37,7 +37,7 @@ beforeEach(() => {
 });
 afterEach(cleanupTestData);
 
-async function setup(stats?: Record<string, unknown>) {
+async function setup(stats?: Record<string, unknown>, flagged = false) {
 	const owner = await createTestUser();
 	const chat = await createTestConversation(owner.locals, {
 		messages: [
@@ -48,6 +48,7 @@ async function setup(stats?: Record<string, unknown>) {
 				content: "yo",
 				ancestors: [USER_MSG],
 				...(stats ? { stats } : {}),
+				...(flagged ? { turnTagVersion: 2 } : {}),
 			},
 		] as never,
 	});
@@ -83,7 +84,11 @@ describe("GET .../message/:messageId/cost", () => {
 		const { status, body } = await ask(chat, { ...owner.locals, token: "tok" });
 		expect(status).toBe(200);
 		expect(body).toEqual({ available: true, cost: "0.0042", currency: "EUR" });
-		expect(turnGatewayCost).toHaveBeenCalledWith("tok", ASSISTANT);
+		expect(turnGatewayCost).toHaveBeenCalledWith(
+			"tok",
+			ASSISTANT,
+			expect.objectContaining({ conversationId: String(chat._id) })
+		);
 		expect(await stored(chat)).toMatchObject({
 			model: "M",
 			inputTokens: 5,
@@ -93,13 +98,35 @@ describe("GET .../message/:messageId/cost", () => {
 		});
 	});
 
+	it("tells the cost read whether the message carries the scoped tag", async () => {
+		turnGatewayCost.mockResolvedValue({ status: "pending" });
+		const legacy = await setup();
+		await ask(legacy.chat, { ...legacy.owner.locals, token: "tok" });
+		expect(turnGatewayCost).toHaveBeenLastCalledWith(
+			"tok",
+			ASSISTANT,
+			expect.objectContaining({ scopedTag: false })
+		);
+		const flagged = await setup(undefined, true);
+		await ask(flagged.chat, { ...flagged.owner.locals, token: "tok" });
+		expect(turnGatewayCost).toHaveBeenLastCalledWith(
+			"tok",
+			ASSISTANT,
+			expect.objectContaining({ scopedTag: true })
+		);
+	});
+
 	it("uses the deployment's key when personal tokens are off", async () => {
 		const { owner, chat } = await setup();
 		cfg.USE_USER_TOKEN = "false";
 		cfg.OPENAI_API_KEY = "sk-shared";
 		turnGatewayCost.mockResolvedValue({ status: "pending" });
 		await ask(chat, { ...owner.locals, token: undefined });
-		expect(turnGatewayCost).toHaveBeenCalledWith("sk-shared", ASSISTANT);
+		expect(turnGatewayCost).toHaveBeenCalledWith(
+			"sk-shared",
+			ASSISTANT,
+			expect.objectContaining({ conversationId: String(chat._id) })
+		);
 	});
 
 	it("stores the cost on a message that had no stats at all", async () => {

@@ -48,14 +48,19 @@ export async function storeSettledCost(
 export function settleTurnCost(params: {
 	conversationId: ObjectId;
 	messageId: string;
+	/** The message carries `turnTagVersion: 2`; one without it may sit under the legacy tag. */
+	scopedTag?: boolean;
 	token: string | undefined;
 	/** Test seam. */
 	read?: typeof turnGatewayCost;
 }): void {
-	const { conversationId, messageId, token, read = turnGatewayCost } = params;
+	const { conversationId, messageId, scopedTag, token, read = turnGatewayCost } = params;
 	if (!token) return;
 	void (async () => {
-		const result = await read(token, messageId);
+		const result = await read(token, messageId, {
+			conversationId,
+			scopedTag,
+		});
 		if (result.status !== "ok") return;
 		await storeSettledCost({ _id: conversationId }, messageId, result);
 	})().catch((err) => logger.warn({ err }, "turn cost settlement failed"));
