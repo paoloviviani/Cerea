@@ -118,8 +118,8 @@ export async function recordRelayAsk(
 		}
 		// The same card id again (a re-sent ask, or another session's): the record that exists is the
 		// one the owner may have read. Identical (hash and caller session): nothing changes. Different:
-		// the ticket is deleted and the card cannot be approved, so a card can never show one thing
-		// while a ticket binds another.
+		// the ticket is tombstoned (never deleted, never re-armed) and the card cannot be approved, so a
+		// card can never show one thing while a ticket binds another.
 		const existing = await findTicket(deviceId, request.id);
 		if (existing) {
 			if (
