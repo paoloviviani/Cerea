@@ -168,14 +168,18 @@ test.describe("relayed coordination across computers", () => {
 	const answerCard = (
 		page: Page,
 		device: string,
-		card: { sessionId: string; request: { id: string } },
+		card: {
+			sessionId: string;
+			request: { id: string; metadata?: { relay?: Record<string, unknown> } };
+		},
 		decision: "once" | "reject"
 	) =>
 		api(
 			page.request,
 			"POST",
 			`code/v1/agents/${card.sessionId}/permissions/${card.request.id}?device=${device}`,
-			{ decision }
+			// Like the browser, send back the ticket the card carried: the answer is for that card.
+			{ decision, ticket: card.request.metadata?.relay?.ticket }
 		);
 
 	/** What the model was told a tool answered, from the requests the mock saw. */
