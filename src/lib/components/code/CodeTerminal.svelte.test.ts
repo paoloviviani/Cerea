@@ -383,3 +383,85 @@ describe("CodeTerminal tap to type", () => {
 		expect(document.activeElement).not.toBe(helperTextarea(screen.baseElement));
 	});
 });
+
+describe("CodeTerminal copy view", () => {
+	function button(base: HTMLElement, label: string): HTMLButtonElement {
+		const el = base.querySelector(`button[aria-label="${label}"]`);
+		if (!(el instanceof HTMLButtonElement)) throw new Error(`no button "${label}"`);
+		return el;
+	}
+	function buttonByText(base: HTMLElement, text: string): HTMLButtonElement {
+		const el = [...base.querySelectorAll("button")].find((b) => b.textContent?.trim() === text);
+		if (!el) throw new Error(`no button with text "${text}"`);
+		return el;
+	}
+
+	async function mountWithOutput() {
+		const screen = await mountTerminal();
+		deliverOutput(
+			"\x1b[31mred\x1b[0m line one   \r\nsecond\r\n" + "x".repeat(200) + "\r\nlast\r\n"
+		);
+		await vi.waitFor(() => expect(screen.baseElement.textContent).toContain("last"));
+		return screen;
+	}
+
+	it("Select text shows the buffer as plain text, ANSI stripped and wrapped rows joined", async () => {
+		const screen = await mountWithOutput();
+		button(screen.baseElement, "Select text").click();
+		const pre = await vi.waitFor(() => {
+			const el = screen.baseElement.querySelector('[data-testid="terminal-copy-text"]');
+			if (!el) throw new Error("overlay not open");
+			return el as HTMLElement;
+		});
+		expect(pre.textContent).toBe(`red line one\nsecond\n${"x".repeat(200)}\nlast`);
+		expect(getComputedStyle(pre).userSelect).toBe("text");
+	});
+
+	it("Copy all writes the whole text to the clipboard and says so; Close removes the overlay", async () => {
+		const screen = await mountWithOutput();
+		button(screen.baseElement, "Select text").click();
+		await vi.waitFor(() => buttonByText(screen.baseElement, "Copy all"));
+		buttonByText(screen.baseElement, "Copy all").click();
+		await vi.waitFor(() =>
+			expect(clipboard.writeText).toHaveBeenCalledWith(
+				`red line one\nsecond\n${"x".repeat(200)}\nlast`
+			)
+		);
+		await vi.waitFor(() => expect(screen.baseElement.textContent).toContain("Copied"));
+		button(screen.baseElement, "Close text view").click();
+		await vi.waitFor(() =>
+			expect(screen.baseElement.querySelector('[data-testid="terminal-copy-overlay"]')).toBeNull()
+		);
+	});
+
+	it("falls back to execCommand when the async clipboard refuses", async () => {
+		clipboard.writeText.mockRejectedValueOnce(new Error("denied"));
+		const exec = vi.fn(() => true);
+		document.execCommand = exec as unknown as typeof document.execCommand;
+		const screen = await mountWithOutput();
+		button(screen.baseElement, "Select text").click();
+		await vi.waitFor(() => buttonByText(screen.baseElement, "Copy all"));
+		buttonByText(screen.baseElement, "Copy all").click();
+		await vi.waitFor(() => expect(exec).toHaveBeenCalledWith("copy"));
+		await vi.waitFor(() => expect(screen.baseElement.textContent).toContain("Copied"));
+	});
+
+	it("shows Copy selection only while xterm has a selection, and copies it", async () => {
+		const screen = await mountWithOutput();
+		expect(screen.baseElement.querySelector('[data-testid="terminal-copy-selection"]')).toBeNull();
+		// A double-click selects a word through xterm's own mouse handling.
+		const rows = screen.baseElement.querySelector(".xterm-screen") as HTMLElement;
+		const r = rows.getBoundingClientRect();
+		const opts = { bubbles: true, clientX: r.left + 3, clientY: r.top + 3, button: 0, buttons: 1 };
+		rows.dispatchEvent(new MouseEvent("mousedown", { ...opts, detail: 2 }));
+		document.dispatchEvent(new MouseEvent("mouseup", opts));
+		const copy = await vi.waitFor(() => {
+			const el = screen.baseElement.querySelector('[data-testid="terminal-copy-selection"]');
+			if (!el) throw new Error("no Copy selection yet");
+			return el as HTMLButtonElement;
+		});
+		copy.click();
+		await vi.waitFor(() => expect(clipboard.writeText).toHaveBeenCalled());
+		expect(String(clipboard.writeText.mock.calls[0][0]).length).toBeGreaterThan(0);
+	});
+});

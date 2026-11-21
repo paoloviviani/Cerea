@@ -7,6 +7,8 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- Fixed: users could not copy text from the terminal on a phone. A touch never produces the mouse events the terminal's own selection listens for, and the phone layout deliberately keeps taps and swipes away from it. The terminal now has a Select text button that opens its output (scrollback included) as plain text, where the phone's long-press selection and copy menu work, with Copy all and Copy visible screen buttons. A selection made with the mouse on a computer gets a Copy selection button.
+
 ## v0.60.6 — 2026-11-21
 
 Pins: Cerea `0.60.6` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.6`, opencode `2.3.0`.
