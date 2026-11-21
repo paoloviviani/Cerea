@@ -7,6 +7,8 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- Loading screens, second pass. Settings → Application now appears in one step: the document reader row, the background-access section and the gateway address used to pop in a moment after the rest, shifting what was below them; the pane now shows a placeholder and reveals complete. Settings → Usage and Notifications likewise wait for all their requests before showing, the Voice and Connectors admin panes fetch their lists together, and admin Services and Knowledge use the same placeholder as the other panes. Opening an agent session shows message-shaped placeholders (nothing at all if it opens quickly), then the whole transcript at once, at its newest message. The model and effort menu on an agent session shows placeholder rows while its lists load, then models and effort levels together. A knowledge base opened from the list or by its address shows a placeholder and then its details and documents together, instead of a blank pane.
+
 ## v0.60.5 — 2026-11-20
 
 Pins: Cerea `0.60.5` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.6`, opencode `2.3.0`.

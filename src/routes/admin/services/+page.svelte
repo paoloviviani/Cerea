@@ -14,9 +14,14 @@
 	import { m } from "$lib/paraglide/messages";
 	import type { Health, NoteCode, ServiceId, ServicesReport } from "$lib/server/services/types";
 	import type { ProductUpdate, UpdateReport } from "$lib/server/services/updates";
+	import { delayedLoading } from "$lib/utils/delayedLoading.svelte";
+	import SkeletonBusy from "$lib/components/skeleton/SkeletonBusy.svelte";
+	import SkeletonRows from "$lib/components/skeleton/SkeletonRows.svelte";
 
 	let report = $state<ServicesReport | null>(null);
 	let loading = $state(true);
+	// First load only: a refresh keeps the rows on screen.
+	const sk = delayedLoading(() => loading && report === null);
 	let failure = $state(false);
 	let updates = $state<UpdateReport | null>(null);
 	let checking = $state(false);
@@ -243,8 +248,10 @@
 					</li>
 				{/each}
 			</ul>
-		{:else if loading}
-			<p class="text-sm text-gray-500">{m["admin.common.loading"]()}</p>
+		{:else if sk.visible}
+			<SkeletonBusy region="services" label={m["admin.common.loading"]()}>
+				<SkeletonRows count={7} rowHeight="2.75rem" />
+			</SkeletonBusy>
 		{/if}
 	</section>
 

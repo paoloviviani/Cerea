@@ -38,7 +38,6 @@
 	// `settings/(nav)/application/+page.svelte`.
 	type BillingOrg = { sub: string; name: string; preferred_username: string };
 	let billingOrgs = $state<BillingOrg[]>([]);
-	let billingOrgsLoading = $state(false);
 	let billingOrgsError = $state<string | null>(null);
 
 	function getBillingOrganization() {
@@ -66,41 +65,44 @@
 	const money = (value: number, unit: string) =>
 		/^[A-Z]{3}$/.test(unit) ? formatCurrency(value, unit) : `${formatNumber(value)} ${unit}`;
 
-	onMount(async () => {
+	async function loadUsage() {
 		try {
 			const report = (await client.usage.get().then(handleResponse)) as UsageReport | null;
 			sections = report?.sections ?? [];
 			summary = summariseQuota(report);
 		} catch {
 			loadError = m["settings.usage.load_failed"]();
-		} finally {
-			loading = false;
 		}
+	}
 
-		// Which group pays (ADR 0061). The gateway answers this for every
-		// deployment, and the endpoint reports an empty list when it cannot, so
-		// the section below hides itself.
-		if (page.data.user) {
-			billingOrgsLoading = true;
-			try {
-				const data = (await client.user["billing-orgs"].get().then(handleResponse)) as {
-					userCanPay: boolean;
-					organizations: BillingOrg[];
-					currentBillingOrg?: string;
-				};
-				billingOrgs = data.organizations ?? [];
-				// Normalised: no group at all comes back absent, the store holds "".
-				// An unnormalised compare wrote "" back and raised a "Saved" toast
-				// on every visit.
-				if ((data.currentBillingOrg ?? "") !== getBillingOrganization()) {
-					setBillingOrganization(data.currentBillingOrg ?? "");
-				}
-			} catch {
-				billingOrgsError = m["settings.usage.billing_load_failed"]();
-			} finally {
-				billingOrgsLoading = false;
+	// Which group pays (ADR 0061). The gateway answers this for every
+	// deployment, and the endpoint reports an empty list when it cannot, so
+	// the section below hides itself.
+	async function loadBillingOrgs() {
+		if (!page.data.user) return;
+		try {
+			const data = (await client.user["billing-orgs"].get().then(handleResponse)) as {
+				userCanPay: boolean;
+				organizations: BillingOrg[];
+				currentBillingOrg?: string;
+			};
+			billingOrgs = data.organizations ?? [];
+			// Normalised: no group at all comes back absent, the store holds "".
+			// An unnormalised compare wrote "" back and raised a "Saved" toast
+			// on every visit.
+			if ((data.currentBillingOrg ?? "") !== getBillingOrganization()) {
+				setBillingOrganization(data.currentBillingOrg ?? "");
 			}
+		} catch {
+			billingOrgsError = m["settings.usage.billing_load_failed"]();
 		}
+	}
+
+	// Both requests at once; the pane reveals once, when both have answered, so the billing
+	// group never appears a beat after the usage rows.
+	onMount(async () => {
+		await Promise.all([loadUsage(), loadBillingOrgs()]);
+		loading = false;
 	});
 </script>
 
@@ -117,7 +119,7 @@
 {:else}
 	<div class="flex w-full flex-col gap-4">
 		{#if sk.visible}
-			<SkeletonBusy label={m["settings.usage.loading"]()}>
+			<SkeletonBusy region="usage" label={m["settings.usage.loading"]()}>
 				<SkeletonFormRow count={4} />
 			</SkeletonBusy>
 		{:else if loading}
@@ -229,11 +231,7 @@
 						</p>
 					</div>
 					<div class="flex items-center">
-						{#if billingOrgsLoading}
-							<span class="text-xs text-gray-500 dark:text-gray-400"
-								>{m["settings.usage.loading_short"]()}</span
-							>
-						{:else if billingOrgsError}
+						{#if billingOrgsError}
 							<span class="text-xs text-red-500">{billingOrgsError}</span>
 						{:else}
 							<select

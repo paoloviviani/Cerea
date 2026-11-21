@@ -17,12 +17,17 @@ export interface ReaderModel {
  * built-in extractor's engines and remote OCR models alike, no hints added.
  * `null` when the catalogue could not be read (no token, gateway down).
  */
+/** A hung gateway must fail this probe, not hold the settings page for minutes. */
+const READER_MODELS_TIMEOUT_MS = 4000;
+
 export async function readerModelsFor(token: string | undefined): Promise<ReaderModel[] | null> {
 	if (!token) return null;
 	try {
 		const models = await gateway.get<{
 			data: { id: string; kind?: string; local?: boolean }[];
-		}>(token, "models?include=ocr");
+		}>(token, "models?include=ocr", {
+			timeoutMs: READER_MODELS_TIMEOUT_MS,
+		});
 		return models.data
 			.filter((model) => model.kind === "ocr")
 			.map((model) => ({ id: model.id, local: model.local === true }));
