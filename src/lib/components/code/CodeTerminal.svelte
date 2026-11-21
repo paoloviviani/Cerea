@@ -14,8 +14,12 @@
 	import { m } from "$lib/paraglide/messages";
 	import { flagCodeReauth } from "$lib/stores/codeReauth.svelte";
 	import { MediaQuery } from "svelte/reactivity";
+	import { tick } from "svelte";
 	import IconWarning from "~icons/carbon/warning-filled";
 	import IconRenew from "~icons/carbon/renew";
+	import IconCopy from "~icons/carbon/copy";
+	import IconClose from "~icons/carbon/close";
+	import { bufferToText, TERMINAL_TEXT_MAX_LINES } from "$lib/utils/terminalText";
 	import ScrollToBottomBtn from "$lib/components/ScrollToBottomBtn.svelte";
 	import { subscribeToTheme } from "$lib/switchTheme";
 	import { mintTerminalTicket, terminalSocketUrl, TerminalReauthRequired } from "$lib/codeApi";
@@ -49,6 +53,16 @@
 	 * drives the jump-to-bottom button (a phone has no scroll wheel or keys to
 	 * get back down with). */
 	let scrolledUp = $state(false);
+
+	/** The copy overlay: the buffer as plain DOM text, where a phone's own
+	 * long-press selection and copy menu work (xterm draws its own selection
+	 * from mouse events, which a touch never produces). */
+	let copyOpen = $state(false);
+	let copyText = $state("");
+	let hasSelection = $state(false);
+	let copyNote = $state<"copied" | "failed" | null>(null);
+	let copyNoteTimer: ReturnType<typeof setTimeout> | null = null;
+	let copyPre = $state<HTMLPreElement>();
 
 	let term: XTerm | null = null;
 	let fitAddon: FitAddon | null = null;
@@ -438,6 +452,71 @@
 		};
 	}
 
+	/** Clipboard write: the async API first (needs a user gesture and a secure
+	 * context), then a hidden textarea + execCommand for the cases it refuses. */
+	async function writeClipboard(text: string): Promise<boolean> {
+		try {
+			if (navigator.clipboard?.writeText) {
+				await navigator.clipboard.writeText(text);
+				return true;
+			}
+		} catch {
+			/* fall through to the legacy path */
+		}
+		const ta = document.createElement("textarea");
+		ta.value = text;
+		ta.setAttribute("readonly", "");
+		ta.style.position = "fixed";
+		ta.style.opacity = "0";
+		(copyPre?.parentElement ?? document.body).appendChild(ta);
+		ta.select();
+		try {
+			return document.execCommand("copy");
+		} catch {
+			return false;
+		} finally {
+			ta.remove();
+		}
+	}
+
+	function flashCopyNote(ok: boolean): void {
+		copyNote = ok ? "copied" : "failed";
+		if (copyNoteTimer) clearTimeout(copyNoteTimer);
+		copyNoteTimer = setTimeout(() => (copyNote = null), 2000);
+	}
+
+	async function copyAndNote(text: string): Promise<void> {
+		flashCopyNote(text !== "" && (await writeClipboard(text)));
+	}
+
+	function visibleScreenText(): string {
+		const buf = term?.buffer.active;
+		if (!buf || !term) return "";
+		return bufferToText(buf, { startRow: buf.viewportY, endRow: buf.viewportY + term.rows });
+	}
+
+	function openCopyView(): void {
+		const buf = term?.buffer.active;
+		if (!buf) return;
+		copyText = bufferToText(buf, { maxLines: TERMINAL_TEXT_MAX_LINES });
+		copyNote = null;
+		copyOpen = true;
+		// The terminal stays mounted underneath, so its scroll position is
+		// untouched; the overlay opens at the newest output.
+		void tick().then(() => {
+			if (copyPre) copyPre.scrollTop = copyPre.scrollHeight;
+		});
+	}
+
+	function closeCopyView(): void {
+		copyOpen = false;
+		copyNote = null;
+	}
+
+	function copySelection(): void {
+		void copyAndNote(term?.getSelection() ?? "");
+	}
+
 	function scrollToBottom(): void {
 		stopTouchMomentum();
 		term?.scrollToBottom();
@@ -603,6 +682,7 @@
 			term.onWriteParsed(updateScrolledUp);
 			term.buffer.onBufferChange(updateScrolledUp);
 			term.attachCustomKeyEventHandler(customKeyEventHandler);
+			term.onSelectionChange(() => (hasSelection = !!term?.hasSelection()));
 
 			textareaEl = term.textarea ?? null;
 			textareaEl?.addEventListener("blur", onTextareaBlur);
@@ -626,6 +706,7 @@
 			textareaEl?.removeEventListener("blur", onTextareaBlur);
 			textareaEl?.removeEventListener("focus", onTextareaFocus);
 			if (reconnectTimer) clearTimeout(reconnectTimer);
+			if (copyNoteTimer) clearTimeout(copyNoteTimer);
 			resizeObserver?.disconnect();
 			resizeObserver = null;
 			ws?.close();
@@ -670,11 +751,89 @@
 			bind:this={host}
 			class="h-full touch-pan-x overscroll-contain bg-white p-1 dark:bg-gray-900"
 		></div>
+		<div class="absolute top-2 right-3 z-10 flex gap-1.5">
+			{#if hasSelection}
+				<button
+					type="button"
+					data-testid="terminal-copy-selection"
+					aria-label={m["code.terminal.copy_selection"]()}
+					class="btn flex h-8 items-center gap-1 rounded-md border bg-white px-2 text-xs shadow-sm hover:bg-gray-100 dark:border-gray-600 dark:bg-gray-700 dark:hover:bg-gray-600"
+					onpointerdown={(e) => e.preventDefault()}
+					onclick={copySelection}
+				>
+					<IconCopy class="size-3.5" />
+					{m["code.terminal.copy_selection"]()}
+				</button>
+			{/if}
+			<button
+				type="button"
+				data-testid="terminal-select-text"
+				aria-label={m["code.terminal.select_text"]()}
+				class="btn flex h-8 items-center gap-1 rounded-md border bg-white px-2 text-xs shadow-sm hover:bg-gray-100 dark:border-gray-600 dark:bg-gray-700 dark:hover:bg-gray-600"
+				onclick={openCopyView}
+			>
+				<IconCopy class="size-3.5" />
+				{m["code.terminal.select_text"]()}
+			</button>
+		</div>
 		<ScrollToBottomBtn
 			class="right-3 bottom-3 z-10"
 			visible={scrolledUp}
 			onclick={scrollToBottom}
 		/>
+		{#if copyOpen}
+			<div
+				role="dialog"
+				aria-label={m["code.terminal.copy_title"]()}
+				data-testid="terminal-copy-overlay"
+				class="absolute inset-0 z-20 flex flex-col bg-white dark:bg-gray-900"
+			>
+				<div
+					class="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-gray-200 bg-gray-50 p-1.5 dark:border-gray-700 dark:bg-gray-800"
+				>
+					<button
+						type="button"
+						data-testid="terminal-copy-all"
+						class="btn h-8 rounded-md bg-blue-600 px-2.5 text-xs font-medium text-white dark:bg-blue-500"
+						onclick={() => void copyAndNote(copyText)}
+					>
+						{m["code.terminal.copy_all"]()}
+					</button>
+					<button
+						type="button"
+						data-testid="terminal-copy-visible"
+						class="btn h-8 rounded-md border px-2.5 text-xs dark:border-gray-600"
+						onclick={() => void copyAndNote(visibleScreenText())}
+					>
+						{m["code.terminal.copy_visible"]()}
+					</button>
+					<span
+						role="status"
+						class="min-w-0 flex-1 truncate text-xs text-gray-600 dark:text-gray-300"
+					>
+						{#if copyNote === "copied"}{m[
+								"code.terminal.copied"
+							]()}{:else if copyNote === "failed"}{m["code.terminal.copy_failed"]()}{:else}{m[
+								"code.terminal.copy_hint"
+							]()}{/if}
+					</span>
+					<button
+						type="button"
+						data-testid="terminal-copy-close"
+						aria-label={m["code.terminal.copy_close"]()}
+						class="btn flex size-8 items-center justify-center rounded-md border dark:border-gray-600"
+						onclick={closeCopyView}
+					>
+						<IconClose class="size-4" />
+					</button>
+				</div>
+				<!-- Plain DOM text: the OS long-press selection and copy menu work here. -->
+				<pre
+					bind:this={copyPre}
+					data-testid="terminal-copy-text"
+					class="m-0 min-h-0 flex-1 overflow-auto p-2 font-mono text-xs break-words whitespace-pre-wrap text-gray-900 select-text dark:text-gray-100">{copyText}</pre>
+			</div>
+		{/if}
 	</div>
 	{#if narrowViewport.current}
 		<div

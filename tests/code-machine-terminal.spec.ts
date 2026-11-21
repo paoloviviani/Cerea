@@ -228,6 +228,101 @@ test.describe("the terminal on a real machine", () => {
 		await expect(term).toContainText("echo hihi", { timeout: 15_000 });
 	});
 
+	test("on a phone, Select text shows the buffer as plain text and Copy all fills the clipboard", async ({
+		page,
+		db,
+		session,
+		browserName,
+	}) => {
+		test.skip(browserName !== "chromium", "clipboard permissions and CDP touch, Chromium only");
+		const sub = `e2e-${randomUUID()}`;
+		await seedUser(db, session.sessionId, sub);
+		machine = await startMachine({ sub, policy: { terminal: "allowed" } });
+		await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+		await page.emulateMedia({ colorScheme: "dark" });
+
+		await pairAndOpenWorkspace(page, machine);
+		await openTerminalTab(page);
+		const term = page.getByTestId("code-terminal");
+		await page.keyboard.type("seq 1 300; echo copy-marker-$((6*7))");
+		await page.keyboard.press("Enter");
+		await expect(term).toContainText("copy-marker-42", { timeout: 15_000 });
+
+		await page.setViewportSize({ width: 412, height: 915 });
+		const cdp = await page.context().newCDPSession(page);
+		await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
+		await expect(term).toContainText("copy-marker-42", { timeout: 15_000 });
+
+		await term.getByRole("button", { name: "Select text" }).click();
+		const overlay = page.getByTestId("terminal-copy-overlay");
+		const text = page.getByTestId("terminal-copy-text");
+		await expect(overlay).toBeVisible();
+		await expect(text).toContainText("copy-marker-42");
+		// Scrollback, not just the screen: the first lines of seq are far above the viewport.
+		const shown = (await text.textContent()) ?? "";
+		expect(shown).toMatch(/\n1\n2\n3\n/);
+		expect(shown).toMatch(/\n300\ncopy-marker-42/);
+		// Native selection is allowed on it, and the terminal's typing path stays out of the way.
+		expect(await text.evaluate((el) => getComputedStyle(el).userSelect)).toBe("text");
+		await page.screenshot({ path: "/var/tmp/termcopy-tmp/shots/copy-overlay.png" });
+
+		await overlay.getByRole("button", { name: "Copy all" }).click();
+		await expect(overlay.getByRole("status")).toHaveText("Copied");
+		expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(shown);
+
+		await overlay.getByRole("button", { name: "Copy visible screen" }).click();
+		await expect(overlay.getByRole("status")).toHaveText("Copied");
+		const visible = await page.evaluate(() => navigator.clipboard.readText());
+		expect(visible).toContain("copy-marker-42");
+		expect(visible).not.toMatch(/(^|\n)1\n2\n3\n/);
+		expect(visible.length).toBeLessThan(shown.length);
+
+		await overlay.getByRole("button", { name: "Close text view" }).click();
+		await expect(overlay).toHaveCount(0);
+		await expect(term).toContainText("copy-marker-42");
+		await expect(page.getByRole("button", { name: "Scroll to bottom" })).toHaveCount(0);
+		// Typing still works after the overlay closed.
+		await term.locator(".xterm").click();
+		await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+		await page.keyboard.type("echo after-copy");
+		await page.keyboard.press("Enter");
+		await expect(term).toContainText("echo after-copyafter-copy", { timeout: 15_000 });
+	});
+
+	test("on desktop, a selection in the terminal can be copied with Copy selection", async ({
+		page,
+		db,
+		session,
+		browserName,
+	}) => {
+		test.skip(browserName !== "chromium", "clipboard permissions, Chromium only");
+		const sub = `e2e-${randomUUID()}`;
+		await seedUser(db, session.sessionId, sub);
+		machine = await startMachine({ sub, policy: { terminal: "allowed" } });
+		await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+
+		await pairAndOpenWorkspace(page, machine);
+		await openTerminalTab(page);
+		const term = page.getByTestId("code-terminal");
+		await page.keyboard.type("echo sel-marker-$((6*7))");
+		await page.keyboard.press("Enter");
+		await expect(term).toContainText("sel-marker-42", { timeout: 15_000 });
+
+		await expect(term.getByRole("button", { name: "Copy selection" })).toHaveCount(0);
+		// Triple-click on the output row selects that whole line. Real mouse coordinates:
+		// xterm's screen layer sits over its rows, so a click on the row element is intercepted.
+		const row = await term
+			.locator(".xterm-rows > div", { hasText: /^sel-marker-42$/ })
+			.first()
+			.boundingBox();
+		if (!row) throw new Error("no output row");
+		await page.mouse.click(row.x + 20, row.y + row.height / 2, { clickCount: 3 });
+		const copy = term.getByRole("button", { name: "Copy selection" });
+		await expect(copy).toBeVisible();
+		await copy.click();
+		expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("sel-marker-42");
+	});
+
 	test("coexistence: a busy terminal doesn't stall a streaming session turn", async ({
 		page,
 		db,
