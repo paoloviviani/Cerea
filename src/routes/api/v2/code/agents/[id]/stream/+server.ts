@@ -51,6 +51,7 @@ import { OpError, type Envelope, type PermissionRequest } from "$lib/types/machi
 import { logger } from "$lib/server/logger";
 import { onAskReleased, onReviewNote, reviewNoteFor } from "$lib/server/review/wording";
 import { toolImageUrl } from "$lib/server/code/toolImages";
+import { primeRelayCards } from "$lib/server/code/relay/cards";
 import { codeAttachmentKey } from "$lib/server/codeAttachments";
 import { findAttachments } from "$lib/server/files/attachmentStore";
 import { freshUntil } from "$lib/server/code/stepUp";
@@ -173,6 +174,8 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 	// life (machineTimeline's `ThinkingState`).
 	let thinking = newThinkingState();
 	if ("snapshot" in sync) {
+		// A relay ask (ADR 0121) is drawn from Cerea's record: load the ones this process has not seen.
+		await primeRelayCards(deviceId, sync.snapshot.permissions ?? []);
 		initial = snapshotToUpdates(sync.snapshot, imageUrl, sessionId, thinking);
 		lastAssistantError = lastAssistantErrorOf(sync.snapshot);
 		userMessageIds = userMessageIdsOf(sync.snapshot);
@@ -229,6 +232,7 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 			try {
 				const childSync = await link.sessionSync({ sessionId: childId });
 				if (!("snapshot" in childSync)) continue;
+				await primeRelayCards(deviceId, childSync.snapshot.permissions ?? []);
 				for (const permission of childSync.snapshot.permissions ?? []) {
 					if (seenChildAsks.has(permission.id)) continue;
 					seenChildAsks.add(permission.id);
@@ -453,6 +457,7 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 						return false;
 					}
 					if (closed || !("snapshot" in fresh)) return false;
+					await primeRelayCards(deviceId, fresh.snapshot.permissions ?? []);
 					const freshId = `${fresh.epoch}:${fresh.seq}`;
 					const freshThinking = newThinkingState();
 					const updates = snapshotToUpdates(fresh.snapshot, imageUrl, sessionId, freshThinking);

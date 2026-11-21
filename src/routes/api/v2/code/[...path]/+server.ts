@@ -34,6 +34,7 @@ import {
 	codeTerminalEnabled,
 } from "$lib/server/codeEnabled";
 import { MachineLink } from "$lib/server/code/machines";
+import { approveTicket, rejectTicket, revokeTicket } from "$lib/server/code/relay/tickets";
 import { getPairedDevice, requireCodeAgents } from "$lib/server/codeDevices";
 import { sessionAuthFresh } from "$lib/server/code/stepUp";
 import { mintTerminalTicket } from "$lib/server/code/terminalTickets";
@@ -652,6 +653,12 @@ export const GET: RequestHandler = async (event) => {
 	// answered — a read of live machine state, never a queue.
 	if (path === "v1/permissions/pending") {
 		const pending = await callOp(() => link.permissionsPending());
+		// A relay ask renders from Cerea's record: load the ones this process has not seen.
+		const { primeRelayCards } = await import("$lib/server/code/relay/cards");
+		await primeRelayCards(
+			deviceId,
+			(pending.permissions ?? []).map((p) => p.request)
+		);
 		const { withReviewNote } = await import("$lib/server/code/machineTimeline");
 		const { isAskHeld } = await import("$lib/server/review/wording");
 		return superjsonResponse({
@@ -1704,16 +1711,41 @@ export const POST: RequestHandler = async (event) => {
 			parentSessionId,
 			parsed.data.childSessionId
 		);
-		const replied = await callOp(() =>
-			link.permissionReply({
-				sessionId: targetSessionId,
-				requestId: decodeURIComponent(permissionMatch[2]),
-				decision: parsed.data.decision,
-				// This route is a human's click; the machine stores an "always"
-				// even where the class is limited to ask only for this actor.
-				actor: { kind: "user" },
-			})
-		);
+		const requestId = decodeURIComponent(permissionMatch[2]);
+		const owner = event.locals.user;
+		if (!owner) error(401, "Login required");
+		// Relayed coordination (ADR 0121 section 5): this route, and only this one, mints the
+		// approval ticket of a relay card, for the signed-in owner answering once. The reviewer's
+		// and the rules' replies go through `MachineLink.permissionReply` directly and never pass
+		// here, so they cannot mint. Order matters: mint (an atomic asked to approved), forward,
+		// and revoke the ticket if forwarding fails or the machine says the ask was already
+		// answered. "Always" is once for a relay card: nothing is stored for it.
+		let decision = parsed.data.decision;
+		let minted = false;
+		if (decision !== "reject") {
+			minted = (await approveTicket(owner._id, deviceId, requestId)) !== null;
+			if (minted) decision = "once";
+		}
+		let replied;
+		try {
+			replied = await callOp(() =>
+				link.permissionReply({
+					sessionId: targetSessionId,
+					requestId,
+					decision,
+					// This route is a human's click; the machine stores an "always"
+					// even where the class is limited to ask only for this actor.
+					actor: { kind: "user" },
+				})
+			);
+		} catch (err) {
+			if (minted) await revokeTicket(deviceId, requestId);
+			throw err;
+		}
+		if (minted && (replied as { alreadyResolved?: boolean } | undefined)?.alreadyResolved) {
+			await revokeTicket(deviceId, requestId);
+		}
+		if (decision === "reject") await rejectTicket(owner._id, deviceId, requestId);
 		// The machine answers "already resolved" for an ask something else
 		// answered first: not an error, and the card says so.
 		return superjsonResponse({

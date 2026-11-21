@@ -45,6 +45,17 @@ interface Deps {
 		envelope: Envelope,
 		push: (note?: string) => void
 	) => Promise<void>;
+	/**
+	 * Relayed coordination (ADR 0121): a relay ask is held, recorded as a ticket from Cerea's own
+	 * reads and only then released and pushed, and it is never given to the reviewer. Absent in
+	 * specs of the push triggers alone: a relay ask then goes out as an ordinary one.
+	 */
+	relay?: (
+		userId: ObjectId,
+		deviceId: string,
+		envelope: Envelope,
+		send: (body: string) => void
+	) => void;
 }
 
 const realDeps: Deps = {
@@ -53,6 +64,11 @@ const realDeps: Deps = {
 	// Loaded when used: the review service reaches the machine link, which reaches this module.
 	review: async (u, d, e, push) =>
 		(await import("$lib/server/review/service")).reviewPermissionAsk(u, d, e, push),
+	relay: (u, d, e, send) => {
+		void import("$lib/server/code/relay/cards")
+			.then((m) => m.observeRelayAsk(u, d, e, send))
+			.catch((err) => logger.warn({ err: String(err) }, "relay: could not record an ask"));
+	},
 };
 
 const MAX_TRACKED = 2000;
@@ -152,6 +168,24 @@ export function observeMachineEvent(
 					tag: `ask-${id}`,
 				});
 			};
+			// A relay ask (ADR 0121) is Cerea's to record before anything else sees it: held, written
+			// as a ticket from Cerea's own reads, then released and pushed with its own words. The
+			// reviewer, an LLM, never decides it: its content is peer-influenced text.
+			if (
+				event.kind === "permission.asked" &&
+				event.request.metadata?.relay === true &&
+				deps.relay
+			) {
+				deps.relay(userId, deviceId, envelope, (body) =>
+					deps.notify(userId, "permission", {
+						title: "An agent needs you",
+						body,
+						path: agentUrl(deviceId, envelope.rootSessionId ?? sessionId),
+						tag: `ask-${id}`,
+					})
+				);
+				return;
+			}
 			// A permission ask on an Auto session is held for the reviewer; a question never is.
 			if (event.kind === "permission.asked" && deps.review) {
 				// The card is held too, not only the push: it is shown (and counted) when the reviewer

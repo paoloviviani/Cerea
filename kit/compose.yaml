@@ -557,6 +557,8 @@ services:
       # (the kill switches; each computer can still refuse them on its own).
       CODE_FILES_ENABLED: ${CODE_FILES_ENABLED:-}
       CODE_FILE_WRITE_ENABLED: ${CODE_FILE_WRITE_ENABLED:-}
+      CODE_RELAYED_COORDINATION_ENABLED: ${CODE_RELAYED_COORDINATION_ENABLED:-}
+      CHAT_REPLICAS: ${CHAT_REPLICAS:-}
       # The browser terminal in /code: off unless exactly "true", and even then
       # only for machines enrolled with --allow-terminal.
       CODE_TERMINAL_ENABLED: ${CODE_TERMINAL_ENABLED:-}

@@ -55,6 +55,7 @@ import type {
 import { usableAttachments, type ToolImageUrl } from "./toolImages";
 import type { ElicitationValue } from "$lib/types/McpElicitation";
 import { isAskHeld, reviewNoteFor } from "$lib/server/review/wording";
+import { isRelayAsk, relayRequest } from "$lib/server/code/relay/views";
 import { permissionToElicitation, questionToElicitation } from "$lib/utils/codeInboxCards";
 
 /**
@@ -524,7 +525,11 @@ export function permissionRequestToUpdate(
  * An ask the reviewer sent to the user carries its reason (ADR 0107); one the reviewer is still
  * deciding is marked `reviewing`, so no card is drawn for it yet.
  */
-export function withReviewNote(request: PermissionRequest): PermissionRequest {
+export function withReviewNote(rawRequest: PermissionRequest): PermissionRequest {
+	// A relay ask (ADR 0121) is drawn from Cerea's own record, never from what the asking
+	// galopin wrote: its metadata and title are replaced here, in the one place every card, inbox
+	// row and re-sent ask passes through.
+	const request = isRelayAsk(rawRequest) ? relayRequest(rawRequest) : rawRequest;
 	const note = reviewNoteFor(request.id);
 	const withNote = note && !note.allowed ? { ...request, reviewNote: note.text } : request;
 	return isAskHeld(request.id) ? { ...withNote, reviewing: true } : withNote;

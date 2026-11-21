@@ -503,7 +503,8 @@ export interface CodeAgentSession {
 export interface CodeAuditEntry {
 	_id: ObjectId;
 	userId: ObjectId;
-	deviceId: ObjectId;
+	/** Absent on a row about the user and no computer (`coord.switch`). */
+	deviceId?: ObjectId;
 	/** e.g. "files.raw", "files.refused", "terminal.open", "terminal.attach",
 	 * "terminal.close", "terminal.refused", "terminal.ticket_failed". */
 	action: string;
@@ -532,6 +533,13 @@ export interface CodeAuditEntry {
 	scheduleId?: string;
 	/** The chat conversation that started or prompted a session (`agent.start`, `agent.send`; ADR 0106). */
 	conversationId?: string;
+	/** A relayed `coord.*` call's target (ADR 0121): ids only, never a name, text or title. */
+	targetDeviceId?: string;
+	targetWorkspaceId?: string;
+	targetSessionId?: string;
+	/** The hop the call carried, and the id that joins the caller's, Cerea's and the target's lines. */
+	hop?: number;
+	relayId?: string;
 	ip?: string;
 	userAgent?: string;
 	at: Date;

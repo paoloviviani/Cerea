@@ -117,6 +117,14 @@ export interface Settings extends Timestamps {
 	memoryEnabled?: boolean;
 
 	/**
+	 * Relayed coordination (ADR 0121): whether agents on one of this person's computers may read,
+	 * message and start sessions on another (each use still shows a card). On unless this is
+	 * `false`; absent counts as on. The deployment's `CODE_RELAYED_COORDINATION_ENABLED=false`
+	 * wins over it, and so does a computer's own veto.
+	 */
+	relayedCoordinationEnabled?: boolean;
+
+	/**
 	 * Whether the gateway sends back the values its redaction hid, so the turn
 	 * details can list them. Off by default and stored as absent: the values
 	 * are kept with the chat, next to the original text, and only when this

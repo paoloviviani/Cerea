@@ -10,7 +10,8 @@ import { logger } from "$lib/server/logger";
 
 export interface CodeAuditInput {
 	action: string;
-	deviceId: string;
+	/** Omitted for a row about the user and no computer (`coord.switch`). */
+	deviceId?: string;
 	workspaceId?: string;
 	path?: string;
 	bytes?: number;
@@ -37,6 +38,12 @@ export interface CodeAuditInput {
 	scheduleId?: string;
 	/** The chat conversation a chat-driven session action came from (`agent.start`, `agent.send`; ADR 0106). */
 	conversationId?: string;
+	/** A relayed call's target and join id (ADR 0121); ids only, never content, a title or a name. */
+	targetDeviceId?: string;
+	targetWorkspaceId?: string;
+	targetSessionId?: string;
+	hop?: number;
+	relayId?: string;
 }
 
 /** The row-writing core, independent of a SvelteKit `RequestEvent`: the
@@ -53,7 +60,7 @@ export async function recordCodeAuditRow(
 		await collections.codeAudit.insertOne({
 			_id: new ObjectId(),
 			userId,
-			deviceId: new ObjectId(input.deviceId),
+			...(input.deviceId ? { deviceId: new ObjectId(input.deviceId) } : {}),
 			action: input.action,
 			...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
 			...(input.path ? { path: input.path.slice(0, 1024) } : {}),
@@ -68,6 +75,13 @@ export async function recordCodeAuditRow(
 			...(input.mode ? { mode: input.mode.slice(0, 16) } : {}),
 			...(input.scheduleId ? { scheduleId: input.scheduleId.slice(0, 64) } : {}),
 			...(input.conversationId ? { conversationId: input.conversationId.slice(0, 64) } : {}),
+			...(input.targetDeviceId ? { targetDeviceId: input.targetDeviceId.slice(0, 64) } : {}),
+			...(input.targetWorkspaceId
+				? { targetWorkspaceId: input.targetWorkspaceId.slice(0, 200) }
+				: {}),
+			...(input.targetSessionId ? { targetSessionId: input.targetSessionId.slice(0, 200) } : {}),
+			...(input.hop !== undefined ? { hop: input.hop } : {}),
+			...(input.relayId ? { relayId: input.relayId.slice(0, 64) } : {}),
 			...(context.ip ? { ip: context.ip } : {}),
 			...(context.userAgent ? { userAgent: context.userAgent.slice(0, 256) } : {}),
 			at: new Date(),

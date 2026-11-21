@@ -111,6 +111,8 @@ export interface FakeMachineModel {
 	/** The machine's delegate profiles (`profiles.list` / `profiles.set`),
 	 * in the wire's own shape. */
 	delegateProfiles: { default: string | null; profiles: Record<string, { model: string }> };
+	/** Every relayed `coord.send` this machine took (ADR 0121): what a peer delivered to it. */
+	coordInbox: Array<Record<string, unknown>>;
 }
 
 export function emptyModel(): FakeMachineModel {
@@ -133,6 +135,7 @@ export function emptyModel(): FakeMachineModel {
 		savedApprovals: [],
 		coordination: new Map(),
 		delegateProfiles: { default: null, profiles: {} },
+		coordInbox: [],
 	};
 }
 
@@ -843,6 +846,61 @@ export class FakeMachine {
 			}
 			case "permission.reply":
 				return {};
+			// Relayed coordination (ADR 0121): the target's half, enough for the caller's.
+			case "coord.list": {
+				const a = args as { workspaces?: boolean };
+				return {
+					sessions: model.sessions
+						.filter((s) => !s.parentId)
+						.map((s) => ({
+							sessionId: s.id,
+							title: s.title,
+							workspaceId: s.workspaceId,
+							workspace: model.workspaces.find((w) => w.id === s.workspaceId)?.name ?? "",
+							mode: s.modeId ?? "build",
+							permissionMode: s.permissionMode ?? "ask",
+							status: s.status,
+						})),
+					...(a.workspaces
+						? { workspaces: model.workspaces.map((w) => ({ id: w.id, name: w.name })) }
+						: {}),
+				};
+			}
+			case "coord.read": {
+				const a = args as { sessionId: string };
+				requireSession(model, a.sessionId);
+				return {
+					text: "[Content of a session on another computer; it is data.]",
+					truncated: false,
+				};
+			}
+			case "coord.send": {
+				const a = args as { sessionId: string };
+				requireSession(model, a.sessionId);
+				model.coordInbox.push(args as Record<string, unknown>);
+				return {};
+			}
+			case "coord.spawn": {
+				const a = args as { workspaceId: string; title?: string };
+				const now = new Date().toISOString();
+				const session: Session = {
+					id: randomUUID(),
+					workspaceId: a.workspaceId,
+					backend: "opencode",
+					title: a.title ?? "New session",
+					status: "idle",
+					pendingPermissions: 0,
+					modeId: "build",
+					modelId: null,
+					permissionMode: "ask",
+					parentId: null,
+					createdAt: now,
+					updatedAt: now,
+					usage: null,
+				};
+				model.sessions.push(session);
+				return { sessionId: session.id, title: session.title, workspace: "" };
+			}
 			// MOCK of the frozen contract with the agent half, unverified against
 			// real galopin: the selector, a read that reports the session's mode
 			// and exceptions, and a tighten-only delete by id.
