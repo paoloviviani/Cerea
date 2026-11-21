@@ -17,6 +17,7 @@ import {
 	errOf,
 	forward,
 	okResult,
+	parseBody,
 	raiseRelayAsk,
 	seedSession,
 	startWorld,
@@ -277,6 +278,47 @@ describe("the card is Cerea's own record", () => {
 		expect(relayViewFor({ id: "gp_never_recorded", sessionId: "ses_caller" }).approvable).toBe(
 			false
 		);
+	});
+
+	it("draws the Needs-you inbox row and a stream's snapshot from the record too", async () => {
+		const id = await asked();
+		resetRelayViews(); // as after a restart: the route loads the record itself
+		world.a.machine.onOp("permissions.pending", () => ({
+			permissions: [
+				{
+					sessionId: "ses_caller",
+					workspaceId: "ws_desk",
+					sessionTitle: "Migrate",
+					request: raw(id),
+				},
+				{
+					sessionId: "ses_caller",
+					workspaceId: "ws_desk",
+					sessionTitle: "Migrate",
+					request: raw("gp_stranger"),
+				},
+			],
+			questions: [],
+		}));
+		const res = await forward(
+			world.owner,
+			"GET",
+			`/api/v2/code/v1/permissions/pending?device=${world.a.deviceId}`
+		);
+		expect(res.status).toBe(200);
+		const body = (
+			await parseBody<{
+				permissions: Array<{
+					request: { id: string; title: string; metadata: { relay: Record<string, unknown> } };
+				}>;
+			}>(res)
+		).permissions;
+		const known = body.find((p) => p.request.id === id);
+		const unknown = body.find((p) => p.request.id === "gp_stranger");
+		expect(known?.request.metadata.relay).toMatchObject({ approvable: true, op: "send" });
+		expect(unknown?.request.metadata.relay).toMatchObject({ approvable: false });
+		expect(JSON.stringify(body)).not.toContain("Trusted Bank");
+		expect(JSON.stringify(body)).not.toContain("Totally safe");
 	});
 
 	it("is rebuilt from the record after a restart", async () => {

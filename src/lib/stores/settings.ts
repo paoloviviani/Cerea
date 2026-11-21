@@ -11,6 +11,8 @@ type SettingsStore = {
 	toolApprovalPolicy?: "always-allow" | "manual";
 	pyodidePyPiInstallEnabled?: boolean;
 	memoryEnabled?: boolean;
+	/** On unless false: agents may reach the user's other computers (ADR 0121). */
+	relayedCoordinationEnabled?: boolean;
 	showRedactionValues?: boolean;
 	locationMode?: LocationMode;
 	locationPlace?: string;

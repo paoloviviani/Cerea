@@ -3,7 +3,7 @@ import { guardAnonymousSettingsRow } from "$lib/server/anonymousSettings";
 import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";
 import { collections } from "$lib/server/database";
 import { authCondition } from "$lib/server/auth";
-import { onRelaySwitchChanged } from "$lib/server/code/relay/switch";
+import { onRelaySwitchChanged, relayedCoordinationOn } from "$lib/server/code/relay/switch";
 import { requireAuth } from "$lib/server/api/utils/requireAuth";
 import { defaultModel, models, validateModel } from "$lib/server/models";
 import { isUnlistedForUsers } from "$lib/server/hiddenModels";
@@ -173,8 +173,7 @@ export const POST: RequestHandler = async ({ locals, request, getClientAddress }
 	const userId = locals.user?._id;
 	const switchBefore =
 		userId && parsedSettings.relayedCoordinationEnabled !== undefined
-			? (await collections.settings.findOne(authCondition(locals)))?.relayedCoordinationEnabled !==
-				false
+			? await relayedCoordinationOn(userId)
 			: undefined;
 	await collections.settings.updateOne(
 		authCondition(locals),

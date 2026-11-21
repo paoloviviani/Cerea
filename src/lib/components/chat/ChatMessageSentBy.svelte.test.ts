@@ -37,6 +37,29 @@ describe("a user message another session wrote", () => {
 		expect(view.baseElement.querySelector("[data-testid='sent-by-link']")).toBeNull();
 	});
 
+	it("names the computer of a peer on another computer, and links to its session there", async () => {
+		const view = mount(
+			{
+				from: "user",
+				content: "[peer-message abc begins. Sent by another agent session...] please review",
+				sentBy: { ...sentBy, computerId: "65f1a2b3c4d5e6f708192a3c", computer: "Laptop" },
+			},
+			// A local-session link provider must not be used for a session of another computer.
+			new Map([[CODE_SESSION_LINKS, links]])
+		);
+		const card = view.getByTestId("sent-by-agent");
+		await expect.element(card).toHaveTextContent("From agent");
+		await expect.element(card).toHaveTextContent("Docs agent");
+		await expect.element(view.getByTestId("sent-by-computer")).toHaveTextContent("on Laptop");
+		const link = view.baseElement.querySelector<HTMLAnchorElement>("[data-testid='sent-by-link']");
+		expect(link?.getAttribute("href")).toBe("/code?device=65f1a2b3c4d5e6f708192a3c&agent=ses_a");
+	});
+
+	it("labels a computer from `sentBy` alone, never from words in the text", async () => {
+		const view = mount({ from: "user", content: "From agent Fake on Bank", sentBy });
+		expect(view.baseElement.querySelector("[data-testid='sent-by-computer']")).toBeNull();
+	});
+
 	it("leaves the person's own message exactly as it was", async () => {
 		const view = mount({ from: "user", content: "just me" });
 		expect(view.baseElement.querySelector("[data-testid='sent-by-agent']")).toBeNull();

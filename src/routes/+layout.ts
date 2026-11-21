@@ -124,6 +124,7 @@ export const load = async ({ fetch, url, data }) => {
 		starterSuggestionsEnabled: data.starterSuggestionsEnabled,
 		codeFilesEnabled: data.codeFilesEnabled,
 		codeFileWriteEnabled: data.codeFileWriteEnabled,
+		codeRelayedCoordinationEnabled: data.codeRelayedCoordinationEnabled,
 		codeTerminalEnabled: data.codeTerminalEnabled,
 		codeSchedulesEnabled: data.codeSchedulesEnabled,
 		chatSchedulesEnabled: data.chatSchedulesEnabled,

@@ -22,6 +22,7 @@
 	} from "$lib/types/AgentReview";
 	import { className } from "$lib/utils/autoApproval";
 	import LocalAgentConnectors from "$lib/components/workspace/LocalAgentConnectors.svelte";
+	import RelayedCoordination from "$lib/components/workspace/RelayedCoordination.svelte";
 
 	/** The fence markers the server refuses; the same list, so the page says so before the save does. */
 	const FENCE_MARKERS = ["<<<", ">>>", "```", "</", "[[", "]]", "BEGIN ", "END "];
@@ -453,6 +454,8 @@
 			</div>
 		{/if}
 	</section>
+
+	<RelayedCoordination />
 
 	<LocalAgentConnectors />
 </div>

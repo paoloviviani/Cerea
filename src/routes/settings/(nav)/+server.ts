@@ -8,6 +8,7 @@ import { authCondition, loginEnabled } from "$lib/server/auth";
 import { GLOBAL_SYSTEM_PROMPT_MAX } from "$lib/types/CustomModel";
 import { DEFAULT_SETTINGS, type SettingsEditable } from "$lib/types/Settings";
 import { resolveStreamingMode } from "$lib/utils/messageUpdates";
+import { onRelaySwitchChanged, relayedCoordinationOn } from "$lib/server/code/relay/switch";
 import { error, type RequestHandler } from "@sveltejs/kit";
 
 /** Settings are a handful of flags per model; nothing legitimate comes near these. */
@@ -43,6 +44,10 @@ const settingsSchema = z.object({
 	// standing facts about themselves. The deployment flag
 	// (CHAT_MEMORY_ENABLED) can withdraw the feature over the top of it.
 	memoryEnabled: z.boolean().optional(),
+	// On unless `false` (absent counts as on): the Workspace, Agents switch "Let my agents talk to
+	// my other computers" (ADR 0121). The deployment's CODE_RELAYED_COORDINATION_ENABLED can
+	// withdraw it. The client store saves through THIS route.
+	relayedCoordinationEnabled: z.boolean().optional(),
 	// Off by default and stored as absent: asks the gateway to send the hidden
 	// values back with each answer, for the turn details.
 	showRedactionValues: z.boolean().optional(),
@@ -97,6 +102,13 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 		streamingMode,
 	} satisfies SettingsEditable;
 
+	// The relayed-coordination switch: a change is audited, and turning it off deletes the user's
+	// open approval tickets (ADR 0121).
+	const userId = locals.user?._id;
+	const switchBefore =
+		userId && parsedSettings.relayedCoordinationEnabled !== undefined
+			? await relayedCoordinationOn(userId)
+			: undefined;
 	await collections.settings.updateOne(
 		authCondition(locals),
 		{
@@ -115,6 +127,10 @@ export const POST: RequestHandler = async ({ request, locals, getClientAddress }
 			upsert: true,
 		}
 	);
+	if (userId && switchBefore !== undefined) {
+		const switchAfter = parsedSettings.relayedCoordinationEnabled !== false;
+		if (switchAfter !== switchBefore) await onRelaySwitchChanged(userId, switchAfter);
+	}
 	// return ok response
 	return new Response();
 };

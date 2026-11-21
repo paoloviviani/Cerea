@@ -67,7 +67,14 @@ export type Message = Partial<Timestamps> & {
 	/** Set on a coding-agent user message another session wrote with
 	 * `session_send` (PROTOCOL.md §7): rendered as "From agent ‹title›",
 	 * not as the person's own. Never set on an ordinary chat message. */
-	sentBy?: { sessionId: string; title: string; hop: number };
+	sentBy?: {
+		sessionId: string;
+		title: string;
+		hop: number;
+		/** Set when the sender is a session of another of the user's computers (ADR 0121). */
+		computerId?: string;
+		computer?: string;
+	};
 
 	// Router metadata when using llm-router
 	routerMetadata?: {

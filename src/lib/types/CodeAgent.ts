@@ -143,7 +143,14 @@ export interface AgentMessageBoundaryUpdate {
 	messageId: string;
 	/** On a user message another session wrote (`session_send`): stamped
 	 * onto the user `Message` the fold pushes next. */
-	sentBy?: { sessionId: string; title: string; hop: number };
+	sentBy?: {
+		sessionId: string;
+		title: string;
+		hop: number;
+		/** Set when the sender is a session of another of the user's computers (ADR 0121). */
+		computerId?: string;
+		computer?: string;
+	};
 }
 
 /**

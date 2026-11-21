@@ -40,7 +40,7 @@ export interface RelayCardFacts {
 
 /** What the browser is given for a relay ask. `approvable: false` is "cannot be approved from here". */
 export type RelayCardView =
-	| ({ approvable: true } & RelayCardFacts)
+	| ({ approvable: true; pending?: undefined; reason?: undefined } & RelayCardFacts)
 	| { approvable: false; pending?: boolean; reason?: string };
 
 export type RelayTicketState = "asked" | "approved";

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from "$app/paths";
 	import {
 		THINK_CLOSE,
 		THINK_OPEN,
@@ -1415,7 +1416,23 @@
 								<p class="mb-1 flex min-w-0 items-center gap-1 text-xs font-medium text-ink-muted">
 									<LucideBot class="size-3.5 shrink-0" />
 									<span class="shrink-0">{m["chat.message.from_agent"]()}</span>
-									{#if sessionLinks}
+									{#if message.sentBy.computerId}
+										<!-- A session of another of the user's computers (ADR 0121): the link
+										     opens it on that computer, and the label names the computer from
+										     Cerea's own record carried in `sentBy`, never from the text. -->
+										<a
+											href="{base}/code?device={encodeURIComponent(
+												message.sentBy.computerId
+											)}&agent={encodeURIComponent(message.sentBy.sessionId)}"
+											class="min-w-0 truncate underline-offset-2 hover:underline"
+											data-testid="sent-by-link">{message.sentBy.title}</a
+										>
+										<span class="shrink-0" data-testid="sent-by-computer"
+											>{m["chat.message.from_agent_computer"]({
+												computer: message.sentBy.computer ?? "",
+											})}</span
+										>
+									{:else if sessionLinks}
 										<a
 											href={sessionLinks.href(message.sentBy.sessionId)}
 											class="min-w-0 truncate underline-offset-2 hover:underline"
