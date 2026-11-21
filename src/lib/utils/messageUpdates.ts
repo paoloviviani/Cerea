@@ -45,6 +45,9 @@ type MessageUpdateRequestOptions = {
 	messageId?: string;
 	isRetry: boolean;
 	isContinue?: boolean;
+	/** Ids this tab minted for the messages the send creates; the server stores exactly them. */
+	userMessageId?: string;
+	assistantMessageId?: string;
 	/** Continue the tool call a durable elicitation parked, before generating. */
 	resumeElicitationId?: string;
 	// Client-chosen id for this generation run, echoed back by stop-generating
@@ -86,6 +89,8 @@ export async function fetchMessageUpdates(
 		inputs: opts.inputs,
 		id: opts.messageId,
 		is_retry: opts.isRetry,
+		...(opts.userMessageId ? { userMessageId: opts.userMessageId } : {}),
+		...(opts.assistantMessageId ? { assistantMessageId: opts.assistantMessageId } : {}),
 		...(opts.resumeElicitationId ? { resumeElicitationId: opts.resumeElicitationId } : {}),
 		is_continue: Boolean(opts.isContinue),
 		generationId: opts.generationId,

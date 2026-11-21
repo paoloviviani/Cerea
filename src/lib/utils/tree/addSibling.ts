@@ -1,7 +1,12 @@
 import { v4 } from "uuid";
 import type { Tree, TreeId, NewNode, TreeNode } from "./tree";
 
-export function addSibling<T>(conv: Tree<T>, message: NewNode<T>, siblingId: TreeId): TreeId {
+export function addSibling<T>(
+	conv: Tree<T>,
+	message: NewNode<T>,
+	siblingId: TreeId,
+	newId?: TreeId
+): TreeId {
 	if (conv.messages.length === 0) {
 		throw new Error("Cannot add a sibling to an empty conversation");
 	}
@@ -19,7 +24,7 @@ export function addSibling<T>(conv: Tree<T>, message: NewNode<T>, siblingId: Tre
 		throw new Error("The sibling message is the root message, therefore we can't add a sibling");
 	}
 
-	const messageId = v4();
+	const messageId = newId ?? v4();
 
 	conv.messages.push({
 		...message,

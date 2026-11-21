@@ -326,6 +326,12 @@
 				)
 			);
 
+			// The ids this send gives the messages it creates; the server stores exactly these
+			// (C156), so the thread needs no swap for the server's after the turn.
+			const userMessageId = v4();
+			const assistantMessageId = v4();
+			let sentUserId: string | undefined;
+			let sentAssistantId: string | undefined;
 			let messageToWriteToId: Message["id"] | undefined = undefined;
 			// used for building the prompt, subtree of the conversation that goes from the latest message to the root
 
@@ -358,7 +364,8 @@
 							content: prompt,
 							files: messageToRetry.files,
 						},
-						messageId
+						messageId,
+						userMessageId
 					);
 					messageToWriteToId = addChildren(
 						{
@@ -366,8 +373,11 @@
 							rootMessageId,
 						},
 						{ from: "assistant", content: "" },
-						newUserMessageId
+						newUserMessageId,
+						assistantMessageId
 					);
+					sentUserId = userMessageId;
+					sentAssistantId = assistantMessageId;
 				} else if (messageToRetry?.from === "assistant") {
 					// we're retrying an assistant message, to generate a new answer
 					// just add a sibling to the assistant answer where we can write to
@@ -377,8 +387,10 @@
 							rootMessageId,
 						},
 						{ from: "assistant", content: "" },
-						messageId
+						messageId,
+						assistantMessageId
 					);
+					sentAssistantId = assistantMessageId;
 				}
 			} else {
 				// just a normal linear conversation, so we add the user message
@@ -393,7 +405,8 @@
 						content: prompt ?? "",
 						files: base64Files,
 					},
-					messageId
+					messageId,
+					userMessageId
 				);
 
 				if (!rootMessageId) {
@@ -409,8 +422,11 @@
 						from: "assistant",
 						content: "",
 					},
-					newUserMessageId
+					newUserMessageId,
+					assistantMessageId
 				);
+				sentUserId = userMessageId;
+				sentAssistantId = assistantMessageId;
 			}
 
 			const userMessage = messages.find((message) => message.id === messageId);
@@ -428,6 +444,8 @@
 					inputs: prompt,
 					messageId,
 					isRetry,
+					...(sentUserId ? { userMessageId: sentUserId } : {}),
+					...(sentAssistantId ? { assistantMessageId: sentAssistantId } : {}),
 					...(resumeElicitationId ? { resumeElicitationId } : {}),
 					generationId: activeGenerationId,
 					files: isRetry ? userMessage?.files : base64Files,

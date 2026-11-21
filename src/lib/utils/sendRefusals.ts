@@ -4,3 +4,6 @@
  * Lives here because a +server.ts may export only request handlers.
  */
 export const PARENT_NOT_FOUND_MESSAGE = "This conversation changed. Syncing and sending again.";
+
+/** The 409 text for a send whose proposed message id already exists in the conversation. */
+export const MESSAGE_ID_IN_USE_MESSAGE = "Message id in use.";
