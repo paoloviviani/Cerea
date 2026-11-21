@@ -154,7 +154,12 @@ test.describe("an approval is applied by the server", () => {
 		mockOpenAI,
 	}) => {
 		await send(page, "start the agent");
+		// Reload only once the server has the answer; a reload mid-POST drops it (see the next test).
+		const answered = page.waitForResponse(
+			(r) => r.url().includes("/elicitation") && r.request().method() === "POST"
+		);
 		await lastAssistant(page).getByRole("button", { name: "Allow once" }).click();
+		expect((await answered).status()).toBe(200);
 		await page.reload();
 		await waitForHydration(page);
 		await expect(lastAssistant(page)).toContainText("Approval round done.", { timeout: 45_000 });
@@ -168,7 +173,15 @@ test.describe("an approval is applied by the server", () => {
 	}) => {
 		await send(page, "start the agent");
 		const url = page.url();
+		// The tab may close only once the server has the answer: a click followed at once by a
+		// navigation aborts the POST in flight (the server then sees a truncated body and answers
+		// 400, and the card simply stays open for the user to click again). What is under test is
+		// that the server applies an answer it HAS with no tab to drive it.
+		const answered = page.waitForResponse(
+			(r) => r.url().includes("/elicitation") && r.request().method() === "POST"
+		);
 		await lastAssistant(page).getByRole("button", { name: "Allow once" }).click();
+		expect((await answered).status()).toBe(200);
 		await page.goto("about:blank");
 		await expect
 			.poll(async () => resumes((await mockOpenAI.requests()) as Req[]).length, {

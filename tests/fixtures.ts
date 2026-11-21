@@ -420,6 +420,8 @@ function waitForHydrationAfterNavigation(page: Page): void {
 		) => Promise<{ headers(): Record<string, string> } | null>;
 		(page as unknown as Record<string, unknown>)[method] = async (...args: unknown[]) => {
 			const response = await original(...args);
+			// `about:blank` is not the app and has no response: waiting here only burns 15 s.
+			if (typeof args[0] === "string" && args[0].startsWith("about:")) return response;
 			const isHtml = !response || (response.headers()["content-type"] ?? "").includes("text/html");
 			if (isHtml) {
 				await page
