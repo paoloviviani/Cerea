@@ -121,7 +121,10 @@ func (b *Backend) Ask(ctx context.Context, workspaceDir, sessionID string, req b
 	if _, err := rand.Read(raw); err != nil {
 		return "", "", err
 	}
-	req.ID = galopinAskPrefix + hex.EncodeToString(raw)
+	// A caller inside galopin may mint the id itself (ADR 0121).
+	if !strings.HasPrefix(req.ID, galopinAskPrefix) || len(req.ID) <= len(galopinAskPrefix) {
+		req.ID = galopinAskPrefix + hex.EncodeToString(raw)
+	}
 	req.SessionID = sessionID
 	if req.Metadata == nil {
 		req.Metadata = map[string]any{}

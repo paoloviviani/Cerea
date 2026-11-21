@@ -53,15 +53,17 @@ type toolDef struct {
 
 var galopinTools = []toolDef{
 	{
-		name:        "session_list",
-		description: "List the other coding sessions on this machine (id, title, workspace, mode, status) so you can address one with session_read or session_send. Read-only.",
-		args:        `{ note: { type: "string", description: "Anything, e.g. why you are listing. Ignored." } }`,
+		name: "session_list",
+		description: "List the other coding sessions on this machine (id, title, workspace, mode, status) so you can address one with session_read or session_send. Read-only. " +
+			"It also lists the person's other computers' sessions when relayed coordination is available (each with a computerId and a target like <computerId>:<sessionId>); pass computers:true to list those computers and their workspaces too (a remote session_spawn needs a workspace).",
+		args: `{ note: { type: "string", description: "Anything, e.g. why you are listing. Ignored." },` +
+			` computers: { type: "boolean", description: "true to also list the person's other computers and their workspaces; false for sessions only." } }`,
 	},
 	{
 		name: "session_read",
 		description: "Read another session's recent text (by id from session_list): its last user and assistant messages, oldest first, with role and time; no tool output or reasoning. " +
 			"A session you spawned is readable with no card; any other asks the person unless this machine's rules allow it. Not for yourself. You do not need it to collect a spawned session's result: that is reported to you.",
-		args: `{ target: { type: "string", description: "The session id to read, from session_list." },` +
+		args: `{ target: { type: "string", description: "The session id to read, from session_list; <computerId>:<sessionId> for a session on another computer (always asks the person)." },` +
 			` last: { type: "number", description: "How many recent messages: 1 to 50 (0 for the default, 10)." } }`,
 	},
 	{
@@ -74,7 +76,9 @@ var galopinTools = []toolDef{
 			` prompt: { type: "string", description: "The first prompt: everything the new session needs, it cannot see this conversation." },` +
 			` mode: { type: "string", description: "The new session's mode: \"plan\", \"build\", or \"inherit\" for your own." },` +
 			` profile: { type: "string", description: "A delegate profile name from session_profiles; \"\" for the machine's default profile (or your own model when it has none)." },` +
-			` report: { type: "boolean", description: "Default true: its result is delivered to you. false for fire-and-forget." } }`,
+			` report: { type: "boolean", description: "Default true: its result is delivered to you. false for fire-and-forget." },` +
+			` computer: { type: "string", description: "A computerId from session_list (computers:true) to start the session on the person's OTHER computer, in workspaceId; \"\" for this one. It always asks the person, starts on Ask, does not report back and uses that computer's own default model." },` +
+			` workspaceId: { type: "string", description: "With computer: the workspace id on that computer (from session_list, computers:true); \"\" otherwise." } }`,
 	},
 	{
 		name:        "session_profiles",
@@ -95,7 +99,7 @@ var galopinTools = []toolDef{
 		name: "session_send",
 		description: "Send a message to ANOTHER session (by id from session_list); it arrives as a prompt marked as coming from you, folded into its running turn if it is busy. " +
 			"Between you and a session you spawned (either way) it needs no card; any other session asks the person unless this machine's rules allow it. A task subagent must never use this to reply to its parent: its final message is the reply. Not for your own subagents (use task) or yourself. Limits apply (hops, rate).",
-		args: `{ target: { type: "string", description: "The target session id, from session_list." },` +
+		args: `{ target: { type: "string", description: "The target session id, from session_list; <computerId>:<sessionId> for a session on another computer (always asks the person; the text arrives marked as a peer's)." },` +
 			` text: { type: "string", description: "The message." } }`,
 	}, {
 		name:        "connector_list",
@@ -411,7 +415,11 @@ func (b *Backend) Ask(ctx context.Context, workspaceDir, sessionID string, req b
 	if err != nil {
 		return "", "", err
 	}
-	req.ID = galopinAskPrefix + suffix
+	// A caller inside galopin may mint the id itself (a relayed call needs the
+	// id of its own card as its approval id, ADR 0121); anything else is minted.
+	if !strings.HasPrefix(req.ID, galopinAskPrefix) || len(req.ID) <= len(galopinAskPrefix) {
+		req.ID = galopinAskPrefix + suffix
+	}
 	req.SessionID = sessionID
 	if req.Metadata == nil {
 		req.Metadata = map[string]any{}

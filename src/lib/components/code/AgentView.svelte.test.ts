@@ -47,6 +47,8 @@ const fake = vi.hoisted(() => ({
 	/** Calls the rollback test expects the view to make. */
 	reverts: [] as string[],
 	sends: [] as string[],
+	/** Every `respondPermission` call's arguments, as the view made it. */
+	replies: [] as unknown[][],
 }));
 
 // The composer's MCP stores read `$env/dynamic/public` at module scope and
@@ -121,6 +123,10 @@ vi.mock("$lib/codeApi", async (importOriginal) => ({
 	},
 	revertAgent: async (_device: string, _agent: string, messageId: string) => {
 		fake.reverts.push(messageId);
+		return { ok: true };
+	},
+	respondPermission: async (...args: unknown[]) => {
+		fake.replies.push(args);
 		return { ok: true };
 	},
 	sendFollowUp: async (_device: string, _agent: string, text: string) => {
@@ -380,6 +386,56 @@ describe("AgentView permission selector", () => {
 			screen.getByRole("button", { name: "Always allow (this session)" }).elements()
 		).toHaveLength(1);
 		expect(screen.getByRole("button", { name: "Allow once" }).elements()).toHaveLength(2);
+	});
+
+	describe("answering a relay card (ADR 0121)", () => {
+		const relayView = {
+			approvable: true,
+			ticket: "a1b2c3hash",
+			op: "send",
+			hop: 1,
+			caller: { computer: "Desk", workspace: "api", session: "Migrate" },
+			target: { computer: "Laptop", workspace: "site", session: "Docs" },
+			text: "please review",
+		};
+		const ask = (id: string, metadata: Record<string, unknown>) => ({
+			type: MessageUpdateType.Elicitation,
+			subtype: MessageElicitationUpdateType.Request,
+			request: permissionToElicitation({
+				id,
+				sessionId: "a1",
+				tool: "session_send",
+				title: "x",
+				patterns: [],
+				metadata,
+				always: [],
+			}),
+		});
+
+		it("sends the ticket the card carried back with the answer", async () => {
+			await browserPage.viewport(1200, 800);
+			fake.replies = [];
+			const screen = mount();
+			await vi.waitFor(() => expect(fake.ruleReads).toBeGreaterThan(0));
+			await arrive([ask("gp_r1", { relay: relayView })]);
+			await expect.element(screen.getByRole("button", { name: "Allow once" })).toBeVisible();
+			(screen.getByRole("button", { name: "Allow once" }).element() as HTMLElement).click();
+			await vi.waitFor(() =>
+				expect(fake.replies).toEqual([["d1", "a1", "gp_r1", "once", undefined, "a1b2c3hash"]])
+			);
+		});
+
+		it("calls it exactly as before for a card that is not a relay card", async () => {
+			await browserPage.viewport(1200, 800);
+			fake.replies = [];
+			const screen = mount();
+			await vi.waitFor(() => expect(fake.ruleReads).toBeGreaterThan(0));
+			await arrive([ask("p-plain", {})]);
+			await expect.element(screen.getByRole("button", { name: "Allow once" })).toBeVisible();
+			(screen.getByRole("button", { name: "Allow once" }).element() as HTMLElement).click();
+			await vi.waitFor(() => expect(fake.replies).toHaveLength(1));
+			expect(fake.replies[0]).toEqual(["d1", "a1", "p-plain", "once", undefined]);
+		});
 	});
 
 	describe("a new subagent's first turn", () => {

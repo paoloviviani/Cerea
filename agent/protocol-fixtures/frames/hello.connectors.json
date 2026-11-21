@@ -43,6 +43,7 @@
 			"maxTerminals": 8,
 			"commandShell": "allowed",
 			"agentTools": "allowed",
+			"relayedCoordination": "denied",
 			"projectConfig": "denied",
 			"backgroundSubagents": "allowed",
 			"warnings": ["opencode global config pins a model outside Pystino"]

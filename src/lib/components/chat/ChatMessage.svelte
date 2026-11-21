@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { base } from "$app/paths";
+	import { peerTextOf } from "$lib/utils/peerEnvelope";
 	import {
 		THINK_CLOSE,
 		THINK_OPEN,
@@ -1414,8 +1416,28 @@
 							<div class="w-fit max-w-full rounded-xl border border-line bg-sunken px-3 py-2">
 								<p class="mb-1 flex min-w-0 items-center gap-1 text-xs font-medium text-ink-muted">
 									<LucideBot class="size-3.5 shrink-0" />
-									<span class="shrink-0">{m["chat.message.from_agent"]()}</span>
-									{#if sessionLinks}
+									{#if message.sentBy.computerId}
+										<span class="shrink-0" data-testid="sent-by-computer"
+											>{m["chat.message.from_your_agent"]({
+												computer: message.sentBy.computer ?? "",
+											})}</span
+										>
+									{:else}
+										<span class="shrink-0">{m["chat.message.from_agent"]()}</span>
+									{/if}
+									{#if message.sentBy.computerId}
+										<span class="shrink-0" aria-hidden="true">·</span>
+										<!-- A session of another of the user's computers (ADR 0121): the link
+										     opens it on that computer, and the label names the computer from
+										     Cerea's own record carried in `sentBy`, never from the text. -->
+										<a
+											href="{base}/code?device={encodeURIComponent(
+												message.sentBy.computerId
+											)}&agent={encodeURIComponent(message.sentBy.sessionId)}"
+											class="min-w-0 truncate underline-offset-2 hover:underline"
+											data-testid="sent-by-link">{message.sentBy.title}</a
+										>
+									{:else if sessionLinks}
 										<a
 											href={sessionLinks.href(message.sentBy.sessionId)}
 											class="min-w-0 truncate underline-offset-2 hover:underline"
@@ -1428,8 +1450,14 @@
 								<p
 									class="text-wrap wrap-break-word whitespace-break-spaces text-gray-600 dark:text-gray-300"
 								>
-									{message.content.trim()}
+									{(message.sentBy.computerId ? peerTextOf(message.content) : null) ??
+										message.content.trim()}
 								</p>
+								{#if message.sentBy.computerId}
+									<p class="mt-1 text-xs text-ink-muted" data-testid="sent-by-approved">
+										{m["chat.message.you_approved"]()}
+									</p>
+								{/if}
 							</div>
 						</div>
 					{:else if message.command}

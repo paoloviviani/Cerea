@@ -1,0 +1,36 @@
+{
+	"_meta": {
+		"spec": "§5 Machine calls",
+		"direction": "C→M",
+		"op": "coord.resolve"
+	},
+	"frame": {
+		"type": "callres",
+		"id": "c1",
+		"ok": true,
+		"result": {
+			"computer": {
+				"id": "65f1a2b3c4d5e6f708192a3c",
+				"name": "Laptop"
+			},
+			"workspace": {
+				"id": "ws_01",
+				"name": "site"
+			},
+			"session": {
+				"id": "ses_77",
+				"title": "Docs",
+				"mode": "ask",
+				"status": "idle"
+			},
+			"caller": {
+				"computer": "Desk",
+				"workspace": "api",
+				"session": {
+					"id": "ses_01",
+					"title": "Migrate the schema"
+				}
+			}
+		}
+	}
+}

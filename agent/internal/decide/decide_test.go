@@ -164,17 +164,17 @@ func TestAutoRunsOnlyTheClassesItsMapSays(t *testing.T) {
 	}
 	autoRun := State{Mode: permrules.Ask, Auto: true, AutoRun: AutoRunSet(map[string]string{"agents": "run"})}
 	for _, key := range []string{"session_read", "session_send", "session_spawn"} {
-		if a, _ := CoordinationFor(pol(), autoRun, key, false, ""); a != permrules.Allow {
+		if a, _ := CoordinationFor(pol(), autoRun, key, false, "", false); a != permrules.Allow {
 			t.Errorf("Auto, agents row Runs, %s: %s, want allow", key, a)
 		}
-		if a, _ := CoordinationFor(pol(), auto, key, false, ""); a != permrules.Ask {
+		if a, _ := CoordinationFor(pol(), auto, key, false, "", false); a != permrules.Ask {
 			t.Errorf("Auto, agents row not Runs, %s: %s, want ask", key, a)
 		}
 	}
-	if a, _ := CoordinationFor(pol(), autoRun, "session_list", false, ""); a != permrules.Allow {
+	if a, _ := CoordinationFor(pol(), autoRun, "session_list", false, "", false); a != permrules.Allow {
 		t.Errorf("Auto session_list: %s", a)
 	}
-	if a, _ := CoordinationFor(pol(), autoRun, "schedule", false, autoRun.Mode); a != permrules.Allow {
+	if a, _ := CoordinationFor(pol(), autoRun, "schedule", false, autoRun.Mode, false); a != permrules.Allow {
 		t.Errorf("Auto, agents run, schedule: %s", a)
 	}
 }
@@ -306,7 +306,7 @@ func TestCoordinationTool(t *testing.T) {
 		{"an Ask spawner's send to its delegate is once", Policy{}, State{}, "session_send", true, "", permrules.Allow},
 	}
 	for _, tc := range tests {
-		got, reason := CoordinationFor(tc.p, tc.s, tc.key, tc.delegate, tc.target)
+		got, reason := CoordinationFor(tc.p, tc.s, tc.key, tc.delegate, tc.target, false)
 		if got != tc.want {
 			t.Errorf("%s: got %s, want %s", tc.name, got, tc.want)
 		}
@@ -356,5 +356,56 @@ func TestExternalDirectoryExceptionCoversReadsNotEdits(t *testing.T) {
 	}
 	if excepted(exs, Request{Key: "edit", Patterns: []string{"/srv/data/a.txt"}}) {
 		t.Error("an edit under the excepted directory must still ask")
+	}
+}
+
+// A relayed call (ADR 0121) is a card on every word, whatever would free a
+// local call; Plan refuses it, read included; listing is the one free call.
+func TestCoordinationForRelayed(t *testing.T) {
+	blanket := []permrules.Exception{{ID: "e", Permission: "session_send", Patterns: []string{"*"}}}
+	autoRuns := State{Mode: permrules.Ask, Auto: true, AutoRun: AutoRunSet(map[string]string{"agents": "run"})}
+	tests := []struct {
+		name     string
+		p        Policy
+		s        State
+		key      string
+		delegate bool
+		target   permrules.Action
+		want     permrules.Action
+	}{
+		{"Ask asks", Policy{}, State{Mode: permrules.Ask}, "session_send", false, "", permrules.Ask},
+		{"Allow still asks", Policy{}, State{Mode: permrules.Allow}, "session_send", false, "", permrules.Ask},
+		{"Allow read still asks", Policy{}, State{Mode: permrules.Allow}, "session_read", false, "", permrules.Ask},
+		{"Allow spawn still asks", Policy{}, State{Mode: permrules.Allow}, "session_spawn", false, permrules.Allow, permrules.Ask},
+		{"Auto, Agents row Runs, still asks", Policy{}, autoRuns, "session_send", false, "", permrules.Ask},
+		{"Auto, Agents row Runs, read still asks", Policy{}, autoRuns, "session_read", false, "", permrules.Ask},
+		{"a blanket exception does not free it", Policy{}, State{Mode: permrules.Ask, Exceptions: blanket}, "session_send", false, "", permrules.Ask},
+		{"a blanket exception on Allow does not free it", Policy{}, State{Mode: permrules.Allow, Exceptions: blanket}, "session_send", false, "", permrules.Ask},
+		{"a same-or-more-cautious target does not free it", Policy{}, State{Mode: permrules.Allow}, "session_send", false, permrules.Ask, permrules.Ask},
+		{"a delegate flag is ignored", Policy{}, State{Mode: permrules.Ask}, "session_send", true, "", permrules.Ask},
+		{"Plan refuses a send", Policy{}, State{Mode: permrules.Deny}, "session_send", false, "", permrules.Deny},
+		{"Plan refuses a spawn", Policy{}, State{Mode: permrules.Deny}, "session_spawn", false, "", permrules.Deny},
+		{"Plan refuses a read", Policy{}, State{Mode: permrules.Deny}, "session_read", false, "", permrules.Deny},
+		{"Plan refuses a read even as a delegate", Policy{}, State{Mode: permrules.Deny}, "session_read", true, "", permrules.Deny},
+		{"a local deny of agents refuses", pol(ClassAgents), State{Mode: permrules.Allow}, "session_send", false, "", permrules.Deny},
+		{"listing is free", Policy{}, State{Mode: permrules.Ask}, "session_list", false, "", permrules.Allow},
+		{"listing is free on Plan", Policy{}, State{Mode: permrules.Deny}, "session_list", false, "", permrules.Allow},
+		{"a local deny refuses listing", pol(ClassAgents), State{}, "session_list", false, "", permrules.Deny},
+	}
+	for _, tc := range tests {
+		got, reason := CoordinationFor(tc.p, tc.s, tc.key, tc.delegate, tc.target, true)
+		if got != tc.want {
+			t.Errorf("%s: got %s, want %s", tc.name, got, tc.want)
+		}
+		if got == permrules.Deny && reason == "" {
+			t.Errorf("%s: a refusal without a reason", tc.name)
+		}
+	}
+	// The local rules are unchanged by the new input.
+	if got, _ := CoordinationFor(Policy{}, State{Mode: permrules.Allow}, "session_send", false, "", false); got != permrules.Allow {
+		t.Errorf("a local Allow send: got %s", got)
+	}
+	if got, _ := CoordinationFor(Policy{}, State{Mode: permrules.Deny}, "session_read", true, "", false); got != permrules.Allow {
+		t.Errorf("a local Plan read of a delegate: got %s", got)
 	}
 }

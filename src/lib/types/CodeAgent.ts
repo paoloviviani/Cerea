@@ -143,7 +143,14 @@ export interface AgentMessageBoundaryUpdate {
 	messageId: string;
 	/** On a user message another session wrote (`session_send`): stamped
 	 * onto the user `Message` the fold pushes next. */
-	sentBy?: { sessionId: string; title: string; hop: number };
+	sentBy?: {
+		sessionId: string;
+		title: string;
+		hop: number;
+		/** Set when the sender is a session of another of the user's computers (ADR 0121). */
+		computerId?: string;
+		computer?: string;
+	};
 }
 
 /**
@@ -503,7 +510,8 @@ export interface CodeAgentSession {
 export interface CodeAuditEntry {
 	_id: ObjectId;
 	userId: ObjectId;
-	deviceId: ObjectId;
+	/** Absent on a row about the user and no computer (`coord.switch`). */
+	deviceId?: ObjectId;
 	/** e.g. "files.raw", "files.refused", "terminal.open", "terminal.attach",
 	 * "terminal.close", "terminal.refused", "terminal.ticket_failed". */
 	action: string;
@@ -532,6 +540,13 @@ export interface CodeAuditEntry {
 	scheduleId?: string;
 	/** The chat conversation that started or prompted a session (`agent.start`, `agent.send`; ADR 0106). */
 	conversationId?: string;
+	/** A relayed `coord.*` call's target (ADR 0121): ids only, never a name, text or title. */
+	targetDeviceId?: string;
+	targetWorkspaceId?: string;
+	targetSessionId?: string;
+	/** The hop the call carried, and the id that joins the caller's, Cerea's and the target's lines. */
+	hop?: number;
+	relayId?: string;
 	ip?: string;
 	userAgent?: string;
 	at: Date;

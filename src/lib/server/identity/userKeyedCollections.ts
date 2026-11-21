@@ -680,6 +680,37 @@ export const USER_KEYED_COLLECTIONS: UserKeyedCollectionEntry[] = [
 		erase: (userId) => eraseByField(collections.codeAudit, "userId", userId),
 	},
 	{
+		name: "codeRelayTickets",
+		owner: "userId",
+		mergeRule: "delete-stray",
+		eraseRule: "by-owner",
+		ownerField: "userId",
+		// An approval in flight (ADR 0121), bound to the stray's own card: carrying it to the
+		// target would let the target approve a call it never saw. Erased with the account.
+		merge: (stray) => deleteStrayRows(collections.codeRelayTickets, "userId", stray),
+		erase: (userId) => eraseByField(collections.codeRelayTickets, "userId", userId),
+	},
+	{
+		name: "codeRelayLedger",
+		owner: "userId",
+		mergeRule: "delete-stray",
+		eraseRule: "by-owner",
+		ownerField: "userId",
+		// Hop and depth of sessions on the stray's computers, 24 hours at most: dropped, not moved.
+		merge: (stray) => deleteStrayRows(collections.codeRelayLedger, "userId", stray),
+		erase: (userId) => eraseByField(collections.codeRelayLedger, "userId", userId),
+	},
+	{
+		name: "codeRelayEvents",
+		owner: "userId",
+		mergeRule: "delete-stray",
+		eraseRule: "by-owner",
+		ownerField: "userId",
+		// Counters of calls and cards, two hours at most: dropped, not moved.
+		merge: (stray) => deleteStrayRows(collections.codeRelayEvents, "userId", stray),
+		erase: (userId) => eraseByField(collections.codeRelayEvents, "userId", userId),
+	},
+	{
 		name: "schedules",
 		owner: "userId",
 		mergeRule: "reassign",

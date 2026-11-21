@@ -164,6 +164,15 @@ describe("routing: only Auto (ask with its map), on a reviewer row, on a machine
 		["no model chosen", (h) => (h.settings.decisionModelId = null), undefined],
 		["kill switch", (h) => (h.state.killSwitchOn = false), undefined],
 		["class loop", () => undefined, ask({ cls: "loop" })],
+		[
+			// ADR 0121: a relayed ask carries peer-influenced text and the reviewer is a model.
+			"a relayed ask, whatever the Agents row and the Auto map say",
+			(h) => {
+				h.settings.perClass.agents = "reviewer";
+				h.state.autoClasses = { agents: "ask" };
+			},
+			ask({ tool: "session_send", cls: "agents", metadata: { relay: true, op: "send" } }),
+		],
 		["no class (older machine)", () => undefined, ask({ cls: undefined })],
 		["session unreadable", (h) => (h.state.sessionGetFails = true), undefined],
 	];

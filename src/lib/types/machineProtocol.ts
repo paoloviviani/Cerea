@@ -110,6 +110,10 @@ export interface Policy {
 	 * session_list/session_read/session_send/session_spawn. Older machines
 	 * omit it: read as allowed. */
 	agentTools?: "allowed" | "denied";
+	/** The relayed-coordination veto (§4, ADR 0121): "denied" refuses every
+	 * inbound `coord.*` request, `coord.list` included. Absent reads allowed;
+	 * `agentTools: "denied"` implies denied. */
+	relayedCoordination?: "allowed" | "denied";
 	/** Whether opencode may run background subagents (task background:true):
 	 * "allowed" (enroll's default) or "denied" (--no-background-subagents; also what an absent field means).
 	 * Older machines omit it: read as denied. */
@@ -147,6 +151,10 @@ export interface Machine {
 		 * machine's delegate profiles, editable by its owner. A galopin older
 		 * than the ops omits it, and answers both `unsupported`. */
 		delegateProfiles?: boolean;
+		/** This galopin sends `coord.*` machine calls and answers the `coord.*`
+		 * requests (§5, §6, ADR 0121). Whether the owner allows it is the policy's
+		 * `relayedCoordination`. Absent reads false: an older galopin, local only. */
+		relayedCoordination?: boolean;
 	};
 }
 
@@ -264,7 +272,15 @@ export interface Session {
 	/** A top-level session another session created with `session_spawn`
 	 * (PROTOCOL.md §6/§7): the spawner and its title at that moment. Not a
 	 * tree edge — `parentId` stays null. */
-	spawnedBy?: { sessionId: string; title: string };
+	spawnedBy?: {
+		sessionId: string;
+		title: string;
+		/** Set when a session of ANOTHER computer started this one (ADR 0121): that
+		 * computer's Cerea device id and name, and the hop of the first message. */
+		computerId?: string;
+		computer?: string;
+		hop?: number;
+	};
 	createdAt: string;
 	updatedAt: string;
 	usage: Usage | null;
@@ -335,7 +351,15 @@ export interface Message {
 	 * (PROTOCOL.md §7): the sender, its title at that moment, and the
 	 * message's hop count (1..3). The bubble is the sender's, not the
 	 * person's. */
-	sentBy?: { sessionId: string; title: string; hop: number };
+	sentBy?: {
+		sessionId: string;
+		title: string;
+		hop: number;
+		/** Set when the sender is a session of ANOTHER computer of the owner (ADR 0121):
+		 * Cerea's device id and name for it. The bubble is labelled from these alone. */
+		computerId?: string;
+		computer?: string;
+	};
 	command?: { name: string; arguments: string };
 }
 
@@ -768,6 +792,10 @@ export const OP_NAMES = [
 	"mcp.close",
 	"mcp.login",
 	"mcp.loginComplete",
+	"coord.list",
+	"coord.read",
+	"coord.send",
+	"coord.spawn",
 ] as const;
 export type OpName = (typeof OP_NAMES)[number];
 
@@ -864,7 +892,11 @@ export class OpError extends Error {
  * turn streams as events; the op itself never blocks, so its deadline is
  * the generic one. */
 export function opDeadlineMs(op: OpName): number {
-	return op === "session.sync" ? 20_000 : 15_000;
+	if (op === "session.sync") return 20_000;
+	// Relayed coordination (ADR 0121): a list is bounded at 5 s, the rest at 20 s.
+	if (op === "coord.list") return 5_000;
+	if (op === "coord.read" || op === "coord.send" || op === "coord.spawn") return 20_000;
+	return 15_000;
 }
 
 export type SyncResult =
@@ -1040,6 +1072,11 @@ export const MACHINE_CALL_OPS = [
 	"connector.list",
 	"connector.call",
 	"browser.key",
+	"coord.list",
+	"coord.resolve",
+	"coord.read",
+	"coord.send",
+	"coord.spawn",
 ] as const;
 export type MachineCallOp = (typeof MACHINE_CALL_OPS)[number];
 
@@ -1087,6 +1124,7 @@ const policySchema = z.object({
 	terminal: z.enum(["allowed", "denied"]).optional(),
 	maxTerminals: z.number().optional(),
 	agentTools: z.enum(["allowed", "denied"]).optional(),
+	relayedCoordination: z.enum(["allowed", "denied"]).optional(),
 	backgroundSubagents: z.enum(["allowed", "denied"]).optional(),
 });
 

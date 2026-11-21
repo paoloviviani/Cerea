@@ -542,7 +542,7 @@ type DelegateHook func(caller, target string) bool
 // deny a refusal the model reads. delegate says the call is between a spawner
 // and the session it spawned. See CoordinationFor for the target's word.
 func CoordinationTool(p Policy, s State, key string, delegate bool) (permrules.Action, string) {
-	return CoordinationFor(p, s, key, delegate, "")
+	return CoordinationFor(p, s, key, delegate, "", false)
 }
 
 // wordRank orders the session words by how cautious they are: Plan is the
@@ -573,9 +573,24 @@ var askCallersAreFree = false
 // Auto caller is on Ask here, except that its agents class running (the
 // Agents row says Runs) makes a call free the way Allow does. There is no
 // per-session grant: session.grantCoordination is a deprecated no-op.
-func CoordinationFor(p Policy, s State, key string, delegate bool, target permrules.Action) (permrules.Action, string) {
+//
+// relayed is the call reaching a session on ANOTHER computer (ADR 0121). It
+// narrows the function: a remote session is never a delegate, so Plan refuses
+// even session_read; and nothing frees the call except listing: no blanket
+// exception, no Auto Agents row, no same-or-more-cautious target and not the
+// Allow word. A relayed call is a card on Ask, Allow and Auto alike.
+func CoordinationFor(p Policy, s State, key string, delegate bool, target permrules.Action, relayed bool) (permrules.Action, string) {
 	if p.Deny[ClassAgents] {
 		return permrules.Deny, denyReason(ClassAgents)
+	}
+	if relayed {
+		if key == "session_list" {
+			return permrules.Allow, ""
+		}
+		if s.Mode == permrules.Deny {
+			return permrules.Deny, PlanReason
+		}
+		return permrules.Ask, ""
 	}
 	// Plan changes nothing: only reading one's own delegate gets through it. A
 	// send, a spawn or a schedule is refused delegate or not, because a delegate

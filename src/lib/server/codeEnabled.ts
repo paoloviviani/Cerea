@@ -181,6 +181,16 @@ export function codeTerminalEnabled(): boolean {
 }
 
 /**
+ * Relayed coordination across a person's computers (ADR 0121): on with the panel, unless the
+ * deployment switches it off with `CODE_RELAYED_COORDINATION_ENABLED=false`. The deployment's off
+ * wins over a person's on (`Settings.relayedCoordinationEnabled`); the machine's own veto
+ * (`policy.relayedCoordination`) is a third, per-computer switch.
+ */
+export function codeRelayedCoordinationEnabled(): boolean {
+	return codeAgentsEnabled() && config.CODE_RELAYED_COORDINATION_ENABLED !== "false";
+}
+
+/**
  * Scheduled actions in /code (`server/schedules/`): on with the panel, unless
  * `CHAT_SCHEDULES_ENABLED=false` (the kill switch, see `schedules/limits.ts`
  * for why its default is on).

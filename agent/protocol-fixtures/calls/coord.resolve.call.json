@@ -1,0 +1,24 @@
+{
+	"_meta": {
+		"spec": "§5 Machine calls",
+		"direction": "M→C",
+		"op": "coord.resolve"
+	},
+	"frame": {
+		"type": "call",
+		"id": "c1",
+		"op": "coord.resolve",
+		"sessionId": "ses_01",
+		"rootSessionId": "ses_01",
+		"caller": {
+			"workspaceId": "ws_09",
+			"permissionMode": "ask",
+			"coordination": []
+		},
+		"args": {
+			"op": "send",
+			"computerId": "65f1a2b3c4d5e6f708192a3c",
+			"sessionId": "ses_77"
+		}
+	}
+}

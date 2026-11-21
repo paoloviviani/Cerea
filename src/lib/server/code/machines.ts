@@ -78,6 +78,16 @@ const RENEWAL_GRACE_MS = 60_000;
  * disabled or merged between token renewals, not only an expired token. */
 const GATEWAY_REVALIDATION_INTERVAL_MS = 60_000;
 
+/** Who sent a relayed request, built by Cerea from its own records (ADR 0121 section 2). */
+export interface CoordFrom {
+	computerId: string;
+	computer: string;
+	workspaceId: string;
+	workspace: string;
+	sessionId: string;
+	title: string;
+}
+
 interface PendingRequest {
 	resolve: (value: unknown) => void;
 	reject: (err: Error) => void;
@@ -120,6 +130,8 @@ interface ConnectionState {
 	terminalNoticeListeners: Map<string, Set<(notice: Notice) => void>>;
 	/** `hello.machine.mode` (§10.2): a connectors machine runs no coding agent. */
 	mode: MachineMode;
+	/** `hello.machine.capabilities`: what this build can do (relayed coordination among it). */
+	machineCapabilities: Record<string, boolean>;
 	/** One listener per open MCP channel (§10.3), by channel id. */
 	mcpChannels: Map<string, (event: McpChannelEvent) => void>;
 	authDeadline: ReturnType<typeof setTimeout> | null;
@@ -187,6 +199,11 @@ export function deviceBackends(deviceId: string): Backend[] | null {
 /** The mode a connected machine reported (`null` when it is not connected). */
 export function deviceMode(deviceId: string): MachineMode | null {
 	return registry.get(deviceId)?.mode ?? null;
+}
+
+/** The capabilities a connected machine's hello reported (`null` when it is not connected). */
+export function deviceMachineCapabilities(deviceId: string): Record<string, boolean> | null {
+	return registry.get(deviceId)?.machineCapabilities ?? null;
 }
 
 export function devicePolicy(deviceId: string): Policy | null {
@@ -474,6 +491,53 @@ export class MachineLink {
 
 	workspaceList(): Promise<{ workspaces: Workspace[] }> {
 		return this.call("workspace.list", {});
+	}
+	/** Relayed coordination (ADR 0121, §6): Cerea asks this computer to list its sessions, read
+	 * one, deliver a peer message or start a session. Sent only after Cerea's own checks. */
+	coordList(args: { workspaces?: boolean }): Promise<{
+		sessions: Array<{
+			sessionId: string;
+			title: string;
+			workspaceId: string;
+			workspace: string;
+			mode: string;
+			permissionMode: string;
+			status: string;
+			lastActivity?: string;
+		}>;
+		workspaces?: Array<{ id: string; name: string }>;
+	}> {
+		return this.call("coord.list", args);
+	}
+	coordRead(args: {
+		sessionId: string;
+		last?: number;
+		hop: number;
+		from: CoordFrom;
+		relayId: string;
+		computer?: string;
+	}): Promise<{ text: string; truncated: boolean }> {
+		return this.call("coord.read", args);
+	}
+	coordSend(args: {
+		sessionId: string;
+		text: string;
+		hop: number;
+		from: CoordFrom;
+		relayId: string;
+	}): Promise<Record<string, never>> {
+		return this.call("coord.send", args);
+	}
+	coordSpawn(args: {
+		workspaceId: string;
+		prompt: string;
+		title?: string;
+		mode?: string;
+		hop: number;
+		from: CoordFrom;
+		relayId: string;
+	}): Promise<{ sessionId: string; title: string; workspace: string }> {
+		return this.call("coord.spawn", args);
 	}
 	workspaceSuggest(args: { prefix: string }): Promise<{ directories: Directory[] }> {
 		return this.call("workspace.suggest", args);
@@ -1395,6 +1459,7 @@ async function onHello(
 		terminalChannels: new Map(),
 		terminalNoticeListeners: new Map(),
 		mode: machineMode(hello.machine),
+		machineCapabilities: hello.machine?.capabilities ?? {},
 		mcpChannels: new Map(),
 		authDeadline: null,
 		pingInterval: null,

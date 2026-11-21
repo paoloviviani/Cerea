@@ -148,7 +148,7 @@ func (at *agentTools) scheduleGrant(_ context.Context, tc *toolCaller) permrules
 	}
 	st := at.mc.rootState(rh, tc.session.ID)
 	// A schedule runs in the caller's own session: the same word.
-	act, _ := decide.CoordinationFor(at.mc.decidePolicy(rh), st, scheduleKey, false, st.Mode)
+	act, _ := decide.CoordinationFor(at.mc.decidePolicy(rh), st, scheduleKey, false, st.Mode, false)
 	if act == permrules.Deny {
 		return permrules.Ask
 	}

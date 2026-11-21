@@ -397,7 +397,7 @@ userinfo; the registry is in-process. The browser never reaches a machine
 directly: every call goes through Cerea, and the SSE bridge is cursored on the
 machine's own `epoch`/`seq`. Tool-output images are references, never bytes on the
 stream. The chat drives agent sessions through the same machinery (ADR 0106).
-galopin lives in `agent/` (see `agent/README.md`): one instance per machine
+Agents reach sessions on the user's other computers through Cerea (ADR 0121, `code/relay/`): every use is a card, the ticket Cerea mints in the reply route is the only proof of approval, and a relay card renders from Cerea's own record, never from the asking computer's metadata. galopin lives in `agent/` (see `agent/README.md`): one instance per machine
 (`instance_lock.go`), `galopin service` to run it as a service, a multi-arch
 image, and file ops (`files.upload.*`, `files.download`, `files.zip.*`) over the
 link. The wire contract is `agent/PROTOCOL.md`; new ops and fields are optional and

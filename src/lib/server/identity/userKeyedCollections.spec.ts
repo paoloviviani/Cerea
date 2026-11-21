@@ -48,6 +48,9 @@ const ALL_COLLECTIONS: Record<string, boolean> = {
 	withheldDownloadTokens: true, // one-time withheld-file links; owner is a string id; deleted on merge, erased with the account
 	codeDevices: true,
 	codeAudit: true,
+	codeRelayTickets: true, // a relayed-coordination approval in flight (ADR 0121); owner-keyed, deleted on merge, erased with the account
+	codeRelayLedger: true, // hop and depth of sessions on a person's computers, 24 hours; deleted on merge, erased with the account
+	codeRelayEvents: true, // counters of relayed calls and cards, two hours; deleted on merge, erased with the account
 	codeSessionConnectors: true, // which connectors a coding session may use; owner-keyed, merged and erased with the account
 	schedules: true, // a person's scheduled actions; owner-keyed, erased and merged with the account
 	agentReviewLog: true, // what the reviewer decided for a person's machines; owner-keyed, 90 days

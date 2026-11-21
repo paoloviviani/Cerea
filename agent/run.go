@@ -605,6 +605,10 @@ func buildHello(back backend.Backend, pol policy.Policy) link.Hello {
 		// Delegate profiles (PROTOCOL.md §6): the profiles.list/set ops, with
 		// the agent tools they are for.
 		"delegateProfiles": caps.AgentTools && pol.AgentToolsAllowed(),
+		// Relayed coordination (ADR 0121, PROTOCOL.md §6): this build sends
+		// coord.* machine calls and answers the coord.* requests. Whether the
+		// owner allows it is the policy's relayedCoordination, reported apart.
+		"relayedCoordination": caps.AgentTools,
 		// Local MCP connectors (§10.2): run sets it when an mcp.json exists.
 		"mcp": false,
 	}}
@@ -642,6 +646,7 @@ func buildHelloBase(pol policy.Policy) link.Hello {
 			MaxTerminals:        pol.EffectiveMaxTerminals(),
 			CommandShell:        commandShellPolicyWord(pol),
 			AgentTools:          agentToolsPolicyWord(pol),
+			RelayedCoordination: relayedCoordinationPolicyWord(pol),
 			ProjectConfig:       projectConfigPolicyWord(pol),
 			BackgroundSubagents: backgroundSubagentsPolicyWord(pol),
 			Warnings:            modelPinWarnings(pol),
@@ -792,6 +797,13 @@ func agentToolsDir(pol policy.Policy, stateDir string) string {
 
 func agentToolsPolicyWord(pol policy.Policy) string {
 	if pol.AgentToolsAllowed() {
+		return policy.TerminalAllowed
+	}
+	return policy.TerminalDenied
+}
+
+func relayedCoordinationPolicyWord(pol policy.Policy) string {
+	if pol.RelayedCoordinationAllowed() {
 		return policy.TerminalAllowed
 	}
 	return policy.TerminalDenied
@@ -963,6 +975,7 @@ func buildConnectorsHello(pol policy.Policy) link.Hello {
 	h.Policy.Terminal = policy.TerminalDenied
 	h.Policy.CommandShell = policy.TerminalDenied
 	h.Policy.AgentTools = policy.TerminalDenied
+	h.Policy.RelayedCoordination = policy.TerminalDenied
 	h.Policy.ProjectConfig = policy.TerminalDenied
 	h.Policy.BackgroundSubagents = policy.TerminalDenied
 	h.Policy.Warnings = nil

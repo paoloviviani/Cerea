@@ -69,6 +69,7 @@ import type { CodeSessionConnectorsRow } from "$lib/types/CodeSessionConnectors"
 import type { ProjectAgentProfileRow } from "$lib/types/ProjectAgentProfileRow";
 import type { ProjectDocument } from "$lib/types/ProjectDocument";
 import type { CodeAuditEntry, CodeDevice } from "$lib/types/CodeAgent";
+import type { CodeRelayEvent, CodeRelayLedgerRow, CodeRelayTicket } from "$lib/types/CodeRelay";
 import { config } from "$lib/server/config";
 
 export const CONVERSATION_STATS_COLLECTION = "conversations.stats";
@@ -314,6 +315,12 @@ export class Database {
 		// explorer's raw reads and refusals, later terminals and writes.
 		// Never content. Kept 90 days.
 		const codeAudit = db.collection<CodeAuditEntry>("codeAudit");
+		// Relayed coordination (ADR 0121): approval tickets, the hop and depth ledger, and the
+		// counters of calls, lists and cards. All in Mongo with a TTL; none holds content beyond
+		// the short-lived card facts of a pending ticket.
+		const codeRelayTickets = db.collection<CodeRelayTicket>("codeRelayTickets");
+		const codeRelayLedger = db.collection<CodeRelayLedgerRow>("codeRelayLedger");
+		const codeRelayEvents = db.collection<CodeRelayEvent>("codeRelayEvents");
 		// Which connectors a coding-agent session may use (ADR 0108); default none.
 		const codeSessionConnectors = db.collection<CodeSessionConnectorsRow>("codeSessionConnectors");
 		// Scheduled actions (`server/schedules/`): the timetable a person set, and
@@ -382,6 +389,9 @@ export class Database {
 			localConnectorOauth,
 			codeDevices,
 			codeAudit,
+			codeRelayTickets,
+			codeRelayLedger,
+			codeRelayEvents,
 			codeSessionConnectors,
 			schedules,
 			scheduleRuns,
@@ -436,6 +446,9 @@ export class Database {
 			localConnectorOauth,
 			codeDevices,
 			codeAudit,
+			codeRelayTickets,
+			codeRelayLedger,
+			codeRelayEvents,
 			codeSessionConnectors,
 			agentReviewLog,
 			agentReviewUserSettings,
@@ -1117,6 +1130,35 @@ export class Database {
 		codeAudit
 			.createIndex({ userId: 1, at: -1 })
 			.catch((e) => logger.error(e, "Error creating index for codeAudit by userId"));
+
+		// Relayed coordination (ADR 0121). One ticket per galopin card; the TTL is the expiry
+		// (the code also checks `expiresAt`: Mongo's TTL monitor runs once a minute).
+		codeRelayTickets
+			.createIndex({ deviceId: 1, requestId: 1 }, { unique: true })
+			.catch((e) => logger.error(e, "Error creating unique index for codeRelayTickets"));
+		codeRelayTickets
+			.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
+			.catch((e) => logger.error(e, "Error creating TTL index for codeRelayTickets"));
+		codeRelayTickets
+			.createIndex({ userId: 1, state: 1 })
+			.catch((e) => logger.error(e, "Error creating index for codeRelayTickets by userId"));
+		// The hop and depth of a target session lasts 24 hours from its last delivery.
+		codeRelayLedger
+			.createIndex({ at: 1 }, { expireAfterSeconds: 24 * 60 * 60 })
+			.catch((e) => logger.error(e, "Error creating TTL index for codeRelayLedger"));
+		codeRelayLedger
+			.createIndex({ userId: 1 })
+			.catch((e) => logger.error(e, "Error creating index for codeRelayLedger by userId"));
+		// Counters need an hour of history at most.
+		codeRelayEvents
+			.createIndex({ at: 1 }, { expireAfterSeconds: 2 * 60 * 60 })
+			.catch((e) => logger.error(e, "Error creating TTL index for codeRelayEvents"));
+		codeRelayEvents
+			.createIndex({ userId: 1, kind: 1, at: -1 })
+			.catch((e) => logger.error(e, "Error creating index for codeRelayEvents by userId"));
+		codeRelayEvents
+			.createIndex({ deviceId: 1, kind: 1, at: -1 })
+			.catch((e) => logger.error(e, "Error creating index for codeRelayEvents by deviceId"));
 
 		// A person's schedules, in creation order (the list and the per-user cap).
 		schedules

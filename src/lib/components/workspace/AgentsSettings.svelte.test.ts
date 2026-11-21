@@ -2,8 +2,18 @@ import AgentsSettings from "./AgentsSettings.svelte";
 import { renderWithApp } from "$lib/components/__tests__/renderWithApp";
 import { page } from "@vitest/browser/context";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { writable } from "svelte/store";
 
 vi.mock("$env/dynamic/public", () => ({ env: { PUBLIC_APP_NAME: "chat-ui" } }));
+
+/** The layout's settings context, which the relayed-coordination switch reads. */
+const settingsContext = () =>
+	new Map<unknown, unknown>([
+		[
+			"settings",
+			Object.assign(writable({ activeModel: "m" }), { instantSet: async () => undefined }),
+		],
+	]);
 
 const calls: { url: string; init?: RequestInit }[] = [];
 const PER_CLASS = {
@@ -69,7 +79,7 @@ afterEach(() => {
 describe("Workspace -> Agents (the user's own auto-approval, ADR 0109)", () => {
 	it("shows the fixed frame around the editable text and three-way rows, loop fixed, secrets never runs", async () => {
 		stub(view());
-		renderWithApp(AgentsSettings, {});
+		renderWithApp(AgentsSettings, {}, { context: settingsContext() });
 		await expect.element(page.getByTestId("agents-frame-top")).toBeVisible();
 		await expect.element(page.getByTestId("agents-frame-bottom")).toBeVisible();
 		await expect.element(page.getByTestId("agents-row-edit-run")).toBeChecked();
@@ -83,7 +93,7 @@ describe("Workspace -> Agents (the user's own auto-approval, ADR 0109)", () => {
 
 	it("lets the user switch Cerea connectors on for their own local agents, none by default", async () => {
 		stub(view());
-		renderWithApp(AgentsSettings, {});
+		renderWithApp(AgentsSettings, {}, { context: settingsContext() });
 		const tracker = page.getByTestId("local-agent-connector:a");
 		await expect.element(tracker).not.toBeChecked();
 		await expect.element(page.getByTestId("local-agent-connector:b")).toBeDisabled();
@@ -95,7 +105,7 @@ describe("Workspace -> Agents (the user's own auto-approval, ADR 0109)", () => {
 
 	it("links the user's own review log", async () => {
 		stub(view());
-		renderWithApp(AgentsSettings, {});
+		renderWithApp(AgentsSettings, {}, { context: settingsContext() });
 		await expect
 			.element(page.getByTestId("agents-log-link"))
 			.toHaveAttribute("href", "/settings/review-log");
@@ -103,13 +113,13 @@ describe("Workspace -> Agents (the user's own auto-approval, ADR 0109)", () => {
 
 	it("explains that a decision model must be granted when there are none", async () => {
 		stub(view({ decisionModels: [] }));
-		renderWithApp(AgentsSettings, {});
+		renderWithApp(AgentsSettings, {}, { context: settingsContext() });
 		await expect.element(page.getByTestId("agents-no-models")).toHaveTextContent("grant you one");
 	});
 
 	it("with no decision model, Reviewer is disabled with the reason; a saved Reviewer stays shown and says it asks", async () => {
 		stub(view({ decisionModels: [] }));
-		renderWithApp(AgentsSettings, {});
+		renderWithApp(AgentsSettings, {}, { context: settingsContext() });
 		const reason = "Auto: no reviewer decision model defined, falling back to Ask";
 		await expect.element(page.getByTestId("agents-reviewer-disabled")).toHaveTextContent(reason);
 		await expect.element(page.getByTestId("agents-row-edit-reviewer")).toBeDisabled();
@@ -127,7 +137,7 @@ describe("Workspace -> Agents (the user's own auto-approval, ADR 0109)", () => {
 
 	it("with a decision model, Reviewer is selectable and no note shows", async () => {
 		stub(view());
-		renderWithApp(AgentsSettings, {});
+		renderWithApp(AgentsSettings, {}, { context: settingsContext() });
 		await expect.element(page.getByTestId("agents-row-edit-reviewer")).toBeEnabled();
 		expect(document.querySelector('[data-testid="agents-reviewer-disabled"]')).toBeNull();
 		expect(document.querySelector('[data-testid="agents-row-command-asks"]')).toBeNull();
@@ -135,17 +145,17 @@ describe("Workspace -> Agents (the user's own auto-approval, ADR 0109)", () => {
 
 	it("says when the kill switch is off, and when the administrator has not switched reviewers on", async () => {
 		stub(view({ killSwitchOn: true }));
-		renderWithApp(AgentsSettings, {});
+		renderWithApp(AgentsSettings, {}, { context: settingsContext() });
 		await expect.element(page.getByTestId("agents-killswitch")).toBeVisible();
 		document.body.innerHTML = "";
 		stub(view({ deploymentEnabled: false }));
-		renderWithApp(AgentsSettings, {});
+		renderWithApp(AgentsSettings, {}, { context: settingsContext() });
 		await expect.element(page.getByTestId("agents-not-enabled")).toBeVisible();
 	});
 
 	it("refuses a threshold below 0.50 and fence markers, and counts the characters", async () => {
 		stub(view());
-		renderWithApp(AgentsSettings, {});
+		renderWithApp(AgentsSettings, {}, { context: settingsContext() });
 		await page.getByLabelText("Allow at or above").fill("0.4");
 		await expect
 			.element(page.getByText("The threshold must be between 0.5 and 0.99."))
@@ -160,7 +170,7 @@ describe("Workspace -> Agents (the user's own auto-approval, ADR 0109)", () => {
 
 	it("saves the user's settings without running the test first", async () => {
 		stub(view());
-		renderWithApp(AgentsSettings, {});
+		renderWithApp(AgentsSettings, {}, { context: settingsContext() });
 		await page.getByTestId("agents-enabled").click();
 		await page.getByLabelText("Decision model").selectOptions("judge-a");
 		await page.getByTestId("agents-row-edit-reviewer").click();
@@ -203,7 +213,7 @@ describe("Workspace -> Agents (the user's own auto-approval, ADR 0109)", () => {
 				],
 			},
 		});
-		renderWithApp(AgentsSettings, {});
+		renderWithApp(AgentsSettings, {}, { context: settingsContext() });
 		await page.getByTestId("agents-enabled").click();
 		await page.getByLabelText("Decision model").selectOptions("judge-a");
 		await page.getByTestId("agents-test").click();
@@ -221,7 +231,7 @@ describe("Workspace -> Agents (the user's own auto-approval, ADR 0109)", () => {
 
 	it("says the test is not available when the server has none", async () => {
 		stub(view(), { testStatus: 501 });
-		renderWithApp(AgentsSettings, {});
+		renderWithApp(AgentsSettings, {}, { context: settingsContext() });
 		await page.getByTestId("agents-enabled").click();
 		await page.getByLabelText("Decision model").selectOptions("judge-a");
 		await page.getByTestId("agents-test").click();

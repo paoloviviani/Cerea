@@ -1,0 +1,28 @@
+{
+	"_meta": {
+		"spec": "§5 Machine calls",
+		"direction": "M→C",
+		"op": "coord.spawn"
+	},
+	"frame": {
+		"type": "call",
+		"id": "c1",
+		"op": "coord.spawn",
+		"sessionId": "ses_01",
+		"rootSessionId": "ses_01",
+		"caller": {
+			"workspaceId": "ws_09",
+			"permissionMode": "ask",
+			"coordination": []
+		},
+		"args": {
+			"computerId": "65f1a2b3c4d5e6f708192a3c",
+			"workspaceId": "ws_01",
+			"prompt": "write the changelog",
+			"title": "Changelog",
+			"mode": "build",
+			"hop": 1,
+			"approvalId": "gp_03"
+		}
+	}
+}

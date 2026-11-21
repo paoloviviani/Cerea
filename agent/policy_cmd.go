@@ -32,6 +32,10 @@ refuses and names the 'enroll' re-run that does it instead.
                       and every command whose shell is unknown.
   --no-agent-tools    Stop installing the session_* and schedule_* agent tools
                       into opencode (takes effect at the next 'run').
+   --no-relayed-coordination  Refuse every request from this owner's other
+                      computers to list, read, message or start sessions here
+                      (relayed coordination, through Cerea; takes effect at
+                      the next 'run').
    --no-project-config  Stop loading a repo's own opencode config (the default
                        on a fresh enroll; takes effect at the next 'run').
    --no-background-subagents  Stop allowing background subagents (they are
@@ -110,6 +114,7 @@ func runPolicyShow(args []string) error {
 	fmt.Println(terminalPolicySummary(pol))
 	fmt.Println(commandShellPolicySummary(pol))
 	fmt.Println(agentToolsPolicySummary(pol))
+	fmt.Println(relayedCoordinationPolicySummary(pol))
 	fmt.Println(projectConfigPolicySummary(pol, false))
 	fmt.Println(backgroundSubagentsPolicySummary(pol))
 	fmt.Println(permissionPolicySummary(pol))
@@ -127,6 +132,7 @@ func runPolicySet(args []string) error {
 	noTerminal := fs.Bool("no-terminal", false, "")
 	noCommandShell := fs.Bool("no-command-shell", false, "")
 	noAgentTools := fs.Bool("no-agent-tools", false, "")
+	noRelayed := fs.Bool("no-relayed-coordination", false, "")
 	noProjectConfig := fs.Bool("no-project-config", false, "")
 	noBackground := fs.Bool("no-background-subagents", false, "")
 	noAutoAccept := fs.Bool("no-auto-accept", false, "")
@@ -189,6 +195,10 @@ func runPolicySet(args []string) error {
 	}
 	if *noAgentTools {
 		pol.AgentTools = policy.TerminalDenied
+		changed = true
+	}
+	if *noRelayed {
+		pol.RelayedCoordination = policy.TerminalDenied
 		changed = true
 	}
 	if *noProjectConfig {

@@ -16,6 +16,7 @@ import {
 	codeAgentsAllowedFor,
 	codeFilesEnabled,
 	codeFileWriteEnabled,
+	codeRelayedCoordinationEnabled,
 	codeSchedulesEnabled,
 	codeTerminalEnabled,
 	localConnectorsAccessFor,
@@ -72,6 +73,8 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 		// Saving from the /code editor: the deployment half (default on); the
 		// machine's policy and capability are the other two, read per device.
 		codeFileWriteEnabled: codeAllowed && codeFileWriteEnabled(),
+		// Relayed coordination (ADR 0121): the deployment half; the Agents settings switch reads it.
+		codeRelayedCoordinationEnabled: codeAllowed && codeRelayedCoordinationEnabled(),
 		// The /code terminal's deployment switch (default off, ADR 0090 §6.1);
 		// the Terminal tab reads it to hide entirely rather than show vetoed.
 		codeTerminalEnabled: codeAllowed && codeTerminalEnabled(),

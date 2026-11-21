@@ -1,0 +1,22 @@
+{
+	"_meta": {
+		"spec": "§5 Machine calls",
+		"direction": "M→C",
+		"op": "coord.list"
+	},
+	"frame": {
+		"type": "call",
+		"id": "c1",
+		"op": "coord.list",
+		"sessionId": "ses_01",
+		"rootSessionId": "ses_01",
+		"caller": {
+			"workspaceId": "ws_09",
+			"permissionMode": "ask",
+			"coordination": []
+		},
+		"args": {
+			"workspaces": true
+		}
+	}
+}
