@@ -200,7 +200,7 @@ export async function reviewPermissionAsk(
 	const request = event.request;
 	// A relayed ask (ADR 0121) is never the reviewer's: its content is peer-influenced text and
 	// the reviewer is a model. It goes to the user, whatever the session's Auto map says.
-	if (request.metadata?.relay === true) return push(undefined);
+	if (request.metadata && Object.hasOwn(request.metadata, "relay")) return push(undefined);
 	const key = `${deviceId}:${request.id}`;
 	if (inflight.has(key)) return;
 	inflight.add(key);

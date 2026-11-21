@@ -1723,7 +1723,11 @@ export const POST: RequestHandler = async (event) => {
 		let decision = parsed.data.decision;
 		let minted = false;
 		if (decision !== "reject") {
-			minted = (await approveTicket(owner._id, deviceId, requestId)) !== null;
+			minted =
+				(await approveTicket(owner._id, deviceId, requestId, [
+					parentSessionId,
+					targetSessionId,
+				])) !== null;
 			if (minted) decision = "once";
 		}
 		let replied;

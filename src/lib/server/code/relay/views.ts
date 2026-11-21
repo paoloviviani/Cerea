@@ -6,9 +6,20 @@ import type { RelayCardFacts, RelayCardView, RelayOp } from "$lib/types/CodeRela
  * reaches a machine link, so the timeline code that draws every ask can use it. `cards.ts` fills it.
  */
 
-/** True for a request that claims to be a relay ask. */
-export function isRelayAsk(request: { metadata?: Record<string, unknown> }): boolean {
-	return request.metadata?.relay === true;
+/**
+ * True for a request that is a relay ask: its metadata HAS a `relay` key (whatever the value: a
+ * forged object is still a relay ask, so it is held, drawn only from Cerea's record and never
+ * given to the reviewer), or Cerea already holds a view for it.
+ */
+export function isRelayAsk(request: {
+	id?: string;
+	sessionId?: string;
+	metadata?: Record<string, unknown>;
+}): boolean {
+	if (request.metadata && Object.hasOwn(request.metadata, "relay")) return true;
+	return (
+		request.id !== undefined && views.has(viewKey({ id: request.id, sessionId: request.sessionId }))
+	);
 }
 
 // -- the card views, by ask --------------------------------------------------------------------

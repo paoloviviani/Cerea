@@ -9,7 +9,9 @@ import { callerFacts, cardFacts, targetFacts } from "./facts";
 import { isRelayAsk, setView, viewKey, viewOf, views } from "./views";
 import { ticketHash } from "./hash";
 import { askCapReason, noteAsk, serializedFor } from "./limits";
-import { findTicket, recordTicket } from "./tickets";
+import { findTicket, recordTicket, revokeTicket } from "./tickets";
+import { relayedCoordinationOn } from "./switch";
+import { codeRelayedCoordinationEnabled } from "$lib/server/codeEnabled";
 
 /**
  * The relay card (ADR 0121 sections 4 and 5): what a person reads before approving a call to
@@ -96,7 +98,36 @@ export async function recordRelayAsk(
 			}
 			covered = { hop: m.hop, prompt: m.prompt, title: m.title, mode: m.mode };
 	}
+	const hash = ticketHash({
+		op: m.op,
+		computerId: m.computerId,
+		sessionId: m.sessionId ?? null,
+		workspaceId: m.workspaceId ?? null,
+		text: covered.text ?? null,
+		prompt: covered.prompt ?? null,
+		last: covered.last ?? null,
+		title: covered.title ?? null,
+		mode: covered.mode ?? null,
+		hop: m.hop,
+		callerSessionId,
+	});
 	return serializedFor(`owner:${userId.toHexString()}`, async () => {
+		// The switches, at ask time: a card that could only fail is not offered.
+		if (!codeRelayedCoordinationEnabled() || !(await relayedCoordinationOn(userId))) {
+			throw new RelayAskRefused("Relayed coordination is switched off in your Cerea settings.");
+		}
+		// The same card id again (a re-sent ask, or another session's): the record that exists is the
+		// one the owner may have read. Identical (hash and caller session): nothing changes. Different:
+		// the ticket is deleted and the card cannot be approved, so a card can never show one thing
+		// while a ticket binds another.
+		const existing = await findTicket(deviceId, request.id);
+		if (existing) {
+			if (existing.hash === hash && existing.callerSessionId === callerSessionId) {
+				return viewOf(existing.facts);
+			}
+			await revokeTicket(deviceId, request.id);
+			throw new RelayAskRefused("This request changed after it was asked. Ask again.");
+		}
 		const cap = await askCapReason(userId, deviceId);
 		if (cap) throw new RelayAskRefused(cap);
 		let facts: RelayCardFacts;
@@ -114,19 +145,6 @@ export async function recordRelayAsk(
 				err instanceof CallError ? err.message : "Cerea could not check this request just now."
 			);
 		}
-		const hash = ticketHash({
-			op: m.op,
-			computerId: m.computerId,
-			sessionId: m.sessionId ?? null,
-			workspaceId: m.workspaceId ?? null,
-			text: covered.text ?? null,
-			prompt: covered.prompt ?? null,
-			last: covered.last ?? null,
-			title: covered.title ?? null,
-			mode: covered.mode ?? null,
-			hop: m.hop,
-			callerSessionId,
-		});
 		await recordTicket({ userId, deviceId, requestId: request.id, callerSessionId, hash, facts });
 		await noteAsk(userId, deviceId);
 		return viewOf(facts);

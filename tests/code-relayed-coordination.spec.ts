@@ -234,11 +234,15 @@ test.describe("relayed coordination across computers", () => {
 		await page.goto(`${E2E_APP_BASE}/code?device=${b.deviceId}&agent=${b.sessionId}`);
 		const sent = page.getByTestId("sent-by-agent").first();
 		await expect(sent).toBeVisible({ timeout: 90_000 });
-		await expect(sent).toContainText("From agent");
 		await expect(sent).toContainText("desk session");
-		await expect(page.getByTestId("sent-by-computer").first()).toContainText("on desk");
+		await expect(page.getByTestId("sent-by-computer").first()).toContainText(
+			"From your agent on desk"
+		);
 		await expect(sent).toContainText(MESSAGE);
-		await expect(sent).toContainText("Your person approved sending it.");
+		await expect(page.getByTestId("sent-by-approved").first()).toContainText(
+			"You approved sending it"
+		);
+		await expect(sent).not.toContainText("peer-message");
 
 		// Two records with one relay id: Cerea's row and the target's own line, and none holds the text.
 		const [row] = await auditRows(db, /^coord\.send$/);

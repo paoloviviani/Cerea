@@ -173,7 +173,8 @@ export function observeMachineEvent(
 			// reviewer, an LLM, never decides it: its content is peer-influenced text.
 			if (
 				event.kind === "permission.asked" &&
-				event.request.metadata?.relay === true &&
+				event.request.metadata !== undefined &&
+				Object.hasOwn(event.request.metadata, "relay") &&
 				deps.relay
 			) {
 				deps.relay(userId, deviceId, envelope, (body) =>

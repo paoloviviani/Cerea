@@ -84,10 +84,19 @@ export async function approveTicket(
 	userId: ObjectId,
 	deviceId: string,
 	requestId: string,
+	/** The session(s) the answer is for: the ticket's caller session must be one of them. */
+	sessionIds: string[],
 	now = Date.now()
 ): Promise<CodeRelayTicket | null> {
 	const ticket = await collections.codeRelayTickets.findOneAndUpdate(
-		{ deviceId, requestId, userId, state: "asked", expiresAt: { $gt: new Date(now) } },
+		{
+			deviceId,
+			requestId,
+			userId,
+			callerSessionId: { $in: sessionIds },
+			state: "asked",
+			expiresAt: { $gt: new Date(now) },
+		},
 		{
 			$set: {
 				state: "approved",

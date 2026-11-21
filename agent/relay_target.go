@@ -431,6 +431,11 @@ func (at *agentTools) coordSpawn(ctx context.Context, a coordArgs) (any, *link.O
 	if utf8.RuneCountInString(full) > spawnedTitleMax {
 		full = string([]rune(full)[:spawnedTitleMax])
 	}
+	// A backend with no permission word cannot be held to Ask: refuse rather than leave its default.
+	rh, ruleHost := at.mc.back.(backend.RuleHost)
+	if !ruleHost {
+		return nil, at.coordRefuse(op, a, "unsupported", "this computer's agent cannot start a session on Ask, so it takes none from another computer")
+	}
 	child, err := at.mc.back.CreateSession(ctx, w.Path, backend.CreateSessionOptions{
 		Title: full, ModeID: mode,
 		SpawnedBy: &backend.SpawnedBy{
@@ -447,10 +452,8 @@ func (at *agentTools) coordSpawn(ctx context.Context, a coordArgs) (any, *link.O
 	// its exceptions (the local spawn copies them; a remote one must not, so
 	// nothing the owner allowed on one computer widens another). The ceiling
 	// still caps it, composed last.
-	if rh, ok := at.mc.back.(backend.RuleHost); ok {
-		if err := rh.SetPermissionMode(ctx, w.Path, child.ID, permrules.Ask); err != nil {
-			return nil, at.coordRefuse(op, a, "backend", "the new session %q was created but its permission word could not be set: %v", child.ID, err)
-		}
+	if err := rh.SetPermissionMode(ctx, w.Path, child.ID, permrules.Ask); err != nil {
+		return nil, at.coordRefuse(op, a, "backend", "the new session %q was created but its permission word could not be set: %v", child.ID, err)
 	}
 	at.mu.Lock()
 	at.born[child.ID] = at.now()
