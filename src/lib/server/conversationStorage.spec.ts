@@ -190,6 +190,15 @@ describe("sweepOrphanAttachments", () => {
 });
 
 describe("a deleted conversation's turn records", () => {
+	// Other specs read these collections whole: leave nothing behind.
+	afterEach(async () => {
+		await Promise.all([
+			collections.generations.deleteMany({}),
+			collections.generationEvents.deleteMany({}),
+			collections.turnStates.deleteMany({}),
+			collections.parkedCalls.deleteMany({}),
+		]);
+	});
 	it("are removed with it, and only its own", async () => {
 		const mine = new ObjectId();
 		const other = new ObjectId();

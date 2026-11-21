@@ -39,7 +39,16 @@ import { POST } from "./+server";
 beforeAll(async () => {
 	await ready;
 }, 30000);
-afterEach(cleanupTestData);
+afterEach(async () => {
+	await cleanupTestData();
+	// The turn records the specs below seed: other specs read these collections whole.
+	await Promise.all([
+		collections.generations.deleteMany({}),
+		collections.generationEvents.deleteMany({}),
+		collections.turnStates.deleteMany({}),
+		collections.parkedCalls.deleteMany({}),
+	]);
+});
 
 const t = new Date();
 const base = { createdAt: t, updatedAt: t };
