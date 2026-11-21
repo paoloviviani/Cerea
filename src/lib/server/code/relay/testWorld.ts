@@ -195,18 +195,35 @@ export async function forward(
 }
 
 /** The owner's answer to a card, through the real HTTP route. */
-export function answer(
+/** The hash the card for this ask carries (what the browser sends back with its answer). */
+export async function ticketHashOf(
+	deviceId: string,
+	requestId: string
+): Promise<string | undefined> {
+	return (await collections.codeRelayTickets.findOne({ deviceId, requestId }))?.hash;
+}
+
+/**
+ * The owner's answer to a card, through the real HTTP route. Like the browser, it sends back the
+ * ticket hash its card carried (`ticket` undefined: the current record's; `null`: none; a string:
+ * that one, e.g. the hash of a card the user saw earlier).
+ */
+export async function answer(
 	m: Mach,
 	sessionId: string,
 	requestId: string,
 	decision: "once" | "always" | "reject",
-	who: TestUser = m.owner
+	who: TestUser = m.owner,
+	ticket?: string | null,
+	childSessionId?: string
 ): Promise<Response> {
+	const sent =
+		ticket === undefined ? await ticketHashOf(m.deviceId, requestId) : (ticket ?? undefined);
 	return forward(
 		who,
 		"POST",
 		`/api/v2/code/v1/agents/${encodeURIComponent(sessionId)}/permissions/${encodeURIComponent(requestId)}?device=${m.deviceId}`,
-		{ decision }
+		{ decision, ...(sent ? { ticket: sent } : {}), ...(childSessionId ? { childSessionId } : {}) }
 	);
 }
 

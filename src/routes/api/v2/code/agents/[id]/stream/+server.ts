@@ -556,6 +556,10 @@ export const GET: RequestHandler = async ({ params, locals, url, request }) => {
 						// folds once — its resolutions still flow, only the
 						// duplicate request is dropped.
 						if (dedupeSeeded([next]).length === 0) continue;
+						// A relay ask is drawn from the Mongo record, even when this process lost its view.
+						if (next.event.kind === "permission.asked") {
+							await primeRelayCards(deviceId, [next.event.request]);
+						}
 						const updates = eventToUpdates(
 							next.event,
 							lastAssistantError,

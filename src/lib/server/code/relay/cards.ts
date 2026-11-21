@@ -6,10 +6,10 @@ import { holdAsk, releaseAsk } from "$lib/server/review/wording";
 import type { Envelope, PermissionRequest } from "$lib/types/machineProtocol";
 import type { RelayCardFacts, RelayCardView } from "$lib/types/CodeRelay";
 import { callerFacts, cardFacts, targetFacts } from "./facts";
-import { isRelayAsk, setView, viewKey, viewOf, views } from "./views";
+import { notes, setView, viewKey, viewOf, views } from "./views";
 import { ticketHash } from "./hash";
 import { askCapReason, noteAsk, serializedFor } from "./limits";
-import { findTicket, recordTicket, revokeTicket } from "./tickets";
+import { findTicket, recordTicket, spoilTicket } from "./tickets";
 import { relayedCoordinationOn } from "./switch";
 import { codeRelayedCoordinationEnabled } from "$lib/server/codeEnabled";
 
@@ -122,10 +122,16 @@ export async function recordRelayAsk(
 		// while a ticket binds another.
 		const existing = await findTicket(deviceId, request.id);
 		if (existing) {
-			if (existing.hash === hash && existing.callerSessionId === callerSessionId) {
-				return viewOf(existing.facts);
+			if (
+				existing.state !== "spoiled" &&
+				existing.hash === hash &&
+				existing.callerSessionId === callerSessionId
+			) {
+				return viewOf(existing.facts, existing.hash);
 			}
-			await revokeTicket(deviceId, request.id);
+			// Never delete and never re-arm: a tombstone stays, so this id can not be approved again
+			// by a card the owner may still have open from before.
+			if (existing.state !== "spoiled") await spoilTicket(deviceId, request.id);
 			throw new RelayAskRefused("This request changed after it was asked. Ask again.");
 		}
 		const cap = await askCapReason(userId, deviceId);
@@ -147,7 +153,7 @@ export async function recordRelayAsk(
 		}
 		await recordTicket({ userId, deviceId, requestId: request.id, callerSessionId, hash, facts });
 		await noteAsk(userId, deviceId);
-		return viewOf(facts);
+		return viewOf(facts, hash);
 	});
 }
 
@@ -160,11 +166,20 @@ export async function primeRelayCards(
 	requests: Array<{ id: string; sessionId?: string; metadata?: Record<string, unknown> }>
 ): Promise<void> {
 	for (const request of requests) {
-		if (!isRelayAsk(request) || views.has(viewKey(request))) continue;
+		// The Mongo record is the truth, not the in-memory view and not the metadata's relay key: an
+		// ask the device re-reports without the key, or after the view was evicted or lost in a
+		// restart, is still a relay ask when a ticket or a tombstone exists for it.
+		if (views.has(viewKey(request)) || notes.has(viewKey(request))) continue;
 		const ticket = await findTicket(deviceId, request.id);
-		if (ticket && ticket.callerSessionId === (request.sessionId ?? ticket.callerSessionId)) {
-			setView(request, viewOf(ticket.facts));
+		if (!ticket || ticket.callerSessionId !== (request.sessionId ?? ticket.callerSessionId)) {
+			continue;
 		}
+		setView(
+			request,
+			ticket.state === "spoiled"
+				? { approvable: false, reason: "This request changed after it was asked. Ask again." }
+				: viewOf(ticket.facts, ticket.hash)
+		);
 	}
 }
 

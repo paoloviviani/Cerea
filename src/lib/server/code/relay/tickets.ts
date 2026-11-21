@@ -84,8 +84,10 @@ export async function approveTicket(
 	userId: ObjectId,
 	deviceId: string,
 	requestId: string,
-	/** The session(s) the answer is for: the ticket's caller session must be one of them. */
-	sessionIds: string[],
+	/** The session the answer is for: the ticket's caller session. */
+	sessionId: string,
+	/** The hash the card carried: the owner's answer binds to the very card they saw. */
+	hash: string | undefined,
 	now = Date.now()
 ): Promise<CodeRelayTicket | null> {
 	const ticket = await collections.codeRelayTickets.findOneAndUpdate(
@@ -93,7 +95,8 @@ export async function approveTicket(
 			deviceId,
 			requestId,
 			userId,
-			callerSessionId: { $in: sessionIds },
+			callerSessionId: sessionId,
+			hash: hash ?? "\u0000none",
 			state: "asked",
 			expiresAt: { $gt: new Date(now) },
 		},
@@ -109,6 +112,21 @@ export async function approveTicket(
 	);
 	if (ticket) await auditApproval(ticket, "approved");
 	return ticket;
+}
+
+/**
+ * Tombstone a ticket: the id was asked again with something else. The record stays (same TTL), so
+ * `recordTicket` never writes a fresh one for it and `approveTicket` never finds it `asked`.
+ */
+export async function spoilTicket(
+	deviceId: string,
+	requestId: string,
+	now = Date.now()
+): Promise<void> {
+	await collections.codeRelayTickets.updateOne(
+		{ deviceId, requestId },
+		{ $set: { state: "spoiled", expiresAt: new Date(now + ASKED_TTL_MS) } }
+	);
 }
 
 /** Revoke a ticket whose approval could not be forwarded, or whose ask was answered elsewhere. */

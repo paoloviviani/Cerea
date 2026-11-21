@@ -34,7 +34,12 @@ import {
 	codeTerminalEnabled,
 } from "$lib/server/codeEnabled";
 import { MachineLink } from "$lib/server/code/machines";
-import { approveTicket, rejectTicket, revokeTicket } from "$lib/server/code/relay/tickets";
+import {
+	approveTicket,
+	findTicket,
+	rejectTicket,
+	revokeTicket,
+} from "$lib/server/code/relay/tickets";
 import { getPairedDevice, requireCodeAgents } from "$lib/server/codeDevices";
 import { sessionAuthFresh } from "$lib/server/code/stepUp";
 import { mintTerminalTicket } from "$lib/server/code/terminalTickets";
@@ -1701,10 +1706,12 @@ export const POST: RequestHandler = async (event) => {
 			.object({
 				decision: z.enum(["once", "always", "reject"]),
 				childSessionId: z.string().trim().min(1).max(200).optional(),
+				/** A relay card's ticket hash (ADR 0121): the answer is for the card the user saw. */
+				ticket: z.string().trim().min(1).max(128).optional(),
 			})
 			.safeParse(body);
 		if (!parsed.success)
-			error(400, "Expected { decision: 'once' | 'always' | 'reject', childSessionId? }.");
+			error(400, "Expected { decision: 'once' | 'always' | 'reject', childSessionId?, ticket? }.");
 		const parentSessionId = decodeURIComponent(permissionMatch[1]);
 		const targetSessionId = await resolveReplyTarget(
 			link,
@@ -1723,11 +1730,30 @@ export const POST: RequestHandler = async (event) => {
 		let decision = parsed.data.decision;
 		let minted = false;
 		if (decision !== "reject") {
+			// A ticket on this very ask (same computer, id AND session) binds the answer to the card
+			// the user saw: no ticket hash, a stale one or a tombstone is refused and nothing is
+			// forwarded, so a card changed under the user's eyes can never be approved by it. A reply
+			// for another session's ask of the same id never touches this ticket.
+			const held = await findTicket(deviceId, requestId);
+			if (held && held.callerSessionId === targetSessionId) {
+				if (
+					held.state === "spoiled" ||
+					(held.state === "asked" && held.hash !== parsed.data.ticket)
+				) {
+					error(
+						409,
+						"This request changed after it was shown. Reload the page to see it as it is now."
+					);
+				}
+			}
 			minted =
-				(await approveTicket(owner._id, deviceId, requestId, [
-					parentSessionId,
+				(await approveTicket(
+					owner._id,
+					deviceId,
+					requestId,
 					targetSessionId,
-				])) !== null;
+					parsed.data.ticket
+				)) !== null;
 			if (minted) decision = "once";
 		}
 		let replied;

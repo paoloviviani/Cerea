@@ -21,12 +21,13 @@ import {
 	raiseRelayAsk,
 	seedSession,
 	startWorld,
+	ticketHashOf,
 	waitForTicket,
 	type RelayMeta,
 	type World,
 } from "./relay/testWorld";
 import { observeRelayAsk, primeRelayCards } from "./relay/cards";
-import { relayViewFor, resetRelayViews } from "./relay/views";
+import { isRelayAsk, relayViewFor, resetRelayViews, views } from "./relay/views";
 import { LIMITS } from "./relay/limits";
 import type { Envelope, PermissionRequest } from "$lib/types/machineProtocol";
 
@@ -155,7 +156,13 @@ describe("minting, in the HTTP route and nowhere else", () => {
 		// And the store refuses a user who is not the ticket's owner.
 		const { approveTicket } = await import("./relay/tickets");
 		expect(
-			await approveTicket(world.stranger.user._id, world.a.deviceId, id, ["ses_caller"])
+			await approveTicket(
+				world.stranger.user._id,
+				world.a.deviceId,
+				id,
+				"ses_caller",
+				await ticketHashOf(world.a.deviceId, id)
+			)
 		).toBeNull();
 		expect((await collections.codeRelayTickets.findOne({ requestId: id }))?.state).toBe("asked");
 	});
@@ -233,26 +240,26 @@ describe("a card id asked twice", () => {
 		await vi.waitFor(() => expect(isAskHeld(id)).toBe(false));
 	};
 
-	it("different text under the same id: the first ticket is deleted and the card cannot be approved", async () => {
+	it("different text under the same id: the ticket is tombstoned and the card cannot be approved", async () => {
 		const id = await asked({ text: "text A" });
 		await reask("ses_caller", { text: "text B" }, id);
-		expect(await collections.codeRelayTickets.findOne({ requestId: id })).toBeNull();
+		expect((await collections.codeRelayTickets.findOne({ requestId: id }))?.state).toBe("spoiled");
 		const view = relayViewFor({ id, sessionId: "ses_caller" });
 		expect(view).toMatchObject({ approvable: false });
 		expect(JSON.stringify(view)).toContain("changed");
 		// The owner's answer mints nothing, and neither text can be sent.
-		expect((await answer(world.a, "ses_caller", id, "once")).status).toBe(200);
+		expect((await answer(world.a, "ses_caller", id, "once")).status).toBe(409);
 		expect(await audits(/^coord\.approval$/)).toHaveLength(0);
 		for (const text of ["text A", "text B"]) {
 			expect(errOf(await callSend(id, { text })).message).toContain("none was recorded");
 		}
 	});
 
-	it("the same id from another session: the ticket is deleted and neither card can be approved", async () => {
+	it("the same id from another session: the ticket is tombstoned and neither card can be approved", async () => {
 		seedSession(world.a, { id: "ses_second", title: "Second" });
 		const id = await asked({ text: "text A" });
 		await reask("ses_second", { text: "text A" }, id);
-		expect(await collections.codeRelayTickets.findOne({ requestId: id })).toBeNull();
+		expect((await collections.codeRelayTickets.findOne({ requestId: id }))?.state).toBe("spoiled");
 		expect(relayViewFor({ id, sessionId: "ses_second" })).toMatchObject({ approvable: false });
 		expect((await answer(world.a, "ses_second", id, "once")).status).toBe(200);
 		expect(await audits(/^coord\.approval$/)).toHaveLength(0);
@@ -274,9 +281,152 @@ describe("a card id asked twice", () => {
 		const id = await asked();
 		const { approveTicket } = await import("./relay/tickets");
 		expect(
-			await approveTicket(world.owner.user._id, world.a.deviceId, id, ["ses_other"])
+			await approveTicket(
+				world.owner.user._id,
+				world.a.deviceId,
+				id,
+				"ses_other",
+				await ticketHashOf(world.a.deviceId, id)
+			)
 		).toBeNull();
 		expect((await collections.codeRelayTickets.findOne({ requestId: id }))?.state).toBe("asked");
+	});
+});
+
+describe("the answer is bound to the card the owner saw", () => {
+	const reask = async (session: string, over: Partial<RelayMeta>, id: string) => {
+		const request: PermissionRequest = {
+			id,
+			sessionId: session,
+			tool: "session_send",
+			patterns: [],
+			always: [],
+			title: "x",
+			metadata: { galopin: true, relay: true, ...meta(over) },
+		};
+		observeRelayAsk(
+			world.owner.user._id,
+			world.a.deviceId,
+			{
+				sessionId: session,
+				epoch: "e",
+				seq: 9,
+				rootSessionId: session,
+				event: { kind: "permission.asked", request },
+			},
+			() => undefined
+		);
+		await vi.waitFor(() => expect(isAskHeld(id)).toBe(false));
+	};
+
+	it("A, then B, then B again: the stale card A mints nothing and B stays unapprovable", async () => {
+		const id = await asked({ text: "text A" });
+		const hashA = await ticketHashOf(world.a.deviceId, id);
+		await reask("ses_caller", { text: "text B" }, id);
+		// B again: the tombstone is still there, so no fresh ticket is written.
+		await reask("ses_caller", { text: "text B" }, id);
+		const ticket = await collections.codeRelayTickets.findOne({ requestId: id });
+		expect(ticket?.state).toBe("spoiled");
+		expect(relayViewFor({ id, sessionId: "ses_caller" })).toMatchObject({ approvable: false });
+		// The owner's screen may still show card A: its answer is refused and nothing is forwarded.
+		const forwarded: string[] = [];
+		world.a.machine.onOp("permission.reply", (a: { decision: string }) => {
+			forwarded.push(a.decision);
+			return {};
+		});
+		const res = await answer(world.a, "ses_caller", id, "once", world.owner, hashA);
+		expect(res.status).toBe(409);
+		expect(forwarded).toEqual([]);
+		expect(await audits(/^coord\.approval$/)).toHaveLength(0);
+		for (const text of ["text A", "text B"]) {
+			expect(errOf(await callSend(id, { text })).message).toContain("none was recorded");
+		}
+	});
+
+	it("a reply with no ticket, or a wrong one, mints nothing and is not forwarded", async () => {
+		const id = await asked();
+		for (const sent of [null, "0".repeat(64)]) {
+			const res = await answer(world.a, "ses_caller", id, "once", world.owner, sent);
+			expect(res.status).toBe(409);
+		}
+		expect((await collections.codeRelayTickets.findOne({ requestId: id }))?.state).toBe("asked");
+		expect((await answer(world.a, "ses_caller", id, "once")).status).toBe(200);
+		okResult(await callSend(id));
+	});
+
+	it("the store mints only for the ticket's own hash", async () => {
+		const id = await asked();
+		const { approveTicket } = await import("./relay/tickets");
+		const owner = world.owner.user._id;
+		expect(await approveTicket(owner, world.a.deviceId, id, "ses_caller", undefined)).toBeNull();
+		expect(
+			await approveTicket(owner, world.a.deviceId, id, "ses_caller", "f".repeat(64))
+		).toBeNull();
+		const hash = await ticketHashOf(world.a.deviceId, id);
+		expect(await approveTicket(owner, world.a.deviceId, id, "ses_caller", hash)).not.toBeNull();
+	});
+
+	it("a reply for a subagent's harmless ask of the same id does not mint the parent's ticket", async () => {
+		seedSession(world.a, { id: "ses_child", parentId: "ses_caller", title: "Kid" });
+		const id = await asked();
+		// Even with the parent ticket's own hash in hand, the child's reply is for the child's session.
+		const res = await answer(
+			world.a,
+			"ses_caller",
+			id,
+			"once",
+			world.owner,
+			await ticketHashOf(world.a.deviceId, id),
+			"ses_child"
+		);
+		expect(res.status).toBe(200);
+		expect((await collections.codeRelayTickets.findOne({ requestId: id }))?.state).toBe("asked");
+		expect(await audits(/^coord\.approval$/)).toHaveLength(0);
+		expect(errOf(await callSend(id)).message).toContain("none was recorded");
+	});
+
+	it("refused asks never touch the approvable views, and an evicted view is rebuilt from Mongo", async () => {
+		const id = await asked();
+		const before = views.size;
+		// Many refused asks (over the pending cap) must not evict the real view.
+		await collections.codeRelayTickets.insertMany(
+			Array.from({ length: LIMITS.pendingAsksPerDevice }, (_, i) => ({
+				_id: new ObjectId(),
+				deviceId: world.a.deviceId,
+				userId: world.owner.user._id,
+				requestId: `gp_fill_${i}`,
+				hash: "h",
+				callerSessionId: "ses_x",
+				facts: {} as never,
+				state: "asked" as const,
+				askedAt: new Date(),
+				expiresAt: new Date(Date.now() + 3_600_000),
+			}))
+		);
+		for (let i = 0; i < 30; i++) await reask("ses_caller", { text: `t${i}` }, `gp_flood_${i}`);
+		expect(views.size).toBe(before);
+		expect(relayViewFor({ id, sessionId: "ses_caller" })).toMatchObject({ approvable: true });
+		// Lose the view altogether and have the device re-report the ask WITHOUT the relay key.
+		resetRelayViews();
+		const plain: PermissionRequest = {
+			id,
+			sessionId: "ses_caller",
+			tool: "bash",
+			patterns: [],
+			always: [],
+			title: "run ls",
+			metadata: { command: "ls" },
+		};
+		expect(isRelayAsk(plain)).toBe(false); // memory knows nothing...
+		await primeRelayCards(world.a.deviceId, [plain]); // ...Mongo does
+		expect(isRelayAsk(plain)).toBe(true);
+		const drawn = withReviewNote(plain);
+		expect(drawn.title).not.toBe("run ls");
+		expect(drawn.metadata).toMatchObject({ relay: { approvable: true, op: "send" } });
+		// And an ordinary card's answer carries no ticket: it mints nothing, whatever the card said.
+		const res = await answer(world.a, "ses_caller", id, "once", world.owner, null);
+		expect(res.status).toBe(409);
+		expect(await audits(/^coord\.approval$/)).toHaveLength(0);
 	});
 });
 

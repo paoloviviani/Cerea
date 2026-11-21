@@ -40,10 +40,17 @@ export interface RelayCardFacts {
 
 /** What the browser is given for a relay ask. `approvable: false` is "cannot be approved from here". */
 export type RelayCardView =
-	| ({ approvable: true; pending?: undefined; reason?: undefined } & RelayCardFacts)
+	| ({
+			approvable: true;
+			/** The ticket's hash: the owner's answer carries it back, so it binds to this very card. */
+			ticket?: string;
+			pending?: undefined;
+			reason?: undefined;
+	  } & RelayCardFacts)
 	| { approvable: false; pending?: boolean; reason?: string };
 
-export type RelayTicketState = "asked" | "approved";
+/** `spoiled` is a tombstone: the id was asked again with something else, so it can never be approved. */
+export type RelayTicketState = "asked" | "approved" | "spoiled";
 
 /** One relay approval in flight: written at ask time, moved to `approved` by the owner's answer in
  * Cerea's own HTTP route, deleted when consumed, rejected, revoked or expired. */

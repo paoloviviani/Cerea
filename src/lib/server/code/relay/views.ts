@@ -17,9 +17,9 @@ export function isRelayAsk(request: {
 	metadata?: Record<string, unknown>;
 }): boolean {
 	if (request.metadata && Object.hasOwn(request.metadata, "relay")) return true;
-	return (
-		request.id !== undefined && views.has(viewKey({ id: request.id, sessionId: request.sessionId }))
-	);
+	if (request.id === undefined) return false;
+	const key = viewKey({ id: request.id, sessionId: request.sessionId });
+	return views.has(key) || notes.has(key);
 }
 
 // -- the card views, by ask --------------------------------------------------------------------
@@ -30,21 +30,39 @@ export const views = new Map<string, RelayCardView>();
 export const viewKey = (request: { id: string; sessionId?: string }) =>
 	`${request.sessionId ?? ""}|${request.id}`;
 
+/**
+ * Approvable views and the notes of asks that cannot be approved live in two maps with their own
+ * caps, so a flood of refused asks can never push a real view out. Either way the record in Mongo
+ * (a ticket or a tombstone) is the truth: `primeRelayCards` rebuilds a view from it.
+ */
+export const notes = new Map<string, RelayCardView>();
+
+function remember(map: Map<string, RelayCardView>, key: string, view: RelayCardView): void {
+	map.delete(key);
+	map.set(key, view);
+	if (map.size > MAX_VIEWS) {
+		for (const k of map.keys()) {
+			if (map.size <= MAX_VIEWS / 2) break;
+			map.delete(k);
+		}
+	}
+}
+
 export function setView(request: { id: string; sessionId?: string }, view: RelayCardView): void {
 	const key = viewKey(request);
-	views.delete(key);
-	views.set(key, view);
-	if (views.size > MAX_VIEWS) {
-		for (const k of views.keys()) {
-			if (views.size <= MAX_VIEWS / 2) break;
-			views.delete(k);
-		}
+	if (view.approvable) {
+		notes.delete(key);
+		remember(views, key, view);
+	} else {
+		views.delete(key);
+		remember(notes, key, view);
 	}
 }
 
 /** Forget every view (specs). */
 export function resetRelayViews(): void {
 	views.clear();
+	notes.clear();
 }
 
 const UNAPPROVABLE: RelayCardView = {
@@ -54,7 +72,8 @@ const UNAPPROVABLE: RelayCardView = {
 
 /** The view a relay ask renders from: Cerea's record, or "cannot be approved from here". */
 export function relayViewFor(request: { id: string; sessionId?: string }): RelayCardView {
-	return views.get(viewKey(request)) ?? UNAPPROVABLE;
+	const key = viewKey(request);
+	return views.get(key) ?? notes.get(key) ?? UNAPPROVABLE;
 }
 
 const VERB: Record<RelayOp, string> = {
@@ -83,6 +102,6 @@ export function relayRequest(request: PermissionRequest): PermissionRequest {
 	};
 }
 
-export function viewOf(facts: RelayCardFacts): RelayCardView {
-	return { approvable: true, ...facts };
+export function viewOf(facts: RelayCardFacts, ticket?: string): RelayCardView {
+	return { approvable: true, ...(ticket ? { ticket } : {}), ...facts };
 }

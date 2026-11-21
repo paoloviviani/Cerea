@@ -392,16 +392,26 @@
 	): Promise<{ ok: boolean; error?: string }> {
 		try {
 			const decision = action === "accept" ? (scope === "always" ? "always" : "once") : "reject";
+			// A relay card carries its ticket (ADR 0121): the answer is for the card as shown.
+			const ticket = (item.request.metadata?.relay as { ticket?: string } | undefined)?.ticket;
 			if (item.rootId && item.rootId !== item.sessionId) {
 				await respondPermission(
 					item.deviceId,
 					item.rootId,
 					item.request.id,
 					decision,
-					item.sessionId
+					item.sessionId,
+					ticket
 				);
 			} else {
-				await respondPermission(item.deviceId, item.sessionId, item.request.id, decision);
+				await respondPermission(
+					item.deviceId,
+					item.sessionId,
+					item.request.id,
+					decision,
+					undefined,
+					ticket
+				);
 			}
 			dismiss(item.key);
 			return { ok: true };

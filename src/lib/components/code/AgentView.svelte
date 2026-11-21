@@ -1291,7 +1291,8 @@
 				agentId,
 				request.elicitationId,
 				action === "accept" ? (scope === "always" ? "always" : "once") : "reject",
-				request.childSessionId
+				request.childSessionId,
+				(request.toolApproval?.args?.relay as { ticket?: string } | undefined)?.ticket
 			);
 			permissionsKey += 1;
 			if (reply?.alreadyResolved) return { ok: true, note: m["code.view.already_answered"]() };
