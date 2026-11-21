@@ -7,7 +7,15 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
-- Internal: the chat page now proposes the ids of the messages a send creates and the server stores exactly those, so a message keeps one id from the moment it appears. Nothing changes for users; the brief wait before a send right after a reply stays as a safety net.
+- Internal: the chat page now proposes the ids of the messages a send creates and the server stores exactly those, so a message keeps one id from the moment it appears. Nothing changes for users; the brief wait before a send right after a reply stays as a safety net. The gateway usage tag of a turn now names its conversation too; turns from before the change keep their cost.
+
+## v0.61.1 — 2026-11-21
+
+Pins: Cerea `0.61.1` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.6`, opencode `2.3.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. Nothing to do on computers.
+
+- Fixed: sending a message right after a reply, especially one that used tools, no longer fails with "An error occurred". Stop, Retry, edit and Continue right after a reply work too, and nothing is charged twice.
 
 ## v0.61.0 — 2026-11-21
 
