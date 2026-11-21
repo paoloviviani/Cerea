@@ -231,6 +231,8 @@ test.describe("relayed coordination across computers", () => {
 		await expect(
 			transcript.getByRole("button", { name: "Always allow (this session)" })
 		).toHaveCount(0);
+		// Approved by clicking the card in the browser: the click carries the card's ticket, or the
+		// route refuses it and nothing reaches B (this test fails if the ticket is not passed).
 		await transcript.getByRole("button", { name: "Allow once" }).click();
 		await expect(transcript.getByText("Sent it.")).toBeVisible({ timeout: 90_000 });
 
