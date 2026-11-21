@@ -15,6 +15,10 @@
 		type ScheduleGrantStatus,
 	} from "$lib/scheduleGrantApi";
 
+	/** Called once the first request has answered (or failed), so the pane around this section
+	 * can reveal in one step instead of the section appearing a beat later. */
+	let { onsettled }: { onsettled?: () => void } = $props();
+
 	let status = $state<ScheduleGrantStatus | null>(null);
 	let busy = $state(false);
 	let failure = $state<string | null>(null);
@@ -27,7 +31,7 @@
 			status = null;
 		}
 	}
-	onMount(() => void load());
+	onMount(() => void load().finally(() => onsettled?.()));
 
 	async function stop() {
 		busy = true;

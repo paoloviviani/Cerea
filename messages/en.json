@@ -3183,7 +3183,6 @@
 	"settings.usage.nothing": "Nothing to show.",
 	"settings.usage.billing_group.title": "Billing group",
 	"settings.usage.billing_group.description": "Which group your usage is charged to. You can only choose groups you belong to.",
-	"settings.usage.loading_short": "Loading...",
 	"settings.usage_bar.unknown": "unknown",
 	"settings.usage_bar.figures_hidden": "figures not shown",
 	"settings.usage_bar.used_of": "{used} of {limit} {unit}",

@@ -130,6 +130,9 @@
 	import { codeEnrollment } from "$lib/stores/codeEnrollment.svelte";
 	import IconCode from "~icons/carbon/code";
 	import IconRenew from "~icons/carbon/renew";
+	import { delayedLoading } from "$lib/utils/delayedLoading.svelte";
+	import SkeletonBusy from "$lib/components/skeleton/SkeletonBusy.svelte";
+	import SkeletonMessage from "$lib/components/skeleton/SkeletonMessage.svelte";
 	import IconFork from "~icons/carbon/fork";
 	import * as s from "$lib/components/overlay/styles";
 
@@ -203,6 +206,11 @@
 	 * first paint of the real transcript lands at the bottom (see
 	 * `ChatMessageColumn`'s historyPending). */
 	let historyPending = $state(false);
+	// The shared timing rule for the first load of a transcript: nothing for a fast open, and a
+	// skeleton that appeared stays at least ~300 ms. The column is held on the skeleton until the
+	// rule lets go (`transcriptGate`), so the turns still mount in one step, at the newest message.
+	const transcriptSkeleton = delayedLoading(() => historyPending);
+	const transcriptGate = $derived(historyPending || transcriptSkeleton.visible);
 	/** `messages` is a COPY of this session's transcript from the in-memory
 	 * cache (`agentTranscriptCache`), shown at once while the fresh replay
 	 * folds off-screen; false once that replay has been swapped in (and for
@@ -501,20 +509,26 @@
 			models = null;
 			return;
 		}
-		try {
-			const result = await listProviderModes(deviceId, provider);
-			modes = result.modes;
+		// Both lists at once; each failure stays its own, and the composer's pill (modes and
+		// models together) never shows one list a beat before the other.
+		const [modesResult, modelsResult] = await Promise.allSettled([
+			listProviderModes(deviceId, provider),
+			listProviderModels(deviceId, provider),
+		]);
+		if (modesResult.status === "fulfilled") {
+			modes = modesResult.value.modes;
 			modesFailure = null;
-		} catch (err) {
+		} else {
+			const err = modesResult.reason;
 			modes = [];
 			modesFailure = err instanceof Error ? err.message : m["code.view.could_not_modes"]();
 		}
-		try {
-			const result = await listProviderModels(deviceId, provider);
-			models = result.models;
-			modelsHidden = result.hidden ?? 0;
+		if (modelsResult.status === "fulfilled") {
+			models = modelsResult.value.models;
+			modelsHidden = modelsResult.value.hidden ?? 0;
 			modelsFailure = null;
-		} catch (err) {
+		} else {
+			const err = modelsResult.reason;
 			models = [];
 			modelsHidden = 0;
 			modelsFailure = err instanceof Error ? err.message : m["code.view.could_not_models"]();
@@ -1523,7 +1537,7 @@
 			{messages}
 			{loading}
 			{pending}
-			{historyPending}
+			historyPending={transcriptGate}
 			{showPlaceholder}
 			conversationKey="{deviceId}:{agentId}"
 			conversationId={agentId}
@@ -1548,7 +1562,7 @@
 				     (historyMeta) whether older pages exist behind the newest
 				     one. A short session's start reads as quietly as an old
 				     galopin's whole snapshot — no marker at all there. -->
-				{#if !historyPending && historyHasMore !== null}
+				{#if !transcriptGate && historyHasMore !== null}
 					<div class="flex flex-col items-center py-1 text-center" aria-live="polite">
 						{#if historyFetching}
 							<p class="animate-pulse text-xs text-ink-muted">{m["code.view.loading_earlier"]()}</p>
@@ -1571,29 +1585,21 @@
 			{/snippet}
 			{#snippet historyLoading()}
 				<!-- The transcript's first snapshot is still folding (see
-				     `historyPending`): same shape as the introduction below,
-				     so the pane never reads blank or as an empty session. -->
-				<div
-					class="flex h-full flex-col items-center justify-center gap-2 pb-24 text-center"
-					data-testid="transcript-loading"
-				>
-					<IconRenew class="size-7 animate-spin text-ink-faint" aria-hidden="true" />
-					<p class="text-sm font-medium text-ink">{m["code.view.loading_conversation"]()}</p>
-					<!-- Two turns' worth of skeleton rows, the shape of what is
-					     about to land: a prompt, then its reply. -->
-					<div class="mt-4 flex w-full max-w-lg flex-col gap-4" aria-hidden="true">
-						<div
-							class="ml-auto h-2.5 w-1/3 animate-pulse rounded-full bg-gray-100 dark:bg-gray-800"
-						></div>
-						<div class="flex flex-col gap-2">
-							<div
-								class="h-2.5 w-5/6 animate-pulse rounded-full bg-gray-100 dark:bg-gray-800"
-							></div>
-							<div
-								class="h-2.5 w-2/3 animate-pulse rounded-full bg-gray-100 dark:bg-gray-800"
-							></div>
-						</div>
-					</div>
+				     `historyPending`): message-shaped placeholders after the shared
+				     delay, inside a box that always fills the pane, so the pane never
+				     reads blank or as an empty session and nothing moves when the
+				     turns arrive. -->
+				<div class="h-full overflow-hidden" data-testid="transcript-loading">
+					{#if transcriptSkeleton.visible}
+						<SkeletonBusy region="transcript" label={m["code.view.loading_conversation"]()}>
+							<SkeletonMessage user />
+							<SkeletonMessage />
+							<SkeletonMessage />
+							<SkeletonMessage user />
+							<SkeletonMessage />
+							<SkeletonMessage />
+						</SkeletonBusy>
+					{/if}
 				</div>
 			{/snippet}
 			{#snippet introduction()}

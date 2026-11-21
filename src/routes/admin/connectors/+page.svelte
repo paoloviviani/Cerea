@@ -195,8 +195,12 @@
 		failure = null;
 		try {
 			// `admin=1` lists the connectors that are switched off too, and each one's always-loaded flag.
-			connectors = (await api<{ data: McpConnectorView[] }>("/connectors?admin=1")).data;
-			const env = await fetch(`${base}/api/mcp/servers?admin=1`);
+			// The environment list rides along: the page reveals once, when both have answered.
+			const [listed, env] = await Promise.all([
+				api<{ data: McpConnectorView[] }>("/connectors?admin=1"),
+				fetch(`${base}/api/mcp/servers?admin=1`),
+			]);
+			connectors = listed.data;
 			if (env.ok) envList = (await env.json()) as MCPServer[];
 		} catch (err) {
 			failure = err instanceof Error ? err.message : m["admin.connectors.load_failed"]();

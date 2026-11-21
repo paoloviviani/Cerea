@@ -9,6 +9,10 @@ import { test, expect, seedConversation, E2E_APP_BASE } from "./fixtures.ts";
 import { randomUUID } from "node:crypto";
 import { ObjectId, type Db } from "mongodb";
 import type { Page } from "playwright/test";
+import { seedUser } from "./machineHarness";
+import { FakeMachine } from "./fake-machine";
+import { E2E_APP_URL, MOCK_OIDC_ISSUER } from "./fixtures.ts";
+import type { Part, Transcript } from "../src/lib/types/machineProtocol";
 
 const VIEWPORTS = [
 	{ name: "desktop", width: 1280, height: 800 },
@@ -94,6 +98,83 @@ async function watchSkeletons(page: Page, region: string) {
 }
 const skeletonsSeen = (page: Page) =>
 	page.evaluate(() => (window as unknown as { __skeletons: number }).__skeletons);
+
+/** A fake agent computer, paired and with one session, for the /code surfaces. */
+async function connectFakeMachine(sub: string, name: string): Promise<FakeMachine> {
+	const res = await fetch(`${MOCK_OIDC_ISSUER}/__control/mint`, {
+		method: "POST",
+		body: JSON.stringify({ sub }),
+	});
+	const { access_token: token } = (await res.json()) as { access_token: string };
+	const fake = new FakeMachine(
+		`${E2E_APP_URL.replace(/^http/, "ws")}/api/v2/code/machine`,
+		{
+			authorization: `Bearer ${token}`,
+			"x-pystino-machine-id": randomUUID(),
+			"x-pystino-machine-name": name,
+		},
+		{ policy: { workspaceRoots: [], allowFreeModels: false } }
+	);
+	await fake.hello();
+	return fake;
+}
+
+async function pairAndStartSession(page: Page, name: string) {
+	await page.goto(`${E2E_APP_BASE}/code`);
+	await page.getByRole("button", { name: "Agents", exact: true }).click();
+	await expect(page.getByText(name)).toBeVisible({ timeout: 15_000 });
+	await page.getByRole("button", { name: "Confirm this computer" }).click();
+	await page.getByRole("button", { name: "Add a workspace to this computer" }).click();
+	await page.getByLabel("Directory on the computer").fill("/repo");
+	await page.getByLabel("Title (optional)").fill("repo");
+	await page.getByRole("dialog").getByRole("button", { name: "Add workspace" }).click();
+	await expect(page.getByRole("link", { name: /^repo/ })).toBeVisible();
+	await page.getByRole("button", { name: "Start a session in this workspace" }).click();
+	await page.getByRole("button", { name: "Ask", exact: true }).click();
+	await page.getByRole("button", { name: "Start session" }).click();
+	await expect(page.getByRole("dialog")).toHaveCount(0);
+}
+
+function seededTranscript(turns: number): Transcript {
+	const messages: Transcript["messages"] = [];
+	for (let i = 1; i <= turns; i += 1) {
+		messages.push({
+			message: {
+				id: `msg_u_${i}`,
+				role: "user",
+				createdAt: new Date(i * 1000).toISOString(),
+				clientMessageId: `c_${i}`,
+			},
+			parts: [
+				{
+					id: `part_u_${i}`,
+					messageId: `msg_u_${i}`,
+					role: "user",
+					type: "text",
+					text: `prompt ${i}`,
+				},
+			],
+		});
+		const parts: Part[] = [
+			{
+				id: `part_a_${i}`,
+				messageId: `msg_a_${i}`,
+				role: "assistant",
+				type: "text",
+				text: `answer ${i}`,
+			},
+		];
+		messages.push({
+			message: {
+				id: `msg_a_${i}`,
+				role: "assistant",
+				createdAt: new Date(i * 1000 + 1).toISOString(),
+			},
+			parts,
+		});
+	}
+	return { messages, permissions: [], status: "idle", usage: null, todos: [] };
+}
 
 for (const vp of VIEWPORTS) {
 	test.describe(`loading placeholders at ${vp.name}`, () => {
@@ -236,5 +317,299 @@ for (const vp of VIEWPORTS) {
 			const title = page.getByTestId("intro-title");
 			await expect(title).toHaveCSS("opacity", "1");
 		});
+
+		test("the application pane is one skeleton, then every setting at once", async ({
+			page,
+			db,
+			session,
+		}) => {
+			await installUserSession(db, session.sessionId);
+			// The document reader row and the gateway URL come from requests of their own.
+			await delay(page, /\/api\/v2\/user\/document-reader$/, 1500);
+			await delay(page, /\/api\/v2\/debug\/config$/, 600);
+			await page.goto(`${E2E_APP_BASE}/settings/application`, { waitUntil: "domcontentloaded" });
+
+			const region = page.locator("[data-region=application]");
+			const heading = page.getByRole("heading", { name: "Settings", exact: true });
+			await expect(region).toBeVisible();
+			await expect(region).toHaveAttribute("aria-busy", "true");
+			const before = await heading.boundingBox();
+			// Nothing of the pane shows while its skeleton does, not even the settings that need no request.
+			await expect(page.getByTestId("about-server")).toBeHidden();
+			await expect(page.getByTestId("document-reader-setting")).toBeHidden();
+
+			// First moment any setting is visible, all of them are, and the skeleton is gone.
+			await expect(page.getByTestId("about-server")).toBeVisible({ timeout: 20_000 });
+			await expect(page.getByTestId("document-reader-setting")).toBeVisible({ timeout: 1 });
+			await expect(page.locator("[data-region=application]")).toHaveCount(0);
+			expect(await heading.boundingBox()).toEqual(before);
+		});
+
+		test("the application pane shows no skeleton when its requests are fast", async ({
+			page,
+			db,
+			session,
+		}) => {
+			await installUserSession(db, session.sessionId);
+			await watchSkeletons(page, "application");
+			// Every request the pane waits on answers at once, so the rule is the only variable.
+			await page.route(/\/api\/v2\/user\/schedule-grant$/, (route) =>
+				route.fulfill({
+					contentType: "application/json",
+					body: JSON.stringify({ required: false }),
+				})
+			);
+			await page.route(/\/api\/v2\/debug\/config$/, (route) => route.continue());
+			await delay(page, /\/api\/v2\/user\/document-reader$/, 0);
+			await page.goto(`${E2E_APP_BASE}/settings/application`);
+			await expect(page.getByTestId("document-reader-setting")).toBeVisible();
+			await page.waitForTimeout(600);
+			expect(await skeletonsSeen(page)).toBe(0);
+		});
+
+		test("application pane: a hung request does not hide the settings", async ({
+			page,
+			db,
+			session,
+		}) => {
+			await installUserSession(db, session.sessionId);
+			await page.route(/\/api\/v2\/user\/document-reader$/, () => new Promise(() => {}));
+			await page.goto(`${E2E_APP_BASE}/settings/application`, { waitUntil: "domcontentloaded" });
+			// Past the cap the pane shows, theme and language controls included.
+			await expect(page.getByTestId("about-server")).toBeVisible({ timeout: 10_000 });
+			await expect(page.getByText("Theme", { exact: true }).first()).toBeVisible();
+			await expect(page.locator("[data-region=application]")).toHaveCount(0);
+			await expect(page.getByTestId("document-reader-setting")).toHaveCount(0);
+		});
+
+		test("application pane: the skeleton and the settings are never on screen together", async ({
+			page,
+			db,
+			session,
+		}) => {
+			await installUserSession(db, session.sessionId);
+			await page.addInitScript(() => {
+				const w = window as unknown as { __both: number };
+				w.__both = 0;
+				const tick = () => {
+					const about = document.querySelector("[data-testid=about-server]");
+					if (document.querySelector("[data-region=application]") && about?.getClientRects().length)
+						w.__both++;
+					requestAnimationFrame(tick);
+				};
+				requestAnimationFrame(tick);
+			});
+			// The slowest request answers at about 250 ms: the skeleton shows (after 150 ms) and is held.
+			await delay(page, /\/api\/v2\/user\/document-reader$/, 250);
+			await page.goto(`${E2E_APP_BASE}/settings/application`);
+			await expect(page.getByTestId("document-reader-setting")).toBeVisible();
+			await expect(page.locator("[data-region=application]")).toHaveCount(0);
+			expect(await page.evaluate(() => (window as unknown as { __both: number }).__both)).toBe(0);
+		});
+
+		test("knowledge detail: a list that fails does not put its banner above the base", async ({
+			page,
+			db,
+			session,
+		}) => {
+			const userId = await installUserSession(db, session.sessionId);
+			const now = new Date();
+			const { insertedId: baseId } = await db.collection("vectorStores").insertOne({
+				name: "Handbook",
+				ownerId: userId,
+				embeddingModel: "test-embedding",
+				dimensions: null,
+				chunkChars: 1200,
+				chunkOverlap: 150,
+				shares: [],
+				createdAt: now,
+				updatedAt: now,
+			});
+			await page.route(/\/api\/v2\/gateway\/vector_stores$/, (route) => route.abort());
+			await page.goto(`${E2E_APP_BASE}/knowledge/${baseId}`);
+			await expect(page.getByText("Nothing in it yet")).toBeVisible();
+			await page.waitForTimeout(500);
+			await expect(page.getByText("Could not reach the service")).toHaveCount(0);
+		});
+
+		test("usage: the billing group never arrives a beat after the usage rows", async ({
+			page,
+			db,
+			session,
+		}) => {
+			await installUserSession(db, session.sessionId);
+			await delay(page, /\/api\/v2\/user\/billing-orgs$/, 1800);
+			await page.goto(`${E2E_APP_BASE}/settings/usage`, { waitUntil: "domcontentloaded" });
+			const region = page.locator("[data-region=usage]");
+			await expect(region).toBeVisible();
+			// The usage request itself is fast: the region must outlast it, up to the slow one.
+			await page.waitForTimeout(1000);
+			await expect(region).toBeVisible();
+			await expect(page.locator("[data-region=usage]")).toHaveCount(0, { timeout: 20_000 });
+		});
+
+		test("knowledge detail: a skeleton, then the base and its documents in one step", async ({
+			page,
+			db,
+			session,
+		}) => {
+			const userId = await installUserSession(db, session.sessionId);
+			const now = new Date();
+			const { insertedId: baseId } = await db.collection("vectorStores").insertOne({
+				name: "Handbook",
+				ownerId: userId,
+				embeddingModel: "test-embedding",
+				dimensions: null,
+				chunkChars: 1200,
+				chunkOverlap: 150,
+				shares: [],
+				createdAt: now,
+				updatedAt: now,
+			});
+			await delay(page, /\/api\/v2\/gateway\/vector_stores\/[0-9a-f]{24}$/, 1500);
+			await page.goto(`${E2E_APP_BASE}/knowledge/${baseId}`, { waitUntil: "domcontentloaded" });
+
+			const region = page.locator("[data-region=knowledge-detail]");
+			await expect(region).toBeVisible();
+			await expect(region).toHaveAttribute("aria-busy", "true");
+			await expect(page.getByText("Handbook")).toHaveCount(0);
+			// The base and its document list arrive together.
+			await expect(page.getByText("Handbook").first()).toBeVisible({ timeout: 20_000 });
+			await expect(page.getByText("Nothing in it yet")).toBeVisible({ timeout: 1 });
+			await expect(page.locator("[data-region=knowledge-detail]")).toHaveCount(0);
+		});
+
+		test("knowledge detail: a fast response never shows a skeleton", async ({
+			page,
+			db,
+			session,
+		}) => {
+			const userId = await installUserSession(db, session.sessionId);
+			const now = new Date();
+			const { insertedId: baseId } = await db.collection("vectorStores").insertOne({
+				name: "Handbook",
+				ownerId: userId,
+				embeddingModel: "test-embedding",
+				dimensions: null,
+				chunkChars: 1200,
+				chunkOverlap: 150,
+				shares: [],
+				createdAt: now,
+				updatedAt: now,
+			});
+			await watchSkeletons(page, "knowledge-detail");
+			await page.goto(`${E2E_APP_BASE}/knowledge/${baseId}`);
+			await expect(page.getByText("Handbook").first()).toBeVisible();
+			await page.waitForTimeout(600);
+			expect(await skeletonsSeen(page)).toBe(0);
+		});
 	});
 }
+
+test.describe("agent session surfaces", () => {
+	let fake: FakeMachine | null = null;
+	test.afterEach(async ({ page }) => {
+		fake?.close();
+		fake = null;
+		await page.close().catch(() => {});
+	});
+
+	async function startSession(page: Page, db: Db, sessionId: string) {
+		const sub = `e2e-${randomUUID()}`;
+		await seedUser(db, sessionId, sub);
+		const name = `skel-${randomUUID().slice(0, 6)}`;
+		fake = await connectFakeMachine(sub, name);
+		await pairAndStartSession(page, name);
+		const machine = fake;
+		const created = machine.model.sessions.at(-1);
+		if (!created) throw new Error("the pair flow created no session");
+		return { machine, sessionId: created.id };
+	}
+
+	test("transcript: message skeleton on the first load, then all turns at once", async ({
+		page,
+		db,
+		session,
+	}) => {
+		const { machine, sessionId } = await startSession(page, db, session.sessionId);
+		machine.model.transcripts.set(sessionId, seededTranscript(6));
+		const empty: Transcript = {
+			messages: [],
+			permissions: [],
+			status: "idle",
+			usage: null,
+			todos: [],
+		};
+		const real = seededTranscript(6);
+		machine.onOp("session.sync", async (args: { sessionId: string }) => {
+			if (args.sessionId !== sessionId) {
+				return { epoch: machine.model.epoch, seq: 0, snapshot: empty };
+			}
+			await new Promise((resolve) => setTimeout(resolve, 1800));
+			return {
+				epoch: machine.model.epoch,
+				seq: machine.model.seq.get(sessionId) ?? 0,
+				snapshot: real,
+			};
+		});
+		await page.goto(`${E2E_APP_BASE}/code?device=${machine.deviceId}&agent=${sessionId}`, {
+			waitUntil: "domcontentloaded",
+		});
+		const region = page.locator("[data-region=transcript]");
+		const column = page.getByTestId("transcript-loading");
+		await expect(region).toBeVisible({ timeout: 20_000 });
+		await expect(region).toHaveAttribute("aria-busy", "true");
+		const box = await column.boundingBox();
+		await expect(page.getByText("prompt 1", { exact: true })).toHaveCount(0);
+
+		// First moment any turn exists, every turn does.
+		await expect(page.getByText("prompt 1", { exact: true })).toBeVisible({ timeout: 20_000 });
+		await expect(page.getByText("answer 6", { exact: true })).toBeVisible({ timeout: 1 });
+		await expect(page.locator("[data-region=transcript]")).toHaveCount(0);
+		await expect(column).toHaveCount(0);
+		// The skeleton filled the same pane the transcript then fills.
+		const scroller = await page.getByLabel("Chat messages").boundingBox();
+		expect(box && scroller && Math.abs(box.height - scroller.height) < 80).toBe(true);
+	});
+
+	test("transcript: a fast session open shows no skeleton", async ({ page, db, session }) => {
+		const { machine, sessionId } = await startSession(page, db, session.sessionId);
+		machine.model.transcripts.set(sessionId, seededTranscript(3));
+		await watchSkeletons(page, "transcript");
+		await page.goto(`${E2E_APP_BASE}/code?device=${machine.deviceId}&agent=${sessionId}`);
+		await expect(page.getByText("answer 3", { exact: true })).toBeVisible({ timeout: 20_000 });
+		await page.waitForTimeout(600);
+		expect(await skeletonsSeen(page)).toBe(0);
+	});
+
+	test("model picker: placeholder rows while the lists load, then models and efforts together", async ({
+		page,
+		db,
+		session,
+	}) => {
+		const { machine, sessionId } = await startSession(page, db, session.sessionId);
+		machine.onOp("backend.models", async () => {
+			await new Promise((resolve) => setTimeout(resolve, 2500));
+			return {
+				models: [
+					{ id: "pystino/coder-large", label: "Coder Large", isDefault: true },
+					{ id: "pystino/coder-small", label: "Coder Small", isDefault: false },
+				],
+			};
+		});
+		await page.goto(`${E2E_APP_BASE}/code?device=${machine.deviceId}&agent=${sessionId}`);
+		const trigger = page.getByRole("button", { name: "Model and effort" });
+		await expect(trigger).toBeVisible({ timeout: 20_000 });
+		await expect(trigger).toContainText("Loading models");
+		await trigger.click();
+		const region = page.locator("[data-region=model-picker]");
+		await expect(region).toBeVisible();
+		await expect(region).toHaveAttribute("aria-busy", "true");
+		await expect(page.getByRole("menuitem", { name: /Coder Large/ })).toHaveCount(0);
+		// The first model row appears: the menu is complete in that same step.
+		await expect(page.getByRole("menuitem", { name: /Coder Large/ })).toBeVisible({
+			timeout: 20_000,
+		});
+		await expect(page.locator("[data-region=model-picker]")).toHaveCount(0);
+	});
+});

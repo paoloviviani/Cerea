@@ -21,6 +21,9 @@
 -->
 <script lang="ts">
 	import { onMount } from "svelte";
+	import { delayedLoading } from "$lib/utils/delayedLoading.svelte";
+	import SkeletonBusy from "$lib/components/skeleton/SkeletonBusy.svelte";
+	import SkeletonFormRow from "$lib/components/skeleton/SkeletonFormRow.svelte";
 	import { base } from "$app/paths";
 	import { m } from "$lib/paraglide/messages";
 	import { formatDateTime } from "$lib/i18n/format";
@@ -141,6 +144,7 @@
 	}
 
 	onMount(load);
+	const sk = delayedLoading(() => status === null && loadError === null);
 
 	// Compared against what is stored, not what the picker shows: with nothing
 	// stored the picker pre-selects the first model, and comparing against that
@@ -265,8 +269,12 @@
 		>
 			{loadError}
 		</div>
+	{:else if sk.visible}
+		<SkeletonBusy region="admin-knowledge" label={m["admin.common.loading"]()}>
+			<SkeletonFormRow count={4} />
+		</SkeletonBusy>
 	{:else if !status}
-		<p class="text-sm text-gray-500">{m["admin.common.loading"]()}</p>
+		<!-- inside the delay: nothing yet -->
 	{:else}
 		{#if status.detail}
 			<div

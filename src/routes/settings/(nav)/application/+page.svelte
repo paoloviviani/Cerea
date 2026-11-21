@@ -50,6 +50,9 @@
 	import SegmentedGroup from "$lib/components/settings/SegmentedGroup.svelte";
 	import ScheduleAccessSettings from "$lib/components/settings/ScheduleAccessSettings.svelte";
 	import DocumentReaderSetting from "$lib/components/settings/DocumentReaderSetting.svelte";
+	import { delayedLoading } from "$lib/utils/delayedLoading.svelte";
+	import SkeletonBusy from "$lib/components/skeleton/SkeletonBusy.svelte";
+	import SkeletonFormRow from "$lib/components/skeleton/SkeletonFormRow.svelte";
 
 	// The pattern is off under these system settings (appearance.css); say so.
 	const patternOff = new MediaQuery(
@@ -155,6 +158,26 @@
 
 	let OPENAI_BASE_URL = $state<string | null>(null);
 
+	// Three things on this pane come from requests of their own (the document reader row, the
+	// background-access section, the gateway URL under "About"). The pane reveals once, when all
+	// have answered: until then a skeleton stands in and the settings stay hidden, so none of them
+	// pops in later and moves what is below it.
+	// A request that hangs must not hide the theme and language controls with it: after this long
+	// the pane shows anyway, and a row that is still on its way fills in when it arrives.
+	const PANE_REVEAL_CAP_MS = 3000;
+	let capReached = $state(false);
+	onMount(() => {
+		const timer = setTimeout(() => (capReached = true), PANE_REVEAL_CAP_MS);
+		return () => clearTimeout(timer);
+	});
+	let configSettled = $state(false);
+	let readerSettled = $state(false);
+	let accessSettled = $state(!(page.data.user && page.data.chatSchedulesEnabled === true));
+	const paneLoading = $derived(!capReached && !(configSettled && readerSettled && accessSettled));
+	const sk = delayedLoading(() => paneLoading);
+	// Hidden while loading and while a shown skeleton is still held: never both on screen.
+	const paneHidden = $derived(paneLoading || sk.visible);
+
 	onMount(async () => {
 		// Fetch debug config
 		try {
@@ -162,6 +185,8 @@
 			OPENAI_BASE_URL = (cfg as { OPENAI_BASE_URL?: string }).OPENAI_BASE_URL || null;
 		} catch (e) {
 			// ignore if debug endpoint is unavailable
+		} finally {
+			configSettled = true;
 		}
 	});
 
@@ -214,7 +239,11 @@
 
 	// Arriving at #tool-approvals (the composer shield's "Per-tool settings"):
 	// scroll the settings pane only, never the fixed app shell.
-	onMount(() => {
+	// Once the pane has revealed: the anchor is inside content that is hidden until then.
+	let anchored = false;
+	$effect(() => {
+		if (paneHidden || anchored) return;
+		anchored = true;
 		const id = location.hash.slice(1);
 		if (id) void tick().then(() => scrollToAnchor(id));
 	});
@@ -245,7 +274,12 @@
 {/snippet}
 
 <div class="flex w-full flex-col gap-4">
-	<div class="flex h-full flex-col gap-4 max-sm:pt-0">
+	{#if sk.visible}
+		<SkeletonBusy region="application" label={m["app.skeleton.loading"]()}>
+			<SkeletonFormRow count={8} />
+		</SkeletonBusy>
+	{/if}
+	<div class="flex h-full flex-col gap-4 max-sm:pt-0" class:hidden={paneHidden}>
 		<section
 			aria-labelledby="appearance-heading"
 			class="rounded-xl border border-gray-200 bg-white px-3 shadow-xs dark:border-gray-700 dark:bg-gray-800"
@@ -475,7 +509,7 @@
 					/>
 				</div>
 
-				<DocumentReaderSetting />
+				<DocumentReaderSetting onsettled={() => (readerSettled = true)} />
 
 				<div class="flex items-start justify-between py-3">
 					<div>
@@ -546,7 +580,7 @@
 		</div>
 
 		{#if page.data.user && page.data.chatSchedulesEnabled === true}
-			<ScheduleAccessSettings />
+			<ScheduleAccessSettings onsettled={() => (accessSettled = true)} />
 		{/if}
 
 		<!-- Developer strings (version, commit, gateway URL) live here, folded away:

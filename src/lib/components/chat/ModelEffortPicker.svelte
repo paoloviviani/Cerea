@@ -20,6 +20,9 @@
 	import { m } from "$lib/paraglide/messages";
 	import { DropdownMenu } from "bits-ui";
 	import type { Snippet } from "svelte";
+	import { delayedLoading } from "$lib/utils/delayedLoading.svelte";
+	import SkeletonBusy from "$lib/components/skeleton/SkeletonBusy.svelte";
+	import SkeletonRows from "$lib/components/skeleton/SkeletonRows.svelte";
 	import CarbonCaretDown from "~icons/carbon/caret-down";
 	import CarbonChevronRight from "~icons/carbon/chevron-right";
 	import LucideCheck from "~icons/lucide/check";
@@ -57,6 +60,9 @@
 		 * agent composer's `/model` command with no argument opens it. Chat's
 		 * own use passes nothing and keeps the internal default. */
 		open?: boolean;
+		/** The lists (models, efforts) have not arrived yet: the menu shows placeholder rows
+		 * and then the models and the effort levels together, never one before the other. */
+		loading?: boolean;
 	}
 
 	let {
@@ -73,7 +79,10 @@
 		triggerClass = "inline-flex min-w-0 items-center gap-1 hover:underline disabled:no-underline",
 		footer,
 		open = $bindable(false),
+		loading = false,
 	}: Props = $props();
+
+	const sk = delayedLoading(() => loading);
 
 	// No search field here: on phones focusing one opens the keyboard and
 	// shoves the menu up. The full list ("More models") keeps its search.
@@ -101,83 +110,96 @@
 			align="start"
 			sideOffset={6}
 		>
-			{#each rows as row (row.id)}
-				<DropdownMenu.Item
-					class="flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 text-sm select-none data-highlighted:bg-gray-100 dark:data-highlighted:bg-white/10"
-					onSelect={() => pick(row.id)}
-				>
-					<span class="min-w-0 flex-1">
-						<span class="flex items-center gap-1.5">
-							<span class="truncate"
-								>{row.name}{#if row.baseName}
-									<span class="text-gray-500 dark:text-gray-400"> · {row.baseName}</span>{/if}</span
-							>
-							{#if row.baseName}
-								<span class="{s.PILL} {s.PILL_TONES.busy}">{m["chat.effort_picker.custom"]()}</span>
-							{/if}
-							{#if row.byok}
-								<span
-									class="{s.PILL} {s.PILL_TONES.neutral}"
-									title={m["app.model_picker.byok_tooltip"]()}
-									>{m["app.model_picker.byok_badge"]()}</span
+			{#if sk.visible}
+				<SkeletonBusy region="model-picker" label={m["code.composer.loading_models"]()}>
+					<SkeletonRows count={4} rowHeight="2.5rem" />
+				</SkeletonBusy>
+			{:else if loading}
+				<!-- inside the delay: an empty box of the same height -->
+				<div class="h-40"></div>
+			{:else}
+				{#each rows as row (row.id)}
+					<DropdownMenu.Item
+						class="flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 text-sm select-none data-highlighted:bg-gray-100 dark:data-highlighted:bg-white/10"
+						onSelect={() => pick(row.id)}
+					>
+						<span class="min-w-0 flex-1">
+							<span class="flex items-center gap-1.5">
+								<span class="truncate"
+									>{row.name}{#if row.baseName}
+										<span class="text-gray-500 dark:text-gray-400">
+											· {row.baseName}</span
+										>{/if}</span
+								>
+								{#if row.baseName}
+									<span class="{s.PILL} {s.PILL_TONES.busy}"
+										>{m["chat.effort_picker.custom"]()}</span
+									>
+								{/if}
+								{#if row.byok}
+									<span
+										class="{s.PILL} {s.PILL_TONES.neutral}"
+										title={m["app.model_picker.byok_tooltip"]()}
+										>{m["app.model_picker.byok_badge"]()}</span
+									>
+								{/if}
+							</span>
+							{#if row.description}
+								<span class="block truncate text-xs text-gray-500 dark:text-gray-400"
+									>{row.description}</span
 								>
 							{/if}
 						</span>
-						{#if row.description}
-							<span class="block truncate text-xs text-gray-500 dark:text-gray-400"
-								>{row.description}</span
-							>
+						{#if row.id === currentId}
+							<LucideCheck class="mt-0.5 size-4 shrink-0 text-gray-500" />
 						{/if}
-					</span>
-					{#if row.id === currentId}
-						<LucideCheck class="mt-0.5 size-4 shrink-0 text-gray-500" />
-					{/if}
-				</DropdownMenu.Item>
-			{:else}
-				<p class="px-2 py-1.5 text-xs text-gray-500">{m["chat.effort_picker.none"]()}</p>
-			{/each}
-			{@render footer?.()}
-			<DropdownMenu.Separator class="my-1 h-px bg-gray-200 dark:bg-gray-700" />
-			{#if efforts}
-				<DropdownMenu.Sub>
-					<DropdownMenu.SubTrigger
+					</DropdownMenu.Item>
+				{:else}
+					<p class="px-2 py-1.5 text-xs text-gray-500">{m["chat.effort_picker.none"]()}</p>
+				{/each}
+				{@render footer?.()}
+				<DropdownMenu.Separator class="my-1 h-px bg-gray-200 dark:bg-gray-700" />
+				{#if efforts}
+					<DropdownMenu.Sub>
+						<DropdownMenu.SubTrigger
+							class="flex h-8 cursor-pointer items-center justify-between gap-2 rounded-md px-2 text-sm select-none data-highlighted:bg-gray-100 dark:data-highlighted:bg-white/10"
+						>
+							<span>{m["chat.effort_picker.effort"]()}</span>
+							<span class="flex items-center gap-1 text-gray-500 dark:text-gray-400">
+								{effortLabel(effort)}
+								<CarbonChevronRight class="size-3" />
+							</span>
+						</DropdownMenu.SubTrigger>
+						<DropdownMenu.SubContent
+							class="z-50 min-w-36 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
+							sideOffset={4}
+						>
+							{#each [undefined, ...efforts] as level (level ?? "default")}
+								<DropdownMenu.Item
+									class="flex h-8 cursor-pointer items-center justify-between gap-2 rounded-md px-2 text-sm select-none data-highlighted:bg-gray-100 dark:data-highlighted:bg-white/10"
+									onSelect={() => onpickEffort(level)}
+								>
+									<span>{effortLabel(level)}</span>
+									{#if effort === level}
+										<LucideCheck class="size-4 text-gray-500" />
+									{/if}
+								</DropdownMenu.Item>
+							{/each}
+						</DropdownMenu.SubContent>
+					</DropdownMenu.Sub>
+				{/if}
+				{#if !listsEveryModel(models)}
+					<DropdownMenu.Item
 						class="flex h-8 cursor-pointer items-center justify-between gap-2 rounded-md px-2 text-sm select-none data-highlighted:bg-gray-100 dark:data-highlighted:bg-white/10"
+						onSelect={() => {
+							open = false;
+							onmore();
+						}}
 					>
-						<span>{m["chat.effort_picker.effort"]()}</span>
-						<span class="flex items-center gap-1 text-gray-500 dark:text-gray-400">
-							{effortLabel(effort)}
-							<CarbonChevronRight class="size-3" />
-						</span>
-					</DropdownMenu.SubTrigger>
-					<DropdownMenu.SubContent
-						class="z-50 min-w-36 rounded-xl border border-gray-200 bg-white/95 p-1 text-gray-800 shadow-lg dark:border-gray-700/60 dark:bg-gray-800/95 dark:text-gray-100"
-						sideOffset={4}
-					>
-						{#each [undefined, ...efforts] as level (level ?? "default")}
-							<DropdownMenu.Item
-								class="flex h-8 cursor-pointer items-center justify-between gap-2 rounded-md px-2 text-sm select-none data-highlighted:bg-gray-100 dark:data-highlighted:bg-white/10"
-								onSelect={() => onpickEffort(level)}
-							>
-								<span>{effortLabel(level)}</span>
-								{#if effort === level}
-									<LucideCheck class="size-4 text-gray-500" />
-								{/if}
-							</DropdownMenu.Item>
-						{/each}
-					</DropdownMenu.SubContent>
-				</DropdownMenu.Sub>
-			{/if}
-			{#if !listsEveryModel(models)}
-				<DropdownMenu.Item
-					class="flex h-8 cursor-pointer items-center justify-between gap-2 rounded-md px-2 text-sm select-none data-highlighted:bg-gray-100 dark:data-highlighted:bg-white/10"
-					onSelect={() => {
-						open = false;
-						onmore();
-					}}
-				>
-					<span>{m["chat.effort_picker.more"]()}</span>
-					<CarbonChevronRight class="size-3 text-gray-500" />
-				</DropdownMenu.Item>
+						<span>{m["chat.effort_picker.more"]()}</span>
+						<CarbonChevronRight class="size-3 text-gray-500" />
+					</DropdownMenu.Item>
+				{/if}
 			{/if}
 		</DropdownMenu.Content>
 	</DropdownMenu.Portal>

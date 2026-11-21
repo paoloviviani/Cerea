@@ -3238,7 +3238,6 @@
 	"settings.usage.nothing": "Niente da mostrare.",
 	"settings.usage.billing_group.title": "Gruppo di fatturazione",
 	"settings.usage.billing_group.description": "Il gruppo a cui viene addebitato il tuo utilizzo. Puoi scegliere solo i gruppi di cui fai parte.",
-	"settings.usage.loading_short": "Caricamento...",
 	"settings.usage_bar.unknown": "sconosciuto",
 	"settings.usage_bar.figures_hidden": "cifre non mostrate",
 	"settings.usage_bar.used_of": "{used} di {limit} {unit}",

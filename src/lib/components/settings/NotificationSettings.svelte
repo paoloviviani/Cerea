@@ -68,7 +68,10 @@
 
 	let view = $state<State | null>(null);
 	let loadError = $state<string | null>(null);
-	const sk = delayedLoading(() => view === null && loadError === null);
+	/** The first load has answered both questions (the server's list, this browser's own
+	 * subscription); the pane reveals once, never in two steps. */
+	let ready = $state(false);
+	const sk = delayedLoading(() => !ready && loadError === null);
 	let support = $state<PushSupport>({ ok: true });
 	let thisFingerprint = $state<string | null>(null);
 	let busy = $state(false);
@@ -98,10 +101,11 @@
 
 	onMount(async () => {
 		try {
-			await refresh();
-			await readThisBrowser();
+			await Promise.all([refresh(), readThisBrowser()]);
 		} catch {
 			loadError = m["settings.notifications.load_failed"]();
+		} finally {
+			ready = true;
 		}
 	});
 
@@ -199,7 +203,7 @@
 		<SkeletonBusy region="notifications" label={m["settings.notifications.loading"]()}>
 			<SkeletonFormRow count={3} />
 		</SkeletonBusy>
-	{:else if !view}
+	{:else if !ready || !view}
 		<!-- inside the delay: nothing yet -->
 	{:else if !view.configured}
 		<div

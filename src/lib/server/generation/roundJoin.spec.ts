@@ -345,8 +345,12 @@ describe("a round's join (C155)", () => {
 		await vi.waitFor(async () => {
 			expect(seen.resumes).toHaveLength(1);
 		});
-		const row = await collections.mcpElicitations.findOne({ elicitationId: "elic-2" });
-		expect(row?.consumedAt).toBeInstanceOf(Date);
+		// The model runs before the resume's finally marks the approval consumed (persist, writer
+		// finish, then `consumedAt`): wait for the mark, do not read it the instant the model ran.
+		await vi.waitFor(async () => {
+			const row = await collections.mcpElicitations.findOne({ elicitationId: "elic-2" });
+			expect(row?.consumedAt).toBeInstanceOf(Date);
+		});
 	});
 
 	it("ignores a browser's resume request for a tool approval, so the call cannot run twice", async () => {
