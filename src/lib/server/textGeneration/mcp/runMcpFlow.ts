@@ -385,7 +385,7 @@ export async function* runMcpFlow({
 				askFirst: await imageAskFirst(),
 				billHeaders: {
 					...billToHeader(locals?.billingOrganization),
-					...turnTagHeader(messageId),
+					...turnTagHeader(messageId, conv._id),
 				},
 			};
 		} catch (err) {
@@ -717,7 +717,7 @@ export async function* runMcpFlow({
 				...redactionRequestHeaders(locals),
 				// Labels each call with the turn, so its cost can be read once the
 				// gateway has settled it (turnCost.ts).
-				...turnTagHeader(messageId),
+				...turnTagHeader(messageId, conv._id),
 			},
 		});
 		// Numbers for the answer's info dot, summed over every call of this turn.
@@ -905,7 +905,7 @@ export async function* runMcpFlow({
 				// Like the main model's calls: a sub-agent's spend belongs to this turn and to the
 				// same billing group (browse, delegates, the sandbox and the rest all use these).
 				...billToHeader(locals?.billingOrganization),
-				...turnTagHeader(messageId),
+				...turnTagHeader(messageId, conv._id),
 				...(config.USE_USER_TOKEN === "true" && locals?.token
 					? { Authorization: `Bearer ${locals.token}` }
 					: {}),

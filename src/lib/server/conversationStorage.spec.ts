@@ -188,3 +188,41 @@ describe("sweepOrphanAttachments", () => {
 		expect(await collections.blobStore.count("files", { "metadata.owner": "u1" })).toBe(1);
 	});
 });
+
+describe("a deleted conversation's turn records", () => {
+	it("are removed with it, and only its own", async () => {
+		const mine = new ObjectId();
+		const other = new ObjectId();
+		const at = new Date();
+		for (const conversationId of [mine, other]) {
+			const messageId = crypto.randomUUID();
+			await collections.generations.insertOne({
+				conversationId,
+				messageId,
+				generationId: crypto.randomUUID(),
+			} as never);
+			await collections.generationEvents.insertOne({
+				conversationId,
+				messageId,
+				generationId: crypto.randomUUID(),
+				seq: 0,
+			} as never);
+			await collections.turnStates.insertOne({ conversationId, messageId, updatedAt: at } as never);
+			await collections.parkedCalls.insertOne({
+				conversationId,
+				messageId,
+				parkedCallId: crypto.randomUUID(),
+			} as never);
+		}
+		await deleteConversationStorage(mine);
+		for (const collection of [
+			collections.generations,
+			collections.generationEvents,
+			collections.turnStates,
+			collections.parkedCalls,
+		] as unknown as { countDocuments: (f: object) => Promise<number> }[]) {
+			expect(await collection.countDocuments({ conversationId: mine })).toBe(0);
+			expect(await collection.countDocuments({ conversationId: other })).toBe(1);
+		}
+	});
+});

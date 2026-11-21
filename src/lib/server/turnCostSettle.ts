@@ -48,14 +48,19 @@ export async function storeSettledCost(
 export function settleTurnCost(params: {
 	conversationId: ObjectId;
 	messageId: string;
+	/** When the message was created (a pre-C156 turn carries the legacy tag). */
+	messageCreatedAt?: Date;
 	token: string | undefined;
 	/** Test seam. */
 	read?: typeof turnGatewayCost;
 }): void {
-	const { conversationId, messageId, token, read = turnGatewayCost } = params;
+	const { conversationId, messageId, messageCreatedAt, token, read = turnGatewayCost } = params;
 	if (!token) return;
 	void (async () => {
-		const result = await read(token, messageId);
+		const result = await read(token, messageId, {
+			conversationId,
+			messageCreatedAt,
+		});
 		if (result.status !== "ok") return;
 		await storeSettledCost({ _id: conversationId }, messageId, result);
 	})().catch((err) => logger.warn({ err }, "turn cost settlement failed"));

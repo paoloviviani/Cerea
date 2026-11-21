@@ -231,4 +231,71 @@ describe("ids the tab proposes for the messages a send creates (C156)", () => {
 			send(second, "p6", { inputs: "x", id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd" })
 		).rejects.toMatchObject({ status: 409 });
 	});
+
+	it("answers 409 for an id that still owns turn records, and stores nothing", async () => {
+		const id = await chat("p7");
+		const conversationId = new ObjectId(id);
+		const ghosts = [
+			"ffffffff-ffff-4fff-8fff-ffffffffff01",
+			"ffffffff-ffff-4fff-8fff-ffffffffff02",
+			"ffffffff-ffff-4fff-8fff-ffffffffff03",
+			"ffffffff-ffff-4fff-8fff-ffffffffff04",
+		];
+		await collections.generations.insertOne({
+			conversationId,
+			messageId: ghosts[0],
+			generationId: crypto.randomUUID(),
+		} as never);
+		await collections.generationEvents.insertOne({
+			conversationId,
+			messageId: ghosts[1],
+			generationId: crypto.randomUUID(),
+			seq: 0,
+		} as never);
+		await collections.turnStates.insertOne({ conversationId, messageId: ghosts[2] } as never);
+		await collections.parkedCalls.insertOne({
+			conversationId,
+			messageId: ghosts[3],
+			parkedCallId: crypto.randomUUID(),
+		} as never);
+		for (const ghost of ghosts) {
+			await expect(
+				send(id, "p7", { inputs: "next", id: A, userMessageId: NU, assistantMessageId: ghost })
+			).rejects.toMatchObject({ status: 409, body: { message: MESSAGE_ID_IN_USE_MESSAGE } });
+		}
+		expect(await stored(id)).toHaveLength(2);
+		// The same id in a conversation that has no such records is fine.
+		const clean = await chat("p7");
+		await settle(
+			await send(clean, "p7", {
+				inputs: "next",
+				id: A,
+				userMessageId: NU,
+				assistantMessageId: ghosts[0],
+			})
+		);
+		expect((await stored(clean)).map((message) => message.id)).toContain(ghosts[0]);
+	});
+
+	it("ignores proposed ids when it resumes a parked message", async () => {
+		const id = await chat("p8");
+		const elicitationId = crypto.randomUUID();
+		await collections.mcpElicitations.insertOne({
+			elicitationId,
+			conversationId: new ObjectId(id),
+			pending: { messageId: A, kind: "question" },
+		} as never);
+		// U names a message the conversation holds: as a new id it would be a 409.
+		await settle(
+			await send(id, "p8", {
+				resumeElicitationId: elicitationId,
+				id: A,
+				userMessageId: U,
+				assistantMessageId: NA,
+			})
+		);
+		const messages = await stored(id);
+		expect(messages.map((message) => message.id)).toEqual([U, A]);
+		await collections.mcpElicitations.deleteOne({ elicitationId });
+	});
 });

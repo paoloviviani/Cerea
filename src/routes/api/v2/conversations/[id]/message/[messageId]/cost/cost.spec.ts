@@ -83,7 +83,11 @@ describe("GET .../message/:messageId/cost", () => {
 		const { status, body } = await ask(chat, { ...owner.locals, token: "tok" });
 		expect(status).toBe(200);
 		expect(body).toEqual({ available: true, cost: "0.0042", currency: "EUR" });
-		expect(turnGatewayCost).toHaveBeenCalledWith("tok", ASSISTANT);
+		expect(turnGatewayCost).toHaveBeenCalledWith(
+			"tok",
+			ASSISTANT,
+			expect.objectContaining({ conversationId: String(chat._id) })
+		);
 		expect(await stored(chat)).toMatchObject({
 			model: "M",
 			inputTokens: 5,
@@ -99,7 +103,11 @@ describe("GET .../message/:messageId/cost", () => {
 		cfg.OPENAI_API_KEY = "sk-shared";
 		turnGatewayCost.mockResolvedValue({ status: "pending" });
 		await ask(chat, { ...owner.locals, token: undefined });
-		expect(turnGatewayCost).toHaveBeenCalledWith("sk-shared", ASSISTANT);
+		expect(turnGatewayCost).toHaveBeenCalledWith(
+			"sk-shared",
+			ASSISTANT,
+			expect.objectContaining({ conversationId: String(chat._id) })
+		);
 	});
 
 	it("stores the cost on a message that had no stats at all", async () => {

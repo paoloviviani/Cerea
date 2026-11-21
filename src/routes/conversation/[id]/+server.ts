@@ -60,6 +60,7 @@ import { MetricsServer } from "$lib/server/metrics";
 import { randomUUID } from "$lib/utils/randomUuid";
 import { PARENT_NOT_FOUND_MESSAGE, MESSAGE_ID_IN_USE_MESSAGE } from "$lib/utils/sendRefusals";
 import { isV4Uuid } from "$lib/utils/tree/isV4Uuid";
+import { messageIdHasTurnRecords } from "$lib/server/generation/turnRecords";
 import { applyConversationSettings, saveGeneratedTitle } from "$lib/server/conversationSettings";
 import { userDocumentReader } from "$lib/server/files/userReader";
 
@@ -210,7 +211,18 @@ export async function POST({ request, locals, params, getClientAddress }) {
 				error(409, MESSAGE_ID_IN_USE_MESSAGE);
 			}
 		}
+		// An id the message list no longer holds can still own turn records (events, a parked
+		// call, a turn state): taking it would continue that turn's event log or wake its
+		// parked call onto the new message.
+		for (const proposed of [proposedUserId, proposedAssistantId]) {
+			if (proposed && (await messageIdHasTurnRecords(conv._id, proposed))) {
+				logger.warn({ conversationId: id }, "[send] proposed message id owns turn records");
+				error(409, MESSAGE_ID_IN_USE_MESSAGE);
+			}
+		}
 	}
+	// A 409 here is practically impossible from the page (it mints fresh v4 ids per send) and
+	// shows there as a generic error toast; it exists for other callers and for a collision.
 
 	// A new generation invalidates any stale stop marker for this conversation.
 	// The abortedGenerations collection is the cross-pod abort channel:
@@ -1000,6 +1012,7 @@ export async function POST({ request, locals, params, getClientAddress }) {
 			settleTurnCost({
 				conversationId: convId,
 				messageId: messageToWriteTo.id,
+				messageCreatedAt: messageToWriteTo.createdAt,
 				token: turnGatewayToken(locals),
 			});
 			clearInterval(abortMarkerWatcher);
