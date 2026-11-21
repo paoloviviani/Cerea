@@ -157,8 +157,10 @@ export default defineConfig({
 			url: `${E2E_APP_URL}/healthcheck`,
 			reuseExistingServer: !isCI,
 			timeout: Number(process.env.E2E_WEBSERVER_TIMEOUT_MS ?? 600_000),
-			// Request logging at info level buries the test results; errors still reach stderr.
-			stdout: "ignore",
+			// Request logging at info level buries the test results, so LOG_LEVEL is warn below.
+			// pino writes to stdout, so stdout has to be piped for those warnings and errors (a
+			// handleError 500, "An error occurred" in the browser) to reach the run's log at all.
+			stdout: "pipe",
 			stderr: "pipe",
 			env: {
 				HOST: "127.0.0.1",

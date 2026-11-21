@@ -475,8 +475,12 @@ for (const vp of VIEWPORTS) {
 			await expect(page.getByText("Handbook")).toHaveCount(0);
 			// The base and its document list arrive together.
 			await expect(page.getByText("Handbook").first()).toBeVisible({ timeout: 20_000 });
-			await expect(page.getByText("Nothing in it yet")).toBeVisible({ timeout: 1 });
-			await expect(page.locator("[data-region=knowledge-detail]")).toHaveCount(0);
+			// The header takes the name the moment the base arrives, but the body's skeleton is held
+			// for its minimum time (SKELETON_MIN_MS): the contents are there once it is gone.
+			await expect(page.locator("[data-region=knowledge-detail]")).toHaveCount(0, {
+				timeout: 20_000,
+			});
+			await expect(page.getByText("Nothing in it yet")).toBeVisible();
 		});
 
 		test("knowledge detail: a fast response never shows a skeleton", async ({
