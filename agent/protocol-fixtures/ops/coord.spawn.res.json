@@ -1,0 +1,17 @@
+{
+	"_meta": {
+		"spec": "§5 coord, §6",
+		"direction": "M→C",
+		"op": "coord.spawn"
+	},
+	"frame": {
+		"type": "res",
+		"id": "r1",
+		"ok": true,
+		"result": {
+			"sessionId": "ses_78",
+			"title": "[from Desk] Changelog",
+			"workspace": "site"
+		}
+	}
+}

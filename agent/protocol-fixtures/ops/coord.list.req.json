@@ -1,0 +1,15 @@
+{
+	"_meta": {
+		"spec": "§5 coord, §6",
+		"direction": "C→M",
+		"op": "coord.list"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "coord.list",
+		"args": {
+			"workspaces": true
+		}
+	}
+}

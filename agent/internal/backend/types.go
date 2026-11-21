@@ -116,6 +116,13 @@ type Message struct {
 type SpawnedBy struct {
 	SessionID string `json:"sessionId"`
 	Title     string `json:"title"`
+	// ComputerID, Computer and Hop are set only on a session another COMPUTER's
+	// session started (relayed coordination, ADR 0121): the spawner's Cerea
+	// device id and name, and the hop of its first message. SessionID is then a
+	// session of that other computer, so nothing local follows it.
+	ComputerID string `json:"computerId,omitempty"`
+	Computer   string `json:"computer,omitempty"`
+	Hop        int    `json:"hop,omitempty"`
 }
 
 // MessageSender is the origin of a session_send message: the sender's id and
@@ -124,6 +131,11 @@ type MessageSender struct {
 	SessionID string `json:"sessionId"`
 	Title     string `json:"title"`
 	Hop       int    `json:"hop"`
+	// ComputerID and Computer are set when the sender is a session of ANOTHER
+	// computer of the owner (relayed coordination, ADR 0121): Cerea's device id
+	// and name for it. The UI labels the message from these, never from text.
+	ComputerID string `json:"computerId,omitempty"`
+	Computer   string `json:"computer,omitempty"`
 }
 
 // PartType discriminates Part's per-type fields (PROTOCOL.md §7).

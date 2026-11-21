@@ -150,7 +150,7 @@ func (at *agentTools) dispatch(ctx context.Context, call backend.ToolCall) (stri
 	var to string
 	switch call.Tool {
 	case "session_list":
-		out, err = at.list(ctx, tc)
+		out, err = at.list(ctx, tc, call)
 	case "session_spawn":
 		out, to, err = at.spawn(ctx, tc, call)
 	case "session_committee":
@@ -282,7 +282,7 @@ func modeLabel(id string) string {
 // of the conversation's view, and only the listing still names it). Other
 // trees' subagents stay out: a caller sees all top-level sessions and the
 // subagents at or below itself in its own tree.
-func (at *agentTools) list(ctx context.Context, tc *toolCaller) (string, error) {
+func (at *agentTools) list(ctx context.Context, tc *toolCaller, call backend.ToolCall) (string, error) {
 	all, err := at.allSessions(ctx)
 	if err != nil {
 		return "", err
@@ -364,7 +364,25 @@ func (at *agentTools) list(ctx context.Context, tc *toolCaller) (string, error) 
 		}
 		rows = append(rows, r)
 	}
-	body, err := json.Marshal(rows)
+	// Other computers (ADR 0121): rows of the owner's other computers, and a
+	// note when they could not be had. With none of that the answer is the
+	// array it always was.
+	remote, computers, note := at.remoteList(ctx, tc, listWantsComputers(call.Args))
+	if len(remote) == 0 && computers == nil && note == "" {
+		body, err := json.Marshal(rows)
+		return string(body), err
+	}
+	out := map[string]any{"sessions": rows}
+	if len(remote) > 0 {
+		out["remoteSessions"] = remote
+	}
+	if computers != nil {
+		out["computers"] = computers
+	}
+	if note != "" {
+		out["note"] = note
+	}
+	body, err := json.Marshal(out)
 	return string(body), err
 }
 
@@ -378,6 +396,12 @@ func spawnChain(marks map[string]backend.SpawnedBy, id string) (depth int, root 
 			return depth, root
 		}
 		depth++
+		if m.ComputerID != "" {
+			// Started from another computer (ADR 0121): its spawner is a
+			// session there, which nothing here follows. The session is its
+			// own root, and Cerea's ledger holds the depth across computers.
+			return depth, root
+		}
 		root = m.SessionID
 	}
 	return depth, root
@@ -492,9 +516,25 @@ func (at *agentTools) spawn(ctx context.Context, tc *toolCaller, call backend.To
 			call.Args, _ = json.Marshal(rawArgs)
 		}
 	}
-	args, err := decodeArgs(call.Args, "title", "prompt", "mode", "profile")
+	args, err := decodeArgs(call.Args, "title", "prompt", "mode", "profile", "computer", "workspaceId")
 	if err != nil {
 		return "", "", err
+	}
+	// computer and workspaceId come together or not at all; a workspaceId alone
+	// stays refused, as it always was: a local spawn is in the caller's workspace.
+	computer, workspaceID := strings.TrimSpace(args["computer"]), strings.TrimSpace(args["workspaceId"])
+	switch {
+	case computer != "" && workspaceID == "":
+		return "", "", refuse("computer needs a workspaceId too (from session_list with computers:true); a spawn is never placed by default")
+	case computer == "" && workspaceID != "":
+		return "", "", refuse("unsupported argument %q (allowed: title, prompt, mode, profile, report, and computer with workspaceId)", "workspaceId")
+	case computer != "":
+		if !deviceIDRe.MatchString(computer) {
+			return "", "", refuse("computer must be a computer id from session_list with computers:true")
+		}
+		return at.relaySpawn(ctx, tc, call, computer, workspaceID, spawnSpec{
+			title: args["title"], prompt: args["prompt"], mode: args["mode"], profile: args["profile"],
+		})
 	}
 	return at.spawnCore(ctx, tc, call, spawnSpec{
 		title: args["title"], prompt: args["prompt"], mode: args["mode"], profile: args["profile"], report: report,
@@ -754,7 +794,7 @@ func (at *agentTools) grantFor(_ context.Context, tc *toolCaller, tool, target s
 	case target != "":
 		targetWord = rh.PermissionMode(at.mc.mat.RootOf(target))
 	}
-	act, reason := decide.CoordinationFor(at.mc.decidePolicy(rh), st, tool, delegate, targetWord)
+	act, reason := decide.CoordinationFor(at.mc.decidePolicy(rh), st, tool, delegate, targetWord, false)
 	if act == permrules.Deny {
 		return permrules.Deny, refuse("%s", reason)
 	}
@@ -782,6 +822,9 @@ func (at *agentTools) send(ctx context.Context, tc *toolCaller, call backend.Too
 	targetID, text := strings.TrimSpace(args["target"]), args["text"]
 	if targetID == "" {
 		return "", "", refuse("target is required (a session id from session_list)")
+	}
+	if computerID, sessionID, remote := parseRemoteTarget(targetID); remote {
+		return at.relaySend(ctx, tc, call, computerID, sessionID, text)
 	}
 	if strings.TrimSpace(text) == "" {
 		return "", "", refuse("text is required")

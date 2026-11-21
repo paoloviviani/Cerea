@@ -875,7 +875,9 @@ export async function respondPermission(
 	agentId: string,
 	requestId: string,
 	decision: PermissionDecision,
-	childSessionId?: string
+	childSessionId?: string,
+	/** A relay card's ticket (ADR 0121): binds the answer to the card the user saw. */
+	ticket?: string
 ): Promise<{ ok: boolean; alreadyResolved?: boolean }> {
 	return unwrap(
 		await fetch(
@@ -883,7 +885,11 @@ export async function respondPermission(
 			{
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ decision, ...(childSessionId ? { childSessionId } : {}) }),
+				body: JSON.stringify({
+					decision,
+					...(childSessionId ? { childSessionId } : {}),
+					...(ticket ? { ticket } : {}),
+				}),
 			}
 		)
 	);

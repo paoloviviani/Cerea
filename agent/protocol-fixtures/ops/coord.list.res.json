@@ -1,0 +1,32 @@
+{
+	"_meta": {
+		"spec": "§5 coord, §6",
+		"direction": "M→C",
+		"op": "coord.list"
+	},
+	"frame": {
+		"type": "res",
+		"id": "r1",
+		"ok": true,
+		"result": {
+			"sessions": [
+				{
+					"sessionId": "ses_77",
+					"title": "Docs",
+					"workspaceId": "ws_01",
+					"workspace": "site",
+					"mode": "build",
+					"permissionMode": "ask",
+					"status": "idle",
+					"lastActivity": "2026-11-20T09:00:00Z"
+				}
+			],
+			"workspaces": [
+				{
+					"id": "ws_01",
+					"name": "site"
+				}
+			]
+		}
+	}
+}

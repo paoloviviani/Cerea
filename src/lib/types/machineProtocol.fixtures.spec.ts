@@ -32,6 +32,7 @@ import {
 	type Transcript,
 } from "$lib/types/machineProtocol";
 import { createArgs, updateArgs } from "$lib/server/code/machineCalls";
+import { COORD_ARG_SCHEMAS } from "$lib/server/code/machineCoord";
 import {
 	eventToUpdates,
 	newThinkingState,
@@ -201,6 +202,23 @@ describe("protocol fixtures: machine to Cerea frames parse with the production s
 			expect(parsed).toEqual(f.frame);
 		});
 	}
+});
+
+describe("protocol fixtures: coord call args parse with Cerea's own schemas", () => {
+	const schemas = COORD_ARG_SCHEMAS();
+	for (const f of ofType("call")) {
+		const op = f.frame.op as string;
+		if (!op.startsWith("coord.")) continue;
+		it(f.file, () => {
+			const schema = schemas[op as keyof typeof schemas];
+			expect(schema, `no schema for ${op}`).toBeDefined();
+			expect(schema.safeParse(f.frame.args).success).toBe(true);
+		});
+	}
+	it("every coord op Cerea answers has a call fixture", () => {
+		const have = new Set(ofType("call").map((f) => f.frame.op as string));
+		for (const op of Object.keys(schemas)) expect(have.has(op), op).toBe(true);
+	});
 });
 
 describe("protocol fixtures: schedule call args parse with Cerea's own schemas", () => {

@@ -1,0 +1,27 @@
+{
+	"_meta": {
+		"spec": "§5 coord, §6",
+		"direction": "C→M",
+		"op": "coord.read"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "coord.read",
+		"args": {
+			"sessionId": "ses_77",
+			"last": 5,
+			"hop": 1,
+			"from": {
+				"computerId": "65f1a2b3c4d5e6f708192a3b",
+				"computer": "Desk",
+				"workspaceId": "ws_09",
+				"workspace": "api",
+				"sessionId": "ses_01",
+				"title": "Migrate the schema"
+			},
+			"relayId": "rel_01",
+			"computer": "Laptop"
+		}
+	}
+}

@@ -26,10 +26,12 @@ const (
 // caller its target's delegate. Only the direct spawn link counts.
 func (at *agentTools) IsDelegatePair(callerID, targetID string) delegateDirection {
 	marks := at.host.SpawnMarks()
-	if m, ok := marks[targetID]; ok && m.SessionID == callerID {
+	// A session another computer started is nobody's delegate here: its
+	// spawner's id is that computer's, and report-back is local (ADR 0121).
+	if m, ok := marks[targetID]; ok && m.ComputerID == "" && m.SessionID == callerID {
 		return callerSpawned
 	}
-	if m, ok := marks[callerID]; ok && m.SessionID == targetID {
+	if m, ok := marks[callerID]; ok && m.ComputerID == "" && m.SessionID == targetID {
 		return callerIsDelegate
 	}
 	return notDelegates

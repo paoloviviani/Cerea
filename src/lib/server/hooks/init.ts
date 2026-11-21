@@ -2,6 +2,8 @@ import { config, ready } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
 import { registerMachineUpgrade } from "$lib/server/code/machineServer";
 import { startMachineRevalidationLoop } from "$lib/server/code/machines";
+import { startRelaySweepLoop } from "$lib/server/code/relay/tickets";
+import { warnIfRelayNeedsSingleReplica } from "$lib/server/code/relay/boot";
 import "$lib/server/code/scheduleAgentExecutor";
 import "$lib/server/schedules/chatScheduleExecutor";
 import { registerReviewTester } from "$lib/server/agentReview";
@@ -60,6 +62,10 @@ export async function initServer(): Promise<void> {
 	// ADR 0093 §4.7: re-check every live machine link against the gateway
 	// every 60s, independent of the machine's own token-renewal cadence.
 	startMachineRevalidationLoop();
+	// Relayed coordination (ADR 0121): expired approval tickets are audited as such, and a
+	// deployment with several chat replicas is warned that the feature needs one.
+	startRelaySweepLoop();
+	warnIfRelayNeedsSingleReplica();
 	// The reviewer's save-time test: the admin route refuses an untested change once this is set.
 	registerReviewTester(makeReviewTester());
 

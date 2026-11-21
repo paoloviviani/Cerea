@@ -112,6 +112,7 @@ set` can only **tighten**; loosening anything needs a new `enroll`.
 | **Local deny**                   | `--deny CLASS` (repeatable); `policy set --deny CLASS` / `--no-deny CLASS`                                      | none                                                                                                                                                                                   | Refuse-only, advanced: a class the computer refuses whatever the session's word (see [Permission classes](#permission-classes)); stored locally, never settable over the link                                                                                                                                                                                                                                                                                                                     |
 | **Safe directories**             | `--safe-dir PATH` (repeatable, replaces the default), `--no-safe-dirs`                                          | `/tmp`, the temp dir, the toolchain caches (`~/.cache/{go-build,pip,uv,pnpm,node-gyp}`, `~/go/pkg/mod`, `~/.npm`, `~/.local/share/pnpm`), never the whole `~/.cache`, those that exist | Directories outside the workspace whose contents **never ask**, for any session under any setting, subagents included (see [Permissions](#permissions)). A safe directory is one the agent may write into — external_directory does not separate read from write, so a poisoned build cache is the residual risk, which is why the list stays short and never names the home folder itself, a config directory or a credential store. The ceiling key `external_directory` still caps every entry | `policy set --no-safe-dir PATH` (removal only)        |
 | **Agent tools**                  | `--no-agent-tools`                                                                                              | installed                                                                                                                                                                              | Whether galopin installs `session_list`, `session_read`, `session_spawn` and `session_send`, and the schedule tools (`schedule_list`, `schedule_create`, `schedule_update`, `schedule_delete`), into the backend (see [Sessions that talk to sessions](#sessions-that-talk-to-sessions)). Denied: no tool at all                                                                                                                                                                                  | `policy set --no-agent-tools`                         |
+| **Relayed coordination**         | `policy set --no-relayed-coordination`                                                                          | allowed                                                                                                                                                                                | Whether other computers of the same user may list, read, message and start sessions on this one through Cerea (see [Sessions on other computers](#sessions-on-other-computers)). Denied: every such request is refused, and this computer makes none. `--no-agent-tools` implies it                                                                                                                                                                                                               | `policy set --no-relayed-coordination`                |
 | **Slash-command shell**          | `--no-command-shell`                                                                                            | allowed                                                                                                                                                                                | Whether a slash command's template may run its shell snippets. While denied, a command that expands shell, or whose shell behaviour is unknown (MCP prompts, ACP commands), is refused (see [Slash commands](#slash-commands))                                                                                                                                                                                                                                                                    | `policy set --no-command-shell`                       |
 | **A repo's own opencode config** | `--allow-project-config`                                                                                        | ignored                                                                                                                                                                                | Whether opencode loads the config a workspace's repository carries. Ignored by default (see [A repo's own opencode config](#a-repos-own-opencode-config))                                                                                                                                                                                                                                                                                                                                         | `policy set --no-project-config`                      |
 | **Background subagents**         | `--no-background-subagents`                                                                                     | allowed                                                                                                                                                                                | Whether the machine has the subagent tool. opencode 2 runs every subagent in the background, so while denied the tool is denied outright; when allowed, a child keeps running after its parent turn ends and its result returns as a synthetic message the panel shows (see [Subagents](#subagents))                                                                                                                                                                                              | `policy set --no-background-subagents`                |
@@ -1090,6 +1091,42 @@ An approved shell command can do anything you can on that computer (opencode's
 server password sits in its process environment, readable by same-user
 processes); the coordination gates constrain the model's tools, not an approved
 shell.
+
+### Sessions on other computers
+
+An agent can reach a session on **another computer of the same user**, through
+Cerea: `session_list` also lists the user's other computers' sessions (each row
+has a `target` like `<computerId>:<sessionId>`, and `computers: true` adds the
+computers and their workspaces), `session_read` and `session_send` take that
+`target`, and `session_spawn` takes a `computer` and a `workspaceId` together.
+It is on by default, with a switch for each user (Workspace, Agents, "Let my
+agents talk to my other computers") and a veto on each computer
+(`galopin policy set --no-relayed-coordination`).
+
+- **Every use is a card.** Whatever the session's word (Ask, Allow, Auto), the
+  card names the other computer, workspace, session and its word, shows the
+  message (cut at 600 characters, with "Show all") or a spawn's whole prompt, and
+  offers Allow once and Reject only: there is no "always" for another computer,
+  and the Auto reviewer never decides one. Plan refuses. Listing is the one free
+  call: titles and states only.
+- **Cerea checks, not only the agent.** The user's answer in Cerea (on /code, in
+  chat or from the notification) is what lets the call through; an answer given on
+  the computer itself does not. Cerea reads every name itself and refuses the call
+  if anything it was approved for has changed.
+- **The other computer labels it.** A message arrives as a peer message: the
+  transcript says it is from an agent on another computer and that the user
+  approved sending it, and the other computer's own permissions are unchanged. A
+  session started this way begins on Ask, with none of the sender's "always"
+  answers, and does not report back.
+- **Limits.** 8 KiB per message, a hop limit of 3 across computers (kept by Cerea,
+  so a computer cannot lower it), five sends or reads a minute per session pair,
+  30 requests a minute per computer, and caps on cards waiting for an answer.
+  Every use is in the audit trail without its content.
+- **One chat server.** It needs the single chat replica the computer links already
+  assume. An offline computer is an error ("<name> is offline; nothing was sent."),
+  never queued. An older computer, or an older Cerea, keeps the local tools only.
+
+The wire contract is [PROTOCOL.md section 11](https://github.com/paoloviviani/Cerea/blob/main/agent/PROTOCOL.md).
 
 ### Delegate profiles
 

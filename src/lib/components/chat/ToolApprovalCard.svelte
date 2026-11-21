@@ -17,6 +17,7 @@
 		type RiskTag,
 	} from "$lib/utils/approvalSummary";
 	import type { PermissionClass } from "$lib/types/machineProtocol";
+	import type { RelayCardView } from "$lib/types/CodeRelay";
 	import { isDetailsOpen, setDetailsOpen } from "$lib/stores/approvalDetails";
 	import { recurrenceText } from "$lib/utils/scheduleFormat";
 	import type { Recurrence } from "$lib/types/Schedule";
@@ -285,6 +286,47 @@
 	});
 
 	/**
+	 * A call to another of the user's computers (ADR 0121): the agent wants to message, read or start
+	 * a session on one. The card is drawn from Cerea's own record, which the server puts in
+	 * `args.relay` in place of anything the asking computer wrote; a request with no record reads
+	 * `approvable: false` and offers no way to allow it. Only on the agent surface (`onanswer`), and
+	 * never an "always": each use asks again.
+	 */
+	const relay = $derived.by((): RelayCardView | undefined => {
+		if (onanswer === undefined) return undefined;
+		const raw = toolApproval?.args?.relay;
+		if (!raw || typeof raw !== "object") return undefined;
+		return raw as RelayCardView;
+	});
+	const relayFacts = $derived(relay && relay.approvable ? relay : undefined);
+	/** The message or prompt is cut at this many characters until the user asks for all of it. */
+	const RELAY_PREVIEW = 600;
+	let showAllText = $state(false);
+	const relayBody = $derived(relayFacts?.op === "spawn" ? relayFacts.prompt : relayFacts?.text);
+	const relayBodyShown = $derived(
+		relayBody === undefined || showAllText || relayFacts?.op === "spawn"
+			? (relayBody ?? "")
+			: relayBody.slice(0, RELAY_PREVIEW)
+	);
+	const relayWord = (word: string | undefined) =>
+		word === "plan"
+			? m["chat.approval.relay.word.plan"]()
+			: word === "ask"
+				? m["chat.approval.relay.word.ask"]()
+				: word === "auto"
+					? m["chat.approval.relay.word.auto"]()
+					: word === "allow"
+						? m["chat.approval.relay.word.allow"]()
+						: "";
+	const relayTitle = $derived(
+		relayFacts?.op === "read"
+			? m["chat.approval.relay.title.read"]()
+			: relayFacts?.op === "spawn"
+				? m["chat.approval.relay.title.spawn"]()
+				: m["chat.approval.relay.title.send"]()
+	);
+
+	/**
 	 * The assistant's `schedule` proposal, on the same card: what will be made, in
 	 * words, before the person says yes. Chat only (`onanswer` is the agent path), and
 	 * no "for this conversation" button: a schedule is confirmed one at a time.
@@ -332,7 +374,7 @@
 	/** Plain-words title and risk tags: only for an ordinary tool ask, never for
 	 * galopin's own or a schedule proposal, which already read as facts. */
 	const summary = $derived(
-		toolApproval && !galopin && !proposesSchedule && !browse
+		toolApproval && !galopin && !proposesSchedule && !browse && !relay
 			? summarizeApproval({
 					tool: toolApproval.tool,
 					args: toolApproval.args ?? {},
@@ -395,7 +437,7 @@
 			data-testid="review-pending"
 			aria-live="polite"
 		>
-			{m["chat.approval.reviewing"]()}
+			{relay ? m["chat.approval.relay.checking"]() : m["chat.approval.reviewing"]()}
 		</p>
 	</BlockWrapper>
 {:else if !open}
@@ -448,6 +490,13 @@
 		<div
 			class="rounded-xl border border-gray-200 bg-gray-50/60 p-4 dark:border-gray-700 dark:bg-gray-800/40"
 		>
+			{#if relay}
+				<p class="mb-1.5">
+					<span class="{s.PILL} {s.PILL_TONES.warn}" data-testid="relay-badge"
+						>{m["chat.approval.relay.badge"]()}</span
+					>
+				</p>
+			{/if}
 			<div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
 				<span
 					class="min-w-0 text-sm font-medium break-words text-gray-800 dark:text-gray-100"
@@ -455,13 +504,17 @@
 					>{#if subagentLabel}{subagentLabel} ·
 					{/if}{browse
 						? browse.sentence
-						: summary
-							? summary.title
-							: galopin
-								? m["chat.approval.agent_action"]()
-								: m["chat.approval.schedule.title"]()}</span
+						: relay
+							? relayFacts
+								? relayTitle
+								: m["chat.approval.relay.unapprovable_title"]()
+							: summary
+								? summary.title
+								: galopin
+									? m["chat.approval.agent_action"]()
+									: m["chat.approval.schedule.title"]()}</span
 				>
-				{#if !summary && !browse}
+				{#if !summary && !browse && !relay}
 					<span class="text-xs text-gray-500 dark:text-gray-400">
 						<Rich
 							parts={m["chat.approval.wants_to_call"].parts({ tool: toolApproval.tool })}
@@ -553,6 +606,134 @@
 						/>
 					{/if}
 				</div>
+			{:else if relay}
+				<div class="mt-3 space-y-2 text-sm" data-testid="relay-approval">
+					{#if relayFacts}
+						<dl class="space-y-2">
+							<div class="flex flex-wrap gap-x-2">
+								<dt class="text-xs font-medium text-gray-500 dark:text-gray-400">
+									{m["chat.approval.fact.from"]()}
+								</dt>
+								<dd class="min-w-0 text-gray-800 dark:text-gray-100" data-testid="relay-from">
+									{m["chat.approval.relay.where"]({
+										session: relayFacts.caller.session,
+										workspace: relayFacts.caller.workspace,
+										computer: relayFacts.caller.computer,
+									})}
+								</dd>
+							</div>
+							<div class="flex flex-wrap gap-x-2">
+								<dt class="text-xs font-medium text-gray-500 dark:text-gray-400">
+									{m["chat.approval.fact.to"]()}
+								</dt>
+								<dd class="min-w-0 text-gray-800 dark:text-gray-100" data-testid="relay-to">
+									{#if relayFacts.target.session}
+										{m["chat.approval.relay.where"]({
+											session: relayFacts.target.session,
+											workspace: relayFacts.target.workspace,
+											computer: relayFacts.target.computer,
+										})}
+									{:else}
+										{m["chat.approval.relay.where_workspace"]({
+											workspace: relayFacts.target.workspace,
+											computer: relayFacts.target.computer,
+										})}
+									{/if}
+								</dd>
+							</div>
+							{#if relayFacts.target.session}
+								<div class="flex flex-wrap gap-x-2">
+									<dt class="text-xs font-medium text-gray-500 dark:text-gray-400">
+										{m["chat.approval.relay.state"]()}
+									</dt>
+									<dd class="min-w-0 text-gray-800 dark:text-gray-100" data-testid="relay-state">
+										{m["chat.approval.relay.state_value"]({
+											word: relayWord(relayFacts.target.word),
+											mode: relayFacts.target.agentMode ?? "",
+											status: relayFacts.target.status ?? "",
+										})}
+									</dd>
+								</div>
+							{/if}
+							{#if relayFacts.op === "read" && relayFacts.last !== undefined}
+								<div class="flex flex-wrap gap-x-2">
+									<dt class="text-xs font-medium text-gray-500 dark:text-gray-400">
+										{m["chat.approval.fact.reads"]()}
+									</dt>
+									<dd class="min-w-0 text-gray-800 dark:text-gray-100">
+										{m["chat.approval.fact.reads_value"]({ count: relayFacts.last })}
+									</dd>
+								</div>
+							{/if}
+							{#if relayFacts.op === "spawn"}
+								<div class="flex flex-wrap gap-x-2">
+									<dt class="text-xs font-medium text-gray-500 dark:text-gray-400">
+										{m["chat.approval.fact.title"]()}
+									</dt>
+									<dd class="min-w-0 text-gray-800 dark:text-gray-100">{relayFacts.title}</dd>
+								</div>
+								<div class="flex flex-wrap gap-x-2">
+									<dt class="text-xs font-medium text-gray-500 dark:text-gray-400">
+										{m["chat.approval.fact.mode"]()}
+									</dt>
+									<dd class="min-w-0 text-gray-800 dark:text-gray-100">{relayFacts.mode}</dd>
+								</div>
+								<p
+									class="text-xs text-gray-600 dark:text-gray-300"
+									data-testid="relay-starts-on-ask"
+								>
+									{m["chat.approval.relay.starts_on_ask"]()}
+								</p>
+							{/if}
+							{#if relayBody !== undefined}
+								<div>
+									<dt class="text-xs font-medium text-gray-500 dark:text-gray-400">
+										{relayFacts.op === "spawn"
+											? m["chat.approval.fact.prompt"]()
+											: m["chat.approval.fact.message"]()}
+									</dt>
+									<dd class="min-w-0 text-gray-800 dark:text-gray-100">
+										<pre
+											class="mt-1 max-h-48 overflow-auto rounded-lg bg-gray-100 p-2 font-sans text-sm whitespace-pre-wrap text-gray-700 dark:bg-gray-800/70 dark:text-gray-200"
+											data-testid="relay-body">{relayBodyShown}</pre>
+										{#if relayFacts.op !== "spawn" && relayBody.length > RELAY_PREVIEW}
+											<button
+												type="button"
+												class="mt-1 min-h-8 text-xs font-medium text-gray-500 underline hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+												data-testid="relay-show-all"
+												onclick={() => (showAllText = !showAllText)}
+											>
+												{showAllText
+													? m["chat.approval.relay.show_less"]()
+													: m["chat.approval.relay.show_all"]({ total: relayBody.length })}
+											</button>
+										{/if}
+									</dd>
+								</div>
+							{/if}
+							<div class="flex flex-wrap gap-x-2">
+								<dt class="text-xs font-medium text-gray-500 dark:text-gray-400">
+									{m["chat.approval.fact.hop"]()}
+								</dt>
+								<dd class="min-w-0 text-gray-800 dark:text-gray-100">
+									{m["chat.approval.fact.hop_of"]({ hop: relayFacts.hop })}
+								</dd>
+							</div>
+						</dl>
+						<p class="text-xs text-gray-500 dark:text-gray-400" data-testid="relay-no-always">
+							{m["chat.approval.relay.no_always"]()}
+						</p>
+					{:else}
+						<p class="text-gray-800 dark:text-gray-100" data-testid="relay-unapprovable">
+							{m["chat.approval.relay.unapprovable"]()}
+						</p>
+						{#if relay.reason}
+							<p class="text-xs text-gray-500 dark:text-gray-400" data-testid="relay-reason">
+								{relay.reason}
+							</p>
+						{/if}
+					{/if}
+				</div>
 			{:else if (galopin || proposesSchedule) && shownFacts.length > 0}
 				<dl
 					class="mt-3 space-y-2 text-sm"
@@ -629,21 +810,23 @@
 				</div>
 			{:else}
 				<div class="mt-4 flex flex-wrap items-center gap-2">
-					<button
-						type="button"
-						onclick={() => send("accept", onanswer ? undefined : "once")}
-						disabled={submitting !== null}
-						class="min-h-9 rounded-lg bg-gray-900 px-3 py-1.5 text-sm text-white hover:bg-gray-700 disabled:opacity-50 dark:bg-gray-200 dark:text-gray-900 dark:hover:bg-white"
-					>
-						<CarbonCheckmark class="mr-1 inline size-3.5 align-text-bottom" />
-						{proposesSchedule
-							? m["chat.approval.schedule.create"]()
-							: browse
-								? browse.challenge
-									? m["chat.approval.browse.continue"]()
-									: m["chat.approval.browse.allow"]()
-								: approveLabel}
-					</button>
+					{#if !relay || relayFacts}
+						<button
+							type="button"
+							onclick={() => send("accept", onanswer ? undefined : "once")}
+							disabled={submitting !== null}
+							class="min-h-9 rounded-lg bg-gray-900 px-3 py-1.5 text-sm text-white hover:bg-gray-700 disabled:opacity-50 dark:bg-gray-200 dark:text-gray-900 dark:hover:bg-white"
+						>
+							<CarbonCheckmark class="mr-1 inline size-3.5 align-text-bottom" />
+							{proposesSchedule
+								? m["chat.approval.schedule.create"]()
+								: browse
+									? browse.challenge
+										? m["chat.approval.browse.continue"]()
+										: m["chat.approval.browse.allow"]()
+									: approveLabel}
+						</button>
+					{/if}
 					<button
 						type="button"
 						onclick={() => send("decline")}
@@ -651,7 +834,11 @@
 						class="min-h-9 rounded-lg border border-red-300 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-900/20"
 					>
 						<CarbonClose class="mr-1 inline size-3.5 align-text-bottom" />
-						{browse?.challenge ? m["chat.approval.browse.stop"]() : m["chat.approval.deny"]()}
+						{browse?.challenge
+							? m["chat.approval.browse.stop"]()
+							: relay
+								? m["chat.approval.relay.reject"]()
+								: m["chat.approval.deny"]()}
 					</button>
 					{#if browse?.siteScope && !browse.challenge}
 						<button
@@ -663,7 +850,7 @@
 							>{m["chat.approval.browse.allow_site"]()}</button
 						>
 					{/if}
-					{#if !galopin && !onceOnly && !proposesSchedule && !browse}
+					{#if !galopin && !onceOnly && !proposesSchedule && !browse && !relay}
 						<button
 							type="button"
 							onclick={chooseAlways}

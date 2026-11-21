@@ -467,7 +467,7 @@ describe("agent_start", () => {
 			outcome: "ok",
 		});
 		expect(rows[0].userId.equals(person.user._id)).toBe(true);
-		expect(rows[0].deviceId.toString()).toBe(deviceId);
+		expect(rows[0].deviceId?.toString()).toBe(deviceId);
 		expect(JSON.stringify(rows[0])).not.toContain("secret plan");
 	});
 

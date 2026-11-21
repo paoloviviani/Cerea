@@ -169,6 +169,8 @@ export interface MachinePolicy {
 	/** The terminal veto (ADR 0090, default "denied"; `enroll --allow-terminal`). */
 	terminal?: "allowed" | "denied";
 	maxTerminals?: number;
+	/** The relayed-coordination veto (ADR 0121, default allowed; `policy set --no-relayed-coordination`). */
+	relayedCoordination?: "allowed" | "denied";
 	/** The editor's save veto (`files.write`; a policy without it reads "denied";
 	 * a fresh `enroll` writes "allowed"). */
 	fileWrite?: "allowed" | "denied";
@@ -293,6 +295,7 @@ export async function startMachine(input: {
 			...(policy.terminal ? { terminal: policy.terminal } : {}),
 			...(policy.maxTerminals ? { maxTerminals: policy.maxTerminals } : {}),
 			...(policy.fileWrite ? { fileWrite: policy.fileWrite } : {}),
+			...(policy.relayedCoordination ? { relayedCoordination: policy.relayedCoordination } : {}),
 		})
 	);
 	let output = "";

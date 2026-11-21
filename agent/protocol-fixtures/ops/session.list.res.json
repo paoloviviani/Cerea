@@ -57,7 +57,10 @@
 					"parentToolCallId": "call_task",
 					"spawnedBy": {
 						"sessionId": "ses_01",
-						"title": "Fix the flaky test"
+						"title": "Fix the flaky test",
+						"computerId": "65f1a2b3c4d5e6f708192a3c",
+						"computer": "Laptop",
+						"hop": 1
 					},
 					"createdAt": "2026-10-22T09:00:00Z",
 					"updatedAt": "2026-10-22T09:05:00Z",

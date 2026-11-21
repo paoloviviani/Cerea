@@ -857,3 +857,153 @@ describe("ToolApprovalCard, a browsing sub-agent's ask (ADR 0116)", () => {
 		}
 	});
 });
+
+// Relayed coordination (ADR 0121): the card for a call to another computer, drawn from Cerea's record.
+const LONG_MESSAGE = `${"Please look at the migration. ".repeat(40)}END-OF-MESSAGE`;
+
+const relayFacts = {
+	approvable: true,
+	op: "send",
+	hop: 2,
+	caller: { computer: "Desk", workspace: "api", session: "Migrate the schema" },
+	target: {
+		computer: "Laptop",
+		workspace: "site",
+		session: "Docs agent",
+		agentMode: "build",
+		word: "allow",
+		status: "busy",
+	},
+	text: LONG_MESSAGE,
+};
+
+const relayRequest = (relay: Record<string, unknown>) => request("session_send", { relay });
+
+describe("ToolApprovalCard, a request to another computer", () => {
+	it("leads with the badge and names both ends, the target's word and the hop", async () => {
+		const screen = render(ToolApprovalCard, {
+			conversationId: "a1",
+			request: relayRequest(relayFacts),
+			onanswer: async () => ({ ok: true }),
+		});
+		await expect.element(screen.getByTestId("relay-badge")).toHaveTextContent("Another computer");
+		await expect
+			.element(screen.getByTestId("approval-title"))
+			.toHaveTextContent("Send a message to a session on another computer");
+		await expect
+			.element(screen.getByTestId("relay-from"))
+			.toHaveTextContent("Migrate the schema, in api on Desk");
+		await expect
+			.element(screen.getByTestId("relay-to"))
+			.toHaveTextContent("Docs agent, in site on Laptop");
+		await expect
+			.element(screen.getByTestId("relay-state"))
+			.toHaveTextContent("Allow, build mode, busy");
+		await expect.element(screen.getByText("2 of 3")).toBeVisible();
+	});
+
+	it("shows the first 600 characters of a message and all of it on request", async () => {
+		const screen = render(ToolApprovalCard, {
+			conversationId: "a1",
+			request: relayRequest(relayFacts),
+			onanswer: async () => ({ ok: true }),
+		});
+		const body = screen.getByTestId("relay-body");
+		await expect.element(body).not.toHaveTextContent("END-OF-MESSAGE");
+		expect(
+			screen.baseElement.querySelector("[data-testid='relay-body']")?.textContent
+		).toHaveLength(600);
+		await screen.getByTestId("relay-show-all").click();
+		await expect.element(body).toHaveTextContent("END-OF-MESSAGE");
+		await screen.getByTestId("relay-show-all").click();
+		await expect.element(body).not.toHaveTextContent("END-OF-MESSAGE");
+	});
+
+	it("shows a spawn's whole prompt, says it starts on Ask, and names the workspace and mode", async () => {
+		const prompt = `Write the changelog.\n${"Cover every package. ".repeat(80)}END-OF-PROMPT`;
+		const screen = render(ToolApprovalCard, {
+			conversationId: "a1",
+			request: request("session_spawn", {
+				relay: {
+					approvable: true,
+					op: "spawn",
+					hop: 1,
+					caller: { computer: "Desk", workspace: "api", session: "Migrate" },
+					target: { computer: "Laptop", workspace: "site" },
+					title: "Changelog",
+					mode: "build",
+					prompt,
+				},
+			}),
+			onanswer: async () => ({ ok: true }),
+		});
+		await expect
+			.element(screen.getByTestId("approval-title"))
+			.toHaveTextContent("Start a session on another computer");
+		await expect
+			.element(screen.getByTestId("relay-to"))
+			.toHaveTextContent("workspace site on Laptop");
+		await expect.element(screen.getByTestId("relay-body")).toHaveTextContent("END-OF-PROMPT");
+		await expect
+			.element(screen.getByTestId("relay-starts-on-ask"))
+			.toHaveTextContent("starts on Ask");
+		expect(screen.baseElement.querySelector("[data-testid='relay-show-all']")).toBeNull();
+	});
+
+	it("offers Allow once and Reject, and no always, and says so", async () => {
+		const answers: Array<{ action: string; scope?: string }> = [];
+		const screen = render(ToolApprovalCard, {
+			conversationId: "a1",
+			request: relayRequest(relayFacts),
+			onanswer: async (action, scope) => {
+				answers.push({ action, scope });
+				return { ok: true };
+			},
+		});
+		await expect.element(screen.getByRole("button", { name: "Allow once" })).toBeVisible();
+		await expect.element(screen.getByRole("button", { name: "Reject" })).toBeVisible();
+		expect(screen.baseElement.textContent).not.toContain("Always allow");
+		await expect.element(screen.getByTestId("relay-no-always")).toBeVisible();
+		await screen.getByRole("button", { name: "Allow once" }).click();
+		expect(answers).toEqual([{ action: "accept", scope: undefined }]);
+	});
+
+	it("shows an ask with no record as one that cannot be approved, with only Reject", async () => {
+		const answers: string[] = [];
+		const screen = render(ToolApprovalCard, {
+			conversationId: "a1",
+			request: relayRequest({ approvable: false, reason: "Cerea has no record of this request." }),
+			onanswer: async (action) => {
+				answers.push(action);
+				return { ok: true };
+			},
+		});
+		await expect
+			.element(screen.getByTestId("relay-unapprovable"))
+			.toHaveTextContent("cannot be approved from here");
+		await expect.element(screen.getByTestId("relay-reason")).toHaveTextContent("no record");
+		expect(screen.baseElement.textContent).not.toContain("Allow once");
+		await screen.getByRole("button", { name: "Reject" }).click();
+		expect(answers).toEqual(["decline"]);
+	});
+
+	it("shows only a quiet line while Cerea is checking the request", async () => {
+		const screen = render(ToolApprovalCard, {
+			conversationId: "a1",
+			request: { ...relayRequest({ approvable: false, pending: true }), reviewing: true },
+			onanswer: async () => ({ ok: true }),
+		});
+		await expect
+			.element(screen.getByTestId("review-pending"))
+			.toHaveTextContent("Checking this request");
+		expect(screen.baseElement.querySelector("button")).toBeNull();
+	});
+
+	it("draws no relay card in chat, where the arguments are a model's own", async () => {
+		const screen = render(ToolApprovalCard, {
+			conversationId: "c1",
+			request: relayRequest(relayFacts),
+		});
+		expect(screen.baseElement.querySelector("[data-testid='relay-badge']")).toBeNull();
+	});
+});

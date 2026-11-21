@@ -1198,6 +1198,14 @@ func agentToolsPolicySummary(pol policy.Policy) string {
 	return "Agent tools: ON — a session's agent can list, read, spawn and message other sessions here. The agents class decides: at run (the default) a call is free when the other session's word (Plan, Ask or Allow) is the same or more cautious than the caller's and the caller is on Allow, otherwise the caller's own word applies (a read asks unless a rule or a grant says otherwise); at ask every call is a card; at never none works. Spawned sessions inherit the spawner's word and grant, never more. Schedule tools follow the same class."
 }
 
+// relayedCoordinationPolicySummary says what the relayed-coordination veto means.
+func relayedCoordinationPolicySummary(pol policy.Policy) string {
+	if !pol.RelayedCoordinationAllowed() {
+		return "Relayed coordination: OFF — this machine refuses every request from the owner's other computers to list, read, message or start sessions here."
+	}
+	return "Relayed coordination: ON — the owner's other computers can list this machine's sessions, and read, message or start one here through Cerea, each time after the owner approved it there. A message arrives marked as a peer's, and a session started this way begins on Ask."
+}
+
 // projectConfigPolicySummary says, in plain words, what a workspace's own
 // opencode config may do on this machine.
 func projectConfigPolicySummary(pol policy.Policy, allowOpencodeProviders bool) string {

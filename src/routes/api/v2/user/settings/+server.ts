@@ -3,6 +3,7 @@ import { guardAnonymousSettingsRow } from "$lib/server/anonymousSettings";
 import { superjsonResponse } from "$lib/server/api/utils/superjsonResponse";
 import { collections } from "$lib/server/database";
 import { authCondition } from "$lib/server/auth";
+import { onRelaySwitchChanged, relayedCoordinationOn } from "$lib/server/code/relay/switch";
 import { requireAuth } from "$lib/server/api/utils/requireAuth";
 import { defaultModel, models, validateModel } from "$lib/server/models";
 import { isUnlistedForUsers } from "$lib/server/hiddenModels";
@@ -37,6 +38,9 @@ const settingsSchema = z.object({
 	// standing facts about themselves. The deployment flag
 	// (CHAT_MEMORY_ENABLED) can withdraw the feature over the top of it.
 	memoryEnabled: z.boolean().optional(),
+	// On unless `false` (absent counts as on): the Settings switch "Let my agents talk to my other
+	// computers". The deployment's CODE_RELAYED_COORDINATION_ENABLED can withdraw it entirely.
+	relayedCoordinationEnabled: z.boolean().optional(),
 	// Off by default and stored as absent: asks the gateway to send the hidden
 	// values back with each answer, for the turn details.
 	showRedactionValues: z.boolean().optional(),
@@ -108,6 +112,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 		toolApprovalPolicy: settings?.toolApprovalPolicy ?? undefined,
 		pyodidePyPiInstallEnabled: settings?.pyodidePyPiInstallEnabled ?? undefined,
 		memoryEnabled: settings?.memoryEnabled ?? undefined,
+		relayedCoordinationEnabled: settings?.relayedCoordinationEnabled ?? undefined,
 		showRedactionValues: settings?.showRedactionValues ?? undefined,
 		locationMode: settings?.locationMode ?? undefined,
 		locationPlace: settings?.locationPlace ?? undefined,
@@ -163,6 +168,13 @@ export const POST: RequestHandler = async ({ locals, request, getClientAddress }
 	} satisfies SettingsEditable;
 
 	await guardAnonymousSettingsRow(locals, getClientAddress);
+	// The relayed-coordination switch (ADR 0121): a change is audited, and turning it off deletes
+	// the user's open approval tickets so a card already waiting can no longer be used.
+	const userId = locals.user?._id;
+	const switchBefore =
+		userId && parsedSettings.relayedCoordinationEnabled !== undefined
+			? await relayedCoordinationOn(userId)
+			: undefined;
 	await collections.settings.updateOne(
 		authCondition(locals),
 		{
@@ -179,6 +191,10 @@ export const POST: RequestHandler = async ({ locals, request, getClientAddress }
 		},
 		{ upsert: true }
 	);
+	if (userId && switchBefore !== undefined) {
+		const switchAfter = parsedSettings.relayedCoordinationEnabled !== false;
+		if (switchAfter !== switchBefore) await onRelaySwitchChanged(userId, switchAfter);
+	}
 
 	return new Response();
 };

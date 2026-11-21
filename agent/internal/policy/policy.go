@@ -71,6 +71,15 @@ type Policy struct {
 	// default; denied installs no tool at all. A local `galopin policy set`
 	// can only turn it off.
 	AgentTools string `json:"agentTools,omitempty"`
+	// RelayedCoordination is this machine's veto over relayed coordination
+	// (ADR 0121): other computers of the same owner reading, messaging and
+	// starting sessions here through Cerea. "allowed" or "denied"; absent reads
+	// ALLOWED (the owner's choice: on by default; the caller's card and this
+	// machine's own permission words bound what a request can do). "denied"
+	// refuses every inbound coord.* request, `coord.list` included.
+	// `agentTools: denied` implies denied. `policy set --no-relayed-coordination`
+	// can only turn it off.
+	RelayedCoordination string `json:"relayedCoordination,omitempty"`
 	// ProjectConfig gates the opencode configuration a workspace's own repo
 	// carries (opencode.json, .opencode/ plugins, tools, commands, agents
 	// and MCP servers, AGENTS.md/CLAUDE.md): "allowed" or "denied" (the
@@ -330,6 +339,13 @@ func (p Policy) CommandShellAllowed() bool { return p.CommandShell == TerminalAl
 // AgentToolsAllowed reports whether galopin installs its agent-coordination
 // tools. Default allowed: an owner opts out with `enroll --no-agent-tools`.
 func (p Policy) AgentToolsAllowed() bool { return p.AgentTools != TerminalDenied }
+
+// RelayedCoordinationAllowed reports whether this machine answers relayed
+// coordination requests (ADR 0121). Absent reads allowed; denied agent tools
+// imply denied.
+func (p Policy) RelayedCoordinationAllowed() bool {
+	return p.AgentToolsAllowed() && p.RelayedCoordination != TerminalDenied
+}
 
 // ProjectConfigAllowed reports whether opencode loads a workspace's own
 // config. Default denied: an owner opts in with `enroll --allow-project-config`.

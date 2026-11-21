@@ -190,6 +190,40 @@ describe("NeedsYouInbox", () => {
 		await vi.waitFor(() => expect(inbox()).toBeNull());
 	});
 
+	it("answers a relay card with the ticket it carried (ADR 0121), and any other as before", async () => {
+		const relayItem = permission("a1", "gp_relay", {
+			request: {
+				id: "gp_relay",
+				sessionId: "a1",
+				tool: "session_send",
+				title: "x",
+				patterns: [],
+				always: [],
+				metadata: {
+					relay: {
+						approvable: true,
+						ticket: "a1b2c3hash",
+						op: "send",
+						hop: 1,
+						caller: { computer: "Desk", workspace: "api", session: "Migrate" },
+						target: { computer: "Laptop", workspace: "site", session: "Docs" },
+						text: "please review",
+					},
+				},
+			},
+		});
+		fake.pendingByDevice = { d1: { permissions: [relayItem], questions: [] } };
+		await browserPage.viewport(1200, 800);
+		const screen = mount();
+		await expect.element(screen.getByRole("button", { name: "Allow once" })).toBeVisible();
+		await screen.getByRole("button", { name: "Allow once" }).click();
+		await vi.waitFor(() =>
+			expect(fake.permissionCalls).toEqual([
+				["d1", "a1", "gp_relay", "once", undefined, "a1b2c3hash"],
+			])
+		);
+	});
+
 	it("lists and answers the same permission on a phone viewport", async () => {
 		fake.pendingByDevice = { d1: { permissions: [permission()], questions: [] } };
 		await browserPage.viewport(400, 800);
