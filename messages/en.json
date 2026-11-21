@@ -723,7 +723,7 @@
 	"code.terminal.copy_all": "Copy all",
 	"code.terminal.copy_close": "Close text view",
 	"code.terminal.copy_failed": "Could not copy. Select the text and copy it manually.",
-	"code.terminal.copy_hint": "Hold to select.",
+	"code.terminal.copy_hint": "Press and hold to select text.",
 	"code.terminal.copy_selection": "Copy selection",
 	"code.terminal.copy_title": "Terminal text",
 	"code.terminal.copy_visible": "Copy visible screen",

@@ -264,7 +264,24 @@ test.describe("the terminal on a real machine", () => {
 		expect(shown).toMatch(/\n300\ncopy-marker-42/);
 		// Native selection is allowed on it, and the terminal's typing path stays out of the way.
 		expect(await text.evaluate((el) => getComputedStyle(el).userSelect)).toBe("text");
+		// The hint is a full sentence on its own line, not truncated beside the buttons.
+		const hint = overlay.getByRole("status");
+		await expect(hint).toHaveText("Press and hold to select text.");
+		expect(await hint.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
 		await page.screenshot({ path: "/var/tmp/termcopy-tmp/shots/copy-overlay.png" });
+		// 360 px wide: the toolbar row fits and the page does not scroll sideways.
+		await page.setViewportSize({ width: 360, height: 800 });
+		await expect(overlay.getByRole("button", { name: "Close text view" })).toBeInViewport({
+			ratio: 1,
+		});
+		await expect(hint).toBeInViewport({ ratio: 1 });
+		expect(
+			await page.evaluate(
+				() => document.documentElement.scrollWidth <= document.documentElement.clientWidth
+			)
+		).toBe(true);
+		await page.screenshot({ path: "/var/tmp/termcopy-tmp/shots/copy-overlay-360.png" });
+		await page.setViewportSize({ width: 412, height: 915 });
 
 		await overlay.getByRole("button", { name: "Copy all" }).click();
 		await expect(overlay.getByRole("status")).toHaveText("Copied");

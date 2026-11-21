@@ -730,7 +730,7 @@
 	"code.terminal.copy_all": "Copia tutto",
 	"code.terminal.copy_close": "Chiudi vista testo",
 	"code.terminal.copy_failed": "Copia non riuscita. Seleziona il testo e copialo a mano.",
-	"code.terminal.copy_hint": "Tieni premuto per selezionare.",
+	"code.terminal.copy_hint": "Tieni premuto per selezionare il testo.",
 	"code.terminal.copy_selection": "Copia selezione",
 	"code.terminal.copy_title": "Testo del terminale",
 	"code.terminal.copy_visible": "Copia schermata visibile",

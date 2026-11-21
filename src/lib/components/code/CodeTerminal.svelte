@@ -789,43 +789,42 @@
 				class="absolute inset-0 z-20 flex flex-col bg-white dark:bg-gray-900"
 			>
 				<div
-					class="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-gray-200 bg-gray-50 p-1.5 dark:border-gray-700 dark:bg-gray-800"
+					class="shrink-0 border-b border-gray-200 bg-gray-50 p-1.5 dark:border-gray-700 dark:bg-gray-800"
 				>
-					<button
-						type="button"
-						data-testid="terminal-copy-all"
-						class="btn h-8 rounded-md bg-blue-600 px-2.5 text-xs font-medium text-white dark:bg-blue-500"
-						onclick={() => void copyAndNote(copyText)}
-					>
-						{m["code.terminal.copy_all"]()}
-					</button>
-					<button
-						type="button"
-						data-testid="terminal-copy-visible"
-						class="btn h-8 rounded-md border px-2.5 text-xs dark:border-gray-600"
-						onclick={() => void copyAndNote(visibleScreenText())}
-					>
-						{m["code.terminal.copy_visible"]()}
-					</button>
-					<span
-						role="status"
-						class="min-w-0 flex-1 truncate text-xs text-gray-600 dark:text-gray-300"
-					>
+					<div class="flex items-center gap-1.5">
+						<button
+							type="button"
+							data-testid="terminal-copy-all"
+							class="btn h-8 rounded-md bg-blue-600 px-2.5 text-xs font-medium text-white dark:bg-blue-500"
+							onclick={() => void copyAndNote(copyText)}
+						>
+							{m["code.terminal.copy_all"]()}
+						</button>
+						<button
+							type="button"
+							data-testid="terminal-copy-visible"
+							class="btn h-8 rounded-md border px-2.5 text-xs dark:border-gray-600"
+							onclick={() => void copyAndNote(visibleScreenText())}
+						>
+							{m["code.terminal.copy_visible"]()}
+						</button>
+						<button
+							type="button"
+							data-testid="terminal-copy-close"
+							aria-label={m["code.terminal.copy_close"]()}
+							class="ml-auto btn flex size-8 shrink-0 items-center justify-center rounded-md border dark:border-gray-600"
+							onclick={closeCopyView}
+						>
+							<IconClose class="size-4" />
+						</button>
+					</div>
+					<span role="status" class="mt-1.5 block text-xs text-gray-600 dark:text-gray-300">
 						{#if copyNote === "copied"}{m[
 								"code.terminal.copied"
 							]()}{:else if copyNote === "failed"}{m["code.terminal.copy_failed"]()}{:else}{m[
 								"code.terminal.copy_hint"
 							]()}{/if}
 					</span>
-					<button
-						type="button"
-						data-testid="terminal-copy-close"
-						aria-label={m["code.terminal.copy_close"]()}
-						class="btn flex size-8 items-center justify-center rounded-md border dark:border-gray-600"
-						onclick={closeCopyView}
-					>
-						<IconClose class="size-4" />
-					</button>
 				</div>
 				<!-- Plain DOM text: the OS long-press selection and copy menu work here. -->
 				<pre
