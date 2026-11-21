@@ -1275,6 +1275,12 @@
 	 * of scope. A subagent's card (labelled with its session by the bridge)
 	 * answers through the same call with the child's session, so the reply
 	 * reaches the child's own waiting request. */
+	/** The trailing `ticket` argument of `respondPermission`, only for a relay card that has one. */
+	function relayTicketArg(relay: unknown): [string] | [] {
+		const ticket = (relay as { ticket?: string } | undefined)?.ticket;
+		return ticket ? [ticket] : [];
+	}
+
 	async function answerPermission(
 		request: ElicitationRequestPayload,
 		action: ElicitationAction,
@@ -1292,7 +1298,9 @@
 				request.elicitationId,
 				action === "accept" ? (scope === "always" ? "always" : "once") : "reject",
 				request.childSessionId,
-				(request.toolApproval?.args?.relay as { ticket?: string } | undefined)?.ticket
+				// A relay card's ticket binds the answer to the card as shown (ADR 0121); other
+				// cards pass nothing extra.
+				...relayTicketArg(request.toolApproval?.args?.relay)
 			);
 			permissionsKey += 1;
 			if (reply?.alreadyResolved) return { ok: true, note: m["code.view.already_answered"]() };

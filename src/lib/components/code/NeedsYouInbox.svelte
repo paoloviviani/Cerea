@@ -401,17 +401,21 @@
 					item.request.id,
 					decision,
 					item.sessionId,
-					ticket
+					...(ticket ? [ticket] : [])
 				);
 			} else {
-				await respondPermission(
-					item.deviceId,
-					item.sessionId,
-					item.request.id,
-					decision,
-					undefined,
-					ticket
-				);
+				if (ticket) {
+					await respondPermission(
+						item.deviceId,
+						item.sessionId,
+						item.request.id,
+						decision,
+						undefined,
+						ticket
+					);
+				} else {
+					await respondPermission(item.deviceId, item.sessionId, item.request.id, decision);
+				}
 			}
 			dismiss(item.key);
 			return { ok: true };
