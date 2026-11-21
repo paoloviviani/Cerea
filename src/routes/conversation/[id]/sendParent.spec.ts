@@ -25,6 +25,12 @@ vi.mock("$lib/server/visibleModels", () => ({
 	modelsFor: async () => [],
 }));
 
+const uploadFile = vi.hoisted(() => vi.fn(async () => ({ name: "n", type: "hash", value: "h" })));
+vi.mock("$lib/server/files/uploadFile", async (orig) => ({
+	...(await orig<object>()),
+	uploadFile,
+}));
+
 import { collections, ready } from "$lib/server/database";
 import { cleanupTestData } from "$lib/server/api/__tests__/testHelpers";
 import { PARENT_NOT_FOUND_MESSAGE } from "$lib/utils/sendRefusals";
@@ -58,9 +64,10 @@ async function chat(sessionId: string) {
 	return _id.toString();
 }
 
-const send = (id: string, sessionId: string, data: Record<string, unknown>) => {
+const send = (id: string, sessionId: string, data: Record<string, unknown>, files: File[] = []) => {
 	const form = new FormData();
 	form.append("data", JSON.stringify(data));
+	for (const file of files) form.append("files", file);
 	return POST({
 		locals: { sessionId },
 		params: { id },
@@ -84,5 +91,27 @@ describe("sending under a parent the server does not hold", () => {
 	it("answers 400, not 500, when a non-first send names no parent", async () => {
 		const id = await chat("s2");
 		await expect(send(id, "s2", { inputs: "next" })).rejects.toMatchObject({ status: 400 });
+	});
+
+	it("answers 409 for a retry or edit of a message the server does not hold", async () => {
+		const id = await chat("s3");
+		const unknown = "44444444-4444-4444-8444-444444444444";
+		await expect(send(id, "s3", { id: unknown, is_retry: true })).rejects.toMatchObject({
+			status: 409,
+		});
+		await expect(
+			send(id, "s3", { id: unknown, is_retry: true, inputs: "edited" })
+		).rejects.toMatchObject({ status: 409 });
+	});
+
+	it("refuses before uploading, transcribing or counting anything", async () => {
+		const id = await chat("s4");
+		uploadFile.mockClear();
+		const file = new File([Buffer.from("hello")], "base64;a.txt", { type: "text/plain" });
+		await expect(
+			send(id, "s4", { inputs: "next", id: "55555555-5555-4555-8555-555555555555" }, [file])
+		).rejects.toMatchObject({ status: 409 });
+		expect(uploadFile).not.toHaveBeenCalled();
+		expect(await collections.messageEvents.countDocuments({})).toBe(0);
 	});
 });
