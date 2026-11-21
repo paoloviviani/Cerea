@@ -247,6 +247,8 @@ func (mc *machine) Handle(ctx context.Context, op string, args json.RawMessage) 
 		return mc.opFilesZip(op, args)
 	case "terminal.list", "terminal.open", "terminal.attach", "terminal.detach", "terminal.resize", "terminal.rename", "terminal.close":
 		return mc.opTerminal(ctx, op, args)
+	case "coord.list", "coord.read", "coord.send", "coord.spawn":
+		return mc.opCoord(ctx, op, args)
 	case "workspace.list":
 		return mc.opWorkspaceList()
 	case "workspace.suggest":

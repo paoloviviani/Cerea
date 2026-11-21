@@ -206,6 +206,7 @@ func callOps(t *testing.T) map[string]bool {
 		"agenttools_schedule.go":   {"cereaCall", "schedule."},
 		"agenttools_connectors.go": {"connectorCerea", "connector."},
 		"browser_key.go":           {"browserCall", ""},
+		"agenttools_relay.go":      {"coordCall", "coord."},
 	} {
 		ast.Inspect(fxParseGo(t, file), func(n ast.Node) bool {
 			c, ok := n.(*ast.CallExpr)
@@ -686,8 +687,14 @@ func resultTarget(op string) any {
 		return &struct {
 			AuthorizationURL string `json:"authorizationUrl"`
 		}{}
-	case "mcp.close", "mcp.loginComplete":
+	case "mcp.close", "mcp.loginComplete", "coord.send":
 		return &fxEmptyResult{}
+	case "coord.list":
+		return &coordListResult{}
+	case "coord.read":
+		return &coordReadResult{}
+	case "coord.spawn":
+		return &coordSpawnResult{}
 	case "workspace.archive", "session.prompt", "session.command", "session.cancel", "session.archive",
 		"session.delete", "session.setPermissionMode", "permission.saved.remove", "question.reply",
 		"session.compact", "session.revert", "session.unrevert", "terminal.detach", "terminal.close":

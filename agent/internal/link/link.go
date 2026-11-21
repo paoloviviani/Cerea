@@ -106,6 +106,9 @@ type PolicyInfo struct {
 	// "Agent tools"): "allowed" (default) or "denied". Older machines omit
 	// it: decide from the backend's agentTools capability alone.
 	AgentTools string `json:"agentTools,omitempty"`
+	// RelayedCoordination is the target-side veto of relayed coordination
+	// (PROTOCOL.md §4, ADR 0121): "allowed" (also when absent) or "denied".
+	RelayedCoordination string `json:"relayedCoordination,omitempty"`
 	// ProjectConfig is whether opencode loads a workspace's own config
 	// (PROTOCOL.md §4): "allowed" or "denied" (default). Older machines
 	// omit it, and they load it.

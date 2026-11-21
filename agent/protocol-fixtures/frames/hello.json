@@ -1,6 +1,6 @@
 {
 	"_meta": {
-		"spec": "§5 (hello), §4 (Policy), §9 (Machine), §10.2 (mode, mcp)",
+		"spec": "§5 (hello), §4 (Policy), §9 (Machine), §10.2 (mode, mcp), §6 coord (relayedCoordination)",
 		"direction": "M→C",
 		"note": "every field current galopin sends"
 	},
@@ -51,7 +51,8 @@
 				"folderDownload": true,
 				"terminal": true,
 				"delegateProfiles": true,
-				"mcp": true
+				"mcp": true,
+				"relayedCoordination": true
 			},
 			"mode": "agent"
 		},
@@ -71,6 +72,7 @@
 			"maxTerminals": 8,
 			"commandShell": "allowed",
 			"agentTools": "allowed",
+			"relayedCoordination": "allowed",
 			"projectConfig": "denied",
 			"backgroundSubagents": "allowed",
 			"warnings": ["opencode global config pins a model outside Pystino"]

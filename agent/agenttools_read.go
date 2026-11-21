@@ -79,6 +79,9 @@ func (at *agentTools) read(ctx context.Context, tc *toolCaller, call backend.Too
 	if targetID == "" {
 		return "", "", refuse("target is required (a session id from session_list)")
 	}
+	if computerID, sessionID, remote := parseRemoteTarget(targetID); remote {
+		return at.relayRead(ctx, tc, call, computerID, sessionID, last)
+	}
 	if last == 0 {
 		last = readDefaultLast
 	}

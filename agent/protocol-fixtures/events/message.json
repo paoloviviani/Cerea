@@ -30,7 +30,9 @@
 				"sentBy": {
 					"sessionId": "ses_09",
 					"title": "Planner",
-					"hop": 1
+					"hop": 1,
+					"computerId": "65f1a2b3c4d5e6f708192a3c",
+					"computer": "Laptop"
 				}
 			}
 		}

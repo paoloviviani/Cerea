@@ -1,0 +1,18 @@
+{
+	"_meta": {
+		"spec": "§5 Machine calls",
+		"direction": "C→M",
+		"op": "coord.spawn"
+	},
+	"frame": {
+		"type": "callres",
+		"id": "c1",
+		"ok": true,
+		"result": {
+			"sessionId": "ses_78",
+			"title": "[from Desk] Changelog",
+			"workspace": "site",
+			"computer": "Laptop"
+		}
+	}
+}

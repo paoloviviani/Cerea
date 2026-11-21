@@ -151,6 +151,24 @@ func (a *auditLogger) agentTool(tool, from, to, decision, reason string) {
 	a.write(entry)
 }
 
+// coordRecv records one relayed-coordination request this machine answered
+// (ADR 0121): the op, Cerea's relayId (it joins the two machines' lines and
+// Cerea's audit rows), the sending computer's id, the session it reached and the
+// outcome. Never a text, a prompt, a title or what was read. Nil-safe.
+func (a *auditLogger) coordRecv(op, relayID, fromComputer, session, outcome string) {
+	entry := map[string]any{"action": "coord.recv", "op": op, "outcome": outcome}
+	if relayID != "" {
+		entry["relayId"] = relayID
+	}
+	if fromComputer != "" {
+		entry["fromComputer"] = fromComputer
+	}
+	if session != "" {
+		entry["session"] = session
+	}
+	a.write(entry)
+}
+
 // agentToolSchedule is agentTool for a schedule tool: the subject is a
 // schedule (its id, or the name of one being created), never its prompt.
 func (a *auditLogger) agentToolSchedule(tool, from, schedule, decision, reason string) {

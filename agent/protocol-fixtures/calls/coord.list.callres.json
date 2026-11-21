@@ -1,0 +1,44 @@
+{
+	"_meta": {
+		"spec": "§5 Machine calls",
+		"direction": "C→M",
+		"op": "coord.list"
+	},
+	"frame": {
+		"type": "callres",
+		"id": "c1",
+		"ok": true,
+		"result": {
+			"computers": [
+				{
+					"id": "65f1a2b3c4d5e6f708192a3c",
+					"name": "Laptop",
+					"online": true,
+					"relay": true,
+					"self": false,
+					"workspaces": [
+						{
+							"id": "ws_01",
+							"name": "site"
+						}
+					]
+				}
+			],
+			"sessions": [
+				{
+					"computerId": "65f1a2b3c4d5e6f708192a3c",
+					"computer": "Laptop",
+					"sessionId": "ses_77",
+					"title": "Docs",
+					"workspaceId": "ws_01",
+					"workspace": "site",
+					"mode": "build",
+					"permissionMode": "ask",
+					"status": "idle",
+					"lastActivity": "2026-11-20T09:00:00Z"
+				}
+			],
+			"note": "Garage did not answer in time, so its sessions are not listed."
+		}
+	}
+}
