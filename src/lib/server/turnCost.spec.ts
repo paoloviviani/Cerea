@@ -19,8 +19,8 @@ const { turnGatewayCost, turnTag, turnTagHeader } = await import("./turnCost");
 const ID = "11111111-1111-4111-8111-111111111111";
 const CONV = "aaaaaaaaaaaaaaaaaaaaaaaa";
 const OTHER = "bbbbbbbbbbbbbbbbbbbbbbbb";
-const NEW = { conversationId: CONV, messageCreatedAt: new Date("2026-12-01") };
-const OLD = { conversationId: CONV, messageCreatedAt: new Date("2026-11-01") };
+const NEW = { conversationId: CONV, scopedTag: true };
+const OLD = { conversationId: CONV };
 const row = (cost: unknown, extra: Record<string, unknown> = {}) => ({
 	tag: turnTag(CONV, ID),
 	requests: 2,
@@ -126,14 +126,14 @@ describe("tags are unique to the conversation (C156)", () => {
 		const mine = await turnGatewayCost("tok", ID, { ...NEW, sleep: noSleep });
 		const theirs = await turnGatewayCost("tok", ID, {
 			conversationId: OTHER,
-			messageCreatedAt: new Date("2026-12-01"),
+			scopedTag: true,
 			sleep: noSleep,
 		});
 		expect(mine).toMatchObject({ cost: "1.00" });
 		expect(theirs).toMatchObject({ cost: "9.00" });
 	});
 
-	it("a turn from before the scoped tag still shows its cost under the legacy tag", async () => {
+	it("an unflagged (legacy) turn still shows its cost under the legacy tag", async () => {
 		getMock.mockImplementation(async (...args: string[]) => {
 			const path = args[1];
 			const tag = decodeURIComponent(path.split("tag=")[1]);
@@ -147,7 +147,7 @@ describe("tags are unique to the conversation (C156)", () => {
 		});
 	});
 
-	it("never reads the legacy tag for a newer message, whose id the client may have chosen", async () => {
+	it("never reads the legacy tag for a flagged message, even with no usage under the new tag", async () => {
 		getMock.mockImplementation(async (...args: string[]) => {
 			const path = args[1];
 			const tag = decodeURIComponent(path.split("tag=")[1]);

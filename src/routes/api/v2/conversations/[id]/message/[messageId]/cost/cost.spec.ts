@@ -37,7 +37,7 @@ beforeEach(() => {
 });
 afterEach(cleanupTestData);
 
-async function setup(stats?: Record<string, unknown>) {
+async function setup(stats?: Record<string, unknown>, flagged = false) {
 	const owner = await createTestUser();
 	const chat = await createTestConversation(owner.locals, {
 		messages: [
@@ -48,6 +48,7 @@ async function setup(stats?: Record<string, unknown>) {
 				content: "yo",
 				ancestors: [USER_MSG],
 				...(stats ? { stats } : {}),
+				...(flagged ? { turnTagVersion: 2 } : {}),
 			},
 		] as never,
 	});
@@ -95,6 +96,24 @@ describe("GET .../message/:messageId/cost", () => {
 			costCurrency: "EUR",
 			costSource: "gateway",
 		});
+	});
+
+	it("tells the cost read whether the message carries the scoped tag", async () => {
+		turnGatewayCost.mockResolvedValue({ status: "pending" });
+		const legacy = await setup();
+		await ask(legacy.chat, { ...legacy.owner.locals, token: "tok" });
+		expect(turnGatewayCost).toHaveBeenLastCalledWith(
+			"tok",
+			ASSISTANT,
+			expect.objectContaining({ scopedTag: false })
+		);
+		const flagged = await setup(undefined, true);
+		await ask(flagged.chat, { ...flagged.owner.locals, token: "tok" });
+		expect(turnGatewayCost).toHaveBeenLastCalledWith(
+			"tok",
+			ASSISTANT,
+			expect.objectContaining({ scopedTag: true })
+		);
 	});
 
 	it("uses the deployment's key when personal tokens are off", async () => {

@@ -147,6 +147,21 @@ describe("ids the tab proposes for the messages a send creates (C156)", () => {
 		expect(messages.find((message) => message.id === NA)?.ancestors).toEqual([U, A, NU]);
 	});
 
+	it("flags every assistant message it creates with the scoped turn tag, retry and edit too", async () => {
+		const id = await chat("p9");
+		await settle(
+			await send(id, "p9", { inputs: "next", id: A, userMessageId: NU, assistantMessageId: NA })
+		);
+		await settle(await send(id, "p9", { id: NA, is_retry: true }));
+		await settle(await send(id, "p9", { inputs: "edited", id: NU, is_retry: true }));
+		const created = (await stored(id)).filter((message) => ![U, A].includes(message.id));
+		const assistants = created.filter((message) => message.from === "assistant");
+		expect(assistants).toHaveLength(3);
+		expect(assistants.every((message) => message.turnTagVersion === 2)).toBe(true);
+		// The answer that was already stored stays as it was: no flag, so it may read the legacy tag.
+		expect((await stored(id)).find((message) => message.id === A)?.turnTagVersion).toBeUndefined();
+	});
+
 	it("mints its own ids when none are proposed", async () => {
 		const id = await chat("p2");
 		await settle(await send(id, "p2", { inputs: "next", id: A }));

@@ -44,7 +44,7 @@ export const GET: RequestHandler = async ({ locals, params }) => {
 
 	const result = await turnGatewayCost(token, messageId, {
 		conversationId: conversation._id.toString(),
-		messageCreatedAt: message.createdAt,
+		scopedTag: message.turnTagVersion === 2,
 	});
 	if (result.status === "unavailable")
 		return superjsonResponse(provisional ?? { available: false });

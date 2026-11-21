@@ -457,6 +457,7 @@ export async function POST({ request, locals, params, getClientAddress }) {
 				{
 					from: "assistant",
 					content: "",
+					turnTagVersion: 2,
 					createdAt: new Date(),
 					updatedAt: new Date(),
 				},
@@ -469,7 +470,13 @@ export async function POST({ request, locals, params, getClientAddress }) {
 			// just add a sibling to the assistant answer where we can write to
 			messageToWriteToId = addSibling(
 				conv,
-				{ from: "assistant", content: "", createdAt: new Date(), updatedAt: new Date() },
+				{
+					from: "assistant",
+					content: "",
+					turnTagVersion: 2,
+					createdAt: new Date(),
+					updatedAt: new Date(),
+				},
 				messageId,
 				proposedAssistantId
 			);
@@ -498,6 +505,7 @@ export async function POST({ request, locals, params, getClientAddress }) {
 			{
 				from: "assistant",
 				content: "",
+				turnTagVersion: 2,
 				createdAt: new Date(),
 				updatedAt: new Date(),
 			},
@@ -1012,7 +1020,7 @@ export async function POST({ request, locals, params, getClientAddress }) {
 			settleTurnCost({
 				conversationId: convId,
 				messageId: messageToWriteTo.id,
-				messageCreatedAt: messageToWriteTo.createdAt,
+				scopedTag: messageToWriteTo.turnTagVersion === 2,
 				token: turnGatewayToken(locals),
 			});
 			clearInterval(abortMarkerWatcher);

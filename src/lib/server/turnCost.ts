@@ -31,13 +31,6 @@ export const turnTag = (conversationId: string, messageId: string): string =>
 /** The tag turns carried before ids were client-chosen (C156): the message id alone. */
 export const legacyTurnTag = (messageId: string): string => `turn:${messageId}`;
 
-/**
- * Messages created before this moment carry only the legacy tag. Their ids were minted by
- * the server, so the legacy tag is unique to them; after it, an id may be the client's and
- * the legacy tag is never read.
- */
-export const SCOPED_TURN_TAG_SINCE = new Date("2026-11-22T00:00:00Z");
-
 /** The header to stamp on a gateway call of this turn; nothing when the turn has no ids. */
 export function turnTagHeader(
 	messageId: string | undefined,
@@ -92,19 +85,20 @@ export async function turnGatewayCost(
 	options: {
 		/** The conversation the message is in: part of the tag. */
 		conversationId: { toString(): string } | string;
-		/** When the message was created; one from before the scoped tag may carry the legacy tag. */
-		messageCreatedAt?: Date;
+		/**
+		 * The message has `turnTagVersion: 2`, so it was tagged the scoped way only. One
+		 * without it was made by older code, with a server-minted id, and may carry the
+		 * legacy tag. No dates: the flag is stored on the message when it is created.
+		 */
+		scopedTag?: boolean;
 		retryDelayMs?: number;
 		sleep?: (ms: number) => Promise<void>;
 	}
 ): Promise<TurnCostResult> {
 	const { retryDelayMs = 2000, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = options;
 	const tag = turnTag(options.conversationId.toString(), messageId);
-	// Only a message that predates the scoped tag can have been tagged the old way.
-	const legacy =
-		options.messageCreatedAt && options.messageCreatedAt < SCOPED_TURN_TAG_SINCE
-			? legacyTurnTag(messageId)
-			: undefined;
+	// Only a message made before the scoped tag can have been tagged the old way.
+	const legacy = options.scopedTag ? undefined : legacyTurnTag(messageId);
 	try {
 		const first = await readOnce(token, tag);
 		if (first.status !== "pending") return first;
