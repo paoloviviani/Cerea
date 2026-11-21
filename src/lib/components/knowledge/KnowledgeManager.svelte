@@ -88,8 +88,10 @@
 		stores.reduce((total, store) => total + store.file_counts.in_progress, 0)
 	);
 
+	// The list's own failure belongs to the list view: with a base opened beside it (a deep link) a
+	// list that could not load must not put its banner above a detail that did.
 	async function load() {
-		failure = null;
+		if (view === "list") failure = null;
 		try {
 			const [listed, state] = await Promise.all([
 				gwGet<{ data: VectorStore[] }>("vector_stores"),
@@ -98,7 +100,8 @@
 			allStores = listed.data;
 			status = state;
 		} catch (err) {
-			failure = err instanceof GatewayError ? err.message : m["knowledge.manager.unreachable"]();
+			if (view === "list")
+				failure = err instanceof GatewayError ? err.message : m["knowledge.manager.unreachable"]();
 		} finally {
 			loading = false;
 		}

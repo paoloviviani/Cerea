@@ -352,11 +352,84 @@ for (const vp of VIEWPORTS) {
 		}) => {
 			await installUserSession(db, session.sessionId);
 			await watchSkeletons(page, "application");
-			await delay(page, /\/api\/v2\/user\/document-reader$/, 40);
+			// Every request the pane waits on answers at once, so the rule is the only variable.
+			await page.route(/\/api\/v2\/user\/schedule-grant$/, (route) =>
+				route.fulfill({
+					contentType: "application/json",
+					body: JSON.stringify({ required: false }),
+				})
+			);
+			await page.route(/\/api\/v2\/debug\/config$/, (route) => route.continue());
+			await delay(page, /\/api\/v2\/user\/document-reader$/, 0);
 			await page.goto(`${E2E_APP_BASE}/settings/application`);
 			await expect(page.getByTestId("document-reader-setting")).toBeVisible();
 			await page.waitForTimeout(600);
 			expect(await skeletonsSeen(page)).toBe(0);
+		});
+
+		test("application pane: a hung request does not hide the settings", async ({
+			page,
+			db,
+			session,
+		}) => {
+			await installUserSession(db, session.sessionId);
+			await page.route(/\/api\/v2\/user\/document-reader$/, () => new Promise(() => {}));
+			await page.goto(`${E2E_APP_BASE}/settings/application`, { waitUntil: "domcontentloaded" });
+			// Past the cap the pane shows, theme and language controls included.
+			await expect(page.getByTestId("about-server")).toBeVisible({ timeout: 10_000 });
+			await expect(page.getByText("Theme", { exact: true }).first()).toBeVisible();
+			await expect(page.locator("[data-region=application]")).toHaveCount(0);
+			await expect(page.getByTestId("document-reader-setting")).toHaveCount(0);
+		});
+
+		test("application pane: the skeleton and the settings are never on screen together", async ({
+			page,
+			db,
+			session,
+		}) => {
+			await installUserSession(db, session.sessionId);
+			await page.addInitScript(() => {
+				const w = window as unknown as { __both: number };
+				w.__both = 0;
+				const tick = () => {
+					const about = document.querySelector("[data-testid=about-server]");
+					if (document.querySelector("[data-region=application]") && about?.getClientRects().length)
+						w.__both++;
+					requestAnimationFrame(tick);
+				};
+				requestAnimationFrame(tick);
+			});
+			// The slowest request answers at about 250 ms: the skeleton shows (after 150 ms) and is held.
+			await delay(page, /\/api\/v2\/user\/document-reader$/, 250);
+			await page.goto(`${E2E_APP_BASE}/settings/application`);
+			await expect(page.getByTestId("document-reader-setting")).toBeVisible();
+			await expect(page.locator("[data-region=application]")).toHaveCount(0);
+			expect(await page.evaluate(() => (window as unknown as { __both: number }).__both)).toBe(0);
+		});
+
+		test("knowledge detail: a list that fails does not put its banner above the base", async ({
+			page,
+			db,
+			session,
+		}) => {
+			const userId = await installUserSession(db, session.sessionId);
+			const now = new Date();
+			const { insertedId: baseId } = await db.collection("vectorStores").insertOne({
+				name: "Handbook",
+				ownerId: userId,
+				embeddingModel: "test-embedding",
+				dimensions: null,
+				chunkChars: 1200,
+				chunkOverlap: 150,
+				shares: [],
+				createdAt: now,
+				updatedAt: now,
+			});
+			await page.route(/\/api\/v2\/gateway\/vector_stores$/, (route) => route.abort());
+			await page.goto(`${E2E_APP_BASE}/knowledge/${baseId}`);
+			await expect(page.getByText("Nothing in it yet")).toBeVisible();
+			await page.waitForTimeout(500);
+			await expect(page.getByText("Could not reach the service")).toHaveCount(0);
 		});
 
 		test("usage: the billing group never arrives a beat after the usage rows", async ({

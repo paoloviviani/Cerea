@@ -162,11 +162,21 @@
 	// background-access section, the gateway URL under "About"). The pane reveals once, when all
 	// have answered: until then a skeleton stands in and the settings stay hidden, so none of them
 	// pops in later and moves what is below it.
+	// A request that hangs must not hide the theme and language controls with it: after this long
+	// the pane shows anyway, and a row that is still on its way fills in when it arrives.
+	const PANE_REVEAL_CAP_MS = 3000;
+	let capReached = $state(false);
+	onMount(() => {
+		const timer = setTimeout(() => (capReached = true), PANE_REVEAL_CAP_MS);
+		return () => clearTimeout(timer);
+	});
 	let configSettled = $state(false);
 	let readerSettled = $state(false);
 	let accessSettled = $state(!(page.data.user && page.data.chatSchedulesEnabled === true));
-	const paneLoading = $derived(!(configSettled && readerSettled && accessSettled));
+	const paneLoading = $derived(!capReached && !(configSettled && readerSettled && accessSettled));
 	const sk = delayedLoading(() => paneLoading);
+	// Hidden while loading and while a shown skeleton is still held: never both on screen.
+	const paneHidden = $derived(paneLoading || sk.visible);
 
 	onMount(async () => {
 		// Fetch debug config
@@ -232,7 +242,7 @@
 	// Once the pane has revealed: the anchor is inside content that is hidden until then.
 	let anchored = false;
 	$effect(() => {
-		if (paneLoading || anchored) return;
+		if (paneHidden || anchored) return;
 		anchored = true;
 		const id = location.hash.slice(1);
 		if (id) void tick().then(() => scrollToAnchor(id));
@@ -269,7 +279,7 @@
 			<SkeletonFormRow count={8} />
 		</SkeletonBusy>
 	{/if}
-	<div class="flex h-full flex-col gap-4 max-sm:pt-0" class:hidden={paneLoading}>
+	<div class="flex h-full flex-col gap-4 max-sm:pt-0" class:hidden={paneHidden}>
 		<section
 			aria-labelledby="appearance-heading"
 			class="rounded-xl border border-gray-200 bg-white px-3 shadow-xs dark:border-gray-700 dark:bg-gray-800"
