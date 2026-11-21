@@ -58,6 +58,7 @@ import { armTurnCap, classifyTurnAbort, untilCapped } from "$lib/server/generati
 import { clampStoppedContent } from "$lib/server/stopTruncation";
 import { MetricsServer } from "$lib/server/metrics";
 import { randomUUID } from "$lib/utils/randomUuid";
+import { PARENT_NOT_FOUND_MESSAGE } from "$lib/utils/sendRefusals";
 import { applyConversationSettings, saveGeneratedTitle } from "$lib/server/conversationSettings";
 import { userDocumentReader } from "$lib/server/files/userReader";
 
@@ -114,6 +115,74 @@ export async function POST({ request, locals, params, getClientAddress }) {
 
 	if (!conv) {
 		error(404, "Conversation not found");
+	}
+
+	// finally parse the content of the request
+	const form = await request.formData();
+
+	const json = form.get("data");
+
+	if (!json || typeof json !== "string") {
+		error(400, "Invalid request");
+	}
+
+	const {
+		inputs: newPrompt,
+		id: messageId,
+		is_retry: isRetry,
+		resumeElicitationId,
+		generationId,
+		timezone,
+		location,
+	} = z
+		.object({
+			id: z.string().uuid().refine(isMessageId).optional(), // parent message id to append to for a normal message, or the message id for a retry/continue
+			// client-chosen id for this generation run, echoed back by the stop
+			// request so a stop point can be matched to the run it belongs to
+			generationId: z.string().uuid().optional(),
+			inputs: z.optional(
+				z
+					.string()
+					.min(1)
+					.transform((s) => s.replace(/\r\n/g, "\n"))
+			),
+			is_retry: z.optional(z.boolean()),
+			/** Continue the tool call a durable elicitation parked, before generating. */
+			resumeElicitationId: z.optional(z.string().uuid()),
+			timezone: z.optional(z.string()),
+			/** Device coordinates, rounded; ignored unless the person's setting is "device". */
+			location: deviceLocationSchema,
+			files: z.optional(
+				z.array(
+					z.object({
+						type: z.literal("base64").or(z.literal("hash")),
+						name: z.string(),
+						value: z.string(),
+						mime: z.string(),
+					})
+				)
+			),
+		})
+		.parse(JSON.parse(json));
+
+	// The message this send names must be in THIS conversation's stored tree. A tab that sends
+	// in the instant after a turn ends can still hold the ids it minted itself for the
+	// optimistic messages (it swaps them for the server's on its post-turn refresh), and
+	// addChildren would take such an id on trust: the failure then surfaced as a plain Error
+	// out of buildSubtree, a 500 with the generic toast. A refusal the client can act on
+	// instead: 409, and it re-syncs and sends again. Decided here, before anything is
+	// metered, stored or counted (uploads, transcription, the rate-limit row), because the
+	// client sends the same request again.
+	if (!resumeElicitationId && conv.messages.length > 0) {
+		if (!messageId) {
+			if (!isRetry) error(400, "Missing the message this one replies to.");
+		} else if (!conv.messages.some((message) => message.id === messageId)) {
+			logger.warn(
+				{ conversationId: id, targetId: messageId, isRetry: Boolean(isRetry) },
+				"[send] named message not in the stored conversation; asking the client to resync"
+			);
+			error(409, PARENT_NOT_FOUND_MESSAGE);
+		}
 	}
 
 	// A new generation invalidates any stale stop marker for this conversation.
@@ -186,54 +255,6 @@ export async function POST({ request, locals, params, getClientAddress }) {
 	if (!model) {
 		error(410, "Model not available anymore");
 	}
-
-	// finally parse the content of the request
-	const form = await request.formData();
-
-	const json = form.get("data");
-
-	if (!json || typeof json !== "string") {
-		error(400, "Invalid request");
-	}
-
-	const {
-		inputs: newPrompt,
-		id: messageId,
-		is_retry: isRetry,
-		resumeElicitationId,
-		generationId,
-		timezone,
-		location,
-	} = z
-		.object({
-			id: z.string().uuid().refine(isMessageId).optional(), // parent message id to append to for a normal message, or the message id for a retry/continue
-			// client-chosen id for this generation run, echoed back by the stop
-			// request so a stop point can be matched to the run it belongs to
-			generationId: z.string().uuid().optional(),
-			inputs: z.optional(
-				z
-					.string()
-					.min(1)
-					.transform((s) => s.replace(/\r\n/g, "\n"))
-			),
-			is_retry: z.optional(z.boolean()),
-			/** Continue the tool call a durable elicitation parked, before generating. */
-			resumeElicitationId: z.optional(z.string().uuid()),
-			timezone: z.optional(z.string()),
-			/** Device coordinates, rounded; ignored unless the person's setting is "device". */
-			location: deviceLocationSchema,
-			files: z.optional(
-				z.array(
-					z.object({
-						type: z.literal("base64").or(z.literal("hash")),
-						name: z.string(),
-						value: z.string(),
-						mime: z.string(),
-					})
-				)
-			),
-		})
-		.parse(JSON.parse(json));
 
 	// The connectors this turn may use, decided here from the deployment's policies, this
 	// person's own switches and what this conversation has loaded (ADR 0104). The browser no

@@ -3,7 +3,7 @@
 	import ChatWindow from "$lib/components/chat/ChatWindow.svelte";
 	import { consumePendingFiles } from "$lib/utils/pendingFiles";
 	import { isAborted } from "$lib/stores/isAborted";
-	import { onMount, untrack } from "svelte";
+	import { onMount, tick, untrack } from "svelte";
 	import { page } from "$app/state";
 	import {
 		clearDeviceLocation,
@@ -14,6 +14,7 @@
 	import { chatDraftKey, keepUnsentSendAsDraft, restoresSendText } from "$lib/utils/composerDraft";
 	import { UrlDependency } from "$lib/types/UrlDependency";
 	import { safeInvalidate } from "$lib/utils/safeInvalidate";
+	import { PARENT_NOT_FOUND_MESSAGE } from "$lib/utils/sendRefusals";
 	import { base } from "$app/paths";
 	import { ERROR_MESSAGES, error } from "$lib/stores/errors";
 	import { keepChat, markAbandonedFirstChat } from "$lib/stores/abandonedChat";
@@ -201,17 +202,78 @@
 		});
 	});
 
+	// The post-turn refresh that swaps the ids this tab minted for its optimistic messages
+	// with the server's. A send in that gap would name a parent the server does not know.
+	let postTurnSync: Promise<void> | undefined;
+	/** How long a send waits for that refresh; the server's 409 covers anything still stale. */
+	const POST_TURN_SYNC_WAIT_MS = 5000;
+	/** A send that is waiting for the refresh: a second Enter then must not send twice. */
+	let sendWaitingForSync = false;
+
+	async function waitForPostTurnSync() {
+		const sync = postTurnSync;
+		if (!sync) return;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		await Promise.race([
+			sync.catch(() => {}),
+			new Promise<void>((resolve) => {
+				timer = setTimeout(resolve, POST_TURN_SYNC_WAIT_MS);
+			}),
+		]);
+		clearTimeout(timer);
+	}
+
+	/**
+	 * The message a send names, in the ids the server holds. A click made before the refresh
+	 * captured an id this tab minted; the same position and role in the synced branch is the
+	 * same message. Without a match the id goes as it is and the server's 409 asks for a sync.
+	 */
+	function serverIdFor(
+		id: string | undefined,
+		before: { index: number; from: string } | undefined
+	): string | undefined {
+		if (!id || !before || messages.some((message) => message.id === id)) return id;
+		const candidate = createMessagesPath(messages)[before.index];
+		return candidate && candidate.from === before.from ? candidate.id : id;
+	}
+
 	async function writeMessage({
 		prompt,
-		messageId = messagesPath.at(-1)?.id ?? undefined,
+		messageId: explicitMessageId,
 		isRetry = false,
 		resumeElicitationId,
+		resentAfterSync = false,
+		staleAt,
 	}: {
 		prompt?: string;
 		messageId?: ReturnType<typeof v4>;
 		isRetry?: boolean;
 		resumeElicitationId?: string;
+		/** Set on the single automatic re-send after the server asked this tab to sync. */
+		resentAfterSync?: boolean;
+		/** Where the named message sat in the branch when it was clicked (see serverIdFor). */
+		staleAt?: { index: number; from: string };
 	}): Promise<void> {
+		// Wait for the refresh the last turn started, then take the parent from what it
+		// loaded: the send is the click's, only its parent id waits for the server's ids.
+		// A second send while this one waits is the same click twice.
+		const branch = messagesPath;
+		const at = explicitMessageId
+			? branch.findIndex((message) => message.id === explicitMessageId)
+			: -1;
+		const before = staleAt ?? (at >= 0 ? { index: at, from: branch[at].from } : undefined);
+		if (postTurnSync) {
+			if (sendWaitingForSync) return;
+			sendWaitingForSync = true;
+			try {
+				await waitForPostTurnSync();
+			} finally {
+				sendWaitingForSync = false;
+			}
+		}
+		explicitMessageId = serverIdFor(explicitMessageId, before);
+		const messageId = explicitMessageId ?? messagesPath.at(-1)?.id ?? undefined;
+		let resyncAndResend = false;
 		modelGoneMessage = null;
 		// Retrying in place makes this chat the user's again.
 		if (isRetry) keepChat(convId);
@@ -378,6 +440,18 @@
 			).catch((err) => {
 				// A user abort rejects the fetch; that is not an error worth a toast
 				if (!$isAborted && !(err instanceof DOMException && err.name === "AbortError")) {
+					// The server does not hold the parent this tab named: refresh below and
+					// send once more, quietly (a second refusal is shown like any other).
+					if (
+						err instanceof SendRefusedError &&
+						err.status === 409 &&
+						err.message === PARENT_NOT_FOUND_MESSAGE &&
+						!resentAfterSync &&
+						!resumeElicitationId
+					) {
+						resyncAndResend = true;
+						return;
+					}
 					error.set(err.message);
 					if (err instanceof SendRefusedError && err.status === 410) modelGoneMessage = err.message;
 					// The server never accepted this send (a rejected POST or a
@@ -462,42 +536,67 @@
 				sendFailedText = prompt ?? null;
 			console.error(err);
 		} finally {
+			// The refresh below starts only after the stop bookkeeping, but the composer is
+			// free from here: a send in between must wait for it too.
+			let syncDone: () => void = () => {};
+			const sync = new Promise<void>((resolve) => {
+				syncDone = resolve;
+			});
+			postTurnSync = sync;
 			writeMessageInFlight = false;
 			unconfirmedSend = null;
 			activeGenerationId = undefined;
 			$loading = false;
 			pending = false;
 			resuming = false;
-			// Wait for the stop request to complete before refreshing data,
-			// so the abort marker is durably written before we poll for the
-			// terminal state below.
-			if (stopRequestPromise) {
-				await stopRequestPromise.catch(() => {});
-				stopRequestPromise = undefined;
-			}
-			const stoppedHere = stopRequestedFor === convId;
-			// Only re-run the loads that actually need fresh data: the
-			// conversation page (new messages) and the sidebar list
-			// (updated title / updatedAt via client-owned store refresh).
-			// Avoids the 5 redundant bootstrap requests (models, settings, user,
-			// public-config, feature-flags) that a full invalidateAll() would trigger.
-			// When this finally runs because beforeNavigate aborted the stream
-			// ($isAborted set without a stop click), invalidating would cancel
-			// that very navigation (e.g. the "New Chat" click that triggered
-			// the abort) before the router even exposes it via `navigating`.
-			// Skip the refresh: the destination page loads its own data.
-			const abortedByNavigation = $isAborted && !stoppedHere;
-			if (!abortedByNavigation) {
-				// stop-generating returns as soon as the abort marker is written,
-				// NOT when the generating pod has persisted interrupted:true.
-				// Invalidating right away would load a non-terminal snapshot that
-				// wipes the optimistic interrupted flag and shows a stuck
-				// streaming state. Wait (bounded) for the persisted state to
-				// become terminal before refreshing.
-				if (stoppedHere) {
-					await waitForTerminalPersist(convId);
+			try {
+				// Wait for the stop request to complete before refreshing data,
+				// so the abort marker is durably written before we poll for the
+				// terminal state below.
+				if (stopRequestPromise) {
+					await stopRequestPromise.catch(() => {});
+					stopRequestPromise = undefined;
 				}
-				await Promise.all([safeInvalidate(UrlDependency.Conversation), convsStore.refresh()]);
+				const stoppedHere = stopRequestedFor === convId;
+				// Only re-run the loads that actually need fresh data: the
+				// conversation page (new messages) and the sidebar list
+				// (updated title / updatedAt via client-owned store refresh).
+				// Avoids the 5 redundant bootstrap requests (models, settings, user,
+				// public-config, feature-flags) that a full invalidateAll() would trigger.
+				// When this finally runs because beforeNavigate aborted the stream
+				// ($isAborted set without a stop click), invalidating would cancel
+				// that very navigation (e.g. the "New Chat" click that triggered
+				// the abort) before the router even exposes it via `navigating`.
+				// Skip the refresh: the destination page loads its own data.
+				const abortedByNavigation = $isAborted && !stoppedHere;
+				if (!abortedByNavigation) {
+					// stop-generating returns as soon as the abort marker is written,
+					// NOT when the generating pod has persisted interrupted:true.
+					// Invalidating right away would load a non-terminal snapshot that
+					// wipes the optimistic interrupted flag and shows a stuck
+					// streaming state. Wait (bounded) for the persisted state to
+					// become terminal before refreshing.
+					if (stoppedHere) {
+						await waitForTerminalPersist(convId);
+					}
+					await Promise.all([safeInvalidate(UrlDependency.Conversation), convsStore.refresh()]);
+					// Let the effect that copies the load data into `messages` run.
+					await tick();
+				}
+			} finally {
+				syncDone();
+				if (postTurnSync === sync) postTurnSync = undefined;
+			}
+			// The server asked this tab to sync: one more send, from the synced tree. In the
+			// finally because the early return above skips whatever follows it.
+			if (resyncAndResend) {
+				await writeMessage({
+					prompt,
+					messageId: explicitMessageId,
+					isRetry,
+					resentAfterSync: true,
+					staleAt: before,
+				});
 			}
 		}
 	}
