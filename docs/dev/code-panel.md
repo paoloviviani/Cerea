@@ -152,3 +152,31 @@ before?}` ahead of `historyDone`; without the capability (an older galopin,
   `ChatInput`, the approval card, the shared side pane. That is what makes
   live updates arrive by construction; a bespoke stack here would be a second
   thing to keep working.
+
+## Relayed coordination (ADR 0121)
+
+An agent on one of a user's computers lists, reads, messages and starts sessions on another of the same user,
+through Cerea. The wire contract is `agent/PROTOCOL.md` section 11; this is the map of the code and its traps.
+
+- **Where it lives.** galopin: `agent/agenttools_relay.go` (the caller: remote forms of the four tools, the card,
+  `coord.*` calls), `agent/relay_target.go` (the target: the `coord.*` requests, the peer envelope),
+  `decide.CoordinationFor(..., relayed)`. Cerea: `src/lib/server/code/machineCoord.ts` (the call handler, the
+  order of checks is the ADR's section 3), `code/relay/` (`tickets.ts`, `limits.ts`, `facts.ts`, `cards.ts`,
+  `views.ts`, `hash.ts`, `switch.ts`, `boot.ts`), the reply route, `ToolApprovalCard.svelte`.
+- **The ticket is the enforcement.** Cerea, not the asking galopin, proves the owner approved: the ticket is
+  written when the relay `permission.asked` arrives (`push/watch.ts` holds the ask, `relay/cards.ts` records
+  it), minted **only** in the HTTP `permission.reply` route (`approveTicket`, before forwarding; revoked when
+  forwarding fails) and consumed once by the call (`consumeTicket`, an atomic delete). Never mint in
+  `MachineLink.permissionReply`: the reviewer's and the rules' replies use it. A test that fails without each
+  guard is in `machineCoord.spec.ts` and `relayTickets.spec.ts`.
+- **The card is Cerea's record.** `withReviewNote` (the one place every card, inbox row and re-sent ask passes
+  through) replaces a relay ask's title and metadata with `relayRequest`'s; a relay ask with no record draws as
+  "cannot be approved from here". Do not render a relay ask from request metadata anywhere new.
+- **Names come from Cerea's own reads** (`relay/facts.ts`): device names from `codeDevices`, workspace and session
+  from each computer's own `session.get` and `workspace.list`; the call frame's `caller` and a card's metadata are
+  never used for a name or an owner.
+- **Counters live in Mongo** (`codeRelayEvents`, `codeRelayTickets`, `codeRelayLedger`), checked and written one
+  owner at a time in this process. The deployment is single-replica for this feature; `CHAT_REPLICAS` only words
+  the error and the start-up warning.
+- **Adding to the protocol** means the fixtures too (`agent/protocol-fixtures`, `calls/coord.*`, `ops/coord.*`),
+  `COORD_ARG_SCHEMAS` in `machineCoord.ts`, and the galopin side's `callOps` list in `protocol_fixtures_test.go`.
