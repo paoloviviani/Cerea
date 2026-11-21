@@ -7,6 +7,8 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- Internal: the chat page now proposes the ids of the messages a send creates and the server stores exactly those, so a message keeps one id from the moment it appears. Nothing changes for users; the brief wait before a send right after a reply stays as a safety net.
+
 ## v0.61.0 — 2026-11-21
 
 Pins: Cerea `0.61.0` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.6`, opencode `2.3.0`.

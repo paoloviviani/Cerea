@@ -202,8 +202,11 @@
 		});
 	});
 
-	// The post-turn refresh that swaps the ids this tab minted for its optimistic messages
-	// with the server's. A send in that gap would name a parent the server does not know.
+	// The post-turn refresh of the load data. Message ids are stable since C156 (the server
+	// stores the ids this tab proposes), so a send in that gap names a parent the server
+	// holds. The wait stays only because that refresh replaces `messages` wholesale: one
+	// landing while a new send streams would drop its in-flight messages. It also still
+	// covers a server older than this tab, which mints its own ids (then the 409 re-sync).
 	let postTurnSync: Promise<void> | undefined;
 	/** How long a send waits for that refresh; the server's 409 covers anything still stale. */
 	const POST_TURN_SYNC_WAIT_MS = 5000;
