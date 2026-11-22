@@ -7,7 +7,17 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
-- The proxy answers 404 for `/metrics` (and `/chat/metrics`), so the gateway's Prometheus endpoint is never reachable from the public origin; scrape it on the compose network or the loopback port.
+## v0.62.0 — 2026-11-22
+
+Pins: Cerea `0.62.0` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.34.0`, opencode `2.3.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. Nothing to do on computers.
+The gateway runs two migrations on start (`0089`, `0090`); on a large usage ledger the first briefly blocks new usage rows until it commits, so update in a quiet moment.
+
+- New (gateway): **quotas per provider or model.** A quota rule can be limited to one provider or one model ("OpenAI at most €500 a month", "each user at most €20 a month on Anthropic"). When it is reached the request is refused with a message naming the provider or model; it is never quietly sent to another provider. See Pystino's *Accounting and quotas*.
+- New (gateway): **`GET /metrics`** in Prometheus format, off by default. Set `GATEWAY_METRICS__ENABLED=true` and `GATEWAY_METRICS__TOKEN` (at least 16 characters, `openssl rand -hex 32`) in `.env`, then scrape `127.0.0.1:${GATEWAY_PORT}/metrics` with `Authorization: Bearer <token>`. The proxy answers 404 for `/metrics` (and `/chat/metrics`), so it is never reachable from the public origin.
+- Fixed (gateway): a routed alias with a model-level quota on a later target no longer fails when the first target is down.
+- Changed: in the code terminal, **Select text** and **Copy** no longer cover the output. On a computer they sit in a slim bar under the terminal, with a hint that Shift+drag (Option+drag on macOS) selects while a program uses the mouse; on a phone they are in the special-keys panel.
 
 ## v0.61.2 — 2026-11-21
 
