@@ -726,16 +726,9 @@
 		isRecording = false;
 		$error = message;
 	}
-
-	// Short screens (a phone with its keyboard up, landscape): once something is
-	// attached the centred composer drops to the bottom, so the strip never
-	// pushes the text box and send button below the fold.
-	let viewportHeight = $state(900);
-	const dockForFiles = $derived((files?.length ?? 0) > 0 && viewportHeight < 700);
 </script>
 
 <svelte:window
-	bind:innerHeight={viewportHeight}
 	ondragenter={drag.enter}
 	ondragleave={drag.leave}
 	ondragover={(e) => {
@@ -761,7 +754,7 @@
 		conversationKey={page.params?.id}
 		{onretry}
 		{onshowAlternateMsg}
-		centerComposerWhenEmpty={!dockForFiles}
+		centerIntroWhenEmpty
 		bind:this={column}
 	>
 		{#snippet overlay()}

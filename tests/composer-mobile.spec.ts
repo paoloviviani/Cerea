@@ -363,6 +363,19 @@ test.describe("chat composer at 390×844", () => {
 		const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
 		expect(scrollWidth).toBeLessThanOrEqual(390 + 1);
 
+		// New chat: the composer sits at the bottom of the page, the greeting
+		// centred above it, the logo above the greeting (never stranded to its left).
+		const form = page.getByPlaceholder("Ask anything");
+		const formBox = await box(form);
+		expect(formBox.y + formBox.height).toBeGreaterThan(844 * 0.75);
+		const titleBox = await box(page.getByTestId("intro-title"));
+		expect(titleBox.y + titleBox.height).toBeLessThan(formBox.y);
+		const logoBox = await box(
+			page.getByTestId("intro-title").locator("xpath=preceding-sibling::*[1]")
+		);
+		expect(logoBox.y + logoBox.height).toBeLessThanOrEqual(titleBox.y + 1);
+		expect(Math.abs(logoBox.x + logoBox.width / 2 - 195)).toBeLessThan(2);
+
 		await page.screenshot({ path: "test-results/mobile-composer-chat-390.png" });
 	});
 
@@ -435,6 +448,17 @@ test.describe("chat composer at 1280×800", () => {
 		await expect(shield).toHaveText("");
 		await expect(page.getByRole("button", { name: "Web search" })).toHaveCount(0);
 		await expect(page.getByRole("button", { name: "Asks first" })).toHaveCount(0);
+
+		// New chat on a desktop: composer at the bottom, logo beside the greeting.
+		const composerBox = await box(page.getByPlaceholder("Ask anything"));
+		expect(composerBox.y + composerBox.height).toBeGreaterThan(800 * 0.75);
+		const titleBox = await box(page.getByTestId("intro-title"));
+		const logoBox = await box(
+			page.getByTestId("intro-title").locator("xpath=preceding-sibling::*[1]")
+		);
+		expect(overlapsVertically(logoBox, titleBox)).toBe(true);
+		expect(logoBox.x + logoBox.width).toBeLessThanOrEqual(titleBox.x + 1);
+		expect(titleBox.y + titleBox.height).toBeLessThan(composerBox.y);
 
 		await page.screenshot({ path: "test-results/mobile-composer-chat-desktop.png" });
 	});
