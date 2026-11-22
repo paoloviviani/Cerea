@@ -7,6 +7,8 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- Fixed: links in replies that point nowhere (for example a note app's internal link) now show as plain text instead of a broken link.
+
 ## v0.62.0 — 2026-11-22
 
 Pins: Cerea `0.62.0` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.34.0`, opencode `2.3.0`.

@@ -41,6 +41,50 @@ export function escapeHTML(content: string) {
 }
 
 /**
+ * The one allowlist for where a markdown link or image may point. Returns the
+ * cleaned target, or undefined when it should not be a link at all.
+ *
+ * Links: absolute http(s) URLs with a host, mailto:, tel:, in-page #anchors and
+ * same-origin absolute paths (one leading `/`; `//host` and `/\\host` are
+ * protocol-relative and refused). Anything else (relative paths, `:/id` note
+ * links, joplin:, obsidian:, file:, javascript:, ...) would resolve to nothing
+ * useful against the page, so it is shown as plain text: no link is better than
+ * a broken link. Images additionally accept data:image/* and blob:.
+ */
+export function safeLinkTarget(
+	href: string | null | undefined,
+	kind: "link" | "image" = "link"
+): string | undefined {
+	if (!href) return undefined;
+	const target = href.trim().replace(/>$/, "");
+	if (!target) return undefined;
+	// Browsers drop tabs and newlines inside a URL, so "java\tscript:" is a scheme.
+	// eslint-disable-next-line no-control-regex
+	const probe = target.replace(/[\u0000-\u0020]/g, "");
+	if (probe.startsWith("#")) return kind === "link" && probe.length > 1 ? target : undefined;
+	if (probe.startsWith("/")) {
+		return /^\/[/\\]/.test(probe) ? undefined : target;
+	}
+	const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(probe)?.[1]?.toLowerCase();
+	if (!scheme) return undefined;
+	if (scheme === "http" || scheme === "https") {
+		try {
+			return new URL(probe).hostname ? target : undefined;
+		} catch {
+			return undefined;
+		}
+	}
+	if (kind === "link") return scheme === "mailto" || scheme === "tel" ? target : undefined;
+	if (scheme === "blob") return target;
+	if (scheme === "data") {
+		return /^data:image\/(png|jpe?g|gif|webp|avif|bmp|svg\+xml)[;,]/i.test(probe)
+			? target
+			: undefined;
+	}
+	return undefined;
+}
+
+/**
  * Cheap, allocation-light blocks used for SSR and the initial client render.
  *
  * Rich markdown rendering (marked + highlight.js + KaTeX + DOMPurify/jsdom) is

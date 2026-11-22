@@ -411,3 +411,89 @@ describe("【…】 citations", () => {
 		expect(JSON.stringify(tokens)).not.toContain("data-citation-chip");
 	});
 });
+
+describe("link and image target allowlist", () => {
+	const textOnly = (md: string, text: string) => {
+		const html = renderHtml(md);
+		expect(html).not.toContain("<a ");
+		expect(html).not.toContain("href=");
+		expect(html).toContain(`<span>${text}</span>`);
+	};
+
+	test("a Joplin internal note link is plain text", () => {
+		textOnly("[Note title](:/27cb5b19f9724a72a1dd7a0efbeda28b)", "Note title");
+	});
+
+	test.each([
+		"notes/x.md",
+		"./x",
+		"../x",
+		"x.html",
+		"//evil.example/x",
+		"/\\evil.example/x",
+		"joplin://x-callback-url/openNote?id=1",
+		"obsidian://open?vault=a",
+		"file:///etc/passwd",
+		"vbscript:msgbox(1)",
+		"javascript:alert(1)",
+		"java%0Ascript:alert(1)",
+		"data:text/html,<b>x</b>",
+		"ftp://example.com/x",
+		"https://",
+	])("%s is plain text", (target) => {
+		const html = renderHtml(`[label](${target.replace(/ /g, "%20")})`);
+		expect(html).not.toContain("<a ");
+		expect(html).not.toContain("href=");
+		expect(html).toContain("label");
+	});
+
+	test.each([
+		["https://example.com/a?b=1", "https://example.com/a?b=1"],
+		["http://example.com", "http://example.com"],
+		["mailto:a@example.com", "mailto:a@example.com"],
+		["tel:+1234567", "tel:+1234567"],
+		["#section", "#section"],
+		["/chat/conversation/abc", "/chat/conversation/abc"],
+		["/api/files/x.png", "/api/files/x.png"],
+	])("%s is a link", (target, href) => {
+		expect(renderHtml(`[label](${target})`)).toContain(`<a href="${href}"`);
+	});
+
+	test("bare URLs still autolink", () => {
+		expect(renderHtml("see https://example.com/x now")).toContain(
+			'<a href="https://example.com/x"'
+		);
+	});
+
+	test("link text keeps its inline formatting, unescaped once", () => {
+		const html = renderHtml("[**bold** and `code` & more](:/abc)");
+		expect(html).toContain("<span><strong>bold</strong> and <code>code</code> &amp; more</span>");
+		expect(html).not.toContain("&lt;strong");
+	});
+
+	test("the incomplete-link placeholder and citation chips still work", () => {
+		expect(renderBlocksHtml("[the docs](https://exa", true)).toContain("data-incomplete-link");
+		expect(renderHtml("text 【https://example.com/page】")).toContain("data-citation-chip");
+		expect(renderHtml("text 【https://example.com/page】")).toContain(
+			'href="https://example.com/page"'
+		);
+	});
+
+	test("images: allowed sources render, others fall back to alt text", () => {
+		expect(renderHtml("![a](/api/files/x.png)")).toContain('<img src="/api/files/x.png"');
+		expect(renderHtml("![a](data:image/png;base64,AAAA)")).toContain("<img src=");
+		expect(renderHtml("![a](blob:https://x.example/uuid)")).toContain("<img src=");
+		for (const src of [
+			"x.png",
+			"./x.png",
+			":/abc",
+			"file:///x.png",
+			"data:text/html,x",
+			"//e.example/x.png",
+		]) {
+			const html = renderHtml(`![the alt](${src})`);
+			expect(html).not.toContain("<img");
+			expect(html).toContain("<span>the alt</span>");
+		}
+	});
+});
