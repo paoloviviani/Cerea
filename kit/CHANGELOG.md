@@ -9,6 +9,16 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 - New: **Upgrade button** on a computer whose galopin is outdated. In the Agents panel, an online computer running galopin as its systemd user unit gets an **Upgrade** button (with a confirmation) instead of the curl command: galopin upgrades itself, keeps its pairing and settings, and the card shows "Upgrading…", then "Updated to vX" (or that it did not complete, with the log's location). A Mac with the connector app or a launchd service, Docker, a hand-started galopin, an older galopin and a computer enrolled with `--no-remote-upgrade` keep showing the instructions that fit them. **This is a new remote code path** (the computer downloads and runs the installer Cerea serves, as if pasted by hand): it is on by default, except on a computer that denies both the terminal and the command shell, where it is off until `--allow-remote-upgrade`; `--no-remote-upgrade` (or `galopin policy set --no-remote-upgrade`, effective at once) turns it off anywhere. **To use it on a computer:** upgrade galopin once with the usual command; galopin reports the capability from then on.
 
+## v0.62.1 — 2026-11-22
+
+Pins: Cerea `0.62.1` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.34.0`, opencode `2.3.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. Nothing to do on computers.
+
+- Changed: a new chat has its message box at the bottom again, as in a chat with messages; the greeting and suggestions are centred above it.
+- Fixed: on a phone the logo no longer sits off to the left when the greeting wraps onto two lines; it is centred above the greeting.
+- Fixed: links in replies that point nowhere (for example a note app's internal link such as Joplin's `:/<id>`) now show as plain text instead of a broken link. Only web addresses, e-mail and phone links, links within Cerea and in-page anchors are clickable.
+
 ## v0.62.0 — 2026-11-22
 
 Pins: Cerea `0.62.0` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.34.0`, opencode `2.3.0`.
