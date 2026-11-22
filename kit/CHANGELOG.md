@@ -7,7 +7,15 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
-- Fixed: links in replies that point nowhere (for example a note app's internal link) now show as plain text instead of a broken link.
+## v0.62.1 — 2026-11-22
+
+Pins: Cerea `0.62.1` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.34.0`, opencode `2.3.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. Nothing to do on computers.
+
+- Changed: a new chat has its message box at the bottom again, as in a chat with messages; the greeting and suggestions are centred above it.
+- Fixed: on a phone the logo no longer sits off to the left when the greeting wraps onto two lines; it is centred above the greeting.
+- Fixed: links in replies that point nowhere (for example a note app's internal link such as Joplin's `:/<id>`) now show as plain text instead of a broken link. Only web addresses, e-mail and phone links, links within Cerea and in-page anchors are clickable.
 
 ## v0.62.0 — 2026-11-22
 
