@@ -23,6 +23,7 @@
 	import ScrollToBottomBtn from "$lib/components/ScrollToBottomBtn.svelte";
 	import { subscribeToTheme } from "$lib/switchTheme";
 	import { mintTerminalTicket, terminalSocketUrl, TerminalReauthRequired } from "$lib/codeApi";
+	import { isMacPlatform } from "$lib/utils/terminalSelectHint";
 	import { terminalKeyAction } from "$lib/utils/terminalKeys";
 	import {
 		encodeTerminalFrame,
@@ -81,6 +82,7 @@
 	// (not a drag or long press) focuses the textarea to type. Desktop never
 	// reads any of this — the guards below are gated on `narrowViewport`.
 	const narrowViewport = new MediaQuery("(max-width: 639px)");
+	const macSelectHint = typeof navigator !== "undefined" && isMacPlatform(navigator);
 	let typingMode = $state(false);
 	let ctrlSticky = $state(false);
 	let altSticky = $state(false);
@@ -667,6 +669,7 @@
 				scrollback: 5000,
 				allowProposedApi: true,
 				theme: xtermTheme(isDark),
+				macOptionClickForcesSelection: true,
 			});
 			fitAddon = new FitAddon();
 			term.loadAddon(fitAddon);
@@ -751,31 +754,6 @@
 			bind:this={host}
 			class="h-full touch-pan-x overscroll-contain bg-white p-1 dark:bg-gray-900"
 		></div>
-		<div class="absolute top-2 right-3 z-10 flex gap-1.5">
-			{#if hasSelection}
-				<button
-					type="button"
-					data-testid="terminal-copy-selection"
-					aria-label={m["code.terminal.copy_selection"]()}
-					class="btn flex h-8 items-center gap-1 rounded-md border bg-white px-2 text-xs shadow-sm hover:bg-gray-100 dark:border-gray-600 dark:bg-gray-700 dark:hover:bg-gray-600"
-					onpointerdown={(e) => e.preventDefault()}
-					onclick={copySelection}
-				>
-					<IconCopy class="size-3.5" />
-					{m["code.terminal.copy_selection"]()}
-				</button>
-			{/if}
-			<button
-				type="button"
-				data-testid="terminal-select-text"
-				aria-label={m["code.terminal.select_text"]()}
-				class="btn flex h-8 items-center gap-1 rounded-md border bg-white px-2 text-xs shadow-sm hover:bg-gray-100 dark:border-gray-600 dark:bg-gray-700 dark:hover:bg-gray-600"
-				onclick={openCopyView}
-			>
-				<IconCopy class="size-3.5" />
-				{m["code.terminal.select_text"]()}
-			</button>
-		</div>
 		<ScrollToBottomBtn
 			class="right-3 bottom-3 z-10"
 			visible={scrolledUp}
@@ -834,6 +812,39 @@
 			</div>
 		{/if}
 	</div>
+	{#if !narrowViewport.current}
+		<!-- Nothing floats over the output: selection lives in this slim bar. -->
+		<div
+			class="flex h-8 shrink-0 items-center gap-1.5 border-t border-gray-200 bg-gray-50 px-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
+		>
+			<button
+				type="button"
+				data-testid="terminal-select-text"
+				aria-label={m["code.terminal.select_text"]()}
+				class="btn flex h-6 items-center gap-1 rounded-md border bg-white px-2 text-xs hover:bg-gray-100 dark:border-gray-600 dark:bg-gray-700 dark:hover:bg-gray-600"
+				onclick={openCopyView}
+			>
+				<IconCopy class="size-3.5" />
+				{m["code.terminal.select_text"]()}
+			</button>
+			{#if hasSelection}
+				<button
+					type="button"
+					data-testid="terminal-copy-selection"
+					aria-label={m["code.terminal.copy_selection"]()}
+					class="btn flex h-6 items-center gap-1 rounded-md border bg-white px-2 text-xs hover:bg-gray-100 dark:border-gray-600 dark:bg-gray-700 dark:hover:bg-gray-600"
+					onpointerdown={(e) => e.preventDefault()}
+					onclick={copySelection}
+				>
+					<IconCopy class="size-3.5" />
+					{m["code.terminal.copy_selection"]()}
+				</button>
+			{/if}
+			<span class="ml-auto min-w-0 truncate text-gray-500 dark:text-gray-400">
+				{macSelectHint ? m["code.terminal.select_hint_mac"]() : m["code.terminal.select_hint"]()}
+			</span>
+		</div>
+	{/if}
 	{#if narrowViewport.current}
 		<div
 			role="toolbar"
@@ -846,13 +857,16 @@
 				onclick: () => void,
 				pressed?: boolean,
 				filled = false,
-				span = 1
+				span = 1,
+				extra: { testid?: string; disabled?: boolean } = {}
 			)}
 				<button
 					type="button"
 					aria-label={label}
 					aria-pressed={pressed}
-					class="flex h-8 min-w-0 items-center justify-center rounded-md text-xs {filled
+					data-testid={extra.testid}
+					disabled={extra.disabled}
+					class="flex h-8 min-w-0 items-center justify-center rounded-md text-xs disabled:opacity-40 {filled
 						? 'bg-blue-600 font-medium text-white dark:bg-blue-500'
 						: pressed
 							? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200'
@@ -869,7 +883,8 @@
 				</button>
 			{/snippet}
 			<!-- i18n: literal (Esc, Tab, Ctrl, Alt are the keycaps printed on a keyboard) -->
-			<!-- Three full rows of nine. Modifiers and motion first, then the
+			<!-- Three full rows of nine; the last row ends with Select (two cells)
+			     and Copy (one, disabled until xterm has a selection). Modifiers and motion first, then the
 			     punctuation a shell actually asks for, then the control actions
 			     and the font size. A tap on the terminal opens the keyboard. -->
 			{@render key(m["code.terminal.key.escape"](), "Esc", () => sendKey("\x1b"))}
@@ -900,6 +915,24 @@
 			)}
 			{@render key(m["code.terminal.key.font_smaller"](), "A−", () => changeFontSize(-1))}
 			{@render key(m["code.terminal.key.font_larger"](), "A+", () => changeFontSize(1))}
+			{@render key(
+				m["code.terminal.select_text"](),
+				m["code.terminal.key_text.select"](),
+				openCopyView,
+				undefined,
+				false,
+				2,
+				{ testid: "terminal-select-text" }
+			)}
+			{@render key(
+				m["code.terminal.copy_selection"](),
+				m["code.terminal.key_text.copy"](),
+				copySelection,
+				undefined,
+				false,
+				1,
+				{ testid: "terminal-copy-selection", disabled: !hasSelection }
+			)}
 		</div>
 	{/if}
 </div>

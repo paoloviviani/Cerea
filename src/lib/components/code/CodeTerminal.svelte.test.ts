@@ -396,7 +396,22 @@ describe("CodeTerminal copy view", () => {
 		return el;
 	}
 
-	async function mountWithOutput() {
+	/** The test browser's own viewport can be narrower than the breakpoint. */
+	function stubViewport(narrow: boolean): void {
+		vi.stubGlobal("matchMedia", (query: string) => ({
+			matches: narrow && query.includes("639"),
+			media: query,
+			onchange: null,
+			addEventListener() {},
+			removeEventListener() {},
+			addListener() {},
+			removeListener() {},
+			dispatchEvent: () => false,
+		}));
+	}
+
+	async function mountWithOutput(narrow = false) {
+		stubViewport(narrow);
 		const screen = await mountTerminal();
 		deliverOutput(
 			"\x1b[31mred\x1b[0m line one   \r\nsecond\r\n" + "x".repeat(200) + "\r\nlast\r\n"
@@ -463,5 +478,33 @@ describe("CodeTerminal copy view", () => {
 		copy.click();
 		await vi.waitFor(() => expect(clipboard.writeText).toHaveBeenCalled());
 		expect(String(clipboard.writeText.mock.calls[0][0]).length).toBeGreaterThan(0);
+	});
+	it("on desktop the Select text bar sits below the output and shows the Shift hint", async () => {
+		const screen = await mountWithOutput();
+		const select = screen.baseElement.querySelector('[data-testid="terminal-select-text"]');
+		if (!select) throw new Error("no Select text button");
+		const host = screen.baseElement.querySelector(".xterm") as HTMLElement;
+		expect(select.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+			host.getBoundingClientRect().bottom - 1
+		);
+		expect(screen.baseElement.textContent).toMatch(/(Shift|Option)\+drag selects/);
+	});
+
+	it("on a phone, Select and Copy live in the key bar and Copy waits for a selection", async () => {
+		const screen = await mountWithOutput(true);
+		const bar = screen.baseElement.querySelector('[role="toolbar"]') as HTMLElement;
+		const select = bar.querySelector('[data-testid="terminal-select-text"]') as HTMLButtonElement;
+		const copy = bar.querySelector('[data-testid="terminal-copy-selection"]') as HTMLButtonElement;
+		expect(select).toBeTruthy();
+		expect(copy.disabled).toBe(true);
+		expect(screen.baseElement.querySelectorAll('[data-testid="terminal-select-text"]').length).toBe(
+			1
+		);
+		select.click();
+		await vi.waitFor(() =>
+			expect(
+				screen.baseElement.querySelector('[data-testid="terminal-copy-overlay"]')
+			).not.toBeNull()
+		);
 	});
 });
