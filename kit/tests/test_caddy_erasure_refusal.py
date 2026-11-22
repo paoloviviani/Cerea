@@ -102,6 +102,13 @@ class CaddyErasureRefusalTests(unittest.TestCase):
     def test_bare_internal_is_refused(self) -> None:
         self.assertEqual(self._status("/internal/erasure"), 404)
 
+    def test_gateway_metrics_is_refused(self) -> None:
+        # Pystino's GET /metrics is for a scraper on the compose network or
+        # the loopback port; the bearer token is its second layer.
+        for path in ("/metrics", "/metrics/", "/Metrics", "/chat/metrics", "/chat/metrics/x"):
+            with self.subTest(path=path):
+                self.assertEqual(self._status(path), 404)
+
     def test_an_ordinary_chat_path_reaches_the_chat_route_instead(self) -> None:
         # 502, not 404: the upstream `chat` host does not exist in this
         # throwaway container, which is exactly the point -- a 404 here
