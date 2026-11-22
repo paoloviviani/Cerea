@@ -59,6 +59,13 @@ import /etc/caddy/share/site-{$SHARE_MODE:off}.caddy
 	handle /internal/* {
 		respond 404
 	}
+	# The gateway's /metrics (Pystino docs/metrics.md) is for a scraper on
+	# the compose network or the loopback port, never for the public origin:
+	# its bearer token is the second layer, this is the first.
+	@metrics path /metrics /metrics/* /chat/metrics /chat/metrics/*
+	handle @metrics {
+		respond 404
+	}
 
 	handle /chat/* {
 		reverse_proxy chat:3000 {

@@ -7,6 +7,8 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- The proxy answers 404 for `/metrics` (and `/chat/metrics`), so the gateway's Prometheus endpoint is never reachable from the public origin; scrape it on the compose network or the loopback port.
+
 ## v0.61.2 — 2026-11-21
 
 Pins: Cerea `0.61.2` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.33.6`, opencode `2.3.0`.
