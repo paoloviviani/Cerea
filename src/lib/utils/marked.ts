@@ -32,13 +32,13 @@ import plaintext from "highlight.js/lib/languages/plaintext";
 import { parseIncompleteMarkdown } from "./parseIncompleteMarkdown";
 import { parseMarkdownIntoBlocks } from "./parseBlocks";
 import { parseFileBlockInfo } from "./fileBlock";
-import { escapeHTML, type BlockToken, type Token } from "./markedLight";
+import { escapeHTML, safeLinkTarget, type BlockToken, type Token } from "./markedLight";
 
 // Re-export the light pieces so existing consumers of this module (the worker,
 // tests) keep a single import site. Main-thread code must import them from
 // ./markedLight directly — importing this module eagerly pulls KaTeX +
 // highlight.js into the entry bundle.
-export { escapeHTML, fallbackBlocks } from "./markedLight";
+export { escapeHTML, fallbackBlocks, safeLinkTarget } from "./markedLight";
 export type { BlockToken, CodeToken, TextToken, Token } from "./markedLight";
 
 const bundledLanguages: [string, LanguageFn][] = [
@@ -299,8 +299,9 @@ function addInlineCitations(md: string, webSearchSources: SimpleSource[] = []): 
 			.map((index: number) => {
 				if (index === 0) return false;
 				const source = webSearchSources[index - 1];
-				if (source) {
-					return `<a href="${escapeHTML(source.link)}" target="_blank" rel="noreferrer" style="${linkStyle}">${index}</a>`;
+				const sourceHref = safeLinkTarget(source?.link);
+				if (sourceHref) {
+					return `<a href="${escapeHTML(sourceHref)}" target="_blank" rel="noreferrer" style="${linkStyle}">${index}</a>`;
 				}
 				return "";
 			})
@@ -308,16 +309,6 @@ function addInlineCitations(md: string, webSearchSources: SimpleSource[] = []): 
 			.join(", ");
 		return links ? ` <sup>${links}</sup>` : match;
 	});
-}
-
-function sanitizeHref(href?: string | null): string | undefined {
-	if (!href) return undefined;
-	const trimmed = href.trim();
-	const lower = trimmed.toLowerCase();
-	if (lower.startsWith("javascript:") || lower.startsWith("data:text/html")) {
-		return undefined;
-	}
-	return trimmed.replace(/>$/, "");
 }
 
 export function highlightCode(text: string, lang?: string): string {
@@ -435,7 +426,7 @@ function chipFor(inner: string, sources: SimpleSource[]): string {
 	let href: string | undefined;
 	let label = "";
 	if (url) {
-		href = sanitizeHref(url);
+		href = safeLinkTarget(url);
 		try {
 			label = new URL(url).hostname.replace(/^www\./, "");
 		} catch {
@@ -445,7 +436,7 @@ function chipFor(inner: string, sources: SimpleSource[]): string {
 		const n = Number(/^\s*(\d+)/.exec(inner)?.[1]);
 		const source = Number.isInteger(n) && n > 0 ? sources[n - 1] : undefined;
 		if (source) {
-			href = sanitizeHref(source.link);
+			href = safeLinkTarget(source.link);
 			try {
 				label = new URL(source.link).hostname.replace(/^www\./, "");
 			} catch {
@@ -491,13 +482,14 @@ function createMarkedInstance(sources: SimpleSource[]): Marked {
 				if (href === "streamdown:incomplete-link") {
 					return `<a data-incomplete-link>${text}</a>`;
 				}
-				const safeHref = sanitizeHref(href);
+				const safeHref = safeLinkTarget(href);
+				// `text` is already-rendered inline HTML: keep it as is, never re-escape.
 				return safeHref
 					? `<a href="${escapeHTML(safeHref)}" target="_blank" rel="noreferrer">${text}</a>`
-					: `<span>${escapeHTML(text ?? "")}</span>`;
+					: `<span>${text}</span>`;
 			},
 			image: (href, title, text) => {
-				const safeHref = sanitizeHref(href);
+				const safeHref = safeLinkTarget(href, "image");
 				if (!safeHref) return `<span>${escapeHTML(text ?? "")}</span>`;
 
 				const safeSrc = escapeHTML(safeHref);
