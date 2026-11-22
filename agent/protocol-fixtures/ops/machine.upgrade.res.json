@@ -1,0 +1,15 @@
+{
+	"_meta": {
+		"spec": "§6 machine.upgrade",
+		"direction": "M→C",
+		"op": "machine.upgrade"
+	},
+	"frame": {
+		"type": "res",
+		"id": "r1",
+		"ok": true,
+		"result": {
+			"started": true
+		}
+	}
+}

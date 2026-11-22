@@ -428,6 +428,35 @@ Agents panel show the line when that computer's galopin is older than your Cerea
 curl -fsSL "$CEREA_BASE_URL/galopin/install.sh" | sh -s -- --upgrade
 ```
 
+**From Cerea.** When a computer's galopin is older than your Cerea and the computer is
+online, its card in the Agents panel shows an **Upgrade** button, so nothing has to be
+typed on the computer. It asks first ("galopin goes from X to Y; galopin restarts on this
+computer and it goes offline for about a minute"), then galopin runs the same path as
+`galopin upgrade --yes` (below), and the card shows "Upgrading…", then "Updated to vX" when
+the computer reconnects at the new version. If it reconnects with the old version, or does
+not come back within about five minutes, the card says the upgrade did not complete and
+where the log is (`<galopin config dir>/backups/upgrade-<date>.log` on that computer, in
+`~/.config/galopin` on Linux). Only the computer's owner sees the button.
+
+The button appears only where an in-place upgrade can work: galopin runs as its
+`galopin` systemd user unit, `systemd-run` is available, and the computer has not opted
+out. Everywhere else the card shows the instructions that fit instead: on a Mac with the
+Cerea connector app, upgrade through the app's installer; in Docker, `docker pull` the new
+image and recreate the container; a galopin started by hand (or without `systemd-run`),
+or one that opted out, uses the install command above in a terminal outside galopin; a
+galopin from before this feature reports nothing and also shows the command.
+
+The button is a **remote code path**: it makes the computer download and run the installer
+Cerea serves, which is what you would paste by hand. It is on by default, **except** on a
+computer that denies both the terminal and the command shell (`--no-terminal` and
+`--no-command-shell`): its owner expects Cerea cannot run code there, so remote upgrade is
+off until it is enrolled with `--allow-remote-upgrade`. To keep Cerea from upgrading any
+computer, enroll it with `--no-remote-upgrade` (or run
+`galopin policy set --no-remote-upgrade`, which takes effect within seconds, no restart);
+`galopin enroll --allow-remote-upgrade` turns it back on. The command above still works
+either way. A Mac where `galopin service install` set galopin up under launchd shows
+`galopin service uninstall`, the install command, then `galopin service install`.
+
 or, from a galopin new enough to have it, `galopin upgrade` (it downloads that
 installer from the Cerea the computer is enrolled with, shows what it will do and asks
 first; `--yes` skips the question, `--show` prints the installer and runs nothing; it

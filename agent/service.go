@@ -122,7 +122,7 @@ func (e *serviceEnv) guard() error {
 			return fmt.Errorf("this is a container: no service here. Run it detached instead: docker run -d --restart unless-stopped … (see the Pair a computer dialog)")
 		}
 	case "darwin":
-		if _, err := os.Stat(filepath.Join(e.home, "Library", "LaunchAgents", "org.cerea.connector.plist")); err == nil {
+		if connectorAppInstalled(e.home) {
 			return fmt.Errorf("the Cerea connector app is installed here and already keeps galopin running; nothing to install")
 		}
 	default:
@@ -412,4 +412,11 @@ func renderLaunchdPlist(tmpl, home, exe, logPath string, runArgs []string) strin
 		tmpl = strings.Replace(tmpl, "<key>PATH</key><string>", "<key>PATH</key><string>"+xmlEscape(exeDir)+":", 1)
 	}
 	return strings.Replace(tmpl, "/Users/USER", xmlEscape(home), -1)
+}
+
+// connectorAppInstalled reports whether the Cerea connector app (macOS) is installed for this
+// user: it keeps galopin running itself and upgrades through its own installer.
+func connectorAppInstalled(home string) bool {
+	_, err := os.Stat(filepath.Join(home, "Library", "LaunchAgents", "org.cerea.connector.plist"))
+	return err == nil
 }

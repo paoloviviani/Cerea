@@ -6,6 +6,11 @@ import { requireAuth } from "$lib/server/api/utils/requireAuth";
 import { isMachineOnline } from "$lib/server/code/machines";
 import { machineIssuer } from "$lib/server/code/machineAuth";
 import type { CodeDevice } from "$lib/types/CodeAgent";
+import {
+	upgradeRunView,
+	type GalopinUpgradeCapability,
+	type UpgradeRun,
+} from "$lib/galopinUpgrade";
 import { machineMode } from "$lib/types/machineProtocol";
 
 /**
@@ -54,6 +59,10 @@ export interface CodeDeviceView {
 	agentVersion?: string;
 	/** galopin runs in a container: upgraded by pulling the image, not by the installer. */
 	agentContainer?: boolean;
+	/** What this galopin said it can do about upgrading itself (`hello.agent.upgrade`). */
+	agentUpgrade?: GalopinUpgradeCapability;
+	/** The upgrade started from Cerea, as shown now (a run past its timeout reads failed). */
+	upgrade?: UpgradeRun;
 	policy: CodeDevice["policy"];
 	credentialState: CodeDevice["credentialState"];
 	online: boolean;
@@ -80,6 +89,7 @@ export function deviceView(device: CodeDevice, online: boolean): CodeDeviceView 
 		: identity.enrolledIssuer && identity.enrolledIssuer !== configuredMachineIssuer()
 			? "issuer_changed"
 			: undefined;
+	const upgrade = upgradeRunView(device.upgradeRun, new Date(), device.agentVersion);
 	return {
 		id: device._id.toString(),
 		name: device.name,
@@ -88,6 +98,8 @@ export function deviceView(device: CodeDevice, online: boolean): CodeDeviceView 
 		...(device.machine ? { machine: device.machine } : {}),
 		...(device.agentVersion ? { agentVersion: device.agentVersion } : {}),
 		...(device.agentContainer ? { agentContainer: true } : {}),
+		...(device.agentUpgrade ? { agentUpgrade: device.agentUpgrade } : {}),
+		...(upgrade ? { upgrade } : {}),
 		policy: device.policy,
 		credentialState: device.credentialState,
 		online,

@@ -92,6 +92,21 @@ describe("the public galopin files", () => {
 		}
 	});
 
+	it("reports the version the served binaries carry, else this Cerea's own", async () => {
+		const { servedGalopinVersion } = await import("./galopinDist");
+		const saved = env.GALOPIN_DIST_DIR;
+		const home = mkdtempSync(join(tmpdir(), "galopin-ver-"));
+		env.GALOPIN_DIST_DIR = home;
+		const { APP_VERSION } = await import("$lib/utils/appVersion");
+		expect(await servedGalopinVersion()).toBe(APP_VERSION);
+		writeFileSync(join(home, "GALOPIN_VERSION"), "9.8.7\n");
+		expect(await servedGalopinVersion()).toBe("9.8.7");
+		writeFileSync(join(home, "GALOPIN_VERSION"), "garbage\n");
+		expect(await servedGalopinVersion()).toBe(APP_VERSION);
+		env.GALOPIN_DIST_DIR = saved;
+		rmSync(home, { recursive: true, force: true });
+	});
+
 	it("404s with a short note when the image carries no dist", async () => {
 		const saved = env.GALOPIN_DIST_DIR;
 		env.GALOPIN_DIST_DIR = join(dir, "missing");

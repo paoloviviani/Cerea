@@ -26,5 +26,7 @@ cp THIRD_PARTY_LICENSES "$out/"
 # and checks it against the sha256 baked into install.sh (src/lib/vibeVersion.ts).
 cp packaging/vibe-requirements.txt "$out/"
 echo "built from Cerea $rev" > "$out/REVISION"
+# The version the binaries report (hello.agent.version): what an upgrade started from Cerea waits for.
+echo "$ver" > "$out/GALOPIN_VERSION"
 (cd "$out" && sha256sum galopin-* vibe-requirements.txt > SHA256SUMS)
 echo "wrote $out ($rev)"

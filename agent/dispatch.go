@@ -73,6 +73,12 @@ type machine struct {
 	mcp *mcpconn.Hub
 	// mcpIdle overrides the connector idle timeout (zero: the default); tests.
 	mcpIdle time.Duration
+	// upgradeSelf runs `galopin upgrade --yes` for machine.upgrade (upgrade_inplace.go); nil
+	// in tests that do not exercise it. upgradeCaps replaces the live capability check (tests).
+	upgradeSelf func(ctx context.Context) error
+	// policyPath is policy.json, re-read by machine.upgrade (a deny-only merge with pol).
+	policyPath  string
+	upgradeCaps func() link.UpgradeInfo
 }
 
 func newMachine(reg *workspaces.Registry, back backend.Backend, mat *sessions.Materializer, pol policy.Policy) *machine {
@@ -231,7 +237,7 @@ func (mc *machine) enrichAll(sessions []backend.Session, workspaceIDs []string) 
 func (mc *machine) Handle(ctx context.Context, op string, args json.RawMessage) (any, *link.OpError) {
 	// A connectors-only machine (galopin run --connectors-only) has no backend:
 	// everything but the connector ops is unsupported there.
-	if mc.back == nil && !strings.HasPrefix(op, "mcp.") {
+	if mc.back == nil && !strings.HasPrefix(op, "mcp.") && op != "machine.upgrade" {
 		return nil, opErrf("unsupported", "this machine only serves connectors: %s needs a coding agent", op)
 	}
 	switch op {
@@ -324,6 +330,9 @@ func (mc *machine) Handle(ctx context.Context, op string, args json.RawMessage) 
 		return mc.opProfilesList(ctx, args)
 	case "profiles.set":
 		return mc.opProfilesSet(ctx, args)
+
+	case "machine.upgrade":
+		return mc.opMachineUpgrade(ctx, args)
 
 	case "backend.modes":
 		return mc.opBackendModes(ctx, args)

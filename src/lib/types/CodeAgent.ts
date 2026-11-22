@@ -1,5 +1,6 @@
 import type { ObjectId } from "mongodb";
 import type { MessageFile } from "$lib/types/Message";
+import type { GalopinUpgradeCapability, UpgradeRun } from "$lib/galopinUpgrade";
 import type { Backend, CredentialState, Machine, Policy } from "$lib/types/machineProtocol";
 import {
 	MessageUpdateType,
@@ -369,6 +370,11 @@ export interface CodeDevice {
 	agentVersion?: string;
 	/** `hello.agent.container`: galopin runs in a Docker/Podman container, upgraded by pulling the image. */
 	agentContainer?: boolean;
+	/** `hello.agent.upgrade`: whether this galopin can upgrade itself when Cerea asks; absent
+	 * from a galopin that predates it. */
+	agentUpgrade?: GalopinUpgradeCapability;
+	/** The upgrade the owner last started from Cerea, and how it went (`galopinUpgrade.ts`). */
+	upgradeRun?: UpgradeRun;
 	/** What this galopin build implements (`hello.machine`: files, terminal…);
 	 * absent for a machine that predates it. */
 	machine?: Machine;

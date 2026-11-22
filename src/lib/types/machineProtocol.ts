@@ -779,6 +779,7 @@ export const OP_NAMES = [
 	"backend.commands",
 	"profiles.list",
 	"profiles.set",
+	"machine.upgrade",
 	"session.command",
 	"terminal.list",
 	"terminal.open",
@@ -895,6 +896,8 @@ export function opDeadlineMs(op: OpName): number {
 	if (op === "session.sync") return 20_000;
 	// Relayed coordination (ADR 0121): a list is bounded at 5 s, the rest at 20 s.
 	if (op === "coord.list") return 5_000;
+	// machine.upgrade answers once the installer has fetched itself and detached.
+	if (op === "machine.upgrade") return 60_000;
 	if (op === "coord.read" || op === "coord.send" || op === "coord.spawn") return 20_000;
 	return 15_000;
 }
@@ -919,7 +922,15 @@ export interface HistoryPage {
 export interface HelloFrame {
 	type: "hello";
 	protocol: number;
-	agent: { version: string; os: string; arch: string; hostname: string; container?: boolean };
+	agent: {
+		version: string;
+		os: string;
+		arch: string;
+		hostname: string;
+		container?: boolean;
+		/** Whether this galopin can upgrade itself when Cerea asks (§6 `machine.upgrade`). */
+		upgrade?: { inPlace: boolean; reason: string } | null;
+	};
 	backends: Backend[];
 	machine?: Machine;
 	policy: Policy;
@@ -1145,6 +1156,7 @@ export const helloFrameSchema: z.ZodType<HelloFrame> = z.object({
 		arch: z.string(),
 		hostname: z.string(),
 		container: z.boolean().optional(),
+		upgrade: z.object({ inPlace: z.boolean(), reason: z.string().max(32) }).nullish(),
 	}),
 	backends: z.array(backendSchema),
 	machine: machineSchema.optional(),

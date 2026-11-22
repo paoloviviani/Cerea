@@ -64,6 +64,18 @@ type AgentInfo struct {
 	// Container is true inside a container (Docker, Podman): such a galopin is upgraded by
 	// pulling the new image, so the panel does not offer the installer's --upgrade for it.
 	Container bool `json:"container,omitempty"`
+	// Upgrade says whether this galopin can upgrade itself in place when Cerea asks
+	// (`machine.upgrade`, PROTOCOL.md §6). Absent from a galopin that predates it.
+	Upgrade *UpgradeInfo `json:"upgrade,omitempty"`
+}
+
+// UpgradeInfo is hello.agent.upgrade. Reason is why InPlace is what it is:
+// "systemd" (true: running under the galopin systemd user unit with systemd-run
+// available), or, with InPlace false, "docker", "mac_app", "foreground" (not started by
+// the unit, or no systemd-run) or "disabled" (the owner's `--no-remote-upgrade`).
+type UpgradeInfo struct {
+	InPlace bool   `json:"inPlace"`
+	Reason  string `json:"reason"`
 }
 
 // PermissionInfo is policy.json's permission block as the hello reports it.
@@ -218,6 +230,9 @@ type Config struct {
 	// DefaultOpTimeout/SyncOpTimeout bound req handling (default 15s / 20s).
 	DefaultOpTimeout time.Duration
 	SyncOpTimeout    time.Duration
+	// UpgradeOpTimeout bounds machine.upgrade (default 60s, Cerea's own deadline for it): the
+	// installer is fetched and detached before the reply.
+	UpgradeOpTimeout time.Duration
 	// CallTimeout bounds one M→C call (default 20s, PROTOCOL.md §5 "Machine
 	// calls"): a Cerea that predates calls ignores the frame, so a call that
 	// is never answered must end on its own.
@@ -326,6 +341,9 @@ func New(cfg Config) *Link {
 	}
 	if cfg.DefaultOpTimeout == 0 {
 		cfg.DefaultOpTimeout = 15 * time.Second
+	}
+	if cfg.UpgradeOpTimeout == 0 {
+		cfg.UpgradeOpTimeout = 60 * time.Second
 	}
 	if cfg.SyncOpTimeout == 0 {
 		cfg.SyncOpTimeout = 20 * time.Second
@@ -923,7 +941,21 @@ func opTimeout(cfg Config, op string) time.Duration {
 	if op == "session.sync" {
 		return cfg.SyncOpTimeout
 	}
+	if op == "machine.upgrade" {
+		return cfg.UpgradeOpTimeout
+	}
 	return cfg.DefaultOpTimeout
+}
+
+// Reconnect drops the current connection so Run dials again and sends a fresh hello (a policy
+// that tightened while running, so Cerea learns of it). A no-op while not connected.
+func (l *Link) Reconnect() {
+	l.mu.Lock()
+	conn := l.conn
+	l.mu.Unlock()
+	if conn != nil {
+		_ = conn.CloseNow()
+	}
 }
 
 func (l *Link) handleReq(ctx context.Context, id, op string, args json.RawMessage) {

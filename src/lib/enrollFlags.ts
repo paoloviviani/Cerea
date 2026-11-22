@@ -50,6 +50,8 @@ export const ENROLL_FLAGS: readonly EnrollFlag[] = [
 	// On by default since enroll turned them on; the dialog's control for each
 	// is its --no-* negation below, so these spellings only restate the default.
 	{ flag: "allow-background-subagents", kind: "bool", default: true, exposed: false },
+	{ flag: "allow-remote-upgrade", kind: "bool", default: true, exposed: false },
+	{ flag: "no-remote-upgrade", kind: "bool", default: false, exposed: false },
 	{ flag: "allow-command-shell", kind: "bool", default: true, exposed: false },
 	{ flag: "allow-terminal", kind: "bool", default: true, exposed: false },
 	// Machine policy: one control each in the dialog.

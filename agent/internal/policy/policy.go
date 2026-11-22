@@ -95,6 +95,12 @@ type Policy struct {
 	// no switch for it, so while denied the floor denies the tool outright. A local
 	// `galopin policy set` can only turn it off.
 	BackgroundSubagents string `json:"backgroundSubagents,omitempty"`
+	// RemoteUpgrade is the owner's veto over upgrading this galopin from Cerea's Upgrade
+	// button (the `machine.upgrade` op): "allowed" or "denied"; absent reads allowed.
+	// `enroll --no-remote-upgrade` and `galopin policy set --no-remote-upgrade` turn it
+	// off; `enroll --allow-remote-upgrade` turns it back on. Absent reads allowed unless both the
+	// terminal and the command shell are denied (RemoteUpgradeAllowed). Never settable over the link.
+	RemoteUpgrade string `json:"remoteUpgrade,omitempty"`
 }
 
 // Permission is what the machine decides about opencode's permissions
@@ -356,6 +362,21 @@ func (p Policy) ProjectConfigAllowed() bool { return p.ProjectConfig == Terminal
 // `enroll --allow-background-subagents`.
 func (p Policy) BackgroundSubagentsAllowed() bool {
 	return p.BackgroundSubagents == TerminalAllowed
+}
+
+// RemoteUpgradeAllowed reports whether Cerea may start an upgrade of this galopin. An explicit
+// word wins. Absent reads allowed (the installer it runs is the one the owner would paste by
+// hand), except on a machine that denies both the terminal and the command shell: that owner
+// expects Cerea cannot run code here, and an upgrade is a remote code path, so it reads denied
+// until `enroll --allow-remote-upgrade` says otherwise.
+func (p Policy) RemoteUpgradeAllowed() bool {
+	switch p.RemoteUpgrade {
+	case TerminalDenied:
+		return false
+	case TerminalAllowed:
+		return true
+	}
+	return p.TerminalAllowed() || p.CommandShellAllowed()
 }
 
 // EffectiveMaxTerminals is p.MaxTerminals, or DefaultMaxTerminals when unset.

@@ -338,6 +338,8 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	}
 
 	mc := newMachine(reg, back, mat, pol)
+	mc.upgradeSelf = selfUpgrade(credsPath)
+	mc.policyPath = filepath.Join(stateDir, policyFileName)
 	home, _ := os.UserHomeDir()
 	mc.protected = decide.NewProtected(home, stateDir, gooseRootFor(credsPath), vibeHomeFor(credsPath), mcpPath)
 	auditLog, err := newAuditLogger(stateDir)
@@ -401,7 +403,7 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 		MachineName: machineName,
 		Cred:        sh,
 		Hello: func() link.Hello {
-			h := buildHello(back, pol)
+			h := buildHello(back, effectiveUpgradePolicy(pol, mc.policyPath))
 			if connectors.Configured() {
 				h.Machine.Capabilities["mcp"] = true
 			}
@@ -413,6 +415,10 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 		Logf:    func(format string, args ...any) { logf(format, args...) },
 	})
 	mc.AttachLink(lnk)
+	go watchRemoteUpgrade(ctx, mc.policyPath, pol, policyPollEvery, func() {
+		logf("remote upgrade turned off in policy.json: reconnecting so Cerea learns of it")
+		lnk.Reconnect()
+	})
 	sh.onExpired = func(message string) {
 		_ = lnk.PublishCredentialState("expired", message)
 	}
@@ -633,6 +639,7 @@ func buildHelloBase(pol policy.Policy) link.Hello {
 			Arch:      runtime.GOARCH,
 			Hostname:  hostname,
 			Container: inContainer(),
+			Upgrade:   upgradeCapability(pol),
 		},
 		Policy: link.PolicyInfo{
 			AutoAccept:          autoAcceptRetired,
@@ -899,6 +906,8 @@ func runConnectorsOnly(ctx context.Context, opts *runOptions, credsPath, stateDi
 	}
 	defer auditLog.Close()
 	mc := &machine{pol: pol}
+	mc.upgradeSelf = selfUpgrade(credsPath)
+	mc.policyPath = filepath.Join(stateDir, policyFileName)
 	mc.AttachAudit(auditLog)
 	connectors := mc.startConnectors(stateDir, mcpPath)
 	defer connectors.Shutdown()
@@ -918,15 +927,21 @@ func runConnectorsOnly(ctx context.Context, opts *runOptions, credsPath, stateDi
 		MachineID:   machineID,
 		MachineName: machineName,
 		Cred:        sh,
-		Hello:       func() link.Hello { return connectorsHello(pol, opts.agentUnavailable) },
-		Handler:     mc,
-		Mcp:         mc,
-		Logf:        func(format string, args ...any) { logf(format, args...) },
+		Hello: func() link.Hello {
+			return connectorsHello(effectiveUpgradePolicy(pol, mc.policyPath), opts.agentUnavailable)
+		},
+		Handler: mc,
+		Mcp:     mc,
+		Logf:    func(format string, args ...any) { logf(format, args...) },
 	})
 	mc.AttachLink(lnk)
 	sh.onExpired = func(message string) {
 		_ = lnk.PublishCredentialState("expired", message)
 	}
+	go watchRemoteUpgrade(ctx, mc.policyPath, pol, policyPollEvery, func() {
+		logf("remote upgrade turned off in policy.json: reconnecting so Cerea learns of it")
+		lnk.Reconnect()
+	})
 	startAppStatus(ctx, stateDir, "connectors", cereaOrigin, lnk)
 	logf("connectors machine started (no coding agent)")
 

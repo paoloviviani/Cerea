@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { buildUpgradeCommand, galopinNeedsUpgrade, galopinUnsupported } from "./galopinUpgrade";
+import {
+	UPGRADE_OLD_HELLO_GRACE_MS,
+	UPGRADE_RESULT_TTL_MS,
+	UPGRADE_TIMEOUT_MS,
+	buildUpgradeCommand,
+	galopinNeedsUpgrade,
+	galopinUnsupported,
+	resolveUpgradeOnHello,
+	upgradeInstructions,
+	upgradeRunView,
+	versionAtLeast,
+	type UpgradeRun,
+} from "./galopinUpgrade";
 
 describe("galopinNeedsUpgrade", () => {
 	it("is true only for a parseable older version", () => {
@@ -36,5 +48,95 @@ describe("galopin changed-since logic", () => {
 		expect(galopinUnsupported("0.40.0", "0.40.0")).toBe(false);
 		expect(galopinUnsupported("0.45.0", "0.40.0")).toBe(false);
 		expect(galopinUnsupported(undefined, "0.40.0")).toBe(false);
+	});
+});
+
+describe("upgradeInstructions", () => {
+	const cap = (inPlace: boolean, reason: string) => ({ inPlace, reason });
+	it("offers the button only for an online computer that reported inPlace", () => {
+		expect(upgradeInstructions({ online: true, agentUpgrade: cap(true, "systemd") })).toBe(
+			"button"
+		);
+		expect(upgradeInstructions({ online: false, agentUpgrade: cap(true, "systemd") })).toBe("curl");
+	});
+	it("never offers it in any other case, and says what fits", () => {
+		expect(upgradeInstructions({ online: true, agentUpgrade: cap(false, "mac_app") })).toBe(
+			"mac_app"
+		);
+		expect(upgradeInstructions({ online: true, agentUpgrade: cap(false, "docker") })).toBe(
+			"docker"
+		);
+		expect(upgradeInstructions({ online: true, agentContainer: true })).toBe("docker");
+		expect(upgradeInstructions({ online: true, agentUpgrade: cap(false, "launchd") })).toBe(
+			"launchd"
+		);
+		expect(upgradeInstructions({ online: true, agentUpgrade: cap(false, "foreground") })).toBe(
+			"foreground"
+		);
+		expect(upgradeInstructions({ online: true, agentUpgrade: cap(false, "disabled") })).toBe(
+			"curl"
+		);
+		expect(upgradeInstructions({ online: true, agentUpgrade: cap(false, "newthing") })).toBe(
+			"curl"
+		);
+		// an old galopin reports nothing
+		expect(upgradeInstructions({ online: true })).toBe("curl");
+		expect(upgradeInstructions({ online: true, agentUpgrade: null })).toBe("curl");
+	});
+});
+
+describe("upgrade run", () => {
+	const start = new Date("2026-11-22T10:00:00Z");
+	const run = (): UpgradeRun => ({
+		startedAt: start,
+		fromVersion: "0.60.0",
+		targetVersion: "0.61.0",
+		state: "running",
+	});
+	const after = (ms: number) => new Date(start.getTime() + ms);
+
+	it("compares versions", () => {
+		expect(versionAtLeast("0.61.0", "0.61.0")).toBe(true);
+		expect(versionAtLeast("0.62.1", "0.61.0")).toBe(true);
+		expect(versionAtLeast("0.60.9", "0.61.0")).toBe(false);
+		expect(versionAtLeast("dev", "0.61.0")).toBe(false);
+	});
+	it("is done when the computer comes back at or above the target", () => {
+		const done = resolveUpgradeOnHello(run(), "0.61.0", after(60_000)) as UpgradeRun;
+		expect(done.state).toBe("done");
+		expect(done.version).toBe("0.61.0");
+	});
+	it("ignores an old-version hello inside the grace, fails one after it", () => {
+		expect(resolveUpgradeOnHello(run(), "0.60.0", after(30_000))?.state).toBe("running");
+		const failed = resolveUpgradeOnHello(
+			run(),
+			"0.60.0",
+			after(UPGRADE_OLD_HELLO_GRACE_MS)
+		) as UpgradeRun;
+		expect(failed.state).toBe("failed");
+		expect(failed.version).toBe("0.60.0");
+	});
+	it("leaves a recently finished run alone, and clears it later", () => {
+		const done = { ...run(), state: "done" as const, finishedAt: start };
+		expect(resolveUpgradeOnHello(done, "0.61.0", after(60_000))).toBe(done);
+		expect(resolveUpgradeOnHello(done, "0.61.0", after(UPGRADE_RESULT_TTL_MS))).toBeNull();
+	});
+	it("clears a failed run once the computer is at the target", () => {
+		const failed = { ...run(), state: "failed" as const, finishedAt: start };
+		expect(resolveUpgradeOnHello(failed, "0.60.0", after(60_000))).toBe(failed);
+		expect(resolveUpgradeOnHello(failed, "0.61.0", after(60_000))).toBeNull();
+		expect(upgradeRunView(failed, after(60_000), "0.60.0")?.state).toBe("failed");
+		expect(upgradeRunView(failed, after(60_000), "0.61.0")).toBeNull();
+	});
+	it("stops showing a result after the TTL, a timed-out run included", () => {
+		const done = { ...run(), state: "done" as const, finishedAt: start };
+		expect(upgradeRunView(done, after(UPGRADE_RESULT_TTL_MS - 1))?.state).toBe("done");
+		expect(upgradeRunView(done, after(UPGRADE_RESULT_TTL_MS))).toBeNull();
+		expect(upgradeRunView(run(), after(UPGRADE_TIMEOUT_MS + UPGRADE_RESULT_TTL_MS))).toBeNull();
+	});
+	it("shows a run that did not return in time as failed", () => {
+		expect(upgradeRunView(run(), after(UPGRADE_TIMEOUT_MS - 1))?.state).toBe("running");
+		expect(upgradeRunView(run(), after(UPGRADE_TIMEOUT_MS))?.state).toBe("failed");
+		expect(upgradeRunView(undefined, start)).toBeNull();
 	});
 });

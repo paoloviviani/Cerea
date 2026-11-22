@@ -65,6 +65,7 @@ import {
 	type Notice,
 } from "$lib/types/machineProtocol";
 import type { CodeDevice } from "$lib/types/CodeAgent";
+import { resolveUpgradeOnHello } from "$lib/galopinUpgrade";
 import { observeMachineEvent, safely } from "$lib/server/push/watch";
 import { handleMachineCall, MACHINE_CALL_FEATURES } from "$lib/server/code/machineCalls";
 import { codeAgentsEnabled, localConnectorsEnabled } from "$lib/server/codeEnabled";
@@ -215,7 +216,7 @@ function closeConnection(state: ConnectionState, code: number, reason: string): 
 	if (state.pingInterval) clearInterval(state.pingInterval);
 	for (const pending of state.pending.values()) {
 		clearTimeout(pending.timer);
-		pending.reject(new OpError("unavailable", "The machine link closed."));
+		pending.reject(new OpError("unavailable", "The machine link closed.", { linkLost: true }));
 	}
 	state.pending.clear();
 	closeMcpChannels(state, "The machine link closed.");
@@ -454,7 +455,9 @@ function sendRequest<TResult>(state: ConnectionState, op: OpName, args: unknown)
 		const id = randomUUID();
 		const timer = setTimeout(() => {
 			state.pending.delete(id);
-			reject(new OpError("unavailable", `Timed out waiting for ${op} to answer.`));
+			reject(
+				new OpError("unavailable", `Timed out waiting for ${op} to answer.`, { linkLost: true })
+			);
 		}, opDeadlineMs(op));
 		state.pending.set(id, { resolve: resolve as (value: unknown) => void, reject, timer });
 		try {
@@ -862,6 +865,12 @@ export class MachineLink {
 		profiles: Record<string, { model: string }>;
 	}): Promise<unknown> {
 		return this.call("profiles.set", args);
+	}
+	/** Ask galopin to upgrade itself in place (§6 `machine.upgrade`): `{started: true}` once the
+	 * installer has detached. `forbidden` when this galopin cannot (or the owner opted out),
+	 * `unsupported` from a galopin that predates it. */
+	machineUpgrade(): Promise<{ started: boolean }> {
+		return this.call("machine.upgrade", {});
 	}
 	/** The machine's MCP servers (PROTOCOL.md §10.3). `unsupported` from a machine without
 	 * an `mcp.json`. */
@@ -1291,7 +1300,7 @@ export function acceptMachineConnection(
 			if (state.pingInterval) clearInterval(state.pingInterval);
 			for (const pending of state.pending.values()) {
 				clearTimeout(pending.timer);
-				pending.reject(new OpError("unavailable", "The machine link closed."));
+				pending.reject(new OpError("unavailable", "The machine link closed.", { linkLost: true }));
 			}
 			closeMcpChannels(state, "The machine link closed.");
 			registry.delete(state.deviceId);
@@ -1405,9 +1414,25 @@ async function onHello(
 					credentialState: hello.credential.state,
 					lastSeenAt: now,
 					updatedAt: now,
+					...(hello.agent.upgrade ? { agentUpgrade: hello.agent.upgrade } : {}),
 				},
+				// A galopin that reports no capability (an older one) must not keep a stale one.
+				...(hello.agent.upgrade ? {} : { $unset: { agentUpgrade: "" as const } }),
 			}
 		);
+		// The upgrade started from here: this hello finishes it, or clears a finished one. Written
+		// only when it changed, and only if the run is still the one read: a start (or another
+		// hello) that landed in between is not overwritten.
+		if (existing.upgradeRun) {
+			const read = existing.upgradeRun;
+			const next = resolveUpgradeOnHello(read, hello.agent.version, now);
+			if (next !== read) {
+				await collections.codeDevices.updateOne(
+					{ _id: existing._id, "upgradeRun.startedAt": read.startedAt },
+					next ? { $set: { upgradeRun: next } } : { $unset: { upgradeRun: "" } }
+				);
+			}
+		}
 	} else {
 		const inserted = await collections.codeDevices.insertOne({
 			_id: new ObjectId(),
@@ -1421,6 +1446,7 @@ async function onHello(
 			backends: hello.backends,
 			agentVersion: hello.agent.version,
 			agentContainer: hello.agent.container === true,
+			...(hello.agent.upgrade ? { agentUpgrade: hello.agent.upgrade } : {}),
 			...(hello.machine ? { machine: hello.machine } : {}),
 			policy: hello.policy,
 			credentialState: hello.credential.state,
