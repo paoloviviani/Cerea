@@ -165,6 +165,29 @@ describe("PATCH devices {action: upgrade}", () => {
 		expect((await patch(current.deviceId as string, { action: "upgrade" })).status).toBe(409);
 	});
 
+	it("keeps the run when the link closes instead of an answer, and lets the next hello decide", async () => {
+		const machine = await connectAndPair({ agentVersion: "0.1.0", agentUpgrade: IN_PLACE });
+		const deviceId = machine.deviceId as string;
+		machine.onOp("machine.upgrade", () => {
+			machine.close();
+			return new Promise(() => {});
+		});
+		const res = await patch(deviceId, { action: "upgrade" });
+		expect(res.status).toBe(200);
+		expect((await row(deviceId))?.upgradeRun?.state).toBe("running");
+		const next = new FakeMachine(
+			`ws://127.0.0.1:${port}/api/v2/code/machine`,
+			{},
+			{
+				agentVersion: APP_VERSION,
+				agentUpgrade: IN_PLACE,
+			}
+		);
+		openMachines.push(next);
+		await next.hello();
+		expect((await row(deviceId))?.upgradeRun?.state).toBe("done");
+	});
+
 	it("takes the record back when galopin refuses, and refuses a second start while one runs", async () => {
 		const machine = await connectAndPair({ agentUpgrade: IN_PLACE });
 		const deviceId = machine.deviceId as string;
@@ -229,6 +252,41 @@ describe("upgrade state transitions", () => {
 		);
 		const listed = (await listDevices(user.locals)).find((d) => d.id === deviceId);
 		expect(listed?.upgrade?.state).toBe("failed");
+	});
+
+	it("clears a failed run once the computer reports the target version", async () => {
+		const deviceId = await started();
+		await collections.codeDevices.updateOne(
+			{ _id: new ObjectId(deviceId) },
+			{ $set: { "upgradeRun.startedAt": new Date(Date.now() - 3 * 60_000) } }
+		);
+		await reconnect({ agentVersion: "0.1.0", agentUpgrade: IN_PLACE });
+		expect((await row(deviceId))?.upgradeRun?.state).toBe("failed");
+		await reconnect({ agentVersion: APP_VERSION, agentUpgrade: IN_PLACE });
+		expect((await row(deviceId))?.upgradeRun).toBeUndefined();
+	});
+
+	it("does not rewrite a run another writer changed since the hello read it", async () => {
+		const deviceId = await started();
+		const before = (await row(deviceId))?.upgradeRun;
+		// an old-version hello inside the grace changes nothing, so it writes nothing
+		await reconnect({ agentVersion: "0.1.0", agentUpgrade: IN_PLACE });
+		expect((await row(deviceId))?.upgradeRun?.startedAt).toEqual(before?.startedAt);
+	});
+
+	it("stops showing a finished result after ten minutes", async () => {
+		const deviceId = await started();
+		await reconnect({ agentVersion: APP_VERSION, agentUpgrade: IN_PLACE });
+		expect((await listDevices(user.locals)).find((d) => d.id === deviceId)?.upgrade?.state).toBe(
+			"done"
+		);
+		await collections.codeDevices.updateOne(
+			{ _id: new ObjectId(deviceId) },
+			{ $set: { "upgradeRun.finishedAt": new Date(Date.now() - 11 * 60_000) } }
+		);
+		expect(
+			(await listDevices(user.locals)).find((d) => d.id === deviceId)?.upgrade
+		).toBeUndefined();
 	});
 
 	it("drops a stale capability when an older galopin reports none", async () => {

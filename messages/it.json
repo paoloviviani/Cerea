@@ -403,6 +403,7 @@
 	"code.nav.upgrade_failed": "L'aggiornamento non è stato completato.",
 	"code.nav.upgrade_failed_log": "Il log dell'aggiornamento è sul computer:",
 	"code.nav.upgrade_foreground": "galopin è stato avviato a mano su questo computer. Esegui questo in un terminale fuori da galopin:",
+	"code.nav.upgrade_launchd": "galopin gira come servizio launchd su questo computer. In un terminale su di esso esegui galopin service uninstall, poi questo comando, poi galopin service install (aggiungi dopo -- le opzioni che gli avevi dato):",
 	"code.nav.upgrade_mac_app": "Questo computer esegue l'app connettore di Cerea. Aggiorna galopin con l'installer dell'app.",
 	"code.nav.upgrade_running": "Aggiornamento di {name} in corso. Resta offline per circa un minuto.",
 	"code.nav.upgrade_start_failed": "Impossibile avviare l'aggiornamento.",

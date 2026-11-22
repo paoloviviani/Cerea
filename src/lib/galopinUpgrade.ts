@@ -80,6 +80,7 @@ export type UpgradeInstructions =
 	| "button" // Upgrade button
 	| "mac_app" // through the Cerea connector app's installer
 	| "docker" // docker pull and recreate
+	| "launchd" // macOS `galopin service install`: uninstall, upgrade, install
 	| "foreground" // the curl command in a terminal outside galopin
 	| "curl"; // the curl command (opted out, or a galopin that reports nothing)
 
@@ -95,6 +96,7 @@ export function upgradeInstructions(device: {
 	if (!cap) return "curl";
 	if (cap.inPlace) return device.online ? "button" : "curl";
 	if (cap.reason === "mac_app") return "mac_app";
+	if (cap.reason === "launchd") return "launchd";
 	if (cap.reason === "foreground") return "foreground";
 	return "curl";
 }
@@ -107,30 +109,53 @@ export function versionAtLeast(have: string | undefined | null, target: string):
 	return !galopinNeedsUpgrade(have, target);
 }
 
-/** The run after the computer says hello: done with a version at or above the target; failed
- * with an older one once the grace has passed; otherwise unchanged. */
+/** How long a finished upgrade stays on the card. */
+export const UPGRADE_RESULT_TTL_MS = 10 * 60_000;
+
+/** The run after the computer says hello, or null to clear it. A running one: done with a
+ * version at or above the target; failed with an older one once the grace has passed; otherwise
+ * unchanged. A finished one is cleared once the computer reports the target version (a failed
+ * run it has since got past) or its result is older than the TTL. */
 export function resolveUpgradeOnHello(
 	run: UpgradeRun,
 	helloVersion: string,
 	now: Date
-): UpgradeRun {
-	if (run.state !== "running") return run;
-	if (versionAtLeast(helloVersion, run.targetVersion)) {
-		return { ...run, state: "done", finishedAt: now, version: helloVersion };
+): UpgradeRun | null {
+	if (run.state === "running") {
+		if (versionAtLeast(helloVersion, run.targetVersion)) {
+			return { ...run, state: "done", finishedAt: now, version: helloVersion };
+		}
+		if (now.getTime() - run.startedAt.getTime() >= UPGRADE_OLD_HELLO_GRACE_MS) {
+			return { ...run, state: "failed", finishedAt: now, version: helloVersion };
+		}
+		return run;
 	}
-	if (now.getTime() - run.startedAt.getTime() >= UPGRADE_OLD_HELLO_GRACE_MS) {
-		return { ...run, state: "failed", finishedAt: now, version: helloVersion };
-	}
+	if (run.state === "failed" && versionAtLeast(helloVersion, run.targetVersion)) return null;
+	if (finishedLongAgo(run, now)) return null;
 	return run;
 }
 
-/** The run as shown now: a running one older than the timeout is failed. */
-export function upgradeRunView(run: UpgradeRun | undefined | null, now: Date): UpgradeRun | null {
+function finishedLongAgo(run: UpgradeRun, now: Date): boolean {
+	const end = run.finishedAt?.getTime() ?? run.startedAt.getTime() + UPGRADE_TIMEOUT_MS;
+	return now.getTime() - end >= UPGRADE_RESULT_TTL_MS;
+}
+
+/** The run as shown now: a running one older than the timeout is failed; a finished one is gone
+ * after the TTL, and a failed one once the computer is at the target version. */
+export function upgradeRunView(
+	run: UpgradeRun | undefined | null,
+	now: Date,
+	deviceVersion?: string | null
+): UpgradeRun | null {
 	if (!run) return null;
+	let shown = run;
 	if (run.state === "running" && now.getTime() - run.startedAt.getTime() >= UPGRADE_TIMEOUT_MS) {
-		return { ...run, state: "failed" };
+		shown = { ...run, state: "failed" };
 	}
-	return run;
+	if (shown.state === "running") return shown;
+	if (shown.state === "failed" && versionAtLeast(deviceVersion, run.targetVersion)) return null;
+	if (finishedLongAgo(shown, now)) return null;
+	return shown;
 }
 
 /** Where the installer's log of an upgrade is, on the computer. */

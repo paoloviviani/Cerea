@@ -76,6 +76,8 @@ type machine struct {
 	// upgradeSelf runs `galopin upgrade --yes` for machine.upgrade (upgrade_inplace.go); nil
 	// in tests that do not exercise it. upgradeCaps replaces the live capability check (tests).
 	upgradeSelf func(ctx context.Context) error
+	// policyPath is policy.json, re-read by machine.upgrade (a deny-only merge with pol).
+	policyPath  string
 	upgradeCaps func() link.UpgradeInfo
 }
 

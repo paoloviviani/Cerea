@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"galopin/internal/link"
 	"galopin/internal/policy"
@@ -22,12 +23,14 @@ func capEnv(t *testing.T) upgradeCapEnv {
 	}
 	return upgradeCapEnv{
 		goos: "linux", home: t.TempDir(), container: func() bool { return false }, cgroupFile: cg,
-		lookPath: func(string) (string, error) { return "/usr/bin/systemd-run", nil },
+		lookPath:       func(string) (string, error) { return "/usr/bin/systemd-run", nil },
+		userUnitActive: func() bool { return true },
 	}
 }
 
 func TestDetectUpgradePerCase(t *testing.T) {
 	pol := policy.Default()
+	pol.Terminal = policy.TerminalAllowed
 	cases := []struct {
 		name   string
 		mutate func(*upgradeCapEnv, *policy.Policy)
@@ -50,6 +53,22 @@ func TestDetectUpgradePerCase(t *testing.T) {
 		{"foreground run (not the unit's cgroup)", func(e *upgradeCapEnv, _ *policy.Policy) {
 			_ = os.WriteFile(e.cgroupFile, []byte("0::/user.slice/user-1000.slice/session-3.scope\n"), 0o600)
 		}, link.UpgradeInfo{Reason: "foreground"}},
+		{"cgroup v1 user unit", func(e *upgradeCapEnv, _ *policy.Policy) {
+			_ = os.WriteFile(e.cgroupFile, []byte("12:cpu:/\n1:name=systemd:/user.slice/user-1000.slice/user@1000.service/galopin.service\n"), 0o600)
+		}, link.UpgradeInfo{InPlace: true, Reason: "systemd"}},
+		{"system unit (system.slice), not the user unit", func(e *upgradeCapEnv, _ *policy.Policy) {
+			_ = os.WriteFile(e.cgroupFile, []byte("0::/system.slice/galopin.service\n"), 0o600)
+		}, link.UpgradeInfo{Reason: "foreground"}},
+		{"cgroup v1 system unit", func(e *upgradeCapEnv, _ *policy.Policy) {
+			_ = os.WriteFile(e.cgroupFile, []byte("1:name=systemd:/system.slice/galopin.service\n"), 0o600)
+		}, link.UpgradeInfo{Reason: "foreground"}},
+		{"user unit not active", func(e *upgradeCapEnv, _ *policy.Policy) { e.userUnitActive = func() bool { return false } }, link.UpgradeInfo{Reason: "foreground"}},
+		{"launchd service on a Mac", func(e *upgradeCapEnv, _ *policy.Policy) {
+			e.goos = "darwin"
+			dir := filepath.Join(e.home, "Library", "LaunchAgents")
+			_ = os.MkdirAll(dir, 0o755)
+			_ = os.WriteFile(filepath.Join(dir, "org.cerea.galopin.plist"), nil, 0o600)
+		}, link.UpgradeInfo{Reason: "launchd"}},
 		{"no cgroup file", func(e *upgradeCapEnv, _ *policy.Policy) { e.cgroupFile = "/nonexistent" }, link.UpgradeInfo{Reason: "foreground"}},
 		{"no systemd-run", func(e *upgradeCapEnv, _ *policy.Policy) {
 			e.lookPath = func(string) (string, error) { return "", errors.New("not found") }
@@ -67,8 +86,18 @@ func TestDetectUpgradePerCase(t *testing.T) {
 }
 
 func TestRemoteUpgradeOptOutPolicy(t *testing.T) {
-	if !(policy.Policy{}).RemoteUpgradeAllowed() {
-		t.Fatal("absent must read allowed")
+	// Absent reads allowed, unless the terminal and the command shell are both denied.
+	if !(policy.Policy{Terminal: policy.TerminalAllowed}).RemoteUpgradeAllowed() {
+		t.Fatal("absent with a terminal must read allowed")
+	}
+	if !(policy.Policy{CommandShell: policy.TerminalAllowed}).RemoteUpgradeAllowed() {
+		t.Fatal("absent with a command shell must read allowed")
+	}
+	if (policy.Policy{}).RemoteUpgradeAllowed() {
+		t.Fatal("absent with neither terminal nor shell must read denied")
+	}
+	if !(policy.Policy{RemoteUpgrade: policy.TerminalAllowed}).RemoteUpgradeAllowed() {
+		t.Fatal("an explicit allow overrides the default rule")
 	}
 	if (policy.Policy{RemoteUpgrade: policy.TerminalDenied}).RemoteUpgradeAllowed() {
 		t.Fatal("denied must read denied")
@@ -91,6 +120,11 @@ func TestRemoteUpgradeOptOutPolicy(t *testing.T) {
 	if err != nil || !on.RemoteUpgradeAllowed() {
 		t.Fatalf("on: %v %+v", err, on.RemoteUpgrade)
 	}
+	// --allow-remote-upgrade=false must not turn it on.
+	stays, err := enrollPolicy(&enrollOptions{set: map[string]bool{"allow-remote-upgrade": true}, base: &off, allowRemoteUpgrade: false})
+	if err != nil || stays.RemoteUpgradeAllowed() {
+		t.Fatalf("=false turned it on: %v %+v", err, stays.RemoteUpgrade)
+	}
 }
 
 func TestHelloReportsUpgradeCapability(t *testing.T) {
@@ -101,15 +135,94 @@ func TestHelloReportsUpgradeCapability(t *testing.T) {
 	if !strings.Contains(string(body), `"upgrade":{"inPlace":`) {
 		t.Fatalf("hello lacks agent.upgrade: %s", body)
 	}
-	var h link.Hello
+}
+
+// The opted-out reason comes from detection with its inputs forced: a Linux user unit.
+func TestOptedOutReadsDisabledInTheHello(t *testing.T) {
 	pol := policy.Default()
 	pol.RemoteUpgrade = policy.TerminalDenied
-	body, _ = json.Marshal(buildHello(newE2EFakeBackend(), pol))
-	if err := json.Unmarshal(body, &h); err != nil {
+	if got := detectUpgrade(capEnv(t), pol); got != (link.UpgradeInfo{Reason: "disabled"}) {
+		t.Fatalf("%+v", got)
+	}
+}
+
+func writePolicy(t *testing.T, dir, body string) string {
+	t.Helper()
+	path := filepath.Join(dir, policyFileName)
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if h.Agent.Upgrade == nil || h.Agent.Upgrade.InPlace || (h.Agent.Upgrade.Reason != "disabled" && h.Agent.Upgrade.Reason != "docker" && h.Agent.Upgrade.Reason != "mac_app") {
-		t.Fatalf("opted-out hello: %+v", h.Agent.Upgrade)
+	return path
+}
+
+// A policy.json tightened while galopin runs takes effect at once, deny-only.
+func TestRuntimePolicyChangeDeniesRemoteUpgrade(t *testing.T) {
+	dir := t.TempDir()
+	path := writePolicy(t, dir, `{"terminal":"allowed"}`)
+	start := policy.Policy{Terminal: policy.TerminalAllowed}
+	if !effectiveUpgradePolicy(start, path).RemoteUpgradeAllowed() {
+		t.Fatal("allowed to begin with")
+	}
+	writePolicy(t, dir, `{"terminal":"allowed","remoteUpgrade":"denied"}`)
+	if effectiveUpgradePolicy(start, path).RemoteUpgradeAllowed() {
+		t.Fatal("the file now denies it")
+	}
+	// Tightening the terminal and shell away reads denied too.
+	writePolicy(t, dir, `{"terminal":"denied","commandShell":"denied"}`)
+	if effectiveUpgradePolicy(start, path).RemoteUpgradeAllowed() {
+		t.Fatal("no terminal and no shell denies the default")
+	}
+	// A file that allows never loosens a startup that denied.
+	writePolicy(t, dir, `{"remoteUpgrade":"allowed"}`)
+	if effectiveUpgradePolicy(policy.Policy{RemoteUpgrade: policy.TerminalDenied}, path).RemoteUpgradeAllowed() {
+		t.Fatal("the file must not loosen the startup policy")
+	}
+	// An unreadable file changes nothing.
+	if !effectiveUpgradePolicy(start, filepath.Join(dir, "nope.json")).RemoteUpgradeAllowed() {
+		t.Fatal("a missing file must not deny")
+	}
+}
+
+func TestMachineUpgradeRefusesAfterPolicyTightenedAtRuntime(t *testing.T) {
+	dir := t.TempDir()
+	path := writePolicy(t, dir, `{"terminal":"allowed"}`)
+	mc := newTestMachine(t, newE2EFakeBackend())
+	mc.pol.Terminal = policy.TerminalAllowed
+	mc.policyPath = path
+	// detection against a unit-like environment, with the live policy handed through.
+	env := capEnv(t)
+	mc.upgradeCaps = func() link.UpgradeInfo {
+		return detectUpgrade(env, effectiveUpgradePolicy(mc.pol, mc.policyPath))
+	}
+	calls := 0
+	mc.upgradeSelf = func(context.Context) error { calls++; return nil }
+	if _, oerr := mc.Handle(context.Background(), "machine.upgrade", nil); oerr != nil || calls != 1 {
+		t.Fatalf("before: %+v %d", oerr, calls)
+	}
+	writePolicy(t, dir, `{"terminal":"allowed","remoteUpgrade":"denied"}`)
+	_, oerr := mc.Handle(context.Background(), "machine.upgrade", nil)
+	if oerr == nil || oerr.Code != "forbidden" || calls != 1 {
+		t.Fatalf("after: %+v %d", oerr, calls)
+	}
+}
+
+func TestWatchRemoteUpgradeReconnectsWhenDenied(t *testing.T) {
+	dir := t.TempDir()
+	path := writePolicy(t, dir, `{"terminal":"allowed"}`)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	denied := make(chan struct{}, 1)
+	go watchRemoteUpgrade(ctx, path, policy.Policy{Terminal: policy.TerminalAllowed}, 10*time.Millisecond, func() { denied <- struct{}{} })
+	select {
+	case <-denied:
+		t.Fatal("fired before any change")
+	case <-time.After(60 * time.Millisecond):
+	}
+	writePolicy(t, dir, `{"terminal":"allowed","remoteUpgrade":"denied"}`)
+	select {
+	case <-denied:
+	case <-time.After(2 * time.Second):
+		t.Fatal("no reconnect after the policy tightened")
 	}
 }
 

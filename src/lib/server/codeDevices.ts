@@ -89,7 +89,7 @@ export function deviceView(device: CodeDevice, online: boolean): CodeDeviceView 
 		: identity.enrolledIssuer && identity.enrolledIssuer !== configuredMachineIssuer()
 			? "issuer_changed"
 			: undefined;
-	const upgrade = upgradeRunView(device.upgradeRun, new Date());
+	const upgrade = upgradeRunView(device.upgradeRun, new Date(), device.agentVersion);
 	return {
 		id: device._id.toString(),
 		name: device.name,

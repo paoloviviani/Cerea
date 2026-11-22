@@ -27,7 +27,8 @@ import {
 	notifyDevicePaired,
 } from "$lib/server/code/machines";
 import { OpError } from "$lib/types/machineProtocol";
-import { APP_VERSION, GALOPIN_LAST_CHANGED } from "$lib/utils/appVersion";
+import { GALOPIN_LAST_CHANGED } from "$lib/utils/appVersion";
+import { servedGalopinVersion } from "$lib/server/galopinDist";
 import { UPGRADE_TIMEOUT_MS, galopinNeedsUpgrade, type UpgradeRun } from "$lib/galopinUpgrade";
 import { getOwnedDevice, listDevices, requireCodeAgents } from "$lib/server/codeDevices";
 import { deleteCodeDeviceAttachments } from "$lib/server/codeAttachments";
@@ -72,7 +73,7 @@ async function startUpgrade(device: CodeDevice): Promise<Response> {
 	const run: UpgradeRun = {
 		startedAt: now,
 		fromVersion: device.agentVersion ?? "",
-		targetVersion: APP_VERSION,
+		targetVersion: await servedGalopinVersion(),
 		state: "running",
 	};
 	// One start at a time: the filter fails when a run is still going and not yet timed out.
@@ -92,12 +93,19 @@ async function startUpgrade(device: CodeDevice): Promise<Response> {
 	try {
 		await new MachineLink(deviceId).machineUpgrade();
 	} catch (err) {
+		// The link closing or timing out leaves it unknown whether galopin started: the run stays
+		// "running" and the next hello (or the timeout) decides.
+		if (err instanceof OpError && err.details?.linkLost === true) {
+			return json({ started: true, upgrade: run, unconfirmed: true });
+		}
 		const restore = device.upgradeRun
 			? { $set: { upgradeRun: device.upgradeRun } }
 			: { $unset: { upgradeRun: "" as const } };
 		await collections.codeDevices.updateOne({ _id: device._id }, restore);
 		if (err instanceof OpError) {
-			if (err.code === "forbidden" || err.code === "unsupported") error(409, err.message);
+			if (err.code === "forbidden" || err.code === "unsupported" || err.code === "invalid") {
+				error(409, err.message);
+			}
 			if (err.code === "unavailable") error(503, err.message);
 			error(502, err.message);
 		}

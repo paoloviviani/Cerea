@@ -216,7 +216,7 @@ function closeConnection(state: ConnectionState, code: number, reason: string): 
 	if (state.pingInterval) clearInterval(state.pingInterval);
 	for (const pending of state.pending.values()) {
 		clearTimeout(pending.timer);
-		pending.reject(new OpError("unavailable", "The machine link closed."));
+		pending.reject(new OpError("unavailable", "The machine link closed.", { linkLost: true }));
 	}
 	state.pending.clear();
 	closeMcpChannels(state, "The machine link closed.");
@@ -455,7 +455,9 @@ function sendRequest<TResult>(state: ConnectionState, op: OpName, args: unknown)
 		const id = randomUUID();
 		const timer = setTimeout(() => {
 			state.pending.delete(id);
-			reject(new OpError("unavailable", `Timed out waiting for ${op} to answer.`));
+			reject(
+				new OpError("unavailable", `Timed out waiting for ${op} to answer.`, { linkLost: true })
+			);
 		}, opDeadlineMs(op));
 		state.pending.set(id, { resolve: resolve as (value: unknown) => void, reject, timer });
 		try {
@@ -1298,7 +1300,7 @@ export function acceptMachineConnection(
 			if (state.pingInterval) clearInterval(state.pingInterval);
 			for (const pending of state.pending.values()) {
 				clearTimeout(pending.timer);
-				pending.reject(new OpError("unavailable", "The machine link closed."));
+				pending.reject(new OpError("unavailable", "The machine link closed.", { linkLost: true }));
 			}
 			closeMcpChannels(state, "The machine link closed.");
 			registry.delete(state.deviceId);
@@ -1413,14 +1415,24 @@ async function onHello(
 					lastSeenAt: now,
 					updatedAt: now,
 					...(hello.agent.upgrade ? { agentUpgrade: hello.agent.upgrade } : {}),
-					...(existing.upgradeRun
-						? { upgradeRun: resolveUpgradeOnHello(existing.upgradeRun, hello.agent.version, now) }
-						: {}),
 				},
 				// A galopin that reports no capability (an older one) must not keep a stale one.
 				...(hello.agent.upgrade ? {} : { $unset: { agentUpgrade: "" as const } }),
 			}
 		);
+		// The upgrade started from here: this hello finishes it, or clears a finished one. Written
+		// only when it changed, and only if the run is still the one read: a start (or another
+		// hello) that landed in between is not overwritten.
+		if (existing.upgradeRun) {
+			const read = existing.upgradeRun;
+			const next = resolveUpgradeOnHello(read, hello.agent.version, now);
+			if (next !== read) {
+				await collections.codeDevices.updateOne(
+					{ _id: existing._id, "upgradeRun.startedAt": read.startedAt },
+					next ? { $set: { upgradeRun: next } } : { $unset: { upgradeRun: "" } }
+				);
+			}
+		}
 	} else {
 		const inserted = await collections.codeDevices.insertOne({
 			_id: new ObjectId(),

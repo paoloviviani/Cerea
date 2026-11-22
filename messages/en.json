@@ -399,6 +399,7 @@
 	"code.nav.upgrade_failed": "The upgrade did not complete.",
 	"code.nav.upgrade_failed_log": "The upgrade log is on the computer:",
 	"code.nav.upgrade_foreground": "galopin was started by hand on this computer. Run this in a terminal outside galopin:",
+	"code.nav.upgrade_launchd": "galopin runs as a launchd service on this computer. In a terminal there, run galopin service uninstall, then this command, then galopin service install (add the flags you gave it after --):",
 	"code.nav.upgrade_mac_app": "This computer runs the Cerea connector app. Upgrade galopin through the app's installer.",
 	"code.nav.upgrade_running": "Upgrading {name}. It goes offline for about a minute.",
 	"code.nav.upgrade_start_failed": "Could not start the upgrade.",

@@ -446,9 +446,16 @@ image and recreate the container; a galopin started by hand (or without `systemd
 or one that opted out, uses the install command above in a terminal outside galopin; a
 galopin from before this feature reports nothing and also shows the command.
 
-To keep Cerea from upgrading a computer, enroll it with `--no-remote-upgrade` (or run
-`galopin policy set --no-remote-upgrade`); `galopin enroll --allow-remote-upgrade` turns it
-back on. The command above still works either way.
+The button is a **remote code path**: it makes the computer download and run the installer
+Cerea serves, which is what you would paste by hand. It is on by default, **except** on a
+computer that denies both the terminal and the command shell (`--no-terminal` and
+`--no-command-shell`): its owner expects Cerea cannot run code there, so remote upgrade is
+off until it is enrolled with `--allow-remote-upgrade`. To keep Cerea from upgrading any
+computer, enroll it with `--no-remote-upgrade` (or run
+`galopin policy set --no-remote-upgrade`, which takes effect within seconds, no restart);
+`galopin enroll --allow-remote-upgrade` turns it back on. The command above still works
+either way. A Mac where `galopin service install` set galopin up under launchd shows
+`galopin service uninstall`, the install command, then `galopin service install`.
 
 or, from a galopin new enough to have it, `galopin upgrade` (it downloads that
 installer from the Cerea the computer is enrolled with, shows what it will do and asks

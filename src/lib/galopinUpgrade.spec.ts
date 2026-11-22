@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	UPGRADE_OLD_HELLO_GRACE_MS,
+	UPGRADE_RESULT_TTL_MS,
 	UPGRADE_TIMEOUT_MS,
 	buildUpgradeCommand,
 	galopinNeedsUpgrade,
@@ -66,6 +67,9 @@ describe("upgradeInstructions", () => {
 			"docker"
 		);
 		expect(upgradeInstructions({ online: true, agentContainer: true })).toBe("docker");
+		expect(upgradeInstructions({ online: true, agentUpgrade: cap(false, "launchd") })).toBe(
+			"launchd"
+		);
 		expect(upgradeInstructions({ online: true, agentUpgrade: cap(false, "foreground") })).toBe(
 			"foreground"
 		);
@@ -98,19 +102,37 @@ describe("upgrade run", () => {
 		expect(versionAtLeast("dev", "0.61.0")).toBe(false);
 	});
 	it("is done when the computer comes back at or above the target", () => {
-		const done = resolveUpgradeOnHello(run(), "0.61.0", after(60_000));
+		const done = resolveUpgradeOnHello(run(), "0.61.0", after(60_000)) as UpgradeRun;
 		expect(done.state).toBe("done");
 		expect(done.version).toBe("0.61.0");
 	});
 	it("ignores an old-version hello inside the grace, fails one after it", () => {
-		expect(resolveUpgradeOnHello(run(), "0.60.0", after(30_000)).state).toBe("running");
-		const failed = resolveUpgradeOnHello(run(), "0.60.0", after(UPGRADE_OLD_HELLO_GRACE_MS));
+		expect(resolveUpgradeOnHello(run(), "0.60.0", after(30_000))?.state).toBe("running");
+		const failed = resolveUpgradeOnHello(
+			run(),
+			"0.60.0",
+			after(UPGRADE_OLD_HELLO_GRACE_MS)
+		) as UpgradeRun;
 		expect(failed.state).toBe("failed");
 		expect(failed.version).toBe("0.60.0");
 	});
-	it("leaves a finished run alone", () => {
-		const done = { ...run(), state: "done" as const };
-		expect(resolveUpgradeOnHello(done, "0.1.0", after(600_000))).toBe(done);
+	it("leaves a recently finished run alone, and clears it later", () => {
+		const done = { ...run(), state: "done" as const, finishedAt: start };
+		expect(resolveUpgradeOnHello(done, "0.61.0", after(60_000))).toBe(done);
+		expect(resolveUpgradeOnHello(done, "0.61.0", after(UPGRADE_RESULT_TTL_MS))).toBeNull();
+	});
+	it("clears a failed run once the computer is at the target", () => {
+		const failed = { ...run(), state: "failed" as const, finishedAt: start };
+		expect(resolveUpgradeOnHello(failed, "0.60.0", after(60_000))).toBe(failed);
+		expect(resolveUpgradeOnHello(failed, "0.61.0", after(60_000))).toBeNull();
+		expect(upgradeRunView(failed, after(60_000), "0.60.0")?.state).toBe("failed");
+		expect(upgradeRunView(failed, after(60_000), "0.61.0")).toBeNull();
+	});
+	it("stops showing a result after the TTL, a timed-out run included", () => {
+		const done = { ...run(), state: "done" as const, finishedAt: start };
+		expect(upgradeRunView(done, after(UPGRADE_RESULT_TTL_MS - 1))?.state).toBe("done");
+		expect(upgradeRunView(done, after(UPGRADE_RESULT_TTL_MS))).toBeNull();
+		expect(upgradeRunView(run(), after(UPGRADE_TIMEOUT_MS + UPGRADE_RESULT_TTL_MS))).toBeNull();
 	});
 	it("shows a run that did not return in time as failed", () => {
 		expect(upgradeRunView(run(), after(UPGRADE_TIMEOUT_MS - 1))?.state).toBe("running");

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -22,6 +23,7 @@ const (
 	upgradeSystemd    = "systemd"
 	upgradeMacApp     = "mac_app"
 	upgradeDocker     = "docker"
+	upgradeLaunchd    = "launchd"
 	upgradeForeground = "foreground"
 	upgradeDisabled   = "disabled"
 )
@@ -33,6 +35,9 @@ type upgradeCapEnv struct {
 	container  func() bool
 	cgroupFile string
 	lookPath   func(string) (string, error)
+	// userUnitActive: `systemctl --user is-active --quiet galopin.service`, the installer's own
+	// test (unit_active) for whether the user unit runs galopin.
+	userUnitActive func() bool
 }
 
 func realUpgradeCapEnv() upgradeCapEnv {
@@ -40,6 +45,9 @@ func realUpgradeCapEnv() upgradeCapEnv {
 	return upgradeCapEnv{
 		goos: runtime.GOOS, home: home, container: inContainer,
 		cgroupFile: "/proc/self/cgroup", lookPath: exec.LookPath,
+		userUnitActive: func() bool {
+			return exec.Command("systemctl", "--user", "is-active", "--quiet", "galopin.service").Run() == nil
+		},
 	}
 }
 
@@ -59,9 +67,13 @@ func detectUpgrade(env upgradeCapEnv, pol policy.Policy) link.UpgradeInfo {
 		return link.UpgradeInfo{Reason: upgradeDocker}
 	case env.goos == "darwin" && connectorAppInstalled(env.home):
 		return link.UpgradeInfo{Reason: upgradeMacApp}
+	case env.goos == "darwin" && launchdServiceInstalled(env.home):
+		return link.UpgradeInfo{Reason: upgradeLaunchd}
 	case !pol.RemoteUpgradeAllowed():
 		return link.UpgradeInfo{Reason: upgradeDisabled}
-	case env.goos != "linux" || !underGalopinUnit(env.cgroupFile):
+	case env.goos != "linux" || !underGalopinUserUnit(env.cgroupFile):
+		return link.UpgradeInfo{Reason: upgradeForeground}
+	case env.userUnitActive == nil || !env.userUnitActive():
 		return link.UpgradeInfo{Reason: upgradeForeground}
 	}
 	if _, err := env.lookPath("systemd-run"); err != nil {
@@ -70,11 +82,61 @@ func detectUpgrade(env upgradeCapEnv, pol policy.Policy) link.UpgradeInfo {
 	return link.UpgradeInfo{InPlace: true, Reason: upgradeSystemd}
 }
 
-// underGalopinUnit: this process is in the galopin.service cgroup (the same test as the
-// installer's upgrade_inside_galopin).
-func underGalopinUnit(cgroupFile string) bool {
+// underGalopinUserUnit: this process is in the galopin.service cgroup of a *user* manager
+// (".../user@UID.service/.../galopin.service", cgroup v2 and v1 alike). A system unit
+// (".../system.slice/galopin.service") matches the installer's "inside galopin" test but is not
+// the user unit it can stop and detach from, so it is not in place.
+func underGalopinUserUnit(cgroupFile string) bool {
 	body, err := os.ReadFile(cgroupFile)
-	return err == nil && strings.Contains(string(body), "/galopin.service")
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(body), "\n") {
+		if strings.Contains(line, "/user@") && strings.Contains(line, "/galopin.service") {
+			return true
+		}
+	}
+	return false
+}
+
+// launchdServiceInstalled: `galopin service install` wrote org.cerea.galopin's LaunchAgent (the
+// connector app's own plist is tested first).
+func launchdServiceInstalled(home string) bool {
+	_, err := os.Stat(filepath.Join(home, "Library", "LaunchAgents", launchdLabel+".plist"))
+	return err == nil
+}
+
+// effectiveUpgradePolicy is pol with remoteUpgrade denied when policy.json now says so too: a
+// deny-only merge, so `galopin policy set --no-remote-upgrade` (or a tightened terminal and
+// shell) takes effect without a restart, and nothing the file says can turn it back on.
+func effectiveUpgradePolicy(pol policy.Policy, path string) policy.Policy {
+	if _, statErr := os.Stat(path); path != "" && statErr == nil {
+		if file, err := policy.Load(path); err == nil && !file.RemoteUpgradeAllowed() {
+			pol.RemoteUpgrade = policy.TerminalDenied
+		}
+	}
+	return pol
+}
+
+// watchRemoteUpgrade calls onDenied once when policy.json starts denying remote upgrade while
+// galopin runs (run reconnects the link so Cerea's hello says so).
+func watchRemoteUpgrade(ctx context.Context, path string, pol policy.Policy, every time.Duration, onDenied func()) {
+	if !effectiveUpgradePolicy(pol, path).RemoteUpgradeAllowed() {
+		return
+	}
+	tick := time.NewTicker(every)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+		if !effectiveUpgradePolicy(pol, path).RemoteUpgradeAllowed() {
+			onDenied()
+			return
+		}
+	}
 }
 
 // selfUpgrade is machine.upgradeSelf: `galopin upgrade --yes` in this process. The installer
@@ -85,7 +147,7 @@ func selfUpgrade(credsPath string) func(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+		ctx, cancel := context.WithTimeout(ctx, 55*time.Second)
 		defer cancel()
 		return upgradeFrom(ctx, realUpgradeEnv(), creds.CereaOrigin, true, false, false, credsPath)
 	}
@@ -103,7 +165,7 @@ func (mc *machine) opMachineUpgrade(ctx context.Context, args json.RawMessage) (
 	if mc.upgradeCaps != nil {
 		info = mc.upgradeCaps()
 	} else {
-		info = detectUpgrade(realUpgradeCapEnv(), mc.pol)
+		info = detectUpgrade(realUpgradeCapEnv(), effectiveUpgradePolicy(mc.pol, mc.policyPath))
 	}
 	if !info.InPlace {
 		if mc.audit != nil {
@@ -132,6 +194,8 @@ func upgradeReasonText(reason string) string {
 		return "it runs in a container: pull the new image"
 	case upgradeMacApp:
 		return "the Cerea connector app upgrades it"
+	case upgradeLaunchd:
+		return "it runs under launchd: galopin service uninstall, upgrade, galopin service install"
 	case upgradeDisabled:
 		return "turned off with --no-remote-upgrade"
 	default:

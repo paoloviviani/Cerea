@@ -1375,7 +1375,7 @@ func enrollPolicy(opts *enrollOptions) (policy.Policy, error) {
 	switch {
 	case opts.noRemoteUpgrade:
 		pol.RemoteUpgrade = policy.TerminalDenied
-	case opts.set != nil && opts.set["allow-remote-upgrade"]:
+	case opts.set != nil && opts.set["allow-remote-upgrade"] && opts.allowRemoteUpgrade:
 		pol.RemoteUpgrade = policy.TerminalAllowed
 	case opts.set == nil && opts.allowRemoteUpgrade:
 		pol.RemoteUpgrade = policy.TerminalAllowed

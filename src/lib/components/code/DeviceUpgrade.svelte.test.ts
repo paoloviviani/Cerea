@@ -77,6 +77,7 @@ describe("DeviceUpgrade", () => {
 		["mac app", device({ agentUpgrade: { inPlace: false, reason: "mac_app" } })],
 		["docker", device({ agentUpgrade: { inPlace: false, reason: "docker" } })],
 		["a container with no capability", device({ agentContainer: true })],
+		["launchd", device({ agentUpgrade: { inPlace: false, reason: "launchd" } })],
 		["foreground", device({ agentUpgrade: { inPlace: false, reason: "foreground" } })],
 		["disabled", device({ agentUpgrade: { inPlace: false, reason: "disabled" } })],
 		["an old galopin", device()],
@@ -104,6 +105,10 @@ describe("DeviceUpgrade", () => {
 		const docker = await how(device({ agentUpgrade: { inPlace: false, reason: "docker" } }));
 		expect(docker.how).toBe("docker");
 		expect(docker.text).toContain(`docker pull ${GALOPIN_IMAGE}:${APP_VERSION}`);
+		const launchd = await how(device({ agentUpgrade: { inPlace: false, reason: "launchd" } }));
+		expect(launchd.how).toBe("launchd");
+		expect(launchd.text).toContain("galopin service uninstall");
+		expect(launchd.text).toContain(CURL);
 		const fg = await how(device({ agentUpgrade: { inPlace: false, reason: "foreground" } }));
 		expect(fg.how).toBe("foreground");
 		expect(fg.text).toContain("outside galopin");

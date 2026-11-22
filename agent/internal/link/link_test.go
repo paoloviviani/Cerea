@@ -507,3 +507,13 @@ func TestRunHonoursARetryAfterFromTheCredential(t *testing.T) {
 		t.Fatalf("log: %v", logs)
 	}
 }
+
+func TestMachineUpgradeHasItsOwnOpTimeout(t *testing.T) {
+	cfg := New(Config{}).cfg
+	if got := opTimeout(cfg, "machine.upgrade"); got < 60*time.Second {
+		t.Fatalf("machine.upgrade timeout %s is below Cerea's 60s", got)
+	}
+	if got := opTimeout(cfg, "session.list"); got != cfg.DefaultOpTimeout {
+		t.Fatalf("other ops keep the default, got %s", got)
+	}
+}

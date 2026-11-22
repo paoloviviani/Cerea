@@ -47,6 +47,19 @@ export function galopinDistDir(): string {
 	return config.GALOPIN_DIST_DIR || "/app/galopin-dist";
 }
 
+/** The version the served galopin binaries report: `GALOPIN_VERSION` beside SHA256SUMS (written
+ * by `build-dist.sh`), else this Cerea's own version (a dist from before the file). What an
+ * upgrade started from Cerea waits for. */
+export async function servedGalopinVersion(): Promise<string> {
+	try {
+		const v = (await readFile(join(galopinDistDir(), "GALOPIN_VERSION"), "utf8")).trim();
+		if (/^v?\d+\.\d+\.\d+/.test(v)) return v;
+	} catch {
+		/* no such file */
+	}
+	return APP_VERSION;
+}
+
 /** `sha256sum` output (`<hex>  <name>` per line) → name → hex. */
 export function parseSha256Sums(text: string): Map<string, string> {
 	const sums = new Map<string, string>();

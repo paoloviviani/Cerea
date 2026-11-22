@@ -124,6 +124,10 @@
 				<p class="mb-1.5" data-testid="device-upgrade-docker">
 					{m["code.nav.upgrade_docker"]()}
 				</p>
+			{:else if how === "launchd"}
+				<p class="mb-1.5" data-testid="device-upgrade-launchd">
+					{m["code.nav.upgrade_launchd"]()}
+				</p>
 			{:else if how === "foreground"}
 				<p class="mb-1.5" data-testid="device-upgrade-foreground">
 					{m["code.nav.upgrade_foreground"]()}
