@@ -22,8 +22,8 @@
 		onstarter?: (text: string, send: boolean) => void;
 		/** Show the starter chips (an administrator's switch, off by default). */
 		showStarters?: boolean;
-		/** Sits on the bottom edge of a box its caller sizes (the composer is centred
-		 * below it) instead of centring itself in the whole column. */
+		/** Sits inside a box its caller centres (above the composer) instead of
+		 * centring itself in the whole column. */
 		docked?: boolean;
 		children?: import("svelte").Snippet;
 	}
@@ -144,23 +144,31 @@
 	]}
 >
 	<div
-		class="flex items-center justify-center rounded-xl text-[1.6rem] font-semibold select-none md:text-[2.55rem]"
+		class="flex max-w-full flex-col items-center justify-center gap-2 rounded-xl text-[1.6rem] font-semibold select-none md:flex-row md:gap-0 md:text-[2.55rem]"
 	>
 		<!-- Decorative while the name itself is the text beside it, so a screen
 		     reader does not hear "Cerea logo, Cerea"; labelled once a phrase
 		     replaces the name. -->
 		<Logo
-			classNames="h-[2.25rem] md:h-[3.25rem] w-auto mr-3"
+			classNames="h-[2.25rem] md:h-[3.25rem] w-auto flex-none md:mr-3"
 			decorative={!phrase || phrase === publicConfig.PUBLIC_APP_NAME}
 		/>
+		<!-- On a phone the logo sits above the text: a phrase that wraps to two
+		     lines would otherwise stretch its box to the full width and leave the
+		     logo stranded at the left edge. From md up the pair is one row, and the
+		     text box is `min-w-0` so a long phrase wraps inside the row. text-balance
+		     evens out the lines. -->
 		<!-- The picked phrase REPLACES the name, in the name's own type: it
 		     says Cerea, Com'è?, Va bin — not a name with a whisper beside
 		     it. Empty until onMount picks, so the SSR payload (pinned by
 		     the SSR test) carries the name only. -->
 		<span
-			class={picked
-				? "opacity-100 transition-opacity duration-200 motion-reduce:transition-none"
-				: "intro-pending"}
+			class={[
+				"min-w-0 text-balance",
+				picked
+					? "opacity-100 transition-opacity duration-200 motion-reduce:transition-none"
+					: "intro-pending",
+			]}
 			data-testid="intro-title"
 		>
 			{#if phrase && gloss}

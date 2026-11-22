@@ -167,3 +167,17 @@ describe("ChatIntroduction", () => {
 		expect(picked[3]?.[0]).toContain("Cerea");
 	});
 });
+
+describe("ChatIntroduction layout", () => {
+	it("keeps the logo in the same box as the title and lets the title shrink to wrap", async () => {
+		const screen = renderWithApp(ChatIntroduction, { currentModel: model, docked: true });
+		const title = screen.baseElement.querySelector('[data-testid="intro-title"]') as HTMLElement;
+		const row = title.parentElement as HTMLElement;
+		// Logo and title are siblings in one centred group: a wrapped phrase
+		// cannot strand the logo at the edge.
+		expect(row.querySelector("svg, img")).not.toBeNull();
+		expect(title.classList.contains("min-w-0")).toBe(true);
+		expect(title.classList.contains("text-balance")).toBe(true);
+		expect(getComputedStyle(row).justifyContent).toBe("center");
+	});
+});
