@@ -291,3 +291,24 @@ func TestPolicySetNoRemoteUpgrade(t *testing.T) {
 		t.Fatalf("remote upgrade should be denied: %+v %v", got.RemoteUpgrade, err)
 	}
 }
+
+func TestSeenUpgradeDenyIsStickyUntilRestart(t *testing.T) {
+	dir := t.TempDir()
+	path := writePolicy(t, dir, `{"terminal":"allowed","remoteUpgrade":"denied"}`)
+	start := policy.Policy{Terminal: policy.TerminalAllowed}
+	if effectiveUpgradePolicy(start, path).RemoteUpgradeAllowed() {
+		t.Fatal("denied in the file")
+	}
+	writePolicy(t, dir, `{"terminal":"allowed","remoteUpgrade":"allowed"}`)
+	if effectiveUpgradePolicy(start, path).RemoteUpgradeAllowed() {
+		t.Fatal("a later allow must not lift a seen deny")
+	}
+	writePolicy(t, dir, `{ not json`)
+	if effectiveUpgradePolicy(start, path).RemoteUpgradeAllowed() {
+		t.Fatal("an unparseable file must not lift a seen deny")
+	}
+	_ = os.Remove(path)
+	if effectiveUpgradePolicy(start, path).RemoteUpgradeAllowed() {
+		t.Fatal("a missing file must not lift a seen deny")
+	}
+}

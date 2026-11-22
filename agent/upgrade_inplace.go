@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"galopin/internal/link"
@@ -110,13 +111,26 @@ func launchdServiceInstalled(home string) bool {
 // deny-only merge, so `galopin policy set --no-remote-upgrade` (or a tightened terminal and
 // shell) takes effect without a restart, and nothing the file says can turn it back on.
 func effectiveUpgradePolicy(pol policy.Policy, path string) policy.Policy {
-	if _, statErr := os.Stat(path); path != "" && statErr == nil {
+	if path == "" {
+		return pol
+	}
+	if _, sticky := upgradeDenySeen.Load(path); sticky {
+		pol.RemoteUpgrade = policy.TerminalDenied
+		return pol
+	}
+	if _, statErr := os.Stat(path); statErr == nil {
 		if file, err := policy.Load(path); err == nil && !file.RemoteUpgradeAllowed() {
+			// Sticky for the process lifetime, like policy.Live for permissions: a later hand
+			// edit or a half-written file does not lift it until galopin restarts.
+			upgradeDenySeen.Store(path, true)
 			pol.RemoteUpgrade = policy.TerminalDenied
 		}
 	}
 	return pol
 }
+
+// upgradeDenySeen holds the policy files (by path) that have said remote upgrade is denied.
+var upgradeDenySeen sync.Map
 
 // watchRemoteUpgrade calls onDenied once when policy.json starts denying remote upgrade while
 // galopin runs (run reconnects the link so Cerea's hello says so).
