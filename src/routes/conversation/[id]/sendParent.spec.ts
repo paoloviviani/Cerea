@@ -130,9 +130,17 @@ describe("ids the tab proposes for the messages a send creates (C156)", () => {
 	const NA = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 	const stored = async (id: string) =>
 		(await collections.conversations.findOne({ _id: new ObjectId(id) }))?.messages ?? [];
-	/** Lets the turn the accepted send started finish (it has no model to talk to). */
+	/**
+	 * Lets the turn the accepted send started finish (it has no model to talk to).
+	 * The endpoint's stream carries strings, which `response.text()` rejects on the
+	 * first chunk, so it would return while the turn still ran and its closing save
+	 * (the whole messages array) landed over the next send's write. Reading the
+	 * stream itself waits for the close, which comes after that save.
+	 */
 	const settle = async (response: Response) => {
-		await response.text().catch(() => {});
+		const reader = response.body?.getReader();
+		if (!reader) return;
+		while (!(await reader.read()).done);
 	};
 
 	it("stores exactly the proposed ids for a normal send", async () => {
