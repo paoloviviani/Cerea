@@ -7,6 +7,8 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- New: **Upgrade button** on a computer whose galopin is outdated. In the Agents panel, an online computer running galopin as its systemd user unit gets an **Upgrade** button (with a confirmation) instead of the curl command: galopin upgrades itself, keeps its pairing and settings, and the card shows "Upgrading…", then "Updated to vX" (or that it did not complete, with the log's location). A Mac with the connector app, Docker, a hand-started galopin, an older galopin and a computer enrolled with `--no-remote-upgrade` keep showing the instructions that fit them. **To use it on a computer:** upgrade galopin once with the usual command; galopin reports the capability from then on.
+
 ## v0.62.0 — 2026-11-22
 
 Pins: Cerea `0.62.0` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.34.0`, opencode `2.3.0`.

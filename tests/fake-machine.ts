@@ -146,6 +146,8 @@ export interface FakeMachineOptions {
 	machine?: Machine;
 	credentialState?: "ok" | "expiring" | "expired";
 	agentVersion?: string;
+	/** hello.agent.upgrade (§6 machine.upgrade); absent, as from an older galopin. */
+	agentUpgrade?: { inPlace: boolean; reason: string };
 	hostname?: string;
 	/** Whether this galopin knows `session.grantCoordination` (default true):
 	 * false answers it `unsupported`, as a galopin from before the op does. The
@@ -308,6 +310,7 @@ export class FakeMachine {
 				os: "linux",
 				arch: "amd64",
 				hostname: this.options.hostname ?? "fake-machine",
+				...(this.options.agentUpgrade ? { upgrade: this.options.agentUpgrade } : {}),
 			},
 			backends: this.options.backends ?? [
 				this.options.coordinationGrant === false ? BACKEND_WITHOUT_COORDINATION : DEFAULT_BACKEND,

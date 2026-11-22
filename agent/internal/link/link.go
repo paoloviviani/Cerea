@@ -64,6 +64,18 @@ type AgentInfo struct {
 	// Container is true inside a container (Docker, Podman): such a galopin is upgraded by
 	// pulling the new image, so the panel does not offer the installer's --upgrade for it.
 	Container bool `json:"container,omitempty"`
+	// Upgrade says whether this galopin can upgrade itself in place when Cerea asks
+	// (`machine.upgrade`, PROTOCOL.md §6). Absent from a galopin that predates it.
+	Upgrade *UpgradeInfo `json:"upgrade,omitempty"`
+}
+
+// UpgradeInfo is hello.agent.upgrade. Reason is why InPlace is what it is:
+// "systemd" (true: running under the galopin systemd user unit with systemd-run
+// available), or, with InPlace false, "docker", "mac_app", "foreground" (not started by
+// the unit, or no systemd-run) or "disabled" (the owner's `--no-remote-upgrade`).
+type UpgradeInfo struct {
+	InPlace bool   `json:"inPlace"`
+	Reason  string `json:"reason"`
 }
 
 // PermissionInfo is policy.json's permission block as the hello reports it.

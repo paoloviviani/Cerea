@@ -635,6 +635,10 @@ func resultTarget(op string) any {
 		return &struct {
 			Commands []backend.Command `json:"commands"`
 		}{}
+	case "machine.upgrade":
+		return &struct {
+			Started bool `json:"started"`
+		}{}
 	case "profiles.list", "profiles.set":
 		return &profileSet{}
 	case "files.list":

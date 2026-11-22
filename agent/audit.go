@@ -269,3 +269,8 @@ func (a *auditLogger) permissionTightened(restarted bool) {
 func (a *auditLogger) mcpCall(server, tool, outcome string) {
 	a.write(map[string]any{"action": "mcp.call", "server": server, "tool": tool, "outcome": outcome})
 }
+
+// upgrade records an upgrade Cerea asked for (machine.upgrade): started, or why not.
+func (a *auditLogger) upgrade(outcome string) {
+	a.write(map[string]any{"action": "upgrade", "outcome": outcome})
+}

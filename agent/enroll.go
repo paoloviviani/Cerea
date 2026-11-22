@@ -95,6 +95,10 @@ Usage:
                 audits any attempt to change them; plugins still run as you.
                 With --allow-opencode-provider the provider allowlist cannot
                 be pinned (known: no guarantee).
+   --no-remote-upgrade  Do not let Cerea's Upgrade button upgrade galopin on this
+                computer (default: allowed, where galopin runs as its systemd
+                user unit). The curl command still upgrades it by hand.
+                --allow-remote-upgrade turns it back on in a re-enroll.
    --no-background-subagents  Remove the subagent tool (default: allowed).
                 opencode 2 runs every subagent in the background: the call
                 returns the child's session at once and the child keeps working
@@ -252,6 +256,8 @@ type enrollOptions struct {
 	noTerminal             bool
 	noCommandShell         bool
 	noBackground           bool
+	noRemoteUpgrade        bool
+	allowRemoteUpgrade     bool
 	maxTerminals           int
 	yes                    bool
 	// set holds the flag names given on the command line. When non-nil the
@@ -328,6 +334,8 @@ func newEnrollFlagSet(opts *enrollOptions) (fs *flag.FlagSet, noDiscover *bool) 
 	fs.BoolVar(&opts.noTerminal, "no-terminal", false, "")
 	fs.BoolVar(&opts.noCommandShell, "no-command-shell", false, "")
 	fs.BoolVar(&opts.noBackground, "no-background-subagents", false, "")
+	fs.BoolVar(&opts.noRemoteUpgrade, "no-remote-upgrade", false, "")
+	fs.BoolVar(&opts.allowRemoteUpgrade, "allow-remote-upgrade", true, "")
 	fs.BoolVar(&opts.noAgentTools, "no-agent-tools", false, "")
 	fs.BoolVar(&opts.allowProjectConfig, "allow-project-config", false, "")
 	fs.BoolVar(&opts.allowBackground, "allow-background-subagents", true, "")
@@ -863,6 +871,7 @@ func enroll(ctx context.Context, opts *enrollOptions) error {
 	fmt.Fprintln(os.Stderr, agentToolsPolicySummary(pol))
 	fmt.Fprintln(os.Stderr, projectConfigPolicySummary(pol, opts.allowOpencodeProviders))
 	fmt.Fprintln(os.Stderr, backgroundSubagentsPolicySummary(pol))
+	fmt.Fprintln(os.Stderr, remoteUpgradePolicySummary(pol))
 	fmt.Fprintln(os.Stderr, permissionPolicySummary(pol))
 	if opts.base != nil {
 		fmt.Fprintln(os.Stderr, "note: re-enrolled: the settings already on this machine were kept except the options you passed ('galopin reset' returns the policy to the defaults).")
@@ -1237,6 +1246,14 @@ func backgroundSubagentsPolicySummary(pol policy.Policy) string {
 	return "Background subagents: ALLOWED — a subagent returns at once and keeps working after its parent turn ends; its report returns as an automatic message the panel shows."
 }
 
+// remoteUpgradePolicySummary says whether Cerea's Upgrade button may upgrade this galopin.
+func remoteUpgradePolicySummary(pol policy.Policy) string {
+	if !pol.RemoteUpgradeAllowed() {
+		return "Remote upgrade: OFF — Cerea's Upgrade button is not offered for this computer; upgrade it with the install command's --upgrade."
+	}
+	return "Remote upgrade: ON — the owner can upgrade galopin from Cerea's Upgrade button (only where it runs as its systemd user unit)."
+}
+
 // freshEnrollPolicy is what a machine with no policy gets from `enroll` with
 // no option, and what `galopin reset` returns it to: closed except the
 // terminal, command shell, background subagents and the file editor, which
@@ -1354,6 +1371,14 @@ func enrollPolicy(opts *enrollOptions) (policy.Policy, error) {
 	}
 	if opts.noAgentTools {
 		pol.AgentTools = policy.TerminalDenied
+	}
+	switch {
+	case opts.noRemoteUpgrade:
+		pol.RemoteUpgrade = policy.TerminalDenied
+	case opts.set != nil && opts.set["allow-remote-upgrade"]:
+		pol.RemoteUpgrade = policy.TerminalAllowed
+	case opts.set == nil && opts.allowRemoteUpgrade:
+		pol.RemoteUpgrade = policy.TerminalAllowed
 	}
 	if opts.allowProjectConfig {
 		if opts.allowOpencodeProviders {

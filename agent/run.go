@@ -338,6 +338,7 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 	}
 
 	mc := newMachine(reg, back, mat, pol)
+	mc.upgradeSelf = selfUpgrade(credsPath)
 	home, _ := os.UserHomeDir()
 	mc.protected = decide.NewProtected(home, stateDir, gooseRootFor(credsPath), vibeHomeFor(credsPath), mcpPath)
 	auditLog, err := newAuditLogger(stateDir)
@@ -633,6 +634,7 @@ func buildHelloBase(pol policy.Policy) link.Hello {
 			Arch:      runtime.GOARCH,
 			Hostname:  hostname,
 			Container: inContainer(),
+			Upgrade:   upgradeCapability(pol),
 		},
 		Policy: link.PolicyInfo{
 			AutoAccept:          autoAcceptRetired,
@@ -899,6 +901,7 @@ func runConnectorsOnly(ctx context.Context, opts *runOptions, credsPath, stateDi
 	}
 	defer auditLog.Close()
 	mc := &machine{pol: pol}
+	mc.upgradeSelf = selfUpgrade(credsPath)
 	mc.AttachAudit(auditLog)
 	connectors := mc.startConnectors(stateDir, mcpPath)
 	defer connectors.Shutdown()

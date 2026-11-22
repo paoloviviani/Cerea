@@ -152,6 +152,20 @@ export async function confirmDevice(id: string): Promise<{ confirmed: boolean }>
 	);
 }
 
+/** Start an upgrade of a computer's galopin from here (C159): the owner's Upgrade button.
+ * Refused (409) unless the computer is online and reported it can upgrade itself in place;
+ * galopin answers once its installer has detached, so this waits longer than other calls. */
+export async function startUpgrade(id: string): Promise<{ started: boolean }> {
+	return unwrap(
+		await fetch(`${root()}/devices?id=${encodeURIComponent(id)}`, {
+			method: "PATCH",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ action: "upgrade" }),
+			signal: AbortSignal.timeout(70_000),
+		})
+	);
+}
+
 /** "Never auto review requests" (ADR 0107): stored on the device, for its owner. */
 export async function setNeverReview(
 	id: string,

@@ -38,6 +38,9 @@ refuses and names the 'enroll' re-run that does it instead.
                       the next 'run').
    --no-project-config  Stop loading a repo's own opencode config (the default
                        on a fresh enroll; takes effect at the next 'run').
+   --no-remote-upgrade  Stop Cerea's Upgrade button from upgrading galopin here
+                       (allowed on a fresh enroll; takes effect at the next 'run').
+                       'enroll --allow-remote-upgrade' turns it back on.
    --no-background-subagents  Stop allowing background subagents (they are
                        allowed on a fresh enroll; takes effect at the next 'run').
    --no-auto-accept    Does nothing (accepted for one more release): auto-accept
@@ -117,6 +120,7 @@ func runPolicyShow(args []string) error {
 	fmt.Println(relayedCoordinationPolicySummary(pol))
 	fmt.Println(projectConfigPolicySummary(pol, false))
 	fmt.Println(backgroundSubagentsPolicySummary(pol))
+	fmt.Println(remoteUpgradePolicySummary(pol))
 	fmt.Println(permissionPolicySummary(pol))
 	fmt.Printf("allowFreeModels: %v\n", pol.AllowFreeModels)
 	fmt.Printf("workspaceRoots: %v\n", pol.WorkspaceRoots)
@@ -135,6 +139,7 @@ func runPolicySet(args []string) error {
 	noRelayed := fs.Bool("no-relayed-coordination", false, "")
 	noProjectConfig := fs.Bool("no-project-config", false, "")
 	noBackground := fs.Bool("no-background-subagents", false, "")
+	noRemoteUpgrade := fs.Bool("no-remote-upgrade", false, "")
 	noAutoAccept := fs.Bool("no-auto-accept", false, "")
 	var permMax, permRules, limits, denyAdd, denyDrop []string
 	fs.Var(stringListFlag{&denyAdd}, "deny", "")
@@ -207,6 +212,10 @@ func runPolicySet(args []string) error {
 	}
 	if *noBackground {
 		pol.BackgroundSubagents = policy.TerminalDenied
+		changed = true
+	}
+	if *noRemoteUpgrade {
+		pol.RemoteUpgrade = policy.TerminalDenied
 		changed = true
 	}
 	if *noAutoAccept {
@@ -286,6 +295,7 @@ func runPolicySet(args []string) error {
 	fmt.Fprintln(os.Stderr, agentToolsPolicySummary(pol))
 	fmt.Fprintln(os.Stderr, projectConfigPolicySummary(pol, false))
 	fmt.Fprintln(os.Stderr, backgroundSubagentsPolicySummary(pol))
+	fmt.Fprintln(os.Stderr, remoteUpgradePolicySummary(pol))
 	fmt.Fprintln(os.Stderr, permissionPolicySummary(pol))
 	return nil
 }

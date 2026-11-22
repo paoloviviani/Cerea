@@ -65,6 +65,7 @@ import {
 	type Notice,
 } from "$lib/types/machineProtocol";
 import type { CodeDevice } from "$lib/types/CodeAgent";
+import { resolveUpgradeOnHello } from "$lib/galopinUpgrade";
 import { observeMachineEvent, safely } from "$lib/server/push/watch";
 import { handleMachineCall, MACHINE_CALL_FEATURES } from "$lib/server/code/machineCalls";
 import { codeAgentsEnabled, localConnectorsEnabled } from "$lib/server/codeEnabled";
@@ -863,6 +864,12 @@ export class MachineLink {
 	}): Promise<unknown> {
 		return this.call("profiles.set", args);
 	}
+	/** Ask galopin to upgrade itself in place (§6 `machine.upgrade`): `{started: true}` once the
+	 * installer has detached. `forbidden` when this galopin cannot (or the owner opted out),
+	 * `unsupported` from a galopin that predates it. */
+	machineUpgrade(): Promise<{ started: boolean }> {
+		return this.call("machine.upgrade", {});
+	}
 	/** The machine's MCP servers (PROTOCOL.md §10.3). `unsupported` from a machine without
 	 * an `mcp.json`. */
 	async mcpList(): Promise<McpServer[]> {
@@ -1405,7 +1412,13 @@ async function onHello(
 					credentialState: hello.credential.state,
 					lastSeenAt: now,
 					updatedAt: now,
+					...(hello.agent.upgrade ? { agentUpgrade: hello.agent.upgrade } : {}),
+					...(existing.upgradeRun
+						? { upgradeRun: resolveUpgradeOnHello(existing.upgradeRun, hello.agent.version, now) }
+						: {}),
 				},
+				// A galopin that reports no capability (an older one) must not keep a stale one.
+				...(hello.agent.upgrade ? {} : { $unset: { agentUpgrade: "" as const } }),
 			}
 		);
 	} else {
@@ -1421,6 +1434,7 @@ async function onHello(
 			backends: hello.backends,
 			agentVersion: hello.agent.version,
 			agentContainer: hello.agent.container === true,
+			...(hello.agent.upgrade ? { agentUpgrade: hello.agent.upgrade } : {}),
 			...(hello.machine ? { machine: hello.machine } : {}),
 			policy: hello.policy,
 			credentialState: hello.credential.state,
