@@ -26,6 +26,7 @@ without connecting to Cerea.
 
 Usage:
   galopin launch opencode [options] [-- opencode arguments…]
+  galopin launch goose    [options] [-- goose arguments…]
 
 Starts opencode in the current directory with the opencode.json 'galopin
 enroll' wrote, through the same local proxy (so the same gateway, billing
@@ -54,6 +55,19 @@ tool call asks), but nothing answers for galopin, so galopin's protections for
 its own state, the Plan/Ask/Auto modes and the review log do not apply. Provider
 API keys in your environment (ANTHROPIC_API_KEY, OPENAI_API_KEY, …) are removed
 from opencode's environment so nothing is billed outside the gateway.
+
+goose: 'galopin launch goose [--goose PATH] [--model ID] [--creds PATH]
+[--state-dir PATH] [--port PORT] [-- goose arguments…]'. Runs 'goose session' (or
+your arguments) with a temporary goose config directory (GOOSE_PATH_ROOT) that
+holds the same provider galopin's supervised goose uses (the gateway's models
+through the local proxy) and the default model (first chat model, or --model).
+Your own goose config, extensions and keys are not read or written, and the
+temporary directory is removed at exit; your session store is linked, so
+'goose session --resume' sees your history. goose runs in approve mode (asks
+before each tool call, in the terminal), keyring and telemetry off. Binary:
+--goose, then the copy galopin installed, then goose on PATH; a version other
+than the tested one only warns. galopin's protected paths, Plan/Ask/Auto, the
+Cerea connectors extension and the review log do not apply.
 `
 
 // launchOptions is what 'galopin launch opencode' needs; split from the flag
@@ -62,77 +76,143 @@ type launchOptions struct {
 	credsPath   string
 	stateDir    string
 	opencodeBin string
+	gooseBin    string // --goose
+	vibeBin     string // --vibe
+	claudeBin   string // --claude
+	model       string // --model (goose, vibe, claude)
+	smallModel  string // --small-model (claude)
 	port        int
 	args        []string // handed to opencode unchanged
 	stderr      io.Writer
 	env         []string // base environment (nil: os.Environ())
 }
 
+const launchSupported = "opencode, goose, vibe, claude"
+
 func runLaunch(args []string) error {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "-help" || args[0] == "--help" {
 		fmt.Fprint(os.Stderr, launchUsage)
 		if len(args) == 0 {
-			return exitError{code: 2, err: errors.New("launch: which tool? (supported: opencode)")}
+			return exitError{code: 2, err: errors.New("launch: which tool? (supported: " + launchSupported + ")")}
 		}
 		return nil
 	}
 	tool, rest := args[0], args[1:]
-	if tool != "opencode" {
-		return exitError{code: 2, err: fmt.Errorf("launch: unknown tool %q (supported: opencode)", tool)}
+	var run func(context.Context, launchOptions) error
+	switch tool {
+	case "opencode":
+		run = launchOpencode
+	case "goose":
+		run = launchGoose
+	default:
+		return exitError{code: 2, err: fmt.Errorf("launch: unknown tool %q (supported: %s)", tool, launchSupported)}
 	}
-	fs := flagSetWithHelp("launch opencode", launchUsage)
+	fs := flagSetWithHelp("launch "+tool, launchUsage)
 	opts := launchOptions{stderr: os.Stderr}
 	fs.StringVar(&opts.credsPath, "creds", "", "")
 	fs.StringVar(&opts.stateDir, "state-dir", "", "")
-	fs.StringVar(&opts.opencodeBin, "opencode", "opencode", "")
 	fs.IntVar(&opts.port, "port", 0, "")
+	switch tool {
+	case "opencode":
+		fs.StringVar(&opts.opencodeBin, "opencode", "opencode", "")
+	case "goose":
+		fs.StringVar(&opts.gooseBin, "goose", "", "")
+		fs.StringVar(&opts.model, "model", "", "")
+	}
 	if err := fs.Parse(rest); err != nil {
 		return err
 	}
 	opts.args = fs.Args()
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
-	return launchOpencode(ctx, opts)
+	return run(ctx, opts)
 }
 
-// launchOpencode runs the interactive opencode to completion and returns an
-// exitError carrying its exit code when that is not zero.
-func launchOpencode(ctx context.Context, opts launchOptions) error {
+// launchSession is what every 'galopin launch' tool shares: the enrolled
+// credentials, the policy, and a local proxy that lives as long as the tool.
+type launchSession struct {
+	creds     *credentials
+	credsPath string
+	stateDir  string
+	pol       policy.Policy
+	port      int
+	logf      func(string, ...any)
+	stopProxy func()
+}
+
+func (ls *launchSession) close() { ls.stopProxy() }
+
+// shimAddr is the proxy's address as the launched tool dials it.
+func (ls *launchSession) shimAddr() string { return fmt.Sprintf("127.0.0.1:%d", ls.port) }
+
+// startLaunch loads what 'enroll' wrote and makes sure the proxy answers.
+func startLaunch(opts launchOptions) (*launchSession, error) {
 	logw := opts.stderr
 	if logw == nil {
 		logw = io.Discard
 	}
-	logf := func(format string, args ...any) { fmt.Fprintf(logw, "galopin: "+format+"\n", args...) }
-
+	ls := &launchSession{logf: func(format string, args ...any) { fmt.Fprintf(logw, "galopin: "+format+"\n", args...) }}
 	credsPath := opts.credsPath
 	if credsPath == "" {
 		if err := migrateLegacyState(); err != nil {
-			return err
+			return nil, err
 		}
 		p, err := defaultCredsPath()
 		if err != nil {
-			return err
+			return nil, err
 		}
 		credsPath = p
 	}
 	creds, err := loadCredentials(credsPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return errors.New("this machine is not enrolled: run 'galopin enroll' first")
+			return nil, errors.New("this machine is not enrolled: run 'galopin enroll' first")
 		}
-		return err
+		return nil, err
 	}
 	if creds.Gateway == "" {
-		return errors.New("creds file has no gateway: re-run 'galopin enroll'")
+		return nil, errors.New("creds file has no gateway: re-run 'galopin enroll'")
 	}
 	if creds.ShimSecret == "" {
-		return errors.New("creds file has no shim secret: re-run 'galopin enroll'")
+		return nil, errors.New("creds file has no shim secret: re-run 'galopin enroll'")
 	}
 	stateDir := resolveStateDir(opts.stateDir, credsPath)
 	pol, err := policy.Load(filepath.Join(stateDir, policyFileName))
 	if err != nil {
+		return nil, err
+	}
+	ls.creds, ls.credsPath, ls.stateDir, ls.pol = creds, credsPath, stateDir, pol
+	return ls, nil
+}
+
+// startProxy reuses a running galopin proxy or starts one for this session.
+func (ls *launchSession) startProxy(opts launchOptions) error {
+	port := opts.port
+	if port == 0 {
+		port = ls.creds.ShimPort
+	}
+	if port == 0 {
+		port = defaultShimPort
+	}
+	stop, reused, err := ensureProxy(ls.creds, ls.credsPath, port, ls.logf)
+	if err != nil {
 		return err
 	}
+	ls.port, ls.stopProxy = port, stop
+	if reused {
+		ls.logf("using the proxy already listening on 127.0.0.1:%d", port)
+	}
+	return nil
+}
+
+// launchOpencode runs the interactive opencode to completion and returns an
+// exitError carrying its exit code when that is not zero.
+func launchOpencode(ctx context.Context, opts launchOptions) error {
+	ls, err := startLaunch(opts)
+	if err != nil {
+		return err
+	}
+	logf, creds, stateDir, pol := ls.logf, ls.creds, ls.stateDir, ls.pol
 	configPath, warning := resolveOpencodeConfig("", creds)
 	if configPath == "" {
 		return errors.New("no opencode.json from enroll to use: " + warning)
@@ -148,21 +228,10 @@ func launchOpencode(ctx context.Context, opts launchOptions) error {
 		logf("warning: %s is opencode %s; galopin is tested against %s", bin, got, want)
 	}
 
-	port := opts.port
-	if port == 0 {
-		port = creds.ShimPort
-	}
-	if port == 0 {
-		port = defaultShimPort
-	}
-	stopProxy, reused, err := ensureProxy(creds, credsPath, port, logf)
-	if err != nil {
+	if err := ls.startProxy(opts); err != nil {
 		return err
 	}
-	defer stopProxy()
-	if reused {
-		logf("using the proxy already listening on 127.0.0.1:%d", port)
-	}
+	defer ls.close()
 
 	// A private TMPDIR, never the supervised one: galopin run empties that on
 	// every start, which would pull opencode's libraries from under us.
@@ -187,12 +256,17 @@ func launchOpencode(ctx context.Context, opts launchOptions) error {
 
 	logf("local opencode, billed to %s; not supervised by Cerea (no Plan/Ask/Auto, no review log)", billingLabel(creds))
 	logf("opencode asks before each tool call, in this terminal; galopin's own-state protections need galopin to answer and do not apply")
+	return runLaunched(ctx, "opencode", bin, backendopencode.LaunchArgs(cfg, opts.args), env)
+}
 
-	cmd := exec.Command(bin, backendopencode.LaunchArgs(cfg, opts.args)...)
+// runLaunched runs the tool on the terminal until it exits, forwarding
+// SIGINT/SIGTERM/SIGHUP, and returns its exit code as an exitError.
+func runLaunched(ctx context.Context, name, bin string, args, env []string) error {
+	cmd := exec.Command(bin, args...)
 	cmd.Env = env
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("starting opencode: %w", err)
+		return fmt.Errorf("starting %s: %w", name, err)
 	}
 	sigs := make(chan os.Signal, 4)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
@@ -207,14 +281,14 @@ func launchOpencode(ctx context.Context, opts launchOptions) error {
 			_ = cmd.Process.Signal(syscall.SIGTERM)
 			ctx = context.Background()
 		case err := <-done:
-			return exitFromWait(err)
+			return exitFromWait(name, err)
 		}
 	}
 }
 
 // exitFromWait maps cmd.Wait's result to galopin's own exit: nil for success,
 // the child's code otherwise (128+signal when it died of one).
-func exitFromWait(err error) error {
+func exitFromWait(name string, err error) error {
 	if err == nil {
 		return nil
 	}
@@ -224,7 +298,7 @@ func exitFromWait(err error) error {
 		if ws, ok := ee.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
 			code = 128 + int(ws.Signal())
 		}
-		return exitError{code: code, err: fmt.Errorf("opencode exited with status %d", code)}
+		return exitError{code: code, err: fmt.Errorf("%s exited with status %d", name, code)}
 	}
 	return err
 }

@@ -198,9 +198,9 @@ func TestEnsureProxyRefusesAForeignListener(t *testing.T) {
 }
 
 func TestLaunchUnknownTool(t *testing.T) {
-	err := runLaunch([]string{"claude"})
+	err := runLaunch([]string{"nosuchtool"})
 	var ee exitError
-	if !errors.As(err, &ee) || ee.code != 2 || !strings.Contains(err.Error(), "supported: opencode") {
+	if !errors.As(err, &ee) || ee.code != 2 || !strings.Contains(err.Error(), "supported: opencode, goose, vibe, claude") {
 		t.Fatalf("err = %v", err)
 	}
 }
