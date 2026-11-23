@@ -115,6 +115,16 @@ func TestLaunchPassesArgsEnvAndExitCode(t *testing.T) {
 	if strings.Contains(rec, "evil/x") {
 		t.Errorf("an inherited OPENCODE_CONFIG_CONTENT reached opencode:\n%s", rec)
 	}
+	// the provider key is this launch's secret, not the long-lived one in opencode.json
+	if !strings.Contains(rec, `"apiKey":"gl-`) || strings.Contains(rec, r.creds_.ShimSecret) {
+		t.Errorf("opencode was not given a per-launch provider key:\n%s", rec)
+	}
+	if !strings.Contains(rec, `"baseURL":"http://127.0.0.1:`+itPortStr(r.port)+`/v1"`) {
+		t.Errorf("opencode is not pointed at the launch's proxy:\n%s", rec)
+	}
+	if b, _ := os.ReadFile(r.creds_.OpencodeConfig); !strings.Contains(string(b), r.creds_.ShimSecret) {
+		t.Errorf("enroll's opencode.json was modified")
+	}
 	if !strings.Contains(rec, `"permissions"`) || !strings.Contains(rec, `"ask"`) {
 		t.Errorf("OPENCODE_CONFIG_CONTENT lacks the ask floor:\n%s", rec)
 	}
@@ -165,7 +175,7 @@ func TestEnsureProxyStartsAndStopsThenReuses(t *testing.T) {
 		t.Fatalf("second: reused=%v err=%v, want reuse", reused2, err)
 	}
 	stop2() // reuse's stop must not take the owner's proxy down
-	if !shimAnswers(net.JoinHostPort("127.0.0.1", itPortStr(r.port)), r.creds_.ShimSecret) {
+	if !shimIsOurs(net.JoinHostPort("127.0.0.1", itPortStr(r.port)), r.creds_.ShimSecret) {
 		t.Fatal("reuse's stop closed the proxy it did not start")
 	}
 	stop1()
@@ -198,9 +208,9 @@ func TestEnsureProxyRefusesAForeignListener(t *testing.T) {
 }
 
 func TestLaunchUnknownTool(t *testing.T) {
-	err := runLaunch([]string{"claude"})
+	err := runLaunch([]string{"nosuchtool"})
 	var ee exitError
-	if !errors.As(err, &ee) || ee.code != 2 || !strings.Contains(err.Error(), "supported: opencode") {
+	if !errors.As(err, &ee) || ee.code != 2 || !strings.Contains(err.Error(), "supported: opencode, goose, vibe, claude") {
 		t.Fatalf("err = %v", err)
 	}
 }

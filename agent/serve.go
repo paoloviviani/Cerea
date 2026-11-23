@@ -65,6 +65,12 @@ type shim struct {
 	// sessionTag, if set, names the coding-agent session a forwarded request
 	// belongs to (see setSessionTag). Guarded by s.mu.
 	sessionTag func(engineSessionID string) string
+	// launchSecrets are per-launch secrets 'galopin launch' registered
+	// (shim_launch.go); accepted for requests only, until withdrawn.
+	// Guarded by s.mu.
+	launchSecrets map[string]int // secret -> launcher pid
+	// pidAlive overrides the launcher liveness check (tests).
+	pidAlive func(int) bool
 	// usageSink, if set, receives each chat-completion's token usage (see
 	// setUsageSink in shimusage.go). Guarded by s.mu.
 	usageSink func(sessionID string, u usageSample)
@@ -193,11 +199,7 @@ func (s *shim) requireLocalAuth(next http.HandlerFunc) http.HandlerFunc {
 			http.Error(w, "forbidden: unexpected Host", http.StatusForbidden)
 			return
 		}
-		got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		s.mu.Lock()
-		want := s.creds.ShimSecret
-		s.mu.Unlock()
-		if !secretMatches(want, got) {
+		if !s.authorized(r, true) {
 			writeOpenAIError(w, http.StatusUnauthorized, "missing or invalid shim secret", "invalid_request_error", "invalid_api_key")
 			return
 		}
@@ -369,6 +371,7 @@ func (s *shim) refreshLoop() {
 			s.mu.Unlock()
 			continue
 		}
+		s.sweepLaunchSecretsLocked()
 		s.mu.Unlock()
 		_ = s.refresh()
 	}
@@ -647,7 +650,7 @@ func (s *shim) handler(w http.ResponseWriter, r *http.Request) {
 		// Drop the caller's Authorization: the shim, not opencode, owns the
 		// credential. x-bill-to below is ours to set for the same reason.
 		// x-pystino-tag is ours too: an engine cannot label its own usage.
-		if hopByHop[canonical] || canonical == "Authorization" || canonical == "X-Pystino-Tag" {
+		if hopByHop[canonical] || clientAuthHeaders[canonical] || canonical == "X-Pystino-Tag" {
 			continue
 		}
 		for _, v := range values {
@@ -798,9 +801,7 @@ func runServe(args []string) error {
 	_ = sh.refresh()
 	go sh.refreshLoop()
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/galopin/health", sh.requireLocalAuth(sh.healthHandler))
-	mux.HandleFunc("/", sh.requireLocalAuth(sh.handler))
+	mux := sh.mux()
 
 	server := &http.Server{
 		Addr:    addr,

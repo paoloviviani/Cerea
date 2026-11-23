@@ -35,8 +35,8 @@ Commands:
   serve     Local refreshing proxy shim: opencode points its baseURL here,
             the shim injects a fresh access token plus x-bill-to per request.
   run       Supervise opencode and dial out to Cerea over WSS (PROTOCOL.md).
-  launch    Start your own interactive opencode ('launch opencode') set up as
-            galopin sets it up, without dialing Cerea.
+  launch    Start your own interactive opencode, goose, vibe or claude
+            ('launch TOOL') set up as galopin sets it up, without dialing Cerea.
   models    Re-discover the gateway's models ('models refresh') without
             re-enrolling.
   goose     Point your own goose (Desktop, CLI, editor extension) at galopin's

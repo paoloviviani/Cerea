@@ -181,7 +181,9 @@ permission floor, so every tool call asks you, in the terminal. What cannot
 apply is anything that needs galopin to answer for you: the refusal of
 galopin's own state and credentials, the Plan/Ask/Auto selector, the delegated
 permissions and the review log. Treat it as opencode with the gateway wired in.
-The command is `launch <tool>` so other tools can follow; only opencode exists.
+`launch` also takes `goose`, `vibe` and `claude`, wired the same way (temporary
+config, your own left untouched; see `galopin launch --help` and
+[the reference](../docs/agent-machines-reference.md)).
 
 ### Models
 
