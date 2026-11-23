@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -59,8 +60,8 @@ from opencode's environment so nothing is billed outside the gateway.
 
 The tool never holds this machine's long-lived proxy secret: it gets a random
 one for this launch, valid until the tool exits (a running 'galopin run' or
-'serve' of this version registers it; an older one cannot, which galopin says
-and falls back to the long-lived secret). The proxy also drops any credential
+'serve' of this version takes it; an older one is told to restart: galopin says
+so and stops). The proxy also drops any credential
 header the tool sends (X-Api-Key, Anthropic-Api-Key, ...), and a reused proxy
 is identified by a challenge that sends it no secret. --model is taken as
 given for goose, vibe and claude: no model discovery, and a name the gateway
@@ -191,9 +192,8 @@ type launchSession struct {
 	port      int
 	logf      func(string, ...any)
 	stopProxy func()
-	// toolSecret is what the launched tool presents to the proxy: a per-launch
-	// secret when the proxy accepted one, else (a running proxy of an older
-	// galopin) the install's own shim secret.
+	// toolSecret is what the launched tool presents to the proxy: a random
+	// per-launch secret, valid while this process lives.
 	toolSecret string
 	dropSecret func()
 }
@@ -263,23 +263,25 @@ func (ls *launchSession) startProxy(opts launchOptions) error {
 		return err
 	}
 	ls.port, ls.stopProxy = port, stop
-	ls.toolSecret = ls.creds.ShimSecret
 	sec, err := newLaunchSecret()
 	if err != nil {
 		stop()
 		return err
 	}
 	if sh != nil {
-		sh.addLaunchSecret(sec)
+		if err := sh.addLaunchSecret(sec, os.Getpid()); err != nil {
+			stop()
+			return err
+		}
 		ls.toolSecret, ls.dropSecret = sec, func() { sh.dropLaunchSecret(sec) }
 		return nil
 	}
 	ls.logf("using the proxy already listening on 127.0.0.1:%d", port)
-	if drop, err := registerLaunchSecret(ls.shimAddr(), ls.creds.ShimSecret, sec); err != nil {
-		ls.logf("warning: that proxy takes no per-launch secret (%v): the tool is given this machine's long-lived proxy secret, which its child processes inherit; restart 'galopin run' to avoid this", err)
-	} else {
-		ls.toolSecret, ls.dropSecret = sec, drop
+	drop, err := registerLaunchSecret(ls.shimAddr(), ls.creds.ShimSecret, sec)
+	if err != nil {
+		return fmt.Errorf("registering this launch with the running proxy: %w", err)
 	}
+	ls.toolSecret, ls.dropSecret = sec, drop
 	return nil
 }
 
@@ -329,6 +331,12 @@ func launchOpencode(ctx context.Context, opts launchOptions) error {
 	}
 	env, err := backendopencode.LaunchEnv(cfg)
 	if err != nil {
+		return err
+	}
+	// enroll's opencode.json holds the long-lived proxy secret as the provider
+	// key; the config-content layer (above every file) overrides it with this
+	// launch's, without touching the file.
+	if env, err = overrideOpencodeProviderKey(env, ls.toolSecret); err != nil {
 		return err
 	}
 
@@ -455,10 +463,13 @@ func ensureProxyShim(creds *credentials, credsPath string, port int, logf func(s
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	ln, listenErr := net.Listen("tcp", addr)
 	if listenErr != nil {
-		if shimIsOurs(addr, creds.ShimSecret) {
+		switch probeShim(addr, creds.ShimSecret) {
+		case probeOurs:
 			return func() {}, nil, nil
+		case probeOlder:
+			return nil, nil, fmt.Errorf("the galopin proxy on port %d is an older galopin; restart it to finish the upgrade: 'systemctl --user restart galopin' (if it runs as the service), or stop it and re-run 'galopin run'", port)
 		}
-		return nil, nil, fmt.Errorf("port %d is in use and is not this machine's galopin proxy (%v); stop what holds it (a galopin older than this one must be restarted), or pass --port", port, listenErr)
+		return nil, nil, fmt.Errorf("port %d is in use and is not this machine's galopin proxy (%v); stop what holds it, or pass --port", port, listenErr)
 	}
 	sh := newShim(creds, credsPath, statusPathFor(credsPath), port)
 	_ = sh.refresh()
@@ -482,4 +493,45 @@ func ensureProxyShim(creds *credentials, credsPath string, port int, logf func(s
 		_ = srv.Shutdown(ctx)
 		_ = srv.Close()
 	}, sh, nil
+}
+
+// overrideOpencodeProviderKey sets provider.pystino.options.apiKey in the
+// OPENCODE_CONFIG_CONTENT layer of env.
+func overrideOpencodeProviderKey(env []string, secret string) ([]string, error) {
+	const name = "OPENCODE_CONFIG_CONTENT="
+	content := map[string]any{}
+	idx := -1
+	for i, kv := range env {
+		if strings.HasPrefix(kv, name) {
+			idx = i
+			if err := json.Unmarshal([]byte(strings.TrimPrefix(kv, name)), &content); err != nil {
+				return nil, fmt.Errorf("reading opencode's config layer: %w", err)
+			}
+		}
+	}
+	content["provider"] = deepSet(content["provider"], "pystino", "options", "apiKey", secret)
+	body, err := json.Marshal(content)
+	if err != nil {
+		return nil, err
+	}
+	if idx < 0 {
+		return append(env, name+string(body)), nil
+	}
+	env[idx] = name + string(body)
+	return env, nil
+}
+
+// deepSet returns m (a JSON object, or nil) with the value at keys set, adding
+// objects on the way and keeping what is already there.
+func deepSet(m any, args ...string) any {
+	obj, _ := m.(map[string]any)
+	if obj == nil {
+		obj = map[string]any{}
+	}
+	if len(args) == 2 {
+		obj[args[0]] = args[1]
+		return obj
+	}
+	obj[args[0]] = deepSet(obj[args[0]], args[1:]...)
+	return obj
 }

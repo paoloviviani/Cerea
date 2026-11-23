@@ -68,7 +68,9 @@ type shim struct {
 	// launchSecrets are per-launch secrets 'galopin launch' registered
 	// (shim_launch.go); accepted for requests only, until withdrawn.
 	// Guarded by s.mu.
-	launchSecrets map[string]struct{}
+	launchSecrets map[string]int // secret -> launcher pid
+	// pidAlive overrides the launcher liveness check (tests).
+	pidAlive func(int) bool
 	// usageSink, if set, receives each chat-completion's token usage (see
 	// setUsageSink in shimusage.go). Guarded by s.mu.
 	usageSink func(sessionID string, u usageSample)
@@ -369,6 +371,7 @@ func (s *shim) refreshLoop() {
 			s.mu.Unlock()
 			continue
 		}
+		s.sweepLaunchSecretsLocked()
 		s.mu.Unlock()
 		_ = s.refresh()
 	}

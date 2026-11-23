@@ -1667,16 +1667,21 @@ galopin's own state and credentials, the Plan/Ask/Auto selector, the delegated
 permissions and the review log. Treat it as opencode with the gateway wired in.
 `launch` also starts goose, Mistral Vibe and Claude Code, below.
 
-#### What the three have in common
+#### What the four have in common
 
-The launched tool is given a random **per-launch secret** for the proxy, never
-this computer's long-lived one: tools pass their environment on to the shell
-commands, hooks and MCP servers they start. A proxy that galopin starts for the
-launch accepts it until the tool exits; a `galopin run` or `serve` of this
-version that is already listening takes it by a local registration (made with the
-long-lived secret, after the proxy answered a challenge that sends it no secret)
-and forgets it at exit. If the running proxy is older and cannot, galopin says so
-and falls back to the long-lived secret: restart `galopin run` to avoid that.
+The launched tool (opencode included) is given a random **per-launch secret** for
+the proxy, never this computer's long-lived one: tools pass their environment on
+to the shell commands, hooks and MCP servers they start. For opencode it replaces
+the provider key in the config-content layer (above every file), so enroll's
+`opencode.json` is not touched. A proxy that galopin starts for the launch
+accepts the secret until the tool exits; a `galopin run` or `serve` that is
+already listening takes it by a local registration (made with the long-lived
+secret, after the proxy answered a challenge that sends it no secret) and forgets
+it at exit, or when the launching galopin process is gone (a killed launcher),
+whichever is first. A proxy holds at most 256 registrations. If the running
+proxy is from an older galopin (before this feature), the launch stops and says
+to restart it (`systemctl --user restart galopin` for the service, or stop it and
+re-run `galopin run`): it never falls back to sending the long-lived secret.
 The proxy drops every credential header a tool sends of its own (`X-Api-Key`,
 `Anthropic-Api-Key`, `Api-Key`, `Cookie`, ...), so a key from the tool's own
 settings never reaches the gateway. `--model` is used as given (no discovery;

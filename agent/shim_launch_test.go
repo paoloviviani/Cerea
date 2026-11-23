@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -9,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -81,7 +84,9 @@ func TestShimDropsClientAuthHeadersAndAcceptsLaunchSecrets(t *testing.T) {
 	defer stop()
 	url := "http://127.0.0.1:" + itPortStr(r.port) + "/v1/messages"
 	sec, _ := newLaunchSecret()
-	sh.addLaunchSecret(sec)
+	if err := sh.addLaunchSecret(sec, os.Getpid()); err != nil {
+		t.Fatal(err)
+	}
 
 	st := post(t, url, sec, map[string]string{
 		"X-Api-Key": "sk-helper", "Anthropic-Api-Key": "sk-2", "Api-Key": "k3", "Proxy-Authorization": "Basic x", "Cookie": "c=1",
@@ -158,7 +163,7 @@ func TestLaunchRegistersItsSecretWithARunningProxy(t *testing.T) {
 	g := newRecordingGateway(t)
 	creds := *r.creds_
 	creds.Gateway = g.srv.URL + "/v1"
-	stop, sh, err := ensureProxyShim(&creds, r.creds, r.port, func(string, ...any) {})
+	stop, _, err := ensureProxyShim(&creds, r.creds, r.port, func(string, ...any) {})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +183,6 @@ func TestLaunchRegistersItsSecretWithARunningProxy(t *testing.T) {
 	if st := post(t, url, ls.toolSecret, nil); st != http.StatusUnauthorized {
 		t.Errorf("the secret still works after the launch ended: %d", st)
 	}
-	_ = sh
 }
 
 // The real Claude Code, with a user settings file that tries to bring back an
@@ -249,4 +253,127 @@ func leakedKey(h http.Header) string {
 		}
 	}
 	return ""
+}
+
+func TestLaunchAgainstAnOlderProxySaysToRestartIt(t *testing.T) {
+	r := newLaunchRig(t, 0, "x")
+	ln, err := net.Listen("tcp", "127.0.0.1:"+itPortStr(r.port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sawSecret atomic.Bool
+	old := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Header.Get("Authorization") != "" {
+			sawSecret.Store(true)
+		}
+		// what a galopin before whoami answers to everything without the secret
+		writeOpenAIError(w, http.StatusUnauthorized, "missing or invalid shim secret", "invalid_request_error", "invalid_api_key")
+	}))
+	old.Listener.Close()
+	old.Listener = ln
+	old.Start()
+	defer old.Close()
+	for name, run := range map[string]func() error{
+		"opencode": func() error { return launchOpencode(context.Background(), r.opts()) },
+		"claude": func() error {
+			o := r.opts()
+			o.claudeBin, o.model = "/bin/true", "m"
+			return launchClaude(context.Background(), o)
+		},
+	} {
+		err := run()
+		if err == nil || !strings.Contains(err.Error(), "older galopin") || !strings.Contains(err.Error(), "systemctl --user restart galopin") || !strings.Contains(err.Error(), "galopin run") {
+			t.Errorf("%s: err = %v, want the restart-the-older-galopin message", name, err)
+		}
+	}
+	if sawSecret.Load() {
+		t.Error("a credential was sent to the older proxy")
+	}
+}
+
+func TestLaunchSecretExpiresWhenItsLauncherIsGone(t *testing.T) {
+	r := newLaunchRig(t, 0, "x")
+	g := newRecordingGateway(t)
+	creds := *r.creds_
+	creds.Gateway = g.srv.URL + "/v1"
+	stop, sh, err := ensureProxyShim(&creds, r.creds, r.port, func(string, ...any) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+	base := "http://127.0.0.1:" + itPortStr(r.port)
+	// a launcher that is a real process of ours, registered over HTTP
+	cmd := exec.Command("sleep", "30")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	sec, _ := newLaunchSecret()
+	if err := sh.addLaunchSecret(sec, cmd.Process.Pid); err != nil {
+		t.Fatal(err)
+	}
+	if st := post(t, base+"/v1/messages", sec, nil); st != http.StatusInternalServerError {
+		t.Fatalf("live launcher's secret: %d", st)
+	}
+	_ = cmd.Process.Kill()
+	_, _ = cmd.Process.Wait()
+	if st := post(t, base+"/v1/messages", sec, nil); st != http.StatusUnauthorized {
+		t.Errorf("secret of a dead launcher still works: %d", st)
+	}
+	sh.mu.Lock()
+	n := len(sh.launchSecrets)
+	sh.mu.Unlock()
+	if n != 0 {
+		t.Errorf("%d secrets kept for a dead launcher", n)
+	}
+	// registering for a pid that is not alive is refused; so is one it does not own (pid 1)
+	dead := exec.Command("true")
+	_ = dead.Run()
+	if err := sh.addLaunchSecret("gl-0123456789abcdef0123", dead.Process.Pid); err == nil {
+		t.Error("registered a secret for an exited pid")
+	}
+	if os.Geteuid() != 0 {
+		if err := sh.addLaunchSecret("gl-0123456789abcdef0124", 1); err == nil {
+			t.Error("registered a secret for another user's process")
+		}
+	}
+	// the periodic sweep also forgets one nobody uses
+	cmd2 := exec.Command("sleep", "30")
+	_ = cmd2.Start()
+	if err := sh.addLaunchSecret("gl-0123456789abcdef0125", cmd2.Process.Pid); err != nil {
+		t.Fatal(err)
+	}
+	_ = cmd2.Process.Kill()
+	_, _ = cmd2.Process.Wait()
+	sh.mu.Lock()
+	sh.sweepLaunchSecretsLocked()
+	n = len(sh.launchSecrets)
+	sh.mu.Unlock()
+	if n != 0 {
+		t.Errorf("sweep left %d secrets", n)
+	}
+}
+
+func TestLaunchSecretRegistrationLimits(t *testing.T) {
+	r := newLaunchRig(t, 0, "x")
+	stop, sh, err := ensureProxyShim(r.creds_, r.creds, r.port, func(string, ...any) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+	if err := sh.addLaunchSecret("short", os.Getpid()); err == nil {
+		t.Error("a short secret was accepted")
+	}
+	if err := sh.addLaunchSecret(strings.Repeat("a", maxLaunchSecretLen+1), os.Getpid()); err == nil {
+		t.Error("an over-long secret was accepted")
+	}
+	for i := 0; i < maxLaunchSecrets; i++ {
+		if err := sh.addLaunchSecret(fmt.Sprintf("gl-%020d", i), os.Getpid()); err != nil {
+			t.Fatalf("registration %d: %v", i, err)
+		}
+	}
+	// over HTTP, as a second launcher would, the refusal is readable
+	_, err = registerLaunchSecret("127.0.0.1:"+itPortStr(r.port), r.creds_.ShimSecret, "gl-one-too-many-secret")
+	if err == nil || !strings.Contains(err.Error(), "too many") {
+		t.Errorf("err = %v, want a 'too many launches' refusal", err)
+	}
 }

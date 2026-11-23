@@ -115,6 +115,13 @@ func TestLaunchPassesArgsEnvAndExitCode(t *testing.T) {
 	if strings.Contains(rec, "evil/x") {
 		t.Errorf("an inherited OPENCODE_CONFIG_CONTENT reached opencode:\n%s", rec)
 	}
+	// the provider key is this launch's secret, not the long-lived one in opencode.json
+	if !strings.Contains(rec, `"apiKey":"gl-`) || strings.Contains(rec, r.creds_.ShimSecret) {
+		t.Errorf("opencode was not given a per-launch provider key:\n%s", rec)
+	}
+	if b, _ := os.ReadFile(r.creds_.OpencodeConfig); !strings.Contains(string(b), r.creds_.ShimSecret) {
+		t.Errorf("enroll's opencode.json was modified")
+	}
 	if !strings.Contains(rec, `"permissions"`) || !strings.Contains(rec, `"ask"`) {
 		t.Errorf("OPENCODE_CONFIG_CONTENT lacks the ask floor:\n%s", rec)
 	}

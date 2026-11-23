@@ -12,10 +12,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -44,18 +47,67 @@ func newLaunchSecret() (string, error) {
 // shimProof is the answer to a whoami challenge: only a holder of the install's
 // secret can compute it, and it reveals nothing about the secret.
 func shimProof(secret, nonce string) string {
-	m := hmac.New(sha256.New, []byte(secret))
-	m.Write([]byte("galopin-whoami:" + nonce))
+	// keyed by a derivation of the secret, never the secret itself
+	d := hmac.New(sha256.New, []byte(secret))
+	d.Write([]byte("galopin-whoami-v1"))
+	m := hmac.New(sha256.New, d.Sum(nil))
+	m.Write([]byte(nonce))
 	return hex.EncodeToString(m.Sum(nil))
 }
 
-func (s *shim) addLaunchSecret(sec string) {
-	s.mu.Lock()
-	if s.launchSecrets == nil {
-		s.launchSecrets = map[string]struct{}{}
+const (
+	maxLaunchSecrets   = 256
+	maxLaunchSecretLen = 128
+	minLaunchSecretLen = 16
+)
+
+// pidAliveOwned reports whether pid is a live process this user may signal
+// (so it is this user's). A process that is gone, or another user's, is false.
+func pidAliveOwned(pid int) bool {
+	if pid <= 0 {
+		return false
 	}
-	s.launchSecrets[sec] = struct{}{}
-	s.mu.Unlock()
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	err = p.Signal(syscall.Signal(0))
+	switch {
+	case err == nil:
+		return true
+	case errors.Is(err, os.ErrProcessDone), errors.Is(err, syscall.EPERM):
+		return false
+	default:
+		return true // cannot tell on this platform: do not expire
+	}
+}
+
+func (s *shim) launcherAlive(pid int) bool {
+	if s.pidAlive != nil {
+		return s.pidAlive(pid)
+	}
+	return pidAliveOwned(pid)
+}
+
+// addLaunchSecret registers sec for as long as the launcher process pid lives.
+func (s *shim) addLaunchSecret(sec string, pid int) error {
+	if len(sec) < minLaunchSecretLen || len(sec) > maxLaunchSecretLen {
+		return fmt.Errorf("the secret must be %d to %d characters", minLaunchSecretLen, maxLaunchSecretLen)
+	}
+	if !s.launcherAlive(pid) {
+		return fmt.Errorf("process %d is not a live process of this user", pid)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sweepLaunchSecretsLocked()
+	if _, have := s.launchSecrets[sec]; !have && len(s.launchSecrets) >= maxLaunchSecrets {
+		return fmt.Errorf("too many launches registered with this proxy (%d)", maxLaunchSecrets)
+	}
+	if s.launchSecrets == nil {
+		s.launchSecrets = map[string]int{}
+	}
+	s.launchSecrets[sec] = pid
+	return nil
 }
 
 func (s *shim) dropLaunchSecret(sec string) {
@@ -64,23 +116,37 @@ func (s *shim) dropLaunchSecret(sec string) {
 	s.mu.Unlock()
 }
 
+// sweepLaunchSecretsLocked forgets the secrets of launchers that are gone
+// (killed without withdrawing them). Caller holds s.mu.
+func (s *shim) sweepLaunchSecretsLocked() {
+	for sec, pid := range s.launchSecrets {
+		if !s.launcherAlive(pid) {
+			delete(s.launchSecrets, sec)
+		}
+	}
+}
+
 // authorized reports whether the request carries the install's secret or, when
-// launchOK, a registered per-launch one.
+// launchOK, a registered per-launch one whose launcher is still alive.
 func (s *shim) authorized(r *http.Request, launchOK bool) bool {
 	got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	s.mu.Lock()
-	want := s.creds.ShimSecret
-	var extra []string
-	if launchOK {
-		for k := range s.launchSecrets {
-			extra = append(extra, k)
-		}
+	defer s.mu.Unlock()
+	if secretMatches(s.creds.ShimSecret, got) {
+		return true
 	}
-	s.mu.Unlock()
-	ok := secretMatches(want, got)
-	for _, e := range extra {
-		if secretMatches(e, got) {
+	if !launchOK {
+		return false
+	}
+	ok := false
+	for sec, pid := range s.launchSecrets {
+		if !secretMatches(sec, got) {
+			continue
+		}
+		if s.launcherAlive(pid) {
 			ok = true
+		} else {
+			delete(s.launchSecrets, sec)
 		}
 	}
 	return ok
@@ -104,14 +170,18 @@ func (s *shim) whoamiHandler(w http.ResponseWriter, r *http.Request) {
 func (s *shim) launchSecretHandler(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Secret string `json:"secret"`
+		PID    int    `json:"pid"`
 	}
-	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&body); err != nil || len(body.Secret) < 16 {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&body); err != nil || body.Secret == "" {
 		http.Error(w, "secret required", http.StatusBadRequest)
 		return
 	}
 	switch r.Method {
 	case http.MethodPost:
-		s.addLaunchSecret(body.Secret)
+		if err := s.addLaunchSecret(body.Secret, body.PID); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 	case http.MethodDelete:
 		s.dropLaunchSecret(body.Secret)
 	default:
@@ -155,36 +225,53 @@ func (s *shim) requireMainAuth(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// shimIsOurs challenges the listener at addr without sending it any secret:
-// it must return the HMAC of a fresh nonce under this install's secret.
-func shimIsOurs(addr, secret string) bool {
+type shimProbe int
+
+const (
+	probeForeign shimProbe = iota // not a galopin proxy of this install
+	probeOurs                     // answered the challenge
+	probeOlder                    // a galopin proxy too old to answer it
+)
+
+// probeShim challenges the listener at addr without sending it any secret: a
+// current proxy returns the HMAC of a fresh nonce under this install's secret.
+// An older galopin has no such route and answers 401 "invalid shim secret",
+// which is how it is told apart from some other server (it is never probed with
+// the secret).
+func probeShim(addr, secret string) shimProbe {
 	nb := make([]byte, 16)
 	if _, err := rand.Read(nb); err != nil {
-		return false
+		return probeForeign
 	}
 	nonce := hex.EncodeToString(nb)
 	resp, err := (&http.Client{Timeout: 3 * time.Second}).Get("http://" + addr + shimWhoamiPath + "?nonce=" + nonce)
 	if err != nil {
-		return false
+		return probeForeign
 	}
 	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if resp.StatusCode == http.StatusUnauthorized && strings.Contains(string(body), "invalid shim secret") {
+		return probeOlder
+	}
 	if resp.StatusCode != http.StatusOK {
-		return false
+		return probeForeign
 	}
 	var out struct {
 		Proof string `json:"proof"`
 	}
-	if json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&out) != nil {
-		return false
+	if json.Unmarshal(body, &out) != nil || !hmac.Equal([]byte(out.Proof), []byte(shimProof(secret, nonce))) {
+		return probeForeign
 	}
-	return hmac.Equal([]byte(out.Proof), []byte(shimProof(secret, nonce)))
+	return probeOurs
 }
+
+func shimIsOurs(addr, secret string) bool { return probeShim(addr, secret) == probeOurs }
 
 // registerLaunchSecret tells a verified, already-running shim to accept sec;
 // the returned func withdraws it.
 func registerLaunchSecret(addr, mainSecret, sec string) (func(), error) {
 	do := func(method string) error {
-		b, _ := json.Marshal(map[string]string{"secret": sec})
+		b, _ := json.Marshal(map[string]any{"secret": sec, "pid": os.Getpid()})
 		req, err := http.NewRequest(method, "http://"+addr+shimLaunchSecretPath, strings.NewReader(string(b)))
 		if err != nil {
 			return err
@@ -194,9 +281,10 @@ func registerLaunchSecret(addr, mainSecret, sec string) (func(), error) {
 		if err != nil {
 			return err
 		}
-		resp.Body.Close()
+		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusNoContent {
-			return fmt.Errorf("the running proxy answered %d", resp.StatusCode)
+			msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+			return fmt.Errorf("the running proxy answered %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
 		}
 		return nil
 	}
