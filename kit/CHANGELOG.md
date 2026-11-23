@@ -7,6 +7,12 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+## v0.64.0 — 2026-11-23
+
+Pins: Cerea `0.64.0` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.34.0`, opencode `2.3.0`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. **On computers:** update galopin (the Upgrade button, or the usual command) to get the new launch commands; a `galopin launch` against a galopin service still running the older version asks you to restart it (`systemctl --user restart galopin`).
+
 - New: **`galopin launch goose`, `galopin launch vibe` and `galopin launch claude`** start your own goose, Mistral Vibe or Claude Code wired through galopin's local proxy (the gateway's models, the same billing group, no Cerea link), like `launch opencode`. goose and Vibe get a temporary config built from the one galopin's supervised engines use; Claude Code is pointed at the gateway's Anthropic endpoint with environment variables and a temporary `--settings` file. Your own goose, Vibe and Claude Code configuration is never modified, other providers' keys are removed from the tool's environment, and the tool is not supervised (no Plan/Ask/Auto, no review log). Update galopin on the computer to get it.
 
 ## v0.63.0 — 2026-11-22
