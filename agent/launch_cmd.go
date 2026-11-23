@@ -334,9 +334,10 @@ func launchOpencode(ctx context.Context, opts launchOptions) error {
 		return err
 	}
 	// enroll's opencode.json holds the long-lived proxy secret as the provider
-	// key; the config-content layer (above every file) overrides it with this
-	// launch's, without touching the file.
-	if env, err = overrideOpencodeProviderKey(env, ls.toolSecret); err != nil {
+	// key and the proxy address enroll recorded; the config-content layer
+	// (above every file) overrides both with this launch's (a --port other than
+	// the recorded one included), without touching the file.
+	if env, err = overrideOpencodeProvider(env, ls.shimAddr(), ls.toolSecret); err != nil {
 		return err
 	}
 
@@ -495,9 +496,9 @@ func ensureProxyShim(creds *credentials, credsPath string, port int, logf func(s
 	}, sh, nil
 }
 
-// overrideOpencodeProviderKey sets provider.pystino.options.apiKey in the
-// OPENCODE_CONFIG_CONTENT layer of env.
-func overrideOpencodeProviderKey(env []string, secret string) ([]string, error) {
+// overrideOpencodeProvider sets provider.pystino.options.baseURL and apiKey in
+// the OPENCODE_CONFIG_CONTENT layer of env.
+func overrideOpencodeProvider(env []string, shimAddr, secret string) ([]string, error) {
 	const name = "OPENCODE_CONFIG_CONTENT="
 	content := map[string]any{}
 	idx := -1
@@ -510,6 +511,7 @@ func overrideOpencodeProviderKey(env []string, secret string) ([]string, error) 
 		}
 	}
 	content["provider"] = deepSet(content["provider"], "pystino", "options", "apiKey", secret)
+	content["provider"] = deepSet(content["provider"], "pystino", "options", "baseURL", "http://"+shimAddr+"/v1")
 	body, err := json.Marshal(content)
 	if err != nil {
 		return nil, err

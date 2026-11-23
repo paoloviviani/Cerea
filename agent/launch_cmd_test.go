@@ -119,6 +119,9 @@ func TestLaunchPassesArgsEnvAndExitCode(t *testing.T) {
 	if !strings.Contains(rec, `"apiKey":"gl-`) || strings.Contains(rec, r.creds_.ShimSecret) {
 		t.Errorf("opencode was not given a per-launch provider key:\n%s", rec)
 	}
+	if !strings.Contains(rec, `"baseURL":"http://127.0.0.1:`+itPortStr(r.port)+`/v1"`) {
+		t.Errorf("opencode is not pointed at the launch's proxy:\n%s", rec)
+	}
 	if b, _ := os.ReadFile(r.creds_.OpencodeConfig); !strings.Contains(string(b), r.creds_.ShimSecret) {
 		t.Errorf("enroll's opencode.json was modified")
 	}
