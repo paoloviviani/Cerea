@@ -191,3 +191,87 @@ func launchBaseEnv(opts launchOptions) []string {
 	}
 	return os.Environ()
 }
+
+// vibeVersionOf is the last word `bin --version` prints ("vibe 3.1.0" or "3.1.0").
+func vibeVersionOf(bin string) string { return gooseVersionOf(bin) }
+
+// resolveVibeLaunchBin: --vibe, then vibe on PATH, then the interactive entry
+// point of the copy galopin installed (its venv holds `vibe` beside the
+// `vibe-acp` the engine uses).
+func resolveVibeLaunchBin(explicit string) (string, error) {
+	if explicit != "" {
+		return resolveToolBin(explicit, "vibe")
+	}
+	if p, err := exec.LookPath("vibe"); err == nil {
+		return p, nil
+	}
+	var cands []string
+	if exe, err := os.Executable(); err == nil {
+		cands = append(cands, filepath.Join(filepath.Dir(exe), vibeInstallDirName, "venv", "bin", "vibe"))
+	}
+	return resolveToolBin("", "vibe", cands...)
+}
+
+// launchVibe runs the user's own interactive Mistral Vibe against the gateway.
+func launchVibe(ctx context.Context, opts launchOptions) error {
+	ls, err := startLaunch(opts)
+	if err != nil {
+		return err
+	}
+	bin, err := resolveVibeLaunchBin(opts.vibeBin)
+	if err != nil {
+		return err
+	}
+	if got := vibeVersionOf(bin); got == "" {
+		ls.logf("warning: could not read %s's version (galopin is tested against Mistral Vibe %s)", bin, packaging.VibeVersion())
+	} else if got != packaging.VibeVersion() {
+		ls.logf("warning: %s is Mistral Vibe %s; galopin is tested against %s", bin, got, packaging.VibeVersion())
+	}
+	if ls.creds.Mode == modeConnectors {
+		return errors.New("this machine was enrolled with --connectors-only: it has no proxy for Vibe to use")
+	}
+	models, err := ls.launchModels(ctx)
+	if err != nil {
+		return err
+	}
+	vm := vibeModels(models)
+	if len(vm) == 0 {
+		return errors.New("the gateway listed no chat model")
+	}
+	// The first model is Vibe's active one: put the chosen one first.
+	if opts.model != "" {
+		i := -1
+		for j, m := range vm {
+			if m.ID == opts.model {
+				i = j
+			}
+		}
+		if i < 0 {
+			return fmt.Errorf("--model %s is not in the gateway's model list", opts.model)
+		}
+		vm[0], vm[i] = vm[i], vm[0]
+	}
+	if err := ls.startProxy(opts); err != nil {
+		return err
+	}
+	defer ls.close()
+
+	home, err := launchTempDir(ls.stateDir, "vibe-launch")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(home)
+	if err := os.MkdirAll(filepath.Join(home, "logs"), 0o700); err != nil {
+		return err
+	}
+	if err := writeFileAtomic(filepath.Join(home, "config.toml"), []byte(vibeConfigTOML(ls.shimAddr(), ls.creds.ShimSecret, vm)), 0o600); err != nil {
+		return fmt.Errorf("writing the temporary Vibe config: %w", err)
+	}
+	if err := resetVibeTrust(home); err != nil {
+		return err
+	}
+	env := vibeEnv(home, launchBaseEnv(opts))
+	ls.logf("local Mistral Vibe (%s), billed to %s; not supervised by Cerea (no Plan/Ask/Auto, no review log)", vm[0].ID, billingLabel(ls.creds))
+	ls.logf("Vibe asks before each tool call, in this terminal; your own ~/.vibe is not loaded (no folder is trusted); galopin's own-state protections need galopin to answer and do not apply")
+	return runLaunched(ctx, "vibe", bin, opts.args, env)
+}

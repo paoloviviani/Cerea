@@ -129,3 +129,76 @@ func TestLaunchGooseNotEnrolled(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestLaunchVibe(t *testing.T) {
+	r := newLaunchRig(t, 0, "x")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	userVibe := filepath.Join(home, ".vibe")
+	if err := os.MkdirAll(userVibe, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	userTOML := filepath.Join(userVibe, "config.toml")
+	if err := os.WriteFile(userTOML, []byte("active_model = \"mine\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bin := fakeLaunchTool(t, r, "vibe", "vibe "+packaging.VibeVersion(), 3,
+		[]string{"VIBE_HOME", "MISTRAL_API_KEY", "OPENAI_API_KEY", "VIBE_ACTIVE_MODEL"},
+		[]string{"$VIBE_HOME/config.toml", "$VIBE_HOME/trusted_folders.toml"})
+	r.baseEnv = append(r.baseEnv, "MISTRAL_API_KEY=leak", "VIBE_ACTIVE_MODEL=evil")
+	o := r.opts("--agent", "ask")
+	o.vibeBin = bin
+	err := launchVibe(context.Background(), o)
+	var ee exitError
+	if !errors.As(err, &ee) || ee.code != 3 {
+		t.Fatalf("err = %v, want exit code 3", err)
+	}
+	rec := r.recorded(t)
+	for _, want := range []string{
+		"ARGS:--agent ask", "MISTRAL_API_KEY=<unset>", "OPENAI_API_KEY=<unset>", "VIBE_ACTIVE_MODEL=<unset>",
+		`active_model = "gw-model"`, `api_base = "http://127.0.0.1:` + itPortStr(r.port) + `/v1"`,
+		"Bearer " + r.creds_.ShimSecret, "enable_auto_approve = false", "trusted = []",
+	} {
+		if !strings.Contains(rec, want) {
+			t.Errorf("record lacks %q:\n%s", want, rec)
+		}
+	}
+	if strings.Contains(rec, "VIBE_HOME=<unset>") || strings.Contains(rec, "VIBE_HOME="+userVibe) {
+		t.Errorf("VIBE_HOME not a temp dir:\n%s", rec)
+	}
+	if b, _ := os.ReadFile(userTOML); string(b) != "active_model = \"mine\"\n" {
+		t.Errorf("the user's Vibe config changed: %q", b)
+	}
+	if ents, _ := os.ReadDir(userVibe); len(ents) != 1 {
+		t.Errorf("files were added to ~/.vibe: %v", ents)
+	}
+	for _, line := range strings.Split(rec, "\n") {
+		if h, ok := strings.CutPrefix(line, "VIBE_HOME="); ok {
+			if _, err := os.Stat(h); err == nil {
+				t.Errorf("temp Vibe home %s was not removed", h)
+			}
+		}
+	}
+	if !strings.Contains(r.stderrBuf.String(), "local Mistral Vibe (gw-model), billed to team; not supervised by Cerea") {
+		t.Errorf("startup line missing:\n%s", r.stderrBuf.String())
+	}
+	portFree(t, r.port)
+}
+
+func TestLaunchVibeUnknownModelAndVersionWarning(t *testing.T) {
+	r := newLaunchRig(t, 0, "x")
+	bin := fakeLaunchTool(t, r, "vibe", "vibe 0.0.1", 0, nil, nil)
+	o := r.opts()
+	o.vibeBin, o.model = bin, "nope"
+	if err := launchVibe(context.Background(), o); err == nil || !strings.Contains(err.Error(), "not in the gateway's model list") {
+		t.Fatalf("err = %v, want an unknown-model refusal", err)
+	}
+	portFree(t, r.port) // refused before the proxy started
+	o.model = ""
+	if err := launchVibe(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	if s := r.stderrBuf.String(); !strings.Contains(s, "is Mistral Vibe 0.0.1") {
+		t.Errorf("no version warning:\n%s", s)
+	}
+}

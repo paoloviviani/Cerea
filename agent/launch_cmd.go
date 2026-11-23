@@ -27,6 +27,7 @@ without connecting to Cerea.
 Usage:
   galopin launch opencode [options] [-- opencode arguments…]
   galopin launch goose    [options] [-- goose arguments…]
+  galopin launch vibe     [options] [-- vibe arguments…]
 
 Starts opencode in the current directory with the opencode.json 'galopin
 enroll' wrote, through the same local proxy (so the same gateway, billing
@@ -68,6 +69,19 @@ before each tool call, in the terminal), keyring and telemetry off. Binary:
 --goose, then the copy galopin installed, then goose on PATH; a version other
 than the tested one only warns. galopin's protected paths, Plan/Ask/Auto, the
 Cerea connectors extension and the review log do not apply.
+
+vibe: 'galopin launch vibe [--vibe PATH] [--model ID] [--creds PATH]
+[--state-dir PATH] [--port PORT] [-- vibe arguments…]'. Runs Mistral Vibe with a
+temporary VIBE_HOME holding galopin's supervised-engine config: the gateway's
+models through the local proxy (only those; Vibe's own Mistral models are not
+offered), the chosen model active (--model, else the first chat model),
+telemetry, update checks and the model catalogue off, every file and shell tool
+asking first, auto-approve refused. Your own ~/.vibe (config, trusted folders,
+API key, sessions) is not read or written and the temporary home is removed at
+exit, so Vibe's sessions are not kept and each project's trust prompt appears
+afresh. VIBE_* and provider keys are stripped from the environment. Binary:
+--vibe, then vibe on PATH, then the copy galopin installed. galopin's protected
+paths, Plan/Ask/Auto and the review log do not apply.
 `
 
 // launchOptions is what 'galopin launch opencode' needs; split from the flag
@@ -104,6 +118,8 @@ func runLaunch(args []string) error {
 		run = launchOpencode
 	case "goose":
 		run = launchGoose
+	case "vibe":
+		run = launchVibe
 	default:
 		return exitError{code: 2, err: fmt.Errorf("launch: unknown tool %q (supported: %s)", tool, launchSupported)}
 	}
@@ -117,6 +133,9 @@ func runLaunch(args []string) error {
 		fs.StringVar(&opts.opencodeBin, "opencode", "opencode", "")
 	case "goose":
 		fs.StringVar(&opts.gooseBin, "goose", "", "")
+		fs.StringVar(&opts.model, "model", "", "")
+	case "vibe":
+		fs.StringVar(&opts.vibeBin, "vibe", "", "")
 		fs.StringVar(&opts.model, "model", "", "")
 	}
 	if err := fs.Parse(rest); err != nil {
