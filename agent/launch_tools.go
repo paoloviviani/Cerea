@@ -17,37 +17,94 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"galopin/packaging"
 )
 
-// launchTempDir makes a private (0700) directory for one launch, beside where
-// the opencode launch's TMPDIR lives (per-user, never a fixed name under /tmp).
+// launchTempDir makes a private (0700) directory for one launch, named
+// <prefix>-launch-<pid> beside where the opencode launch's TMPDIR lives
+// (per-user, never a fixed name under /tmp), with a private tmp/ inside for the
+// tool's TMPDIR. The pid in the name lets a later launch sweep the leftovers of
+// one that was killed (sweepStaleLaunchDirs).
 func launchTempDir(stateDir, prefix string) (string, error) {
 	parent := filepath.Dir(opencodeTmpDir(stateDir))
 	if err := os.MkdirAll(parent, 0o700); err != nil {
 		return "", err
 	}
-	return os.MkdirTemp(parent, prefix+"-")
+	dir := filepath.Join(parent, fmt.Sprintf("%s-launch-%d", prefix, os.Getpid()))
+	_ = os.RemoveAll(dir) // a stale one under a recycled pid
+	if err := os.MkdirAll(filepath.Join(dir, "tmp"), 0o700); err != nil {
+		return "", err
+	}
+	return dir, nil
 }
 
-// launchModels asks the gateway for the chat models this credential can use,
-// like 'galopin goose setup' does. An empty catalogue is an error: the tool
-// would have nothing to offer.
-func (ls *launchSession) launchModels(ctx context.Context) ([]gatewayModel, error) {
+var launchDirRe = regexp.MustCompile(`^(opencode|goose|vibe|claude)-launch-(\d+)$`)
+
+// sweepStaleLaunchDirs removes launch directories whose process is gone: what
+// SIGKILL, a panic or a power cut left behind (they hold a proxy secret).
+func sweepStaleLaunchDirs(stateDir string) {
+	parent := filepath.Dir(opencodeTmpDir(stateDir))
+	ents, err := os.ReadDir(parent)
+	if err != nil {
+		return
+	}
+	for _, e := range ents {
+		m := launchDirRe.FindStringSubmatch(e.Name())
+		if m == nil || !e.IsDir() {
+			continue
+		}
+		pid, _ := strconv.Atoi(m[2])
+		if pid == os.Getpid() || pidAlive(pid) {
+			continue
+		}
+		_ = os.RemoveAll(filepath.Join(parent, e.Name()))
+	}
+}
+
+// pidAlive is false only when the process is known not to exist.
+func pidAlive(pid int) bool {
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return true
+	}
+	return !errors.Is(p.Signal(syscall.Signal(0)), os.ErrProcessDone)
+}
+
+// launchModels is the gateway's chat models for this credential, as 'galopin
+// goose setup' discovers them. When the caller named a model (--model) there is
+// nothing to discover: that one name is the whole list and the gateway answers
+// for it at request time (an unknown name fails there, the same way for every
+// tool).
+func (ls *launchSession) launchModels(ctx context.Context, named string) ([]gatewayModel, error) {
+	if named != "" {
+		return []gatewayModel{{ID: named}}, nil
+	}
 	cctx, cancel := context.WithTimeout(ctx, modelsRefreshTimeout+30*time.Second)
 	defer cancel()
 	access, err := accessTokenFor(ls.credsPath, ls.creds)
-	if err == nil {
-		fctx, fcancel := context.WithTimeout(cctx, modelsRefreshTimeout)
-		defer fcancel()
-		if models := fetchModels(fctx, ls.creds.Gateway, access, ls.creds.Group); len(gooseModels(models)) > 0 {
-			return models, nil
-		}
+	if err != nil {
+		return nil, fmt.Errorf("signing in with the stored credential to list the models: %w (run 'galopin auth login', or pass --model)", err)
 	}
-	return nil, fmt.Errorf("model discovery failed or listed no chat model (GET %s/models)", strings.TrimSuffix(ls.creds.Gateway, "/"))
+	fctx, fcancel := context.WithTimeout(cctx, modelsRefreshTimeout)
+	defer fcancel()
+	if models := fetchModels(fctx, ls.creds.Gateway, access, ls.creds.Group); len(gooseModels(models)) > 0 {
+		return models, nil
+	}
+	return nil, fmt.Errorf("model discovery failed or listed no chat model (GET %s/models); pass --model", strings.TrimSuffix(ls.creds.Gateway, "/"))
+}
+
+// checkLaunchMode refuses a connectors-only machine: it has no proxy to use.
+func (ls *launchSession) checkLaunchMode(tool string) error {
+	if ls.creds.Mode == modeConnectors {
+		return fmt.Errorf("this machine was enrolled with --connectors-only: it has no proxy for %s to use", tool)
+	}
+	return nil
 }
 
 // resolveToolBin picks the binary to run: an explicit path (or name) first,
@@ -77,23 +134,13 @@ func resolveToolBin(explicit, name string, candidates ...string) (string, error)
 	return p, nil
 }
 
-// pickLaunchModel is the model the tool starts on: --model when given (with a
-// note when the gateway does not list it), else the first chat model, as the
-// engines do.
-func pickLaunchModel(requested string, ids []string, logf func(string, ...any)) string {
-	if requested == "" {
-		if len(ids) == 0 {
-			return placeholderModelID
-		}
-		return ids[0]
+// firstModel is the model a tool starts on when none was named: the first chat
+// model, as the engines do.
+func firstModel(ids []string) string {
+	if len(ids) == 0 {
+		return placeholderModelID
 	}
-	for _, id := range ids {
-		if id == requested {
-			return requested
-		}
-	}
-	logf("warning: --model %s is not in the gateway's model list", requested)
-	return requested
+	return ids[0]
 }
 
 func gooseIDs(models []gooseModel) []string {
@@ -133,6 +180,9 @@ func launchGoose(ctx context.Context, opts launchOptions) error {
 	if err != nil {
 		return err
 	}
+	if err := ls.checkLaunchMode("goose"); err != nil {
+		return err
+	}
 	bin, err := resolveGooseLaunchBin(opts.gooseBin)
 	if err != nil {
 		return err
@@ -142,34 +192,35 @@ func launchGoose(ctx context.Context, opts launchOptions) error {
 	} else if got != packaging.GooseVersion() {
 		ls.logf("warning: %s is goose %s; galopin is tested against %s", bin, got, packaging.GooseVersion())
 	}
-	if ls.creds.Mode == modeConnectors {
-		return errors.New("this machine was enrolled with --connectors-only: it has no proxy for goose to use")
-	}
-	models, err := ls.launchModels(ctx)
+	models, err := ls.launchModels(ctx, opts.model)
 	if err != nil {
 		return err
 	}
 	gm := gooseModels(models)
-	model := pickLaunchModel(opts.model, gooseIDs(gm), ls.logf)
+	model := opts.model
+	if model == "" {
+		model = firstModel(gooseIDs(gm))
+	}
 	if err := ls.startProxy(opts); err != nil {
 		return err
 	}
 	defer ls.close()
 
-	root, err := launchTempDir(ls.stateDir, "goose-launch")
+	root, err := launchTempDir(ls.stateDir, "goose")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(root)
 	creds := *ls.creds
-	creds.ShimPort = ls.port
+	creds.ShimPort, creds.ShimSecret = ls.port, ls.toolSecret
 	if err := writeGooseLaunchConfig(root, &creds, gm, model); err != nil {
 		return fmt.Errorf("writing the temporary goose config: %w", err)
 	}
-	env := gooseEnv(root, launchBaseEnv(opts))
+	env := append(gooseEnv(root, launchBaseEnv(opts)), "TMPDIR="+filepath.Join(root, "tmp"))
 	args := opts.args
-	if len(args) == 0 {
-		args = []string{"session"}
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		// `-- --resume` means `session --resume`
+		args = append([]string{"session"}, args...)
 	}
 	ls.logf("local goose (%s), billed to %s; not supervised by Cerea (no Plan/Ask/Auto, no review log)", model, billingLabel(ls.creds))
 	ls.logf("goose asks before each tool call (approve mode), in this terminal; your own goose config and extensions are not loaded; galopin's own-state protections need galopin to answer and do not apply")
@@ -219,6 +270,9 @@ func launchVibe(ctx context.Context, opts launchOptions) error {
 	if err != nil {
 		return err
 	}
+	if err := ls.checkLaunchMode("Vibe"); err != nil {
+		return err
+	}
 	bin, err := resolveVibeLaunchBin(opts.vibeBin)
 	if err != nil {
 		return err
@@ -228,10 +282,7 @@ func launchVibe(ctx context.Context, opts launchOptions) error {
 	} else if got != packaging.VibeVersion() {
 		ls.logf("warning: %s is Mistral Vibe %s; galopin is tested against %s", bin, got, packaging.VibeVersion())
 	}
-	if ls.creds.Mode == modeConnectors {
-		return errors.New("this machine was enrolled with --connectors-only: it has no proxy for Vibe to use")
-	}
-	models, err := ls.launchModels(ctx)
+	models, err := ls.launchModels(ctx, opts.model)
 	if err != nil {
 		return err
 	}
@@ -241,23 +292,18 @@ func launchVibe(ctx context.Context, opts launchOptions) error {
 	}
 	// The first model is Vibe's active one: put the chosen one first.
 	if opts.model != "" {
-		i := -1
 		for j, m := range vm {
 			if m.ID == opts.model {
-				i = j
+				vm[0], vm[j] = vm[j], vm[0]
 			}
 		}
-		if i < 0 {
-			return fmt.Errorf("--model %s is not in the gateway's model list", opts.model)
-		}
-		vm[0], vm[i] = vm[i], vm[0]
 	}
 	if err := ls.startProxy(opts); err != nil {
 		return err
 	}
 	defer ls.close()
 
-	home, err := launchTempDir(ls.stateDir, "vibe-launch")
+	home, err := launchTempDir(ls.stateDir, "vibe")
 	if err != nil {
 		return err
 	}
@@ -265,13 +311,13 @@ func launchVibe(ctx context.Context, opts launchOptions) error {
 	if err := os.MkdirAll(filepath.Join(home, "logs"), 0o700); err != nil {
 		return err
 	}
-	if err := writeFileAtomic(filepath.Join(home, "config.toml"), []byte(vibeConfigTOML(ls.shimAddr(), ls.creds.ShimSecret, vm)), 0o600); err != nil {
+	if err := writeFileAtomic(filepath.Join(home, "config.toml"), []byte(vibeConfigTOML(ls.shimAddr(), ls.toolSecret, vm)), 0o600); err != nil {
 		return fmt.Errorf("writing the temporary Vibe config: %w", err)
 	}
 	if err := resetVibeTrust(home); err != nil {
 		return err
 	}
-	env := vibeEnv(home, launchBaseEnv(opts))
+	env := append(vibeEnv(home, launchBaseEnv(opts)), "TMPDIR="+filepath.Join(home, "tmp"))
 	ls.logf("local Mistral Vibe (%s), billed to %s; not supervised by Cerea (no Plan/Ask/Auto, no review log)", vm[0].ID, billingLabel(ls.creds))
 	ls.logf("Vibe asks before each tool call, in this terminal; your own ~/.vibe is not loaded (no folder is trusted); galopin's own-state protections need galopin to answer and do not apply")
 	return runLaunched(ctx, "vibe", bin, opts.args, env)
@@ -301,6 +347,15 @@ func claudeLaunchSettings(shimAddr, secret, model, small string) [][2]string {
 	return [][2]string{
 		{"ANTHROPIC_BASE_URL", "http://" + shimAddr},
 		{"ANTHROPIC_AUTH_TOKEN", secret},
+		// Neutralise what a user or repository settings file could switch back
+		// on: an API key (sent as X-Api-Key beside the bearer), extra request
+		// headers, and the cloud-provider routes that bypass the gateway.
+		{"ANTHROPIC_API_KEY", ""},
+		{"ANTHROPIC_CUSTOM_HEADERS", ""},
+		{"CLAUDE_CODE_USE_BEDROCK", "0"},
+		{"CLAUDE_CODE_USE_VERTEX", "0"},
+		{"CLAUDE_CODE_USE_FOUNDRY", "0"},
+		{"AWS_BEARER_TOKEN_BEDROCK", ""},
 		{"ANTHROPIC_MODEL", model},
 		{"ANTHROPIC_DEFAULT_OPUS_MODEL", model},
 		{"ANTHROPIC_DEFAULT_SONNET_MODEL", model},
@@ -365,6 +420,9 @@ func launchClaude(ctx context.Context, opts launchOptions) error {
 	if err != nil {
 		return err
 	}
+	if err := ls.checkLaunchMode("Claude Code"); err != nil {
+		return err
+	}
 	bin, err := resolveToolBin(opts.claudeBin, "claude")
 	if err != nil {
 		return err
@@ -374,26 +432,16 @@ func launchClaude(ctx context.Context, opts launchOptions) error {
 	} else {
 		ls.logf("Claude Code %s (galopin pins no Claude Code version; its settings and variable names may change)", v)
 	}
-	if ls.creds.Mode == modeConnectors {
-		return errors.New("this machine was enrolled with --connectors-only: it has no proxy for Claude Code to use")
-	}
-	model := opts.model
-	if model == "" || opts.smallModel == "" {
-		models, err := ls.launchModels(ctx)
+	// --model alone is enough: the small model defaults to it, nothing to
+	// discover. Otherwise the main model is the gateway's first chat model.
+	model, small := opts.model, opts.smallModel
+	if model == "" {
+		models, err := ls.launchModels(ctx, "")
 		if err != nil {
-			return fmt.Errorf("%w: pass --model (and --small-model) to skip discovery", err)
+			return err
 		}
-		ids := gooseIDs(gooseModels(models))
-		if model == "" {
-			model = pickLaunchModel("", ids, ls.logf)
-		} else {
-			pickLaunchModel(model, ids, ls.logf)
-		}
-		if opts.smallModel != "" {
-			pickLaunchModel(opts.smallModel, ids, ls.logf)
-		}
+		model = firstModel(gooseIDs(gooseModels(models)))
 	}
-	small := opts.smallModel
 	if small == "" {
 		small = model
 	}
@@ -402,16 +450,18 @@ func launchClaude(ctx context.Context, opts launchOptions) error {
 	}
 	defer ls.close()
 
-	set := claudeLaunchSettings(ls.shimAddr(), ls.creds.ShimSecret, model, small)
+	set := claudeLaunchSettings(ls.shimAddr(), ls.toolSecret, model, small)
 	envBlock := map[string]string{}
 	for _, kv := range set {
 		envBlock[kv[0]] = kv[1]
 	}
-	settings, err := json.Marshal(map[string]any{"env": envBlock})
+	// apiKeyHelper "" turns off a helper from the user's own settings: its key
+	// would be sent as X-Api-Key beside the bearer.
+	settings, err := json.Marshal(map[string]any{"env": envBlock, "apiKeyHelper": ""})
 	if err != nil {
 		return err
 	}
-	dir, err := launchTempDir(ls.stateDir, "claude-launch")
+	dir, err := launchTempDir(ls.stateDir, "claude")
 	if err != nil {
 		return err
 	}
@@ -421,7 +471,8 @@ func launchClaude(ctx context.Context, opts launchOptions) error {
 		return err
 	}
 	args := append([]string{"--settings", settingsPath, "--model", model}, opts.args...)
+	env := append(claudeEnv(launchBaseEnv(opts), set), "TMPDIR="+filepath.Join(dir, "tmp"))
 	ls.logf("local Claude Code (%s, small model %s), billed to %s; not supervised by Cerea (no Plan/Ask/Auto, no review log)", model, small, billingLabel(ls.creds))
 	ls.logf("Claude Code asks per its own permission settings, in this terminal; your ~/.claude settings still apply except what galopin overrides (endpoint, token, models); galopin's own-state protections need galopin to answer and do not apply")
-	return runLaunched(ctx, "claude", bin, args, claudeEnv(launchBaseEnv(opts), set))
+	return runLaunched(ctx, "claude", bin, args, env)
 }

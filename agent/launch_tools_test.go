@@ -5,9 +5,14 @@ import (
 	"errors"
 	"net"
 	"os"
+	"os/exec"
+	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"galopin/packaging"
 )
@@ -60,10 +65,11 @@ func TestLaunchGoose(t *testing.T) {
 		t.Fatal(err)
 	}
 	bin := fakeLaunchTool(t, r, "goose", "goose "+packaging.GooseVersion(), 5,
-		[]string{"GOOSE_PATH_ROOT", "GOOSE_MODE", "GOOSE_PROVIDER", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOSE_MODEL", "GOOSE_DISABLE_KEYRING"},
+		[]string{"GOOSE_PATH_ROOT", "GOOSE_MODE", "GOOSE_PROVIDER", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOSE_MODEL", "GOOSE_DISABLE_KEYRING", "TMPDIR"},
 		[]string{"$GOOSE_PATH_ROOT/config/config.yaml", "$GOOSE_PATH_ROOT/config/custom_providers/galopin.json"})
 	o := r.opts("session", "--resume")
 	o.gooseBin = bin
+	o.model = "gw-model"
 	err := launchGoose(context.Background(), o)
 	var ee exitError
 	if !errors.As(err, &ee) || ee.code != 5 {
@@ -74,12 +80,12 @@ func TestLaunchGoose(t *testing.T) {
 		"ARGS:session --resume", "GOOSE_MODE=approve", "GOOSE_PROVIDER=galopin",
 		"OPENAI_API_KEY=<unset>", "ANTHROPIC_API_KEY=<unset>", "GOOSE_DISABLE_KEYRING=1",
 		"GOOSE_MODEL: gw-model", `"base_url": "http://127.0.0.1:` + itPortStr(r.port) + `/v1/chat/completions"`,
-		"Bearer " + r.creds_.ShimSecret,
 	} {
 		if !strings.Contains(rec, want) {
 			t.Errorf("record lacks %q:\n%s", want, rec)
 		}
 	}
+	assertToolSecret(t, rec, r)
 	if strings.Contains(rec, "GOOSE_PATH_ROOT=<unset>") || strings.Contains(rec, "x-session-id") {
 		t.Errorf("bad root or a Cerea session header:\n%s", rec)
 	}
@@ -110,16 +116,24 @@ func TestLaunchGooseDefaultsToSessionAndWarnsOnVersion(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	bin := fakeLaunchTool(t, r, "goose", "goose 0.0.1", 0, nil, nil)
 	o := r.opts()
-	o.gooseBin, o.model = bin, "other-model"
+	o.gooseBin = bin
 	if err := launchGoose(context.Background(), o); err != nil {
 		t.Fatal(err)
 	}
 	if rec := r.recorded(t); !strings.Contains(rec, "ARGS:session\n") {
 		t.Errorf("no default 'session' argument:\n%s", rec)
 	}
-	s := r.stderrBuf.String()
-	if !strings.Contains(s, "is goose 0.0.1") || !strings.Contains(s, "--model other-model is not in the gateway") {
-		t.Errorf("warnings missing:\n%s", s)
+	if s := r.stderrBuf.String(); !strings.Contains(s, "is goose 0.0.1") {
+		t.Errorf("version warning missing:\n%s", s)
+	}
+	// a leading flag means `session <flag>`
+	o = r.opts("--resume", "-n", "x")
+	o.gooseBin = bin
+	if err := launchGoose(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	if rec := r.recorded(t); !strings.Contains(rec, "ARGS:session --resume -n x\n") {
+		t.Errorf("a leading flag did not get 'session' prepended:\n%s", rec)
 	}
 }
 
@@ -143,7 +157,7 @@ func TestLaunchVibe(t *testing.T) {
 		t.Fatal(err)
 	}
 	bin := fakeLaunchTool(t, r, "vibe", "vibe "+packaging.VibeVersion(), 3,
-		[]string{"VIBE_HOME", "MISTRAL_API_KEY", "OPENAI_API_KEY", "VIBE_ACTIVE_MODEL"},
+		[]string{"VIBE_HOME", "MISTRAL_API_KEY", "OPENAI_API_KEY", "VIBE_ACTIVE_MODEL", "TMPDIR"},
 		[]string{"$VIBE_HOME/config.toml", "$VIBE_HOME/trusted_folders.toml"})
 	r.baseEnv = append(r.baseEnv, "MISTRAL_API_KEY=leak", "VIBE_ACTIVE_MODEL=evil")
 	o := r.opts("--agent", "ask")
@@ -157,12 +171,13 @@ func TestLaunchVibe(t *testing.T) {
 	for _, want := range []string{
 		"ARGS:--agent ask", "MISTRAL_API_KEY=<unset>", "OPENAI_API_KEY=<unset>", "VIBE_ACTIVE_MODEL=<unset>",
 		`active_model = "gw-model"`, `api_base = "http://127.0.0.1:` + itPortStr(r.port) + `/v1"`,
-		"Bearer " + r.creds_.ShimSecret, "enable_auto_approve = false", "trusted = []",
+		"enable_auto_approve = false", "trusted = []",
 	} {
 		if !strings.Contains(rec, want) {
 			t.Errorf("record lacks %q:\n%s", want, rec)
 		}
 	}
+	assertToolSecret(t, rec, r)
 	if strings.Contains(rec, "VIBE_HOME=<unset>") || strings.Contains(rec, "VIBE_HOME="+userVibe) {
 		t.Errorf("VIBE_HOME not a temp dir:\n%s", rec)
 	}
@@ -185,24 +200,37 @@ func TestLaunchVibe(t *testing.T) {
 	portFree(t, r.port)
 }
 
-func TestLaunchVibeUnknownModelAndVersionWarning(t *testing.T) {
+func TestLaunchVibeNamedModelSkipsDiscoveryAndWarnsOnVersion(t *testing.T) {
 	r := newLaunchRig(t, 0, "x")
-	bin := fakeLaunchTool(t, r, "vibe", "vibe 0.0.1", 0, nil, nil)
-	o := r.opts()
-	o.vibeBin, o.model = bin, "nope"
-	if err := launchVibe(context.Background(), o); err == nil || !strings.Contains(err.Error(), "not in the gateway's model list") {
-		t.Fatalf("err = %v, want an unknown-model refusal", err)
+	bin := fakeLaunchTool(t, r, "vibe", "vibe 0.0.1", 0, nil, []string{"$VIBE_HOME/config.toml"})
+	// discovery would fail: no token endpoint answers, so a named model must not need it
+	r.creds_.Gateway = "http://127.0.0.1:1/v1"
+	if err := saveCredentials(r.creds, r.creds_); err != nil {
+		t.Fatal(err)
 	}
-	portFree(t, r.port) // refused before the proxy started
-	o.model = ""
+	o := r.opts()
+	o.vibeBin, o.model = bin, "anything-the-gateway-knows"
 	if err := launchVibe(context.Background(), o); err != nil {
 		t.Fatal(err)
+	}
+	if rec := r.recorded(t); !strings.Contains(rec, `active_model = "anything-the-gateway-knows"`) {
+		t.Errorf("named model not active:\n%s", rec)
 	}
 	if s := r.stderrBuf.String(); !strings.Contains(s, "is Mistral Vibe 0.0.1") {
 		t.Errorf("no version warning:\n%s", s)
 	}
 }
 
+// assertToolSecret: the tool was given a per-launch secret, never the install's.
+func assertToolSecret(t *testing.T, rec string, r *launchRig) {
+	t.Helper()
+	if strings.Contains(rec, r.creds_.ShimSecret) {
+		t.Errorf("the tool was given the long-lived proxy secret:\n%s", rec)
+	}
+	if !strings.Contains(rec, "gl-") {
+		t.Errorf("no per-launch secret in the tool's config:\n%s", rec)
+	}
+}
 func TestLaunchClaude(t *testing.T) {
 	r := newLaunchRig(t, 0, "x")
 	home := t.TempDir()
@@ -219,7 +247,7 @@ func TestLaunchClaude(t *testing.T) {
 	}
 	bin := fakeLaunchTool(t, r, "claude", "2.1.317 (Claude Code)", 4,
 		[]string{"ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL",
-			"ANTHROPIC_SMALL_FAST_MODEL", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "CLAUDE_CODE_USE_BEDROCK", "OPENAI_API_KEY", "NO_PROXY"},
+			"ANTHROPIC_SMALL_FAST_MODEL", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY", "ANTHROPIC_CUSTOM_HEADERS", "OPENAI_API_KEY", "NO_PROXY", "TMPDIR"},
 		[]string{"$2"})
 	r.baseEnv = append(r.baseEnv, "CLAUDE_CODE_USE_BEDROCK=1", "ANTHROPIC_BASE_URL=https://api.anthropic.com", "NO_PROXY=corp.example")
 	o := r.opts("-p", "hello world")
@@ -233,8 +261,9 @@ func TestLaunchClaude(t *testing.T) {
 	for _, want := range []string{
 		"ARGS:--settings ", "--model gw-model -p hello world",
 		"ANTHROPIC_BASE_URL=http://127.0.0.1:" + itPortStr(r.port) + "\n",
-		"ANTHROPIC_AUTH_TOKEN=" + r.creds_.ShimSecret,
-		"ANTHROPIC_API_KEY=<unset>", "CLAUDE_CODE_USE_BEDROCK=<unset>", "OPENAI_API_KEY=<unset>",
+		"ANTHROPIC_AUTH_TOKEN=gl-", "ANTHROPIC_API_KEY=\n", "ANTHROPIC_CUSTOM_HEADERS=\n",
+		"CLAUDE_CODE_USE_BEDROCK=0", "CLAUDE_CODE_USE_VERTEX=0", "CLAUDE_CODE_USE_FOUNDRY=0", "OPENAI_API_KEY=<unset>",
+		`"apiKeyHelper":""`,
 		"ANTHROPIC_MODEL=gw-model", "ANTHROPIC_DEFAULT_HAIKU_MODEL=gw-small", "ANTHROPIC_SMALL_FAST_MODEL=gw-small",
 		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1", "NO_PROXY=corp.example,127.0.0.1,localhost",
 		`"ANTHROPIC_BASE_URL":"http://127.0.0.1:` + itPortStr(r.port) + `"`,
@@ -243,6 +272,7 @@ func TestLaunchClaude(t *testing.T) {
 			t.Errorf("record lacks %q:\n%s", want, rec)
 		}
 	}
+	assertToolSecret(t, rec, r)
 	if strings.Contains(rec, "api.anthropic.com") || strings.Contains(rec, "sk-ant-leak") {
 		t.Errorf("an inherited Anthropic setting reached claude:\n%s", rec)
 	}
@@ -286,5 +316,150 @@ func TestLaunchClaudeNotEnrolledAndMissingBinary(t *testing.T) {
 	o.claudeBin = filepath.Join(t.TempDir(), "nope")
 	if err := launchClaude(context.Background(), o); err == nil || !strings.Contains(err.Error(), "not an executable") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestLaunchToolsGetAPrivateTmpdir(t *testing.T) {
+	r := newLaunchRig(t, 0, "x")
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	for _, tc := range []struct {
+		name string
+		run  func(launchOptions) error
+		opt  func(*launchOptions, string)
+	}{
+		{"goose", func(o launchOptions) error { return launchGoose(context.Background(), o) }, func(o *launchOptions, b string) { o.gooseBin = b }},
+		{"vibe", func(o launchOptions) error { return launchVibe(context.Background(), o) }, func(o *launchOptions, b string) { o.vibeBin = b }},
+		{"claude", func(o launchOptions) error { return launchClaude(context.Background(), o) }, func(o *launchOptions, b string) { o.claudeBin = b }},
+	} {
+		bin := fakeLaunchTool(t, r, tc.name, "1", 0, []string{"TMPDIR"}, nil)
+		o := r.opts()
+		o.model = "gw-model"
+		tc.opt(&o, bin)
+		if err := tc.run(o); err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		rec := r.recorded(t)
+		want := tc.name + "-launch-" + strconv.Itoa(os.Getpid()) + "/tmp"
+		if !strings.Contains(rec, "TMPDIR=") || !strings.Contains(rec, want) {
+			t.Errorf("%s: TMPDIR is not the launch dir's tmp/ (%s):\n%s", tc.name, want, rec)
+		}
+	}
+}
+
+func TestSweepStaleLaunchDirs(t *testing.T) {
+	r := newLaunchRig(t, 0, "x")
+	parent := filepath.Dir(opencodeTmpDir(r.state))
+	if err := os.MkdirAll(parent, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	dead := exec.Command("true")
+	if err := dead.Run(); err != nil {
+		t.Fatal(err)
+	}
+	deadPid := dead.Process.Pid
+	mk := func(name string) string {
+		p := filepath.Join(parent, name)
+		if err := os.MkdirAll(filepath.Join(p, "tmp"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	stale := mk("goose-launch-" + strconv.Itoa(deadPid))
+	live := mk("claude-launch-" + strconv.Itoa(os.Getpid()))
+	other := mk("something-else-" + strconv.Itoa(deadPid))
+	sweepStaleLaunchDirs(r.state)
+	if _, err := os.Stat(stale); err == nil {
+		t.Error("the dead launch's directory was not swept")
+	}
+	for _, p := range []string{live, other} {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("%s was removed: %v", p, err)
+		}
+	}
+}
+
+func TestSignalForwarderDoesNotDoubleDeliver(t *testing.T) {
+	now := time.Now()
+	tty := &signalForwarder{tty: true, last: map[os.Signal]time.Time{}}
+	if tty.should(syscall.SIGINT, now) || tty.should(syscall.SIGQUIT, now) {
+		t.Error("on a terminal Ctrl-C and Ctrl-\\ reach the tool directly: must not be forwarded")
+	}
+	f := &signalForwarder{last: map[os.Signal]time.Time{}}
+	if !f.should(syscall.SIGINT, now) {
+		t.Error("a SIGINT with no terminal must be forwarded")
+	}
+	if !f.should(syscall.SIGTERM, now) || f.should(syscall.SIGTERM, now.Add(10*time.Millisecond)) || f.should(syscall.SIGHUP, now.Add(20*time.Millisecond)) {
+		t.Error("the same termination arriving twice must be forwarded once")
+	}
+	if !f.should(syscall.SIGTERM, now.Add(2*time.Second)) {
+		t.Error("a later SIGTERM must be forwarded again")
+	}
+}
+
+func TestLaunchForwardsASignalOnce(t *testing.T) {
+	r := newLaunchRig(t, 0, "x")
+	count := filepath.Join(t.TempDir(), "count")
+	bin := filepath.Join(filepath.Dir(r.fakeBin), "goose")
+	script := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 1; exit 0; fi\ntrap 'echo T >> " + count + "' TERM\ntrap 'exit 0' INT\n: > " + count + ".ready\nwhile :; do sleep 0.1; done\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	o := r.opts()
+	o.gooseBin, o.model = bin, "gw-model"
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM)
+	defer stop()
+	go func() {
+		for i := 0; i < 100; i++ {
+			if _, err := os.Stat(count + ".ready"); err == nil {
+				break
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		_ = syscall.Kill(os.Getpid(), syscall.SIGTERM)
+		time.Sleep(700 * time.Millisecond)
+		_ = syscall.Kill(os.Getpid(), syscall.SIGINT) // ends the script (the test has no tty on stdin)
+	}()
+	_ = launchGoose(ctx, o)
+	b, _ := os.ReadFile(count)
+	if n := strings.Count(string(b), "T"); n != 1 {
+		t.Errorf("the tool got SIGTERM %d times, want 1", n)
+	}
+}
+
+func TestLaunchConnectorsOnlyIsCheckedBeforeTheBinary(t *testing.T) {
+	r := newLaunchRig(t, 0, "x")
+	r.creds_.Mode = modeConnectors
+	if err := saveCredentials(r.creds, r.creds_); err != nil {
+		t.Fatal(err)
+	}
+	for name, run := range map[string]func(launchOptions) error{
+		"goose": func(o launchOptions) error {
+			o.gooseBin = "/no/such/goose"
+			return launchGoose(context.Background(), o)
+		},
+		"vibe": func(o launchOptions) error { o.vibeBin = "/no/such/vibe"; return launchVibe(context.Background(), o) },
+		"claude": func(o launchOptions) error {
+			o.claudeBin = "/no/such/claude"
+			return launchClaude(context.Background(), o)
+		},
+	} {
+		if err := run(r.opts()); err == nil || !strings.Contains(err.Error(), "connectors-only") {
+			t.Errorf("%s: err = %v, want the connectors-only refusal", name, err)
+		}
+	}
+}
+
+func TestLaunchSurfacesATokenFailureWithAFix(t *testing.T) {
+	r := newLaunchRig(t, 0, "x")
+	r.creds_.AccessToken, r.creds_.ObtainedAt = "", 0
+	r.creds_.TokenEndpoint = "http://127.0.0.1:1/token"
+	if err := saveCredentials(r.creds, r.creds_); err != nil {
+		t.Fatal(err)
+	}
+	o := r.opts()
+	o.claudeBin = fakeLaunchTool(t, r, "claude", "1", 0, nil, nil)
+	if err := launchClaude(context.Background(), o); err == nil || !strings.Contains(err.Error(), "galopin auth login") {
+		t.Fatalf("err = %v, want a pointer to 'galopin auth login'", err)
 	}
 }

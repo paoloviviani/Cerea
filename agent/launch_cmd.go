@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -58,9 +57,20 @@ its own state, the Plan/Ask/Auto modes and the review log do not apply. Provider
 API keys in your environment (ANTHROPIC_API_KEY, OPENAI_API_KEY, …) are removed
 from opencode's environment so nothing is billed outside the gateway.
 
+The tool never holds this machine's long-lived proxy secret: it gets a random
+one for this launch, valid until the tool exits (a running 'galopin run' or
+'serve' of this version registers it; an older one cannot, which galopin says
+and falls back to the long-lived secret). The proxy also drops any credential
+header the tool sends (X-Api-Key, Anthropic-Api-Key, ...), and a reused proxy
+is identified by a challenge that sends it no secret. --model is taken as
+given for goose, vibe and claude: no model discovery, and a name the gateway
+does not know fails when the tool first calls it. The tool's TMPDIR is a
+private directory that is removed when it exits (and swept if galopin was
+killed).
+
 goose: 'galopin launch goose [--goose PATH] [--model ID] [--creds PATH]
 [--state-dir PATH] [--port PORT] [-- goose arguments…]'. Runs 'goose session' (or
-your arguments) with a temporary goose config directory (GOOSE_PATH_ROOT) that
+your arguments; one starting with '-' follows 'session') with a temporary goose config directory (GOOSE_PATH_ROOT) that
 holds the same provider galopin's supervised goose uses (the gateway's models
 through the local proxy) and the default model (first chat model, or --model).
 Your own goose config, extensions and keys are not read or written, and the
@@ -181,9 +191,19 @@ type launchSession struct {
 	port      int
 	logf      func(string, ...any)
 	stopProxy func()
+	// toolSecret is what the launched tool presents to the proxy: a per-launch
+	// secret when the proxy accepted one, else (a running proxy of an older
+	// galopin) the install's own shim secret.
+	toolSecret string
+	dropSecret func()
 }
 
-func (ls *launchSession) close() { ls.stopProxy() }
+func (ls *launchSession) close() {
+	if ls.dropSecret != nil {
+		ls.dropSecret()
+	}
+	ls.stopProxy()
+}
 
 // shimAddr is the proxy's address as the launched tool dials it.
 func (ls *launchSession) shimAddr() string { return fmt.Sprintf("127.0.0.1:%d", ls.port) }
@@ -225,6 +245,7 @@ func startLaunch(opts launchOptions) (*launchSession, error) {
 		return nil, err
 	}
 	ls.creds, ls.credsPath, ls.stateDir, ls.pol = creds, credsPath, stateDir, pol
+	sweepStaleLaunchDirs(stateDir)
 	return ls, nil
 }
 
@@ -237,13 +258,27 @@ func (ls *launchSession) startProxy(opts launchOptions) error {
 	if port == 0 {
 		port = defaultShimPort
 	}
-	stop, reused, err := ensureProxy(ls.creds, ls.credsPath, port, ls.logf)
+	stop, sh, err := ensureProxyShim(ls.creds, ls.credsPath, port, ls.logf)
 	if err != nil {
 		return err
 	}
 	ls.port, ls.stopProxy = port, stop
-	if reused {
-		ls.logf("using the proxy already listening on 127.0.0.1:%d", port)
+	ls.toolSecret = ls.creds.ShimSecret
+	sec, err := newLaunchSecret()
+	if err != nil {
+		stop()
+		return err
+	}
+	if sh != nil {
+		sh.addLaunchSecret(sec)
+		ls.toolSecret, ls.dropSecret = sec, func() { sh.dropLaunchSecret(sec) }
+		return nil
+	}
+	ls.logf("using the proxy already listening on 127.0.0.1:%d", port)
+	if drop, err := registerLaunchSecret(ls.shimAddr(), ls.creds.ShimSecret, sec); err != nil {
+		ls.logf("warning: that proxy takes no per-launch secret (%v): the tool is given this machine's long-lived proxy secret, which its child processes inherit; restart 'galopin run' to avoid this", err)
+	} else {
+		ls.toolSecret, ls.dropSecret = sec, drop
 	}
 	return nil
 }
@@ -302,8 +337,11 @@ func launchOpencode(ctx context.Context, opts launchOptions) error {
 	return runLaunched(ctx, "opencode", bin, backendopencode.LaunchArgs(cfg, opts.args), env)
 }
 
-// runLaunched runs the tool on the terminal until it exits, forwarding
-// SIGINT/SIGTERM/SIGHUP, and returns its exit code as an exitError.
+// runLaunched runs the tool on the terminal until it exits and returns its exit
+// code as an exitError. SIGTERM, SIGHUP and SIGQUIT are forwarded, and SIGINT
+// when stdin is not a terminal. A terminal's Ctrl-C and Ctrl-\ already reach
+// the tool directly (same foreground process group), so forwarding them as
+// well would deliver each twice.
 func runLaunched(ctx context.Context, name, bin string, args, env []string) error {
 	cmd := exec.Command(bin, args...)
 	cmd.Env = env
@@ -312,21 +350,50 @@ func runLaunched(ctx context.Context, name, bin string, args, env []string) erro
 		return fmt.Errorf("starting %s: %w", name, err)
 	}
 	sigs := make(chan os.Signal, 4)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
 	defer signal.Stop(sigs)
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
+	fw := &signalForwarder{tty: stdinInteractive(), last: map[os.Signal]time.Time{}}
 	for {
 		select {
 		case sig := <-sigs:
-			_ = cmd.Process.Signal(sig)
+			if fw.should(sig, time.Now()) {
+				_ = cmd.Process.Signal(sig)
+			}
 		case <-ctx.Done():
-			_ = cmd.Process.Signal(syscall.SIGTERM)
+			// the same SIGTERM/SIGHUP the sigs channel is also getting
+			if fw.should(syscall.SIGTERM, time.Now()) {
+				_ = cmd.Process.Signal(syscall.SIGTERM)
+			}
 			ctx = context.Background()
 		case err := <-done:
 			return exitFromWait(name, err)
 		}
 	}
+}
+
+// signalForwarder decides which signals galopin passes on to the tool.
+type signalForwarder struct {
+	tty  bool
+	last map[os.Signal]time.Time
+}
+
+func (f *signalForwarder) should(sig os.Signal, now time.Time) bool {
+	if f.tty && (sig == syscall.SIGINT || sig == syscall.SIGQUIT) {
+		return false
+	}
+	// SIGTERM and SIGHUP also arrive through the launch context; one of them
+	// is a duplicate of the other.
+	key := sig
+	if sig == syscall.SIGHUP {
+		key = syscall.SIGTERM
+	}
+	if t, ok := f.last[key]; ok && now.Sub(t) < time.Second {
+		return false
+	}
+	f.last[key] = now
+	return true
 }
 
 // exitFromWait maps cmd.Wait's result to galopin's own exit: nil for success,
@@ -374,17 +441,24 @@ func opencodeVersion(bin string) string {
 
 // ensureProxy makes sure a galopin shim answers on 127.0.0.1:port. A free
 // port gets an in-process shim, stopped by the returned func; a port a
-// galopin shim already holds (run or serve; recognised by its health endpoint
-// accepting this install's secret) is reused and the func does nothing;
+// galopin shim already holds (run or serve; recognised by its answer to a
+// secret-free challenge, see shimIsOurs) is reused and the func does nothing;
 // anything else on the port is an error. Never two shims on one port.
 func ensureProxy(creds *credentials, credsPath string, port int, logf func(string, ...any)) (stop func(), reused bool, err error) {
+	stop, sh, err := ensureProxyShim(creds, credsPath, port, logf)
+	return stop, sh == nil && err == nil, err
+}
+
+// ensureProxyShim is ensureProxy returning the in-process shim it started (nil
+// when it reused a running one).
+func ensureProxyShim(creds *credentials, credsPath string, port int, logf func(string, ...any)) (stop func(), started *shim, err error) {
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	ln, listenErr := net.Listen("tcp", addr)
 	if listenErr != nil {
-		if shimAnswers(addr, creds.ShimSecret) {
-			return func() {}, true, nil
+		if shimIsOurs(addr, creds.ShimSecret) {
+			return func() {}, nil, nil
 		}
-		return nil, false, fmt.Errorf("port %d is in use and is not this machine's galopin proxy (%v); stop what holds it, or pass --port", port, listenErr)
+		return nil, nil, fmt.Errorf("port %d is in use and is not this machine's galopin proxy (%v); stop what holds it (a galopin older than this one must be restarted), or pass --port", port, listenErr)
 	}
 	sh := newShim(creds, credsPath, statusPathFor(credsPath), port)
 	_ = sh.refresh()
@@ -393,13 +467,10 @@ func ensureProxy(creds *credentials, credsPath string, port int, logf func(strin
 	sh.mu.Unlock()
 	if state == stateExpired {
 		_ = ln.Close()
-		return nil, false, fmt.Errorf("the enrolled credential has expired (%s): run 'galopin auth login'", msg)
+		return nil, nil, fmt.Errorf("the enrolled credential has expired (%s): run 'galopin auth login'", msg)
 	}
 	go sh.refreshLoop()
-	mux := http.NewServeMux()
-	mux.HandleFunc("/galopin/health", sh.requireLocalAuth(sh.healthHandler))
-	mux.HandleFunc("/", sh.requireLocalAuth(sh.handler))
-	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Handler: sh.mux(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 			logf("proxy error: %v", err)
@@ -410,26 +481,5 @@ func ensureProxy(creds *credentials, credsPath string, port int, logf func(strin
 		defer cancel()
 		_ = srv.Shutdown(ctx)
 		_ = srv.Close()
-	}, false, nil
-}
-
-// shimAnswers reports whether a galopin shim holds addr: its health endpoint
-// answers 200 with a status body to this install's bearer secret.
-func shimAnswers(addr, secret string) bool {
-	req, err := http.NewRequest(http.MethodGet, "http://"+addr+"/galopin/health", nil)
-	if err != nil {
-		return false
-	}
-	req.Header.Set("Authorization", "Bearer "+secret)
-	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return false
-	}
-	var st healthStatus
-	return json.NewDecoder(resp.Body).Decode(&st) == nil && st.State != ""
+	}, sh, nil
 }

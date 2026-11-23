@@ -1667,6 +1667,24 @@ galopin's own state and credentials, the Plan/Ask/Auto selector, the delegated
 permissions and the review log. Treat it as opencode with the gateway wired in.
 `launch` also starts goose, Mistral Vibe and Claude Code, below.
 
+#### What the three have in common
+
+The launched tool is given a random **per-launch secret** for the proxy, never
+this computer's long-lived one: tools pass their environment on to the shell
+commands, hooks and MCP servers they start. A proxy that galopin starts for the
+launch accepts it until the tool exits; a `galopin run` or `serve` of this
+version that is already listening takes it by a local registration (made with the
+long-lived secret, after the proxy answered a challenge that sends it no secret)
+and forgets it at exit. If the running proxy is older and cannot, galopin says so
+and falls back to the long-lived secret: restart `galopin run` to avoid that.
+The proxy drops every credential header a tool sends of its own (`X-Api-Key`,
+`Anthropic-Api-Key`, `Api-Key`, `Cookie`, ...), so a key from the tool's own
+settings never reaches the gateway. `--model` is used as given (no discovery;
+a name the gateway does not know fails at the first request), the same for
+all three. Each tool gets a private `TMPDIR` inside a per-launch directory
+(`<tool>-launch-<pid>`), removed at exit; the next launch removes the leftovers
+of one that was killed.
+
 #### `galopin launch goose`
 
 ```sh
@@ -1719,7 +1737,9 @@ sub-agent models), `ANTHROPIC_DEFAULT_HAIKU_MODEL` and
 `ANTHROPIC_SMALL_FAST_MODEL` (`--small-model`, else the same),
 `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, `DISABLE_AUTOUPDATER` and
 `DISABLE_TELEMETRY`. The same values go in a temporary file passed as
-`--settings`, so they outrank an `env` block in your own settings.
+`--settings`, so they outrank an `env` block in your own settings; that file
+also switches off the Bedrock, Vertex and Foundry routes, an API key, extra
+request headers and an `apiKeyHelper` that your own settings might set.
 `ANTHROPIC_API_KEY`, other `ANTHROPIC_*` variables, Bedrock/Vertex/Foundry
 switches and other providers' keys are removed from its environment.
 **Untouched:** `~/.claude/settings.json` and `~/.claude.json` (never modified);

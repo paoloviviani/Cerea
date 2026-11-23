@@ -165,7 +165,7 @@ func TestEnsureProxyStartsAndStopsThenReuses(t *testing.T) {
 		t.Fatalf("second: reused=%v err=%v, want reuse", reused2, err)
 	}
 	stop2() // reuse's stop must not take the owner's proxy down
-	if !shimAnswers(net.JoinHostPort("127.0.0.1", itPortStr(r.port)), r.creds_.ShimSecret) {
+	if !shimIsOurs(net.JoinHostPort("127.0.0.1", itPortStr(r.port)), r.creds_.ShimSecret) {
 		t.Fatal("reuse's stop closed the proxy it did not start")
 	}
 	stop1()

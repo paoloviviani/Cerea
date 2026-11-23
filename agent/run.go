@@ -263,9 +263,7 @@ func runAgent(ctx context.Context, opts *runOptions) error {
 		if creds.Gateway == "" {
 			return fmt.Errorf("creds file has no gateway: re-run 'galopin enroll' (the shim has nothing to forward to)")
 		}
-		mux := http.NewServeMux()
-		mux.HandleFunc("/galopin/health", sh.requireLocalAuth(sh.healthHandler))
-		mux.HandleFunc("/", sh.requireLocalAuth(sh.handler))
+		mux := sh.mux()
 		addr := fmt.Sprintf("127.0.0.1:%d", shimPort)
 		shimServer = &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 		go func() {
