@@ -1665,7 +1665,71 @@ permission floor, so every tool call asks you, in the terminal. What cannot
 apply is anything that needs galopin to answer for you: the refusal of
 galopin's own state and credentials, the Plan/Ask/Auto selector, the delegated
 permissions and the review log. Treat it as opencode with the gateway wired in.
-The command is `launch <tool>` so other tools can follow; only opencode exists.
+`launch` also starts goose, Mistral Vibe and Claude Code, below.
+
+#### `galopin launch goose`
+
+```sh
+galopin launch goose [--goose PATH] [--model ID] [-- goose arguments…]
+```
+
+Runs `goose session` (or your arguments) wired through the same local proxy.
+galopin builds a **temporary** goose config directory (`GOOSE_PATH_ROOT`) from
+the same generation the supervised goose uses: the `galopin` provider (the
+gateway's chat models, the proxy's secret as a header), the default model (the
+first chat model, or `--model`), approve mode (goose asks before each tool
+call, in the terminal), keyring and telemetry off. It is removed when goose
+exits. **Untouched:** your own goose config, extensions, custom providers and
+keys (nothing is read from them either, so your extensions are not loaded); your
+session store is linked, so `goose session --resume` sees your history. `GOOSE_*`
+and other providers' variables are stripped. Binary: `--goose`, then the copy
+galopin installed (or `GALOPIN_GOOSE_BIN`), then `goose` on PATH; a different
+version than the tested one only warns. **Does not apply:** galopin's protected
+paths, Plan/Ask/Auto, the Cerea connectors extension, the review log.
+
+#### `galopin launch vibe`
+
+```sh
+galopin launch vibe [--vibe PATH] [--model ID] [-- vibe arguments…]
+```
+
+Runs Mistral Vibe with a **temporary** `VIBE_HOME` holding the supervised
+engine's config: only the gateway's models (Vibe's own Mistral models are not
+offered), the chosen one active (`--model`, else the first chat model),
+telemetry, update checks and the model catalogue off, every file and shell tool
+asking first, auto-approve refused. **Untouched:** your own `~/.vibe` (config,
+trusted folders, API key, sessions), which is neither read nor written; so Vibe's
+sessions from a launch are not kept, and its trust prompt for a project appears
+each time. `VIBE_*` and provider keys are stripped. Binary: `--vibe`, then `vibe`
+on PATH, then the copy galopin installed. **Does not apply:** protected paths,
+Plan/Ask/Auto, the review log.
+
+#### `galopin launch claude`
+
+```sh
+galopin launch claude [--claude PATH] [--model ID] [--small-model ID] [-- claude arguments…]
+```
+
+Runs Claude Code against the gateway's Anthropic Messages endpoint (`/v1/messages`)
+through the proxy. It sets `ANTHROPIC_BASE_URL` (the proxy) and
+`ANTHROPIC_AUTH_TOKEN` (the proxy's secret: Claude Code never holds the gateway
+credential, the proxy adds it and the billing group), `ANTHROPIC_MODEL` and
+`--model` (`--model`, else the first chat model; also the Opus, Sonnet and
+sub-agent models), `ANTHROPIC_DEFAULT_HAIKU_MODEL` and
+`ANTHROPIC_SMALL_FAST_MODEL` (`--small-model`, else the same),
+`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, `DISABLE_AUTOUPDATER` and
+`DISABLE_TELEMETRY`. The same values go in a temporary file passed as
+`--settings`, so they outrank an `env` block in your own settings.
+`ANTHROPIC_API_KEY`, other `ANTHROPIC_*` variables, Bedrock/Vertex/Foundry
+switches and other providers' keys are removed from its environment.
+**Untouched:** `~/.claude/settings.json` and `~/.claude.json` (never modified);
+the rest of your Claude Code configuration (permissions, hooks, MCP servers,
+memory) applies as usual, so Claude Code asks according to your own permission
+settings. No Claude Code version is pinned: galopin prints the version it found
+and checks nothing. The variable names are Claude Code's documented ones,
+checked against 2.1.317 for the endpoint, the bearer token and the model name.
+Anthropic-hosted server tools (such as web search) may not work through the gateway.
+**Does not apply:** protected paths, Plan/Ask/Auto, the review log.
 
 ### Keeping it running
 

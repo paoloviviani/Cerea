@@ -28,6 +28,7 @@ Usage:
   galopin launch opencode [options] [-- opencode arguments…]
   galopin launch goose    [options] [-- goose arguments…]
   galopin launch vibe     [options] [-- vibe arguments…]
+  galopin launch claude   [options] [-- claude arguments…]
 
 Starts opencode in the current directory with the opencode.json 'galopin
 enroll' wrote, through the same local proxy (so the same gateway, billing
@@ -82,6 +83,23 @@ exit, so Vibe's sessions are not kept and each project's trust prompt appears
 afresh. VIBE_* and provider keys are stripped from the environment. Binary:
 --vibe, then vibe on PATH, then the copy galopin installed. galopin's protected
 paths, Plan/Ask/Auto and the review log do not apply.
+
+claude: 'galopin launch claude [--claude PATH] [--model ID] [--small-model ID]
+[--creds PATH] [--state-dir PATH] [--port PORT] [-- claude arguments…]'. Runs
+Claude Code with ANTHROPIC_BASE_URL set to the local proxy (the gateway's
+Anthropic Messages endpoint) and ANTHROPIC_AUTH_TOKEN set to the proxy's
+secret, so the real credential never reaches it. --model (default: the first
+chat model) is used for the main and sub-agent models; --small-model (default:
+the same) for the haiku/small-fast slot. CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC,
+DISABLE_AUTOUPDATER and DISABLE_TELEMETRY are set, and ANTHROPIC_API_KEY and
+other providers' keys and routes (Bedrock, Vertex, ...) are removed. The same
+settings go in a temporary file given as --settings, so they outrank an 'env'
+block in your own settings; ~/.claude/settings.json and ~/.claude.json are not
+modified, and the rest of your Claude Code configuration (permissions, hooks,
+MCP servers, memory) applies as usual. No Claude Code version is pinned: its
+version is printed, nothing is checked. Anthropic-hosted server tools (such as
+web search) may not work through the gateway.
+galopin's protected paths, Plan/Ask/Auto and the review log do not apply.
 `
 
 // launchOptions is what 'galopin launch opencode' needs; split from the flag
@@ -120,6 +138,8 @@ func runLaunch(args []string) error {
 		run = launchGoose
 	case "vibe":
 		run = launchVibe
+	case "claude":
+		run = launchClaude
 	default:
 		return exitError{code: 2, err: fmt.Errorf("launch: unknown tool %q (supported: %s)", tool, launchSupported)}
 	}
@@ -137,6 +157,10 @@ func runLaunch(args []string) error {
 	case "vibe":
 		fs.StringVar(&opts.vibeBin, "vibe", "", "")
 		fs.StringVar(&opts.model, "model", "", "")
+	case "claude":
+		fs.StringVar(&opts.claudeBin, "claude", "", "")
+		fs.StringVar(&opts.model, "model", "", "")
+		fs.StringVar(&opts.smallModel, "small-model", "", "")
 	}
 	if err := fs.Parse(rest); err != nil {
 		return err

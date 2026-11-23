@@ -7,6 +7,8 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- New: **`galopin launch goose`, `galopin launch vibe` and `galopin launch claude`** start your own goose, Mistral Vibe or Claude Code wired through galopin's local proxy (the gateway's models, the same billing group, no Cerea link), like `launch opencode`. goose and Vibe get a temporary config built from the one galopin's supervised engines use; Claude Code is pointed at the gateway's Anthropic endpoint with environment variables and a temporary `--settings` file. Your own goose, Vibe and Claude Code configuration is never modified, other providers' keys are removed from the tool's environment, and the tool is not supervised (no Plan/Ask/Auto, no review log). Update galopin on the computer to get it.
+
 ## v0.63.0 — 2026-11-22
 
 Pins: Cerea `0.63.0` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.34.0`, opencode `2.3.0`.

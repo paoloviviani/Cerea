@@ -202,3 +202,89 @@ func TestLaunchVibeUnknownModelAndVersionWarning(t *testing.T) {
 		t.Errorf("no version warning:\n%s", s)
 	}
 }
+
+func TestLaunchClaude(t *testing.T) {
+	r := newLaunchRig(t, 0, "x")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	userSettings := filepath.Join(home, ".claude", "settings.json")
+	userJSON := filepath.Join(home, ".claude.json")
+	if err := os.MkdirAll(filepath.Dir(userSettings), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{userSettings, userJSON} {
+		if err := os.WriteFile(f, []byte("{\"mine\":true}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bin := fakeLaunchTool(t, r, "claude", "2.1.317 (Claude Code)", 4,
+		[]string{"ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+			"ANTHROPIC_SMALL_FAST_MODEL", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "CLAUDE_CODE_USE_BEDROCK", "OPENAI_API_KEY", "NO_PROXY"},
+		[]string{"$2"})
+	r.baseEnv = append(r.baseEnv, "CLAUDE_CODE_USE_BEDROCK=1", "ANTHROPIC_BASE_URL=https://api.anthropic.com", "NO_PROXY=corp.example")
+	o := r.opts("-p", "hello world")
+	o.claudeBin, o.model, o.smallModel = bin, "gw-model", "gw-small"
+	err := launchClaude(context.Background(), o)
+	var ee exitError
+	if !errors.As(err, &ee) || ee.code != 4 {
+		t.Fatalf("err = %v, want exit code 4", err)
+	}
+	rec := r.recorded(t)
+	for _, want := range []string{
+		"ARGS:--settings ", "--model gw-model -p hello world",
+		"ANTHROPIC_BASE_URL=http://127.0.0.1:" + itPortStr(r.port) + "\n",
+		"ANTHROPIC_AUTH_TOKEN=" + r.creds_.ShimSecret,
+		"ANTHROPIC_API_KEY=<unset>", "CLAUDE_CODE_USE_BEDROCK=<unset>", "OPENAI_API_KEY=<unset>",
+		"ANTHROPIC_MODEL=gw-model", "ANTHROPIC_DEFAULT_HAIKU_MODEL=gw-small", "ANTHROPIC_SMALL_FAST_MODEL=gw-small",
+		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1", "NO_PROXY=corp.example,127.0.0.1,localhost",
+		`"ANTHROPIC_BASE_URL":"http://127.0.0.1:` + itPortStr(r.port) + `"`,
+	} {
+		if !strings.Contains(rec, want) {
+			t.Errorf("record lacks %q:\n%s", want, rec)
+		}
+	}
+	if strings.Contains(rec, "api.anthropic.com") || strings.Contains(rec, "sk-ant-leak") {
+		t.Errorf("an inherited Anthropic setting reached claude:\n%s", rec)
+	}
+	for _, f := range []string{userSettings, userJSON} {
+		if b, _ := os.ReadFile(f); string(b) != "{\"mine\":true}\n" {
+			t.Errorf("%s changed: %q", f, b)
+		}
+	}
+	if ents, _ := os.ReadDir(home); len(ents) != 2 {
+		t.Errorf("unexpected files in HOME: %v", ents)
+	}
+	s := r.stderrBuf.String()
+	if !strings.Contains(s, "Claude Code 2.1.317 (Claude Code) (galopin pins no Claude Code version") ||
+		!strings.Contains(s, "local Claude Code (gw-model, small model gw-small), billed to team; not supervised by Cerea") {
+		t.Errorf("stderr lines missing:\n%s", s)
+	}
+	portFree(t, r.port)
+}
+
+func TestLaunchClaudeDefaultModelFromGateway(t *testing.T) {
+	r := newLaunchRig(t, 0, "x")
+	bin := fakeLaunchTool(t, r, "claude", "2.1.317 (Claude Code)", 0, []string{"ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL"}, nil)
+	o := r.opts()
+	o.claudeBin = bin
+	if err := launchClaude(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	rec := r.recorded(t)
+	if !strings.Contains(rec, "ANTHROPIC_MODEL=gw-model") || !strings.Contains(rec, "ANTHROPIC_DEFAULT_HAIKU_MODEL=gw-model") {
+		t.Errorf("defaults not the gateway's first model:\n%s", rec)
+	}
+}
+
+func TestLaunchClaudeNotEnrolledAndMissingBinary(t *testing.T) {
+	err := launchClaude(context.Background(), launchOptions{credsPath: filepath.Join(t.TempDir(), "c.json"), claudeBin: "/bin/true"})
+	if err == nil || !strings.Contains(err.Error(), "galopin enroll") {
+		t.Fatalf("err = %v", err)
+	}
+	r := newLaunchRig(t, 0, "x")
+	o := r.opts()
+	o.claudeBin = filepath.Join(t.TempDir(), "nope")
+	if err := launchClaude(context.Background(), o); err == nil || !strings.Contains(err.Error(), "not an executable") {
+		t.Fatalf("err = %v", err)
+	}
+}

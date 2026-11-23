@@ -11,6 +11,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -274,4 +275,153 @@ func launchVibe(ctx context.Context, opts launchOptions) error {
 	ls.logf("local Mistral Vibe (%s), billed to %s; not supervised by Cerea (no Plan/Ask/Auto, no review log)", vm[0].ID, billingLabel(ls.creds))
 	ls.logf("Vibe asks before each tool call, in this terminal; your own ~/.vibe is not loaded (no folder is trusted); galopin's own-state protections need galopin to answer and do not apply")
 	return runLaunched(ctx, "vibe", bin, opts.args, env)
+}
+
+// claudeStripPrefixes are the inherited variables that would point Claude Code
+// at another provider or hand it another credential (or a third-party cloud
+// route): the only upstream is galopin's proxy.
+var claudeStripPrefixes = []string{
+	"ANTHROPIC_", "CLAUDE_CODE_USE_", "CLAUDE_CODE_SKIP_", "CLAUDE_CODE_OAUTH_TOKEN", "AWS_BEARER_TOKEN_BEDROCK",
+	"OPENAI_", "AZURE_OPENAI_", "OPENROUTER_", "GEMINI_", "GOOGLE_API_KEY", "MISTRAL_", "XAI_", "GROQ_", "DEEPSEEK_",
+	"CEREBRAS_", "LITELLM_", "OLLAMA_",
+}
+
+// claudeLaunchSettings are the variables galopin sets for Claude Code. They are
+// also written to a temporary --settings file: a CLI settings file outranks
+// the user's ~/.claude/settings.json, whose own "env" block would otherwise win
+// over the process environment.
+//
+// Variable names are Claude Code's documented ones (ANTHROPIC_BASE_URL,
+// ANTHROPIC_AUTH_TOKEN sent as "Authorization: Bearer", ANTHROPIC_MODEL, the
+// ANTHROPIC_DEFAULT_*_MODEL aliases, CLAUDE_CODE_SUBAGENT_MODEL,
+// CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC); they are not verified against a
+// pinned release because galopin pins none.
+func claudeLaunchSettings(shimAddr, secret, model, small string) [][2]string {
+	noProxy := "127.0.0.1,localhost"
+	return [][2]string{
+		{"ANTHROPIC_BASE_URL", "http://" + shimAddr},
+		{"ANTHROPIC_AUTH_TOKEN", secret},
+		{"ANTHROPIC_MODEL", model},
+		{"ANTHROPIC_DEFAULT_OPUS_MODEL", model},
+		{"ANTHROPIC_DEFAULT_SONNET_MODEL", model},
+		{"ANTHROPIC_DEFAULT_HAIKU_MODEL", small},
+		{"ANTHROPIC_SMALL_FAST_MODEL", small},
+		{"CLAUDE_CODE_SUBAGENT_MODEL", model},
+		{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1"},
+		{"DISABLE_AUTOUPDATER", "1"},
+		{"DISABLE_TELEMETRY", "1"},
+		{"DISABLE_ERROR_REPORTING", "1"},
+		{"NO_PROXY", noProxy},
+		{"no_proxy", noProxy},
+	}
+}
+
+// claudeEnv is the caller's environment with other providers' variables
+// removed and galopin's put in. An inherited NO_PROXY is kept and extended.
+func claudeEnv(base []string, set [][2]string) []string {
+	out := make([]string, 0, len(base)+len(set))
+	extraNoProxy := ""
+	for _, kv := range base {
+		name, val, _ := strings.Cut(kv, "=")
+		if (name == "NO_PROXY" || name == "no_proxy") && val != "" {
+			extraNoProxy = val
+		}
+		strip := false
+		for _, p := range claudeStripPrefixes {
+			if strings.HasPrefix(name, p) {
+				strip = true
+				break
+			}
+		}
+		if !strip && name != "NO_PROXY" && name != "no_proxy" {
+			out = append(out, kv)
+		}
+	}
+	for _, kv := range set {
+		v := kv[1]
+		if (kv[0] == "NO_PROXY" || kv[0] == "no_proxy") && extraNoProxy != "" {
+			v = extraNoProxy + "," + v
+		}
+		out = append(out, kv[0]+"="+v)
+	}
+	return out
+}
+
+// claudeVersionOf is `claude --version` ("2.1.317 (Claude Code)"), or "".
+func claudeVersionOf(bin string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, bin, "--version").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// launchClaude runs the user's own interactive Claude Code against the gateway's
+// Anthropic-compatible endpoint (/v1/messages) through the local proxy.
+func launchClaude(ctx context.Context, opts launchOptions) error {
+	ls, err := startLaunch(opts)
+	if err != nil {
+		return err
+	}
+	bin, err := resolveToolBin(opts.claudeBin, "claude")
+	if err != nil {
+		return err
+	}
+	if v := claudeVersionOf(bin); v == "" {
+		ls.logf("warning: could not read %s's version; galopin pins no Claude Code version", bin)
+	} else {
+		ls.logf("Claude Code %s (galopin pins no Claude Code version; its settings and variable names may change)", v)
+	}
+	if ls.creds.Mode == modeConnectors {
+		return errors.New("this machine was enrolled with --connectors-only: it has no proxy for Claude Code to use")
+	}
+	model := opts.model
+	if model == "" || opts.smallModel == "" {
+		models, err := ls.launchModels(ctx)
+		if err != nil {
+			return fmt.Errorf("%w: pass --model (and --small-model) to skip discovery", err)
+		}
+		ids := gooseIDs(gooseModels(models))
+		if model == "" {
+			model = pickLaunchModel("", ids, ls.logf)
+		} else {
+			pickLaunchModel(model, ids, ls.logf)
+		}
+		if opts.smallModel != "" {
+			pickLaunchModel(opts.smallModel, ids, ls.logf)
+		}
+	}
+	small := opts.smallModel
+	if small == "" {
+		small = model
+	}
+	if err := ls.startProxy(opts); err != nil {
+		return err
+	}
+	defer ls.close()
+
+	set := claudeLaunchSettings(ls.shimAddr(), ls.creds.ShimSecret, model, small)
+	envBlock := map[string]string{}
+	for _, kv := range set {
+		envBlock[kv[0]] = kv[1]
+	}
+	settings, err := json.Marshal(map[string]any{"env": envBlock})
+	if err != nil {
+		return err
+	}
+	dir, err := launchTempDir(ls.stateDir, "claude-launch")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(dir)
+	settingsPath := filepath.Join(dir, "settings.json")
+	if err := writeFileAtomic(settingsPath, settings, 0o600); err != nil {
+		return err
+	}
+	args := append([]string{"--settings", settingsPath, "--model", model}, opts.args...)
+	ls.logf("local Claude Code (%s, small model %s), billed to %s; not supervised by Cerea (no Plan/Ask/Auto, no review log)", model, small, billingLabel(ls.creds))
+	ls.logf("Claude Code asks per its own permission settings, in this terminal; your ~/.claude settings still apply except what galopin overrides (endpoint, token, models); galopin's own-state protections need galopin to answer and do not apply")
+	return runLaunched(ctx, "claude", bin, args, claudeEnv(launchBaseEnv(opts), set))
 }
