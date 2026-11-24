@@ -42,3 +42,27 @@ rules:
 `E2E_SKIP_BUILD=1 flock /tmp/heavy.lock.a npx playwright test -c scripts/docs-screenshots/playwright.config.ts`
 (`SHOTS_ONLY=<regexp on the test title>` shoots a subset), then
 `uv run --with pillow python scripts/docs-screenshots/finish.py` writes the WebP files. Look at each one.
+
+## The README animation and social preview
+
+`docs/assets/cerea-demo.mp4` and `cerea-demo.webp` (the README's first screen) are recorded from the
+same hermetic stack as the screenshots, by `scripts/docs-screenshots/demo.spec.ts`: three short
+clips with Playwright's video (a: a question, a streamed answer and its artifact; b: a coding
+agent's approval card, Allow once, the result; c: the same on a phone), with the fake machine
+answering the approval. The helpers they share with `shots.spec.ts` are in `common.ts`. To re-record,
+build once, then:
+
+```sh
+npm run build        # alone: a build next to the stack can run out of memory
+E2E_SKIP_BUILD=1 flock /tmp/heavy.lock.a npx playwright test -c scripts/docs-screenshots/playwright.demo.config.ts
+uv run --with imageio-ffmpeg --with pillow python scripts/docs-screenshots/make-demo.py
+```
+
+The first writes `clip-a/b/c.webm` and `clips.json` to `$DEMO_OUT` (default `/var/tmp/readme-tmp/demo`);
+the second trims, joins and encodes them (the box has no ffmpeg; `imageio-ffmpeg` bundles one).
+Keep the pace calm (pauses, no cursor chasing), the MP4 under about 8 MB and the WebP under about
+5 MB, and look at frames of the result before committing.
+
+`docs/assets/social-preview.png` (1280x640, GitHub's social preview) comes from
+`scripts/docs-screenshots/social-preview.html` with `node scripts/docs-screenshots/social-preview.mjs`.
+GitHub has no API for it: the owner uploads it under Settings, General, Social preview.
