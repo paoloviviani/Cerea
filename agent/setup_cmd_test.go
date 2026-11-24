@@ -415,3 +415,19 @@ func TestRemoveAllWritableClearsReadOnlyDirectories(t *testing.T) {
 		t.Error("the launch directory is still there")
 	}
 }
+
+func TestSetupSaysWhenTheShimsDirIsAlreadyFirstOnTheOriginalPath(t *testing.T) {
+	dir := setupDir(t)
+	shims := filepath.Join(dir, setupShimsDirName)
+	old := originalPath
+	defer func() { originalPath = old }()
+	originalPath = shims + string(os.PathListSeparator) + "/usr/bin"
+	t.Setenv("PATH", "/usr/bin") // main() already stripped it
+	var out bytes.Buffer
+	if err := setupLaunch(&out, "claude", true, false); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "already first on your PATH") {
+		t.Errorf("%s", out.String())
+	}
+}

@@ -300,7 +300,7 @@ func setupLaunch(out io.Writer, tool string, makeDefault, remove bool) error {
 		fmt.Fprintf(out, "%s %s\n", verb(changed), shimPath)
 		fmt.Fprintln(out, "To make typing '"+tool+"' go through the gateway, put that directory first on your PATH (galopin does not edit your shell files). Add this line to your shell profile:")
 		fmt.Fprintf(out, "\n  export PATH=\"%s:$PATH\"\n\n", shims)
-		if pathHasFirst(os.Getenv("PATH"), shims) {
+		if pathHasFirst(originalPath, shims) {
 			fmt.Fprintln(out, "It is already first on your PATH in this shell.")
 		} else {
 			fmt.Fprintln(out, "Then open a new shell (or run 'hash -r'). Undo with 'galopin setup "+tool+" --remove'.")
@@ -354,6 +354,11 @@ func sameDir(a, b string) bool {
 // entry goes when it is the directory the shim recorded (GALOPIN_SHIMS_DIR), the
 // one beside this binary, the same directory through a symlink, or is named
 // galopin-shims (galopin's own name for it).
+// originalPath is PATH as the user's shell gave it, before stripShimsFromPath
+// (called first thing in main) removed the shims directory: setup needs it to say
+// whether that directory is already first.
+var originalPath = os.Getenv("PATH")
+
 func stripShimsFromPath() {
 	var known []string
 	if d := os.Getenv(shimsDirEnv); d != "" {

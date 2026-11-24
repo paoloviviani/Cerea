@@ -1875,7 +1875,7 @@ these connectors too** is on. That switch is the consent. Cerea's connectors tra
 over the computer's link to Cerea, which only a running `galopin run` (or the
 service) holds, and `launch` never dials Cerea itself; so the launch forwards to
 that running galopin's local-agents endpoint (`run` creates its file,
-`local-agents.json`, itself: no goose setup needed). Before it sends that endpoint's
+`local-agents.json`, itself, so every `galopin run` and `serve` now opens that loopback port, 41970 by default, behind a secret and serving only the Cerea connectors, gated by the Workspace switch; before, only goose setup did). Before it sends that endpoint's
 long-lived secret anywhere, the launch asks a secret-free challenge (a nonce, answered
 with an HMAC only the real galopin can compute); a process that merely listens on the
 port never sees the secret. Without a running galopin, only this computer's own
