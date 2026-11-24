@@ -7,9 +7,17 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+## v0.65.0 — 2026-11-24
+
+Pins: Cerea `0.65.0` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.34.0`, opencode `2.4.1`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. **On computers:** update galopin (the Upgrade button, or the usual command) to get the Mistral Vibe and `launch`/`setup` changes.
+
+- **Mistral Vibe at parity with opencode.** On a Vibe computer: the workspace's `AGENTS.md` (when the computer allows a project's own setup), `/compact`, the thinking-effort selector, the agent's questions as cards, messages sent during a turn queued for the next one (and cancellable), cost per session, **Undo** that restores files and rolls the conversation back (no redo), **Fork from here** on the same computer, and subagents shown as task cards. The same question cards and queueing work on goose.
+- **Connectors in `galopin launch`.** `galopin launch opencode|goose|vibe|claude` offers your connectors to the tool for that run: this computer's own and, while galopin runs (`galopin run` or the service) and the Workspace switch "Apps on my computers may use these connectors too" is on, your Cerea ones. The tool's own approval rules apply.
+- **`galopin setup TOOL`** makes launching through galopin the default: it installs a `TOOL-galopin` command, or with `--default` a `TOOL` shim for you to put first on `PATH`; `--remove` undoes it. Nothing in the tool's own config changes and no service is installed. `galopin setup goose --desktop` replaces `galopin goose setup` for goose Desktop; it needs galopin running and offers `galopin service install` as an explicit next step.
+- **How a computer is kept running is shown.** The Agents panel and the new `galopin status` say whether galopin runs as a service, in a terminal, under the Mac app or in a container, and how to stop it. Every `galopin run` and `galopin serve` now opens the loopback connectors endpoint (port 41970 by default, behind a secret, Cerea connectors only while the Workspace switch is on).
 - **New:** on a phone, long-press in the terminal selects text, with handles and Copy, like a native terminal app.
-- **Mistral Vibe parity, phase 2** (needs the matching galopin): Vibe computers can roll a session back (`/undo`, files restored; final, no `/redo`), fork from a message on the same computer without a history file, and show subagents as task cards with a child session. Phase 1 (same series): the workspace's `AGENTS.md`, `/compact`, thinking effort, `ask_user` questions, queued follow-ups.
-- **galopin:** `galopin launch` (opencode, goose, vibe, claude) now offers the Cerea connectors in the tool's temporary config: this computer's own and, while a `galopin run` or the service is linked and the Workspace switch "Apps on my computers may use these connectors too" is on, your Cerea ones. A per-launch secret protects the endpoint, one stderr line says what is available, and the tool's own approval rules apply. New `galopin setup TOOL` installs a `TOOL-galopin` command (`--default` adds a shim named `TOOL` in a galopin-owned directory for you to put first on `PATH`; `--remove` undoes it; no service, no tool config touched); `galopin setup goose --desktop` is the old `galopin goose setup`, now saying it needs the proxy running and offering `galopin service install` as an explicit next step. New `galopin status` and `hello.agent.runMode` say how galopin is kept running (service, terminal, Mac app, container); the Agents panel shows it under the computer's name. Every `galopin run` and `galopin serve` now also opens the loopback local-agents endpoint (port 41970 by default, behind a secret, Cerea connectors only, offered only while the Workspace switch is on); before, only `galopin goose setup` did.
 
 ## v0.64.1 — 2026-11-24
 
