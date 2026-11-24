@@ -553,3 +553,52 @@ func TestVibeEngineWorkspaceInstructionsDeniedByDefault(t *testing.T) {
 		}
 	}
 }
+
+// Vibe's own /compact runs as a turn: the Compact capability is on, the compaction reaches
+// the model (a summarising request), and the session still answers afterwards.
+func TestVibeEngineCompact(t *testing.T) {
+	r := newVibeRig(t)
+	if !r.b.Capabilities().Compact {
+		t.Fatal("the compact capability is off for Vibe")
+	}
+	ctx := context.Background()
+	sess, err := r.b.CreateSession(ctx, r.work, backend.CreateSessionOptions{Title: "compact"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.scenario(mockllm.Scenario{Content: []string{"first answer galopin-pre-compact"}, FinishReason: "stop"})
+	r.turn(sess.ID, "remember the number 41", backend.DecisionOnce)
+	before := len(r.requestLog())
+	r.scenario(mockllm.Scenario{Content: []string{"SUMMARY galopin-compact-summary"}, FinishReason: "stop"})
+	compactor, ok := r.b.(backend.Compactor)
+	if !ok {
+		t.Fatal("the backend is no Compactor")
+	}
+	if err := compactor.Compact(ctx, r.work, sess.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitIdle(t, r, sess.ID)
+	if after := len(r.requestLog()); after <= before {
+		t.Fatalf("compaction made no model request (%d before, %d after)", before, after)
+	}
+	r.scenario(mockllm.Scenario{Content: []string{"still here"}, FinishReason: "stop"})
+	if _, reply := r.turn(sess.ID, "are you there", backend.DecisionOnce); !strings.Contains(reply, "still here") {
+		t.Fatalf("the session did not answer after compaction: %q", reply)
+	}
+}
+
+// waitIdle waits for the session's turn (started by something other than r.turn) to end.
+func waitIdle(t *testing.T, r *vibeRig, sessionID string) {
+	t.Helper()
+	deadline := time.After(2 * time.Minute)
+	for {
+		select {
+		case ev := <-r.events:
+			if ev.SessionID == sessionID && ev.Event.Kind == backend.EventStatus && ev.Event.Status == backend.StatusIdle {
+				return
+			}
+		case <-deadline:
+			t.Fatal("the turn did not end")
+		}
+	}
+}

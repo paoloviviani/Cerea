@@ -365,6 +365,9 @@ func startVibeBackend(ctx context.Context, opts *runOptions, credsPath, stateDir
 		Protect:        protect,
 		HiddenModes:    vibeHiddenModes,
 		ForceMode:      vibeModeAsk,
+		// Vibe advertises /compact in available_commands_update (3.1.3): it summarises the
+		// session's history and replaces it, as a turn whose answer is a tool call card.
+		CompactCommand: "/compact",
 		BeforeSession:  vibeBeforeSession(home, pol.ProjectConfigAllowed(), protect, logf),
 		Logf:           func(format string, args ...any) { logf(format, args...) },
 	})

@@ -277,8 +277,9 @@ What galopin sets up for Vibe:
   an agent process that is still shutting down, galopin waits for it (a few seconds)
   instead of failing.
 
-What differs from opencode: no subagent cards, no compaction command, and the model list
-shows only what the gateway offers. Usage comes from Vibe itself (it reports the context
+What differs from opencode: no subagent cards, and the model list
+shows only what the gateway offers. Compaction is Vibe's own `/compact`, run as a turn like
+goose's (it appears as a tool card in the transcript). Usage comes from Vibe itself (it reports the context
 meter over its protocol), and the context window is the gateway's, with a floor of 13,334
 tokens that Vibe needs. Vibe sends no session identifier on its model calls, so the
 gateway's cost is metered for the computer but not split per session. Changes, history,
