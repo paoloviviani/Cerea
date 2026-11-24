@@ -286,7 +286,12 @@ What galopin sets up for Vibe:
   from a `run_typescript` program (`tools.mcp_galopin.ask_user`, found with
   `search_tool_functions`). It raises the same question card opencode's own question tool
   does; the answer goes back to the model as the tool's result. Asking the person changes nothing, so galopin lets the call through in every mode,
-  Plan included (an engine's own permission ask for it is answered at once); the other
+  Plan included: an engine's own permission ask for it is answered at once, but only when the
+  ACP backend itself tags it (the session holds galopin's own MCP endpoint, the call is the
+  catch-all kind with no command or path, and its name is exactly the one the engine gives
+  the tool). The floor, the machine's deny list and a secret in the arguments are decided
+  first and stand. opencode never gets this exemption (it has no galopin `ask_user`, and a
+  repository's own MCP server cannot claim it); the other
   galopin tools keep the engine's ask and then galopin's own gates. A question waits 270 s
   (below Vibe's 300 s tool timeout), then the card is withdrawn and the model is told it
   was not answered; one question waits per session. goose gets the same tool through the

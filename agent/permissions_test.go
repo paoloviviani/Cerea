@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"galopin/internal/backend"
+	"galopin/internal/decide"
 	"galopin/internal/link"
 	"galopin/internal/permrules"
 	"galopin/internal/policy"
@@ -963,15 +964,40 @@ func TestOverbroadAlwaysIsNeverStoredPerClass(t *testing.T) {
 	}
 }
 
-func TestAskUserCallIsRecognisedWhateverTheEngineCallsIt(t *testing.T) {
-	for _, name := range []string{"galopin: ask user", "galopin__ask_user", "mcp_galopin.ask_user", "galopin_ask_user"} {
-		if !isAskUserCall(backend.PermissionRequest{Tool: name}) && !isAskUserCall(backend.PermissionRequest{Title: name}) {
-			t.Errorf("%q not recognised", name)
-		}
+// ownAskBackend is a backend that tags galopin's own ask_user asks, as the ACP one does.
+type ownAskBackend struct{ *ruleBackend }
+
+func (o ownAskBackend) OwnAskUser(req backend.PermissionRequest) bool {
+	return req.Metadata["galopinTool"] == "ask_user"
+}
+
+func TestAskUserExemptionIsOnlyForABackendThatTagsItAndKeepsTheFloorAndDenyList(t *testing.T) {
+	tagged := backend.PermissionRequest{ID: "a1", SessionID: "s1", Tool: "galopin: ask user", Metadata: map[string]any{"galopinTool": "ask_user"}}
+	titled := backend.PermissionRequest{ID: "a2", SessionID: "s1", Tool: "edit", Title: "galopin-ask-user", Patterns: []string{"x.txt"}}
+	ctx := context.Background()
+
+	// opencode-like backend (no tagging): a request carrying the tag is not believed
+	mc, rb, _ := newRuleMachine(t, policy.Default())
+	if err := rb.SetPermissionMode(ctx, "", "s1", permrules.Deny); err != nil { // Plan
+		t.Fatal(err)
 	}
-	for _, name := range []string{"galopin: session spawn", "ask_user", "other__ask_user", "bash"} {
-		if isAskUserCall(backend.PermissionRequest{Tool: name, Title: name}) {
-			t.Errorf("%q recognised", name)
-		}
+	if res := mc.decideAsk(rb, "/x", tagged); res.Verdict == decide.Once {
+		t.Fatalf("a backend that does not tag it exempted the tag: %+v", res)
+	}
+
+	// the ACP-like backend: exempt in Plan, but only the tagged request
+	mc.back = ownAskBackend{rb}
+	if res := mc.decideAsk(rb, "/x", tagged); res.Verdict != decide.Once || res.Step != "ask_user" {
+		t.Fatalf("own ask_user in Plan = %+v, want once", res)
+	}
+	if res := mc.decideAsk(rb, "/x", titled); res.Verdict == decide.Once {
+		t.Fatalf("an edit titled like the tool was exempted: %+v", res)
+	}
+
+	// the machine's deny list is decided first and stands
+	mc2, rb2, _ := newRuleMachine(t, policyWithDeny("tools"))
+	mc2.back = ownAskBackend{rb2}
+	if res := mc2.decideAsk(rb2, "/x", tagged); res.Verdict != decide.Reject || res.Step != "deny" {
+		t.Fatalf("the deny list was skipped: %+v", res)
 	}
 }

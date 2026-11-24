@@ -83,6 +83,10 @@ func (b *Backend) handleRequest(id json.RawMessage, method string, params json.R
 		Metadata:  askMetadata(p.ToolCall),
 	}
 
+	if b.isOwnAskUser(st, p.ToolCall) {
+		req.Metadata["galopinTool"] = "ask_user"
+	}
+
 	st.mu.Lock()
 	st.pending[localID] = pendingPermission{jsonrpcID: id, options: p.Options, request: req}
 	workspaceDir := st.workspaceDir

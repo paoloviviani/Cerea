@@ -542,6 +542,9 @@ func TestGooseSessionsCanAskTheUser(t *testing.T) {
 			switch e := ev.Event; e.Kind {
 			case backend.EventPermissionAsked:
 				askTool = e.Request.Tool + "|" + e.Request.Title
+				if e.Request.Metadata["galopinTool"] != "ask_user" {
+					t.Errorf("goose's own ask_user permission ask is not tagged as galopin's: %+v", e.Request)
+				}
 				_ = r.b.ReplyPermission(ctx, r.work, sess.ID, e.Request.ID, backend.DecisionOnce, "")
 			case backend.EventQuestionAsked:
 				if err := r.b.(backend.Asker).ReplyQuestion(ctx, r.work, sess.ID, e.QuestionRequestID, [][]string{{"postgres"}}); err != nil {

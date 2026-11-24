@@ -140,3 +140,39 @@ func TestAskQuestionsTimesOutWithdrawsAndAllowsOnePerSession(t *testing.T) {
 	go func() { _, _ = b.AskQuestions(ctx, "/w", "s2", qs) }()
 	nextQuestionEvent(t, events, backend.EventQuestionAsked)
 }
+
+type noopEndpoint struct{}
+
+func (noopEndpoint) URL() string   { return "http://x" }
+func (noopEndpoint) Token() string { return "t" }
+func (noopEndpoint) Bind(string)   {}
+func (noopEndpoint) Revoke()       {}
+
+func TestOnlyTheSessionsOwnAskUserCallIsTagged(t *testing.T) {
+	b, _ := newTestBackendWith(t, true, true)
+	withEP := &sessionState{mcp: noopEndpoint{}}
+	without := &sessionState{}
+	ok := map[string]any{"title": "galopin: ask user", "kind": "other"}
+	if !b.isOwnAskUser(withEP, ok) {
+		t.Fatal("the session's own ask_user call was not tagged")
+	}
+	if b.isOwnAskUser(without, ok) {
+		t.Fatal("tagged for a session with no galopin endpoint")
+	}
+	for name, call := range map[string]map[string]any{
+		"fuzzy file name":  {"title": "galopin-ask-user", "kind": "other"},
+		"fuzzy command":    {"title": "galopin ask_user", "kind": "other"},
+		"an edit":          {"title": "galopin: ask user", "kind": "edit"},
+		"a shell call":     {"title": "galopin: ask user", "kind": "execute", "rawInput": map[string]any{"command": "rm -rf ~"}},
+		"with a command":   {"title": "galopin: ask user", "kind": "other", "rawInput": map[string]any{"command": "x"}},
+		"with a path":      {"title": "galopin: ask user", "kind": "other", "locations": []any{map[string]any{"path": "/etc/passwd"}}},
+		"another server's": {"title": "other: ask user", "kind": "other"},
+	} {
+		if b.isOwnAskUser(withEP, call) {
+			t.Errorf("%s was tagged", name)
+		}
+	}
+	if b.OwnAskUser(backend.PermissionRequest{Metadata: map[string]any{}}) {
+		t.Error("an untagged request counted")
+	}
+}

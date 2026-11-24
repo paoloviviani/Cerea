@@ -156,3 +156,42 @@ var (
 	_ backend.QuestionHost = (*Backend)(nil)
 	_ backend.Asker        = (*Backend)(nil)
 )
+
+// ownAskUserNames are the exact names the engines give galopin's ask_user MCP tool in an ask
+// (goose: "galopin: ask user"; Vibe: "mcp_galopin.ask_user"; others join with underscores).
+var ownAskUserNames = map[string]bool{
+	"galopin: ask user":    true,
+	"galopin__ask_user":    true,
+	"galopin_ask_user":     true,
+	"mcp_galopin.ask_user": true,
+}
+
+// isOwnAskUser reports whether a tool call's ask is for galopin's own ask_user tool of this
+// session: the session holds galopin's MCP endpoint (the server named "galopin" in its
+// session/new), the call is the catch-all kind with no command and no path (an edit or a shell
+// call never is), and its name is exactly one an engine gives that tool. Nothing here is
+// fuzzy, and the result is a tag galopin sets, never something the agent's call carries.
+func (b *Backend) isOwnAskUser(st *sessionState, call map[string]any) bool {
+	st.mu.Lock()
+	has := st.mcp != nil
+	st.mu.Unlock()
+	if !has {
+		return false
+	}
+	if k := getStr(call, "kind"); k != "" && k != "other" {
+		return false
+	}
+	if raw, ok := call["rawInput"].(map[string]any); ok && (getStr(raw, "command") != "" || getStr(raw, "path", "file_path", "filePath") != "") {
+		return false
+	}
+	if locs, ok := call["locations"].([]any); ok && len(locs) > 0 {
+		return false
+	}
+	return ownAskUserNames[getStr(call, "title")] || ownAskUserNames[getStr(call, "name")]
+}
+
+// OwnAskUser implements the machine's check of the tag isOwnAskUser set. Only this backend
+// sets it (a request from opencode never carries it for the machine to believe).
+func (b *Backend) OwnAskUser(req backend.PermissionRequest) bool {
+	return req.Metadata["galopinTool"] == "ask_user"
+}
