@@ -1097,9 +1097,10 @@ export function snapshotToUpdates(
 	updates.push(
 		...transcriptMessagesToUpdates(transcript, imageUrl, openPart, planAfter, lastAssistantId)
 	);
-	// The follow-ups the machine holds for the running turn: always sent, so a client that
-	// still shows entries from before a reload or a machine restart drops them.
-	updates.push({ type: "queued", queued: transcript.queued ?? [] });
+	// The follow-ups the machine holds for the running turn, so a reload shows them (part of
+	// the snapshot, so before the historyDone marker). Nothing is sent for an empty list: a
+	// client starts empty, and a machine restart (a new epoch) resets it.
+	if (transcript.queued?.length) updates.push({ type: "queued", queued: transcript.queued });
 	for (const permission of transcript.permissions ?? []) {
 		updates.push(permissionRequestToUpdate(permission));
 	}
