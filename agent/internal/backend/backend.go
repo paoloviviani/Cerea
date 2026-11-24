@@ -47,6 +47,10 @@ type Capabilities struct {
 	// session's turn runs is folded into that turn instead of refused.
 	AgentTools bool `json:"agentTools"`
 	Steer      bool `json:"steer"`
+	// Queue says a prompt sent while the session's turn runs is held and sent when the
+	// turn ends instead of refused (a backend without Steer), announced with `queue`
+	// events and cancellable with session.dequeue.
+	Queue bool `json:"queue"`
 	// CoordinationGrant is always false: session.grantCoordination is deprecated
 	// and ignored (PROTOCOL.md §6), so the capability is not offered: an older
 	// Cerea then shows no working switch.
@@ -217,6 +221,22 @@ type Compactor interface {
 type Asker interface {
 	ReplyQuestion(ctx context.Context, workspaceDir, sessionID, requestID string, answers [][]string) error
 	RejectQuestion(ctx context.Context, workspaceDir, sessionID, requestID string) error
+}
+
+// QuestionHost is the "questions" capability of a backend that has no native question
+// tool of its own: it holds a question galopin's own ask_user tool puts to the person
+// (the same card opencode's built-in question tool raises) until they answer through
+// Asker's ReplyQuestion/RejectQuestion. answers is one slice of chosen labels (or the
+// person's own words) per question, in order; a dismissed question, or a ctx cancelled
+// first (the turn was stopped), is ErrQuestionDismissed and withdraws the card.
+type QuestionHost interface {
+	AskQuestions(ctx context.Context, workspaceDir, sessionID string, questions []QuestionItem) ([][]string, error)
+}
+
+// Dequeuer is the optional "queue" capability's other half: withdrawing a prompt that
+// has not been sent yet (session.dequeue). A prompt already sent is ErrNotQueued.
+type Dequeuer interface {
+	Dequeue(ctx context.Context, workspaceDir, sessionID, id string) error
 }
 
 // AttachmentSource is the optional "toolImages" capability: the bytes of an

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -116,7 +117,7 @@ func (b *Backend) CreateSession(ctx context.Context, workspaceDir string, opts b
 	if len(b.cfg.SessionMeta) > 0 {
 		newParams["_meta"] = b.cfg.SessionMeta
 	}
-	raw, err := conn.call(callCtx, "session/new", newParams)
+	raw, err := b.callOpen(callCtx, conn, "session/new", workspaceDir, newParams)
 	if err != nil {
 		if ep != nil {
 			ep.Revoke()
@@ -147,9 +148,11 @@ func (b *Backend) CreateSession(ctx context.Context, workspaceDir string, opts b
 	st.modeID = curMode
 	st.modelID = curModel
 	st.modeConfigID, st.modelConfigID = cfg.modeConfigID, cfg.modelConfigID
+	st.effortConfigID, st.effortNow, st.effortValues = cfg.effortConfigID, cfg.effortID, cfg.effortValues
 	st.spawnedBy = opts.SpawnedBy
 	st.mu.Unlock()
 	b.adoptMCP(st, ep)
+	b.syncEffort(ctx, workspaceDir, st)
 
 	if opts.ModeID != "" && opts.ModeID != curMode {
 		if _, err := b.SetMode(ctx, workspaceDir, id, opts.ModeID); err != nil {
@@ -231,6 +234,13 @@ func (b *Backend) DeleteSession(ctx context.Context, workspaceDir, sessionID str
 // prompt (only session/load's replay does), so the client's own request is
 // the only source of truth for what the user actually said.
 func (b *Backend) Prompt(ctx context.Context, workspaceDir, sessionID string, prompt backend.Prompt) error {
+	if b.hiddenCommandIn(prompt.Text) {
+		return fmt.Errorf("acp: that command is not available here")
+	}
+	return b.prompt(ctx, workspaceDir, sessionID, prompt, false)
+}
+
+func (b *Backend) prompt(ctx context.Context, workspaceDir, sessionID string, prompt backend.Prompt, fromQueue bool) error {
 	conn, err := b.currentConn()
 	if err != nil {
 		return err
@@ -263,18 +273,30 @@ func (b *Backend) Prompt(ctx context.Context, workspaceDir, sessionID string, pr
 	}
 
 	st.mu.Lock()
-	// A second prompt on a busy session would overwrite the turn ids the
-	// running turn's updates are still arriving under (assistantMsgID,
-	// textPartID, ...) and forge its state. Unreachable from the composer
-	// today — it hides send while running — but steering will make it
-	// reachable, so it is refused outright: the same invalid-state refusal
-	// code session.revert's mid-turn guard carries (dispatch.go maps
-	// ErrSessionBusy to "invalid"). opencode queues instead; only ACP has
-	// nothing to do with a second prompt but clobber.
+	// A second prompt on a busy session would overwrite the turn ids the running turn's
+	// updates are still arriving under (assistantMsgID, textPartID, ...) and forge its
+	// state, so it waits its turn: it is held, announced as queued, and sent when the
+	// turn ends (queue.go). ACP has no steering, so this is the nearest thing.
+	// fromQueue is a prompt being sent off the queue, which has already waited.
+	if !fromQueue && prompt.ClientMessageID != "" && slices.Contains(st.recentIDs, prompt.ClientMessageID) {
+		st.mu.Unlock() // a retry of a prompt that already went out
+		return nil
+	}
+	if !fromQueue && (st.busy || st.draining || len(st.queue) > 0) {
+		return b.enqueueLocked(workspaceDir, st, prompt)
+	}
 	if st.busy {
+		// a queued prompt never runs over a turn: the caller puts it back
 		st.mu.Unlock()
 		return backend.ErrSessionBusy
 	}
+	if prompt.ClientMessageID != "" {
+		st.recentIDs = append(st.recentIDs, prompt.ClientMessageID)
+		if len(st.recentIDs) > 32 {
+			st.recentIDs = st.recentIDs[1:]
+		}
+	}
+	st.draining = false // a drained prompt has the session now
 	st.turn++
 	turn := st.turn
 	userMsgID := fmt.Sprintf("%s:t%d:user", sessionID, turn)
@@ -331,6 +353,7 @@ func (b *Backend) awaitPromptResult(workspaceDir, sessionID string, st *sessionS
 
 	st.mu.Lock()
 	st.busy = false
+	st.draining = len(st.queue) > 0
 	assistantMsgID := st.assistantMsgID
 	st.status = backend.StatusIdle
 	st.updatedAt = time.Now()
@@ -344,6 +367,7 @@ func (b *Backend) awaitPromptResult(workspaceDir, sessionID string, st *sessionS
 			b.emit(workspaceDir, sessionID, backend.Event{Kind: backend.EventError, ErrorMessage: msg.Error.Message, ErrorCode: fmt.Sprint(msg.Error.Code)})
 		}
 		b.emit(workspaceDir, sessionID, backend.Event{Kind: backend.EventStatus, Status: backend.StatusIdle})
+		b.drainQueue(workspaceDir, st)
 		return
 	}
 
@@ -379,6 +403,7 @@ func (b *Backend) awaitPromptResult(workspaceDir, sessionID string, st *sessionS
 	// max_turn_requests carry a visible error (stopReasonError), as does a
 	// JSON-RPC error (above).
 	b.emit(workspaceDir, sessionID, backend.Event{Kind: backend.EventStatus, Status: backend.StatusIdle})
+	b.drainQueue(workspaceDir, st)
 }
 
 // errRequestCancelled is ACP's -32800 (error.md).
@@ -416,6 +441,12 @@ func (b *Backend) Cancel(ctx context.Context, workspaceDir, sessionID string) er
 		for _, p := range pending {
 			_ = conn.respond(p.jsonrpcID, map[string]any{"outcome": map[string]any{"outcome": "cancelled"}}, nil)
 		}
+	}
+	// a question held for the person goes with the turn it was asked in
+	b.dismissQuestions(workspaceDir, sessionID)
+	// and so do the follow-ups waiting for that turn: Stop means stop
+	if ok {
+		b.clearQueue(workspaceDir, st)
 	}
 	return conn.notify("session/cancel", map[string]any{"sessionId": sessionID})
 }
@@ -513,6 +544,11 @@ func (b *Backend) SetModel(ctx context.Context, workspaceDir, sessionID, modelID
 	st.mu.Lock()
 	st.modelID = modelID
 	st.updatedAt = time.Now()
+	st.mu.Unlock()
+	// the agent puts the new model on that model's own thinking level: the person's choice
+	// (or the default) goes back on
+	b.syncEffort(ctx, workspaceDir, st)
+	st.mu.Lock()
 	sess := st.toSession(b.ID())
 	st.mu.Unlock()
 	return sess, nil
@@ -531,6 +567,11 @@ func (b *Backend) applyConfigResult(workspaceDir string, st *sessionState, raw j
 // applyConfig records a session's selectors from a configOptions list (an
 // answer or a config_option_update). Only selectors the list names change.
 func (b *Backend) applyConfig(workspaceDir string, st *sessionState, cfg sessionConfig) {
+	if cfg.effortConfigID != "" {
+		st.mu.Lock()
+		st.effortConfigID, st.effortNow, st.effortValues = cfg.effortConfigID, cfg.effortID, cfg.effortValues
+		st.mu.Unlock()
+	}
 	if cfg.modeConfigID == "" && cfg.modelConfigID == "" {
 		return
 	}
@@ -613,8 +654,15 @@ func (b *Backend) Models(ctx context.Context, workspaceDir string) ([]backend.Mo
 	// ACP agent has one prompt capability for all its models.
 	images := b.promptCaps().promptImage
 	models := append([]backend.Model(nil), b.reg.getCaps(workspaceDir).models...)
+	var efforts map[string][]string
+	if b.cfg.Efforts && b.cfg.ModelEfforts != nil {
+		efforts = b.cfg.ModelEfforts()
+	}
 	for i := range models {
 		models[i].Images = images
+		if e := efforts[models[i].ID]; len(e) > 0 {
+			models[i].Efforts, models[i].Reasoning = append([]string(nil), e...), true
+		}
 	}
 	return models, nil
 }
@@ -706,7 +754,7 @@ func (b *Backend) openSession(ctx context.Context, workspaceDir string, st *sess
 		if len(b.cfg.SessionMeta) > 0 {
 			params["_meta"] = b.cfg.SessionMeta
 		}
-		raw, err = conn.call(callCtx, method, params)
+		raw, err = b.callOpen(callCtx, conn, method, workspaceDir, params)
 		cancel()
 		st.mu.Lock()
 		st.replaying = false
@@ -746,6 +794,7 @@ func (b *Backend) openSession(ctx context.Context, workspaceDir string, st *sess
 			st.modelID = cfg.modelID
 		}
 		st.modeConfigID, st.modelConfigID = cfg.modeConfigID, cfg.modelConfigID
+		st.effortConfigID, st.effortNow, st.effortValues = cfg.effortConfigID, cfg.effortID, cfg.effortValues
 		st.mu.Unlock()
 	}
 	st.mu.Lock()
@@ -754,6 +803,7 @@ func (b *Backend) openSession(ctx context.Context, workspaceDir string, st *sess
 	st.replayed = method == "session/load"
 	st.mu.Unlock()
 	b.adoptMCP(st, ep)
+	b.syncEffort(ctx, workspaceDir, st)
 	if method == "session/load" {
 		b.trimReplays(sessionID)
 	}
@@ -775,4 +825,19 @@ func (b *Backend) promptCaps() acpAgentCapabilities {
 	b.infoMu.Lock()
 	defer b.infoMu.Unlock()
 	return b.agentCaps
+}
+
+// callOpen is a session/new, session/load or session/resume call, with the engine's
+// BeforeSession work done first and no other open overlapping it.
+func (b *Backend) callOpen(ctx context.Context, conn *rpcConn, method, workspaceDir string, params map[string]any) (json.RawMessage, error) {
+	if b.cfg.BeforeSession == nil {
+		return conn.call(ctx, method, params)
+	}
+	b.openMu.Lock()
+	defer b.openMu.Unlock()
+	b.cfg.BeforeSession(workspaceDir)
+	if b.cfg.AfterSession != nil {
+		defer b.cfg.AfterSession()
+	}
+	return conn.call(ctx, method, params)
 }

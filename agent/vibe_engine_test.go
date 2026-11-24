@@ -304,3 +304,28 @@ func TestEnrollEngineVibeIsRecordedKeptAndWritesGalopinsOwnHome(t *testing.T) {
 		t.Errorf("switch back: engine=%q opencode_config=%q", rec.Engine, rec.OpencodeConfig)
 	}
 }
+
+// Which models offer thinking efforts is galopin's record beside the config; the config
+// itself lists no thinking levels (a listed "off" would send reasoning_effort "none").
+func TestVibeReasoningModelsGetAnEffortsRecordNotConfigLevels(t *testing.T) {
+	models := vibeModels([]gatewayModel{
+		{ID: "think", SupportedFeatures: []string{"reasoning"}},
+		{ID: "plain"},
+	})
+	if cfg := vibeConfigTOML("127.0.0.1:1", "s", models); strings.Contains(cfg, "thinking") {
+		t.Errorf("config sets thinking:\n%s", cfg)
+	}
+
+	dir := t.TempDir()
+	creds := &credentials{ShimPort: 1, ShimSecret: "s"}
+	if err := writeVibeEngineConfig(dir, creds, []gatewayModel{{ID: "think", SupportedFeatures: []string{"reasoning"}}, {ID: "plain"}}); err != nil {
+		t.Fatal(err)
+	}
+	got := readVibeEfforts(dir)
+	if strings.Join(got["think"], ",") != "low,medium,high" || len(got["plain"]) != 0 {
+		t.Errorf("efforts record = %v", got)
+	}
+	if len(readVibeEfforts(t.TempDir())) != 0 {
+		t.Error("an absent record reads as efforts")
+	}
+}

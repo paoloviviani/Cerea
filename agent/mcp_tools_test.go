@@ -8,13 +8,16 @@ import (
 	"galopin/internal/backend/opencode"
 )
 
-// The MCP route offers exactly the tools the opencode route installs: a tool
-// added to one and not the other is a capability that silently depends on
-// which agent the person runs.
+// The MCP route offers exactly the tools the opencode route installs, plus ask_user (the
+// question tool opencode has natively): a tool added to one and not the other is a
+// capability that silently depends on which agent the person runs.
 func TestMCPToolsMatchOpencodeTools(t *testing.T) {
 	want := opencode.ToolNames()
 	got := make([]string, 0, len(mcpTools))
 	for _, tl := range mcpTools {
+		if tl.Name == "ask_user" {
+			continue
+		}
 		got = append(got, tl.Name)
 	}
 	sort.Strings(want)

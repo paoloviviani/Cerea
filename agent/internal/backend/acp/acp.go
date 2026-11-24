@@ -72,6 +72,31 @@ type Config struct {
 	// context (goose: "/compact", sent as an ordinary prompt). It turns the
 	// compact capability on.
 	CompactCommand string
+	// BeforeSession, when set, runs with the workspace directory right before a
+	// session/new, session/load or session/resume call, and no other such call
+	// overlaps it. It is how an engine that reads its per-session instructions from
+	// a file (Vibe: $VIBE_HOME/AGENTS.md, read when the session opens) gets the
+	// workspace's own for the session being opened.
+	BeforeSession func(workspaceDir string)
+	// AfterSession runs once the call BeforeSession prepared for has returned, still
+	// before any other session opens (Vibe: the instructions file is removed again, so no
+	// later re-read of it, such as a /reload, can pick up another workspace's text).
+	AfterSession func()
+	// MCPHTTP says the agent takes an HTTP MCP server in session/new although it does
+	// not advertise mcpCapabilities.http (Vibe 3.x does and does not say so).
+	MCPHTTP bool
+	// Efforts says the agent has a thinking-level session option (Vibe: "thinking"), so
+	// session.setEffort works: the option is set on the session, ModelEfforts says which
+	// levels each model offers Cerea (an agent's option lists levels for its current model
+	// only), and EffortDefault is the level that means "the model's default" (Vibe: "off";
+	// the agent keeps the last level set per model, so a new or reopened session is put back on it).
+	Efforts       bool
+	EffortDefault string
+	ModelEfforts  func() map[string][]string
+	// HiddenCommands are slash commands (names without the slash) galopin neither lists
+	// nor lets run: Vibe's /reload re-reads its instructions file, which is only right for the
+	// session being opened.
+	HiddenCommands []string
 	// Logf receives lifecycle-only messages: started, ready, restarting,
 	// exited (R6 — never frame or response bodies, which may carry a
 	// user's prompt text).
@@ -156,9 +181,15 @@ type Backend struct {
 	diffs *filediff.Tracker
 	// loadMu serializes session/load replays (Transcript).
 	loadMu sync.Mutex
+	// openMu serializes the calls that open a session, so BeforeSession's work and the
+	// call that reads it are not interleaved with another session's.
+	openMu sync.Mutex
 	// replayOrder lists the sessions holding a replayed transcript, oldest open first (history.go).
 	replayMu    sync.Mutex
 	replayOrder []string
+
+	// questionTimeout is how long an ask_user question waits (0: the default; tests shorten it).
+	questionTimeout time.Duration
 
 	events   chan backend.BackendEvent
 	eventsMu sync.Mutex
@@ -213,8 +244,12 @@ func (b *Backend) Capabilities() backend.Capabilities {
 	// opencode's (permissions.go), so the Plan/Ask/Allow selector works here too.
 	return backend.Capabilities{
 		Diff: true, Children: false, HistoryPaging: true, Usage: true, Compact: b.cfg.CompactCommand != "", Permissions: true,
+		Efforts: b.cfg.Efforts,
+		// Queue: a prompt sent mid-turn waits and is sent when the turn ends (queue.go).
+		Queue:  true,
 		Images: images, Files: embedded, Worktrees: false,
-		Questions: false,
+		// Questions: galopin's ask_user tool (questions.go), so only where the agent has the tools.
+		Questions: tools,
 		// Commands: always — the agent's available_commands_update carries
 		// the list per session (PROTOCOL.md §6 backend.commands), and before
 		// the first update the list answers empty rather than unclaimable.

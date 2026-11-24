@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"galopin/internal/backend"
+	"galopin/internal/mcpserve"
 	"galopin/internal/mockllm"
 	"galopin/internal/policy"
 )
@@ -33,6 +35,8 @@ type vibeRig struct {
 	stateDir  string
 	mockURL   string
 	requests  func() [][]string
+	pol       policy.Policy
+	proxy     *shim
 }
 
 func vibeITBin(t *testing.T) string {
@@ -52,6 +56,12 @@ func vibeITBin(t *testing.T) string {
 }
 
 func newVibeRig(t *testing.T) *vibeRig {
+	t.Helper()
+	return newVibeRigPolicy(t, policy.Default())
+}
+
+// newVibeRigPolicy is newVibeRig on a machine with this policy.
+func newVibeRigPolicy(t *testing.T, pol policy.Policy) *vibeRig {
 	t.Helper()
 	vibeITBin(t)
 	home := t.TempDir()
@@ -79,10 +89,10 @@ func newVibeRig(t *testing.T) *vibeRig {
 	srv := &httptest.Server{Listener: ln, Config: &http.Server{Handler: http.HandlerFunc(proxy.requireLocalAuth(proxy.handler))}}
 	srv.Start()
 	t.Cleanup(srv.Close)
-	if err := writeVibeEngineConfig(vibeHomeFor(credsPath), creds, []gatewayModel{{ID: "mock-model", ContextWindow: 32000}}); err != nil {
+	if err := writeVibeEngineConfig(vibeHomeFor(credsPath), creds, []gatewayModel{{ID: "mock-model", ContextWindow: 32000, SupportedFeatures: []string{"reasoning"}}}); err != nil {
 		t.Fatal(err)
 	}
-	r := &vibeRig{t: t, work: t.TempDir(), home: vibeHomeFor(credsPath), credsPath: credsPath, stateDir: stateDir, mockURL: mock.URL}
+	r := &vibeRig{t: t, pol: pol, proxy: proxy, work: t.TempDir(), home: vibeHomeFor(credsPath), credsPath: credsPath, stateDir: stateDir, mockURL: mock.URL}
 	r.start()
 	return r
 }
@@ -92,7 +102,7 @@ func (r *vibeRig) start() {
 	r.t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	r.t.Cleanup(cancel)
-	b, err := startVibeBackend(ctx, &runOptions{}, r.credsPath, r.stateDir, policy.Default(), nil, r.t.Logf)
+	b, err := startVibeBackend(ctx, &runOptions{}, r.credsPath, r.stateDir, r.pol, nil, r.t.Logf)
 	if err != nil {
 		r.t.Fatal(err)
 	}
@@ -116,8 +126,14 @@ func (r *vibeRig) scenario(sc mockllm.Scenario) {
 // turn sends a prompt and runs it to idle, answering every ask with decision.
 func (r *vibeRig) turn(sessionID, text string, decision backend.Decision) (asks []backend.PermissionRequest, reply string) {
 	r.t.Helper()
+	return r.turnIn(r.work, sessionID, text, decision)
+}
+
+// turnIn is turn for a session of another workspace.
+func (r *vibeRig) turnIn(work, sessionID, text string, decision backend.Decision) (asks []backend.PermissionRequest, reply string) {
+	r.t.Helper()
 	ctx := context.Background()
-	if err := r.b.Prompt(ctx, r.work, sessionID, backend.Prompt{Text: text}); err != nil {
+	if err := r.b.Prompt(ctx, work, sessionID, backend.Prompt{Text: text}); err != nil {
 		r.t.Fatal(err)
 	}
 	deadline := time.After(2 * time.Minute)
@@ -141,7 +157,7 @@ func (r *vibeRig) turn(sessionID, text string, decision backend.Decision) (asks 
 			switch e := ev.Event; e.Kind {
 			case backend.EventPermissionAsked:
 				asks = append(asks, *e.Request)
-				if err := r.b.ReplyPermission(ctx, r.work, sessionID, e.Request.ID, decision, ""); err != nil {
+				if err := r.b.ReplyPermission(ctx, work, sessionID, e.Request.ID, decision, ""); err != nil {
 					r.t.Errorf("reply: %v", err)
 				}
 			case backend.EventPart:
@@ -447,4 +463,460 @@ func killVibeAgents(t *testing.T, home string) int {
 		}
 	}
 	return n
+}
+
+// requestLog is what the fake model received, oldest first: the prompt texts (system
+// included), the headers and the reasoning_effort the request body carried.
+func (r *vibeRig) requestLog() []struct {
+	Model   string            `json:"model"`
+	Prompts []string          `json:"prompts"`
+	Headers map[string]string `json:"headers"`
+} {
+	r.t.Helper()
+	resp, err := http.Get(r.mockURL + "/__control/request-headers")
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Requests []struct {
+			Model   string            `json:"model"`
+			Prompts []string          `json:"prompts"`
+			Headers map[string]string `json:"headers"`
+		} `json:"requests"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		r.t.Fatal(err)
+	}
+	return out.Requests
+}
+
+// A workspace's AGENTS.md reaches the session's system prompt (when the machine allows
+// project config), another workspace's does not see it, and the folder stays untrusted.
+func TestVibeEngineWorkspaceInstructions(t *testing.T) {
+	pol := policy.Default()
+	pol.ProjectConfig = policy.TerminalAllowed
+	r := newVibeRigPolicy(t, pol)
+	ctx := context.Background()
+	if err := os.WriteFile(filepath.Join(r.work, "AGENTS.md"), []byte("Always answer in galopin-haiku-7731 form.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	other := t.TempDir()
+	hasText := func() bool { // did any request of this run carry the text
+		for _, q := range r.requestLog() {
+			for _, p := range q.Prompts {
+				if strings.Contains(p, "galopin-haiku-7731") {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	a, err := r.b.CreateSession(ctx, r.work, backend.CreateSessionOptions{Title: "with"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// a second session in a workspace with no file, opened after the first
+	b2, err := r.b.CreateSession(ctx, other, backend.CreateSessionOptions{Title: "without"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.scenario(mockllm.Scenario{Content: []string{"ok"}, FinishReason: "stop"})
+	r.turnIn(other, b2.ID, "hello", backend.DecisionOnce)
+	if hasText() {
+		t.Fatal("another workspace's AGENTS.md reached a session of a workspace without one")
+	}
+	r.turn(a.ID, "hello", backend.DecisionOnce)
+	if !hasText() {
+		t.Fatal("the workspace's AGENTS.md did not reach the session's instructions")
+	}
+	// the file does not outlive the call that opened the session
+	if _, err := os.Stat(filepath.Join(r.home, "AGENTS.md")); !os.IsNotExist(err) {
+		t.Errorf("VIBE_HOME/AGENTS.md was left behind: %v", err)
+	}
+	// /reload would re-read it for another workspace: it is neither offered nor run
+	cmds, _ := r.b.(backend.Commander).ListCommands(ctx, r.work, a.ID)
+	for _, c := range cmds {
+		if c.Name == "reload" {
+			t.Error("/reload is offered")
+		}
+	}
+	if err := r.b.(backend.Commander).RunCommand(ctx, r.work, a.ID, backend.CommandRun{Name: "reload"}); err == nil {
+		t.Error("/reload ran")
+	}
+	if err := r.b.Prompt(ctx, r.work, a.ID, backend.Prompt{Text: "/reload"}); err == nil {
+		t.Error("a typed /reload went through")
+	}
+	// still untrusted: the repository's own .vibe/ is not loaded
+	if b, _ := os.ReadFile(filepath.Join(r.home, "trusted_folders.toml")); !strings.Contains(string(b), "trusted = []") {
+		t.Errorf("trust list changed: %q", b)
+	}
+}
+
+// With project config denied (the default) the file is not read.
+func TestVibeEngineWorkspaceInstructionsDeniedByDefault(t *testing.T) {
+	r := newVibeRig(t)
+	if err := os.WriteFile(filepath.Join(r.work, "AGENTS.md"), []byte("galopin-denied-4419\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sess, err := r.b.CreateSession(context.Background(), r.work, backend.CreateSessionOptions{Title: "denied"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.scenario(mockllm.Scenario{Content: []string{"ok"}, FinishReason: "stop"})
+	r.turn(sess.ID, "hello", backend.DecisionOnce)
+	for _, q := range r.requestLog() {
+		for _, p := range q.Prompts {
+			if strings.Contains(p, "galopin-denied-4419") {
+				t.Fatal("AGENTS.md was read although project config is denied")
+			}
+		}
+	}
+}
+
+// Vibe's own /compact runs as a turn: the Compact capability is on, the compaction reaches
+// the model (a summarising request), and the session still answers afterwards.
+func TestVibeEngineCompact(t *testing.T) {
+	r := newVibeRig(t)
+	if !r.b.Capabilities().Compact {
+		t.Fatal("the compact capability is off for Vibe")
+	}
+	ctx := context.Background()
+	sess, err := r.b.CreateSession(ctx, r.work, backend.CreateSessionOptions{Title: "compact"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.scenario(mockllm.Scenario{Content: []string{"first answer galopin-pre-compact"}, FinishReason: "stop"})
+	r.turn(sess.ID, "remember the number 41", backend.DecisionOnce)
+	before := len(r.requestLog())
+	r.scenario(mockllm.Scenario{Content: []string{"SUMMARY galopin-compact-summary"}, FinishReason: "stop"})
+	compactor, ok := r.b.(backend.Compactor)
+	if !ok {
+		t.Fatal("the backend is no Compactor")
+	}
+	if err := compactor.Compact(ctx, r.work, sess.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitIdle(t, r, sess.ID)
+	if after := len(r.requestLog()); after <= before {
+		t.Fatalf("compaction made no model request (%d before, %d after)", before, after)
+	}
+	r.scenario(mockllm.Scenario{Content: []string{"still here"}, FinishReason: "stop"})
+	if _, reply := r.turn(sess.ID, "are you there", backend.DecisionOnce); !strings.Contains(reply, "still here") {
+		t.Fatalf("the session did not answer after compaction: %q", reply)
+	}
+}
+
+// waitIdle waits for the session's turn (started by something other than r.turn) to end.
+func waitIdle(t *testing.T, r *vibeRig, sessionID string) {
+	t.Helper()
+	deadline := time.After(2 * time.Minute)
+	for {
+		select {
+		case ev := <-r.events:
+			if ev.SessionID == sessionID && ev.Event.Kind == backend.EventStatus && ev.Event.Status == backend.StatusIdle {
+				return
+			}
+		case <-deadline:
+			t.Fatal("the turn did not end")
+		}
+	}
+}
+
+// Cerea's effort selector reaches the model: Vibe's thinking level goes out as the
+// request's reasoning_effort, the default sends none, and a new session (and a restarted
+// agent) starts on the default although Vibe keeps the last level set per model.
+func TestVibeEngineEfforts(t *testing.T) {
+	r := newVibeRig(t)
+	ctx := context.Background()
+	if !r.b.Capabilities().Efforts {
+		t.Fatal("the efforts capability is off for Vibe")
+	}
+	setter := r.b.(backend.EffortSetter)
+	effortOfLast := func() string {
+		log := r.requestLog()
+		for i := len(log) - 1; i >= 0; i-- {
+			if len(log[i].Prompts) > 0 && strings.Contains(strings.Join(log[i].Prompts, " "), "effort-probe") {
+				return log[i].Headers["x-body-reasoning-effort"]
+			}
+		}
+		t.Fatal("no request of the probe turn")
+		return ""
+	}
+	r.scenario(mockllm.Scenario{Content: []string{"ok"}, FinishReason: "stop"})
+	sess, err := r.b.CreateSession(ctx, r.work, backend.CreateSessionOptions{Title: "effort"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	models, err := r.b.Models(ctx, r.work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var offered []string
+	for _, m := range models {
+		if m.ID == "mock-model" {
+			offered = m.Efforts
+		}
+	}
+	if strings.Join(offered, ",") != "low,medium,high" {
+		t.Fatalf("Cerea is offered %v", offered)
+	}
+	r.turn(sess.ID, "effort-probe default", backend.DecisionOnce)
+	if got := effortOfLast(); got != "" {
+		t.Fatalf("the default sent reasoning_effort %q", got)
+	}
+	got, err := setter.SetEffort(ctx, r.work, sess.ID, "high")
+	if err != nil || got.Effort != "high" {
+		t.Fatalf("SetEffort: %v %+v", err, got)
+	}
+	r.turn(sess.ID, "effort-probe high", backend.DecisionOnce)
+	if got := effortOfLast(); got != "high" {
+		t.Fatalf("reasoning_effort = %q, want high", got)
+	}
+	// Vibe keeps "high" for this model now: a new session still starts on the default
+	other, err := r.b.CreateSession(ctx, r.work, backend.CreateSessionOptions{Title: "effort2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.turn(other.ID, "effort-probe fresh", backend.DecisionOnce)
+	if got := effortOfLast(); got != "" {
+		t.Fatalf("a new session inherited reasoning_effort %q from another", got)
+	}
+	// back to the model's default on the first session
+	if _, err := setter.SetEffort(ctx, r.work, sess.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	r.turn(sess.ID, "effort-probe cleared", backend.DecisionOnce)
+	if got := effortOfLast(); got != "" {
+		t.Fatalf("cleared effort sent %q", got)
+	}
+	if _, err := setter.SetEffort(ctx, r.work, sess.ID, "extreme"); err == nil {
+		t.Fatal("an unoffered level was accepted")
+	}
+}
+
+// galopin's ask_user tool reaches a Vibe session over MCP: the model calls it, the person
+// gets a question card (question.asked), their answer comes back to the model as the
+// tool's result, and Vibe did not ask permission for the call first.
+// askUserProgram is how Vibe 3.1.3's model calls an MCP tool: a run_typescript program
+// (MCP tools are "programmatic" there, found with search_tool_functions).
+var askUserProgram = func() string {
+	b, _ := json.Marshal(map[string]string{"code": "async function main() {\n  const r = await tools.mcp_galopin.ask_user({ questions: [{ question: 'Which database?', header: 'DB', options: [{ label: 'sqlite', description: 'simple' }, { label: 'postgres' }] }] });\n  return r;\n}"})
+	return string(b)
+}()
+
+func TestVibeEngineAskUser(t *testing.T) {
+	r := newVibeRig(t)
+	ctx := context.Background()
+	host, ok := r.b.(backend.MCPHost)
+	if !ok || !host.MCPCapable() {
+		t.Fatal("Vibe is not offered galopin's MCP tools")
+	}
+	if !r.b.Capabilities().Questions {
+		t.Fatal("the questions capability is off for Vibe")
+	}
+	qh := r.b.(backend.QuestionHost)
+	var answered [][]string
+	srv := mcpserve.New(mcpTools, func(ctx context.Context, session, tool string, args json.RawMessage) (string, error) {
+		if tool != "ask_user" {
+			return "", errors.New("unexpected tool " + tool)
+		}
+		qs, err := parseAskUser(args)
+		if err != nil {
+			return "", err
+		}
+		answered, err = qh.AskQuestions(ctx, r.work, session, qs)
+		if err != nil {
+			return "", err
+		}
+		return "The person answered: " + strings.Join(answered[0], ","), nil
+	}, "test")
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(func() { _ = r.b.Stop(); ts.Close() })
+	host.SetMCPIssuer(&mcpGate{srv: srv, base: ts.URL})
+
+	sess, err := r.b.CreateSession(ctx, r.work, backend.CreateSessionOptions{Title: "ask"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.scenario(mockllm.Scenario{
+		ToolCalls:    []mockllm.ToolCall{{ID: "call_q", Name: "run_typescript", Arguments: askUserProgram}},
+		FinishReason: "tool_calls",
+		Routes:       []mockllm.Route{{Contains: "The person answered", Scenario: mockllm.Scenario{Content: []string{"going with their answer"}, FinishReason: "stop"}}},
+	})
+	if err := r.b.Prompt(ctx, r.work, sess.ID, backend.Prompt{Text: "set it up"}); err != nil {
+		t.Fatal(err)
+	}
+	var asked *backend.Event
+	var permissionAsks int
+	deadline := time.After(2 * time.Minute)
+	for asked == nil {
+		select {
+		case ev := <-r.events:
+			if ev.SessionID != sess.ID {
+				continue
+			}
+			switch ev.Event.Kind {
+			case backend.EventQuestionAsked:
+				e := ev.Event
+				asked = &e
+			case backend.EventPermissionAsked:
+				permissionAsks++
+				t.Logf("permission ask for %q", ev.Event.Request.Tool)
+				_ = r.b.ReplyPermission(ctx, r.work, sess.ID, ev.Event.Request.ID, backend.DecisionOnce, "")
+			}
+		case <-deadline:
+			t.Fatal("no question card")
+		}
+	}
+	if permissionAsks != 0 {
+		t.Errorf("Vibe asked permission %d time(s) before galopin's own question tool", permissionAsks)
+	}
+	if len(asked.Questions) != 1 || asked.Questions[0].Question != "Which database?" || len(asked.Questions[0].Options) != 2 {
+		t.Fatalf("question = %+v", asked.Questions)
+	}
+	if err := r.b.(backend.Asker).ReplyQuestion(ctx, r.work, sess.ID, asked.QuestionRequestID, [][]string{{"postgres"}}); err != nil {
+		t.Fatal(err)
+	}
+	for done := false; !done; {
+		select {
+		case ev := <-r.events:
+			if ev.SessionID == sess.ID && ev.Event.Kind == backend.EventStatus && ev.Event.Status == backend.StatusIdle {
+				done = true
+			}
+		case <-deadline:
+			t.Fatal("the turn did not end")
+		}
+	}
+	if len(answered) != 1 || answered[0][0] != "postgres" {
+		t.Fatalf("the tool saw %v", answered)
+	}
+	found := false
+	for _, q := range r.requestLog() {
+		found = found || strings.Contains(q.Headers["x-body-last-tool-result"], "The person answered: postgres")
+	}
+	if !found {
+		t.Error("the person's answer never reached the model as the tool result")
+	}
+}
+
+// A message sent while Vibe's turn runs is queued (Vibe has no steering), announced, and
+// sent when the turn ends: both get answered, in order.
+func TestVibeEngineQueuesFollowUps(t *testing.T) {
+	r := newVibeRig(t)
+	ctx := context.Background()
+	if !r.b.Capabilities().Queue {
+		t.Fatal("the queue capability is off")
+	}
+	sess, err := r.b.CreateSession(ctx, r.work, backend.CreateSessionOptions{Title: "queue"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.scenario(mockllm.Scenario{Content: []string{"slow ", "answer ", "to ", "queue-probe ", "one"}, ChunkDelayMs: 400, FinishReason: "stop"})
+	if err := r.b.Prompt(ctx, r.work, sess.ID, backend.Prompt{Text: "queue-probe first"}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond) // the first turn is running
+	if err := r.b.Prompt(ctx, r.work, sess.ID, backend.Prompt{Text: "queue-probe second", ClientMessageID: "q2"}); err != nil {
+		t.Fatalf("a follow-up mid-turn was refused: %v", err)
+	}
+	var sawQueue bool
+	idles := 0
+	users := []string{}
+	deadline := time.After(2 * time.Minute)
+	for idles < 2 {
+		select {
+		case ev := <-r.events:
+			if ev.SessionID != sess.ID {
+				continue
+			}
+			switch e := ev.Event; e.Kind {
+			case backend.EventQueue:
+				if len(e.Queued) == 1 && e.Queued[0].ID == "q2" && e.Queued[0].Text == "queue-probe second" {
+					sawQueue = true
+				}
+			case backend.EventPart:
+				if e.Part != nil && e.Part.Role == "user" && e.Part.Type == backend.PartText &&
+					(len(users) == 0 || users[len(users)-1] != e.Part.Text) { // a part is announced again as it settles
+					users = append(users, e.Part.Text)
+				}
+			case backend.EventStatus:
+				if e.Status == backend.StatusIdle {
+					idles++
+				}
+			}
+		case <-deadline:
+			t.Fatalf("both turns did not finish (idle %d)", idles)
+		}
+	}
+	if !sawQueue {
+		t.Error("no queue event named the waiting message")
+	}
+	if len(users) != 2 || users[0] != "queue-probe first" || users[1] != "queue-probe second" {
+		t.Errorf("user messages in order = %q", users)
+	}
+	n := 0
+	for _, q := range r.requestLog() {
+		if strings.Contains(strings.Join(q.Prompts, " "), "queue-probe second") {
+			n++
+		}
+	}
+	if n == 0 {
+		t.Error("the queued message never reached the model")
+	}
+}
+
+// Vibe sends its session id on every model call (x-affinity), so the proxy can tag the
+// gateway's usage with the exact session: per-session cost, as for opencode.
+func TestVibeEngineModelCallsCarryTheSessionForCost(t *testing.T) {
+	r := newVibeRig(t)
+	ctx := context.Background()
+	r.proxy.setSessionTag(func(id string) string { return "tag:" + id })
+	sess, err := r.b.CreateSession(ctx, r.work, backend.CreateSessionOptions{Title: "cost"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.scenario(mockllm.Scenario{Content: []string{"ok"}, FinishReason: "stop"})
+	r.turn(sess.ID, "cost-probe", backend.DecisionOnce)
+	tagged := 0
+	for _, q := range r.requestLog() {
+		if q.Headers["x-pystino-tag"] == "tag:"+sess.ID {
+			tagged++
+		}
+	}
+	if tagged == 0 {
+		t.Fatalf("no model call carried the session's tag (headers of the last: %v)", r.requestLog()[len(r.requestLog())-1].Headers)
+	}
+}
+
+// A level set in one session does not reach another live session on the same model
+// (Vibe persists the last level per model in its config).
+func TestVibeEngineEffortDoesNotLeakBetweenLiveSessions(t *testing.T) {
+	r := newVibeRig(t)
+	ctx := context.Background()
+	a, err := r.b.CreateSession(ctx, r.work, backend.CreateSessionOptions{Title: "A"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b2, err := r.b.CreateSession(ctx, r.work, backend.CreateSessionOptions{Title: "B"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.scenario(mockllm.Scenario{Content: []string{"ok"}, FinishReason: "stop"})
+	setter := r.b.(backend.EffortSetter)
+	if _, err := setter.SetEffort(ctx, r.work, a.ID, "high"); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ id, probe, want string }{{b2.ID, "leak-probe-b", ""}, {a.ID, "leak-probe-a", "high"}} {
+		r.turn(c.id, c.probe, backend.DecisionOnce)
+		got := "?"
+		for _, q := range r.requestLog() {
+			if strings.Contains(strings.Join(q.Prompts, " "), c.probe) {
+				got = q.Headers["x-body-reasoning-effort"]
+			}
+		}
+		if got != c.want {
+			t.Errorf("%s: reasoning_effort %q, want %q", c.probe, got, c.want)
+		}
+	}
 }

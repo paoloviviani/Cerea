@@ -72,7 +72,16 @@ func (mc *machine) decideAsk(rh backend.RuleHost, dir string, req backend.Permis
 		}
 		return decide.Result{Verdict: decide.Card, Step: "gp"}
 	}
-	return decide.Decide(mc.decidePolicy(rh), st, mc.askRequest(dir, req))
+	res := decide.Decide(mc.decidePolicy(rh), st, mc.askRequest(dir, req))
+	if o, ok := mc.back.(interface {
+		OwnAskUser(backend.PermissionRequest) bool
+	}); ok && o.OwnAskUser(req) && res.Step != "floor" && res.Step != "deny" && res.Step != "secret-value" {
+		// galopin's own question tool changes nothing: the card it raises is the interaction,
+		// so it runs in every mode, Plan included. The floor, the machine's deny list and a
+		// secret's value in its arguments were decided above and stand.
+		return decide.Result{Verdict: decide.Once, Step: "ask_user", Category: res.Category, Class: res.Class}
+	}
+	return res
 }
 
 // askRequest is an ask normalised for the decision function: the permission key

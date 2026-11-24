@@ -165,6 +165,8 @@ func (at *agentTools) dispatch(ctx context.Context, call backend.ToolCall) (stri
 		out, err = at.connectorListTool(ctx, tc, call)
 	case "connector_call":
 		out, to, err = at.connectorCallTool(ctx, tc, call)
+	case "ask_user":
+		out, err = at.askUser(ctx, tc, call)
 	case "schedule_list":
 		out, err = at.scheduleList(ctx, tc, call)
 	case "schedule_create":

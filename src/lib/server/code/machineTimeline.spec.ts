@@ -96,6 +96,16 @@ describe("snapshotToUpdates", () => {
 		).toBe(false);
 	});
 
+	it("sends the waiting follow-ups, so a reload shows them, and nothing when none wait", () => {
+		const base = { messages: [], permissions: [], status: "busy", usage: null, todos: [] };
+		expect(
+			snapshotToUpdates({ ...base, queued: [{ id: "c2", text: "next" }] } as Transcript).filter(
+				(u) => u.type === "queued"
+			)
+		).toEqual([{ type: "queued", queued: [{ id: "c2", text: "next" }] }]);
+		expect(snapshotToUpdates(base as Transcript).filter((u) => u.type === "queued")).toEqual([]);
+	});
+
 	it("maps a user text part to a `user` frame carrying its clientMessageId", () => {
 		const transcript: Transcript = {
 			messages: [
@@ -642,6 +652,18 @@ describe("eventToUpdates: one live event at a time", () => {
 			(messageId) => (messageId === "m1" ? "cmid-1" : undefined)
 		);
 		expect(updates).toEqual([{ type: "user", text: "hi", messageId: "cmid-1" }]);
+	});
+});
+
+describe("queue: the follow-ups a machine holds for the running turn", () => {
+	it("maps a queue event to the whole list, empty included", () => {
+		expect(
+			eventToUpdates({
+				kind: "queue",
+				queued: [{ id: "c2", text: "then run the tests" }],
+			})
+		).toEqual([{ type: "queued", queued: [{ id: "c2", text: "then run the tests" }] }]);
+		expect(eventToUpdates({ kind: "queue", queued: [] })).toEqual([{ type: "queued", queued: [] }]);
 	});
 });
 

@@ -15,6 +15,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -46,6 +47,10 @@ const (
 // vibeHiddenModes are Vibe's modes that stop asking.
 var vibeHiddenModes = []string{"accept-edits", "auto-approve", "smart-approve"}
 
+// vibeAskUserTool is the config key of galopin's ask_user MCP tool (Vibe 3.1.3 reads the
+// tool's name under its server's, joined with an underscore).
+const vibeAskUserTool = "galopin_ask_user"
+
 // vibeHomeFor is the supervised vibe-acp's VIBE_HOME, beside the credentials.
 func vibeHomeFor(credsPath string) string {
 	return filepath.Join(filepath.Dir(credsPath), "vibe")
@@ -60,7 +65,23 @@ type vibeModel struct {
 	Display string
 	Context int
 	Images  bool
+	// Reasoning is the gateway's "reasoning" feature: the model takes a thinking effort.
+	Reasoning bool
 }
+
+// vibeEfforts are the levels a reasoning model offers Cerea, the same three opencode's
+// variants have. The models carry no thinking_levels in the config: a model whose levels
+// are listed and include off gets reasoning_effort "none" sent for off (checked against
+// Vibe 3.1.3), while one without the list sends nothing for off, which is what no choice
+// means here (as for opencode).
+var vibeEfforts = []string{"low", "medium", "high"}
+
+// vibeEffortDefault is the Vibe thinking level that stands for "the model's default".
+const vibeEffortDefault = "off"
+
+// vibeEffortsFile is galopin's record, in the Vibe home, of which models offer which
+// efforts (Vibe reports levels for the model a session is on only).
+const vibeEffortsFile = "galopin-efforts.json"
 
 // vibeModels turns the gateway catalogue into Vibe's models (chat models only, sorted
 // by id so the file is stable).
@@ -86,7 +107,7 @@ func vibeModels(models []gatewayModel) []vibeModel {
 				images = true
 			}
 		}
-		out = append(out, vibeModel{ID: m.ID, Display: m.DisplayName, Context: ctx, Images: images})
+		out = append(out, vibeModel{ID: m.ID, Display: m.DisplayName, Context: ctx, Images: images, Reasoning: hasFeature(m.SupportedFeatures, "reasoning")})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
@@ -160,6 +181,13 @@ func vibeFloorTOML() string {
 		"[tools.read_file]",
 		`permission = "ask"`,
 		"",
+		// galopin's own question tool, an MCP tool (Vibe calls it mcp_galopin.ask_user from
+		// a run_typescript program): the person's answer is the interaction, so Vibe does
+		// not ask first. Every other galopin tool keeps Vibe's ask and then galopin's own
+		// gates.
+		"[tools." + vibeAskUserTool + "]",
+		`permission = "always"`,
+		"",
 	}, "\n")
 }
 
@@ -216,9 +244,20 @@ func writeVibeEngineConfig(home string, creds *credentials, models []gatewayMode
 			return err
 		}
 	}
-	body := vibeConfigTOML(fmt.Sprintf("127.0.0.1:%d", creds.ShimPort), creds.ShimSecret, vibeModels(models))
+	vm := vibeModels(models)
+	body := vibeConfigTOML(fmt.Sprintf("127.0.0.1:%d", creds.ShimPort), creds.ShimSecret, vm)
 	if err := writeFileAtomic(filepath.Join(home, "config.toml"), []byte(body), 0o600); err != nil {
 		return fmt.Errorf("writing Vibe config: %w", err)
+	}
+	efforts := map[string][]string{}
+	for _, m := range vm {
+		if m.Reasoning {
+			efforts[m.ID] = vibeEfforts
+		}
+	}
+	eb, _ := json.Marshal(efforts)
+	if err := writeFileAtomic(filepath.Join(home, vibeEffortsFile), eb, 0o600); err != nil {
+		return fmt.Errorf("writing Vibe efforts: %w", err)
 	}
 	return resetVibeTrust(home)
 }
@@ -228,6 +267,15 @@ func writeVibeEngineConfig(home string, creds *credentials, models []gatewayMode
 // .vibe/ config, which could loosen the floor.
 func resetVibeTrust(home string) error {
 	return writeFileAtomic(filepath.Join(home, "trusted_folders.toml"), []byte("trusted = []\nuntrusted = []\n"), 0o600)
+}
+
+// readVibeEfforts reads galopin's model -> efforts record (empty when absent).
+func readVibeEfforts(home string) map[string][]string {
+	out := map[string][]string{}
+	if b, err := os.ReadFile(filepath.Join(home, vibeEffortsFile)); err == nil {
+		_ = json.Unmarshal(b, &out)
+	}
+	return out
 }
 
 // readVibeModels reads model id -> context window back from galopin's config.toml
@@ -353,10 +401,12 @@ func startVibeBackend(ctx context.Context, opts *runOptions, credsPath, stateDir
 	if _, err := os.Stat(filepath.Join(home, "config.toml")); err != nil {
 		return nil, fmt.Errorf("galopin's Vibe config is missing under %s: re-run 'galopin enroll --engine vibe'", home)
 	}
+	removeVibeInstructions(home, logf)
 	// Whatever else happened to the trust list, no folder is trusted for this run.
 	if err := resetVibeTrust(home); err != nil {
 		return nil, err
 	}
+	efforts := readVibeEfforts(home)
 	acpBackend := backendacp.New(backendacp.Config{
 		Command:        cmd,
 		Env:            vibeEnv(home, os.Environ()),
@@ -365,6 +415,21 @@ func startVibeBackend(ctx context.Context, opts *runOptions, credsPath, stateDir
 		Protect:        protect,
 		HiddenModes:    vibeHiddenModes,
 		ForceMode:      vibeModeAsk,
+		// Vibe advertises /compact in available_commands_update (3.1.3): it summarises the
+		// session's history and replaces it, as a turn whose answer is a tool call card.
+		CompactCommand: "/compact",
+		// Vibe's "thinking" session option takes the level (3.1.3); the levels each model
+		// offers are galopin's own record, written with the config.
+		Efforts: true, EffortDefault: vibeEffortDefault,
+		// Vibe takes an HTTP MCP server in session/new but does not say so in initialize
+		// (no mcpCapabilities): galopin's tools, ask_user among them, are offered to it.
+		MCPHTTP:       true,
+		ModelEfforts:  func() map[string][]string { return efforts },
+		BeforeSession: vibeBeforeSession(home, pol.ProjectConfigAllowed(), protect, logf),
+		AfterSession:  func() { removeVibeInstructions(home, logf) },
+		// /reload re-reads the instructions file, which only holds a workspace\'s text while
+		// that workspace\'s session opens.
+		HiddenCommands: []string{"reload"},
 		Logf:           func(format string, args ...any) { logf(format, args...) },
 	})
 	if err := acpBackend.Start(ctx); err != nil {

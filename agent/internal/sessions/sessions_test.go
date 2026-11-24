@@ -879,3 +879,28 @@ func TestResyncStartedBeforeAReseedIsDiscarded(t *testing.T) {
 		t.Fatalf("the pre-revert transcript was applied: %+v", got)
 	}
 }
+
+// The waiting follow-ups ride the snapshot, so a reload shows them; an empty list clears them.
+func TestSnapshotCarriesTheWaitingFollowUps(t *testing.T) {
+	m := New(newFakeBackend(), policy.Default())
+	m.Track("/ws", backend.Session{ID: "s1"})
+	ctx := context.Background()
+	apply := func(q []backend.QueuedPrompt) {
+		m.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/ws", SessionID: "s1", Event: backend.Event{Kind: backend.EventQueue, Queued: q}})
+	}
+	queued := func() int {
+		res, err := m.Sync(ctx, "s1", "", 0)
+		if err != nil || res.Snapshot == nil {
+			t.Fatalf("sync = %+v, %v", res, err)
+		}
+		return len(res.Snapshot.Queued)
+	}
+	apply([]backend.QueuedPrompt{{ID: "c2", Text: "next"}})
+	if queued() != 1 {
+		t.Fatal("the snapshot lacks the waiting follow-up")
+	}
+	apply([]backend.QueuedPrompt{})
+	if queued() != 0 {
+		t.Fatal("the snapshot still lists a follow-up that was sent")
+	}
+}

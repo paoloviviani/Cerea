@@ -196,7 +196,7 @@ What galopin sets up for goose:
   Use one driver at a time: a turn you drive in goose Desktop bypasses Cerea's
   rules and its review log.
 
-What differs from opencode: no subagent cards (goose has none over its protocol),
+What differs from opencode: no subagent cards (goose has none over its protocol), no steering (a message sent mid-turn waits, shown above the composer, and is sent when the turn ends), the same `ask_user` question tool as Vibe (goose asks permission before calling it, as for every tool),
 and compaction is goose's own `/compact`, run as a turn (its answer appears in the
 transcript). Usage works: goose reports none over its protocol, so galopin reads
 each model call's token counts off its own proxy and feeds the context meter and
@@ -255,28 +255,104 @@ What galopin sets up for Vibe:
   - _A repository's own `.vibe/` is never loaded._ Vibe loads a project's `.vibe/config.toml`
     (and its `AGENTS.md` and project skills) only for a trusted folder; galopin keeps the
     trust list empty and rewrites it empty at every start, and answers no trust question, so
-    a cloned repository cannot loosen the floor. The cost: a project's `AGENTS.md` is not read
-    by Vibe on a galopin computer.
+    a cloned repository cannot loosen the floor. A project's `AGENTS.md` is read by galopin
+    instead, not by Vibe (next point).
+  - _A workspace's `AGENTS.md` is passed on by galopin._ When the machine allows project
+    config (`enroll --allow-project-config`, the same gate as opencode's own `AGENTS.md`;
+    denied by default), galopin reads the workspace's `AGENTS.md` (falling back to
+    `CLAUDE.md`, opencode's order; every such file between the workspace and the repository
+    root, outermost first; regular files only, never a symlink or a protected path; cut at
+    32 KiB) and gives it to each session as instructions: ACP has no field for them, so
+    galopin writes the text to the one place Vibe reads for every session, `AGENTS.md` in
+    its own Vibe home, right before a session opens or reloads, and removes it again as soon
+    as that call returns (so Vibe's `/reload`, which would re-read it, is neither offered
+    nor run). The text is handed over labelled as repository content, not the user's own
+    instructions, and read without following a symlink. The text is read when the session opens: a later edit reaches the
+    next session, or a reopened one.
   - _What galopin cannot see._ A tool Vibe allows by itself never asks: its internal task
     list, skills, scratchpad, scheduled prompts and goals. They do not reach files or the
     shell without a tool call that asks. Vibe's session "always allow" is never chosen:
     galopin answers each ask once, and an "always" from a user is galopin's own exception.
+- **Thinking effort.** For a model the gateway marks as reasoning, Cerea's effort selector
+  offers low, medium and high (as for opencode). galopin sets Vibe's per-session `thinking`
+  option, which Vibe sends as the request's `reasoning_effort`; no choice means no
+  `reasoning_effort` at all. Vibe remembers the last level set for a model and starts the
+  next session on it, so galopin puts a new or reopened session back on the default, and
+  keeps a chosen level across a model change when the new model offers it. A chosen effort
+  lives in galopin's memory: after a restart of galopin the session is on the default.
+- **Questions.** galopin's `ask_user` tool is offered to Vibe with the other galopin tools
+  (Vibe takes an HTTP MCP server in `session/new` although its `initialize` does not say so,
+  so galopin enables it for Vibe). The model reaches it the way Vibe reaches every MCP tool,
+  from a `run_typescript` program (`tools.mcp_galopin.ask_user`, found with
+  `search_tool_functions`). It raises the same question card opencode's own question tool
+  does; the answer goes back to the model as the tool's result. Asking the person changes nothing, so galopin lets the call through in every mode,
+  Plan included: an engine's own permission ask for it is answered at once, but only when the
+  ACP backend itself tags it (the session holds galopin's own MCP endpoint, the call is the
+  catch-all kind with no command or path, and its name is exactly the one the engine gives
+  the tool). The floor, the machine's deny list and a secret in the arguments are decided
+  first and stand. opencode never gets this exemption (it has no galopin `ask_user`, and a
+  repository's own MCP server cannot claim it); the other
+  galopin tools keep the engine's ask and then galopin's own gates. A question waits 270 s
+  (below Vibe's 300 s tool timeout), then the card is withdrawn and the model is told it
+  was not answered; one question waits per session. goose gets the same tool through the
+  same path.
 - **Vibe's own session store.** Sessions live in the `vibe/` directory (not shared with
   your Vibe, unlike goose's), listed and reopened from Cerea, including after galopin or
   Vibe restarts. Vibe keeps a lock on a session it has open; if a reopen meets the lock of
   an agent process that is still shutting down, galopin waits for it (a few seconds)
   instead of failing.
 
-What differs from opencode: no subagent cards, no compaction command, and the model list
-shows only what the gateway offers. Usage comes from Vibe itself (it reports the context
+What differs from opencode: no subagent cards, no steering (a message sent while Vibe works
+waits, shown above the composer with a cancel, and is sent when the turn ends; Stop drops what
+waits), and the model list
+shows only what the gateway offers. Compaction is Vibe's own `/compact`, run as a turn like
+goose's (it appears as a tool card in the transcript). Usage comes from Vibe itself (it reports the context
 meter over its protocol), and the context window is the gateway's, with a floor of 13,334
-tokens that Vibe needs. Vibe sends no session identifier on its model calls, so the
-gateway's cost is metered for the computer but not split per session. Changes, history,
+tokens that Vibe needs. Vibe sends its session id on every model call (`x-affinity`),
+which galopin's proxy reads, so the gateway's cost is metered per session as for opencode. Changes, history,
 model choice, connectors and the task list work as they do elsewhere. In the Agents panel
 the engine shows as **Mistral Vibe** with its mark.
 
 Sessions cannot reach your own Vibe's settings: `~/.vibe` and `VIBE_HOME` are protected
 like galopin's own files, and reading them is a secrets request.
+
+#### What Vibe 3.1.3 offers over ACP
+
+Checked against the pinned release (source and a live `vibe-acp`), for the next round of parity work:
+
+- **Slash commands** (`available_commands_update`, per session): `compact` (optional
+  instructions), `help`, `reload` (config, instructions and skills), `log`, `mcp`,
+  `proxy-setup`, `retry`, `data-retention`, `leanstall`/`unleanstall`, plus the user-invocable
+  skills (`vibe:create-plugin`, `vibe:import`, `vibe:skill-creator`, `vibe:worktree`).
+- **Config options** (`session/set_config_option`; `session/set_mode` also works): `mode`,
+  `model` and `thinking` (levels off, low, medium, high, max; a model's `thinking_levels` in
+  `config.toml` narrow it), and `max_turns`/`max_tokens`. A set persists in `config.toml`
+  (the model's `thinking`, the active model) and the next session starts on it; changing the
+  model puts the session on that model's own level. A model with no `thinking_levels` sends no
+  `reasoning_effort` for `off`; one that lists `off` sends `"none"`.
+- **Concurrency and cost.** One `vibe-acp` process serves many sessions at once (its session
+  table is keyed by id; a session is locked while open). The provider and its headers are
+  global in `config.toml`, so a per-session API key is not possible, but Vibe sends the
+  session's id as `x-affinity` on every model call (a forked session sends its root's), which
+  is enough to attribute cost per session.
+- **Subagents.** In 3.1.3 delegation is a programmatic tool: the model reaches subagents (and
+  every MCP tool, background processes and goals) from a `run_typescript` program, finding
+  functions with `search_tool_functions`. A subagent call reaches ACP as a tool call of kind
+  `think` whose `_meta` has `effect_kind: "subagent"`, `agent`, `task`, `child_session_id` and,
+  when done, `turn_count` and `response`. The older `task` tool (read-only `explore` agent)
+  still exists in the code.
+- **Questions.** Vibe has its own `ask_user_question` tool. It is enabled only when the client
+  advertises `elicitation.form` in `initialize` and answers `session/elicitation` forms (one
+  string or array property per question, options as `oneOf`); galopin does not use it, it
+  offers its own `ask_user` over MCP so goose shares the path.
+- **Fork and rewind.** `sessionCapabilities.fork` takes an optional `messageId` (the child
+  starts at that message). `rewind/preview` and `rewind` extension methods (`sessionId`,
+  `messageId`, `restoreFiles`) roll a session back in place and restore the files, which is
+  the shape of `session.revert`; not built.
+- **Not advertised:** `mcpCapabilities` (HTTP MCP servers in `session/new` work regardless),
+  `sessionCapabilities.resume` and `delete`, and a `session/set_model` method (the model is a
+  config option). Per-session instructions have no ACP field: Vibe reads `AGENTS.md` in
+  `VIBE_HOME` when a session opens.
 
 ### Your own goose, through galopin
 

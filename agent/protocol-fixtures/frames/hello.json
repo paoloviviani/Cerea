@@ -37,6 +37,7 @@
 					"toolImages": true,
 					"agentTools": true,
 					"steer": true,
+					"queue": false,
 					"permissions": true,
 					"coordinationGrant": false,
 					"scheduleTools": true,

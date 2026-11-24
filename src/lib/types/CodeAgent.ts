@@ -197,10 +197,21 @@ export interface AgentHistoryMetaUpdate {
 	before?: string;
 }
 
+/**
+ * Side channel: the follow-ups the machine is holding until the running turn ends
+ * (capability `queue`), the whole list each time; an empty list means none waiting.
+ * `id` is the clientMessageId the message was sent with.
+ */
+export interface AgentQueuedUpdate {
+	type: "queued";
+	queued: Array<{ id: string; text: string; files?: number }>;
+}
+
 export type AgentStreamUpdate =
 	| AgentUserMessageUpdate
 	| AgentResetUpdate
 	| AgentUsageUpdate
+	| AgentQueuedUpdate
 	| AgentCompactionUpdate
 	| AgentMessageBoundaryUpdate
 	| AgentChildActivityUpdate

@@ -139,6 +139,7 @@ const RULES: Array<{ method: "GET" | "POST" | "DELETE"; pattern: RegExp }> = [
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/mode$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/model$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/cancel$`) },
+	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/dequeue$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/compact$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/revert$`) },
 	{ method: "POST", pattern: new RegExp(`^v1/agents/${ID}/effort$`) },
@@ -1543,6 +1544,22 @@ export const POST: RequestHandler = async (event) => {
 	if (cancelMatch) {
 		cancelSchema.parse(body);
 		await callOp(() => link.sessionCancel({ sessionId: decodeURIComponent(cancelMatch[1]) }));
+		return superjsonResponse({ ok: true });
+	}
+
+	// Withdraw a follow-up that is still waiting for the running turn (capability
+	// `queue`): `id` is the clientMessageId it was sent with. A prompt already sent
+	// is a 404, like any capability the machine lacks.
+	const dequeueMatch = new RegExp(`^v1/agents/(${ID})/dequeue$`).exec(path);
+	if (dequeueMatch) {
+		const parsed = z.object({ id: z.string().trim().min(1).max(128) }).safeParse(body);
+		if (!parsed.success) error(400, "Expected { id }.");
+		await callOp(() =>
+			link.sessionDequeue({
+				sessionId: decodeURIComponent(dequeueMatch[1]),
+				id: parsed.data.id,
+			})
+		);
 		return superjsonResponse({ ok: true });
 	}
 

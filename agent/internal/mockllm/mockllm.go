@@ -199,8 +199,11 @@ func (s *Server) complete(w http.ResponseWriter, r *http.Request) {
 		StreamOptions struct {
 			IncludeUsage bool `json:"include_usage"`
 		} `json:"stream_options"`
-		Messages []map[string]any `json:"messages"`
-		Tools    []struct {
+		// ReasoningEffort is recorded with the headers as "x-body-reasoning-effort": what an
+		// engine's thinking setting sent is a fact only the mock sees.
+		ReasoningEffort string           `json:"reasoning_effort"`
+		Messages        []map[string]any `json:"messages"`
+		Tools           []struct {
 			Function struct {
 				Name        string `json:"name"`
 				Description string `json:"description"`
@@ -260,6 +263,22 @@ func (s *Server) complete(w http.ResponseWriter, r *http.Request) {
 		if len(v) > 0 {
 			hdr[strings.ToLower(k)] = v[0]
 		}
+	}
+	// the newest tool result in the request, as "x-body-last-tool-result": what a tool
+	// answered an engine is a fact only the mock sees.
+	for i := len(req.Messages) - 1; i >= 0; i-- {
+		if req.Messages[i]["role"] == "tool" {
+			if t := contentText(req.Messages[i]["content"]); t != "" {
+				if len(t) > 4000 {
+					t = t[:4000]
+				}
+				hdr["x-body-last-tool-result"] = t
+			}
+			break
+		}
+	}
+	if req.ReasoningEffort != "" {
+		hdr["x-body-reasoning-effort"] = req.ReasoningEffort
 	}
 	s.requestHeaders = append(s.requestHeaders, hdr)
 	names := []string{}

@@ -83,6 +83,10 @@ func (b *Backend) handleRequest(id json.RawMessage, method string, params json.R
 		Metadata:  askMetadata(p.ToolCall),
 	}
 
+	if b.isOwnAskUser(st, p.ToolCall) {
+		req.Metadata["galopinTool"] = "ask_user"
+	}
+
 	st.mu.Lock()
 	st.pending[localID] = pendingPermission{jsonrpcID: id, options: p.Options, request: req}
 	workspaceDir := st.workspaceDir
@@ -464,6 +468,9 @@ func (b *Backend) RecordUsage(sessionID string, u backend.Usage) {
 func (b *Backend) Compact(ctx context.Context, workspaceDir, sessionID string) error {
 	if b.cfg.CompactCommand == "" {
 		return fmt.Errorf("acp: this agent has no compaction command")
+	}
+	if b.sessionBusy(sessionID) {
+		return backend.ErrSessionBusy
 	}
 	return b.Prompt(ctx, workspaceDir, sessionID, backend.Prompt{Text: b.cfg.CompactCommand})
 }

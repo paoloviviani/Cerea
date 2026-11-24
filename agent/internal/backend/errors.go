@@ -31,3 +31,20 @@ var ErrPermissionGone = errors.New("the permission request is no longer pending"
 
 // IsNotFound reports whether err says a permission ask is already gone.
 func IsNotFound(err error) bool { return errors.Is(err, ErrPermissionGone) }
+
+// ErrQuestionDismissed is what a question put to the person comes back as when they
+// dismissed it (or the turn ended before they answered).
+var ErrQuestionDismissed = errors.New("the person dismissed the question")
+
+// ErrQuestionGone is a reply to a question that is no longer pending.
+var ErrQuestionGone = errors.New("the question is no longer pending")
+
+// ErrNotQueued is a dequeue of a prompt that is not (or no longer) waiting.
+var ErrNotQueued = errors.New("that message is not waiting to be sent")
+
+// ErrQuestionTimeout is a question the person did not answer in time (the agent's own tool
+// timeout is shorter than a person's patience).
+var ErrQuestionTimeout = errors.New("the question was not answered in time")
+
+// ErrQuestionPending is a second question while one is still waiting in the session.
+var ErrQuestionPending = errors.New("a question is already waiting for the person")

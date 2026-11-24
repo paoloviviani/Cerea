@@ -597,7 +597,7 @@ func buildHello(back backend.Backend, pol policy.Policy) link.Hello {
 			"worktrees": caps.Worktrees,
 			"questions": caps.Questions, "revert": caps.Revert, "revertFiles": caps.RevertFiles,
 			"efforts": caps.Efforts, "commands": caps.Commands, "toolImages": caps.ToolImages,
-			"agentTools": caps.AgentTools, "steer": caps.Steer,
+			"agentTools": caps.AgentTools, "steer": caps.Steer, "queue": caps.Queue,
 			"permissions": caps.Permissions, "coordinationGrant": caps.CoordinationGrant,
 			"scheduleTools": caps.ScheduleTools, "historyPaging": caps.HistoryPaging,
 		},

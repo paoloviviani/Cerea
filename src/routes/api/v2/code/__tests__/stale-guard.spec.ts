@@ -192,6 +192,7 @@ const FORWARDER_SAMPLES: Array<[string, string]> = [
 	["POST", "v1/agents/a1/mode"],
 	["POST", "v1/agents/a1/model"],
 	["POST", "v1/agents/a1/cancel"],
+	["POST", "v1/agents/a1/dequeue"],
 	["POST", "v1/agents/a1/compact"],
 	["POST", "v1/agents/a1/revert"],
 	["POST", "v1/agents/a1/effort"],

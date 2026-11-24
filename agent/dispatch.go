@@ -276,6 +276,8 @@ func (mc *machine) Handle(ctx context.Context, op string, args json.RawMessage) 
 		return mc.opSessionPrompt(ctx, args)
 	case "session.command":
 		return mc.opSessionCommand(ctx, args)
+	case "session.dequeue":
+		return mc.opSessionDequeue(ctx, args)
 	case "session.cancel":
 		return mc.opSessionCancel(ctx, args)
 	case "session.rename":
@@ -603,6 +605,33 @@ func (mc *machine) opSessionPrompt(ctx context.Context, args json.RawMessage) (a
 	if err != nil {
 		if len(held) > 0 {
 			mc.agentTools.restoreHeld(a.SessionID, held)
+		}
+		return nil, backendErr(err)
+	}
+	return map[string]any{}, nil
+}
+
+// opSessionDequeue implements `session.dequeue`: withdraw a follow-up prompt that is
+// still waiting for the running turn to end (capability `queue`).
+func (mc *machine) opSessionDequeue(ctx context.Context, args json.RawMessage) (any, *link.OpError) {
+	var a struct {
+		SessionID string `json:"sessionId"`
+		ID        string `json:"id"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil || a.ID == "" {
+		return nil, opErrf("invalid", "sessionId and id are required")
+	}
+	dir, _, operr := mc.resolveSession(a.SessionID)
+	if operr != nil {
+		return nil, operr
+	}
+	dq, ok := mc.back.(backend.Dequeuer)
+	if !ok || !mc.back.Capabilities().Queue {
+		return nil, opErrf("unsupported", "backend %s does not queue prompts", mc.back.ID())
+	}
+	if err := dq.Dequeue(ctx, dir, a.SessionID, a.ID); err != nil {
+		if errors.Is(err, backend.ErrNotQueued) {
+			return nil, opErrf("not_found", "%v", err)
 		}
 		return nil, backendErr(err)
 	}

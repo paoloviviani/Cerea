@@ -244,6 +244,11 @@ type sessionConfig struct {
 	models                      []backend.Model
 	modeID, modelID             string
 	modeConfigID, modelConfigID string
+	// effortConfigID is the thinking-level select option ("" when the agent has none):
+	// its id, the value it is on and the values it offers (ACP's own category is
+	// "thought_level"; Vibe says "thinking").
+	effortConfigID, effortID string
+	effortValues             []string
 }
 
 func parseSessionConfig(m map[string]any) sessionConfig {
@@ -260,7 +265,7 @@ func parseSessionConfig(m map[string]any) sessionConfig {
 			c.models = append(c.models, backend.Model{ID: getStr(mm, "modelId", "id"), Label: getStr(mm, "name")})
 		}
 	}
-	var haveMode, haveModel bool
+	var haveMode, haveModel, haveEffort bool
 	for _, opt := range asMaps(getSlice(m, "configOptions")) {
 		if t := getStr(opt, "type"); t != "" && t != "select" {
 			continue // boolean options are not offered: the client did not advertise them
@@ -281,6 +286,12 @@ func parseSessionConfig(m map[string]any) sessionConfig {
 			c.modes = nil
 			for _, o := range values {
 				c.modes = append(c.modes, backend.Mode{ID: getStr(o, "value"), Label: getStr(o, "name"), Description: getStr(o, "description")})
+			}
+		case (cat == "thought_level" || cat == "thinking" || (cat == "" && (id == "thought_level" || id == "thinking"))) && !haveEffort:
+			haveEffort = true
+			c.effortConfigID, c.effortID = id, getStr(opt, "currentValue")
+			for _, o := range values {
+				c.effortValues = append(c.effortValues, getStr(o, "value"))
 			}
 		case (cat == "model" || (cat == "" && id == "model")) && !haveModel:
 			haveModel = true
