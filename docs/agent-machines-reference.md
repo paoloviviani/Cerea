@@ -255,8 +255,18 @@ What galopin sets up for Vibe:
   - _A repository's own `.vibe/` is never loaded._ Vibe loads a project's `.vibe/config.toml`
     (and its `AGENTS.md` and project skills) only for a trusted folder; galopin keeps the
     trust list empty and rewrites it empty at every start, and answers no trust question, so
-    a cloned repository cannot loosen the floor. The cost: a project's `AGENTS.md` is not read
-    by Vibe on a galopin computer.
+    a cloned repository cannot loosen the floor. A project's `AGENTS.md` is read by galopin
+    instead, not by Vibe (next point).
+  - _A workspace's `AGENTS.md` is passed on by galopin._ When the machine allows project
+    config (`enroll --allow-project-config`, the same gate as opencode's own `AGENTS.md`;
+    denied by default), galopin reads the workspace's `AGENTS.md` (falling back to
+    `CLAUDE.md`, opencode's order; every such file between the workspace and the repository
+    root, outermost first; regular files only, never a symlink or a protected path; cut at
+    32 KiB) and gives it to each session as instructions: ACP has no field for them, so
+    galopin writes the text to the one place Vibe reads for every session, `AGENTS.md` in
+    its own Vibe home, right before a session opens or reloads, and removes it when the
+    workspace has none. The text is read when the session opens: a later edit reaches the
+    next session, or a reopened one.
   - _What galopin cannot see._ A tool Vibe allows by itself never asks: its internal task
     list, skills, scratchpad, scheduled prompts and goals. They do not reach files or the
     shell without a tool call that asks. Vibe's session "always allow" is never chosen:

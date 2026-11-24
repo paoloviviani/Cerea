@@ -72,6 +72,15 @@ type Config struct {
 	// context (goose: "/compact", sent as an ordinary prompt). It turns the
 	// compact capability on.
 	CompactCommand string
+	// BeforeSession, when set, runs with the workspace directory right before a
+	// session/new, session/load or session/resume call, and no other such call
+	// overlaps it. It is how an engine that reads its per-session instructions from
+	// a file (Vibe: $VIBE_HOME/AGENTS.md, read when the session opens) gets the
+	// workspace's own for the session being opened.
+	BeforeSession func(workspaceDir string)
+	// MCPHTTP says the agent takes an HTTP MCP server in session/new although it does
+	// not advertise mcpCapabilities.http (Vibe 3.x does and does not say so).
+	MCPHTTP bool
 	// Logf receives lifecycle-only messages: started, ready, restarting,
 	// exited (R6 — never frame or response bodies, which may carry a
 	// user's prompt text).
@@ -156,6 +165,9 @@ type Backend struct {
 	diffs *filediff.Tracker
 	// loadMu serializes session/load replays (Transcript).
 	loadMu sync.Mutex
+	// openMu serializes the calls that open a session, so BeforeSession's work and the
+	// call that reads it are not interleaved with another session's.
+	openMu sync.Mutex
 	// replayOrder lists the sessions holding a replayed transcript, oldest open first (history.go).
 	replayMu    sync.Mutex
 	replayOrder []string

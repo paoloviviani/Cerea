@@ -33,6 +33,7 @@ type vibeRig struct {
 	stateDir  string
 	mockURL   string
 	requests  func() [][]string
+	pol       policy.Policy
 }
 
 func vibeITBin(t *testing.T) string {
@@ -52,6 +53,12 @@ func vibeITBin(t *testing.T) string {
 }
 
 func newVibeRig(t *testing.T) *vibeRig {
+	t.Helper()
+	return newVibeRigPolicy(t, policy.Default())
+}
+
+// newVibeRigPolicy is newVibeRig on a machine with this policy.
+func newVibeRigPolicy(t *testing.T, pol policy.Policy) *vibeRig {
 	t.Helper()
 	vibeITBin(t)
 	home := t.TempDir()
@@ -82,7 +89,7 @@ func newVibeRig(t *testing.T) *vibeRig {
 	if err := writeVibeEngineConfig(vibeHomeFor(credsPath), creds, []gatewayModel{{ID: "mock-model", ContextWindow: 32000}}); err != nil {
 		t.Fatal(err)
 	}
-	r := &vibeRig{t: t, work: t.TempDir(), home: vibeHomeFor(credsPath), credsPath: credsPath, stateDir: stateDir, mockURL: mock.URL}
+	r := &vibeRig{t: t, pol: pol, work: t.TempDir(), home: vibeHomeFor(credsPath), credsPath: credsPath, stateDir: stateDir, mockURL: mock.URL}
 	r.start()
 	return r
 }
@@ -92,7 +99,7 @@ func (r *vibeRig) start() {
 	r.t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	r.t.Cleanup(cancel)
-	b, err := startVibeBackend(ctx, &runOptions{}, r.credsPath, r.stateDir, policy.Default(), nil, r.t.Logf)
+	b, err := startVibeBackend(ctx, &runOptions{}, r.credsPath, r.stateDir, r.pol, nil, r.t.Logf)
 	if err != nil {
 		r.t.Fatal(err)
 	}
@@ -116,8 +123,14 @@ func (r *vibeRig) scenario(sc mockllm.Scenario) {
 // turn sends a prompt and runs it to idle, answering every ask with decision.
 func (r *vibeRig) turn(sessionID, text string, decision backend.Decision) (asks []backend.PermissionRequest, reply string) {
 	r.t.Helper()
+	return r.turnIn(r.work, sessionID, text, decision)
+}
+
+// turnIn is turn for a session of another workspace.
+func (r *vibeRig) turnIn(work, sessionID, text string, decision backend.Decision) (asks []backend.PermissionRequest, reply string) {
+	r.t.Helper()
 	ctx := context.Background()
-	if err := r.b.Prompt(ctx, r.work, sessionID, backend.Prompt{Text: text}); err != nil {
+	if err := r.b.Prompt(ctx, work, sessionID, backend.Prompt{Text: text}); err != nil {
 		r.t.Fatal(err)
 	}
 	deadline := time.After(2 * time.Minute)
@@ -141,7 +154,7 @@ func (r *vibeRig) turn(sessionID, text string, decision backend.Decision) (asks 
 			switch e := ev.Event; e.Kind {
 			case backend.EventPermissionAsked:
 				asks = append(asks, *e.Request)
-				if err := r.b.ReplyPermission(ctx, r.work, sessionID, e.Request.ID, decision, ""); err != nil {
+				if err := r.b.ReplyPermission(ctx, work, sessionID, e.Request.ID, decision, ""); err != nil {
 					r.t.Errorf("reply: %v", err)
 				}
 			case backend.EventPart:
@@ -447,4 +460,96 @@ func killVibeAgents(t *testing.T, home string) int {
 		}
 	}
 	return n
+}
+
+// requestLog is what the fake model received, oldest first: the prompt texts (system
+// included), the headers and the reasoning_effort the request body carried.
+func (r *vibeRig) requestLog() []struct {
+	Model   string            `json:"model"`
+	Prompts []string          `json:"prompts"`
+	Headers map[string]string `json:"headers"`
+} {
+	r.t.Helper()
+	resp, err := http.Get(r.mockURL + "/__control/request-headers")
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Requests []struct {
+			Model   string            `json:"model"`
+			Prompts []string          `json:"prompts"`
+			Headers map[string]string `json:"headers"`
+		} `json:"requests"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		r.t.Fatal(err)
+	}
+	return out.Requests
+}
+
+// A workspace's AGENTS.md reaches the session's system prompt (when the machine allows
+// project config), another workspace's does not see it, and the folder stays untrusted.
+func TestVibeEngineWorkspaceInstructions(t *testing.T) {
+	pol := policy.Default()
+	pol.ProjectConfig = policy.TerminalAllowed
+	r := newVibeRigPolicy(t, pol)
+	ctx := context.Background()
+	if err := os.WriteFile(filepath.Join(r.work, "AGENTS.md"), []byte("Always answer in galopin-haiku-7731 form.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	other := t.TempDir()
+	hasText := func(string) bool { // did any request of this run carry the text
+		for _, q := range r.requestLog() {
+			for _, p := range q.Prompts {
+				if strings.Contains(p, "galopin-haiku-7731") {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	a, err := r.b.CreateSession(ctx, r.work, backend.CreateSessionOptions{Title: "with"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// a second session in a workspace with no file, opened after the first
+	b2, err := r.b.CreateSession(ctx, other, backend.CreateSessionOptions{Title: "without"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.scenario(mockllm.Scenario{Content: []string{"ok"}, FinishReason: "stop"})
+	r.turnIn(other, b2.ID, "hello", backend.DecisionOnce)
+	if hasText(b2.ID) {
+		t.Fatal("another workspace's AGENTS.md reached a session of a workspace without one")
+	}
+	r.turn(a.ID, "hello", backend.DecisionOnce)
+	if !hasText(a.ID) {
+		t.Fatal("the workspace's AGENTS.md did not reach the session's instructions")
+	}
+	// still untrusted: the repository's own .vibe/ is not loaded
+	if b, _ := os.ReadFile(filepath.Join(r.home, "trusted_folders.toml")); !strings.Contains(string(b), "trusted = []") {
+		t.Errorf("trust list changed: %q", b)
+	}
+}
+
+// With project config denied (the default) the file is not read.
+func TestVibeEngineWorkspaceInstructionsDeniedByDefault(t *testing.T) {
+	r := newVibeRig(t)
+	if err := os.WriteFile(filepath.Join(r.work, "AGENTS.md"), []byte("galopin-denied-4419\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sess, err := r.b.CreateSession(context.Background(), r.work, backend.CreateSessionOptions{Title: "denied"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.scenario(mockllm.Scenario{Content: []string{"ok"}, FinishReason: "stop"})
+	r.turn(sess.ID, "hello", backend.DecisionOnce)
+	for _, q := range r.requestLog() {
+		for _, p := range q.Prompts {
+			if strings.Contains(p, "galopin-denied-4419") {
+				t.Fatal("AGENTS.md was read although project config is denied")
+			}
+		}
+	}
 }

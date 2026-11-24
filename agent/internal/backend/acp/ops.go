@@ -116,7 +116,7 @@ func (b *Backend) CreateSession(ctx context.Context, workspaceDir string, opts b
 	if len(b.cfg.SessionMeta) > 0 {
 		newParams["_meta"] = b.cfg.SessionMeta
 	}
-	raw, err := conn.call(callCtx, "session/new", newParams)
+	raw, err := b.callOpen(callCtx, conn, "session/new", workspaceDir, newParams)
 	if err != nil {
 		if ep != nil {
 			ep.Revoke()
@@ -706,7 +706,7 @@ func (b *Backend) openSession(ctx context.Context, workspaceDir string, st *sess
 		if len(b.cfg.SessionMeta) > 0 {
 			params["_meta"] = b.cfg.SessionMeta
 		}
-		raw, err = conn.call(callCtx, method, params)
+		raw, err = b.callOpen(callCtx, conn, method, workspaceDir, params)
 		cancel()
 		st.mu.Lock()
 		st.replaying = false
@@ -775,4 +775,16 @@ func (b *Backend) promptCaps() acpAgentCapabilities {
 	b.infoMu.Lock()
 	defer b.infoMu.Unlock()
 	return b.agentCaps
+}
+
+// callOpen is a session/new, session/load or session/resume call, with the engine's
+// BeforeSession work done first and no other open overlapping it.
+func (b *Backend) callOpen(ctx context.Context, conn *rpcConn, method, workspaceDir string, params map[string]any) (json.RawMessage, error) {
+	if b.cfg.BeforeSession == nil {
+		return conn.call(ctx, method, params)
+	}
+	b.openMu.Lock()
+	defer b.openMu.Unlock()
+	b.cfg.BeforeSession(workspaceDir)
+	return conn.call(ctx, method, params)
 }

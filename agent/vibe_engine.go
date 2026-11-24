@@ -365,6 +365,7 @@ func startVibeBackend(ctx context.Context, opts *runOptions, credsPath, stateDir
 		Protect:        protect,
 		HiddenModes:    vibeHiddenModes,
 		ForceMode:      vibeModeAsk,
+		BeforeSession:  vibeBeforeSession(home, pol.ProjectConfigAllowed(), protect, logf),
 		Logf:           func(format string, args ...any) { logf(format, args...) },
 	})
 	if err := acpBackend.Start(ctx); err != nil {

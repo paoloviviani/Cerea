@@ -44,7 +44,7 @@ type toolState struct {
 func (b *Backend) MCPCapable() bool {
 	b.infoMu.Lock()
 	defer b.infoMu.Unlock()
-	return b.cfg.Tools && b.agentCaps.mcpHTTP
+	return b.cfg.Tools && (b.agentCaps.mcpHTTP || b.cfg.MCPHTTP)
 }
 
 // SetMCPIssuer implements backend.MCPHost.
