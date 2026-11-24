@@ -253,6 +253,241 @@
 		ws.send(JSON.stringify({ t: "resize", cols, rows, claim: true }));
 	}
 
+	// ---- Phone selection (long press) ---------------------------------------
+	// xterm's own selection listens to mouse events, which a touch never
+	// produces, so on a phone the selection is driven here with `term.select`
+	// (which works whatever the app's mouse-tracking mode is, like Shift+drag
+	// on desktop). The model is two inclusive cells in absolute buffer rows;
+	// pixels map to cells through `.xterm-screen`'s rect divided by cols/rows.
+	interface Cell {
+		col: number;
+		row: number;
+	}
+	interface SelUi {
+		start: { x: number; y: number; show: boolean };
+		end: { x: number; y: number; show: boolean };
+		menuX: number;
+		menuY: number;
+	}
+	const LONG_PRESS_MS = 450;
+	const LONG_PRESS_SLOP = 6;
+	const WORD_SEPARATORS = " ()[]{}',\"`";
+	let selMode = $state(false);
+	let selUi = $state<SelUi | null>(null);
+	let selStart: Cell | null = null;
+	let selEnd: Cell | null = null;
+	/** True from a long press until the finger lifts: the touch scroll ignores it. */
+	let longPressActive = false;
+	let drag: { role: "start" | "end"; offY: number; x: number; y: number } | null = null;
+	let dragTimer: ReturnType<typeof setInterval> | null = null;
+
+	function geometry() {
+		const screen = host?.querySelector(".xterm-screen");
+		const wrap = host?.parentElement;
+		if (!screen || !wrap || !term || term.cols < 1 || term.rows < 1) return null;
+		const r = screen.getBoundingClientRect();
+		const w = wrap.getBoundingClientRect();
+		if (r.width <= 0 || r.height <= 0) return null;
+		return {
+			left: r.left,
+			top: r.top,
+			cw: r.width / term.cols,
+			ch: r.height / term.rows,
+			ox: r.left - w.left,
+			oy: r.top - w.top,
+			wrapW: w.width,
+		};
+	}
+
+	/** The cell under a client point, clamped to the screen; row is absolute. */
+	function cellAt(x: number, y: number): Cell | null {
+		const g = geometry();
+		if (!g || !term) return null;
+		const col = Math.min(term.cols - 1, Math.max(0, Math.floor((x - g.left) / g.cw)));
+		const vrow = Math.min(term.rows - 1, Math.max(0, Math.floor((y - g.top) / g.ch)));
+		return { col, row: term.buffer.active.viewportY + vrow };
+	}
+
+	/** Word bounds around a cell, like a double click; null on whitespace. */
+	function wordAt(cell: Cell): { start: Cell; end: Cell } | null {
+		const line = term?.buffer.active.getLine(cell.row);
+		if (!line || !term) return null;
+		const chars: string[] = [];
+		for (let c = 0; c < term.cols; c++) {
+			const cc = line.getCell(c);
+			// A wide character's second cell belongs to its first.
+			chars.push(cc && cc.getWidth() === 0 && c > 0 ? chars[c - 1] : cc?.getChars() || " ");
+		}
+		const blank = (c: number) => chars[c].trim() === "";
+		const sep = (c: number) => WORD_SEPARATORS.includes(chars[c]);
+		if (blank(cell.col)) return null;
+		let a = cell.col;
+		let b = cell.col;
+		if (!sep(cell.col)) {
+			while (a > 0 && !blank(a - 1) && !sep(a - 1)) a--;
+			while (b < chars.length - 1 && !blank(b + 1) && !sep(b + 1)) b++;
+		}
+		return { start: { col: a, row: cell.row }, end: { col: b, row: cell.row } };
+	}
+
+	function layoutSelection(): void {
+		if (!selMode || !selStart || !selEnd || !term) return;
+		const g = geometry();
+		if (!g) return;
+		const vy = term.buffer.active.viewportY;
+		const last = vy + term.rows - 1;
+		// Nothing of the selection is on screen any more (new output pushed it
+		// away): the mode ends, unless a handle is being dragged.
+		if (!drag && (selEnd.row < vy || selStart.row > last)) {
+			exitSelection();
+			return;
+		}
+		const startShow = selStart.row >= vy && selStart.row <= last;
+		const endShow = selEnd.row >= vy && selEnd.row <= last;
+		const topRow = Math.max(selStart.row, vy) - vy;
+		const botRow = Math.min(selEnd.row, last) - vy;
+		const menuW = 190;
+		const midX =
+			selStart.row === selEnd.row
+				? g.ox + ((selStart.col + selEnd.col + 1) / 2) * g.cw
+				: g.ox + (term.cols * g.cw) / 2;
+		const above = g.oy + topRow * g.ch - 46;
+		selUi = {
+			start: {
+				x: g.ox + selStart.col * g.cw,
+				y: g.oy + (selStart.row - vy + 1) * g.ch,
+				show: startShow,
+			},
+			end: {
+				x: g.ox + (selEnd.col + 1) * g.cw,
+				y: g.oy + (selEnd.row - vy + 1) * g.ch,
+				show: endShow,
+			},
+			menuX: Math.min(g.wrapW - menuW / 2 - 4, Math.max(menuW / 2 + 4, midX)),
+			menuY: above >= 0 ? above : g.oy + (botRow + 1) * g.ch + 40,
+		};
+	}
+
+	function applySelection(): void {
+		if (!term || !selStart || !selEnd) return;
+		const len = (selEnd.row - selStart.row) * term.cols + selEnd.col - selStart.col + 1;
+		term.select(selStart.col, selStart.row, Math.max(1, len));
+		layoutSelection();
+	}
+
+	function startSelectionAt(x: number, y: number): boolean {
+		const cell = cellAt(x, y);
+		const word = cell && wordAt(cell);
+		if (!word) return false;
+		selStart = word.start;
+		selEnd = word.end;
+		selMode = true;
+		applySelection();
+		try {
+			navigator.vibrate?.(10);
+		} catch {
+			/* haptics are optional */
+		}
+		return true;
+	}
+
+	function exitSelection(): void {
+		if (!selMode) return;
+		selMode = false;
+		selStart = selEnd = null;
+		selUi = null;
+		drag = null;
+		stopDragTimer();
+		term?.clearSelection();
+	}
+
+	function selectAllFromMenu(): void {
+		if (!term) return;
+		selStart = { col: 0, row: 0 };
+		selEnd = { col: term.cols - 1, row: term.buffer.active.length - 1 };
+		applySelection();
+	}
+
+	async function copyFromMenu(): Promise<void> {
+		const text = term?.getSelection() ?? "";
+		const ok = text !== "" && (await writeClipboard(text));
+		flashCopyNote(ok);
+		if (ok) exitSelection();
+	}
+
+	function stopDragTimer(): void {
+		if (dragTimer) clearInterval(dragTimer);
+		dragTimer = null;
+	}
+
+	const cellOrder = (a: Cell, b: Cell): number => a.row - b.row || a.col - b.col;
+
+	/** Moves the dragged end to the cell under the finger (less the grab
+	 * offset); crossing the other end swaps the roles. */
+	function updateDrag(): void {
+		if (!drag || !selStart || !selEnd) return;
+		const cell = cellAt(drag.x, drag.y - drag.offY);
+		if (!cell) return;
+		if (drag.role === "start") {
+			const fixed = selEnd;
+			if (cellOrder(cell, fixed) <= 0) selStart = cell;
+			else {
+				selStart = fixed;
+				selEnd = cell;
+				drag.role = "end";
+			}
+		} else {
+			const fixed = selStart;
+			if (cellOrder(cell, fixed) >= 0) selEnd = cell;
+			else {
+				selEnd = fixed;
+				selStart = cell;
+				drag.role = "start";
+			}
+		}
+		applySelection();
+	}
+
+	function onHandleDown(e: PointerEvent, role: "start" | "end"): void {
+		e.preventDefault();
+		e.stopPropagation();
+		const g = geometry();
+		const cell = role === "start" ? selStart : selEnd;
+		if (!g || !cell || !term) return;
+		try {
+			(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+		} catch {
+			/* capture is a nicety: the handle still gets its own moves */
+		}
+		const centerY = g.top + (cell.row - term.buffer.active.viewportY + 0.5) * g.ch;
+		drag = { role, offY: e.clientY - centerY, x: e.clientX, y: e.clientY };
+		stopDragTimer();
+		// Near the top or bottom edge the scrollback follows the finger.
+		dragTimer = setInterval(() => {
+			const gg = geometry();
+			if (!drag || !gg || !term) return;
+			const ty = drag.y - drag.offY;
+			if (ty < gg.top + gg.ch) term.scrollLines(-1);
+			else if (ty > gg.top + term.rows * gg.ch - gg.ch) term.scrollLines(1);
+			else return;
+			updateDrag();
+		}, 60);
+	}
+
+	function onHandleMove(e: PointerEvent): void {
+		if (!drag) return;
+		e.preventDefault();
+		drag.x = e.clientX;
+		drag.y = e.clientY;
+		updateDrag();
+	}
+
+	function onHandleUp(): void {
+		drag = null;
+		stopDragTimer();
+		layoutSelection();
+	}
+
 	/** Below the mobile breakpoint a touch must never reach xterm's own
 	 * click-to-focus handling, wherever it is wired internally: swipes scroll
 	 * the scrollback without raising the keyboard. Capturing here, ahead of
@@ -276,20 +511,45 @@
 		const TAP_MAX_MS = 300;
 		let down: { id: number; x: number; y: number; t: number } | null = null;
 		let active = 0;
+		let lpTimer: ReturnType<typeof setTimeout> | null = null;
+		const clearLp = (): void => {
+			if (lpTimer) clearTimeout(lpTimer);
+			lpTimer = null;
+		};
 		const onDown = (e: PointerEvent): void => {
 			active += 1;
+			clearLp();
+			// A touch while a selection is showing only ends it: it is neither
+			// a tap to type nor the start of a new long press.
+			if (selMode && narrowViewport.current) {
+				exitSelection();
+				down = null;
+				return;
+			}
 			down =
 				active === 1 && e.isPrimary
 					? { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp }
 					: null;
+			if (down && narrowViewport.current) {
+				const { x, y } = down;
+				lpTimer = setTimeout(() => {
+					lpTimer = null;
+					if (!down || !narrowViewport.current) return;
+					down = null;
+					longPressActive = startSelectionAt(x, y);
+				}, LONG_PRESS_MS);
+			}
 		};
 		const onMove = (e: PointerEvent): void => {
 			if (down && e.pointerId === down.id) {
-				if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > TAP_SLOP) down = null;
+				const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
+				if (moved > LONG_PRESS_SLOP) clearLp();
+				if (moved > TAP_SLOP) down = null;
 			}
 		};
 		const onUp = (e: PointerEvent): void => {
 			active = Math.max(0, active - 1);
+			clearLp();
 			const d = down;
 			down = null;
 			if (!d || e.pointerId !== d.id || !narrowViewport.current) return;
@@ -300,13 +560,20 @@
 		const onCancel = (): void => {
 			active = Math.max(0, active - 1);
 			down = null;
+			clearLp();
+		};
+		const onContextMenu = (e: Event): void => {
+			if (narrowViewport.current) e.preventDefault();
 		};
 		// Capture: `blockXtermFocus` stops this event before the bubble phase.
 		el.addEventListener("pointerdown", onDown, true);
 		el.addEventListener("pointermove", onMove);
 		el.addEventListener("pointerup", onUp);
 		el.addEventListener("pointercancel", onCancel);
+		el.addEventListener("contextmenu", onContextMenu);
 		return () => {
+			clearLp();
+			el.removeEventListener("contextmenu", onContextMenu);
 			el.removeEventListener("pointerdown", onDown, true);
 			el.removeEventListener("pointermove", onMove);
 			el.removeEventListener("pointerup", onUp);
@@ -385,6 +652,7 @@
 
 		const onStart = (e: TouchEvent): void => {
 			stopMomentum();
+			longPressActive = false;
 			if (e.touches.length !== 1) {
 				tracking = false;
 				return;
@@ -400,6 +668,11 @@
 
 		const onMove = (e: TouchEvent): void => {
 			if (!tracking || e.touches.length !== 1) return;
+			// A long press began a selection: this finger does not scroll.
+			if (longPressActive) {
+				e.preventDefault();
+				return;
+			}
 			const t = e.touches[0];
 			if (!scrolling) {
 				const dy = Math.abs(t.clientY - startY);
@@ -421,6 +694,12 @@
 		const onEnd = (e: TouchEvent): void => {
 			if (!tracking) return;
 			tracking = false;
+			if (longPressActive) {
+				// Swallow the click the finished long press would synthesise.
+				longPressActive = false;
+				e.preventDefault();
+				return;
+			}
 			if (!scrolling) return;
 			// Swallow the click a finished swipe would otherwise synthesise.
 			e.preventDefault();
@@ -438,6 +717,7 @@
 
 		const onCancel = (): void => {
 			tracking = false;
+			longPressActive = false;
 			stopMomentum();
 		};
 
@@ -498,6 +778,7 @@
 	}
 
 	function openCopyView(): void {
+		exitSelection();
 		const buf = term?.buffer.active;
 		if (!buf) return;
 		copyText = bufferToText(buf, { maxLines: TERMINAL_TEXT_MAX_LINES });
@@ -517,6 +798,7 @@
 
 	function copySelection(): void {
 		void copyAndNote(term?.getSelection() ?? "");
+		exitSelection();
 	}
 
 	function scrollToBottom(): void {
@@ -575,6 +857,7 @@
 	 * "as if typed" API). Sticky Ctrl/Alt apply here, to whatever key comes
 	 * next, then release — one shot, same as a real sticky-modifier keyboard. */
 	function handleTerminalData(data: string): void {
+		exitSelection();
 		let bytes: Uint8Array;
 		if (ctrlSticky) {
 			ctrlSticky = false;
@@ -680,12 +963,24 @@
 			fitAddon.fit();
 
 			term.onData(handleTerminalData);
-			term.onResize(({ cols, rows }) => sendResize(cols, rows));
-			term.onScroll(updateScrolledUp);
-			term.onWriteParsed(updateScrolledUp);
+			term.onResize(({ cols, rows }) => {
+				sendResize(cols, rows);
+				exitSelection();
+			});
+			term.onScroll(() => {
+				updateScrolledUp();
+				layoutSelection();
+			});
+			term.onWriteParsed(() => {
+				updateScrolledUp();
+				layoutSelection();
+			});
 			term.buffer.onBufferChange(updateScrolledUp);
 			term.attachCustomKeyEventHandler(customKeyEventHandler);
-			term.onSelectionChange(() => (hasSelection = !!term?.hasSelection()));
+			term.onSelectionChange(() => {
+				hasSelection = !!term?.hasSelection();
+				if (selMode && !hasSelection) exitSelection();
+			});
 
 			textareaEl = term.textarea ?? null;
 			textareaEl?.addEventListener("blur", onTextareaBlur);
@@ -703,6 +998,7 @@
 			// order relative to this cleanup isn't something to build on).
 			sendAckIfDue(true);
 			destroyed = true;
+			stopDragTimer();
 			parent.removeEventListener("pointerdown", blockXtermFocus, true);
 			detachTapToType();
 			detachTouchScroll();
@@ -752,13 +1048,76 @@
 		     horizontal ones stay the page's. -->
 		<div
 			bind:this={host}
-			class="h-full touch-pan-x overscroll-contain bg-white p-1 dark:bg-gray-900"
+			class="h-full touch-pan-x overscroll-contain bg-white p-1 dark:bg-gray-900 {narrowViewport.current
+				? 'select-none [-webkit-touch-callout:none]'
+				: ''}"
 		></div>
 		<ScrollToBottomBtn
 			class="right-3 bottom-3 z-10"
 			visible={scrolledUp}
 			onclick={scrollToBottom}
 		/>
+		{#if narrowViewport.current && selMode && selUi}
+			<!-- Phone selection: handles at both ends and a Copy / Select all bar.
+			     Pointer events reach only the handles and the bar. -->
+			<div class="pointer-events-none absolute inset-0 z-10" data-testid="terminal-selection">
+				{#each [{ role: "start", pos: selUi.start }, { role: "end", pos: selUi.end }] as h (h.role)}
+					{#if h.pos.show}
+						<button
+							type="button"
+							tabindex="-1"
+							aria-label={h.role === "start"
+								? m["code.terminal.handle_start"]()
+								: m["code.terminal.handle_end"]()}
+							data-testid="terminal-handle-{h.role}"
+							class="pointer-events-auto absolute flex size-8 touch-none items-start {h.role ===
+							'start'
+								? 'justify-end pr-2'
+								: 'justify-start pl-2'}"
+							style:left="{h.pos.x - (h.role === 'start' ? 24 : 8)}px"
+							style:top="{h.pos.y}px"
+							onpointerdown={(e) => onHandleDown(e, h.role as "start" | "end")}
+							onpointermove={onHandleMove}
+							onpointerup={onHandleUp}
+							onpointercancel={onHandleUp}
+						>
+							<span
+								class="block size-4 bg-blue-500 {h.role === 'start'
+									? 'rounded-[50%_0_50%_50%]'
+									: 'rounded-[0_50%_50%_50%]'}"
+							></span>
+						</button>
+					{/if}
+				{/each}
+				<div
+					role="toolbar"
+					aria-label={m["code.terminal.selection_menu"]()}
+					data-testid="terminal-selection-menu"
+					class="pointer-events-auto absolute flex -translate-x-1/2 items-center gap-1 rounded-lg border border-gray-200 bg-white p-1 text-xs shadow-lg dark:border-gray-600 dark:bg-gray-800"
+					style:left="{selUi.menuX}px"
+					style:top="{selUi.menuY}px"
+				>
+					<button
+						type="button"
+						data-testid="terminal-selection-copy"
+						class="btn h-8 rounded-md bg-blue-600 px-3 text-xs font-medium text-white dark:bg-blue-500"
+						onpointerdown={(e) => e.preventDefault()}
+						onclick={() => void copyFromMenu()}
+					>
+						{m["code.terminal.copy_menu"]()}
+					</button>
+					<button
+						type="button"
+						data-testid="terminal-selection-all"
+						class="btn h-8 rounded-md px-3 text-xs text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
+						onpointerdown={(e) => e.preventDefault()}
+						onclick={selectAllFromMenu}
+					>
+						{m["code.terminal.select_all"]()}
+					</button>
+				</div>
+			</div>
+		{/if}
 		{#if copyOpen}
 			<div
 				role="dialog"
