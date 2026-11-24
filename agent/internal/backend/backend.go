@@ -219,6 +219,16 @@ type Asker interface {
 	RejectQuestion(ctx context.Context, workspaceDir, sessionID, requestID string) error
 }
 
+// QuestionHost is the "questions" capability of a backend that has no native question
+// tool of its own: it holds a question galopin's own ask_user tool puts to the person
+// (the same card opencode's built-in question tool raises) until they answer through
+// Asker's ReplyQuestion/RejectQuestion. answers is one slice of chosen labels (or the
+// person's own words) per question, in order; a dismissed question, or a ctx cancelled
+// first (the turn was stopped), is ErrQuestionDismissed and withdraws the card.
+type QuestionHost interface {
+	AskQuestions(ctx context.Context, workspaceDir, sessionID string, questions []QuestionItem) ([][]string, error)
+}
+
 // AttachmentSource is the optional "toolImages" capability: the bytes of an
 // image a tool part listed, by the sha256 it listed. A backend that no longer
 // holds them answers ErrAttachmentGone; a sha the session never produced is

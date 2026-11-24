@@ -419,6 +419,8 @@ func (b *Backend) Cancel(ctx context.Context, workspaceDir, sessionID string) er
 			_ = conn.respond(p.jsonrpcID, map[string]any{"outcome": map[string]any{"outcome": "cancelled"}}, nil)
 		}
 	}
+	// a question held for the person goes with the turn it was asked in
+	b.dismissQuestions(workspaceDir, sessionID)
 	return conn.notify("session/cancel", map[string]any{"sessionId": sessionID})
 }
 

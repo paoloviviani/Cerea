@@ -278,6 +278,15 @@ What galopin sets up for Vibe:
   next session on it, so galopin puts a new or reopened session back on the default, and
   keeps a chosen level across a model change when the new model offers it. A chosen effort
   lives in galopin's memory: after a restart of galopin the session is on the default.
+- **Questions.** galopin's `ask_user` tool is offered to Vibe with the other galopin tools
+  (Vibe takes an HTTP MCP server in `session/new` although its `initialize` does not say so,
+  so galopin enables it for Vibe). The model reaches it the way Vibe reaches every MCP tool,
+  from a `run_typescript` program (`tools.mcp_galopin.ask_user`, found with
+  `search_tool_functions`). It raises the same question card opencode's own question tool
+  does; the answer goes back to the model as the tool's result. Vibe does not ask
+  permission before this one tool; the other galopin tools keep Vibe's ask and then
+  galopin's own gates. goose gets the same tool through the same path, and its own
+  approve mode asks permission before the call, as it does for every tool.
 - **Vibe's own session store.** Sessions live in the `vibe/` directory (not shared with
   your Vibe, unlike goose's), listed and reopened from Cerea, including after galopin or
   Vibe restarts. Vibe keeps a lock on a session it has open; if a reopen meets the lock of

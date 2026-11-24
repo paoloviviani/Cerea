@@ -80,6 +80,16 @@ var mcpTools = []mcpserve.Tool{
 			`"arguments":{"type":"object","description":"The tool's arguments, as its schema says; {} for none."}},"required":["connector","tool"]}`),
 	},
 	{
+		Name: "ask_user",
+		Description: "Ask the person one or more questions and wait for their answers: a card in their conversation, answered with one click per question (or their own words). Use it when you need a decision or a missing fact you cannot reasonably choose or look up yourself, and a wrong guess would cost real work: which of several designs, which file, whether to go on. " +
+			"Not for things you can settle by reading the code, and not to chat. Put your recommended option first, and say in its description why. The result lists each question with the answer given; if the person dismisses the card you are told, and should carry on with the safest reading or stop.",
+		Schema: json.RawMessage(`{"type":"object","properties":{"questions":{"type":"array","minItems":1,"maxItems":4,"description":"One to four questions, shown together.","items":{"type":"object","properties":{` +
+			`"question":{"type":"string","description":"The complete question."},` +
+			`"header":{"type":"string","description":"A very short label (at most 30 characters)."},` +
+			`"options":{"type":"array","maxItems":8,"description":"The choices; the person can also write their own answer, so do not add an Other.","items":{"type":"object","properties":{"label":{"type":"string","description":"The choice, 1 to 5 words."},"description":{"type":"string","description":"What it means or implies."}},"required":["label"]}},` +
+			`"multiple":{"type":"boolean","description":"true to let the person pick several options."}},"required":["question","options"]}}},"required":["questions"]}`),
+	},
+	{
 		Name:        "schedule_list",
 		Description: "List this machine's scheduled actions (the person's schedules that run a prompt in a session here): id, name, timetable, timezone, paused, status, next and last run, workspace, session, mode, coordination grant, who created it, and self (true when you are a run of that schedule). Read-only; asks nothing. Use it before creating one, so you update an existing schedule instead of duplicating it.",
 		Schema:      json.RawMessage(`{"type":"object","properties":{"note":{"type":"string","description":"Anything, e.g. why you are listing. Ignored."}}}`),

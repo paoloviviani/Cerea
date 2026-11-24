@@ -235,7 +235,8 @@ func (b *Backend) Capabilities() backend.Capabilities {
 		Diff: true, Children: false, HistoryPaging: true, Usage: true, Compact: b.cfg.CompactCommand != "", Permissions: true,
 		Efforts: b.cfg.Efforts,
 		Images:  images, Files: embedded, Worktrees: false,
-		Questions: false,
+		// Questions: galopin's ask_user tool (questions.go), so only where the agent has the tools.
+		Questions: tools,
 		// Commands: always — the agent's available_commands_update carries
 		// the list per session (PROTOCOL.md §6 backend.commands), and before
 		// the first update the list answers empty rather than unclaimable.

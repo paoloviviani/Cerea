@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"galopin/internal/backend"
+	"galopin/internal/mcpserve"
 	"galopin/internal/mockllm"
 	"galopin/internal/policy"
 )
@@ -672,5 +674,110 @@ func TestVibeEngineEfforts(t *testing.T) {
 	}
 	if _, err := setter.SetEffort(ctx, r.work, sess.ID, "extreme"); err == nil {
 		t.Fatal("an unoffered level was accepted")
+	}
+}
+
+// galopin's ask_user tool reaches a Vibe session over MCP: the model calls it, the person
+// gets a question card (question.asked), their answer comes back to the model as the
+// tool's result, and Vibe did not ask permission for the call first.
+// askUserProgram is how Vibe 3.1.3's model calls an MCP tool: a run_typescript program
+// (MCP tools are "programmatic" there, found with search_tool_functions).
+var askUserProgram = func() string {
+	b, _ := json.Marshal(map[string]string{"code": "async function main() {\n  const r = await tools.mcp_galopin.ask_user({ questions: [{ question: 'Which database?', header: 'DB', options: [{ label: 'sqlite', description: 'simple' }, { label: 'postgres' }] }] });\n  return r;\n}"})
+	return string(b)
+}()
+
+func TestVibeEngineAskUser(t *testing.T) {
+	r := newVibeRig(t)
+	ctx := context.Background()
+	host, ok := r.b.(backend.MCPHost)
+	if !ok || !host.MCPCapable() {
+		t.Fatal("Vibe is not offered galopin's MCP tools")
+	}
+	if !r.b.Capabilities().Questions {
+		t.Fatal("the questions capability is off for Vibe")
+	}
+	qh := r.b.(backend.QuestionHost)
+	var answered [][]string
+	srv := mcpserve.New(mcpTools, func(ctx context.Context, session, tool string, args json.RawMessage) (string, error) {
+		if tool != "ask_user" {
+			return "", errors.New("unexpected tool " + tool)
+		}
+		qs, err := parseAskUser(args)
+		if err != nil {
+			return "", err
+		}
+		answered, err = qh.AskQuestions(ctx, r.work, session, qs)
+		if err != nil {
+			return "", err
+		}
+		return "The person answered: " + strings.Join(answered[0], ","), nil
+	}, "test")
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(func() { _ = r.b.Stop(); ts.Close() })
+	host.SetMCPIssuer(&mcpGate{srv: srv, base: ts.URL})
+
+	sess, err := r.b.CreateSession(ctx, r.work, backend.CreateSessionOptions{Title: "ask"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.scenario(mockllm.Scenario{
+		ToolCalls:    []mockllm.ToolCall{{ID: "call_q", Name: "run_typescript", Arguments: askUserProgram}},
+		FinishReason: "tool_calls",
+		Routes:       []mockllm.Route{{Contains: "The person answered", Scenario: mockllm.Scenario{Content: []string{"going with their answer"}, FinishReason: "stop"}}},
+	})
+	if err := r.b.Prompt(ctx, r.work, sess.ID, backend.Prompt{Text: "set it up"}); err != nil {
+		t.Fatal(err)
+	}
+	var asked *backend.Event
+	var permissionAsks int
+	deadline := time.After(2 * time.Minute)
+	for asked == nil {
+		select {
+		case ev := <-r.events:
+			if ev.SessionID != sess.ID {
+				continue
+			}
+			switch ev.Event.Kind {
+			case backend.EventQuestionAsked:
+				e := ev.Event
+				asked = &e
+			case backend.EventPermissionAsked:
+				permissionAsks++
+				t.Logf("permission ask for %q", ev.Event.Request.Tool)
+				_ = r.b.ReplyPermission(ctx, r.work, sess.ID, ev.Event.Request.ID, backend.DecisionOnce, "")
+			}
+		case <-deadline:
+			t.Fatal("no question card")
+		}
+	}
+	if permissionAsks != 0 {
+		t.Errorf("Vibe asked permission %d time(s) before galopin's own question tool", permissionAsks)
+	}
+	if len(asked.Questions) != 1 || asked.Questions[0].Question != "Which database?" || len(asked.Questions[0].Options) != 2 {
+		t.Fatalf("question = %+v", asked.Questions)
+	}
+	if err := r.b.(backend.Asker).ReplyQuestion(ctx, r.work, sess.ID, asked.QuestionRequestID, [][]string{{"postgres"}}); err != nil {
+		t.Fatal(err)
+	}
+	for done := false; !done; {
+		select {
+		case ev := <-r.events:
+			if ev.SessionID == sess.ID && ev.Event.Kind == backend.EventStatus && ev.Event.Status == backend.StatusIdle {
+				done = true
+			}
+		case <-deadline:
+			t.Fatal("the turn did not end")
+		}
+	}
+	if len(answered) != 1 || answered[0][0] != "postgres" {
+		t.Fatalf("the tool saw %v", answered)
+	}
+	found := false
+	for _, q := range r.requestLog() {
+		found = found || strings.Contains(q.Headers["x-body-last-tool-result"], "The person answered: postgres")
+	}
+	if !found {
+		t.Error("the person's answer never reached the model as the tool result")
 	}
 }

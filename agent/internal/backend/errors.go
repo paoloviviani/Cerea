@@ -31,3 +31,10 @@ var ErrPermissionGone = errors.New("the permission request is no longer pending"
 
 // IsNotFound reports whether err says a permission ask is already gone.
 func IsNotFound(err error) bool { return errors.Is(err, ErrPermissionGone) }
+
+// ErrQuestionDismissed is what a question put to the person comes back as when they
+// dismissed it (or the turn ended before they answered).
+var ErrQuestionDismissed = errors.New("the person dismissed the question")
+
+// ErrQuestionGone is a reply to a question that is no longer pending.
+var ErrQuestionGone = errors.New("the question is no longer pending")

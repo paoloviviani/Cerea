@@ -37,6 +37,8 @@ type toolState struct {
 	issuer  backend.MCPIssuer
 	handler backend.ToolHandler
 	asks    map[string]*pendingAsk
+	// questions are the held ask_user calls (questions.go).
+	questions map[string]*pendingQuestion
 }
 
 // MCPCapable implements backend.MCPHost: tools are on, and the agent said it

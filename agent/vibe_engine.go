@@ -47,6 +47,10 @@ const (
 // vibeHiddenModes are Vibe's modes that stop asking.
 var vibeHiddenModes = []string{"accept-edits", "auto-approve", "smart-approve"}
 
+// vibeAskUserTool is the config key of galopin's ask_user MCP tool (Vibe 3.1.3 reads the
+// tool's name under its server's, joined with an underscore).
+const vibeAskUserTool = "galopin_ask_user"
+
 // vibeHomeFor is the supervised vibe-acp's VIBE_HOME, beside the credentials.
 func vibeHomeFor(credsPath string) string {
 	return filepath.Join(filepath.Dir(credsPath), "vibe")
@@ -176,6 +180,13 @@ func vibeFloorTOML() string {
 		"",
 		"[tools.read_file]",
 		`permission = "ask"`,
+		"",
+		// galopin's own question tool, an MCP tool (Vibe calls it mcp_galopin.ask_user from
+		// a run_typescript program): the person's answer is the interaction, so Vibe does
+		// not ask first. Every other galopin tool keeps Vibe's ask and then galopin's own
+		// gates.
+		"[tools." + vibeAskUserTool + "]",
+		`permission = "always"`,
 		"",
 	}, "\n")
 }
@@ -409,6 +420,9 @@ func startVibeBackend(ctx context.Context, opts *runOptions, credsPath, stateDir
 		// Vibe's "thinking" session option takes the level (3.1.3); the levels each model
 		// offers are galopin's own record, written with the config.
 		Efforts: true, EffortDefault: vibeEffortDefault,
+		// Vibe takes an HTTP MCP server in session/new but does not say so in initialize
+		// (no mcpCapabilities): galopin's tools, ask_user among them, are offered to it.
+		MCPHTTP:       true,
 		ModelEfforts:  func() map[string][]string { return efforts },
 		BeforeSession: vibeBeforeSession(home, pol.ProjectConfigAllowed(), protect, logf),
 		Logf:          func(format string, args ...any) { logf(format, args...) },
