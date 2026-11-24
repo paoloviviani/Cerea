@@ -296,11 +296,11 @@ func gooseLaunchExtensionYAML(c *launchConnectors) (string, error) {
 }
 
 // vibeConnectorsTOML is the [[mcp_servers]] table appended to the temporary
-// config.toml (Vibe's streamable-http MCP transport).
+// config.toml (Vibe's streamable-http MCP transport; the headers live in its [auth] block, as in vibe/core/config/models.py).
 func vibeConnectorsTOML(c *launchConnectors) string {
 	return "\n[[mcp_servers]]\n" +
 		"name = " + tomlString(strings.ReplaceAll(connectorsServerName, "-", "_")) + "\n" +
 		"transport = \"streamable-http\"\n" +
 		"url = " + tomlString(c.URL) + "\n" +
-		"headers = { Authorization = " + tomlString("Bearer "+c.Secret) + " }\n"
+		"auth = { type = \"static\", headers = { Authorization = " + tomlString("Bearer "+c.Secret) + " } }\n"
 }

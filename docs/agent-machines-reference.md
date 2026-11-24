@@ -1865,7 +1865,7 @@ machine's long-lived one), and stops it when the tool exits. Where it goes:
 - **opencode**: the `mcp` key of the `OPENCODE_CONFIG_CONTENT` layer launch already
   uses;
 - **goose**: an extension in the temporary `config.yaml`;
-- **vibe**: an `[[mcp_servers]]` table in the temporary `config.toml`.
+- **vibe**: an `[[mcp_servers]]` table (transport `streamable-http`, headers in its `auth` block) in the temporary `config.toml`.
 
 It offers this computer's own connectors (its `mcp.json`) and your Cerea connectors,
 the same list as `galopin goose setup`: your one list in **Workspace → Agents →

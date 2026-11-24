@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"galopin/internal/localmcp"
@@ -20,11 +21,12 @@ import (
 
 // stubSource is a running galopin's local-agents endpoint for the tests.
 type stubSource struct {
-	tools []localmcp.Tool
-	calls []string
+	tools  []localmcp.Tool
+	calls  []string
+	listed atomic.Int32
 }
 
-func (s *stubSource) Tools(context.Context) []localmcp.Tool { return s.tools }
+func (s *stubSource) Tools(context.Context) []localmcp.Tool { s.listed.Add(1); return s.tools }
 func (s *stubSource) Call(_ context.Context, name string, _ json.RawMessage) (string, error) {
 	s.calls = append(s.calls, name)
 	return "ran " + name, nil
@@ -235,7 +237,7 @@ func TestLaunchVibeGetsTheConnectorsServer(t *testing.T) {
 	if err := launchVibe(context.Background(), o); err != nil {
 		t.Fatal(err)
 	}
-	assertConnectorsIn(t, r.recorded(t), r, "[[mcp_servers]]", `transport = "streamable-http"`, `Authorization = "Bearer gl-`)
+	assertConnectorsIn(t, r.recorded(t), r, "[[mcp_servers]]", `transport = "streamable-http"`, `headers = { Authorization = "Bearer gl-`)
 }
 
 func TestLaunchConnectorsFailureDoesNotStopTheLaunch(t *testing.T) {
