@@ -19,6 +19,8 @@ greeting that means both _buongiorno_ and _arrivederci_.
 
 ## What you can do with it
 
+The main features in short; the [full feature list](features.md) has everything.
+
 | Feature                      | In short                                                                                                                                                                                                                      | Read                                                                           |
 | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | **Chat**                     | Chats over the models your gateway grants you, with web search, web fetch, memory, custom models and tool approvals                                                                                                           | [Chat](chat.md)                                                                |
