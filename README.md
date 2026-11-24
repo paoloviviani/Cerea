@@ -46,9 +46,10 @@ without the kit.
   [Pystino](https://github.com/paoloviviani/Pystino), each call carries the
   signed-in user's own token, so spend, quotas and model access are per user
   and per group, not one shared key.
-- **Privacy rules before the model.** The gateway redacts personal data and
-  applies the rules your administrator sets (a message holding an API key can
-  be refused, for example) before anything reaches a provider.
+- **Privacy rules before the model.** With Pystino, administrators write
+  pipelines whose rules act on content: redact or anonymise personal data
+  and secrets, or refuse the request, for chat, embeddings and document
+  reading, before anything reaches a provider.
 - **Coding agents on your own computers.** The `/code` panel drives agents on
   machines you pair, in Plan, Ask or Allow mode, with approval cards for what
   they want to do, which you can answer from a phone.
