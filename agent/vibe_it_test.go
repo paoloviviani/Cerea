@@ -781,3 +781,69 @@ func TestVibeEngineAskUser(t *testing.T) {
 		t.Error("the person's answer never reached the model as the tool result")
 	}
 }
+
+// A message sent while Vibe's turn runs is queued (Vibe has no steering), announced, and
+// sent when the turn ends: both get answered, in order.
+func TestVibeEngineQueuesFollowUps(t *testing.T) {
+	r := newVibeRig(t)
+	ctx := context.Background()
+	if !r.b.Capabilities().Queue {
+		t.Fatal("the queue capability is off")
+	}
+	sess, err := r.b.CreateSession(ctx, r.work, backend.CreateSessionOptions{Title: "queue"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.scenario(mockllm.Scenario{Content: []string{"slow ", "answer ", "to ", "queue-probe ", "one"}, ChunkDelayMs: 400, FinishReason: "stop"})
+	if err := r.b.Prompt(ctx, r.work, sess.ID, backend.Prompt{Text: "queue-probe first"}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond) // the first turn is running
+	if err := r.b.Prompt(ctx, r.work, sess.ID, backend.Prompt{Text: "queue-probe second", ClientMessageID: "q2"}); err != nil {
+		t.Fatalf("a follow-up mid-turn was refused: %v", err)
+	}
+	var sawQueue bool
+	idles := 0
+	users := []string{}
+	deadline := time.After(2 * time.Minute)
+	for idles < 2 {
+		select {
+		case ev := <-r.events:
+			if ev.SessionID != sess.ID {
+				continue
+			}
+			switch e := ev.Event; e.Kind {
+			case backend.EventQueue:
+				if len(e.Queued) == 1 && e.Queued[0].ID == "q2" && e.Queued[0].Text == "queue-probe second" {
+					sawQueue = true
+				}
+			case backend.EventPart:
+				if e.Part != nil && e.Part.Role == "user" && e.Part.Type == backend.PartText &&
+					(len(users) == 0 || users[len(users)-1] != e.Part.Text) { // a part is announced again as it settles
+					users = append(users, e.Part.Text)
+				}
+			case backend.EventStatus:
+				if e.Status == backend.StatusIdle {
+					idles++
+				}
+			}
+		case <-deadline:
+			t.Fatalf("both turns did not finish (idle %d)", idles)
+		}
+	}
+	if !sawQueue {
+		t.Error("no queue event named the waiting message")
+	}
+	if len(users) != 2 || users[0] != "queue-probe first" || users[1] != "queue-probe second" {
+		t.Errorf("user messages in order = %q", users)
+	}
+	n := 0
+	for _, q := range r.requestLog() {
+		if strings.Contains(strings.Join(q.Prompts, " "), "queue-probe second") {
+			n++
+		}
+	}
+	if n == 0 {
+		t.Error("the queued message never reached the model")
+	}
+}

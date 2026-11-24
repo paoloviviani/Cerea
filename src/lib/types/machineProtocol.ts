@@ -49,6 +49,10 @@ export interface Backend {
 		 * running turn (steering) rather than refused. Older machines omit
 		 * it: read as false. */
 		steer?: boolean;
+		/** A `session.prompt` sent mid-turn is held by the machine and sent when
+		 * the turn ends (a backend without steering): `queue` events list what is
+		 * waiting and `session.dequeue` withdraws one. Older machines omit it. */
+		queue?: boolean;
 		/** galopin installed the schedule tools (`schedule_list`, `_create`,
 		 * `_update`, `_delete`), which reach Cerea as `call` frames (§5). */
 		scheduleTools?: boolean;
@@ -688,7 +692,16 @@ export type NormalizedEvent =
 	| { kind: "error"; message: string; code?: string }
 	| { kind: "todo"; todos: Todo[] }
 	| { kind: "question.asked"; request: { id: string; questions: Question[]; callId?: string } }
-	| { kind: "question.resolved"; requestId: string; answers?: string[][]; rejected?: true };
+	| { kind: "question.resolved"; requestId: string; answers?: string[][]; rejected?: true }
+	| { kind: "queue"; queued: QueuedPrompt[] };
+
+/** A follow-up the machine is holding until the running turn ends (§6 capability `queue`);
+ * `id` is the `clientMessageId` the prompt was sent with, what `session.dequeue` takes. */
+export interface QueuedPrompt {
+	id: string;
+	text: string;
+	files?: number;
+}
 
 /** Every `NormalizedEvent` kind, as a runtime list. The type below it fails to compile when
  * a kind joins the union without joining the list, which is what keeps the shared protocol
@@ -707,6 +720,7 @@ export const NORMALIZED_EVENT_KINDS = [
 	"todo",
 	"question.asked",
 	"question.resolved",
+	"queue",
 ] as const satisfies readonly NormalizedEvent["kind"][];
 export type EventKindsAreComplete = AssertNever<
 	Exclude<NormalizedEvent["kind"], (typeof NORMALIZED_EVENT_KINDS)[number]>
@@ -740,6 +754,7 @@ export const OP_NAMES = [
 	"session.create",
 	"session.prompt",
 	"session.cancel",
+	"session.dequeue",
 	"session.rename",
 	"session.archive",
 	"session.delete",
@@ -1113,6 +1128,7 @@ const backendSchema = z.object({
 		agentTools: z.boolean().optional(),
 		coordinationGrant: z.boolean().optional(),
 		steer: z.boolean().optional(),
+		queue: z.boolean().optional(),
 		scheduleTools: z.boolean().optional(),
 		historyPaging: z.boolean().optional(),
 	}),

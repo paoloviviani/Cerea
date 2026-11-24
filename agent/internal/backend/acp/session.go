@@ -60,6 +60,9 @@ type sessionState struct {
 	// effortConfigID is the thinking-level option's id ("" when the agent has none);
 	// effortNow is the value the agent is on, effortValues what it offers, and effort
 	// the person's choice ("" for the model's default): see efforts.go.
+	// queue is the follow-up prompts held until the running turn ends (queue.go).
+	queue []queuedPrompt
+
 	effortConfigID string
 	effortNow      string
 	effortValues   []string

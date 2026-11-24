@@ -433,6 +433,31 @@ describe("consumeAgentUpdates", () => {
 			expect(messages).toHaveLength(0);
 		});
 
+		it("calls onQueued with the whole list without touching the transcript", async () => {
+			const messages: Message[] = [];
+			const onQueued = vi.fn();
+			await consumeAgentUpdates(
+				of([
+					user("first"),
+					running(),
+					{ type: "queued", queued: [{ id: "c2", text: "second" }] },
+					token("answer"),
+					{ type: "queued", queued: [] },
+					done(),
+				]),
+				messages,
+				{ isAborted: () => false, onAbort: vi.fn(), onTurnEvent: vi.fn(), onQueued }
+			);
+			expect(onQueued).toHaveBeenNthCalledWith(1, [{ id: "c2", text: "second" }]);
+			expect(onQueued).toHaveBeenNthCalledWith(2, []);
+			expect(messages).toHaveLength(2);
+			expect((messages[1].updates ?? []).map((u) => u.type)).toEqual([
+				"turnState",
+				"stream",
+				"turnState",
+			]);
+		});
+
 		it("calls onCompaction the same way, and interleaved with an ordinary turn neither disturbs the other", async () => {
 			const onUsage = vi.fn();
 			const onCompaction = vi.fn();

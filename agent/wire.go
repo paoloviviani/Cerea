@@ -61,6 +61,8 @@ func eventToWire(ev backend.Event) map[string]any {
 			request["callId"] = ev.QuestionCallID
 		}
 		m["request"] = request
+	case backend.EventQueue:
+		m["queued"] = orEmpty(ev.Queued)
 	case backend.EventQuestionResolved:
 		m["requestId"] = ev.QuestionRequestID
 		if ev.QuestionDecision == "rejected" {

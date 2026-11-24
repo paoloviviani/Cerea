@@ -38,3 +38,6 @@ var ErrQuestionDismissed = errors.New("the person dismissed the question")
 
 // ErrQuestionGone is a reply to a question that is no longer pending.
 var ErrQuestionGone = errors.New("the question is no longer pending")
+
+// ErrNotQueued is a dequeue of a prompt that is not (or no longer) waiting.
+var ErrNotQueued = errors.New("that message is not waiting to be sent")

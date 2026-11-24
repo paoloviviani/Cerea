@@ -12,6 +12,7 @@ import type {
 	AgentCompactionUpdate,
 	AgentMessageBoundaryUpdate,
 	AgentStreamUpdate,
+	AgentQueuedUpdate,
 	AgentUsageUpdate,
 } from "$lib/types/CodeAgent";
 
@@ -48,6 +49,9 @@ export interface AgentConsumeContext {
 	/** A `usage` side-channel frame arrived. Never touches turn structure —
 	 * the latest value simply replaces whatever the view is holding. */
 	onUsage?: (usage: AgentUsageUpdate["usage"]) => void;
+	/** A `queued` side-channel frame arrived: the whole list of follow-ups the machine
+	 * is holding for the running turn (empty: none). Same discipline as `onUsage`. */
+	onQueued?: (queued: AgentQueuedUpdate["queued"]) => void;
 	/** A `compaction` side-channel frame arrived. Same discipline as `onUsage`. */
 	onCompaction?: (update: AgentCompactionUpdate) => void;
 	/** A `childActivity` side-channel frame arrived: a subagent of this
@@ -374,6 +378,10 @@ export async function consumeAgentUpdates(
 			// these in order is correct without any de-duplication.
 			case "usage": {
 				ctx.onUsage?.(update.usage);
+				break;
+			}
+			case "queued": {
+				ctx.onQueued?.(update.queued);
 				break;
 			}
 			case "compaction": {

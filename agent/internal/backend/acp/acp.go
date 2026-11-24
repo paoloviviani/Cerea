@@ -234,7 +234,9 @@ func (b *Backend) Capabilities() backend.Capabilities {
 	return backend.Capabilities{
 		Diff: true, Children: false, HistoryPaging: true, Usage: true, Compact: b.cfg.CompactCommand != "", Permissions: true,
 		Efforts: b.cfg.Efforts,
-		Images:  images, Files: embedded, Worktrees: false,
+		// Queue: a prompt sent mid-turn waits and is sent when the turn ends (queue.go).
+		Queue:  true,
+		Images: images, Files: embedded, Worktrees: false,
 		// Questions: galopin's ask_user tool (questions.go), so only where the agent has the tools.
 		Questions: tools,
 		// Commands: always — the agent's available_commands_update carries

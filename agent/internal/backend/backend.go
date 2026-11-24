@@ -47,6 +47,10 @@ type Capabilities struct {
 	// session's turn runs is folded into that turn instead of refused.
 	AgentTools bool `json:"agentTools"`
 	Steer      bool `json:"steer"`
+	// Queue says a prompt sent while the session's turn runs is held and sent when the
+	// turn ends instead of refused (a backend without Steer), announced with `queue`
+	// events and cancellable with session.dequeue.
+	Queue bool `json:"queue"`
 	// CoordinationGrant is always false: session.grantCoordination is deprecated
 	// and ignored (PROTOCOL.md §6), so the capability is not offered: an older
 	// Cerea then shows no working switch.
@@ -227,6 +231,12 @@ type Asker interface {
 // first (the turn was stopped), is ErrQuestionDismissed and withdraws the card.
 type QuestionHost interface {
 	AskQuestions(ctx context.Context, workspaceDir, sessionID string, questions []QuestionItem) ([][]string, error)
+}
+
+// Dequeuer is the optional "queue" capability's other half: withdrawing a prompt that
+// has not been sent yet (session.dequeue). A prompt already sent is ErrNotQueued.
+type Dequeuer interface {
+	Dequeue(ctx context.Context, workspaceDir, sessionID, id string) error
 }
 
 // AttachmentSource is the optional "toolImages" capability: the bytes of an

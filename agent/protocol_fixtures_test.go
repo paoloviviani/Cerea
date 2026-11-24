@@ -442,16 +442,17 @@ type fxWireEvent struct {
 	Status    string          `json:"status"`
 	Detail    string          `json:"detail"`
 	Retry     *backend.RetryInfo
-	Request   json.RawMessage  `json:"request"`
-	RequestID string           `json:"requestId"`
-	Decision  string           `json:"decision"`
-	By        string           `json:"by"`
-	Usage     *backend.Usage   `json:"usage"`
-	Session   *backend.Session `json:"session"`
-	Code      string           `json:"code"`
-	Todos     []backend.Todo   `json:"todos"`
-	Answers   [][]string       `json:"answers"`
-	Rejected  bool             `json:"rejected"`
+	Request   json.RawMessage        `json:"request"`
+	RequestID string                 `json:"requestId"`
+	Decision  string                 `json:"decision"`
+	By        string                 `json:"by"`
+	Usage     *backend.Usage         `json:"usage"`
+	Session   *backend.Session       `json:"session"`
+	Code      string                 `json:"code"`
+	Todos     []backend.Todo         `json:"todos"`
+	Answers   [][]string             `json:"answers"`
+	Rejected  bool                   `json:"rejected"`
+	Queued    []backend.QueuedPrompt `json:"queued"`
 }
 
 // eventFromWire is eventToWire's inverse, strict: the fixture names only
@@ -502,6 +503,8 @@ func eventFromWire(raw []byte) (backend.Event, error) {
 			return ev, err
 		}
 		ev.QuestionRequestID, ev.Questions, ev.QuestionCallID = r.ID, r.Questions, r.CallID
+	case backend.EventQueue:
+		ev.Queued = w.Queued
 	case backend.EventQuestionResolved:
 		ev.QuestionRequestID = w.RequestID
 		if w.Rejected {
@@ -701,7 +704,7 @@ func resultTarget(op string) any {
 		return &coordSpawnResult{}
 	case "workspace.archive", "session.prompt", "session.command", "session.cancel", "session.archive",
 		"session.delete", "session.setPermissionMode", "permission.saved.remove", "question.reply",
-		"session.compact", "session.revert", "session.unrevert", "terminal.detach", "terminal.close":
+		"session.compact", "session.dequeue", "session.revert", "session.unrevert", "terminal.detach", "terminal.close":
 		return &fxEmptyResult{}
 	}
 	return nil

@@ -335,6 +335,15 @@ type Todo struct {
 	Priority string     `json:"priority,omitempty"`
 }
 
+// QueuedPrompt is a follow-up prompt held until the running turn ends (a backend
+// without Steer queues rather than refuses). ID is the prompt's clientMessageId when
+// it had one, the handle session.dequeue takes.
+type QueuedPrompt struct {
+	ID    string `json:"id"`
+	Text  string `json:"text"`
+	Files int    `json:"files,omitempty"`
+}
+
 // QuestionOption is one choice offered for a single question (the
 // user-question tool design; opencode's own QuestionOption: a short label
 // plus why someone might pick it).
@@ -418,6 +427,10 @@ const (
 	// permission.replied already does for once/always/reject).
 	EventQuestionAsked    EventKind = "question.asked"
 	EventQuestionResolved EventKind = "question.resolved"
+	// EventQueue is the whole list of follow-up prompts a backend without Steer is
+	// holding for a running turn (Capabilities.Queue), sent whenever it changes; an
+	// empty list means nothing is waiting.
+	EventQueue EventKind = "queue"
 	// EventResync is internal, never on the wire: the backend lost an event
 	// it could not read (an oversized SSE line) and asks the materializer to
 	// re-read the session's transcript and re-announce what changed.
@@ -480,6 +493,9 @@ type Event struct {
 	QuestionRequestID string
 	Questions         []QuestionItem
 	QuestionCallID    string
+
+	// queue: the prompts waiting for the running turn to end, oldest first
+	Queued []QueuedPrompt
 
 	// question.resolved (QuestionRequestID above names the request;
 	// QuestionDecision carries "answered" | "rejected")

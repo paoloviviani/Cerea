@@ -588,6 +588,10 @@ export class MachineLink {
 	sessionCancel(args: { sessionId: string }): Promise<Record<string, never>> {
 		return this.call("session.cancel", args);
 	}
+	/** Withdraw a follow-up still waiting for the running turn to end (capability `queue`). */
+	sessionDequeue(args: { sessionId: string; id: string }): Promise<Record<string, never>> {
+		return this.call("session.dequeue", args);
+	}
 	sessionRename(args: { sessionId: string; title: string }): Promise<{ session: Session }> {
 		return this.call("session.rename", args);
 	}

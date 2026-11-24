@@ -68,6 +68,7 @@
 	import {
 		CodeApiError,
 		cancelAgent,
+		dequeueAgentMessage,
 		listAgents,
 		fetchAgentHistory,
 		fetchSubagentTimeline,
@@ -112,6 +113,7 @@
 	import SidePane from "$lib/components/chat/SidePane.svelte";
 	import AgentHeaderRow, { type PaneId, type PaneItem } from "./AgentHeaderRow.svelte";
 	import AgentComposer from "./AgentComposer.svelte";
+	import QueuedMessages from "./QueuedMessages.svelte";
 	import AgentDialog from "./AgentDialog.svelte";
 	import AgentDiff from "./AgentDiff.svelte";
 	import PairDeviceDialog from "./PairDeviceDialog.svelte";
@@ -249,6 +251,18 @@
 	 * onUsage/onCompaction never touch `messages`, so these track separately. */
 	let usage = $state<AgentUsageUpdate["usage"] | null>(null);
 	let lastCompaction = $state<AgentCompactionUpdate | null>(null);
+	/** Follow-ups the machine holds for the running turn (`queued` frames; capability `queue`). */
+	let queued = $state<Array<{ id: string; text: string; files?: number }>>([]);
+	async function cancelQueued(id: string) {
+		try {
+			await dequeueAgentMessage(deviceId, agentId, id);
+		} catch (e) {
+			// already sent: the list is corrected by the machine's next frame
+			if (!(e instanceof CodeApiError && e.status === 404)) {
+				errorToast.set(e instanceof Error ? e.message : String(e));
+			}
+		}
+	}
 
 	/** Whether this agent's backend advertised the `usage` capability in
 	 * `hello` — the meter hides entirely otherwise. `codeDeviceList` is the
@@ -382,13 +396,14 @@
 			?.backends?.find((b) => b.id === agent?.provider)?.capabilities;
 		return Boolean(caps?.compact);
 	});
-	/** Steering: a prompt sent mid-turn is folded into the running turn
-	 * (`hello` capability `steer`), so the composer keeps Send beside Stop. */
+	/** A prompt sent mid-turn is accepted: folded into the running turn (`hello`
+	 * capability `steer`) or held and sent when it ends (`queue`, shown above the
+	 * composer), so the composer keeps Send beside Stop. */
 	let steerSupported = $derived.by(() => {
 		const caps = codeDeviceList.devices
 			.find((d) => d.id === deviceId)
 			?.backends?.find((b) => b.id === agent?.provider)?.capabilities;
-		return Boolean(caps?.steer);
+		return Boolean(caps?.steer || caps?.queue);
 	});
 	let revertRestoresFiles = $derived.by(() => {
 		const caps = codeDeviceList.devices
@@ -642,6 +657,7 @@
 			messages = [];
 			usage = null;
 			lastCompaction = null;
+			queued = [];
 			// The replay this effect opens IS the history fetch: the transcript
 			// stays gated on it until the stream's historyDone marker (or its
 			// end), so a long session opens on the loading state rather than a
@@ -693,6 +709,7 @@
 						onAbort: () => abort.abort(),
 						onTurnEvent: () => (pending = false),
 						onUsage: (u) => (usage = keepReportedUsage(usage, u)),
+						onQueued: (q) => (queued = q),
 						onCompaction: (c) => (lastCompaction = c),
 						onChildActivity: (childId) => noteChildActivity(childId),
 						onHistoryDone: () => {
@@ -714,6 +731,7 @@
 							dropTranscript(key);
 							usage = null;
 							lastCompaction = null;
+							queued = [];
 							// The transcript was discarded and rebuilds from
 							// the new epoch alone: whatever paging knew is
 							// gone with it.
@@ -1628,6 +1646,7 @@
 						onanswer={answerQuestion}
 					/>
 				{/if}
+				<QueuedMessages {queued} oncancel={cancelQueued} />
 				<AgentComposer
 					{deviceId}
 					{agentId}

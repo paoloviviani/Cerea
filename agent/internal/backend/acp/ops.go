@@ -233,6 +233,10 @@ func (b *Backend) DeleteSession(ctx context.Context, workspaceDir, sessionID str
 // prompt (only session/load's replay does), so the client's own request is
 // the only source of truth for what the user actually said.
 func (b *Backend) Prompt(ctx context.Context, workspaceDir, sessionID string, prompt backend.Prompt) error {
+	return b.prompt(ctx, workspaceDir, sessionID, prompt, false)
+}
+
+func (b *Backend) prompt(ctx context.Context, workspaceDir, sessionID string, prompt backend.Prompt, fromQueue bool) error {
 	conn, err := b.currentConn()
 	if err != nil {
 		return err
@@ -265,14 +269,14 @@ func (b *Backend) Prompt(ctx context.Context, workspaceDir, sessionID string, pr
 	}
 
 	st.mu.Lock()
-	// A second prompt on a busy session would overwrite the turn ids the
-	// running turn's updates are still arriving under (assistantMsgID,
-	// textPartID, ...) and forge its state. Unreachable from the composer
-	// today — it hides send while running — but steering will make it
-	// reachable, so it is refused outright: the same invalid-state refusal
-	// code session.revert's mid-turn guard carries (dispatch.go maps
-	// ErrSessionBusy to "invalid"). opencode queues instead; only ACP has
-	// nothing to do with a second prompt but clobber.
+	// A second prompt on a busy session would overwrite the turn ids the running turn's
+	// updates are still arriving under (assistantMsgID, textPartID, ...) and forge its
+	// state, so it waits its turn: it is held, announced as queued, and sent when the
+	// turn ends (queue.go). ACP has no steering, so this is the nearest thing.
+	// fromQueue is a prompt being sent off the queue, which has already waited.
+	if !fromQueue && (st.busy || len(st.queue) > 0) {
+		return b.enqueueLocked(workspaceDir, st, prompt)
+	}
 	if st.busy {
 		st.mu.Unlock()
 		return backend.ErrSessionBusy
@@ -346,6 +350,7 @@ func (b *Backend) awaitPromptResult(workspaceDir, sessionID string, st *sessionS
 			b.emit(workspaceDir, sessionID, backend.Event{Kind: backend.EventError, ErrorMessage: msg.Error.Message, ErrorCode: fmt.Sprint(msg.Error.Code)})
 		}
 		b.emit(workspaceDir, sessionID, backend.Event{Kind: backend.EventStatus, Status: backend.StatusIdle})
+		b.drainQueue(workspaceDir, st)
 		return
 	}
 
@@ -381,6 +386,7 @@ func (b *Backend) awaitPromptResult(workspaceDir, sessionID string, st *sessionS
 	// max_turn_requests carry a visible error (stopReasonError), as does a
 	// JSON-RPC error (above).
 	b.emit(workspaceDir, sessionID, backend.Event{Kind: backend.EventStatus, Status: backend.StatusIdle})
+	b.drainQueue(workspaceDir, st)
 }
 
 // errRequestCancelled is ACP's -32800 (error.md).
@@ -421,6 +427,10 @@ func (b *Backend) Cancel(ctx context.Context, workspaceDir, sessionID string) er
 	}
 	// a question held for the person goes with the turn it was asked in
 	b.dismissQuestions(workspaceDir, sessionID)
+	// and so do the follow-ups waiting for that turn: Stop means stop
+	if ok {
+		b.clearQueue(workspaceDir, st)
+	}
 	return conn.notify("session/cancel", map[string]any{"sessionId": sessionID})
 }
 

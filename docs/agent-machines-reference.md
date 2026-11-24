@@ -196,7 +196,7 @@ What galopin sets up for goose:
   Use one driver at a time: a turn you drive in goose Desktop bypasses Cerea's
   rules and its review log.
 
-What differs from opencode: no subagent cards (goose has none over its protocol),
+What differs from opencode: no subagent cards (goose has none over its protocol), no steering (a message sent mid-turn waits, shown above the composer, and is sent when the turn ends), the same `ask_user` question tool as Vibe (goose asks permission before calling it, as for every tool),
 and compaction is goose's own `/compact`, run as a turn (its answer appears in the
 transcript). Usage works: goose reports none over its protocol, so galopin reads
 each model call's token counts off its own proxy and feeds the context meter and
@@ -293,7 +293,9 @@ What galopin sets up for Vibe:
   an agent process that is still shutting down, galopin waits for it (a few seconds)
   instead of failing.
 
-What differs from opencode: no subagent cards, and the model list
+What differs from opencode: no subagent cards, no steering (a message sent while Vibe works
+waits, shown above the composer with a cancel, and is sent when the turn ends; Stop drops what
+waits), and the model list
 shows only what the gateway offers. Compaction is Vibe's own `/compact`, run as a turn like
 goose's (it appears as a tool card in the transcript). Usage comes from Vibe itself (it reports the context
 meter over its protocol), and the context window is the gateway's, with a floor of 13,334

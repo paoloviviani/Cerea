@@ -1,0 +1,16 @@
+{
+	"_meta": {
+		"spec": "\u00a76",
+		"direction": "C\u2192M",
+		"op": "session.dequeue"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "session.dequeue",
+		"args": {
+			"sessionId": "ses_01",
+			"id": "msg_c2"
+		}
+	}
+}

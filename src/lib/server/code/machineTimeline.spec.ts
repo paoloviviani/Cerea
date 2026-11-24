@@ -645,6 +645,18 @@ describe("eventToUpdates: one live event at a time", () => {
 	});
 });
 
+describe("queue: the follow-ups a machine holds for the running turn", () => {
+	it("maps a queue event to the whole list, empty included", () => {
+		expect(
+			eventToUpdates({
+				kind: "queue",
+				queued: [{ id: "c2", text: "then run the tests" }],
+			})
+		).toEqual([{ type: "queued", queued: [{ id: "c2", text: "then run the tests" }] }]);
+		expect(eventToUpdates({ kind: "queue", queued: [] })).toEqual([{ type: "queued", queued: [] }]);
+	});
+});
+
 describe("usage and compaction: a side channel that re-converges (M3)", () => {
 	it("maps a live usage event to Cerea's own field names, contextMax present", () => {
 		const updates = eventToUpdates({

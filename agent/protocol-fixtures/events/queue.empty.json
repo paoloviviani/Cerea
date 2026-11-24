@@ -1,0 +1,17 @@
+{
+	"_meta": {
+		"spec": "\u00a77",
+		"direction": "M\u2192C"
+	},
+	"frame": {
+		"type": "event",
+		"sessionId": "ses_01",
+		"epoch": "ep_9f2c",
+		"seq": 9,
+		"rootSessionId": "ses_01",
+		"event": {
+			"kind": "queue",
+			"queued": []
+		}
+	}
+}

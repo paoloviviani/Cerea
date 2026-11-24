@@ -346,7 +346,10 @@ function releaseHeld(state: ThinkingState): AgentStreamUpdate[] {
 /** Frames that are not part of the transcript's own flow: they never end a
  * thinking block that is still open. */
 const isSideChannel = (update: AgentStreamUpdate) =>
-	update.type === "usage" || update.type === "childActivity" || update.type === "compaction";
+	update.type === "usage" ||
+	update.type === "childActivity" ||
+	update.type === "compaction" ||
+	update.type === "queued";
 
 /**
  * Whether a live `part` event replaces text the client already holds rather
@@ -849,6 +852,8 @@ function liveFrames(
 			return [usageToUpdate(event.usage)];
 		case "session":
 			return []; // metadata changed; the panel re-reads via its own poll.
+		case "queue":
+			return [{ type: "queued", queued: event.queued }];
 		case "error":
 			if (event.code === LOOP_STOPPED_CODE) return [turnStateUpdate("done", LOOP_STOPPED_REASON)];
 			return [turnStateUpdate("failed", errorEventReason(event.message, event.code))];

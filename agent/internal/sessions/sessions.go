@@ -850,6 +850,9 @@ func (m *Materializer) translateLocked(st *sessionState, ev backend.Event) []bac
 		}
 		return []backend.Event{ev}
 
+	case backend.EventQueue:
+		return []backend.Event{ev}
+
 	case backend.EventQuestionResolved:
 		delete(st.questions, ev.QuestionRequestID)
 		st.questionOrder = removeString(st.questionOrder, ev.QuestionRequestID)

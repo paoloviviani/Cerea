@@ -812,6 +812,27 @@ export async function cancelAgent(deviceId: string, agentId: string): Promise<{ 
 	);
 }
 
+/** Withdraw a follow-up the machine is still holding for the running turn
+ * (capability `queue`). `id` is the message id the composer sent it with. A
+ * message that has already gone out answers 404; the `queued` frames on the
+ * transcript stream are what the panel shows. */
+export async function dequeueAgentMessage(
+	deviceId: string,
+	agentId: string,
+	id: string
+): Promise<{ ok: boolean }> {
+	return unwrap(
+		await fetch(
+			`${root()}/v1/agents/${encodeURIComponent(agentId)}/dequeue?device=${encodeURIComponent(deviceId)}`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ id }),
+			}
+		)
+	);
+}
+
 /** Manual context compaction ("Compact now", M3). The transcript records the
  * result (a `compaction` marker part, per the machine's own event stream);
  * this only carries the request. 404s (`CodeApiError.status === 404`) when
