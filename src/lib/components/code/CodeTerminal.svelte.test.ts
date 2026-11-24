@@ -508,3 +508,215 @@ describe("CodeTerminal copy view", () => {
 		);
 	});
 });
+
+describe("CodeTerminal long-press selection on a phone", () => {
+	function stubViewport(narrow: boolean): void {
+		vi.stubGlobal("matchMedia", (query: string) => ({
+			matches: narrow && query.includes("639"),
+			media: query,
+			onchange: null,
+			addEventListener() {},
+			removeEventListener() {},
+			addListener() {},
+			removeListener() {},
+			dispatchEvent: () => false,
+		}));
+	}
+
+	function pointer(target: Element, type: string, x: number, y: number): void {
+		target.dispatchEvent(
+			new PointerEvent(type, {
+				pointerId: 1,
+				isPrimary: true,
+				pointerType: "touch",
+				clientX: x,
+				clientY: y,
+				bubbles: true,
+				cancelable: true,
+			})
+		);
+	}
+
+	const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+	/** Client centre of cell (col, viewport row), from the screen's rect. */
+	function cellCentre(base: HTMLElement, col: number, row: number) {
+		const r = viewport(base).getBoundingClientRect();
+		// The terminal fits its host, so the column count is not fixed: take the
+		// cell width from xterm's own measure element (32 characters).
+		const measure = base.querySelector(".xterm-char-measure-element");
+		const cw = (measure?.getBoundingClientRect().width ?? 0) / 32;
+		const lineH = r.height / base.querySelectorAll(".xterm-rows > div").length;
+		return { x: r.left + (col + 0.5) * cw, y: r.top + (row + 0.5) * lineH, cw, lineH };
+	}
+
+	async function mountPhone() {
+		stubViewport(true);
+		const screen = await mountTerminal();
+		deliverOutput("alpha bravo charlie\r\nsecond line here\r\nthird\r\n");
+		await vi.waitFor(() => expect(screen.baseElement.textContent).toContain("third"));
+		return screen;
+	}
+
+	async function longPress(base: HTMLElement, col: number, row: number) {
+		const el = viewport(base);
+		const { x, y } = cellCentre(base, col, row);
+		pointer(el, "pointerdown", x, y);
+		await sleep(550);
+		pointer(el, "pointerup", x, y);
+	}
+
+	const handle = (base: HTMLElement, role: "start" | "end") =>
+		base.querySelector(`[data-testid="terminal-handle-${role}"]`) as HTMLElement | null;
+
+	function copyKeyEnabled(base: HTMLElement): boolean {
+		return !(base.querySelector('[data-testid="terminal-copy-selection"]') as HTMLButtonElement)
+			.disabled;
+	}
+
+	it("a long press selects the word under the finger, shows handles and a menu, and does not type", async () => {
+		const screen = await mountPhone();
+		await longPress(screen.baseElement, 8, 0); // "bravo"
+		await vi.waitFor(() =>
+			expect(
+				screen.baseElement.querySelector('[data-testid="terminal-selection-menu"]')
+			).toBeTruthy()
+		);
+		expect(handle(screen.baseElement, "start")).toBeTruthy();
+		expect(handle(screen.baseElement, "end")).toBeTruthy();
+		expect(document.activeElement).not.toBe(helperTextarea(screen.baseElement));
+		expect(copyKeyEnabled(screen.baseElement)).toBe(true);
+	});
+
+	it("a short tap still focuses the textarea and selects nothing", async () => {
+		const screen = await mountPhone();
+		const el = viewport(screen.baseElement);
+		const { x, y } = cellCentre(screen.baseElement, 8, 0);
+		pointer(el, "pointerdown", x, y);
+		pointer(el, "pointerup", x, y);
+		await sleep(550);
+		expect(document.activeElement).toBe(helperTextarea(screen.baseElement));
+		expect(screen.baseElement.querySelector('[data-testid="terminal-selection"]')).toBeNull();
+	});
+
+	it("a moving touch does not select", async () => {
+		const screen = await mountPhone();
+		const el = viewport(screen.baseElement);
+		const { x, y } = cellCentre(screen.baseElement, 8, 0);
+		pointer(el, "pointerdown", x, y);
+		pointer(el, "pointermove", x, y + 30);
+		await sleep(550);
+		pointer(el, "pointerup", x, y + 30);
+		expect(screen.baseElement.querySelector('[data-testid="terminal-selection"]')).toBeNull();
+	});
+
+	it("dragging the end handle extends the selection, across lines", async () => {
+		const screen = await mountPhone();
+		await longPress(screen.baseElement, 8, 0);
+		const end = await vi.waitFor(() => {
+			const h = handle(screen.baseElement, "end");
+			expect(h).toBeTruthy();
+			return h as HTMLElement;
+		});
+		const hr = end.getBoundingClientRect();
+		const hx = hr.left + hr.width / 2;
+		const hy = hr.top + hr.height / 2;
+		const target = cellCentre(screen.baseElement, 5, 1);
+		const grabOffset = hy - cellCentre(screen.baseElement, 12, 0).y;
+		const fire = (type: string, x: number, y: number) =>
+			end.dispatchEvent(
+				new PointerEvent(type, {
+					pointerId: 2,
+					clientX: x,
+					clientY: y,
+					bubbles: true,
+					cancelable: true,
+				})
+			);
+		fire("pointerdown", hx, hy);
+		fire("pointermove", target.x, target.y + grabOffset);
+		fire("pointerup", target.x, target.y + grabOffset);
+		await vi.waitFor(() => expect(handle(screen.baseElement, "end")).toBeTruthy());
+		(
+			screen.baseElement.querySelector('[data-testid="terminal-selection-copy"]') as HTMLElement
+		).click();
+		await vi.waitFor(() => expect(clipboard.writeText).toHaveBeenCalled());
+		const text = clipboard.writeText.mock.calls[0][0];
+		expect(text.startsWith("bravo charlie")).toBe(true);
+		expect(text).toContain("second");
+		expect(text).not.toContain("alpha");
+	});
+
+	it("Copy writes the selection to the clipboard and exits selection mode", async () => {
+		const screen = await mountPhone();
+		await longPress(screen.baseElement, 8, 0);
+		const copy = await vi.waitFor(() => {
+			const b = screen.baseElement.querySelector('[data-testid="terminal-selection-copy"]');
+			expect(b).toBeTruthy();
+			return b as HTMLButtonElement;
+		});
+		copy.click();
+		await vi.waitFor(() => expect(clipboard.writeText).toHaveBeenCalledWith("bravo"));
+		await vi.waitFor(() =>
+			expect(screen.baseElement.querySelector('[data-testid="terminal-selection"]')).toBeNull()
+		);
+	});
+
+	it("Select all selects the scrollback too", async () => {
+		const screen = await mountPhone();
+		await longPress(screen.baseElement, 8, 0);
+		const all = await vi.waitFor(() => {
+			const b = screen.baseElement.querySelector('[data-testid="terminal-selection-all"]');
+			expect(b).toBeTruthy();
+			return b as HTMLButtonElement;
+		});
+		all.click();
+		(
+			screen.baseElement.querySelector('[data-testid="terminal-selection-copy"]') as HTMLElement
+		).click();
+		await vi.waitFor(() => expect(clipboard.writeText).toHaveBeenCalled());
+		const text = clipboard.writeText.mock.calls[0][0];
+		expect(text).toContain("alpha bravo charlie");
+		expect(text).toContain("third");
+	});
+
+	it("tapping outside clears the selection, and the next tap types again", async () => {
+		const screen = await mountPhone();
+		await longPress(screen.baseElement, 8, 0);
+		await vi.waitFor(() =>
+			expect(screen.baseElement.querySelector('[data-testid="terminal-selection"]')).toBeTruthy()
+		);
+		const el = viewport(screen.baseElement);
+		const { x, y } = cellCentre(screen.baseElement, 30, 10);
+		pointer(el, "pointerdown", x, y);
+		pointer(el, "pointerup", x, y);
+		await vi.waitFor(() =>
+			expect(screen.baseElement.querySelector('[data-testid="terminal-selection"]')).toBeNull()
+		);
+		expect(copyKeyEnabled(screen.baseElement)).toBe(false);
+		expect(document.activeElement).not.toBe(helperTextarea(screen.baseElement));
+		pointer(el, "pointerdown", x, y);
+		pointer(el, "pointerup", x, y);
+		expect(document.activeElement).toBe(helperTextarea(screen.baseElement));
+	});
+
+	it("selects with xterm directly while the app uses the mouse", async () => {
+		const screen = await mountPhone();
+		deliverOutput("\x1b[?1000h\x1b[?1006h");
+		await sleep(50);
+		const before = FakeWebSocket.sent.length;
+		await longPress(screen.baseElement, 8, 0);
+		await vi.waitFor(() => expect(copyKeyEnabled(screen.baseElement)).toBe(true));
+		expect(inputTextsSince(before)).toEqual([]);
+	});
+
+	it("on desktop a long press never shows handles or the menu", async () => {
+		stubViewport(false);
+		const screen = await mountTerminal();
+		deliverOutput("alpha bravo\r\n");
+		await vi.waitFor(() => expect(screen.baseElement.textContent).toContain("bravo"));
+		await longPress(screen.baseElement, 8, 0);
+		expect(screen.baseElement.querySelector('[data-testid="terminal-selection"]')).toBeNull();
+		expect(handle(screen.baseElement, "start")).toBeNull();
+	});
+});

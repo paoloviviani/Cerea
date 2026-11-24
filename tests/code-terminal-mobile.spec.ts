@@ -345,6 +345,62 @@ test.describe("the terminal's mobile view/type/keys bar", () => {
 	});
 });
 
+test.describe("long-press selection in the terminal on a phone", () => {
+	let fake: FakeMachine | null = null;
+
+	test.afterEach(() => {
+		fake?.close();
+		fake = null;
+	});
+
+	test("a long press selects a word, Copy puts it on the clipboard and ends the selection", async ({
+		page,
+		context,
+		db,
+		session,
+	}) => {
+		await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+		const sub = `e2e-${randomUUID()}`;
+		await seedUser(db, session.sessionId, sub);
+		const name = `mtterm-${randomUUID().slice(0, 6)}`;
+		fake = await connectFakeMachine(sub, name);
+
+		await page.setViewportSize(MOBILE_VIEWPORT);
+		await pairAndOpenWorkspace(page, name);
+		await openOneTerminal(page, fake);
+
+		// The fake machine echoes input, which puts a word on screen.
+		await tapTerminal(page);
+		await page.keyboard.type("alpha bravo");
+		await expect(page.getByTestId("code-terminal").locator(".xterm-rows")).toContainText(
+			"alpha bravo"
+		);
+		await xtermTextarea(page).blur();
+
+		// A real touch, held still: the first row's "bravo" (cell 6-10).
+		const screen = await page.locator(".xterm-screen").boundingBox();
+		const measure = await page.locator(".xterm-char-measure-element").first().boundingBox();
+		if (!screen || !measure) throw new Error("terminal not laid out");
+		const cw = measure.width / 32;
+		const lineH = screen.height / (await page.locator(".xterm-rows > div").count());
+		const point = { x: screen.x + 8.5 * cw, y: screen.y + lineH / 2 };
+		const cdp = await context.newCDPSession(page);
+		await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] });
+		await page.waitForTimeout(700);
+		await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+
+		const menu = page.getByRole("toolbar", { name: "Selection actions" });
+		await expect(menu).toBeVisible();
+		await expect(page.getByTestId("terminal-handle-start")).toBeVisible();
+		await expect(page.getByTestId("terminal-handle-end")).toBeVisible();
+		await expect(xtermTextarea(page)).not.toBeFocused();
+
+		await menu.getByRole("button", { name: "Copy", exact: true }).click();
+		await expect(menu).toHaveCount(0);
+		expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("bravo");
+	});
+});
+
 test.describe("the terminal on desktop", () => {
 	let fake: FakeMachine | null = null;
 

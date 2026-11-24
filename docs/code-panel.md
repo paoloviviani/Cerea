@@ -119,6 +119,8 @@ computer's local policy** (a shell can edit `policy.json` and the config
 galopin starts the agent with). Both sides record terminal opens and closes,
 never their content.
 
+**On a phone,** a tap in the terminal opens the keyboard, a swipe scrolls, and a long press (about half a second) selects the word under your finger, with a handle at each end and a **Copy** / **Select all** bar next to it, like a native terminal app. Drag a handle to extend the selection, also across lines (near the top or bottom edge it scrolls the history for you). This works while a program such as vim or opencode uses the mouse. Tapping elsewhere, typing or a swipe ends the selection. **Select text** in the key bar still opens the whole buffer as plain text.
+
 **What the fixed floor and the local deny are, until the OS sandbox exists.**
 They are galopin refusing or asking about the calls the agent shows it, which is
 as advisory against `bash` as any tool-level rule: a shell can do anything the
