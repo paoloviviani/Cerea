@@ -105,13 +105,13 @@ func TestBackgroundResultStartsAParentTurnOnTheSessionsModel(t *testing.T) {
 	// itself, then on the assistant reply to it, then on idle; none of
 	// those depend on where the parent's own idle falls.
 	var taskAt int
-	r.hub.wait(t, mark, 240*time.Second, "the injected <subagent> report in the parent", func(e sessions.Envelope) bool {
+	r.hub.wait(t, mark, 240*time.Second, "the injected subagent report in the parent", func(e sessions.Envelope) bool {
 		p := e.Event.Part
 		return e.SessionID == s.ID && e.Event.Kind == backend.EventPart && p != nil && p.Role == "user" &&
-			strings.Contains(p.Text, "<subagent")
+			isSubagentReport(p.Text)
 	})
 	for i, e := range r.hub.since(mark) {
-		if p := e.Event.Part; e.SessionID == s.ID && e.Event.Kind == backend.EventPart && p != nil && p.Role == "user" && strings.Contains(p.Text, "<subagent") {
+		if p := e.Event.Part; e.SessionID == s.ID && e.Event.Kind == backend.EventPart && p != nil && p.Role == "user" && isSubagentReport(p.Text) {
 			taskAt = mark + i
 			break
 		}
@@ -123,7 +123,7 @@ func TestBackgroundResultStartsAParentTurnOnTheSessionsModel(t *testing.T) {
 	r.idle(s, taskAt)
 
 	// The mock's request log proves the turn ran on the session's model:
-	// the request carrying the injected <subagent> report used the same model
+	// the request carrying the injected subagent report used the same model
 	// as the parent's own requests.
 	resp, err := http.Get(r.mock + "/__control/request-log")
 	if err != nil {
@@ -146,7 +146,7 @@ func TestBackgroundResultStartsAParentTurnOnTheSessionsModel(t *testing.T) {
 		if strings.Contains(joined, "delegate it") && parentModel == "" {
 			parentModel = req.Model
 		}
-		if strings.Contains(joined, "<subagent") {
+		if isSubagentReport(joined) {
 			notifyModel = req.Model
 		}
 	}
@@ -154,7 +154,7 @@ func TestBackgroundResultStartsAParentTurnOnTheSessionsModel(t *testing.T) {
 		t.Fatalf("the parent's own request never reached the model (%d requests seen)", len(log.Requests))
 	}
 	if notifyModel == "" {
-		t.Fatalf("no request carried the injected <subagent> report (%d requests seen)", len(log.Requests))
+		t.Fatalf("no request carried the injected subagent report (%d requests seen)", len(log.Requests))
 	}
 	if notifyModel != parentModel {
 		t.Errorf("notification turn ran on %q, want the session's model %q", notifyModel, parentModel)

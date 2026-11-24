@@ -182,7 +182,13 @@ func Known(key string) bool {
 	// get the cautious default, and its `opencode_*` utility tools (session
 	// rename/move, worktrees, MCP resource and model lists) likewise ask like any
 	// effectful tool, because session_move and worktree_* can leave the workspace.
-	if key == "execute" || key == "browser" || strings.HasPrefix(key, "opencode_") {
+	// opencode 2.4's `automation_*` tools (list, create, delete, pause, resume) manage
+	// opencode's own scheduled automations: a created automation later runs an agent
+	// prompt with no one watching, so create/delete/pause/resume must never be silently
+	// allowed. All five take the cautious default (MCP, class Tools, a card on Ask)
+	// rather than Read: even `automation_list` returns the saved prompts, and a wrong
+	// "read" for the others would be the dangerous direction.
+	if key == "execute" || key == "browser" || strings.HasPrefix(key, "opencode_") || strings.HasPrefix(key, "automation_") {
 		return true
 	}
 	switch key {

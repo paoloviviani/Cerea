@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"galopin/internal/attach"
@@ -220,6 +221,10 @@ type Backend struct {
 	// can fill in ContextMax without a request per event.
 	modelsMu   sync.Mutex
 	modelLimit map[string]int
+	// healthyAt is when waitHealthy last saw the server answer: opencode 2.4
+	// answers /api/info before it has loaded its providers' models, so an empty
+	// model list in the first moments after this is "not loaded yet", not "none".
+	healthyAt atomic.Int64 // unix nanos
 
 	// usageMu/sessionUsage remembers each session's latest Usage as it's
 	// observed on the event stream (opencode's own session object carries
@@ -653,6 +658,7 @@ func (b *Backend) waitHealthy(ctx context.Context, timeout time.Duration) error 
 				resp.Body.Close()
 				if resp.StatusCode == http.StatusOK {
 					cancel()
+					b.healthyAt.Store(time.Now().UnixNano())
 					return nil
 				}
 			}

@@ -139,6 +139,14 @@ func backgroundHarness(t *testing.T, backgroundAllowed bool) (context.Context, *
 	return ctx, ocBackend, mat, workDir
 }
 
+// isSubagentReport reports whether text is the synthetic report opencode injects
+// into a parent when a background child finishes: `<subagent ...>` up to 2.3,
+// `<background-result kind="subagent" ...>` from 2.4. Both carry sessionID and
+// state attributes.
+func isSubagentReport(text string) bool {
+	return strings.Contains(text, "<subagent") || strings.Contains(text, `<background-result kind="subagent"`)
+}
+
 // TestBackgroundSubagentsIntegration proves the background contract against
 // a real opencode (the pinned release in CI, or the release under test): with the enrolled policy the task tool
 // accepts background:true, the child lands in the same exposed tree, and
@@ -202,7 +210,7 @@ func TestBackgroundSubagentsIntegration(t *testing.T) {
 			}
 			p := ev.Part
 			return p.Type == backend.PartText && p.Synthetic &&
-				strings.Contains(p.Text, "<subagent") && strings.Contains(p.Text, `state="completed"`) &&
+				isSubagentReport(p.Text) && strings.Contains(p.Text, `state="completed"`) &&
 				strings.Contains(p.Text, childID)
 		})
 	})

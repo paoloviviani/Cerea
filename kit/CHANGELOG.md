@@ -7,6 +7,8 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **galopin:** works with opencode `2.4.1` as well as `2.3.0` (#352): it reads 2.4's `<background-result>` subagent reports, waits for 2.4 to load its models, connects the MCP servers 2.4 leaves unstarted before a turn, and asks before running 2.4's new `automation_*` tools. The pinned opencode moves to `2.4.1`.
+
 ## v0.64.0 — 2026-11-23
 
 Pins: Cerea `0.64.0` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.34.0`, opencode `2.3.0`.

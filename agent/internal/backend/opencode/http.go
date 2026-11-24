@@ -460,6 +460,7 @@ func (b *Backend) Prompt(ctx context.Context, workspaceDir string, sessionID str
 	// A session an older galopin gave rules is neutralised once (ADR 0097);
 	// every other session has none and nothing is written to it.
 	b.prepareSession(ctx, workspaceDir, sessionID)
+	b.connectPendingMCP(ctx, workspaceDir)
 	if err := b.applySelection(ctx, sessionID); err != nil {
 		return err
 	}
@@ -661,10 +662,36 @@ func modelRefString(ref map[string]any) string {
 	return p + "/" + id
 }
 
+// modelsWarmup is how long after the server turns healthy an empty /api/model
+// is read as "still loading" rather than "no models"; modelsSettle is how long
+// opencode 2.4 takes to load its models, before which no answer is trusted.
+const (
+	modelsWarmup = 15 * time.Second
+	modelsSettle = 2 * time.Second
+)
+
 func (b *Backend) Models(ctx context.Context, workspaceDir string) ([]backend.Model, error) {
 	var list []any
-	if err := b.doData(ctx, http.MethodGet, withLoc("/api/model", workspaceDir), nil, &list); err != nil {
-		return nil, err
+	for {
+		list = nil
+		if err := b.doData(ctx, http.MethodGet, withLoc("/api/model", workspaceDir), nil, &list); err != nil {
+			return nil, err
+		}
+		// opencode 2.4.1 reports healthy before it has loaded its providers: for
+		// the first moments /api/model answers an empty list, then a catalogue
+		// that does not yet reflect the configuration (built-in free models, none
+		// of the configured ones), then the settled list. 2.3.0 had it at once.
+		// So in the first modelsSettle after healthy no answer is trusted, and an
+		// empty one is retried until modelsWarmup; later answers are believed.
+		since := time.Since(time.Unix(0, b.healthyAt.Load()))
+		if since > modelsWarmup || (since > modelsSettle && len(list) > 0) {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(250 * time.Millisecond):
+		}
 	}
 	var def map[string]any
 	_ = b.doData(ctx, http.MethodGet, withLoc("/api/model/default", workspaceDir), nil, &def)
@@ -1101,4 +1128,33 @@ func (b *Backend) enrichAsk(ctx context.Context, p map[string]any) {
 		}
 	}
 	addAskMetadata(p, in)
+}
+
+// connectPendingMCP connects the MCP servers a workspace has configured but
+// opencode has not started. opencode 2.3 connected them as it loaded a
+// directory; 2.4 leaves them "pending" and does not offer their tools to the
+// turn that needs them first, so the model is told "no tool named ..." on its
+// first call. Connecting them before the prompt gives both releases the same
+// first turn. Best effort and quick when there is nothing to do: a server that
+// cannot start stays as opencode reports it, and the prompt goes on.
+func (b *Backend) connectPendingMCP(ctx context.Context, workspaceDir string) {
+	var servers []any
+	if err := b.doData(ctx, http.MethodGet, withLoc("/api/mcp", workspaceDir), nil, &servers); err != nil {
+		return
+	}
+	for _, m := range asMaps(servers) {
+		if getStr(getMap(m, "status"), "status") != "pending" {
+			continue
+		}
+		name := getStr(m, "name")
+		if name == "" {
+			continue
+		}
+		cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		err := b.doJSON(cctx, http.MethodPost, withLoc("/api/experimental/mcp/"+url.PathEscape(name)+"/connect", workspaceDir), nil, nil)
+		cancel()
+		if err != nil {
+			b.cfg.Logf("opencode: connecting MCP server %q: %v", name, err)
+		}
+	}
 }
