@@ -89,183 +89,33 @@ Corrections welcome: please open an issue.
 
 ## Cerea and Pystino
 
-Cerea is one half of a pair. Each half solves a different problem, and each
-runs on its own:
+Cerea is one half of a pair, and each half runs on its own:
 
-- **Cerea** (this repository) serves the users of models: the chat, its
-  knowledge, artifacts and tools, and **galopin**, which pairs coding agents
-  on a user's own machine.
-- **[Pystino](https://github.com/paoloviviani/Pystino)** serves the
-  organisation paying for them: an OpenAI-compatible gateway with per-user
-  and per-group accounting, quotas, PII redaction, model access and an admin
-  console.
+- **Cerea** (this repository) is for the users of models: the chat, its knowledge,
+  artifacts and tools, and **galopin**, which pairs coding agents on a user's own
+  computer.
+- **[Pystino](https://github.com/paoloviviani/Pystino)** is for the organisation paying
+  for them: an OpenAI- and Anthropic-compatible gateway with per-user and per-group
+  accounting, quotas, PII redaction, model access and an admin console.
 
-Cerea alone runs against any OpenAI-compatible endpoint with one shared key.
-Pystino alone serves any OpenAI or Anthropic client. Together they are the
-intended setup: the chat calls Pystino's `/v1` with each user's own sign-in
-token, so spend, quotas and model access follow the user, and the gateway
-adds web search, a local document reader and metered coding agents. Below, **the
-gateway** means Pystino. The deploy kit in this repository (`kit/`) runs both
-together, or the chat alone.
-
-## The name
-
-_Cerea_ is a Turinese _modo di dire_: a historic, affectionate greeting that
-means both _buongiorno_ and _arrivederci_.
-
-## Features
-
-Unmarked features work against any endpoint; those marked _(Pystino)_ need
-the gateway.
-
-- **Chat over any model your endpoint serves**, signed in with OIDC. With
-  Pystino each call carries the user's own token, so quotas and billing are
-  theirs; without it, every call uses the one key you configure. The stack
-  currently signs the chat and the console in against one provider; to combine
-  several sources of users, federate them in your own IdP (Keycloak,
-  Authentik and the like).
-- **Web search** _(Pystino)_, run by the deployment's search backends through
-  the gateway, with the backend chosen in Administration → Web search (the
-  gateway can also meter provider-side search where a model offers it).
-- **File upload and extraction**: PDFs, Office documents (old `.doc` too), images
-  and text, read once at upload. With Pystino, extraction goes through the
-  gateway and can stay inside your deployment; without it, PDFs and images
-  go to an OCR endpoint you name (`CHAT_OCR_BASE_URL`). Scanned PDFs reach a
-  model that sees images as page images.
-- **Artifacts**: HTML, React and Mermaid previews in sandboxed frames with no
-  network access, and generated files (see the next item).
-- **Word, Excel, PowerPoint and PDF files**: the assistant creates and edits
-  them through the bundled document service, saving each edit as a new version
-  and leaving the original alone. Styling by asking, or from a template you
-  upload; designed slides with backgrounds and shapes; native charts
-  ([docs/office.md](docs/office.md)).
-- **Skills and connectors**: built-in skills for office files and data
-  analysis ([docs/skills.md](docs/skills.md)), and remote MCP servers as
-  connectors ([docs/connectors.md](docs/connectors.md)).
-- **Knowledge bases and projects**, shareable with users or groups, with an
-  optional project memory ([docs/knowledge.md](docs/knowledge.md)).
-- **Python the assistant runs**: by default in your browser, in a WebAssembly
-  sandbox with the scientific and office libraries, so your files never leave
-  your device ([docs/pyodide.md](docs/pyodide.md)); or, when the operator
-  turns it on, in a gVisor sandbox on the server with native packages and more
-  memory ([docs/sandboxes.md](docs/sandboxes.md)).
-- **Share links**: a link to one artifact, for signed-in users or anyone, with an expiry
-  and a band naming who shared it ([docs/artifacts.md](docs/artifacts.md#sharing-an-artifact)).
-- **Browser use**: the assistant does a task in a real browser on your own
-  computer, with approval before anything that commits; no cloud browser
-  ([docs/browser-use.md](docs/browser-use.md)).
-- **Large content as files**: a long paste or attachment is handed to the
-  model as a file it can read in parts, and a connector's file result is kept
-  as a file of the chat ([docs/chat.md](docs/chat.md),
-  [docs/connectors.md](docs/connectors.md#files-a-connector-returns)).
-- **One connector list** for the chat and your agents, with local connectors
-  on your own computers ([docs/local-connectors.md](docs/local-connectors.md)).
-- **Self-hosted model servers** (vLLM, SGLang, llama.cpp) as gateway providers
-  _(Pystino)_ ([Pystino docs](https://github.com/paoloviviani/Pystino/blob/main/docs/provider-catalogue.md#self-hosted-servers-vllm-sglang-llamacpp)).
-- **Your own models and look**: a global system prompt and private custom
-  models (a base model plus a prompt) under Workspace → Customize models, a
-  searchable list of every chat at `/chats`, and accent and background palettes
-  ([docs/chat.md](docs/chat.md)).
-- **The `/code` agents panel**: coding agents on your own machines through
-  **galopin**, with a file explorer, scheduled actions (a prompt sent to a
-  session on a timetable) and, off by default, a browser terminal. The file
-  explorer uploads, downloads and zips files and folders; Claude Code runs
-  over ACP, and `galopin service` keeps galopin running
-  ([docs/agent-machines.md](docs/agent-machines.md)). With
-  Pystino the agents' model calls are metered like the chat's; without it
-  they use opencode's own providers.
-
-## Quick start
-
-See [Try it in 5 minutes](#try-it-in-5-minutes) above. Which shape fits (the full stack,
-a chat-only satellite, or any OpenAI-compatible endpoint) and what each gives and lacks is
-in [docs/deploy.md](docs/deploy.md); the kit itself is described in
-[docs/deploy-kit.md](docs/deploy-kit.md).
-
-## Configuration
-
-Cerea reads its settings from the environment. The ones that matter most:
-
-| Variable                                                                                      | What                                                                        |
-| --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `OPENAI_BASE_URL`                                                                             | the OpenAI-compatible API the chat calls (Pystino's `/v1`, or any endpoint) |
-| `USE_USER_TOKEN`                                                                              | `true` with Pystino: each call carries the signed-in user's own token       |
-| `OPENAI_API_KEY`                                                                              | the one shared key, without Pystino                                         |
-| `OPENID_PROVIDER_URL`, `OPENID_CLIENT_ID`, `OPENID_CLIENT_SECRET`                             | the OIDC sign-in                                                            |
-| `MONGODB_URL`                                                                                 | conversations, settings and pairing records                                 |
-| `CHAT_PG_URL`                                                                                 | PostgreSQL with pgvector, for knowledge-base passages                       |
-| `ORIGIN`, `PUBLIC_ORIGIN`                                                                     | the public URL of the chat, and of the whole site                           |
-| `CHAT_KNOWLEDGE_ENABLED`, `CHAT_MEMORY_ENABLED`, `CHAT_USAGE_ENABLED`, `CHAT_CONSOLE_ENABLED` | feature switches (`true` or empty)                                          |
-| `FETCH_BACKEND`                                                                               | `direct` (default) or `playwright`, the [headless browser](docs/browser.md) |
-| `CODE_AGENTS_ENABLED`, `CODE_TERMINAL_ENABLED`                                                | the `/code` panel, and its browser terminal                                 |
-
-The deployment's full, commented list is the kit's `.env.example`; `.env`
-here lists every variable the app understands.
-
-## Agents
-
-galopin runs next to the coding agent (opencode, or goose) on a user's machine, dials out to Cerea with
-its own OIDC credential, and is confirmed by its owner in `/code`. What a
-machine allows (the permission ceiling, workspace roots, files, the terminal) is fixed on
-the machine at enroll time; the terminal also needs `CODE_TERMINAL_ENABLED=true`
-on the deployment. See [docs/code-panel.md](docs/code-panel.md) (operators),
-[docs/agent-machines.md](docs/agent-machines.md) (users; the
-[reference](docs/agent-machines-reference.md) has the depth) and
-[agent/PROTOCOL.md](agent/PROTOCOL.md) (the wire protocol).
-
-## Development
-
-```sh
-npm ci                    # also installs the git hooks (husky)
-cp .env .env.local        # then set OPENAI_BASE_URL, OPENAI_API_KEY and friends
-npm run dev               # http://localhost:5173
-npm run check && npm run lint
-```
-
-Tests: `npm run test` (server and ssr Vitest projects; on a CPU without AVX point
-them at a real MongoDB with `TEST_MONGODB_URL` and add `--no-file-parallelism`),
-`npm run test:client` (the component tests, in a real browser), `npx playwright test`
-(end to end; `E2E_SKIP_BUILD=1` reuses `build/`) and `cd agent && go test ./...`
-(galopin, which needs Go 1.24+). Toolchains, git hooks, every test layer, CI,
-releasing and the repository's conventions are in
-[CONTRIBUTING.md](CONTRIBUTING.md), which is also the
-[Development](https://paoloviviani.github.io/Cerea/docs/development/) page of the
-documentation.
-
-**The image** fixes SvelteKit's base path at build time, and builds galopin
-too: `docker build --build-arg APP_BASE=/chat -t cerea .`
-
-## Origin
-
-Cerea is a hard fork of an earlier open-source chat UI, with its history intact:
-it does not merge upstream. The upstream attribution is in [NOTICE](NOTICE).
+Cerea alone runs against any OpenAI-compatible endpoint with one shared key. Together,
+each call carries the signed-in user's own token, so spend, quotas and model access
+follow the user. The deploy kit in this repository runs both, or the chat alone.
 
 ## Documentation
 
-The documentation is a [mkdocs](https://www.mkdocs.org) site built from `docs/`:
-[chat](docs/chat.md) · [artifacts](docs/artifacts.md) ·
-[pyodide](docs/pyodide.md) · [skills](docs/skills.md) ·
-[knowledge](docs/knowledge.md) · [connectors](docs/connectors.md) ·
-[agent-machines](docs/agent-machines.md) ·
-[agent-machines-reference](docs/agent-machines-reference.md) · [browser](docs/browser.md) ·
-[deploy](docs/deploy.md) · [deploy-kit](docs/deploy-kit.md) ·
-[configuration](docs/configuration.md) · [chat-admin](docs/chat-admin.md) ·
-[code-panel](docs/code-panel.md) · [reference](docs/reference.md) ·
-[development](docs/development.md) ·
-[PRIVACY](PRIVACY.md). Build it with
-`uv run --with-requirements docs/requirements.txt mkdocs build --strict`
-(there is no Python project in this repository; the pins are in
-`docs/requirements.txt`). Pystino's documentation lives in its own
-repository. [docs/source](docs/source) is **the upstream project's**
-documentation, kept as upstream wrote it, excluded from the site; parts of it
-do not apply to Cerea.
+Everything else is on the documentation site, **[paoloviviani.github.io/Cerea](https://paoloviviani.github.io/Cerea/)**:
+the [full feature list](https://paoloviviani.github.io/Cerea/docs/features/), using the chat
+and the agents, deploying and configuring, and the reference. Pystino has
+[its own documentation](https://paoloviviani.github.io/Pystino/).
 
 ## Contributing, security, licence
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) and, for vulnerabilities,
-[SECURITY.md](SECURITY.md). Cerea is Copyright 2026 Paolo Viviani and
-licensed under the [Apache License 2.0](LICENSE); [NOTICE](NOTICE) carries the upstream
-attribution and the third-party notices. How this code was written is disclosed in
+[CONTRIBUTING.md](CONTRIBUTING.md) covers development, tests and releases;
+[SECURITY.md](SECURITY.md) how to report a vulnerability. Cerea is Copyright 2026
+Paolo Viviani and licensed under the [Apache License 2.0](LICENSE). It is a hard fork of
+an earlier open-source chat UI; [NOTICE](NOTICE) carries that attribution and the
+third-party notices. How the code was written is disclosed in
 [AI-DISCLOSURE.md](AI-DISCLOSURE.md).
 
 ## Acknowledgments

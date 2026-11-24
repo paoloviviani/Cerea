@@ -104,6 +104,7 @@ validation:
 # The nav lists only pages that exist.
 nav:
   - Home: index.md
+  - Features: features.md
   - Using Cerea:
       - Chat: chat.md
       - Artifacts: artifacts.md
