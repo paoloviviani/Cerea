@@ -47,6 +47,8 @@ runs:
       env:
         GALOPIN_OPENCODE_IT: "1"
         GALOPIN_ACP_IT: "1"
+        # the real-opencode check that launch opencode offers the Cerea connectors (no model call)
+        GALOPIN_LAUNCH_CONNECTORS_IT: "1"
         # sessions made by this release must survive an upgrade to the one under test
         GALOPIN_OPENCODE_PREV_BIN: ${{ runner.temp }}/prev-opencode/node_modules/.bin/opencode
       working-directory: agent

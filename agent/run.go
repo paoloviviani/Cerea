@@ -637,6 +637,7 @@ func buildHelloBase(pol policy.Policy) link.Hello {
 			Arch:      runtime.GOARCH,
 			Hostname:  hostname,
 			Container: inContainer(),
+			RunMode:   currentRunMode(),
 			Upgrade:   upgradeCapability(pol),
 		},
 		Policy: link.PolicyInfo{

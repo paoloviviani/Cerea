@@ -370,18 +370,23 @@ Checked against the pinned release (source and a live `vibe-acp`), for the next 
 
 ### Your own goose, through galopin
 
-`galopin goose setup` puts galopin's proxy into **your own** goose, so goose
-Desktop, the goose CLI and the editor extension can use the gateway's models:
+`galopin setup goose --desktop` puts galopin's proxy into **your own** goose, so goose
+Desktop, the goose CLI and the editor extension can use the gateway's models
+(`galopin goose setup` is the same command under its older name):
 
 ```
-galopin goose setup [--default] [--no-connectors]
-galopin goose setup --remove
+galopin setup goose --desktop [--default] [--no-connectors]
+galopin setup goose --desktop --remove
 ```
+
+This only works **while galopin's proxy runs**: `galopin run` left open in a terminal,
+or the service. Setup says so, and offers `galopin service install` as an explicit next
+step; it never installs a service itself. For a terminal goose that needs no running
+proxy, `galopin launch goose` (or `galopin setup goose`, below) is simpler.
 
 It writes a provider named `galopin` into your goose config (your default
 provider is untouched unless you pass `--default`). It is safe to run again, and
-`galopin models refresh` keeps its model list current. The proxy must be running:
-keep `galopin run` going.
+`galopin models refresh` keeps its model list current.
 
 Unless you pass `--no-connectors`, it also adds a goose extension, **Cerea
 connectors**, served by galopin on loopback with a secret. It offers this
@@ -1791,14 +1796,15 @@ galopin builds a **temporary** goose config directory (`GOOSE_PATH_ROOT`) from
 the same generation the supervised goose uses: the `galopin` provider (the
 gateway's chat models, the proxy's secret as a header), the default model (the
 first chat model, or `--model`), approve mode (goose asks before each tool
-call, in the terminal), keyring and telemetry off. It is removed when goose
+call, in the terminal), keyring and telemetry off, and the
+[Cerea connectors](#connectors-in-a-launched-tool) extension. It is removed when goose
 exits. **Untouched:** your own goose config, extensions, custom providers and
 keys (nothing is read from them either, so your extensions are not loaded); your
 session store is linked, so `goose session --resume` sees your history. `GOOSE_*`
 and other providers' variables are stripped. Binary: `--goose`, then the copy
 galopin installed (or `GALOPIN_GOOSE_BIN`), then `goose` on PATH; a different
 version than the tested one only warns. **Does not apply:** galopin's protected
-paths, Plan/Ask/Auto, the Cerea connectors extension, the review log.
+paths, Plan/Ask/Auto, the review log.
 
 #### `galopin launch vibe`
 
@@ -1846,17 +1852,96 @@ checked against 2.1.317 for the endpoint, the bearer token and the model name.
 Anthropic-hosted server tools (such as web search) may not work through the gateway.
 **Does not apply:** protected paths, Plan/Ask/Auto, the review log.
 
+#### Connectors in a launched tool
+
+Every `galopin launch` tool (opencode, goose, vibe, claude) also gets the **Cerea
+connectors**, with no flag: one extra MCP server, `cerea-connectors`, in the tool's
+**temporary** config (nothing of yours is edited). galopin serves it on a loopback
+port for as long as the tool runs, behind a random per-launch secret (never the
+machine's long-lived one), and stops it when the tool exits. Where it goes:
+
+- **claude**: a temporary `--mcp-config` file, **merged** with your own MCP servers
+  (galopin never passes `--strict-mcp-config`);
+- **opencode**: the `mcp` key of the `OPENCODE_CONFIG_CONTENT` layer launch already
+  uses;
+- **goose**: an extension in the temporary `config.yaml`;
+- **vibe**: an `[[mcp_servers]]` table (transport `streamable-http`, headers in its `auth` block) in the temporary `config.toml`.
+
+It offers this computer's own connectors (its `mcp.json`, unless `galopin goose setup
+--no-connectors` withdrew them) and your Cerea connectors,
+the same list as `galopin goose setup`: your one list in **Workspace → Agents →
+Connectors your agents may use**, while the switch **Apps on my computers may use
+these connectors too** is on. That switch is the consent. Cerea's connectors travel
+over the computer's link to Cerea, which only a running `galopin run` (or the
+service) holds, and `launch` never dials Cerea itself; so the launch forwards to
+that running galopin's local-agents endpoint (`run` creates its file,
+`local-agents.json`, itself, so every `galopin run` and `serve` now opens that loopback port, 41970 by default, behind a secret and serving only the Cerea connectors, gated by the Workspace switch; before, only goose setup did). Before it sends that endpoint's
+long-lived secret anywhere, the launch asks a secret-free challenge (a nonce, answered
+with an HMAC only the real galopin can compute); a process that merely listens on the
+port never sees the secret. Without a running galopin, only this computer's own
+connectors are offered (unless `galopin goose setup --no-connectors` withdrew them).
+The Cerea tool list is cached for a few seconds, and the launch lists connectors in
+the background, so the tool never waits for it. When the switch is off, or nothing is chosen, Cerea offers none. galopin
+prints one line on stderr saying which case you are in, for example
+`galopin: connectors: 3 from Cerea, 1 from this computer` or
+`galopin: connectors: 0 from this computer; none from Cerea (the switch ... is off,
+...)`. A call is governed by the **tool's own approval rules**: this is convenience,
+not enforcement, and galopin's Plan/Ask/Allow and review log do not apply.
+
+### Making `launch` your default: `galopin setup TOOL`
+
+```sh
+galopin setup claude              # installs a claude-galopin command
+galopin setup claude --default    # also a shim named claude, on a PATH you opt into
+galopin setup claude --remove     # deletes what setup created
+```
+
+`setup TOOL` (opencode, goose, vibe or claude) installs a small command,
+`TOOL-galopin`, beside the galopin binary (`~/.local/bin`, or `GALOPIN_INSTALL_DIR`)
+that runs `galopin launch TOOL "$@"`: type `claude-galopin` instead of `claude` and
+the tool goes through the gateway. With `--default` it also writes a shim named
+`TOOL` into a directory galopin owns, `<install dir>/galopin-shims`, and prints the
+exact line to put that directory first on your `PATH`
+(`export PATH="…/galopin-shims:$PATH"`); galopin does not edit your shell files, so
+the line is yours to add (and to remove). The shim finds the real tool by leaving its
+own directory out of `PATH` (every galopin command does, `run` included, so the
+supervised engine never resolves a shim either; `launch` also refuses a tool binary
+that is one of setup's shims, and a launch started inside a launch). Nothing in the tool's own configuration is touched and
+no service is installed. Running it again is safe; a file of the same name that setup
+did not write is never overwritten, and `--remove` deletes only files setup wrote
+(each starts with a `# galopin-setup:` marker line).
+
+`--default` means two things by mode: plain `setup TOOL --default` is the PATH shim;
+`setup goose --desktop --default` makes `galopin` goose's default provider. The tool's
+own flags pass through the command untouched (`claude-galopin -p "hi" --model X`).
+
+`setup TOOL --desktop` is for desktop apps and editor plug-ins that need an HTTP
+provider; see [Your own goose, through galopin](#your-own-goose-through-galopin).
+goose is the one wired today. `setup claude --desktop` is refused: Claude Code has no
+desktop provider to write.
+
 ### Keeping it running
 
-`galopin run` stops when its terminal closes. One command keeps it going: start at
-login, restart if it stops. It is the last step of the **Pair a computer** dialog,
-and you can run it any time after pairing:
+`galopin run` stops when its terminal closes. The service is **optional**: it keeps
+it going, start at login, restart if it stops, and you can remove it again at any
+time (`galopin service uninstall`). Without it, `galopin run` in a terminal works the
+same while that terminal is open, and `galopin launch` needs neither. It is the last
+step of the **Pair a computer** dialog, and you can run it any time after pairing:
 
 ```sh
 galopin service install      # write the service, enable it, start it now
 galopin service status       # installed? running? starts at login? where is the log?
 galopin service uninstall    # stop it and remove the service
+galopin status               # how galopin is kept running here, and how to stop it
 ```
+
+`galopin status` says whether galopin runs as the service, in a terminal
+(`galopin run` left open), under the Mac app or in a container, with how to stop or
+remove it. galopin reports the same word to Cerea (`hello.agent.runMode`) and the
+Agents panel shows it under the computer's name ("Runs as a service", "Runs in a
+terminal", …); opening it shows what that means and how to stop or remove it.
+`status` tells a `galopin run` apart from a launch's proxy by the pairing lock only
+`run` and `serve` take.
 
 It runs **this** galopin binary as `galopin run`. To run with other options (an
 ACP engine, a machine name), pass them after `--`:
@@ -2197,7 +2282,7 @@ rate-limiting; retrying in 4m"). The device-code sign-in slows its polling the
 same way (up to a minute between polls) and keeps the code alive. Only one
 galopin can run per pairing: a second one stops with "another galopin is
 already running with this pairing (PID n)". See what runs
-it with `galopin service status`; stop it with Ctrl-C (a terminal),
+it with `galopin service status` (or `galopin status`); stop it with Ctrl-C (a terminal),
 `galopin service uninstall` (a service) or by quitting the Mac app, before
 running another or before `galopin enroll`. A service restart (`galopin
 service install` again, `systemctl --user restart galopin`) is fine: the new

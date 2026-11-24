@@ -116,11 +116,21 @@ func (s *TokenStore) Header(ctx context.Context, name, serverURL string) (string
 	if t == nil {
 		return "", nil
 	}
-	if t.ExpiresAt != 0 && time.Until(time.Unix(t.ExpiresAt, 0)) < time.Minute && t.RefreshToken != "" {
-		if nt, err := s.refreshLocked(ctx, name, t); err == nil {
-			t = nt
+	if needsRefresh(t) {
+		// Another galopin process may refresh the same sign-in: take the file
+		// lock, and look again (it may already have done it).
+		if unlock, err := s.fileLock(name); err == nil {
+			defer unlock()
+			if t2 := s.Load(name, serverURL); t2 != nil {
+				t = t2
+			}
 		}
-		// A failed refresh sends the old token: the server's 401 decides.
+		if needsRefresh(t) {
+			if nt, err := s.refreshLocked(ctx, name, t); err == nil {
+				t = nt
+			}
+			// A failed refresh sends the old token: the server's 401 decides.
+		}
 	}
 	return "Bearer " + t.AccessToken, nil
 }
@@ -131,12 +141,27 @@ func (s *TokenStore) Refresh(ctx context.Context, name, serverURL string) error 
 	l := s.lock(name)
 	l.Lock()
 	defer l.Unlock()
+	if unlock, err := s.fileLock(name); err == nil {
+		defer unlock()
+	}
 	t := s.Load(name, serverURL)
 	if t == nil || t.RefreshToken == "" {
 		return errNoToken
 	}
 	_, err := s.refreshLocked(ctx, name, t)
 	return err
+}
+
+func needsRefresh(t *StoredToken) bool {
+	return t.ExpiresAt != 0 && time.Until(time.Unix(t.ExpiresAt, 0)) < time.Minute && t.RefreshToken != ""
+}
+
+// fileLock is the cross-process half of lock(name): <dir>/<name>.lock.
+func (s *TokenStore) fileLock(name string) (func(), error) {
+	if err := os.MkdirAll(s.dir, 0o700); err != nil {
+		return nil, err
+	}
+	return lockFile(filepath.Join(s.dir, name+".lock"))
 }
 
 func (s *TokenStore) refreshLocked(ctx context.Context, name string, t *StoredToken) (*StoredToken, error) {

@@ -405,9 +405,13 @@ computer** dialog, **Keep it running**, gives one command for it:
 ~/.local/bin/galopin service install
 ```
 
-It starts galopin when you log in and restarts it if it stops. To undo it, run
-`galopin service uninstall`; `galopin service status` shows whether it runs and
-where its log is. On a Linux server that should keep running with nobody logged
+It starts galopin when you log in and restarts it if it stops. It is optional:
+without it, `galopin run` works the same while its terminal is open, and
+`galopin launch` needs neither. To remove it, run `galopin service uninstall`;
+`galopin service status` shows whether it runs and where its log is, and
+`galopin status` says how galopin is kept running on that computer (the service,
+a terminal, the Mac app or a container). The Agents panel shows the same under each
+computer's name, which opens to the way to stop or remove it. On a Linux server that should keep running with nobody logged
 in, also run `loginctl enable-linger "$USER"` (it may need sudo). In Docker the
 dialog always prints `docker run -d --restart unless-stopped …` instead (with
 the pairing box unticked it says to tick it and run the first command again

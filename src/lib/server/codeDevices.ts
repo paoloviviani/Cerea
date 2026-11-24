@@ -61,6 +61,8 @@ export interface CodeDeviceView {
 	agentContainer?: boolean;
 	/** What this galopin said it can do about upgrading itself (`hello.agent.upgrade`). */
 	agentUpgrade?: GalopinUpgradeCapability;
+	/** How galopin is kept running there (`hello.agent.runMode`): service, terminal, mac_app, docker. */
+	agentRunMode?: string;
 	/** The upgrade started from Cerea, as shown now (a run past its timeout reads failed). */
 	upgrade?: UpgradeRun;
 	policy: CodeDevice["policy"];
@@ -99,6 +101,7 @@ export function deviceView(device: CodeDevice, online: boolean): CodeDeviceView 
 		...(device.agentVersion ? { agentVersion: device.agentVersion } : {}),
 		...(device.agentContainer ? { agentContainer: true } : {}),
 		...(device.agentUpgrade ? { agentUpgrade: device.agentUpgrade } : {}),
+		...(device.agentRunMode ? { agentRunMode: device.agentRunMode } : {}),
 		...(upgrade ? { upgrade } : {}),
 		policy: device.policy,
 		credentialState: device.credentialState,

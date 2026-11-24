@@ -64,6 +64,10 @@ type AgentInfo struct {
 	// Container is true inside a container (Docker, Podman): such a galopin is upgraded by
 	// pulling the new image, so the panel does not offer the installer's --upgrade for it.
 	Container bool `json:"container,omitempty"`
+	// RunMode is how this galopin is kept running: "service" (the systemd user unit or
+	// LaunchAgent), "terminal" (a `galopin run` left open), "mac_app" or "docker". The
+	// Agents panel shows it. Absent from a galopin that predates it.
+	RunMode string `json:"runMode,omitempty"`
 	// Upgrade says whether this galopin can upgrade itself in place when Cerea asks
 	// (`machine.upgrade`, PROTOCOL.md §6). Absent from a galopin that predates it.
 	Upgrade *UpgradeInfo `json:"upgrade,omitempty"`

@@ -20,6 +20,10 @@ import (
 
 const gooseSetupUsage = `galopin goose — use galopin's proxy from your own goose.
 
+('galopin goose setup' is the same as 'galopin setup goose --desktop'; see 'galopin setup -h'.
+Note: --default here makes galopin goose's default provider; in plain 'galopin setup TOOL' it
+means a shim named TOOL for your PATH.)
+
 Usage:
   galopin goose setup [--default] [--no-connectors] [--creds PATH] [--state-dir PATH]
   galopin goose setup --remove [--creds PATH] [--state-dir PATH]
@@ -62,42 +66,14 @@ func runGoose(args []string) error {
 	if args[0] != "setup" {
 		return fmt.Errorf("unknown goose command %q\n\n%s", args[0], gooseSetupUsage)
 	}
-	fs := flagSetWithHelp("goose setup", gooseSetupUsage)
-	credsPath := fs.String("creds", "", "")
-	makeDefault := fs.Bool("default", false, "")
-	remove := fs.Bool("remove", false, "")
-	noConnectors := fs.Bool("no-connectors", false, "")
-	stateFlag := fs.String("state-dir", "", "")
-	if err := fs.Parse(args[1:]); err != nil {
-		return err
-	}
-	if fs.NArg() > 0 {
-		return fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
-	}
-	if *remove && (*makeDefault || *noConnectors) {
-		return fmt.Errorf("--remove takes no other option")
-	}
-	path := *credsPath
-	if path == "" {
-		p, err := resolveDefaultCredsPath()
-		if err != nil {
-			return err
+	for _, a := range args[1:] {
+		if a == "-h" || a == "-help" || a == "--help" {
+			fmt.Fprint(os.Stderr, gooseSetupUsage)
+			return nil
 		}
-		path = p
 	}
-	cfgDir, err := gooseUserConfigDir()
-	if err != nil {
-		return err
-	}
-	stateDir := resolveStateDir(*stateFlag, path)
-	if *remove {
-		return gooseSetupRemove(cfgDir, stateDir)
-	}
-	creds, err := loadCredentials(path)
-	if err != nil {
-		return err
-	}
-	return gooseSetup(context.Background(), creds, path, stateDir, cfgDir, *makeDefault, !*noConnectors)
+	// 'galopin goose setup' is 'galopin setup goose --desktop'.
+	return runSetup(append([]string{"goose", "--desktop"}, args[1:]...))
 }
 
 func gooseProviderPath(cfgDir string) string {

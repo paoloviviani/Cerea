@@ -37,7 +37,7 @@ func launchTempDir(stateDir, prefix string) (string, error) {
 		return "", err
 	}
 	dir := filepath.Join(parent, fmt.Sprintf("%s-launch-%d", prefix, os.Getpid()))
-	_ = os.RemoveAll(dir) // a stale one under a recycled pid
+	_ = removeAllWritable(dir) // a stale one under a recycled pid
 	if err := os.MkdirAll(filepath.Join(dir, "tmp"), 0o700); err != nil {
 		return "", err
 	}
@@ -63,8 +63,21 @@ func sweepStaleLaunchDirs(stateDir string) {
 		if pid == os.Getpid() || pidAlive(pid) {
 			continue
 		}
-		_ = os.RemoveAll(filepath.Join(parent, e.Name()))
+		_ = removeAllWritable(filepath.Join(parent, e.Name()))
 	}
+}
+
+// removeAllWritable removes dir even when the tool left read-only directories in
+// it (Vibe's plugin packages are mode 0555): os.RemoveAll cannot delete a file
+// from a directory it may not write to, which would leave a proxy secret behind.
+func removeAllWritable(dir string) error {
+	_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+		if err == nil && d.IsDir() {
+			_ = os.Chmod(p, 0o700)
+		}
+		return nil
+	})
+	return os.RemoveAll(dir)
 }
 
 // pidAlive is false only when the process is known not to exist.
@@ -155,7 +168,7 @@ func gooseIDs(models []gooseModel) []string {
 // engine's provider file (without the session-id header, which tags usage as a
 // Cerea session) and config.yaml (approve mode, keyring and telemetry off), and
 // links the user's own session store so `goose session --resume` sees history.
-func writeGooseLaunchConfig(root string, creds *credentials, models []gooseModel, model string) error {
+func writeGooseLaunchConfig(root string, creds *credentials, models []gooseModel, model string, conn *launchConnectors) error {
 	provider, err := gooseProviderJSON(fmt.Sprintf("127.0.0.1:%d", creds.ShimPort), creds.ShimSecret, models, false)
 	if err != nil {
 		return err
@@ -168,7 +181,15 @@ func writeGooseLaunchConfig(root string, creds *credentials, models []gooseModel
 	if err := writeFileAtomic(filepath.Join(root, "config", "custom_providers", gooseProviderID+".json"), provider, 0o600); err != nil {
 		return err
 	}
-	if err := writeFileAtomic(filepath.Join(root, "config", "config.yaml"), []byte(gooseEngineConfigYAML(model)), 0o600); err != nil {
+	cfg := gooseEngineConfigYAML(model)
+	if conn != nil {
+		ext, err := gooseLaunchExtensionYAML(conn)
+		if err != nil {
+			return err
+		}
+		cfg += ext
+	}
+	if err := writeFileAtomic(filepath.Join(root, "config", "config.yaml"), []byte(cfg), 0o600); err != nil {
 		return err
 	}
 	return linkGooseSessions(root)
@@ -185,6 +206,9 @@ func launchGoose(ctx context.Context, opts launchOptions) error {
 	}
 	bin, err := resolveGooseLaunchBin(opts.gooseBin)
 	if err != nil {
+		return err
+	}
+	if err := refuseSetupShim("goose", bin); err != nil {
 		return err
 	}
 	if got := gooseVersionOf(bin); got == "" {
@@ -210,10 +234,12 @@ func launchGoose(ctx context.Context, opts launchOptions) error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(root)
+	defer removeAllWritable(root)
 	creds := *ls.creds
 	creds.ShimPort, creds.ShimSecret = ls.port, ls.toolSecret
-	if err := writeGooseLaunchConfig(root, &creds, gm, model); err != nil {
+	conn := ls.startLaunchConnectors(ctx)
+	defer conn.close()
+	if err := writeGooseLaunchConfig(root, &creds, gm, model, conn); err != nil {
 		return fmt.Errorf("writing the temporary goose config: %w", err)
 	}
 	env := append(gooseEnv(root, launchBaseEnv(opts)), "TMPDIR="+filepath.Join(root, "tmp"))
@@ -277,6 +303,9 @@ func launchVibe(ctx context.Context, opts launchOptions) error {
 	if err != nil {
 		return err
 	}
+	if err := refuseSetupShim("vibe", bin); err != nil {
+		return err
+	}
 	if got := vibeVersionOf(bin); got == "" {
 		ls.logf("warning: could not read %s's version (galopin is tested against Mistral Vibe %s)", bin, packaging.VibeVersion())
 	} else if got != packaging.VibeVersion() {
@@ -307,11 +336,17 @@ func launchVibe(ctx context.Context, opts launchOptions) error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(home)
+	defer removeAllWritable(home)
 	if err := os.MkdirAll(filepath.Join(home, "logs"), 0o700); err != nil {
 		return err
 	}
-	if err := writeFileAtomic(filepath.Join(home, "config.toml"), []byte(vibeConfigTOML(ls.shimAddr(), ls.toolSecret, vm)), 0o600); err != nil {
+	conn := ls.startLaunchConnectors(ctx)
+	defer conn.close()
+	vibeCfg := vibeConfigTOML(ls.shimAddr(), ls.toolSecret, vm)
+	if conn != nil {
+		vibeCfg += vibeConnectorsTOML(conn)
+	}
+	if err := writeFileAtomic(filepath.Join(home, "config.toml"), []byte(vibeCfg), 0o600); err != nil {
 		return fmt.Errorf("writing the temporary Vibe config: %w", err)
 	}
 	if err := resetVibeTrust(home); err != nil {
@@ -427,6 +462,9 @@ func launchClaude(ctx context.Context, opts launchOptions) error {
 	if err != nil {
 		return err
 	}
+	if err := refuseSetupShim("claude", bin); err != nil {
+		return err
+	}
 	if v := claudeVersionOf(bin); v == "" {
 		ls.logf("warning: could not read %s's version; galopin pins no Claude Code version", bin)
 	} else {
@@ -465,12 +503,27 @@ func launchClaude(ctx context.Context, opts launchOptions) error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(dir)
+	defer removeAllWritable(dir)
 	settingsPath := filepath.Join(dir, "settings.json")
 	if err := writeFileAtomic(settingsPath, settings, 0o600); err != nil {
 		return err
 	}
-	args := append([]string{"--settings", settingsPath, "--model", model}, opts.args...)
+	args := []string{"--settings", settingsPath, "--model", model}
+	// Connectors: a temporary --mcp-config, merged by Claude Code with the user's
+	// own MCP servers (no --strict-mcp-config).
+	if conn := ls.startLaunchConnectors(ctx); conn != nil {
+		defer conn.close()
+		mcpJSON, err := claudeMcpConfigJSON(conn)
+		if err != nil {
+			return err
+		}
+		mcpPath := filepath.Join(dir, "mcp.json")
+		if err := writeFileAtomic(mcpPath, mcpJSON, 0o600); err != nil {
+			return err
+		}
+		args = append(args, "--mcp-config", mcpPath)
+	}
+	args = append(args, opts.args...)
 	env := append(claudeEnv(launchBaseEnv(opts), set), "TMPDIR="+filepath.Join(dir, "tmp"))
 	ls.logf("local Claude Code (%s, small model %s), billed to %s; not supervised by Cerea (no Plan/Ask/Auto, no review log)", model, small, billingLabel(ls.creds))
 	ls.logf("Claude Code asks per its own permission settings, in this terminal; your ~/.claude settings still apply except what galopin overrides (endpoint, token, models); galopin's own-state protections need galopin to answer and do not apply")

@@ -37,6 +37,11 @@ Commands:
   run       Supervise opencode and dial out to Cerea over WSS (PROTOCOL.md).
   launch    Start your own interactive opencode, goose, vibe or claude
             ('launch TOOL') set up as galopin sets it up, without dialing Cerea.
+  setup     Make 'launch' your default for a tool ('setup claude' adds a
+            'claude-galopin' command; '--default' puts 'claude' itself through
+            the gateway) or wire a desktop app ('setup goose --desktop').
+  status    Say how galopin is kept running here (service, terminal, Mac app,
+            container) and how to stop or remove it.
   models    Re-discover the gateway's models ('models refresh') without
             re-enrolling.
   goose     Point your own goose (Desktop, CLI, editor extension) at galopin's
@@ -63,6 +68,9 @@ func main() {
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)
 	}
+	// No galopin command, 'run' and its engines included, may resolve a shim
+	// 'galopin setup --default' put first on PATH as the real tool.
+	stripShimsFromPath()
 	var err error
 	switch os.Args[1] {
 	case "enroll":
@@ -75,6 +83,10 @@ func main() {
 		err = runRun(os.Args[2:])
 	case "launch":
 		err = runLaunch(os.Args[2:])
+	case "setup":
+		err = runSetup(os.Args[2:])
+	case "status":
+		err = runStatus(os.Args[2:])
 	case "models":
 		err = runModels(os.Args[2:])
 	case "policy":
