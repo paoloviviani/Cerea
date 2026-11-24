@@ -259,7 +259,7 @@ func TestLaunchClaude(t *testing.T) {
 	}
 	rec := r.recorded(t)
 	for _, want := range []string{
-		"ARGS:--settings ", "--model gw-model -p hello world",
+		"ARGS:--settings ", "--model gw-model --mcp-config ", " -p hello world",
 		"ANTHROPIC_BASE_URL=http://127.0.0.1:" + itPortStr(r.port) + "\n",
 		"ANTHROPIC_AUTH_TOKEN=gl-", "ANTHROPIC_API_KEY=\n", "ANTHROPIC_CUSTOM_HEADERS=\n",
 		"CLAUDE_CODE_USE_BEDROCK=0", "CLAUDE_CODE_USE_VERTEX=0", "CLAUDE_CODE_USE_FOUNDRY=0", "OPENAI_API_KEY=<unset>",

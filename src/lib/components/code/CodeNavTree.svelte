@@ -84,6 +84,7 @@
 	import { usePublicConfig } from "$lib/utils/PublicConfig.svelte";
 	import { buildEnrollCommand } from "$lib/codeEnrollCommand";
 	import DeviceUpgrade from "./DeviceUpgrade.svelte";
+	import DeviceRunMode from "./DeviceRunMode.svelte";
 	import PairDeviceDialog from "./PairDeviceDialog.svelte";
 	import PermissionsDialog from "./PermissionsDialog.svelte";
 	import { stepOf } from "$lib/types/machineProtocol";
@@ -809,6 +810,7 @@
 					</div>
 				{/if}
 				{#if device.status === "paired" && !isDead}
+					<DeviceRunMode {device} />
 					<DeviceUpgrade {device} origin={publicConfig.origin} />
 				{/if}
 				{#if device.status === "paired" && !isDead && deviceExpanded}

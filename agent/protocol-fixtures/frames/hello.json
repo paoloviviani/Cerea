@@ -12,6 +12,7 @@
 			"os": "linux",
 			"arch": "amd64",
 			"hostname": "dev-box",
+			"runMode": "service",
 			"upgrade": {
 				"inPlace": true,
 				"reason": "systemd"

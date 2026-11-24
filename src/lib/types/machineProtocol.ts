@@ -951,6 +951,8 @@ export interface HelloFrame {
 		arch: string;
 		hostname: string;
 		container?: boolean;
+		/** How galopin is kept running there: "service", "terminal", "mac_app" or "docker". */
+		runMode?: string | null;
 		/** Whether this galopin can upgrade itself when Cerea asks (§6 `machine.upgrade`). */
 		upgrade?: { inPlace: boolean; reason: string } | null;
 	};
@@ -1182,6 +1184,7 @@ export const helloFrameSchema: z.ZodType<HelloFrame> = z.object({
 		arch: z.string(),
 		hostname: z.string(),
 		container: z.boolean().optional(),
+		runMode: z.string().max(32).nullish(),
 		upgrade: z.object({ inPlace: z.boolean(), reason: z.string().max(32) }).nullish(),
 	}),
 	backends: z.array(backendSchema),

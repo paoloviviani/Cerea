@@ -83,7 +83,7 @@ OpenAI-compatible model, no secrets) on the pinned release for changes under
 `agent/` and weekly, and on goose's latest daily, keeping one issue ("breaks
 galopin" or "ready to bump the pin"). Bump with `packaging/bump-goose.sh
 <version>`. Locally: install that goose, then `GALOPIN_GOOSE_IT=1 GALOPIN_GOOSE_BIN=$(command -v goose) go test -run
-Goose .`. `galopin goose setup` configures a user's own goose; see the
+Goose .`. `galopin setup goose --desktop` (`goose setup`) configures a user's own goose; see the
 agent-machines reference.
 
 ## Mistral Vibe releases
@@ -184,6 +184,16 @@ permissions and the review log. Treat it as opencode with the gateway wired in.
 `launch` also takes `goose`, `vibe` and `claude`, wired the same way (temporary
 config, your own left untouched; see `galopin launch --help` and
 [the reference](../docs/agent-machines-reference.md)).
+
+Every launched tool also gets the Cerea connectors (this computer's own, and your
+Cerea ones while the Workspace switch is on) as one MCP server in its temporary
+config, behind a per-launch secret; the tool's own approval rules apply
+(convenience, not enforcement). `galopin setup TOOL` makes launch your default: it
+installs a `TOOL-galopin` command, and with `--default` a shim named `TOOL` in a
+galopin-owned directory you put first on `PATH` yourself; `galopin setup TOOL
+--desktop` writes the provider into a desktop app's own config (goose) and needs the
+proxy running. `galopin status` says whether galopin runs as the service, in a
+terminal, under the Mac app or in a container.
 
 ### Models
 
@@ -292,9 +302,10 @@ To keep `run` up (start at login, restart if it stops), let galopin install it:
 galopin service install      # systemd user unit (Linux) or LaunchAgent (macOS)
 galopin service status
 galopin service uninstall
+galopin status               # service, terminal, Mac app or container; how to stop it
 ```
 
-It runs this binary as `galopin run`; flags after `--` go to `run`
+The service is optional. It runs this binary as `galopin run`; flags after `--` go to `run`
 (`galopin service install -- --backend acp --acp-command "my-agent acp"`). Run
 again, it updates the service and restarts it. On Linux it prints the one
 command to keep it running after logout when lingering is off

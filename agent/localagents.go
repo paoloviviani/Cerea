@@ -208,7 +208,7 @@ func (s *localAgentSource) Tools(ctx context.Context) []localmcp.Tool {
 			if json.Unmarshal(raw, &l) == nil {
 				for _, c := range l.Connectors {
 					for _, t := range c.Tools {
-						add(localmcp.Tool{Name: toolName(c.Name, t.Name), Description: "(" + c.Name + ", from Cerea) " + t.Description, Schema: t.InputSchema},
+						add(localmcp.Tool{Name: toolName(c.Name, t.Name), Description: "(" + c.Name + cereaToolMarker + t.Description, Schema: t.InputSchema},
 							localAgentTool{cerea: true, connector: c.ID, tool: t.Name})
 					}
 				}

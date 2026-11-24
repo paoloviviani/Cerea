@@ -155,7 +155,7 @@ func gooseIDs(models []gooseModel) []string {
 // engine's provider file (without the session-id header, which tags usage as a
 // Cerea session) and config.yaml (approve mode, keyring and telemetry off), and
 // links the user's own session store so `goose session --resume` sees history.
-func writeGooseLaunchConfig(root string, creds *credentials, models []gooseModel, model string) error {
+func writeGooseLaunchConfig(root string, creds *credentials, models []gooseModel, model string, conn *launchConnectors) error {
 	provider, err := gooseProviderJSON(fmt.Sprintf("127.0.0.1:%d", creds.ShimPort), creds.ShimSecret, models, false)
 	if err != nil {
 		return err
@@ -168,7 +168,15 @@ func writeGooseLaunchConfig(root string, creds *credentials, models []gooseModel
 	if err := writeFileAtomic(filepath.Join(root, "config", "custom_providers", gooseProviderID+".json"), provider, 0o600); err != nil {
 		return err
 	}
-	if err := writeFileAtomic(filepath.Join(root, "config", "config.yaml"), []byte(gooseEngineConfigYAML(model)), 0o600); err != nil {
+	cfg := gooseEngineConfigYAML(model)
+	if conn != nil {
+		ext, err := gooseLaunchExtensionYAML(conn)
+		if err != nil {
+			return err
+		}
+		cfg += ext
+	}
+	if err := writeFileAtomic(filepath.Join(root, "config", "config.yaml"), []byte(cfg), 0o600); err != nil {
 		return err
 	}
 	return linkGooseSessions(root)
@@ -213,7 +221,9 @@ func launchGoose(ctx context.Context, opts launchOptions) error {
 	defer os.RemoveAll(root)
 	creds := *ls.creds
 	creds.ShimPort, creds.ShimSecret = ls.port, ls.toolSecret
-	if err := writeGooseLaunchConfig(root, &creds, gm, model); err != nil {
+	conn := ls.startLaunchConnectors(ctx)
+	defer conn.close()
+	if err := writeGooseLaunchConfig(root, &creds, gm, model, conn); err != nil {
 		return fmt.Errorf("writing the temporary goose config: %w", err)
 	}
 	env := append(gooseEnv(root, launchBaseEnv(opts)), "TMPDIR="+filepath.Join(root, "tmp"))
@@ -311,7 +321,13 @@ func launchVibe(ctx context.Context, opts launchOptions) error {
 	if err := os.MkdirAll(filepath.Join(home, "logs"), 0o700); err != nil {
 		return err
 	}
-	if err := writeFileAtomic(filepath.Join(home, "config.toml"), []byte(vibeConfigTOML(ls.shimAddr(), ls.toolSecret, vm)), 0o600); err != nil {
+	conn := ls.startLaunchConnectors(ctx)
+	defer conn.close()
+	vibeCfg := vibeConfigTOML(ls.shimAddr(), ls.toolSecret, vm)
+	if conn != nil {
+		vibeCfg += vibeConnectorsTOML(conn)
+	}
+	if err := writeFileAtomic(filepath.Join(home, "config.toml"), []byte(vibeCfg), 0o600); err != nil {
 		return fmt.Errorf("writing the temporary Vibe config: %w", err)
 	}
 	if err := resetVibeTrust(home); err != nil {
@@ -470,7 +486,22 @@ func launchClaude(ctx context.Context, opts launchOptions) error {
 	if err := writeFileAtomic(settingsPath, settings, 0o600); err != nil {
 		return err
 	}
-	args := append([]string{"--settings", settingsPath, "--model", model}, opts.args...)
+	args := []string{"--settings", settingsPath, "--model", model}
+	// Connectors: a temporary --mcp-config, merged by Claude Code with the user's
+	// own MCP servers (no --strict-mcp-config).
+	if conn := ls.startLaunchConnectors(ctx); conn != nil {
+		defer conn.close()
+		mcpJSON, err := claudeMcpConfigJSON(conn)
+		if err != nil {
+			return err
+		}
+		mcpPath := filepath.Join(dir, "mcp.json")
+		if err := writeFileAtomic(mcpPath, mcpJSON, 0o600); err != nil {
+			return err
+		}
+		args = append(args, "--mcp-config", mcpPath)
+	}
+	args = append(args, opts.args...)
 	env := append(claudeEnv(launchBaseEnv(opts), set), "TMPDIR="+filepath.Join(dir, "tmp"))
 	ls.logf("local Claude Code (%s, small model %s), billed to %s; not supervised by Cerea (no Plan/Ask/Auto, no review log)", model, small, billingLabel(ls.creds))
 	ls.logf("Claude Code asks per its own permission settings, in this terminal; your ~/.claude settings still apply except what galopin overrides (endpoint, token, models); galopin's own-state protections need galopin to answer and do not apply")

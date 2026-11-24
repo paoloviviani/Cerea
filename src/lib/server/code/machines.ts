@@ -1427,9 +1427,18 @@ async function onHello(
 					lastSeenAt: now,
 					updatedAt: now,
 					...(hello.agent.upgrade ? { agentUpgrade: hello.agent.upgrade } : {}),
+					...(hello.agent.runMode ? { agentRunMode: hello.agent.runMode } : {}),
 				},
 				// A galopin that reports no capability (an older one) must not keep a stale one.
-				...(hello.agent.upgrade ? {} : { $unset: { agentUpgrade: "" as const } }),
+				...(hello.agent.upgrade && hello.agent.runMode
+					? {}
+					: {
+							$unset: {
+								...(hello.agent.upgrade ? {} : { agentUpgrade: "" as const }),
+								// Same for how it is kept running: an older galopin reports none.
+								...(hello.agent.runMode ? {} : { agentRunMode: "" as const }),
+							},
+						}),
 			}
 		);
 		// The upgrade started from here: this hello finishes it, or clears a finished one. Written
@@ -1459,6 +1468,7 @@ async function onHello(
 			agentVersion: hello.agent.version,
 			agentContainer: hello.agent.container === true,
 			...(hello.agent.upgrade ? { agentUpgrade: hello.agent.upgrade } : {}),
+			...(hello.agent.runMode ? { agentRunMode: hello.agent.runMode } : {}),
 			...(hello.machine ? { machine: hello.machine } : {}),
 			policy: hello.policy,
 			credentialState: hello.credential.state,

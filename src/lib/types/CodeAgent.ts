@@ -384,6 +384,9 @@ export interface CodeDevice {
 	/** `hello.agent.upgrade`: whether this galopin can upgrade itself when Cerea asks; absent
 	 * from a galopin that predates it. */
 	agentUpgrade?: GalopinUpgradeCapability;
+	/** `hello.agent.runMode`: how galopin is kept running ("service" | "terminal" | "mac_app" |
+	 * "docker"); absent from a galopin that predates it. */
+	agentRunMode?: string;
 	/** The upgrade the owner last started from Cerea, and how it went (`galopinUpgrade.ts`). */
 	upgradeRun?: UpgradeRun;
 	/** What this galopin build implements (`hello.machine`: files, terminal…);

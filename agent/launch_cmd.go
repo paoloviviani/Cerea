@@ -58,6 +58,22 @@ its own state, the Plan/Ask/Auto modes and the review log do not apply. Provider
 API keys in your environment (ANTHROPIC_API_KEY, OPENAI_API_KEY, …) are removed
 from opencode's environment so nothing is billed outside the gateway.
 
+Connectors, always on: the launched tool gets one extra MCP server, "Cerea
+connectors", in its temporary config (claude: a --mcp-config file merged with your
+own MCP servers; opencode: the config layer launch already uses; goose and vibe:
+their temporary configs). It is served by this launch on a loopback port behind a
+random per-launch secret and stops when the tool exits. It offers this computer's
+own connectors (mcp.json) and your Cerea connectors while the Workspace switch "Apps
+on my computers may use these connectors too" is on (that switch is the consent; off,
+Cerea offers none). Cerea's connectors travel over the machine link, which only a
+running 'galopin run' (or the service) holds, so launch forwards to it; without one
+only this computer's connectors are offered. One stderr line says what is available.
+Calls follow the tool's OWN approval rules: convenience, not enforcement. galopin's
+Plan/Ask/Allow and review log do not apply.
+
+To make launch your default: 'galopin setup TOOL' installs a TOOL-galopin command;
+'galopin setup TOOL --default' adds a shim named TOOL for you to put first on PATH.
+
 The tool never holds this machine's long-lived proxy secret: it gets a random
 one for this launch, valid until the tool exits (a running 'galopin run' or
 'serve' of this version takes it; an older one is told to restart: galopin says
@@ -79,8 +95,8 @@ temporary directory is removed at exit; your session store is linked, so
 'goose session --resume' sees your history. goose runs in approve mode (asks
 before each tool call, in the terminal), keyring and telemetry off. Binary:
 --goose, then the copy galopin installed, then goose on PATH; a version other
-than the tested one only warns. galopin's protected paths, Plan/Ask/Auto, the
-Cerea connectors extension and the review log do not apply.
+than the tested one only warns. galopin's protected paths, Plan/Ask/Auto and the
+review log do not apply.
 
 vibe: 'galopin launch vibe [--vibe PATH] [--model ID] [--creds PATH]
 [--state-dir PATH] [--port PORT] [-- vibe arguments…]'. Runs Mistral Vibe with a
@@ -141,6 +157,8 @@ func runLaunch(args []string) error {
 		return nil
 	}
 	tool, rest := args[0], args[1:]
+	// A shim from 'galopin setup TOOL --default' must not find itself.
+	stripShimsFromPath()
 	var run func(context.Context, launchOptions) error
 	switch tool {
 	case "opencode":
@@ -339,6 +357,14 @@ func launchOpencode(ctx context.Context, opts launchOptions) error {
 	// the recorded one included), without touching the file.
 	if env, err = overrideOpencodeProvider(env, ls.shimAddr(), ls.toolSecret); err != nil {
 		return err
+	}
+
+	conn := ls.startLaunchConnectors(ctx)
+	defer conn.close()
+	if conn != nil {
+		if env, err = addOpencodeMcp(env, conn); err != nil {
+			return err
+		}
 	}
 
 	logf("local opencode, billed to %s; not supervised by Cerea (no Plan/Ask/Auto, no review log)", billingLabel(creds))
