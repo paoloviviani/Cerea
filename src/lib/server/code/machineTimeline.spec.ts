@@ -96,6 +96,18 @@ describe("snapshotToUpdates", () => {
 		).toBe(false);
 	});
 
+	it("always sends the waiting follow-ups, so a reload shows them and a restart clears them", () => {
+		const base = { messages: [], permissions: [], status: "busy", usage: null, todos: [] };
+		expect(
+			snapshotToUpdates({ ...base, queued: [{ id: "c2", text: "next" }] } as Transcript).filter(
+				(u) => u.type === "queued"
+			)
+		).toEqual([{ type: "queued", queued: [{ id: "c2", text: "next" }] }]);
+		expect(snapshotToUpdates(base as Transcript).filter((u) => u.type === "queued")).toEqual([
+			{ type: "queued", queued: [] },
+		]);
+	});
+
 	it("maps a user text part to a `user` frame carrying its clientMessageId", () => {
 		const transcript: Transcript = {
 			messages: [

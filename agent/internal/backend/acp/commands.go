@@ -2,6 +2,9 @@ package acp
 
 import (
 	"context"
+	"fmt"
+	"slices"
+	"strings"
 
 	"galopin/internal/backend"
 )
@@ -25,7 +28,13 @@ func (b *Backend) ListCommands(_ context.Context, _, sessionID string) ([]backen
 	}
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	return append([]backend.Command{}, st.commands...), nil
+	out := make([]backend.Command, 0, len(st.commands))
+	for _, c := range st.commands {
+		if !b.hiddenCommand(c.Name) {
+			out = append(out, c)
+		}
+	}
+	return out, nil
 }
 
 // RunCommand implements backend.Commander's run half: refuse while the
@@ -35,13 +44,11 @@ func (b *Backend) ListCommands(_ context.Context, _, sessionID string) ([]backen
 // user message this backend synthesizes, because ACP's live mode never
 // echoes one (PROTOCOL.md §6 session.command).
 func (b *Backend) RunCommand(ctx context.Context, workspaceDir, sessionID string, run backend.CommandRun) error {
-	if st, ok := b.reg.get(sessionID); ok {
-		st.mu.Lock()
-		busy := st.busy
-		st.mu.Unlock()
-		if busy {
-			return backend.ErrSessionBusy
-		}
+	if b.hiddenCommand(run.Name) {
+		return fmt.Errorf("acp: that command is not available here")
+	}
+	if b.sessionBusy(sessionID) {
+		return backend.ErrSessionBusy
 	}
 	text := "/" + run.Name
 	if run.Arguments != "" {
@@ -53,4 +60,30 @@ func (b *Backend) RunCommand(ctx context.Context, workspaceDir, sessionID string
 		Attachments:     run.Attachments,
 		Command:         &backend.MessageCommand{Name: run.Name, Arguments: run.Arguments},
 	})
+}
+
+// hiddenCommand is a command galopin does not offer or run (Config.HiddenCommands).
+func (b *Backend) hiddenCommand(name string) bool {
+	return slices.Contains(b.cfg.HiddenCommands, strings.TrimPrefix(strings.ToLower(name), "/"))
+}
+
+// hiddenCommandIn is a prompt that would run a hidden command when typed.
+func (b *Backend) hiddenCommandIn(text string) bool {
+	t := strings.TrimSpace(text)
+	if !strings.HasPrefix(t, "/") {
+		return false
+	}
+	f := strings.Fields(t[1:])
+	return len(f) > 0 && b.hiddenCommand(f[0])
+}
+
+// sessionBusy is a turn running, or prompts waiting for one: nothing else may start.
+func (b *Backend) sessionBusy(sessionID string) bool {
+	st, ok := b.reg.get(sessionID)
+	if !ok {
+		return false
+	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return st.busy || st.draining || len(st.queue) > 0
 }

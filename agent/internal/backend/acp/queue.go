@@ -62,23 +62,31 @@ func (b *Backend) enqueueLocked(workspaceDir string, st *sessionState, prompt ba
 	}
 	st.queue = append(st.queue, queuedPrompt{id: id, prompt: prompt})
 	views := queueViews(st)
-	sessionID, busy := st.id, st.busy
+	sessionID := st.id
 	st.mu.Unlock()
 	b.emitQueue(workspaceDir, sessionID, views)
-	if !busy {
+	st.mu.Lock()
+	idle := !st.busy && !st.draining
+	st.mu.Unlock()
+	if idle {
 		// the turn ended between the check and here: nothing else will drain it
 		go b.drainQueue(workspaceDir, st)
 	}
 	return nil
 }
 
-// drainQueue sends the oldest waiting prompt now that the turn is over.
+// drainQueue sends the oldest waiting prompt now that the turn is over. Taking the head
+// and keeping the session reserved (draining) is one critical section, so a prompt that
+// arrives meanwhile queues behind instead of overtaking. A prompt that cannot be sent
+// (the agent is down) goes back at the front and the drain stops: nothing is discarded.
 func (b *Backend) drainQueue(workspaceDir string, st *sessionState) {
 	st.mu.Lock()
 	if st.busy || len(st.queue) == 0 {
+		st.draining = false
 		st.mu.Unlock()
 		return
 	}
+	st.draining = true
 	next := st.queue[0]
 	st.queue = st.queue[1:]
 	views := queueViews(st)
@@ -86,9 +94,13 @@ func (b *Backend) drainQueue(workspaceDir string, st *sessionState) {
 	st.mu.Unlock()
 	b.emitQueue(workspaceDir, sessionID, views)
 	if err := b.prompt(context.Background(), workspaceDir, sessionID, next.prompt, true); err != nil {
-		b.emit(workspaceDir, sessionID, backend.Event{Kind: backend.EventError, ErrorMessage: "a queued message could not be sent: " + err.Error()})
-		// the rest still get their turn
-		b.drainQueue(workspaceDir, st)
+		st.mu.Lock()
+		st.queue = append([]queuedPrompt{next}, st.queue...)
+		st.draining = false
+		views := queueViews(st)
+		st.mu.Unlock()
+		b.emitQueue(workspaceDir, sessionID, views)
+		b.emit(workspaceDir, sessionID, backend.Event{Kind: backend.EventError, ErrorMessage: "a queued message could not be sent yet: " + err.Error()})
 	}
 }
 
@@ -97,6 +109,7 @@ func (b *Backend) clearQueue(workspaceDir string, st *sessionState) {
 	st.mu.Lock()
 	had := len(st.queue) > 0
 	st.queue = nil
+	st.draining = false
 	sessionID := st.id
 	st.mu.Unlock()
 	if had {

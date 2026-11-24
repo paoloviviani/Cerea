@@ -60,9 +60,14 @@ func (ta *thinkingAgent) hook(fa *fakeAgent, id json.RawMessage, method string, 
 
 func newEffortBackend(t *testing.T, ta *thinkingAgent) *Backend {
 	t.Helper()
+	return newEffortBackendWith(t, ta, map[string][]string{"m2": {"low", "medium", "high"}})
+}
+
+func newEffortBackendWith(t *testing.T, ta *thinkingAgent, efforts map[string][]string) *Backend {
+	t.Helper()
 	b, fa := newTestBackendCfg(t, false, func(c *Config) {
 		c.Efforts, c.EffortDefault = true, "off"
-		c.ModelEfforts = func() map[string][]string { return map[string][]string{"m2": {"low", "medium", "high"}} }
+		c.ModelEfforts = func() map[string][]string { return efforts }
 	})
 	fa.hook = ta.hook
 	return b
@@ -78,6 +83,16 @@ func TestSetEffortSetsTheThinkingOption(t *testing.T) {
 	sess, err := b.CreateSession(ctx, "/w", backend.CreateSessionOptions{})
 	if err != nil {
 		t.Fatal(err)
+	}
+	// m1 is no reasoning model in galopin's record: the agent's own levels do not count
+	if _, err := b.SetEffort(ctx, "/w", sess.ID, "high"); err == nil {
+		t.Fatal("an effort was accepted for a model galopin lists none for")
+	}
+	if _, err := b.SetModel(ctx, "/w", sess.ID, "m2"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.SetEffort(ctx, "/w", sess.ID, "off"); err == nil {
+		t.Fatal("off was accepted although galopin does not list it")
 	}
 	got, err := b.SetEffort(ctx, "/w", sess.ID, "high")
 	if err != nil || got.Effort != "high" {
@@ -103,7 +118,7 @@ func TestSetEffortSetsTheThinkingOption(t *testing.T) {
 // the new model offers it.
 func TestEffortDefaultOnNewSessionAndKeptAcrossModelChange(t *testing.T) {
 	ta := &thinkingAgent{thinking: "high", model: "m1"}
-	b := newEffortBackend(t, ta)
+	b := newEffortBackendWith(t, ta, map[string][]string{"m1": {"low", "medium", "high"}, "m2": {"low", "medium", "high"}})
 	ctx := context.Background()
 	sess, err := b.CreateSession(ctx, "/w", backend.CreateSessionOptions{})
 	if err != nil {
@@ -157,5 +172,26 @@ func TestSetEffortRefusedWithoutTheOption(t *testing.T) {
 	}
 	if _, err := b.SetEffort(context.Background(), "/w", "x", "high"); err == nil {
 		t.Fatal("SetEffort worked without the option")
+	}
+}
+
+// A level the new model does not offer falls back to the default on a model change.
+func TestEffortFallsBackToTheDefaultWhenTheNewModelDoesNotOfferIt(t *testing.T) {
+	ta := &thinkingAgent{thinking: "off", model: "m2"}
+	b := newEffortBackend(t, ta) // only m2 reasons
+	ctx := context.Background()
+	sess, err := b.CreateSession(ctx, "/w", backend.CreateSessionOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.SetEffort(ctx, "/w", sess.ID, "high"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := b.SetModel(ctx, "/w", sess.ID, "m1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Effort != "" || ta.thinking != "off" {
+		t.Fatalf("effort %q, agent %q: want the default", got.Effort, ta.thinking)
 	}
 }

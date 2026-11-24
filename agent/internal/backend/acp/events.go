@@ -465,6 +465,9 @@ func (b *Backend) Compact(ctx context.Context, workspaceDir, sessionID string) e
 	if b.cfg.CompactCommand == "" {
 		return fmt.Errorf("acp: this agent has no compaction command")
 	}
+	if b.sessionBusy(sessionID) {
+		return backend.ErrSessionBusy
+	}
 	return b.Prompt(ctx, workspaceDir, sessionID, backend.Prompt{Text: b.cfg.CompactCommand})
 }
 

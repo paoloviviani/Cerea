@@ -663,6 +663,8 @@ export interface Transcript {
 	permissions: PermissionRequest[];
 	/** Unanswered question-tool asks; a machine older than this field omits it. */
 	questions?: Array<{ id: string; questions: Question[]; callId?: string }>;
+	/** Follow-ups the machine holds for the running turn (capability `queue`); absent when none. */
+	queued?: QueuedPrompt[];
 	status: SessionStatus;
 	/** Why a `retry` status waits (PROTOCOL.md §7); a machine older than this omits it. */
 	retry?: RetryInfo;

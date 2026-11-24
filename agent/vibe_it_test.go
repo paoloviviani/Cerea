@@ -502,7 +502,7 @@ func TestVibeEngineWorkspaceInstructions(t *testing.T) {
 		t.Fatal(err)
 	}
 	other := t.TempDir()
-	hasText := func(string) bool { // did any request of this run carry the text
+	hasText := func() bool { // did any request of this run carry the text
 		for _, q := range r.requestLog() {
 			for _, p := range q.Prompts {
 				if strings.Contains(p, "galopin-haiku-7731") {
@@ -523,12 +523,29 @@ func TestVibeEngineWorkspaceInstructions(t *testing.T) {
 	}
 	r.scenario(mockllm.Scenario{Content: []string{"ok"}, FinishReason: "stop"})
 	r.turnIn(other, b2.ID, "hello", backend.DecisionOnce)
-	if hasText(b2.ID) {
+	if hasText() {
 		t.Fatal("another workspace's AGENTS.md reached a session of a workspace without one")
 	}
 	r.turn(a.ID, "hello", backend.DecisionOnce)
-	if !hasText(a.ID) {
+	if !hasText() {
 		t.Fatal("the workspace's AGENTS.md did not reach the session's instructions")
+	}
+	// the file does not outlive the call that opened the session
+	if _, err := os.Stat(filepath.Join(r.home, "AGENTS.md")); !os.IsNotExist(err) {
+		t.Errorf("VIBE_HOME/AGENTS.md was left behind: %v", err)
+	}
+	// /reload would re-read it for another workspace: it is neither offered nor run
+	cmds, _ := r.b.(backend.Commander).ListCommands(ctx, r.work, a.ID)
+	for _, c := range cmds {
+		if c.Name == "reload" {
+			t.Error("/reload is offered")
+		}
+	}
+	if err := r.b.(backend.Commander).RunCommand(ctx, r.work, a.ID, backend.CommandRun{Name: "reload"}); err == nil {
+		t.Error("/reload ran")
+	}
+	if err := r.b.Prompt(ctx, r.work, a.ID, backend.Prompt{Text: "/reload"}); err == nil {
+		t.Error("a typed /reload went through")
 	}
 	// still untrusted: the repository's own .vibe/ is not loaded
 	if b, _ := os.ReadFile(filepath.Join(r.home, "trusted_folders.toml")); !strings.Contains(string(b), "trusted = []") {
@@ -869,5 +886,37 @@ func TestVibeEngineModelCallsCarryTheSessionForCost(t *testing.T) {
 	}
 	if tagged == 0 {
 		t.Fatalf("no model call carried the session's tag (headers of the last: %v)", r.requestLog()[len(r.requestLog())-1].Headers)
+	}
+}
+
+// A level set in one session does not reach another live session on the same model
+// (Vibe persists the last level per model in its config).
+func TestVibeEngineEffortDoesNotLeakBetweenLiveSessions(t *testing.T) {
+	r := newVibeRig(t)
+	ctx := context.Background()
+	a, err := r.b.CreateSession(ctx, r.work, backend.CreateSessionOptions{Title: "A"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b2, err := r.b.CreateSession(ctx, r.work, backend.CreateSessionOptions{Title: "B"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.scenario(mockllm.Scenario{Content: []string{"ok"}, FinishReason: "stop"})
+	setter := r.b.(backend.EffortSetter)
+	if _, err := setter.SetEffort(ctx, r.work, a.ID, "high"); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ id, probe, want string }{{b2.ID, "leak-probe-b", ""}, {a.ID, "leak-probe-a", "high"}} {
+		r.turn(c.id, c.probe, backend.DecisionOnce)
+		got := "?"
+		for _, q := range r.requestLog() {
+			if strings.Contains(strings.Join(q.Prompts, " "), c.probe) {
+				got = q.Headers["x-body-reasoning-effort"]
+			}
+		}
+		if got != c.want {
+			t.Errorf("%s: reasoning_effort %q, want %q", c.probe, got, c.want)
+		}
 	}
 }

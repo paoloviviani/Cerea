@@ -102,6 +102,9 @@ type sessionState struct {
 	questionOrder []string
 	questions     map[string]*backend.QuestionRequest
 
+	// queued is the follow-ups the backend last announced as waiting.
+	queued []backend.QueuedPrompt
+
 	status backend.SessionStatus
 	retry  *backend.RetryInfo
 	usage  *backend.Usage
@@ -184,6 +187,7 @@ func (s *sessionState) snapshot() backend.Transcript {
 		Messages:    entries,
 		Permissions: perms,
 		Questions:   questions,
+		Queued:      s.queued,
 		Status:      s.status,
 		Retry:       s.retry,
 		Usage:       s.usage,
@@ -851,6 +855,7 @@ func (m *Materializer) translateLocked(st *sessionState, ev backend.Event) []bac
 		return []backend.Event{ev}
 
 	case backend.EventQueue:
+		st.queued = ev.Queued
 		return []backend.Event{ev}
 
 	case backend.EventQuestionResolved:

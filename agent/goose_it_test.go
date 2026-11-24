@@ -493,3 +493,109 @@ func TestGooseEngineCompacts(t *testing.T) {
 		}
 	}
 }
+
+// galopin's ask_user tool reaches a goose session over MCP and raises the question card;
+// goose asks permission before the call first (approve mode asks for every tool).
+func TestGooseSessionsCanAskTheUser(t *testing.T) {
+	r := newGooseRig(t)
+	ctx := context.Background()
+	host := r.b.(backend.MCPHost)
+	if !r.b.Capabilities().Questions {
+		t.Fatal("the questions capability is off for goose")
+	}
+	qh := r.b.(backend.QuestionHost)
+	var answered [][]string
+	srv := mcpserve.New(mcpTools, func(ctx context.Context, session, tool string, args json.RawMessage) (string, error) {
+		qs, err := parseAskUser(args)
+		if err != nil {
+			return "", err
+		}
+		answered, err = qh.AskQuestions(ctx, r.work, session, qs)
+		if err != nil {
+			return "", err
+		}
+		return "The person answered: " + strings.Join(answered[0], ","), nil
+	}, "test")
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(func() { _ = r.b.Stop(); ts.Close() })
+	host.SetMCPIssuer(&mcpGate{srv: srv, base: ts.URL})
+	sess, err := r.b.CreateSession(ctx, r.work, backend.CreateSessionOptions{Title: "ask"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.scenario(mockllm.Scenario{
+		ToolCalls:    []mockllm.ToolCall{{ID: "call_q", Name: "galopin__ask_user", Arguments: `{"questions":[{"question":"Which database?","options":[{"label":"sqlite"},{"label":"postgres"}]}]}`}},
+		FinishReason: "tool_calls",
+		Routes:       []mockllm.Route{{Contains: "The person answered", Scenario: mockllm.Scenario{Content: []string{"going with it"}, FinishReason: "stop"}}},
+	})
+	if err := r.b.Prompt(ctx, r.work, sess.ID, backend.Prompt{Text: "set it up"}); err != nil {
+		t.Fatal(err)
+	}
+	var askTool string
+	deadline := time.After(2 * time.Minute)
+	for done := false; !done; {
+		select {
+		case ev := <-r.events:
+			if ev.SessionID != sess.ID {
+				continue
+			}
+			switch e := ev.Event; e.Kind {
+			case backend.EventPermissionAsked:
+				askTool = e.Request.Tool + "|" + e.Request.Title
+				_ = r.b.ReplyPermission(ctx, r.work, sess.ID, e.Request.ID, backend.DecisionOnce, "")
+			case backend.EventQuestionAsked:
+				if err := r.b.(backend.Asker).ReplyQuestion(ctx, r.work, sess.ID, e.QuestionRequestID, [][]string{{"postgres"}}); err != nil {
+					t.Fatal(err)
+				}
+			case backend.EventStatus:
+				done = e.Status == backend.StatusIdle
+			}
+		case <-deadline:
+			t.Fatal("the turn did not end")
+		}
+	}
+	t.Logf("permission ask before the question: %q", askTool)
+	if len(answered) != 1 || answered[0][0] != "postgres" {
+		t.Fatalf("the tool saw %v", answered)
+	}
+}
+
+// A message sent while goose works is queued and sent when the turn ends.
+func TestGooseQueuesFollowUps(t *testing.T) {
+	r := newGooseRig(t)
+	ctx := context.Background()
+	sess, err := r.b.CreateSession(ctx, r.work, backend.CreateSessionOptions{Title: "queue"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.scenario(mockllm.Scenario{Content: []string{"slow ", "answer ", "one ", "two ", "three"}, ChunkDelayMs: 400, FinishReason: "stop"})
+	if err := r.b.Prompt(ctx, r.work, sess.ID, backend.Prompt{Text: "queue-probe first"}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(500 * time.Millisecond)
+	if err := r.b.Prompt(ctx, r.work, sess.ID, backend.Prompt{Text: "queue-probe second", ClientMessageID: "q2"}); err != nil {
+		t.Fatalf("a follow-up mid-turn was refused: %v", err)
+	}
+	var sawQueue bool
+	idles := 0
+	deadline := time.After(2 * time.Minute)
+	for idles < 2 {
+		select {
+		case ev := <-r.events:
+			if ev.SessionID != sess.ID {
+				continue
+			}
+			if ev.Event.Kind == backend.EventQueue && len(ev.Event.Queued) == 1 {
+				sawQueue = true
+			}
+			if ev.Event.Kind == backend.EventStatus && ev.Event.Status == backend.StatusIdle {
+				idles++
+			}
+		case <-deadline:
+			t.Fatalf("both turns did not finish (idle %d)", idles)
+		}
+	}
+	if !sawQueue {
+		t.Error("no queue event")
+	}
+}

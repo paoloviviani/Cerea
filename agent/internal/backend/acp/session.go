@@ -62,6 +62,12 @@ type sessionState struct {
 	// the person's choice ("" for the model's default): see efforts.go.
 	// queue is the follow-up prompts held until the running turn ends (queue.go).
 	queue []queuedPrompt
+	// draining is set from the end of a turn that leaves prompts waiting until the next one
+	// has taken the session (busy), so a prompt arriving between cannot overtake the queue.
+	draining bool
+	// recentIDs are the clientMessageIds of prompts already sent (oldest first), so a retry
+	// of one is not sent twice.
+	recentIDs []string
 
 	effortConfigID string
 	effortNow      string

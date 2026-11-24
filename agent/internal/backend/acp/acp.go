@@ -78,6 +78,10 @@ type Config struct {
 	// a file (Vibe: $VIBE_HOME/AGENTS.md, read when the session opens) gets the
 	// workspace's own for the session being opened.
 	BeforeSession func(workspaceDir string)
+	// AfterSession runs once the call BeforeSession prepared for has returned, still
+	// before any other session opens (Vibe: the instructions file is removed again, so no
+	// later re-read of it, such as a /reload, can pick up another workspace's text).
+	AfterSession func()
 	// MCPHTTP says the agent takes an HTTP MCP server in session/new although it does
 	// not advertise mcpCapabilities.http (Vibe 3.x does and does not say so).
 	MCPHTTP bool
@@ -89,6 +93,10 @@ type Config struct {
 	Efforts       bool
 	EffortDefault string
 	ModelEfforts  func() map[string][]string
+	// HiddenCommands are slash commands (names without the slash) galopin neither lists
+	// nor lets run: Vibe's /reload re-reads its instructions file, which is only right for the
+	// session being opened.
+	HiddenCommands []string
 	// Logf receives lifecycle-only messages: started, ready, restarting,
 	// exited (R6 — never frame or response bodies, which may carry a
 	// user's prompt text).
@@ -179,6 +187,9 @@ type Backend struct {
 	// replayOrder lists the sessions holding a replayed transcript, oldest open first (history.go).
 	replayMu    sync.Mutex
 	replayOrder []string
+
+	// questionTimeout is how long an ask_user question waits (0: the default; tests shorten it).
+	questionTimeout time.Duration
 
 	events   chan backend.BackendEvent
 	eventsMu sync.Mutex

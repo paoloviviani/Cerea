@@ -194,3 +194,78 @@ func TestCommandsAreStillRefusedWhileBusy(t *testing.T) {
 		t.Fatalf("RunCommand mid-turn = %v, want ErrSessionBusy", err)
 	}
 }
+
+// A follow-up arriving exactly as the turn ends neither overtakes the queue nor is lost.
+func TestFollowUpAtTurnEndQueuesBehindAndNothingIsLost(t *testing.T) {
+	for i := 0; i < 25; i++ {
+		b, fa := newTestBackend(t)
+		ctx := context.Background()
+		sess, first, events := startRunning(t, b, fa)
+		if err := b.Prompt(ctx, "/work", sess.ID, backend.Prompt{Text: "c2", ClientMessageID: "c2"}); err != nil {
+			t.Fatal(err)
+		}
+		waitQueue(t, events, sess.ID, "c2")
+		done := make(chan error, 1)
+		go func() { done <- b.Prompt(ctx, "/work", sess.ID, backend.Prompt{Text: "c3", ClientMessageID: "c3"}) }()
+		fa.respond(first.id, map[string]any{"stopReason": "end_turn"})
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+		<-fa.promptParams // the first turn's own
+		var order []string
+		for len(order) < 2 {
+			select {
+			case pr := <-fa.promptReqs:
+				p := <-fa.promptParams
+				txt := strings.TrimSpace(jsonText(p["prompt"]))
+				order = append(order, txt)
+				fa.respond(pr.id, map[string]any{"stopReason": "end_turn"})
+			case <-time.After(5 * time.Second):
+				t.Fatalf("iteration %d: only %v went out", i, order)
+			}
+		}
+		// first's params were consumed too: order holds c2 then c3
+		if !strings.Contains(order[0], "c2") || !strings.Contains(order[1], "c3") {
+			t.Fatalf("iteration %d: order %v", i, order)
+		}
+	}
+}
+
+func TestRetryOfASentPromptIsNotSentTwiceAndCompactWaitsForTheQueue(t *testing.T) {
+	b, fa := newTestBackend(t)
+	ctx := context.Background()
+	sess, first, events := startRunning(t, b, fa)
+	if err := b.Prompt(ctx, "/work", sess.ID, backend.Prompt{Text: "again", ClientMessageID: "c2"}); err != nil {
+		t.Fatal(err)
+	}
+	waitQueue(t, events, sess.ID, "c2")
+	err := b.RunCommand(ctx, "/work", sess.ID, backend.CommandRun{Name: "help"})
+	if !errors.Is(err, backend.ErrSessionBusy) {
+		t.Fatalf("a command with a queue waiting = %v", err)
+	}
+	fa.respond(first.id, map[string]any{"stopReason": "end_turn"})
+	pr := <-fa.promptReqs
+	<-fa.promptParams
+	<-fa.promptParams
+	// the running (formerly queued) prompt is retried: dropped, not queued again
+	if err := b.Prompt(ctx, "/work", sess.ID, backend.Prompt{Text: "again", ClientMessageID: "c2"}); err != nil {
+		t.Fatal(err)
+	}
+	fa.respond(pr.id, map[string]any{"stopReason": "end_turn"})
+	noPrompt(t, fa, "a retried prompt was sent twice")
+}
+
+func TestHiddenCommandsAreNeitherListedNorRun(t *testing.T) {
+	b, _ := newTestBackendCfg(t, false, func(c *Config) { c.HiddenCommands = []string{"reload"} })
+	ctx := context.Background()
+	sess, err := b.CreateSession(ctx, "/work", backend.CreateSessionOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.RunCommand(ctx, "/work", sess.ID, backend.CommandRun{Name: "reload"}); err == nil {
+		t.Fatal("/reload ran")
+	}
+	if err := b.Prompt(ctx, "/work", sess.ID, backend.Prompt{Text: "  /Reload now"}); err == nil {
+		t.Fatal("a typed /reload went through")
+	}
+}

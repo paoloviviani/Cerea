@@ -525,13 +525,6 @@ func TestCancelReachesIdleWithNoError(t *testing.T) {
 // wire, not once the turn ends. The fake agent here never responds to the
 // prompt request at all, so if Prompt were (incorrectly) waiting for a
 // reply, this test would time out instead of returning promptly.
-// TestPromptRefusedWhileBusy pins the busy guard: a second session/prompt
-// would overwrite the turn ids the running turn's updates are still
-// arriving under, so Prompt on a busy session returns ErrSessionBusy
-// (dispatch.go maps it to the wire code "invalid") without touching
-// anything — nothing more on the wire, no second user message, no state
-// change. The fake agent never answers the first prompt, so the session
-// stays busy for the whole test.
 func TestPromptReturnsBeforeTurnCompletes(t *testing.T) {
 	b, fa := newTestBackend(t)
 	ctx := context.Background()

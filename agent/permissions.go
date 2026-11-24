@@ -72,7 +72,32 @@ func (mc *machine) decideAsk(rh backend.RuleHost, dir string, req backend.Permis
 		}
 		return decide.Result{Verdict: decide.Card, Step: "gp"}
 	}
+	if isAskUserCall(req) {
+		// Asking the person changes nothing, so it runs in every mode, Plan included: the
+		// card the tool raises is the interaction. (An engine that asks permission before an
+		// MCP call, goose, would otherwise put a second card in front of it.)
+		return decide.Result{Verdict: decide.Once, Step: "ask_user"}
+	}
 	return decide.Decide(mc.decidePolicy(rh), st, mc.askRequest(dir, req))
+}
+
+// isAskUserCall is an engine's permission ask for galopin's own ask_user MCP tool: the
+// engines name it "galopin: ask user", "galopin__ask_user", "mcp_galopin.ask_user" and the
+// like, so the words are compared, not the spelling.
+func isAskUserCall(req backend.PermissionRequest) bool {
+	for _, name := range []string{req.Tool, req.Title} {
+		words := strings.Fields(strings.Map(func(r rune) rune {
+			if r == '_' || r == '.' || r == ':' || r == '-' {
+				return ' '
+			}
+			return r
+		}, strings.ToLower(name)))
+		j := strings.Join(words, " ")
+		if j == "galopin ask user" || j == "mcp galopin ask user" {
+			return true
+		}
+	}
+	return false
 }
 
 // askRequest is an ask normalised for the decision function: the permission key

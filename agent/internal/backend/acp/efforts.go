@@ -28,8 +28,7 @@ func (b *Backend) SetEffort(ctx context.Context, workspaceDir, sessionID, effort
 		st.mu.Unlock()
 		return backend.Session{}, fmt.Errorf("acp: this session has no thinking-effort option")
 	}
-	if effort != "" && !slices.Contains(st.effortValues, effort) {
-		offered := append([]string(nil), st.effortValues...)
+	if offered := b.offeredEfforts(st); effort != "" && !slices.Contains(offered, effort) {
 		st.mu.Unlock()
 		return backend.Session{}, fmt.Errorf("acp: effort %q is not one of this model's levels %v", effort, offered)
 	}
@@ -56,7 +55,7 @@ func (b *Backend) effortTarget(st *sessionState) string {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	want := st.effort
-	if want != "" && !slices.Contains(st.effortValues, want) {
+	if want != "" && !slices.Contains(b.offeredEfforts(st), want) {
 		// the model changed to one that does not offer it: back to the default
 		want, st.effort = "", ""
 	}
@@ -104,3 +103,14 @@ func (b *Backend) syncEffort(ctx context.Context, workspaceDir string, st *sessi
 }
 
 var _ backend.EffortSetter = (*Backend)(nil)
+
+// offeredEfforts are the levels the session's model offers Cerea, galopin's own list
+// (st.mu held): the agent's option lists every level it knows whatever the model (Vibe
+// offers max and off for any), so it is not the authority. Without a list from the engine
+// the agent's own levels stand.
+func (b *Backend) offeredEfforts(st *sessionState) []string {
+	if b.cfg.ModelEfforts != nil {
+		return b.cfg.ModelEfforts()[st.modelID]
+	}
+	return st.effortValues
+}

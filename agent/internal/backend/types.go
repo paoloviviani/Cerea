@@ -397,7 +397,10 @@ type Transcript struct {
 	// client mounting from a snapshot (a reload, another device) can still
 	// answer one; question.asked is not replayed by a snapshot.
 	Questions []QuestionRequest `json:"questions"`
-	Status    SessionStatus     `json:"status"`
+	// Queued are the follow-ups the backend holds for the running turn (capability
+	// queue), so a client mounting from a snapshot shows them; absent when none.
+	Queued []QueuedPrompt `json:"queued,omitempty"`
+	Status SessionStatus  `json:"status"`
 	// Retry says why a "retry" status is waiting (PROTOCOL.md §7); nil in any
 	// other state.
 	Retry *RetryInfo `json:"retry,omitempty"`

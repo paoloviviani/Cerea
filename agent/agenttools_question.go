@@ -86,6 +86,12 @@ func (at *agentTools) askUser(ctx context.Context, tc *toolCaller, call backend.
 	}
 	answers, err := host.AskQuestions(ctx, tc.dir, tc.session.ID, qs)
 	if err != nil {
+		if errors.Is(err, backend.ErrQuestionTimeout) {
+			return "", refuse("not answered yet: the person did not reply in time and the question was withdrawn; ask again if you still need it, or go on with the safest reading")
+		}
+		if errors.Is(err, backend.ErrQuestionPending) {
+			return "", refuse("a question of yours is already waiting for the person; wait for it to be answered before asking another")
+		}
 		if errors.Is(err, backend.ErrQuestionDismissed) {
 			return "", refuse("the person dismissed the question without answering; go on with the safest reading, or stop and say what you need")
 		}

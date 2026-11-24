@@ -401,6 +401,7 @@ func startVibeBackend(ctx context.Context, opts *runOptions, credsPath, stateDir
 	if _, err := os.Stat(filepath.Join(home, "config.toml")); err != nil {
 		return nil, fmt.Errorf("galopin's Vibe config is missing under %s: re-run 'galopin enroll --engine vibe'", home)
 	}
+	removeVibeInstructions(home, logf)
 	// Whatever else happened to the trust list, no folder is trusted for this run.
 	if err := resetVibeTrust(home); err != nil {
 		return nil, err
@@ -425,7 +426,11 @@ func startVibeBackend(ctx context.Context, opts *runOptions, credsPath, stateDir
 		MCPHTTP:       true,
 		ModelEfforts:  func() map[string][]string { return efforts },
 		BeforeSession: vibeBeforeSession(home, pol.ProjectConfigAllowed(), protect, logf),
-		Logf:          func(format string, args ...any) { logf(format, args...) },
+		AfterSession:  func() { removeVibeInstructions(home, logf) },
+		// /reload re-reads the instructions file, which only holds a workspace\'s text while
+		// that workspace\'s session opens.
+		HiddenCommands: []string{"reload"},
+		Logf:           func(format string, args ...any) { logf(format, args...) },
 	})
 	if err := acpBackend.Start(ctx); err != nil {
 		return nil, fmt.Errorf("starting Vibe: %w", err)

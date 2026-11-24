@@ -962,3 +962,16 @@ func TestOverbroadAlwaysIsNeverStoredPerClass(t *testing.T) {
 		})
 	}
 }
+
+func TestAskUserCallIsRecognisedWhateverTheEngineCallsIt(t *testing.T) {
+	for _, name := range []string{"galopin: ask user", "galopin__ask_user", "mcp_galopin.ask_user", "galopin_ask_user"} {
+		if !isAskUserCall(backend.PermissionRequest{Tool: name}) && !isAskUserCall(backend.PermissionRequest{Title: name}) {
+			t.Errorf("%q not recognised", name)
+		}
+	}
+	for _, name := range []string{"galopin: session spawn", "ask_user", "other__ask_user", "bash"} {
+		if isAskUserCall(backend.PermissionRequest{Tool: name, Title: name}) {
+			t.Errorf("%q recognised", name)
+		}
+	}
+}

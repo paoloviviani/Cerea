@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -233,6 +234,9 @@ func (b *Backend) DeleteSession(ctx context.Context, workspaceDir, sessionID str
 // prompt (only session/load's replay does), so the client's own request is
 // the only source of truth for what the user actually said.
 func (b *Backend) Prompt(ctx context.Context, workspaceDir, sessionID string, prompt backend.Prompt) error {
+	if b.hiddenCommandIn(prompt.Text) {
+		return fmt.Errorf("acp: that command is not available here")
+	}
 	return b.prompt(ctx, workspaceDir, sessionID, prompt, false)
 }
 
@@ -274,13 +278,25 @@ func (b *Backend) prompt(ctx context.Context, workspaceDir, sessionID string, pr
 	// state, so it waits its turn: it is held, announced as queued, and sent when the
 	// turn ends (queue.go). ACP has no steering, so this is the nearest thing.
 	// fromQueue is a prompt being sent off the queue, which has already waited.
-	if !fromQueue && (st.busy || len(st.queue) > 0) {
+	if !fromQueue && prompt.ClientMessageID != "" && slices.Contains(st.recentIDs, prompt.ClientMessageID) {
+		st.mu.Unlock() // a retry of a prompt that already went out
+		return nil
+	}
+	if !fromQueue && (st.busy || st.draining || len(st.queue) > 0) {
 		return b.enqueueLocked(workspaceDir, st, prompt)
 	}
 	if st.busy {
+		// a queued prompt never runs over a turn: the caller puts it back
 		st.mu.Unlock()
 		return backend.ErrSessionBusy
 	}
+	if prompt.ClientMessageID != "" {
+		st.recentIDs = append(st.recentIDs, prompt.ClientMessageID)
+		if len(st.recentIDs) > 32 {
+			st.recentIDs = st.recentIDs[1:]
+		}
+	}
+	st.draining = false // a drained prompt has the session now
 	st.turn++
 	turn := st.turn
 	userMsgID := fmt.Sprintf("%s:t%d:user", sessionID, turn)
@@ -337,6 +353,7 @@ func (b *Backend) awaitPromptResult(workspaceDir, sessionID string, st *sessionS
 
 	st.mu.Lock()
 	st.busy = false
+	st.draining = len(st.queue) > 0
 	assistantMsgID := st.assistantMsgID
 	st.status = backend.StatusIdle
 	st.updatedAt = time.Now()
@@ -819,5 +836,8 @@ func (b *Backend) callOpen(ctx context.Context, conn *rpcConn, method, workspace
 	b.openMu.Lock()
 	defer b.openMu.Unlock()
 	b.cfg.BeforeSession(workspaceDir)
+	if b.cfg.AfterSession != nil {
+		defer b.cfg.AfterSession()
+	}
 	return conn.call(ctx, method, params)
 }

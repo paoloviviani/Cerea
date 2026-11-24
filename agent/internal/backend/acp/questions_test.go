@@ -117,3 +117,26 @@ func TestQuestionsOffWithoutTools(t *testing.T) {
 		t.Fatal("questions on for an agent without galopin's tools")
 	}
 }
+
+func TestAskQuestionsTimesOutWithdrawsAndAllowsOnePerSession(t *testing.T) {
+	b, _ := newTestBackendWith(t, true, true)
+	b.questionTimeout = 150 * time.Millisecond
+	ctx := context.Background()
+	events, _ := b.Subscribe(ctx)
+	qs := []backend.QuestionItem{{Question: "q"}}
+	ch := make(chan error, 1)
+	go func() { _, err := b.AskQuestions(ctx, "/w", "s1", qs); ch <- err }()
+	nextQuestionEvent(t, events, backend.EventQuestionAsked)
+	if _, err := b.AskQuestions(ctx, "/w", "s1", qs); !errors.Is(err, backend.ErrQuestionPending) {
+		t.Fatalf("a second question in the session = %v", err)
+	}
+	if err := <-ch; !errors.Is(err, backend.ErrQuestionTimeout) {
+		t.Fatalf("timed out = %v", err)
+	}
+	if r := nextQuestionEvent(t, events, backend.EventQuestionResolved); r.QuestionDecision != "rejected" {
+		t.Fatalf("the card was not withdrawn: %+v", r)
+	}
+	// another session is not blocked, and the first can ask again
+	go func() { _, _ = b.AskQuestions(ctx, "/w", "s2", qs) }()
+	nextQuestionEvent(t, events, backend.EventQuestionAsked)
+}

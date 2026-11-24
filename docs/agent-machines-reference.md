@@ -264,8 +264,10 @@ What galopin sets up for Vibe:
     root, outermost first; regular files only, never a symlink or a protected path; cut at
     32 KiB) and gives it to each session as instructions: ACP has no field for them, so
     galopin writes the text to the one place Vibe reads for every session, `AGENTS.md` in
-    its own Vibe home, right before a session opens or reloads, and removes it when the
-    workspace has none. The text is read when the session opens: a later edit reaches the
+    its own Vibe home, right before a session opens or reloads, and removes it again as soon
+    as that call returns (so Vibe's `/reload`, which would re-read it, is neither offered
+    nor run). The text is handed over labelled as repository content, not the user's own
+    instructions, and read without following a symlink. The text is read when the session opens: a later edit reaches the
     next session, or a reopened one.
   - _What galopin cannot see._ A tool Vibe allows by itself never asks: its internal task
     list, skills, scratchpad, scheduled prompts and goals. They do not reach files or the
@@ -283,10 +285,12 @@ What galopin sets up for Vibe:
   so galopin enables it for Vibe). The model reaches it the way Vibe reaches every MCP tool,
   from a `run_typescript` program (`tools.mcp_galopin.ask_user`, found with
   `search_tool_functions`). It raises the same question card opencode's own question tool
-  does; the answer goes back to the model as the tool's result. Vibe does not ask
-  permission before this one tool; the other galopin tools keep Vibe's ask and then
-  galopin's own gates. goose gets the same tool through the same path, and its own
-  approve mode asks permission before the call, as it does for every tool.
+  does; the answer goes back to the model as the tool's result. Asking the person changes nothing, so galopin lets the call through in every mode,
+  Plan included (an engine's own permission ask for it is answered at once); the other
+  galopin tools keep the engine's ask and then galopin's own gates. A question waits 270 s
+  (below Vibe's 300 s tool timeout), then the card is withdrawn and the model is told it
+  was not answered; one question waits per session. goose gets the same tool through the
+  same path.
 - **Vibe's own session store.** Sessions live in the `vibe/` directory (not shared with
   your Vibe, unlike goose's), listed and reopened from Cerea, including after galopin or
   Vibe restarts. Vibe keeps a lock on a session it has open; if a reopen meets the lock of

@@ -11,9 +11,14 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"strings"
+	"time"
 
 	"galopin/internal/backend"
 )
+
+// defaultQuestionTimeout is how long a question waits: below the 300 s Vibe gives an MCP
+// tool call, so galopin withdraws the card and answers before the agent gives up on it.
+const defaultQuestionTimeout = 270 * time.Second
 
 // galopinQuestionPrefix marks a question id galopin minted.
 const galopinQuestionPrefix = "gq_"
@@ -30,6 +35,14 @@ type questionAnswer struct {
 
 // AskQuestions implements backend.QuestionHost.
 func (b *Backend) AskQuestions(ctx context.Context, workspaceDir, sessionID string, questions []backend.QuestionItem) ([][]string, error) {
+	b.tools.mu.Lock()
+	for _, other := range b.tools.questions {
+		if other.sessionID == sessionID {
+			b.tools.mu.Unlock()
+			return nil, backend.ErrQuestionPending
+		}
+	}
+	b.tools.mu.Unlock()
 	raw := make([]byte, 8)
 	if _, err := rand.Read(raw); err != nil {
 		return nil, err
@@ -37,13 +50,30 @@ func (b *Backend) AskQuestions(ctx context.Context, workspaceDir, sessionID stri
 	id := galopinQuestionPrefix + hex.EncodeToString(raw)
 	pq := &pendingQuestion{sessionID: sessionID, answer: make(chan questionAnswer, 1)}
 	b.tools.mu.Lock()
+	for _, other := range b.tools.questions { // re-checked: a second call may have got in
+		if other.sessionID == sessionID {
+			b.tools.mu.Unlock()
+			return nil, backend.ErrQuestionPending
+		}
+	}
 	if b.tools.questions == nil {
 		b.tools.questions = map[string]*pendingQuestion{}
 	}
 	b.tools.questions[id] = pq
 	b.tools.mu.Unlock()
 	b.emit(workspaceDir, sessionID, backend.Event{Kind: backend.EventQuestionAsked, QuestionRequestID: id, Questions: questions})
+	timeout := b.questionTimeout
+	if timeout == 0 {
+		timeout = defaultQuestionTimeout
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
 	select {
+	case <-timer.C:
+		if _, held := b.claimQuestion(id); held {
+			b.emit(workspaceDir, sessionID, backend.Event{Kind: backend.EventQuestionResolved, QuestionRequestID: id, QuestionDecision: "rejected"})
+		}
+		return nil, backend.ErrQuestionTimeout
 	case a := <-pq.answer:
 		if a.rejected {
 			return nil, backend.ErrQuestionDismissed

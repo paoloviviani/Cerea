@@ -111,3 +111,12 @@ func TestVibeBeforeSessionWritesAndRemoves(t *testing.T) {
 		t.Fatalf("written although project config is denied: %v", err)
 	}
 }
+
+func TestWorkspaceInstructionsAreLabelledAsRepositoryContent(t *testing.T) {
+	d := t.TempDir()
+	writeInstr(t, filepath.Join(d, "AGENTS.md"), "do the thing")
+	got := workspaceInstructions(d, nil)
+	if !strings.Contains(got, "repository content") || !strings.Contains(got, "not the user's own instructions") || !strings.Contains(got, "do the thing") {
+		t.Fatalf("not labelled: %q", got)
+	}
+}
