@@ -60,32 +60,49 @@ without the kit.
   it, a gVisor sandbox on the server.
 - **One connector list** (MCP servers) for the chat and for your agents.
 
-Cerea is a fork of Hugging Face's
-[chat-ui](https://github.com/huggingface/chat-ui) (see [Origin](#origin)); it
-keeps what that project built and adds the rest.
-
 ## How it compares
 
-How Cerea sits next to the other self-hosted chat front ends. Each of them is
-good at something Cerea is not, and the table says so.
+How Cerea and its gateway Pystino sit next to other self-hosted chat front ends, agent
+platforms and LLM gateways. Each of them is good at something we are not, and the table
+says so.
 
-|                                                                       | Cerea                        | Open WebUI                                      | LibreChat                | LobeChat                                       | HF chat-ui                |
-| --------------------------------------------------------------------- | ---------------------------- | ----------------------------------------------- | ------------------------ | ---------------------------------------------- | ------------------------- |
-| Self-hosted                                                           | ✅                           | ✅                                              | ✅                       | ✅                                             | ✅                        |
-| Licence                                                               | Apache-2.0                   | own licence, BSD-3 based with a branding clause | MIT                      | own licence, Apache-2.0 based with extra terms | Apache-2.0                |
-| Per-user spend accounting and quotas                                  | ✅ with Pystino              | via plugin                                      | partial (token balances) | ?                                              | ❌                        |
-| PII redaction or privacy routing before the model                     | ✅ with Pystino              | via plugin                                      | ?                        | ?                                              | ❌                        |
-| Coding agents on users' own machines, with approvals                  | ✅                           | ❌                                              | ❌                       | ❌                                             | ❌                        |
-| MCP connectors                                                        | ✅                           | ✅                                              | ✅                       | ✅                                             | ✅                        |
-| Artifacts                                                             | ✅                           | partial                                         | ✅                       | ✅                                             | ❌                        |
-| Python execution                                                      | ✅ browser or server sandbox | ✅                                              | partial                  | ?                                              | ❌                        |
-| Native provider APIs (Anthropic, Gemini and others) without a gateway | ❌ OpenAI-compatible only    | partial                                         | ✅                       | ✅                                             | ❌ OpenAI-compatible only |
-| Community, ecosystem and maturity                                     | young, one maintainer        | very large, many integrations                   | large, mature            | large                                          | backed by Hugging Face    |
+Key: ✓ built in · ~ partial, add-on or paid tier · — not offered · ? not verified ·
+■ ours alone. Checked 18 November 2026.
 
-_As of 2026-11; corrections welcome, please open an issue. "with Pystino"
-means the gateway that pairs with Cerea; "via plugin" means a community or
-bundled extension rather than the core; "?" means we have not been able to
-confirm it._
+|                                                       |    Open WebUI     | LibreChat |   Onyx   |       Dify        | LiteLLM  | Envoy AI GW |   Coder   |  **Cerea + Pystino**  |
+| ----------------------------------------------------- | :---------------: | :-------: | :------: | :---------------: | :------: | :---------: | :-------: | :-------------------: |
+| Chat UI for end users                                 |         ✓         |     ✓     |    ✓     |         ✓         |    —     |      —      |    ~¹     |         **✓**         |
+| Agents with tools                                     |         ✓         |     ✓     |    ✓     |         ✓         |    —     |      —      |     ✓     |         **✓**         |
+| MCP                                                   |        ~²         |     ✓     |    ✓     |         ✓         |   ✓ gw   |    ✓ gw     |     ?     | **✓ incl. your own**  |
+| Knowledge bases / search                              |         ✓         |     ✓     |    ✓     |         ✓         |    —     |      —      |     —     |         **✓**         |
+| Code execution                                        |        ✓³         |    ✓⁴     |    ✓     |         ✓         |    —     |      —      |     ✓     |         **✓**         |
+| ■ Office files: create, edit, version                 |         —         |     —     |    —     |         —         |    —     |      —      |     —     |         **✓**         |
+| Coding agents on your own machines, from the chat     |         —         |     —     |    —     |         —         |    —     |      —      |    ~⁵     |         **✓**         |
+| ■ Browser use in your own signed-in browser           |         —         |     —     |    —     |         —         |    —     |      —      |     —     |         **✓**         |
+| Visual workflow builder                               |         —         |     —     |    —     |         ✓         |    —     |      —      |     —     |         **—**         |
+| Budgets / rate limits per user or group               |         —         |    ~⁶     |    ?     |         ?         |    ✓     |     ✓⁷      |    ~⁸     |        **✓¹⁴**        |
+| PII redaction before the model                        |        ~⁹         |     —     |    ?     |        —¹⁰        |   ✓¹¹    |      —      |     ?     |        **✓¹⁴**        |
+| One sign-in across chat, gateway and agents           |         —         |     —     |    —     |         —         |    —     |      —      |    ~¹²    |        **✓¹⁴**        |
+| ■ From your phone, tools running on your own computer |         —         |     —     |    —     |         —         |    —     |      —      |     —     |         **✓**         |
+| Licence                                               | custom, not OSI¹³ |    MIT    | MIT + EE | modified Apache¹⁵ | MIT + EE | Apache-2.0  | AGPL + EE | **Apache-2.0, no EE** |
+
+1. Coder Agents: a chat for developers delegating to coding agents, not general chat.
+2. Open WebUI's MCP is native over Streamable HTTP only; stdio and SSE servers need the mcpo proxy.
+3. Open WebUI: Open Terminal; Pyodide and Jupyter are now "legacy".
+4. LibreChat code execution: self-hosted, Apache-2.0.
+5. Coder: agents run in Coder workspaces, not on your own laptop or desktop from a chat.
+6. LibreChat: token balance and credits, off by default.
+7. Envoy AI Gateway: token- and quota-based limits, with Redis.
+8. Coder: AI Gateway, Premium.
+9. Open WebUI: community filters only.
+10. Dify: moderation (keywords, OpenAI moderation), not redaction.
+11. LiteLLM: Presidio, open source.
+12. Coder: a Coder session across AI Gateway (Premium) and Coder Agents; developer-focused.
+13. Open WebUI: since v0.6.6 (April 2025), a branding clause above 50 users, hence "custom, not OSI".
+14. With Pystino, the gateway that pairs with Cerea; Cerea alone runs against any OpenAI-compatible endpoint without these.
+15. Dify: multi-tenant use needs authorisation, and the logo must be kept.
+
+Corrections welcome: please open an issue.
 
 ## Cerea and Pystino
 
@@ -237,9 +254,8 @@ too: `docker build --build-arg APP_BASE=/chat -t cerea .`
 
 ## Origin
 
-Cerea began as a fork of [huggingface/chat-ui](https://github.com/huggingface/chat-ui),
-with its history intact, and is now a hard fork: it does not merge upstream and
-carries nothing for upstream's sake. The attribution stays in [NOTICE](NOTICE).
+Cerea is a hard fork of an earlier open-source chat UI, with its history intact:
+it does not merge upstream. The upstream attribution is in [NOTICE](NOTICE).
 
 ## Documentation
 
@@ -257,7 +273,7 @@ The documentation is a [mkdocs](https://www.mkdocs.org) site built from `docs/`:
 `uv run --with-requirements docs/requirements.txt mkdocs build --strict`
 (there is no Python project in this repository; the pins are in
 `docs/requirements.txt`). Pystino's documentation lives in its own
-repository. [docs/source](docs/source) is **upstream chat-ui's**
+repository. [docs/source](docs/source) is **the upstream project's**
 documentation, kept as upstream wrote it, excluded from the site; parts of it
 do not apply to Cerea.
 
@@ -265,9 +281,8 @@ do not apply to Cerea.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and, for vulnerabilities,
 [SECURITY.md](SECURITY.md). Cerea is Copyright 2026 Paolo Viviani and
-licensed under the [Apache License 2.0](LICENSE); [NOTICE](NOTICE) records
-that it is based on huggingface/chat-ui, © Hugging Face, and carries the
-third-party notices. How this code was written is disclosed in
+licensed under the [Apache License 2.0](LICENSE); [NOTICE](NOTICE) carries the upstream
+attribution and the third-party notices. How this code was written is disclosed in
 [AI-DISCLOSURE.md](AI-DISCLOSURE.md).
 
 ## Acknowledgments
