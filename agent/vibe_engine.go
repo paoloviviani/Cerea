@@ -423,7 +423,10 @@ func startVibeBackend(ctx context.Context, opts *runOptions, credsPath, stateDir
 		Efforts: true, EffortDefault: vibeEffortDefault,
 		// Vibe takes an HTTP MCP server in session/new but does not say so in initialize
 		// (no mcpCapabilities): galopin's tools, ask_user among them, are offered to it.
-		MCPHTTP:       true,
+		MCPHTTP: true,
+		// Vibe's own rewind (_rewind/to), fork (session/fork) and subagent reports over ACP
+		// (3.1.3; see internal/backend/acp/rewind.go).
+		Rewind: true, Fork: true, Subagents: true,
 		ModelEfforts:  func() map[string][]string { return efforts },
 		BeforeSession: vibeBeforeSession(home, pol.ProjectConfigAllowed(), protect, logf),
 		AfterSession:  func() { removeVibeInstructions(home, logf) },

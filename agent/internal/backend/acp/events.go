@@ -209,6 +209,19 @@ func (b *Backend) handleAvailableCommands(st *sessionState, upd map[string]any) 
 func (b *Backend) handleTextChunk(st *sessionState, role string, upd map[string]any, reasoning bool) {
 	content := getMap(upd, "content")
 	text := getStr(content, "text")
+	if content != nil && getStr(content, "type") != "text" && role == "user" && !reasoning {
+		// An image or file chunk of the person's own prompt (an attachments-only prompt has no
+		// text): the agent's id for the turn's message is still the first echo's.
+		st.mu.Lock()
+		if !st.replaying && st.busy && st.userMsgID != "" && !st.echoSeen && st.userText == "" {
+			st.echoSeen = true
+			if id := getStr(upd, "messageId", "messageID"); id != "" {
+				st.entryIDs[st.userMsgID] = id
+			}
+		}
+		st.mu.Unlock()
+		return
+	}
 	if content == nil || getStr(content, "type") != "text" {
 		return
 	}
@@ -216,6 +229,18 @@ func (b *Backend) handleTextChunk(st *sessionState, role string, upd map[string]
 
 	st.mu.Lock()
 	replaying := st.replaying
+	if role == "user" && !replaying && st.busy && st.userMsgID != "" && !reasoning && !st.echoSeen && echoMatches(text, st.userText) {
+		// An agent that echoes the person's prompt while the turn runs (Vibe): the message is
+		// already in the transcript, galopin wrote it; only the agent's own id for the first
+		// echo of the turn, and only when its text is the prompt's, is kept (rewind and fork
+		// name it). Any other user chunk is shown as the message it is.
+		st.echoSeen = true
+		if acpMsgID != "" {
+			st.entryIDs[st.userMsgID] = acpMsgID
+		}
+		st.mu.Unlock()
+		return
+	}
 	if st.replaying {
 		// A replayed history: an agent that sends no message ids (goose) is
 		// grouped one message per run of the same role.
@@ -363,9 +388,13 @@ func (b *Backend) handleToolCall(st *sessionState, upd map[string]any) {
 		// erase images an earlier one delivered.
 		part.Attachments, part.AttachmentsOmitted = atts, omitted
 	}
+	childSess := b.noteSubagent(st, &part, upd)
 	st.upsertPart(part)
 	workspaceDir := st.workspaceDir
 	st.mu.Unlock()
+	if childSess != nil && !replaying {
+		b.emitSessions(workspaceDir, *childSess)
+	}
 
 	if replaying {
 		// No edit snapshots (they read files off the disk, once per historic
@@ -601,4 +630,15 @@ func (b *Backend) applyTurnUsage(workspaceDir string, st *sessionState, turn map
 	st.usage = &u
 	st.mu.Unlock()
 	b.emit(workspaceDir, st.id, backend.Event{Kind: backend.EventUsage, Usage: &u})
+}
+
+// echoMatches is whether an echoed user chunk is the prompt galopin sent: the agent may add
+// text of its own around it, never remove it.
+func echoMatches(echo, prompt string) bool {
+	p := strings.TrimSpace(prompt)
+	if p == "" {
+		// a prompt of attachments only has no text to compare: its first echo of the turn is it
+		return true
+	}
+	return strings.Contains(strings.TrimSpace(echo), p)
 }

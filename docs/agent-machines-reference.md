@@ -302,9 +302,23 @@ What galopin sets up for Vibe:
   an agent process that is still shutting down, galopin waits for it (a few seconds)
   instead of failing.
 
-What differs from opencode: no subagent cards, no steering (a message sent while Vibe works
+Rollback, forks and subagents use Vibe's own ACP extensions:
+
+- **Rollback** (`/undo`, a message's retry) is Vibe's `_rewind/to`: the session's history goes
+  back to just before that message and the files the later turns changed are restored. It is
+  final: Vibe has no undo, so `/redo` is not offered for Vibe (the `unrevert` capability is off).
+  The confirmation dialog shows no file list (Vibe's `_rewind/preview` could supply one; not used).
+- **Fork from here** on the same computer and workspace is Vibe's own `session/fork`: the new
+  session starts from Vibe's copy of the history up to that answer (no chat-history file) and
+  carries on from it. A fork to another computer or workspace is still the handoff with a
+  chat-history attachment.
+- **Subagents** show as a task card on the parent, with a child session under it (the roster and
+  its timeline). Vibe cannot load a subagent's own session, so the child shows its task and, when
+  Vibe reports it, the answer; it counts as running until the parent's turn ends.
+
+What differs from opencode: no steering (a message sent while Vibe works
 waits, shown above the composer with a cancel, and is sent when the turn ends; Stop drops what
-waits), and the model list
+waits), no undo of a rollback, subagent children without their own timeline, and the model list
 shows only what the gateway offers. Compaction is Vibe's own `/compact`, run as a turn like
 goose's (it appears as a tool card in the transcript). Usage comes from Vibe itself (it reports the context
 meter over its protocol), and the context window is the gateway's, with a floor of 13,334

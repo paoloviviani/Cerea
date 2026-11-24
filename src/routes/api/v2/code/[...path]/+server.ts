@@ -936,6 +936,10 @@ const handoffSchema = z.object({
 	modelId: z.string().trim().min(1).max(200).optional(),
 	carry: z.boolean(),
 	uptoMessageId: z.string().trim().min(1).max(128).optional(),
+	// Ask the machine for a native fork (capability `fork`: Mistral Vibe copies the session
+	// itself, up to the turn) instead of seeding a new session with a chat-history file. Only
+	// within one computer and workspace; a machine without it falls back to the handoff.
+	native: z.boolean().optional(),
 });
 
 const modeSchema = z.object({
@@ -1465,6 +1469,52 @@ export const POST: RequestHandler = async (event) => {
 		const { session: sourceSession } = await callOp(() =>
 			link.sessionGet({ sessionId: sourceSessionId })
 		);
+
+		if (
+			parsed.data.native &&
+			targetLink === link &&
+			(!parsed.data.workspaceId || parsed.data.workspaceId === sourceSession.workspaceId)
+		) {
+			// Only the fork itself may fall back (404: this machine cannot fork natively). Once
+			// a fork exists, a later step that fails removes it again, so no second session is
+			// ever made by the handoff below.
+			let forked: { session: Session } | null = null;
+			try {
+				forked = await callOp(() =>
+					link.sessionFork({
+						sessionId: sourceSessionId,
+						...(parsed.data.uptoMessageId ? { messageId: parsed.data.uptoMessageId } : {}),
+						title: `${HANDOFF_TITLE_PREFIX}${sourceSession.title}`.slice(0, 120),
+					})
+				);
+			} catch (err) {
+				const status = (err as { status?: unknown } | null)?.status;
+				if (status !== 404) throw err;
+			}
+			if (forked) {
+				const fork = forked.session;
+				try {
+					if (parsed.data.modeId && parsed.data.modeId !== fork.modeId) {
+						await callOp(() =>
+							link.sessionSetMode({ sessionId: fork.id, modeId: parsed.data.modeId as string })
+						);
+					}
+					if (parsed.data.modelId && parsed.data.modelId !== fork.modelId) {
+						await callOp(() =>
+							link.sessionSetModel({ sessionId: fork.id, modelId: parsed.data.modelId as string })
+						);
+					}
+					await callOp(() => link.sessionPrompt({ sessionId: fork.id, text: parsed.data.prompt }));
+				} catch (err) {
+					await link.sessionArchive({ sessionId: fork.id }).catch(() => undefined);
+					throw err;
+				}
+				return superjsonResponse({
+					agent: toSession(fork),
+					deviceId: targetDevice._id.toString(),
+				});
+			}
+		}
 
 		let attachments: Array<{ type: "file"; mime: string; filename: string; url: string }> = [];
 		if (parsed.data.carry) {

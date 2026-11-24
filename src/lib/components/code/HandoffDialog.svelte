@@ -82,6 +82,18 @@
 	let targetModeId = $state(untrack(() => modeId ?? ""));
 	let targetModelId = $state(untrack(() => modelId ?? ""));
 	let prompt = $state("");
+	/** The machine can copy this session natively (`fork`): same computer and workspace, and a
+	 * turn to stop at. The conversation then travels in the agent's own history, not a file. */
+	let nativeFork = $derived(
+		Boolean(uptoMessageId) &&
+			targetDevice === deviceId &&
+			(!targetWorkspaceId || targetWorkspaceId === workspace.id) &&
+			Boolean(
+				codeDeviceList.devices
+					.find((d) => d.id === deviceId)
+					?.backends?.find((b) => b.id === provider)?.capabilities.fork
+			)
+	);
 	let listsBusy = $state(false);
 	let listsFailure = $state<string | null>(null);
 	let busy = $state(false);
@@ -142,6 +154,7 @@
 				...(targetModeId ? { modeId: targetModeId } : {}),
 				...(targetModelId ? { modelId: targetModelId } : {}),
 				...(uptoMessageId ? { uptoMessageId } : {}),
+				...(nativeFork ? { native: true } : {}),
 			});
 			onhandoff(result);
 			onclose();

@@ -186,7 +186,7 @@ func (b *Backend) Capabilities() backend.Capabilities {
 	return backend.Capabilities{
 		Diff: true, Children: true, Usage: true, Compact: true,
 		Images: true, Files: true, Worktrees: false,
-		Questions: true, Revert: true, RevertFiles: true, Efforts: true, ToolImages: true,
+		Questions: true, Revert: true, RevertFiles: true, Unrevert: true, Efforts: true, ToolImages: true,
 		// galopin's own tools are installed only with a ToolsDir; a prompt sent
 		// mid-turn is steered into the running turn (delivery "steer").
 		AgentTools: b.toolsEnabled(), Steer: true,

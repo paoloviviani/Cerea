@@ -600,7 +600,7 @@ func resultTarget(op string) any {
 		return &fxWorkspaceResult{}
 	case "session.list", "session.children":
 		return &fxSessionsResult{}
-	case "session.get", "session.create", "session.rename", "session.setMode", "session.setModel", "session.setEffort":
+	case "session.get", "session.create", "session.fork", "session.rename", "session.setMode", "session.setModel", "session.setEffort":
 		return &fxSessionResult{}
 	case "session.grantCoordination":
 		return &struct {

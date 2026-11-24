@@ -1079,6 +1079,8 @@ export async function handoffAgent(
 		modeId?: string;
 		modelId?: string;
 		uptoMessageId?: string;
+		/** A native fork on the same computer and workspace (capability `fork`). */
+		native?: boolean;
 	}
 ): Promise<{ agent: CodeAgentSession; deviceId: string }> {
 	return unwrap(

@@ -49,6 +49,11 @@ export interface Backend {
 		 * running turn (steering) rather than refused. Older machines omit
 		 * it: read as false. */
 		steer?: boolean;
+		/** `session.unrevert` works (a rollback can be undone before the next prompt). Absent
+		 * on an older machine, which had it with `revert`: read as true when `revert` is. */
+		unrevert?: boolean;
+		/** `session.fork` works: a native copy of the session up to a turn (Mistral Vibe). */
+		fork?: boolean;
 		/** A `session.prompt` sent mid-turn is held by the machine and sent when
 		 * the turn ends (a backend without steering): `queue` events list what is
 		 * waiting and `session.dequeue` withdraws one. Older machines omit it. */
@@ -757,6 +762,7 @@ export const OP_NAMES = [
 	"session.prompt",
 	"session.cancel",
 	"session.dequeue",
+	"session.fork",
 	"session.rename",
 	"session.archive",
 	"session.delete",
@@ -1131,6 +1137,8 @@ const backendSchema = z.object({
 		coordinationGrant: z.boolean().optional(),
 		steer: z.boolean().optional(),
 		queue: z.boolean().optional(),
+		unrevert: z.boolean().optional(),
+		fork: z.boolean().optional(),
 		scheduleTools: z.boolean().optional(),
 		historyPaging: z.boolean().optional(),
 	}),

@@ -96,14 +96,16 @@ describe("snapshotToUpdates", () => {
 		).toBe(false);
 	});
 
-	it("sends the waiting follow-ups, so a reload shows them, and nothing when none wait", () => {
+	it("always sends the waiting follow-ups, an empty list too, so a snapshot replaces what a client shows", () => {
 		const base = { messages: [], permissions: [], status: "busy", usage: null, todos: [] };
 		expect(
 			snapshotToUpdates({ ...base, queued: [{ id: "c2", text: "next" }] } as Transcript).filter(
 				(u) => u.type === "queued"
 			)
 		).toEqual([{ type: "queued", queued: [{ id: "c2", text: "next" }] }]);
-		expect(snapshotToUpdates(base as Transcript).filter((u) => u.type === "queued")).toEqual([]);
+		expect(snapshotToUpdates(base as Transcript).filter((u) => u.type === "queued")).toEqual([
+			{ type: "queued", queued: [] },
+		]);
 	});
 
 	it("maps a user text part to a `user` frame carrying its clientMessageId", () => {

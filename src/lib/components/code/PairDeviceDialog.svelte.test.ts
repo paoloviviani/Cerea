@@ -748,8 +748,13 @@ describe("the Docker switch", () => {
 		await chooseDocker(first);
 		await first.getByTestId("pair-docker-keep").click();
 		await first.getByTestId("pair-docker-name").fill("kept");
-		expect(localStorage.length).toBe(0);
-		expect(sessionStorage.length).toBe(0);
+		// Keys the dialog (or the app) wrote. Vitest's own browser UI keeps a "vitest-ui_*" key
+		// in this origin's storage while it runs locally (the UI is off in CI's headless runs),
+		// and can write it right after the test's clear(): it is not the app's.
+		const appKeys = (storage: Storage) =>
+			Object.keys(storage).filter((key) => !key.startsWith("vitest-"));
+		expect(appKeys(localStorage)).toEqual([]);
+		expect(appKeys(sessionStorage)).toEqual([]);
 		expect(document.cookie).not.toMatch(/docker|pair/i);
 		first.unmount();
 

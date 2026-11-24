@@ -864,6 +864,58 @@ describe("the handoff route (parity plan §4.2(a))", () => {
 		machine.close();
 	});
 
+	it("forks natively when the machine can, with no history file, and falls back when it cannot", async () => {
+		const machine = await connectAndPair();
+		const deviceId = machine.deviceId as string;
+		const { workspace } = await createWorkspace(machine, deviceId);
+		const { agent: source } = await createSession(machine, deviceId, workspace.id);
+
+		const forks: Array<{ sessionId: string; messageId?: string; title?: string }> = [];
+		const prompts: Array<{ sessionId: string; text: string; attachments?: unknown[] }> = [];
+		machine.onOp("session.fork", (args: (typeof forks)[number]) => {
+			forks.push(args);
+			return {
+				session: {
+					id: "forked-1",
+					workspaceId: workspace.id,
+					backend: "opencode",
+					title: args.title ?? "",
+					status: "idle",
+					createdAt: new Date().toISOString(),
+					updatedAt: new Date().toISOString(),
+				},
+			};
+		});
+		machine.onOp("session.prompt", (args: (typeof prompts)[number]) => {
+			prompts.push(args);
+			return {};
+		});
+
+		const res = await forwarder(
+			forwarderPOST,
+			`/api/v2/code/v1/agents/${source.id}/handoff?device=${deviceId}`,
+			{
+				method: "POST",
+				body: JSON.stringify({
+					prompt: "carry on",
+					carry: true,
+					native: true,
+					uptoMessageId: "msg_9",
+				}),
+				locals: user.locals,
+			}
+		);
+		expect(res.status).toBe(200);
+		const { agent } = await parse<{ agent: { id: string } }>(res);
+		expect(agent.id).toBe("forked-1");
+		expect(forks).toEqual([
+			{ sessionId: source.id, messageId: "msg_9", title: "Fork: New session" },
+		]);
+		expect(prompts).toEqual([{ sessionId: "forked-1", text: "carry on" }]);
+
+		machine.close();
+	});
+
 	it("hands off across the caller's own paired devices", async () => {
 		const source = await connectAndPair();
 		// Two devices for the same user, so each needs its own machine id —
@@ -991,8 +1043,11 @@ describe("the SSE bridge over a live machine link", () => {
 		expect(reader).toBeTruthy();
 		if (!reader) return;
 
-		// The empty snapshot's own turn state ("idle" status -> done) arrives
-		// first, with no live activity needed.
+		// The snapshot's own frames arrive first, with no live activity needed: the (empty)
+		// follow-up list that replaces whatever a client showed, then the empty snapshot's
+		// turn state ("idle" status -> done).
+		const queuedFrame = await readOneFrame(reader);
+		expect(JSON.parse(queuedFrame.data)).toEqual({ type: "queued", queued: [] });
 		const first = await readOneFrame(reader);
 		expect(first.event).toBe("update");
 

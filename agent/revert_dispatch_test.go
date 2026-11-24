@@ -16,7 +16,7 @@ type revertingBackend struct {
 }
 
 func (r *revertingBackend) Capabilities() backend.Capabilities {
-	return backend.Capabilities{Revert: true, RevertFiles: true}
+	return backend.Capabilities{Revert: true, RevertFiles: true, Unrevert: true}
 }
 func (r *revertingBackend) Revert(_ context.Context, _, sessionID, messageID string) error {
 	r.reverted = append(r.reverted, sessionID+"@"+messageID)
