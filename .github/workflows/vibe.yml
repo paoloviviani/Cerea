@@ -45,6 +45,8 @@ jobs:
         working-directory: agent
         env:
           GALOPIN_VIBE_IT: "1"
+          # also runs the real-Vibe check that launch vibe offers the Cerea connectors (no model call)
+          GALOPIN_LAUNCH_CONNECTORS_IT: "1"
         shell: bash
         run: |
           set +e

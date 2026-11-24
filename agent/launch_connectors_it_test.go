@@ -139,11 +139,13 @@ func TestLaunchVibeShowsTheConnectorsServerIT(t *testing.T) {
 	// every Vibe listing reaches the upstream, so a count above the launch's own proves it connected
 	defer func(d time.Duration) { upstreamCacheTTL = d }(upstreamCacheTTL)
 	upstreamCacheTTL = 0
-	vibeBin := os.Getenv("GALOPIN_VIBE_BIN") // .../venv/bin/vibe of the pinned Vibe
-	if vibeBin == "" {
-		t.Skip("set GALOPIN_VIBE_BIN to the pinned Vibe's vibe (its vibe-acp is beside it)")
+	// GALOPIN_VIBE_BIN is the pinned Vibe's vibe-acp or vibe: both sit in one bin directory.
+	vibeEnv := os.Getenv("GALOPIN_VIBE_BIN")
+	if vibeEnv == "" {
+		t.Skip("GALOPIN_VIBE_BIN names no Vibe: skipping the real-Vibe check")
 	}
-	acp := filepath.Join(filepath.Dir(vibeBin), "vibe-acp")
+	vibeBin := filepath.Join(filepath.Dir(vibeEnv), "vibe")
+	acp := filepath.Join(filepath.Dir(vibeEnv), "vibe-acp")
 	driver := filepath.Join(t.TempDir(), "driver.py")
 	if err := os.WriteFile(driver, []byte(acpDriver), 0o600); err != nil {
 		t.Fatal(err)
