@@ -409,3 +409,14 @@ func TestCoordinationForRelayed(t *testing.T) {
 		t.Errorf("a local Plan read of a delegate: got %s", got)
 	}
 }
+
+func TestAutomationToolsAreKnownAndCautious(t *testing.T) {
+	for _, k := range []string{"automation_list", "automation_create", "automation_delete", "automation_pause", "automation_resume"} {
+		if !Known(k) {
+			t.Errorf("%s should be a known permission name", k)
+		}
+		if cat, _ := Classify(Policy{}, Request{Key: k}); cat != MCP {
+			t.Errorf("%s classified %s, want the cautious default (mcp)", k, cat)
+		}
+	}
+}

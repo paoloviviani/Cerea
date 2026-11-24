@@ -112,7 +112,7 @@ func TestSubagentSendToAnotherSessionGetsACardIntegration(t *testing.T) {
 	r.hub.wait(t, mark, 240*time.Second, "the child's report in the parent", func(e sessions.Envelope) bool {
 		p := e.Event.Part
 		return e.SessionID == parent.ID && e.Event.Kind == backend.EventPart && p != nil && p.Type == backend.PartText &&
-			p.Synthetic && strings.Contains(p.Text, "<subagent")
+			p.Synthetic && isSubagentReport(p.Text)
 	})
 
 	// Phase two: the child's next prompt sends to the bystander, the turn
