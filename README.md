@@ -62,45 +62,28 @@ without the kit.
 
 ## How it compares
 
-How Cerea and its gateway Pystino sit next to other self-hosted chat front ends, agent
-platforms and LLM gateways. Each of them is good at something we are not, and the table
-says so.
+Cerea with its gateway Pystino, next to other self-hosted chat apps, agent platforms and
+LLM gateways.
 
 Key: ✓ built in · ~ partial, add-on or paid tier · — not offered · ? not verified ·
 ■ ours alone. Checked 18 November 2026.
 
-|                                                       |    Open WebUI     | LibreChat |   Onyx   |       Dify        | LiteLLM  | Envoy AI GW |   Coder   |  **Cerea + Pystino**  |
-| ----------------------------------------------------- | :---------------: | :-------: | :------: | :---------------: | :------: | :---------: | :-------: | :-------------------: |
-| Chat UI for end users                                 |         ✓         |     ✓     |    ✓     |         ✓         |    —     |      —      |    ~¹     |         **✓**         |
-| Agents with tools                                     |         ✓         |     ✓     |    ✓     |         ✓         |    —     |      —      |     ✓     |         **✓**         |
-| MCP                                                   |        ~²         |     ✓     |    ✓     |         ✓         |   ✓ gw   |    ✓ gw     |     ?     | **✓ incl. your own**  |
-| Knowledge bases / search                              |         ✓         |     ✓     |    ✓     |         ✓         |    —     |      —      |     —     |         **✓**         |
-| Code execution                                        |        ✓³         |    ✓⁴     |    ✓     |         ✓         |    —     |      —      |     ✓     |         **✓**         |
-| ■ Office files: create, edit, version                 |         —         |     —     |    —     |         —         |    —     |      —      |     —     |         **✓**         |
-| Coding agents on your own machines, from the chat     |         —         |     —     |    —     |         —         |    —     |      —      |    ~⁵     |         **✓**         |
-| ■ Browser use in your own signed-in browser           |         —         |     —     |    —     |         —         |    —     |      —      |     —     |         **✓**         |
-| Visual workflow builder                               |         —         |     —     |    —     |         ✓         |    —     |      —      |     —     |         **—**         |
-| Budgets / rate limits per user or group               |         —         |    ~⁶     |    ?     |         ?         |    ✓     |     ✓⁷      |    ~⁸     |        **✓¹⁴**        |
-| PII redaction before the model                        |        ~⁹         |     —     |    ?     |        —¹⁰        |   ✓¹¹    |      —      |     ?     |        **✓¹⁴**        |
-| One sign-in across chat, gateway and agents           |         —         |     —     |    —     |         —         |    —     |      —      |    ~¹²    |        **✓¹⁴**        |
-| ■ From your phone, tools running on your own computer |         —         |     —     |    —     |         —         |    —     |      —      |     —     |         **✓**         |
-| Licence                                               | custom, not OSI¹³ |    MIT    | MIT + EE | modified Apache¹⁵ | MIT + EE | Apache-2.0  | AGPL + EE | **Apache-2.0, no EE** |
-
-1. Coder Agents: a chat for developers delegating to coding agents, not general chat.
-2. Open WebUI's MCP is native over Streamable HTTP only; stdio and SSE servers need the mcpo proxy.
-3. Open WebUI: Open Terminal; Pyodide and Jupyter are now "legacy".
-4. LibreChat code execution: self-hosted, Apache-2.0.
-5. Coder: agents run in Coder workspaces, not on your own laptop or desktop from a chat.
-6. LibreChat: token balance and credits, off by default.
-7. Envoy AI Gateway: token- and quota-based limits, with Redis.
-8. Coder: AI Gateway, Premium.
-9. Open WebUI: community filters only.
-10. Dify: moderation (keywords, OpenAI moderation), not redaction.
-11. LiteLLM: Presidio, open source.
-12. Coder: a Coder session across AI Gateway (Premium) and Coder Agents; developer-focused.
-13. Open WebUI: since v0.6.6 (April 2025), a branding clause above 50 users, hence "custom, not OSI".
-14. With Pystino, the gateway that pairs with Cerea; Cerea alone runs against any OpenAI-compatible endpoint without these.
-15. Dify: multi-tenant use needs authorisation, and the logo must be kept.
+|                                                       |   Open WebUI    | LibreChat |   Onyx   |      Dify       | LiteLLM  | Envoy AI GW |   Coder   |  **Cerea + Pystino**  |
+| ----------------------------------------------------- | :-------------: | :-------: | :------: | :-------------: | :------: | :---------: | :-------: | :-------------------: |
+| Chat UI for end users                                 |        ✓        |     ✓     |    ✓     |        ✓        |    —     |      —      |     ~     |         **✓**         |
+| Agents with tools                                     |        ✓        |     ✓     |    ✓     |        ✓        |    —     |      —      |     ✓     |         **✓**         |
+| MCP                                                   |        ~        |     ✓     |    ✓     |        ✓        |   ✓ gw   |    ✓ gw     |     ?     | **✓ incl. your own**  |
+| Knowledge bases / search                              |        ✓        |     ✓     |    ✓     |        ✓        |    —     |      —      |     —     |         **✓**         |
+| Code execution                                        |        ✓        |     ✓     |    ✓     |        ✓        |    —     |      —      |     ✓     |         **✓**         |
+| ■ Office files: create, edit, version                 |        —        |     —     |    —     |        —        |    —     |      —      |     —     |         **✓**         |
+| Coding agents on your own machines, from the chat     |        —        |     —     |    —     |        —        |    —     |      —      |     ~     |         **✓**         |
+| ■ Browser use in your own signed-in browser           |        —        |     —     |    —     |        —        |    —     |      —      |     —     |         **✓**         |
+| Visual workflow builder                               |        —        |     —     |    —     |        ✓        |    —     |      —      |     —     |         **—**         |
+| Budgets / rate limits per user or group               |        —        |     ~     |    ?     |        ?        |    ✓     |      ✓      |     ~     |         **✓**         |
+| PII redaction before the model                        |        ~        |     —     |    ?     |        —        |    ✓     |      —      |     ?     |         **✓**         |
+| One sign-in across chat, gateway and agents           |        —        |     —     |    —     |        —        |    —     |      —      |     ~     |         **✓**         |
+| ■ From your phone, tools running on your own computer |        —        |     —     |    —     |        —        |    —     |      —      |     —     |         **✓**         |
+| Licence                                               | custom, not OSI |    MIT    | MIT + EE | modified Apache | MIT + EE | Apache-2.0  | AGPL + EE | **Apache-2.0, no EE** |
 
 Corrections welcome: please open an issue.
 
