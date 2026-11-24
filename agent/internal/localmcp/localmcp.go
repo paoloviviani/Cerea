@@ -12,8 +12,10 @@ package localmcp
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -25,6 +27,28 @@ import (
 // Path is where the endpoint answers.
 const Path = "/local-agents"
 
+// WhoamiPath answers a secret-free challenge: GET WhoamiPath?nonce=N returns
+// {"proof": Proof(secret, N)}. A client that holds the secret uses it to know it
+// is talking to the galopin that wrote that secret before it ever sends it.
+const WhoamiPath = Path + "/whoami"
+
+// SourceMetaKey is the _meta key a tool carries to say where it comes from:
+// SourceCerea for the user's Cerea connectors.
+const (
+	SourceMetaKey = "cerea.source"
+	SourceCerea   = "cerea"
+)
+
+// Proof is the answer to a whoami challenge: an HMAC of the nonce under a key
+// derived from the secret with a domain label of its own (so it cannot be
+// replayed as any other proof built from the same secret).
+func Proof(secret, nonce string) string {
+	key := sha256.Sum256([]byte("galopin local-agents whoami v1\x00" + secret))
+	m := hmac.New(sha256.New, key[:])
+	m.Write([]byte(nonce))
+	return hex.EncodeToString(m.Sum(nil))
+}
+
 // Tool is one tool on offer.
 type Tool struct {
 	// Name is the name the agent sees (already namespaced and sanitised).
@@ -32,6 +56,8 @@ type Tool struct {
 	Description string
 	// Schema is an object JSON Schema; nil means "any object".
 	Schema json.RawMessage
+	// Meta is the tool's _meta (see SourceMetaKey).
+	Meta map[string]any
 }
 
 // Source supplies the tools and runs the calls.
@@ -56,7 +82,7 @@ func Handler(secret string, src Source, version string) http.Handler {
 			if len(schema) == 0 {
 				schema = json.RawMessage(`{"type":"object"}`)
 			}
-			s.AddTool(&mcp.Tool{Name: name, Description: t.Description, InputSchema: schema},
+			s.AddTool(&mcp.Tool{Name: name, Description: t.Description, InputSchema: schema, Meta: mcp.Meta(t.Meta)},
 				func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 					args := req.Params.Arguments
 					if len(args) == 0 {
@@ -74,6 +100,11 @@ func Handler(secret string, src Source, version string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !loopbackHost(r.Host) {
 			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		if r.URL.Path == WhoamiPath && r.Method == http.MethodGet {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{"proof": Proof(secret, r.URL.Query().Get("nonce"))})
 			return
 		}
 		if r.URL.Path != Path {

@@ -411,7 +411,7 @@ without it, `galopin run` works the same while its terminal is open, and
 `galopin service status` shows whether it runs and where its log is, and
 `galopin status` says how galopin is kept running on that computer (the service,
 a terminal, the Mac app or a container). The Agents panel shows the same under each
-computer's name, with the way to stop or remove it in the tooltip. On a Linux server that should keep running with nobody logged
+computer's name, which opens to the way to stop or remove it. On a Linux server that should keep running with nobody logged
 in, also run `loginctl enable-linger "$USER"` (it may need sudo). In Docker the
 dialog always prints `docker run -d --restart unless-stopped …` instead (with
 the pairing box unticked it says to tick it and run the first command again

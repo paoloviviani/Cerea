@@ -61,10 +61,11 @@ func TestLaunchClaudeShowsTheConnectorsServerIT(t *testing.T) {
 	o.claudeBin, o.model = itWrapper(t, r, real, out), "gw-model"
 	_ = launchClaude(context.Background(), o) // the fake gateway fails the model call
 	b, _ := os.ReadFile(out)
-	if !strings.Contains(string(b), `"name":"cerea-connectors","status":"connected"`) || !strings.Contains(string(b), "mcp__cerea-connectors__tracker-find") {
-		t.Fatalf("claude's init does not show the connectors server connected with its tool:\n%.3000s", b)
+	// (Claude Code defers MCP tool names in its init message, so the status is the check.)
+	if !strings.Contains(string(b), `"name":"cerea-connectors","status":"connected"`) {
+		t.Fatalf("claude's init does not show the connectors server connected:\n%.3000s", b)
 	}
-	t.Logf("claude init shows cerea-connectors connected with mcp__cerea-connectors__tracker-find")
+	t.Logf("claude init shows cerea-connectors connected")
 }
 
 func TestLaunchOpencodeShowsTheConnectorsServerIT(t *testing.T) {
@@ -135,6 +136,9 @@ p.terminate()
 
 func TestLaunchVibeShowsTheConnectorsServerIT(t *testing.T) {
 	r, out, stub := itRigStub(t)
+	// every Vibe listing reaches the upstream, so a count above the launch's own proves it connected
+	defer func(d time.Duration) { upstreamCacheTTL = d }(upstreamCacheTTL)
+	upstreamCacheTTL = 0
 	vibeBin := os.Getenv("GALOPIN_VIBE_BIN") // .../venv/bin/vibe of the pinned Vibe
 	if vibeBin == "" {
 		t.Skip("set GALOPIN_VIBE_BIN to the pinned Vibe's vibe (its vibe-acp is beside it)")

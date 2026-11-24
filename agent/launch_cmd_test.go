@@ -9,10 +9,30 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"galopin/packaging"
 )
+
+// syncBuffer is a bytes.Buffer the background connectors listing may write to
+// while a test reads.
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
+}
 
 // launchRig enrolls against the fake IdP/gateway into a temp state dir on a
 // free shim port and writes a fake opencode that records how it was started.
@@ -24,7 +44,7 @@ type launchRig struct {
 	fakeBin   string
 	creds_    *credentials
 	baseEnv   []string
-	stderrBuf bytes.Buffer
+	stderrBuf syncBuffer
 }
 
 func newLaunchRig(t *testing.T, exitCode int, version string) *launchRig {

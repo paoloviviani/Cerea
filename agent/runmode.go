@@ -14,30 +14,55 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"strconv"
+	"strings"
 )
 
 const (
-	runModeService  = "service"
+	runModeService = "service"
+	// runModeSystem is a systemd SYSTEM unit (galopin.service under system.slice):
+	// stopped with root's systemctl, not the user's.
+	runModeSystem   = "system_service"
 	runModeTerminal = "terminal"
 	runModeMacApp   = "mac_app"
 	runModeDocker   = "docker"
 )
 
+// connectorAppLabel is the Cerea connector app's launchd label: launchd gives
+// the processes the app starts XPC_SERVICE_NAME with it in it.
+const connectorAppLabel = "org.cerea.connector"
+
 // detectRunMode is hello.agent.runMode for THIS process. xpcService is the
-// XPC_SERVICE_NAME launchd sets for a LaunchAgent's process.
+// XPC_SERVICE_NAME launchd sets for a LaunchAgent's (or the app's) process:
+// mac_app is only when galopin is actually run by the connector app, not merely
+// when the app is installed on the Mac.
 func detectRunMode(env upgradeCapEnv, xpcService string) string {
 	switch {
 	case env.container != nil && env.container():
 		return runModeDocker
-	case env.goos == "darwin" && connectorAppInstalled(env.home):
+	case env.goos == "darwin" && strings.Contains(xpcService, connectorAppLabel):
 		return runModeMacApp
 	case env.goos == "darwin" && xpcService == launchdLabel:
 		return runModeService
 	case env.goos == "linux" && underGalopinUserUnit(env.cgroupFile):
 		return runModeService
+	case env.goos == "linux" && underGalopinSystemUnit(env.cgroupFile):
+		return runModeSystem
 	}
 	return runModeTerminal
+}
+
+// underGalopinSystemUnit: the process is in a system-level galopin.service.
+func underGalopinSystemUnit(cgroupFile string) bool {
+	body, err := os.ReadFile(cgroupFile)
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(body), "\n") {
+		if strings.Contains(line, "/system.slice/") && strings.Contains(line, "/galopin.service") {
+			return true
+		}
+	}
+	return false
 }
 
 func currentRunMode() string {
@@ -57,9 +82,14 @@ Cerea shows the same word for each paired computer.
 
 // statusEnv is what 'galopin status' reaches outside itself.
 type statusEnv struct {
-	svc       *serviceEnv
-	proxyOurs func() bool // a galopin proxy of this install answers on its port
-	out       io.Writer
+	svc *serviceEnv
+	// runHere: a 'galopin run' or 'serve' of this pairing is up right now (it
+	// holds the one-galopin-per-pairing lock, which 'launch' and its proxy do not
+	// take). A launch's proxy is therefore never mistaken for a terminal run.
+	runHere func() bool
+	// systemUnit: a systemd system unit galopin.service is active.
+	systemUnit func() bool
+	out        io.Writer
 }
 
 func runStatus(args []string) error {
@@ -82,12 +112,22 @@ func runStatus(args []string) error {
 		}
 	}
 	env := &statusEnv{svc: svc, out: os.Stdout}
-	creds, cerr := loadCredentials(credsPath)
-	env.proxyOurs = func() bool {
-		if cerr != nil || creds.ShimPort == 0 {
+	_, cerr := loadCredentials(credsPath)
+	env.runHere = func() bool {
+		if cerr != nil {
 			return false
 		}
-		return probeShim("127.0.0.1:"+strconv.Itoa(creds.ShimPort), creds.ShimSecret) == probeOurs
+		unlock, err := lockInstance(credsPath)
+		if err == nil {
+			unlock()
+			return false
+		}
+		var busy *alreadyRunningError
+		return errors.As(err, &busy)
+	}
+	env.systemUnit = func() bool {
+		_, err := exec.LookPath("systemctl")
+		return err == nil && exec.Command("systemctl", "is-active", "--quiet", unitName).Run() == nil
 	}
 	fmt.Fprintf(env.out, "galopin %s\n", agentVersion)
 	switch {
@@ -121,15 +161,23 @@ func (e *statusEnv) print() {
 		return
 	}
 	installed, active := e.serviceState()
+	running := e.runHere != nil && e.runHere()
 	switch {
 	case installed && active:
 		e.say("Run mode: service (galopin starts at login and restarts if it stops)")
 		e.stopHints()
+	case installed && running:
+		// The service is not what is running: a galopin run left open is.
+		e.say("Run mode: terminal ('galopin run' left open; the service is installed but not running)")
+		e.say("Stop it:  Ctrl-C in that terminal. Remove the unused service with 'galopin service uninstall'.")
 	case installed:
 		e.say("Run mode: service installed but not running")
 		e.say("Start it: %s", e.startCmd())
 		e.stopHints()
-	case e.proxyOurs():
+	case s.goos == "linux" && e.systemUnit != nil && e.systemUnit():
+		e.say("Run mode: system_service (a systemd system unit, galopin.service)")
+		e.say("Stop it:  sudo systemctl stop galopin; remove it: sudo systemctl disable --now galopin and delete its unit file")
+	case running:
 		e.say("Run mode: terminal ('galopin run' or 'galopin serve' left open; not a service)")
 		e.say("Stop it:  Ctrl-C in that terminal. It does not start again by itself.")
 		e.say("Optional: 'galopin service install' keeps it running at login (and 'galopin service uninstall' removes that again).")

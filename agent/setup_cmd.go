@@ -62,6 +62,9 @@ setup TOOL --desktop
   --remove undoes it. claude has no desktop provider to write: use plain setup.
   --creds / --state-dir: as for 'galopin run'.
 
+--default has two meanings, by mode: without --desktop it installs the TOOL shim for
+your PATH; with --desktop it makes the provider the tool's default provider.
+
 Calls the tool makes through the Cerea connectors are governed by the tool's own
 approval rules (convenience, not enforcement): galopin's Plan/Ask/Allow modes and
 review log do not apply to a tool you start yourself.
@@ -162,18 +165,42 @@ func setupGalopinPath() (string, error) {
 	return exe, nil
 }
 
-// shimScript is the body of both kinds of command.
-func shimScript(galopin, tool string) string {
-	q := "'" + strings.ReplaceAll(galopin, "'", `'\''`) + "'"
+// shimScript is the body of both kinds of command. The marker is its second
+// line (hasSetupMarker looks only there); the shims directory is recorded in it
+// at setup time, so launch never has to re-derive it from where the binary
+// happens to live (a symlink, a Homebrew Cellar path). The user's arguments
+// follow "--": they belong to the tool, never to galopin's own flag parsing.
+func shimScript(galopin, tool, shimsDir string) string {
+	q := func(v string) string { return "'" + strings.ReplaceAll(v, "'", `'\''`) + "'" }
 	return "#!/bin/sh\n" +
 		setupMarker + " " + tool + " (written by 'galopin setup " + tool + "'; remove with 'galopin setup " + tool + " --remove')\n" +
-		"exec " + q + " launch " + tool + ` "$@"` + "\n"
+		"GALOPIN_SHIMS_DIR=" + q(shimsDir) + "\nexport GALOPIN_SHIMS_DIR\n" +
+		"exec " + q(galopin) + " launch " + tool + ` -- "$@"` + "\n"
+}
+
+// hasSetupMarker is true when content is a file setup wrote: the marker opens
+// its second line.
+func hasSetupMarker(content []byte) bool {
+	lines := strings.SplitN(string(content), "\n", 3)
+	return len(lines) >= 2 && strings.HasPrefix(lines[1], setupMarker)
+}
+
+// isSetupShim reads the head of path and says whether it is a file setup wrote.
+func isSetupShim(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	head := make([]byte, 512)
+	n, _ := f.Read(head)
+	return hasSetupMarker(head[:n])
 }
 
 // writeOwnedFile writes body at path unless a file there is not ours.
 func writeOwnedFile(path, body string) (changed bool, err error) {
 	if old, rerr := os.ReadFile(path); rerr == nil {
-		if !strings.Contains(string(old), setupMarker) {
+		if !hasSetupMarker(old) {
 			return false, fmt.Errorf("%s exists and was not written by galopin: leaving it alone (remove or rename it, then run setup again)", path)
 		}
 		if string(old) == body {
@@ -200,7 +227,7 @@ func removeOwnedFile(path string) (removed bool, err error) {
 	if rerr != nil {
 		return false, rerr
 	}
-	if !strings.Contains(string(old), setupMarker) {
+	if !hasSetupMarker(old) {
 		return false, fmt.Errorf("%s was not written by galopin: left in place", path)
 	}
 	return true, os.Remove(path)
@@ -240,11 +267,15 @@ func setupLaunch(out io.Writer, tool string, makeDefault, remove bool) error {
 	if err != nil {
 		return err
 	}
-	body := shimScript(galopin, tool)
+	body := shimScript(galopin, tool, shims)
+	oldCmd, hadCmd := []byte(nil), false
+	if b, rerr := os.ReadFile(cmdPath); rerr == nil {
+		oldCmd, hadCmd = b, true
+	}
 	if makeDefault {
 		// Check both targets before writing either.
 		for _, p := range []string{cmdPath, shimPath} {
-			if old, rerr := os.ReadFile(p); rerr == nil && !strings.Contains(string(old), setupMarker) {
+			if old, rerr := os.ReadFile(p); rerr == nil && !hasSetupMarker(old) {
 				return fmt.Errorf("%s exists and was not written by galopin: leaving it alone (remove or rename it, then run setup again)", p)
 			}
 		}
@@ -258,6 +289,12 @@ func setupLaunch(out io.Writer, tool string, makeDefault, remove bool) error {
 	if makeDefault {
 		changed, err := writeOwnedFile(shimPath, body)
 		if err != nil {
+			// The pair is all or nothing: put the command back as it was.
+			if hadCmd {
+				_ = writeFileAtomic(cmdPath, oldCmd, 0o755)
+			} else {
+				_ = os.Remove(cmdPath)
+			}
 			return err
 		}
 		fmt.Fprintf(out, "%s %s\n", verb(changed), shimPath)
@@ -287,22 +324,66 @@ func pathHasFirst(path, dir string) bool {
 	return first != "" && filepath.Clean(first) == filepath.Clean(dir)
 }
 
+// launchDepthEnv is set by 'galopin launch' for the tool it starts: a launch
+// inside a launch (a --default shim found again from inside the tool) is refused
+// instead of recursing.
+const launchDepthEnv = "GALOPIN_LAUNCH_DEPTH"
+
+// shimsDirEnv is how a shim tells galopin which directory it was set up in.
+const shimsDirEnv = "GALOPIN_SHIMS_DIR"
+
+// sameDir reports whether two paths are the same directory, through symlinks.
+func sameDir(a, b string) bool {
+	ia, err1 := os.Stat(a)
+	ib, err2 := os.Stat(b)
+	if err1 == nil && err2 == nil {
+		return os.SameFile(ia, ib)
+	}
+	ra, e1 := filepath.EvalSymlinks(a)
+	rb, e2 := filepath.EvalSymlinks(b)
+	if e1 == nil && e2 == nil {
+		return ra == rb
+	}
+	return filepath.Clean(a) == filepath.Clean(b)
+}
+
 // stripShimsFromPath removes galopin's shim directory from PATH, in this
-// process (and so in everything it starts). A --default shim named 'claude'
-// otherwise finds itself when launch looks for the real tool, and loops.
+// process (and so in everything it starts), for EVERY galopin command: a
+// --default shim named 'claude' or 'opencode' otherwise gets resolved as the
+// real tool (by launch, or by the supervised engine under 'run') and loops. An
+// entry goes when it is the directory the shim recorded (GALOPIN_SHIMS_DIR), the
+// one beside this binary, the same directory through a symlink, or is named
+// galopin-shims (galopin's own name for it).
 func stripShimsFromPath() {
-	shims, err := setupShimsDir()
-	if err != nil {
-		return
+	var known []string
+	if d := os.Getenv(shimsDirEnv); d != "" {
+		known = append(known, d)
+	}
+	if d, err := setupShimsDir(); err == nil {
+		known = append(known, d)
 	}
 	var keep []string
 	for _, e := range filepath.SplitList(os.Getenv("PATH")) {
-		if e != "" && filepath.Clean(e) == filepath.Clean(shims) {
-			continue
+		drop := e != "" && filepath.Base(filepath.Clean(e)) == setupShimsDirName
+		for _, k := range known {
+			if e != "" && sameDir(e, k) {
+				drop = true
+			}
 		}
-		keep = append(keep, e)
+		if !drop {
+			keep = append(keep, e)
+		}
 	}
 	_ = os.Setenv("PATH", strings.Join(keep, string(os.PathListSeparator)))
+}
+
+// refuseSetupShim is the second line of defence: a resolved tool binary that is
+// one of setup's shims would exec galopin again.
+func refuseSetupShim(tool, bin string) error {
+	if isSetupShim(bin) {
+		return fmt.Errorf("%s resolves to %s, a shim 'galopin setup' wrote (it would start galopin again): pass --%s PATH to the real %s, or take the shims directory off your PATH", tool, bin, tool, tool)
+	}
+	return nil
 }
 
 // --- desktop apps ------------------------------------------------------------

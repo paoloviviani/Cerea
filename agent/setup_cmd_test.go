@@ -2,11 +2,15 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	backendopencode "galopin/internal/backend/opencode"
 )
 
 // setupDir points galopin's install dir at a temp one and returns it.
@@ -28,7 +32,7 @@ func TestSetupInstallsALaunchCommandAndIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(body), " launch claude \"$@\"") || !strings.Contains(string(body), setupMarker) {
+	if !strings.Contains(string(body), " launch claude -- \"$@\"") || !strings.Contains(string(body), setupMarker) {
 		t.Errorf("script:\n%s", body)
 	}
 	if fi, _ := os.Stat(cmd); fi.Mode()&0o111 == 0 {
@@ -172,7 +176,7 @@ func TestSetupCommandExecsGalopinLaunch(t *testing.T) {
 			t.Fatal(err)
 		}
 		b, _ := os.ReadFile(rec)
-		if string(b) != "launch|claude|-p|hello world|" {
+		if string(b) != "launch|claude|--|-p|hello world|" {
 			t.Errorf("%s ran galopin with %q", p, b)
 		}
 	}
@@ -212,5 +216,202 @@ func TestSetupArgumentChecks(t *testing.T) {
 	}
 	if err := runSetup([]string{"claude", "--remove", "--default"}); err == nil {
 		t.Error("--remove --default accepted")
+	}
+}
+
+// The shim passes the tool's own flags through: what follows "--" is never
+// read as galopin's options, through the REAL launch argument parser.
+func TestShimArgumentsReachTheToolThroughLaunchParsing(t *testing.T) {
+	dir := setupDir(t)
+	rec := filepath.Join(t.TempDir(), "rec")
+	if err := os.WriteFile(filepath.Join(dir, "galopin"), []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > "+rec+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := setupLaunch(&out, "claude", false, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := exec.Command(filepath.Join(dir, "claude-galopin"), "-p", "hi there", "--model", "X", "--version", "--creds", "mine", "-c").Run(); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(rec)
+	argv := strings.Split(strings.TrimSpace(string(b)), "\n")
+	if argv[0] != "launch" || argv[1] != "claude" {
+		t.Fatalf("argv = %q", argv)
+	}
+	for _, tool := range []string{"claude", "opencode", "goose", "vibe"} {
+		opts, err := parseLaunchArgs(tool, argv[2:])
+		if err != nil {
+			t.Fatalf("%s: %v (galopin read the tool's flags as its own)", tool, err)
+		}
+		if got := strings.Join(opts.args, "|"); got != "-p|hi there|--model|X|--version|--creds|mine|-c" {
+			t.Errorf("%s: tool args = %q", tool, got)
+		}
+		if opts.model != "" || opts.credsPath != "" {
+			t.Errorf("%s: galopin took the tool's flags: model %q creds %q", tool, opts.model, opts.credsPath)
+		}
+	}
+}
+
+func TestMarkerIsTheSecondLinePrefixOnly(t *testing.T) {
+	dir := setupDir(t)
+	p := filepath.Join(dir, "claude-galopin")
+	// a user's script that merely MENTIONS the marker is not ours
+	if err := os.WriteFile(p, []byte("#!/bin/sh\n# mine\necho '"+setupMarker+" claude'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := setupLaunch(&out, "claude", false, false); err == nil {
+		t.Error("overwrote a file that only mentions the marker")
+	}
+	if err := setupLaunch(&out, "claude", false, true); err == nil {
+		t.Error("removed a file that only mentions the marker")
+	}
+	if b, _ := os.ReadFile(p); !strings.Contains(string(b), "# mine") {
+		t.Errorf("file changed: %q", b)
+	}
+}
+
+// --default writes the command and the shim as a pair: if the shim cannot be
+// written, the command goes back to what it was.
+func TestDefaultWritesTheCommandAndShimAsAPair(t *testing.T) {
+	dir := setupDir(t)
+	if err := os.WriteFile(filepath.Join(dir, setupShimsDirName), []byte("a file where the shims directory should be"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := setupLaunch(&out, "claude", true, false); err == nil {
+		t.Fatal("expected the shim write to fail")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "claude-galopin")); err == nil {
+		t.Error("the command stayed although the shim was not written")
+	}
+	// and an earlier command is restored, not deleted
+	if err := os.Remove(filepath.Join(dir, setupShimsDirName)); err != nil {
+		t.Fatal(err)
+	}
+	if err := setupLaunch(&out, "claude", false, false); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(filepath.Join(dir, "claude-galopin"))
+	t.Setenv("GALOPIN_INSTALL_DIR", dir)
+	if err := os.WriteFile(filepath.Join(dir, setupShimsDirName), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_ = setupLaunch(&out, "claude", true, false)
+	if after, _ := os.ReadFile(filepath.Join(dir, "claude-galopin")); string(after) != string(before) {
+		t.Errorf("the earlier command changed: %q", after)
+	}
+}
+
+func TestShimRecordsItsDirectoryAtSetupTime(t *testing.T) {
+	dir := setupDir(t)
+	var out bytes.Buffer
+	if err := setupLaunch(&out, "claude", true, false); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, setupShimsDirName, "claude"))
+	if !strings.Contains(string(b), "GALOPIN_SHIMS_DIR='"+filepath.Join(dir, setupShimsDirName)+"'") {
+		t.Errorf("the shims directory is not recorded:\n%s", b)
+	}
+}
+
+func TestStripShimsHandlesSymlinksAndTheRecordedDirectory(t *testing.T) {
+	dir := setupDir(t)
+	shims := filepath.Join(dir, setupShimsDirName)
+	if err := os.MkdirAll(shims, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "via-link")
+	if err := os.Symlink(shims, link); err != nil {
+		t.Fatal(err)
+	}
+	elsewhere := t.TempDir() // a directory recorded by a shim set up from another install dir
+	t.Setenv(shimsDirEnv, elsewhere)
+	t.Setenv("PATH", strings.Join([]string{link, elsewhere, "/usr/bin", "/bin"}, string(os.PathListSeparator)))
+	stripShimsFromPath()
+	if got := os.Getenv("PATH"); got != "/usr/bin:/bin" {
+		t.Errorf("PATH = %q", got)
+	}
+}
+
+// The supervised engine ('galopin run') must resolve the real opencode, never a
+// shim, whatever order PATH is in: main() strips the shims directory first.
+func TestRunResolvesTheRealOpencodeNotTheShim(t *testing.T) {
+	dir := setupDir(t)
+	var out bytes.Buffer
+	if err := setupLaunch(&out, "opencode", true, false); err != nil {
+		t.Fatal(err)
+	}
+	real := t.TempDir()
+	if err := os.WriteFile(filepath.Join(real, "opencode"), []byte("#!/bin/sh\necho real\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", t.TempDir()) // no ~/.opencode fallback
+	t.Setenv("PATH", filepath.Join(dir, setupShimsDirName)+string(os.PathListSeparator)+real)
+	stripShimsFromPath()
+	got, err := backendopencode.ResolveBin("opencode")
+	if err != nil || got != filepath.Join(real, "opencode") {
+		t.Fatalf("resolved %q, %v", got, err)
+	}
+}
+
+func TestLaunchRefusesToRecurse(t *testing.T) {
+	dir := setupDir(t)
+	r := newLaunchRig(t, 0, "x")
+	var out bytes.Buffer
+	if err := setupLaunch(&out, "claude", true, false); err != nil {
+		t.Fatal(err)
+	}
+	// --claude pointing at the shim itself
+	o := r.opts()
+	o.claudeBin, o.model = filepath.Join(dir, setupShimsDirName, "claude"), "m"
+	if err := launchClaude(context.Background(), o); err == nil || !strings.Contains(err.Error(), "a shim 'galopin setup' wrote") {
+		t.Errorf("claude: %v", err)
+	}
+	o = r.opts()
+	o.opencodeBin = filepath.Join(dir, "claude-galopin")
+	if err := launchOpencode(context.Background(), o); err == nil || !strings.Contains(err.Error(), "shim") {
+		t.Errorf("opencode: %v", err)
+	}
+	// a launch inside a launch
+	t.Setenv(launchDepthEnv, "1")
+	if err := runLaunch([]string{"claude", "--creds", r.creds, "--claude", "/bin/true", "--model", "m"}); err == nil || !strings.Contains(err.Error(), "already inside a 'galopin launch'") {
+		t.Errorf("nested launch: %v", err)
+	}
+}
+
+func TestGooseSetupHelpIsGoosesOwn(t *testing.T) {
+	r, w, _ := os.Pipe()
+	old := os.Stderr
+	os.Stderr = w
+	err := runGoose([]string{"setup", "-h"})
+	os.Stderr = old
+	w.Close()
+	b, _ := io.ReadAll(r)
+	if err != nil || !strings.Contains(string(b), "galopin goose — use galopin's proxy from your own goose") || !strings.Contains(string(b), "default provider") {
+		t.Errorf("err %v\n%s", err, b)
+	}
+}
+
+func TestRemoveAllWritableClearsReadOnlyDirectories(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "vibe-launch-1")
+	ro := filepath.Join(root, "plugins", "pkg")
+	if err := os.MkdirAll(ro, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ro, "SKILL.md"), []byte("x"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{ro, filepath.Join(root, "plugins")} {
+		if err := os.Chmod(d, 0o555); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := removeAllWritable(root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(root); err == nil {
+		t.Error("the launch directory is still there")
 	}
 }

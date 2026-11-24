@@ -20,7 +20,9 @@ import (
 
 const gooseSetupUsage = `galopin goose — use galopin's proxy from your own goose.
 
-('galopin goose setup' is the same as 'galopin setup goose --desktop'; see 'galopin setup -h'.)
+('galopin goose setup' is the same as 'galopin setup goose --desktop'; see 'galopin setup -h'.
+Note: --default here makes galopin goose's default provider; in plain 'galopin setup TOOL' it
+means a shim named TOOL for your PATH.)
 
 Usage:
   galopin goose setup [--default] [--no-connectors] [--creds PATH] [--state-dir PATH]
@@ -63,6 +65,12 @@ func runGoose(args []string) error {
 	}
 	if args[0] != "setup" {
 		return fmt.Errorf("unknown goose command %q\n\n%s", args[0], gooseSetupUsage)
+	}
+	for _, a := range args[1:] {
+		if a == "-h" || a == "-help" || a == "--help" {
+			fmt.Fprint(os.Stderr, gooseSetupUsage)
+			return nil
+		}
 	}
 	// 'galopin goose setup' is 'galopin setup goose --desktop'.
 	return runSetup(append([]string{"goose", "--desktop"}, args[1:]...))

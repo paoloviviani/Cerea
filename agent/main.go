@@ -68,6 +68,9 @@ func main() {
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)
 	}
+	// No galopin command, 'run' and its engines included, may resolve a shim
+	// 'galopin setup --default' put first on PATH as the real tool.
+	stripShimsFromPath()
 	var err error
 	switch os.Args[1] {
 	case "enroll":

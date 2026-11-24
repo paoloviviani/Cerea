@@ -4,7 +4,7 @@
  * Mac app or a container, and what stopping it means. A word this Cerea does not know (from a
  * newer galopin) and an absent one (an older galopin) show nothing.
  */
-export const RUN_MODES = ["service", "terminal", "mac_app", "docker"] as const;
+export const RUN_MODES = ["service", "system_service", "terminal", "mac_app", "docker"] as const;
 export type RunMode = (typeof RUN_MODES)[number];
 
 export function knownRunMode(mode: string | null | undefined): RunMode | null {

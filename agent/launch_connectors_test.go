@@ -1,17 +1,21 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"galopin/internal/localmcp"
 	"galopin/packaging"
@@ -19,16 +23,21 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+var cereaMeta = map[string]any{localmcp.SourceMetaKey: localmcp.SourceCerea}
+
 // stubSource is a running galopin's local-agents endpoint for the tests.
 type stubSource struct {
 	tools  []localmcp.Tool
+	mu     sync.Mutex
 	calls  []string
 	listed atomic.Int32
 }
 
 func (s *stubSource) Tools(context.Context) []localmcp.Tool { s.listed.Add(1); return s.tools }
 func (s *stubSource) Call(_ context.Context, name string, _ json.RawMessage) (string, error) {
+	s.mu.Lock()
 	s.calls = append(s.calls, name)
+	s.mu.Unlock()
 	return "ran " + name, nil
 }
 
@@ -38,7 +47,9 @@ func stubUpstream(t *testing.T, stateDir string, src localmcp.Source) (secret st
 	t.Helper()
 	secret = "long-lived-endpoint-secret"
 	mux := http.NewServeMux()
-	mux.Handle(localmcp.Path, localmcp.Handler(secret, src, "test"))
+	h := localmcp.Handler(secret, src, "test")
+	mux.Handle(localmcp.Path, h)
+	mux.Handle(localmcp.WhoamiPath, h)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	_, port, _ := net.SplitHostPort(strings.TrimPrefix(srv.URL, "http://"))
@@ -49,9 +60,19 @@ func stubUpstream(t *testing.T, stateDir string, src localmcp.Source) (secret st
 	return secret
 }
 
+func waitSummary(t *testing.T, c *launchConnectors) string {
+	t.Helper()
+	select {
+	case <-c.ready:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the first listing never finished")
+	}
+	return c.Summary()
+}
+
 func connectLaunch(t *testing.T, c *launchConnectors, secret string) (*mcp.ClientSession, error) {
 	t.Helper()
-	return upstreamEndpoint{url: c.URL, secret: secret}.connect(context.Background())
+	return upstreamEndpoint{url: c.URL, secret: secret}.dial(context.Background())
 }
 
 func listNames(t *testing.T, s *mcp.ClientSession) []string {
@@ -69,8 +90,10 @@ func listNames(t *testing.T, s *mcp.ClientSession) []string {
 func TestLaunchConnectorsForwardOnlyCereasToolsWithThePerLaunchSecret(t *testing.T) {
 	r := newLaunchRig(t, 0, "x")
 	up := &stubSource{tools: []localmcp.Tool{
-		{Name: "tracker-find", Description: "(tracker, from Cerea) find issues"},
+		{Name: "tracker-find", Description: "(tracker, from Cerea) find issues", Meta: cereaMeta},
 		{Name: "files-read", Description: "(files, on this machine) read"},
+		// the words alone do not make a tool Cerea's: the structured source does
+		{Name: "spoof-tool", Description: "(spoof, from Cerea) not marked"},
 	}}
 	longSecret := stubUpstream(t, r.state, up)
 	ls, err := startLaunch(r.opts())
@@ -85,8 +108,8 @@ func TestLaunchConnectorsForwardOnlyCereasToolsWithThePerLaunchSecret(t *testing
 	if c.Secret == longSecret || c.Secret == r.creds_.ShimSecret || !strings.HasPrefix(c.Secret, "gl-") {
 		t.Errorf("the endpoint secret %q is not a per-launch one", c.Secret)
 	}
-	if !strings.Contains(c.Summary, "1 from Cerea") {
-		t.Errorf("summary = %q", c.Summary)
+	if sum := waitSummary(t, c); !strings.Contains(sum, "1 from Cerea") {
+		t.Errorf("summary = %q", sum)
 	}
 	// the long-lived secret does not open the launch endpoint
 	if _, err := connectLaunch(t, c, longSecret); err == nil {
@@ -124,10 +147,11 @@ func TestLaunchConnectorsSwitchOffOffersNothingAndSaysSo(t *testing.T) {
 	ls, _ := startLaunch(r.opts())
 	c := ls.startLaunchConnectors(context.Background())
 	defer c.close()
-	if !strings.Contains(c.Summary, "none from Cerea") || !strings.Contains(c.Summary, "switch") {
-		t.Errorf("summary = %q", c.Summary)
+	sum := waitSummary(t, c)
+	if !strings.Contains(sum, "none from Cerea") || !strings.Contains(sum, "switch") {
+		t.Errorf("summary = %q", sum)
 	}
-	if !strings.Contains(r.stderrBuf.String(), c.Summary) {
+	if !strings.Contains(r.stderrBuf.String(), sum) {
 		t.Errorf("the summary is not on stderr:\n%s", r.stderrBuf.String())
 	}
 	s, err := connectLaunch(t, c, c.Secret)
@@ -145,8 +169,8 @@ func TestLaunchConnectorsNoRunningGalopin(t *testing.T) {
 	ls, _ := startLaunch(r.opts())
 	c := ls.startLaunchConnectors(context.Background())
 	defer c.close()
-	if !strings.Contains(c.Summary, "none from Cerea") || !strings.Contains(c.Summary, "galopin run") {
-		t.Errorf("summary = %q", c.Summary)
+	if sum := waitSummary(t, c); !strings.Contains(sum, "none from Cerea") || !strings.Contains(sum, "galopin run") {
+		t.Errorf("summary = %q", sum)
 	}
 	// a local-agents.json whose endpoint is down reads the same way, with its own reason
 	if err := os.WriteFile(filepath.Join(r.state, localAgentsFileName), []byte(`{"port":1,"secret":"x"}`), 0o600); err != nil {
@@ -154,8 +178,8 @@ func TestLaunchConnectorsNoRunningGalopin(t *testing.T) {
 	}
 	c2 := ls.startLaunchConnectors(context.Background())
 	defer c2.close()
-	if !strings.Contains(c2.Summary, "not answering") {
-		t.Errorf("summary = %q", c2.Summary)
+	if sum := waitSummary(t, c2); !strings.Contains(sum, "not answering") {
+		t.Errorf("summary = %q", sum)
 	}
 }
 
@@ -163,7 +187,7 @@ func TestLaunchConnectorsNoRunningGalopin(t *testing.T) {
 func rigWithConnectors(t *testing.T) *launchRig {
 	t.Helper()
 	r := newLaunchRig(t, 0, "x")
-	stubUpstream(t, r.state, &stubSource{tools: []localmcp.Tool{{Name: "tracker-find", Description: "(tracker, from Cerea) find"}}})
+	stubUpstream(t, r.state, &stubSource{tools: []localmcp.Tool{{Name: "tracker-find", Description: "(tracker, from Cerea) find", Meta: cereaMeta}}})
 	return r
 }
 
@@ -257,5 +281,172 @@ func TestLaunchConnectorsFailureDoesNotStopTheLaunch(t *testing.T) {
 	}
 	if !strings.Contains(r.stderrBuf.String(), "this computer's connectors are not offered") {
 		t.Errorf("no warning:\n%s", r.stderrBuf.String())
+	}
+}
+
+// A process that merely listens on the local-agents port never sees the secret:
+// the launch asks it a question only the real galopin can answer first.
+func TestLaunchConnectorsNeverSendTheSecretToASquatter(t *testing.T) {
+	r := newLaunchRig(t, 0, "x")
+	var mu sync.Mutex
+	var seen []string
+	sq := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		b, _ := io.ReadAll(req.Body)
+		mu.Lock()
+		seen = append(seen, req.URL.String()+"|"+req.Header.Get("Authorization")+"|"+string(b))
+		mu.Unlock()
+		_ = json.NewEncoder(w).Encode(map[string]string{"proof": "guess"})
+	}))
+	defer sq.Close()
+	_, port, _ := net.SplitHostPort(strings.TrimPrefix(sq.URL, "http://"))
+	const secret = "long-lived-endpoint-secret"
+	if err := os.WriteFile(filepath.Join(r.state, localAgentsFileName), []byte(`{"port":`+port+`,"secret":"`+secret+`"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ls, _ := startLaunch(r.opts())
+	c := ls.startLaunchConnectors(context.Background())
+	defer c.close()
+	sum := waitSummary(t, c)
+	if !strings.Contains(sum, "not answered by this machine's galopin") {
+		t.Errorf("summary = %q", sum)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(seen) == 0 {
+		t.Fatal("the squatter was never asked anything")
+	}
+	for _, s := range seen {
+		if strings.Contains(s, secret) || strings.Contains(s, "Bearer") {
+			t.Errorf("the squatter saw a credential: %s", s)
+		}
+	}
+}
+
+func TestLaunchConnectorsHonourLocalConnectorsOff(t *testing.T) {
+	r := newLaunchRig(t, 0, "x")
+	if err := os.WriteFile(filepath.Join(r.state, mcpConfigFileName), []byte(`{"mcpServers":{"x":{"command":"true"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ls, _ := startLaunch(r.opts())
+	c := ls.startLaunchConnectors(context.Background())
+	if c.src.local.hub == nil {
+		t.Error("this computer's connectors are not offered by default")
+	}
+	c.close()
+	if err := os.WriteFile(filepath.Join(r.state, localAgentsFileName), []byte(`{"port":1,"secret":"s","localConnectorsOff":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c = ls.startLaunchConnectors(context.Background())
+	defer c.close()
+	if c.src.local.hub != nil {
+		t.Error("goose setup --no-connectors was not honoured")
+	}
+}
+
+type slowSource struct {
+	stubSource
+	delay time.Duration
+	once  sync.Once
+}
+
+func (s *slowSource) Tools(ctx context.Context) []localmcp.Tool {
+	s.once.Do(func() { time.Sleep(s.delay) })
+	return s.stubSource.Tools(ctx)
+}
+
+func TestLaunchConnectorsDoNotBlockTheToolAndCacheTheList(t *testing.T) {
+	r := newLaunchRig(t, 0, "x")
+	up := &slowSource{stubSource: stubSource{tools: []localmcp.Tool{{Name: "tracker-find", Description: "(t, from Cerea) f", Meta: cereaMeta}}}, delay: 2 * time.Second}
+	// the running galopin's endpoint, counting the tools/list requests it gets
+	var lists atomic.Int32
+	inner := localmcp.Handler("long-lived-endpoint-secret", up, "test")
+	mux := http.NewServeMux()
+	count := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		b, _ := io.ReadAll(req.Body)
+		if strings.Contains(string(b), `"tools/list"`) {
+			lists.Add(1)
+		}
+		req.Body = io.NopCloser(bytes.NewReader(b))
+		inner.ServeHTTP(w, req)
+	})
+	mux.Handle(localmcp.Path, count)
+	mux.Handle(localmcp.WhoamiPath, count)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	_, port, _ := net.SplitHostPort(strings.TrimPrefix(srv.URL, "http://"))
+	if err := os.WriteFile(filepath.Join(r.state, localAgentsFileName), []byte(`{"port":`+port+`,"secret":"long-lived-endpoint-secret"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ls, _ := startLaunch(r.opts())
+	t0 := time.Now()
+	c := ls.startLaunchConnectors(context.Background())
+	if d := time.Since(t0); d > time.Second {
+		t.Errorf("starting the endpoint waited %s for the Cerea listing", d)
+	}
+	waitSummary(t, c)
+	defer c.close()
+	// many concurrent lists and calls: one upstream listing (the cache), consistent answers
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s, err := connectLaunch(t, c, c.Secret)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			defer s.Close()
+			if n := listNames(t, s); len(n) != 1 || n[0] != "tracker-find" {
+				t.Errorf("tools = %v", n)
+			}
+			if res, err := s.CallTool(context.Background(), &mcp.CallToolParams{Name: "tracker-find", Arguments: map[string]any{}}); err != nil || res.IsError {
+				t.Errorf("call: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+	if n := lists.Load(); n != 1 {
+		t.Errorf("the upstream was asked for its tools %d times, want 1 (cached)", n)
+	}
+}
+
+// 'run' creates local-agents.json itself (no goose setup first), and a launch
+// then gets the Cerea connectors through it: listed with their structured
+// source, called over the (fake) link, the long-lived secret never in the tool.
+func TestRunCreatesTheLocalAgentsEndpointAndLaunchUsesIt(t *testing.T) {
+	r := newLaunchRig(t, 0, "x")
+	if _, err := os.Stat(filepath.Join(r.state, localAgentsFileName)); err == nil {
+		t.Fatal("the rig already has a local-agents.json")
+	}
+	cerea := &fakeConnectorCerea{list: listWithBoth, call: `{"isError":false,"text":"3 issues"}`}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	startLocalAgentEndpoint(ctx, r.state, &localAgentSource{calls: func() machineCaller { return cerea }})
+	cfg, ok := readLocalAgentsConfig(r.state)
+	if !ok || cfg.LocalConnectors {
+		t.Fatalf("run did not create the file with this computer's connectors off: %+v %v", cfg, ok)
+	}
+	ls, _ := startLaunch(r.opts())
+	c := ls.startLaunchConnectors(ctx)
+	defer c.close()
+	if sum := waitSummary(t, c); !strings.Contains(sum, "1 from Cerea") {
+		t.Fatalf("summary = %q", sum)
+	}
+	s, err := connectLaunch(t, c, c.Secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	names := listNames(t, s)
+	if len(names) != 1 {
+		t.Fatalf("tools = %v", names)
+	}
+	res, err := s.CallTool(ctx, &mcp.CallToolParams{Name: names[0], Arguments: map[string]any{}})
+	if err != nil || res.IsError || res.Content[0].(*mcp.TextContent).Text != "3 issues" {
+		t.Fatalf("call: %v %+v", err, res)
+	}
+	if c.Secret == cfg.Secret {
+		t.Error("the tool got the long-lived secret")
 	}
 }

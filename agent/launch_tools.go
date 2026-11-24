@@ -37,7 +37,7 @@ func launchTempDir(stateDir, prefix string) (string, error) {
 		return "", err
 	}
 	dir := filepath.Join(parent, fmt.Sprintf("%s-launch-%d", prefix, os.Getpid()))
-	_ = os.RemoveAll(dir) // a stale one under a recycled pid
+	_ = removeAllWritable(dir) // a stale one under a recycled pid
 	if err := os.MkdirAll(filepath.Join(dir, "tmp"), 0o700); err != nil {
 		return "", err
 	}
@@ -63,8 +63,21 @@ func sweepStaleLaunchDirs(stateDir string) {
 		if pid == os.Getpid() || pidAlive(pid) {
 			continue
 		}
-		_ = os.RemoveAll(filepath.Join(parent, e.Name()))
+		_ = removeAllWritable(filepath.Join(parent, e.Name()))
 	}
+}
+
+// removeAllWritable removes dir even when the tool left read-only directories in
+// it (Vibe's plugin packages are mode 0555): os.RemoveAll cannot delete a file
+// from a directory it may not write to, which would leave a proxy secret behind.
+func removeAllWritable(dir string) error {
+	_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+		if err == nil && d.IsDir() {
+			_ = os.Chmod(p, 0o700)
+		}
+		return nil
+	})
+	return os.RemoveAll(dir)
 }
 
 // pidAlive is false only when the process is known not to exist.
@@ -195,6 +208,9 @@ func launchGoose(ctx context.Context, opts launchOptions) error {
 	if err != nil {
 		return err
 	}
+	if err := refuseSetupShim("goose", bin); err != nil {
+		return err
+	}
 	if got := gooseVersionOf(bin); got == "" {
 		ls.logf("warning: could not read %s's version (galopin is tested against goose %s)", bin, packaging.GooseVersion())
 	} else if got != packaging.GooseVersion() {
@@ -218,7 +234,7 @@ func launchGoose(ctx context.Context, opts launchOptions) error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(root)
+	defer removeAllWritable(root)
 	creds := *ls.creds
 	creds.ShimPort, creds.ShimSecret = ls.port, ls.toolSecret
 	conn := ls.startLaunchConnectors(ctx)
@@ -287,6 +303,9 @@ func launchVibe(ctx context.Context, opts launchOptions) error {
 	if err != nil {
 		return err
 	}
+	if err := refuseSetupShim("vibe", bin); err != nil {
+		return err
+	}
 	if got := vibeVersionOf(bin); got == "" {
 		ls.logf("warning: could not read %s's version (galopin is tested against Mistral Vibe %s)", bin, packaging.VibeVersion())
 	} else if got != packaging.VibeVersion() {
@@ -317,7 +336,7 @@ func launchVibe(ctx context.Context, opts launchOptions) error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(home)
+	defer removeAllWritable(home)
 	if err := os.MkdirAll(filepath.Join(home, "logs"), 0o700); err != nil {
 		return err
 	}
@@ -443,6 +462,9 @@ func launchClaude(ctx context.Context, opts launchOptions) error {
 	if err != nil {
 		return err
 	}
+	if err := refuseSetupShim("claude", bin); err != nil {
+		return err
+	}
 	if v := claudeVersionOf(bin); v == "" {
 		ls.logf("warning: could not read %s's version; galopin pins no Claude Code version", bin)
 	} else {
@@ -481,7 +503,7 @@ func launchClaude(ctx context.Context, opts launchOptions) error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(dir)
+	defer removeAllWritable(dir)
 	settingsPath := filepath.Join(dir, "settings.json")
 	if err := writeFileAtomic(settingsPath, settings, 0o600); err != nil {
 		return err

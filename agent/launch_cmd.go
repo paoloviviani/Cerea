@@ -157,8 +157,6 @@ func runLaunch(args []string) error {
 		return nil
 	}
 	tool, rest := args[0], args[1:]
-	// A shim from 'galopin setup TOOL --default' must not find itself.
-	stripShimsFromPath()
 	var run func(context.Context, launchOptions) error
 	switch tool {
 	case "opencode":
@@ -172,6 +170,23 @@ func runLaunch(args []string) error {
 	default:
 		return exitError{code: 2, err: fmt.Errorf("launch: unknown tool %q (supported: %s)", tool, launchSupported)}
 	}
+	opts, err := parseLaunchArgs(tool, rest)
+	if err != nil {
+		return err
+	}
+	if os.Getenv(launchDepthEnv) != "" {
+		return fmt.Errorf("launch %s: already inside a 'galopin launch' (a 'galopin setup %s --default' shim found again from inside the tool?): refusing to start galopin within galopin", tool, tool)
+	}
+	_ = os.Setenv(launchDepthEnv, "1")
+	defer os.Unsetenv(launchDepthEnv)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGHUP)
+	defer stop()
+	return run(ctx, opts)
+}
+
+// parseLaunchArgs reads galopin's own options of 'launch TOOL'; everything after
+// the options (or after --) is the tool's.
+func parseLaunchArgs(tool string, rest []string) (launchOptions, error) {
 	fs := flagSetWithHelp("launch "+tool, launchUsage)
 	opts := launchOptions{stderr: os.Stderr}
 	fs.StringVar(&opts.credsPath, "creds", "", "")
@@ -192,12 +207,10 @@ func runLaunch(args []string) error {
 		fs.StringVar(&opts.smallModel, "small-model", "", "")
 	}
 	if err := fs.Parse(rest); err != nil {
-		return err
+		return opts, err
 	}
 	opts.args = fs.Args()
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGHUP)
-	defer stop()
-	return run(ctx, opts)
+	return opts, nil
 }
 
 // launchSession is what every 'galopin launch' tool shares: the enrolled
@@ -320,6 +333,9 @@ func launchOpencode(ctx context.Context, opts launchOptions) error {
 	if err != nil {
 		return err
 	}
+	if err := refuseSetupShim("opencode", bin); err != nil {
+		return err
+	}
 	if got := opencodeVersion(bin); got == "" {
 		logf("warning: could not read %s's version (galopin is tested against opencode %s)", bin, packaging.OpencodeVersion())
 	} else if want := packaging.OpencodeVersion(); got != want {
@@ -334,7 +350,7 @@ func launchOpencode(ctx context.Context, opts launchOptions) error {
 	// A private TMPDIR, never the supervised one: galopin run empties that on
 	// every start, which would pull opencode's libraries from under us.
 	tmp := filepath.Join(filepath.Dir(opencodeTmpDir(stateDir)), fmt.Sprintf("opencode-launch-%d", os.Getpid()))
-	defer os.RemoveAll(tmp)
+	defer removeAllWritable(tmp)
 	live := policy.NewLive(pol.Permission)
 	cfg := backendopencode.Config{
 		Bin:                 bin,
