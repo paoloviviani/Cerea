@@ -7,6 +7,12 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+## v0.64.1 — 2026-11-24
+
+Pins: Cerea `0.64.1` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.34.0`, opencode `2.4.1`.
+**To update:** `cd ~/cerea/kit && git pull` (or `./get-kit.sh`), then
+`docker compose pull && docker compose up -d`. **On computers:** update galopin (the Upgrade button, or the usual command); it installs opencode 2.4.1 when galopin's own copy is older.
+
 - **galopin:** works with opencode `2.4.1` as well as `2.3.0` (#352): it reads 2.4's `<background-result>` subagent reports, waits for 2.4 to load its models, connects the MCP servers 2.4 leaves unstarted before a turn, and asks before running 2.4's new `automation_*` tools. The pinned opencode moves to `2.4.1`.
 
 ## v0.64.0 — 2026-11-23
