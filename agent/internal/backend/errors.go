@@ -48,3 +48,11 @@ var ErrQuestionTimeout = errors.New("the question was not answered in time")
 
 // ErrQuestionPending is a second question while one is still waiting in the session.
 var ErrQuestionPending = errors.New("a question is already waiting for the person")
+
+// PartialRevertError is a rollback that took place (the history is back) but could not put
+// every file back: Detail says which.
+type PartialRevertError struct{ Detail string }
+
+func (e *PartialRevertError) Error() string {
+	return "the session was rolled back, but some files could not be restored: " + e.Detail
+}

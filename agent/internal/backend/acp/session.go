@@ -63,6 +63,8 @@ type sessionState struct {
 	// userMsgID is the running turn's user message (galopin's own id); entryIDs maps such
 	// ids to the agent's own entry id for that message (rewind and fork name it).
 	userMsgID string
+	userText  string
+	echoSeen  bool
 	entryIDs  map[string]string
 	// parentID is set for a subagent's session; children lists a session's own, in order.
 	parentID string
@@ -72,6 +74,8 @@ type sessionState struct {
 	// draining is set from the end of a turn that leaves prompts waiting until the next one
 	// has taken the session (busy), so a prompt arriving between cannot overtake the queue.
 	draining bool
+	// rewinding is held for a whole rewind or fork: prompts queue behind it, commands wait.
+	rewinding bool
 	// recentIDs are the clientMessageIds of prompts already sent (oldest first), so a retry
 	// of one is not sent twice.
 	recentIDs []string

@@ -21,10 +21,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"galopin/internal/backend"
+	"galopin/internal/permrules"
 )
 
 // entryIDLocked is the agent's id for one of the session's user messages (st.mu held).
@@ -41,6 +44,97 @@ func (st *sessionState) entryIDLocked(msgID string) (string, error) {
 	return msgID, nil // a replayed message carries the agent's own id
 }
 
+// ensureActive reopens a session the agent no longer holds (it restarted since): rewind and
+// fork act on the agent's live session, and a reload also replaces galopin's copy of the
+// transcript with the agent's own ids.
+func (b *Backend) ensureActive(ctx context.Context, workspaceDir string, st *sessionState) error {
+	st.mu.Lock()
+	active := st.active
+	st.mu.Unlock()
+	if active {
+		return nil
+	}
+	return b.openSession(ctx, workspaceDir, st, false)
+}
+
+// reserve takes the session for a rewind or fork: no prompt (queued instead), command or
+// compaction runs while it is held, and nothing else can start one.
+func (st *sessionState) reserveLocked() error {
+	if st.busy || st.draining || st.rewinding {
+		return backend.ErrSessionBusy
+	}
+	st.rewinding = true
+	return nil
+}
+
+func (b *Backend) release(workspaceDir string, st *sessionState) {
+	st.mu.Lock()
+	st.rewinding = false
+	st.mu.Unlock()
+	b.drainQueue(workspaceDir, st) // what was queued meanwhile goes out now
+}
+
+// checkRewindPaths refuses a rewind whose file restore would reach beyond the workspace: the
+// agent writes and deletes these paths itself, with no gate of galopin's in between, so each
+// one must be inside the workspace, not protected, not (now) a symlink or other non-regular
+// file, and reached through no symlinked directory.
+func (b *Backend) checkRewindPaths(workspaceDir string, paths []string) error {
+	root, err := filepath.EvalSymlinks(workspaceDir)
+	if err != nil {
+		return fmt.Errorf("acp: the workspace cannot be resolved: %w", err)
+	}
+	inside := func(p string) bool {
+		rel, err := filepath.Rel(root, p)
+		return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	}
+	var bad []string
+	for _, raw := range paths {
+		p := raw
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(workspaceDir, p)
+		}
+		p = filepath.Clean(p)
+		ok := true
+		if b.cfg.Protect != nil && (b.cfg.Protect(workspaceDir, p) || b.cfg.Protect(root, p)) {
+			ok = false
+		}
+		if ok {
+			if fi, err := os.Lstat(p); err == nil && !fi.Mode().IsRegular() {
+				ok = false
+			}
+		}
+		if ok {
+			// the deepest part that exists, resolved, must still be inside the workspace
+			dir := filepath.Dir(p)
+			for {
+				if real, err := filepath.EvalSymlinks(dir); err == nil {
+					ok = inside(real)
+					break
+				}
+				next := filepath.Dir(dir)
+				if next == dir {
+					ok = false
+					break
+				}
+				dir = next
+			}
+		}
+		if ok && !inside(p) && !inside(strings.Replace(p, workspaceDir, root, 1)) {
+			ok = false
+		}
+		if !ok {
+			bad = append(bad, raw)
+		}
+	}
+	if len(bad) > 0 {
+		if len(bad) > 5 {
+			bad = append(bad[:5], "...")
+		}
+		return fmt.Errorf("acp: the rollback would restore files outside this workspace, in a protected place or through a symlink, so it was not done: %s", strings.Join(bad, ", "))
+	}
+	return nil
+}
+
 // Revert implements backend.Reverter over the agent's rewind.
 func (b *Backend) Revert(ctx context.Context, workspaceDir, sessionID, messageID string) error {
 	if !b.cfg.Rewind {
@@ -50,13 +144,25 @@ func (b *Backend) Revert(ctx context.Context, workspaceDir, sessionID, messageID
 	if !ok {
 		return fmt.Errorf("acp: unknown session %q", sessionID)
 	}
-	if err := b.openSession(ctx, workspaceDir, st, true); err != nil {
+	st.mu.Lock()
+	if st.parentID != "" {
+		st.mu.Unlock()
+		return fmt.Errorf("acp: a subagent's session cannot be rolled back")
+	}
+	if err := st.reserveLocked(); err != nil {
+		st.mu.Unlock()
+		return err
+	}
+	st.mu.Unlock()
+	defer b.release(workspaceDir, st)
+	if err := b.ensureActive(ctx, workspaceDir, st); err != nil {
 		return err
 	}
 	st.mu.Lock()
-	if st.busy || st.draining {
+	idx, known := st.msgIndex[messageID]
+	if !known || st.messages[idx].Message.Role != "user" {
 		st.mu.Unlock()
-		return backend.ErrSessionBusy
+		return fmt.Errorf("acp: %q is not a user message of this session", messageID)
 	}
 	entry, err := st.entryIDLocked(messageID)
 	st.mu.Unlock()
@@ -69,7 +175,19 @@ func (b *Backend) Revert(ctx context.Context, workspaceDir, sessionID, messageID
 	}
 	callCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
-	raw, err := conn.call(callCtx, "_rewind/to", map[string]any{"sessionId": sessionID, "messageId": entry, "restoreFiles": true})
+	// What the rewind would write is checked first: the agent restores files itself.
+	raw, err := conn.call(callCtx, "_rewind/preview", map[string]any{"sessionId": sessionID, "messageId": entry})
+	if err != nil {
+		return fmt.Errorf("acp: rewind preview: %w", err)
+	}
+	var prev struct {
+		Paths []string `json:"paths"`
+	}
+	_ = json.Unmarshal(raw, &prev)
+	if err := b.checkRewindPaths(workspaceDir, prev.Paths); err != nil {
+		return err
+	}
+	raw, err = conn.call(callCtx, "_rewind/to", map[string]any{"sessionId": sessionID, "messageId": entry, "restoreFiles": true})
 	if err != nil {
 		return fmt.Errorf("acp: rewind: %w", err)
 	}
@@ -77,48 +195,22 @@ func (b *Backend) Revert(ctx context.Context, workspaceDir, sessionID, messageID
 		RestoreErrors []any `json:"restoreErrors"`
 	}
 	_ = json.Unmarshal(raw, &res)
-	if len(res.RestoreErrors) > 0 {
-		b.cfg.Logf("acp: rewind restored the history but %d file(s) could not be restored", len(res.RestoreErrors))
-	}
 	st.mu.Lock()
 	st.truncateFromLocked(messageID)
-	st.queue = nil
 	st.mu.Unlock()
+	if len(res.RestoreErrors) > 0 {
+		var msgs []string
+		for _, e := range res.RestoreErrors {
+			msgs = append(msgs, fmt.Sprint(e))
+		}
+		return &backend.PartialRevertError{Detail: strings.Join(msgs, "; ")}
+	}
 	return nil
 }
 
 // Unrevert implements backend.Reverter: the agent's rewind cannot be undone.
 func (b *Backend) Unrevert(context.Context, string, string) error {
 	return backend.ErrUnrevertUnsupported
-}
-
-// RewindPreview is the workspace paths a rewind to messageID would restore.
-func (b *Backend) RewindPreview(ctx context.Context, workspaceDir, sessionID, messageID string) ([]string, error) {
-	st, ok := b.reg.get(sessionID)
-	if !ok || !b.cfg.Rewind {
-		return nil, fmt.Errorf("acp: no rewind for session %q", sessionID)
-	}
-	st.mu.Lock()
-	entry, err := st.entryIDLocked(messageID)
-	st.mu.Unlock()
-	if err != nil {
-		return nil, err
-	}
-	conn, err := b.currentConn()
-	if err != nil {
-		return nil, err
-	}
-	callCtx, cancel := context.WithTimeout(ctx, rpcCallTimeout)
-	defer cancel()
-	raw, err := conn.call(callCtx, "_rewind/preview", map[string]any{"sessionId": sessionID, "messageId": entry})
-	if err != nil {
-		return nil, err
-	}
-	var res struct {
-		Paths []string `json:"paths"`
-	}
-	_ = json.Unmarshal(raw, &res)
-	return res.Paths, nil
 }
 
 // truncateFromLocked drops the message and everything after it (st.mu held) and rebuilds
@@ -147,8 +239,8 @@ func (s *sessionState) truncateFromLocked(msgID string) {
 	s.updatedAt = time.Now()
 }
 
-// Fork implements backend.Forker: session/fork at the next user message after messageID (the
-// turn messageID belongs to stays), or the whole session when none follows.
+// Fork implements backend.Forker: session/fork up to and including the turn messageID belongs
+// to ("": the whole session).
 func (b *Backend) Fork(ctx context.Context, workspaceDir, sessionID, messageID, title string) (backend.Session, error) {
 	if !b.cfg.Fork {
 		return backend.Session{}, fmt.Errorf("acp: this agent cannot fork a session")
@@ -157,7 +249,18 @@ func (b *Backend) Fork(ctx context.Context, workspaceDir, sessionID, messageID, 
 	if !ok {
 		return backend.Session{}, fmt.Errorf("acp: unknown session %q", sessionID)
 	}
-	if err := b.openSession(ctx, workspaceDir, st, true); err != nil {
+	st.mu.Lock()
+	if st.parentID != "" {
+		st.mu.Unlock()
+		return backend.Session{}, fmt.Errorf("acp: a subagent's session cannot be forked")
+	}
+	if err := st.reserveLocked(); err != nil {
+		st.mu.Unlock()
+		return backend.Session{}, err
+	}
+	st.mu.Unlock()
+	defer b.release(workspaceDir, st)
+	if err := b.ensureActive(ctx, workspaceDir, st); err != nil {
 		return backend.Session{}, err
 	}
 	params := map[string]any{"sessionId": sessionID, "cwd": workspaceDir}
@@ -171,18 +274,28 @@ func (b *Backend) Fork(ctx context.Context, workspaceDir, sessionID, messageID, 
 			st.mu.Unlock()
 			return backend.Session{}, fmt.Errorf("acp: no such message %q in this session", messageID)
 		}
-		for i := start + 1; i < len(st.messages); i++ {
-			e := st.messages[i]
-			if e.Message.Role != "user" {
+		// The agent's fork keeps the history up to and including the turn that the named user
+		// message starts (checked against 3.1.3): the turn the chosen message belongs to, so the
+		// user message at or before it is the one to name. A later turn is left out.
+		for i := start; i >= 0; i-- {
+			if st.messages[i].Message.Role != "user" {
 				continue
 			}
-			entry, err := st.entryIDLocked(e.Message.ID)
+			entry, err := st.entryIDLocked(st.messages[i].Message.ID)
 			if err != nil {
 				st.mu.Unlock()
 				return backend.Session{}, err
 			}
-			params["message_id"] = entry
-			cut = i
+			// the agent reads the message from the request's _meta (checked against 3.1.3:
+			// a bare messageId or message_id field is ignored and the whole history is copied)
+			params["_meta"] = map[string]any{"messageId": entry}
+			cut = len(st.messages)
+			for j := start + 1; j < len(st.messages); j++ {
+				if st.messages[j].Message.Role == "user" {
+					cut = j
+					break
+				}
+			}
 			break
 		}
 	}
@@ -233,24 +346,62 @@ func (b *Backend) Fork(ctx context.Context, workspaceDir, sessionID, messageID, 
 			child.upsertPart(p)
 		}
 	}
-	for k, v := range copiedIDs {
-		child.entryIDs[k] = v
-	}
 	child.mu.Unlock()
+	// the fork keeps the parent's permission word, exceptions and coordination, as a spawned
+	// session does: forking is no way to a looser session
+	inherited := b.sels.get(sessionID)
+	b.sels.update(id, func(permrules.Selector) permrules.Selector { return inherited })
 	b.adoptMCP(child, ep)
+	// The agent gives a fork entry ids of its own (checked), so the copied messages carry ids
+	// no rewind or fork could name: close the fork and load it again, which replays its
+	// history under the agent's ids and replaces galopin's copy. If that fails the copy stands
+	// (the history is right; a rewind to a copied message is then refused by the agent).
+	b.reopenFork(ctx, workspaceDir, child)
+	child.mu.Lock()
+	child.title = title // the reload brings the agent's own title back
+	child.mu.Unlock()
 	b.syncEffort(ctx, workspaceDir, child)
 	return b.GetSession(ctx, workspaceDir, id)
 }
 
+// reopenFork closes a fork in the agent and loads it again so its history comes back with
+// the agent's own ids. Reports whether it worked.
+func (b *Backend) reopenFork(ctx context.Context, workspaceDir string, child *sessionState) bool {
+	b.infoMu.Lock()
+	canClose, canLoad := b.agentCaps.sessionClose, b.agentCaps.loadSession
+	b.infoMu.Unlock()
+	if !canClose || !canLoad {
+		return false
+	}
+	conn, err := b.currentConn()
+	if err != nil {
+		return false
+	}
+	callCtx, cancel := context.WithTimeout(ctx, rpcCallTimeout)
+	_, err = conn.call(callCtx, "session/close", map[string]any{"sessionId": child.id})
+	cancel()
+	if err != nil {
+		return false
+	}
+	child.mu.Lock()
+	child.active, child.loaded = false, false
+	child.mu.Unlock()
+	if err := b.openSession(ctx, workspaceDir, child, true); err != nil {
+		b.cfg.Logf("acp: reloading fork %s: %v", child.id, err)
+		return false
+	}
+	return true
+}
+
 // noteSubagent turns a subagent's tool call into the parent's "task" card and a child session
 // (st.mu held; part is the call as it now stands).
-func (b *Backend) noteSubagent(st *sessionState, part *backend.Part, upd map[string]any) {
+func (b *Backend) noteSubagent(st *sessionState, part *backend.Part, upd map[string]any) *backend.Session {
 	if !b.cfg.Subagents {
-		return
+		return nil
 	}
 	meta := getMap(upd, "_meta")
 	if getStr(meta, "effect_kind") != "subagent" {
-		return
+		return nil
 	}
 	task, agent := getStr(meta, "task"), getStr(meta, "agent")
 	part.Tool = "task"
@@ -268,12 +419,12 @@ func (b *Backend) noteSubagent(st *sessionState, part *backend.Part, upd map[str
 	}
 	childID := getStr(meta, "child_session_id")
 	if childID == "" {
-		return
+		return nil
 	}
 	part.SubtaskSessionID = childID
 	response := getStr(meta, "response")
 	done := getStr(upd, "status") == "completed" && response != ""
-	b.upsertChildLocked(st, childID, firstLine(task, 80), task, response, done)
+	return b.upsertChildLocked(st, childID, firstLine(task, 80), task, response, done)
 }
 
 func firstLine(s string, n int) string {
@@ -290,10 +441,10 @@ func firstLine(s string, n int) string {
 // upsertChildLocked records a subagent as a session of its own under st (st.mu held): the
 // task as its prompt and, when known, the answer. It is busy until the answer arrives or the
 // parent's turn ends (finishChildrenLocked).
-func (b *Backend) upsertChildLocked(st *sessionState, childID, title, task, response string, done bool) {
+func (b *Backend) upsertChildLocked(st *sessionState, childID, title, task, response string, done bool) *backend.Session {
 	child := b.reg.getOrCreate(childID, st.workspaceDir)
 	if child == st {
-		return
+		return nil
 	}
 	child.mu.Lock()
 	defer child.mu.Unlock()
@@ -318,17 +469,32 @@ func (b *Backend) upsertChildLocked(st *sessionState, childID, title, task, resp
 		child.status = backend.StatusIdle
 	}
 	child.updatedAt = time.Now()
+	sess := child.toSession(b.ID())
+	return &sess
 }
 
 // finishChildrenLocked ends the busy state of a session's subagents when its turn ends
 // (st.mu held): the agent says nothing more about a child than its call.
-func (b *Backend) finishChildrenLocked(st *sessionState) {
+func (b *Backend) finishChildrenLocked(st *sessionState) []backend.Session {
+	var changed []backend.Session
 	for _, id := range st.children {
 		if child, ok := b.reg.get(id); ok && child != st {
 			child.mu.Lock()
-			child.status = backend.StatusIdle
+			if child.status != backend.StatusIdle {
+				child.status = backend.StatusIdle
+				changed = append(changed, child.toSession(b.ID()))
+			}
 			child.mu.Unlock()
 		}
+	}
+	return changed
+}
+
+// emitSessions announces sessions whose state changed (a subagent's status), off the lock.
+func (b *Backend) emitSessions(workspaceDir string, sessions ...backend.Session) {
+	for i := range sessions {
+		s := sessions[i]
+		b.emit(workspaceDir, s.ID, backend.Event{Kind: backend.EventSession, Session: &s})
 	}
 }
 

@@ -1475,41 +1475,44 @@ export const POST: RequestHandler = async (event) => {
 			targetLink === link &&
 			(!parsed.data.workspaceId || parsed.data.workspaceId === sourceSession.workspaceId)
 		) {
+			// Only the fork itself may fall back (404: this machine cannot fork natively). Once
+			// a fork exists, a later step that fails removes it again, so no second session is
+			// ever made by the handoff below.
+			let forked: { session: Session } | null = null;
 			try {
-				const forked = await callOp(() =>
+				forked = await callOp(() =>
 					link.sessionFork({
 						sessionId: sourceSessionId,
 						...(parsed.data.uptoMessageId ? { messageId: parsed.data.uptoMessageId } : {}),
 						title: `${HANDOFF_TITLE_PREFIX}${sourceSession.title}`.slice(0, 120),
 					})
 				);
-				if (parsed.data.modeId && parsed.data.modeId !== forked.session.modeId) {
-					await callOp(() =>
-						link.sessionSetMode({
-							sessionId: forked.session.id,
-							modeId: parsed.data.modeId as string,
-						})
-					);
-				}
-				if (parsed.data.modelId && parsed.data.modelId !== forked.session.modelId) {
-					await callOp(() =>
-						link.sessionSetModel({
-							sessionId: forked.session.id,
-							modelId: parsed.data.modelId as string,
-						})
-					);
-				}
-				await callOp(() =>
-					link.sessionPrompt({ sessionId: forked.session.id, text: parsed.data.prompt })
-				);
-				return superjsonResponse({
-					agent: toSession(forked.session),
-					deviceId: targetDevice._id.toString(),
-				});
 			} catch (err) {
-				// a machine that cannot fork natively (404) takes the handoff below
 				const status = (err as { status?: unknown } | null)?.status;
 				if (status !== 404) throw err;
+			}
+			if (forked) {
+				const fork = forked.session;
+				try {
+					if (parsed.data.modeId && parsed.data.modeId !== fork.modeId) {
+						await callOp(() =>
+							link.sessionSetMode({ sessionId: fork.id, modeId: parsed.data.modeId as string })
+						);
+					}
+					if (parsed.data.modelId && parsed.data.modelId !== fork.modelId) {
+						await callOp(() =>
+							link.sessionSetModel({ sessionId: fork.id, modelId: parsed.data.modelId as string })
+						);
+					}
+					await callOp(() => link.sessionPrompt({ sessionId: fork.id, text: parsed.data.prompt }));
+				} catch (err) {
+					await link.sessionArchive({ sessionId: fork.id }).catch(() => undefined);
+					throw err;
+				}
+				return superjsonResponse({
+					agent: toSession(fork),
+					deviceId: targetDevice._id.toString(),
+				});
 			}
 		}
 

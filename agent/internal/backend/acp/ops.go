@@ -213,9 +213,11 @@ func (b *Backend) DeleteSession(ctx context.Context, workspaceDir, sessionID str
 			}
 		}
 	}
+	var kids []string
 	if st, ok := b.reg.get(sessionID); ok {
 		st.mu.Lock()
 		ep := st.mcp
+		kids = append(kids, st.children...)
 		st.mu.Unlock()
 		if ep != nil {
 			ep.Revoke()
@@ -225,6 +227,9 @@ func (b *Backend) DeleteSession(ctx context.Context, workspaceDir, sessionID str
 		issuer.RevokeSession(sessionID)
 	}
 	b.reg.delete(sessionID)
+	for _, k := range kids { // a subagent goes with its parent
+		b.reg.delete(k)
+	}
 	b.att.Forget(sessionID)
 	b.diffs.Forget(sessionID)
 	return nil
@@ -257,6 +262,12 @@ func (b *Backend) prompt(ctx context.Context, workspaceDir, sessionID string, pr
 	// A session found by session/list, or one the agent forgot in a restart,
 	// is reopened (resume where advertised) before it can be prompted.
 	st.mu.Lock()
+	child := st.parentID != ""
+	st.mu.Unlock()
+	if child {
+		return fmt.Errorf("acp: a subagent's session cannot be prompted: it belongs to its parent's turn")
+	}
+	st.mu.Lock()
 	needOpen := !st.active && !st.busy
 	st.mu.Unlock()
 	if needOpen {
@@ -286,10 +297,10 @@ func (b *Backend) prompt(ctx context.Context, workspaceDir, sessionID string, pr
 		st.mu.Unlock() // a retry of a prompt that already went out
 		return nil
 	}
-	if !fromQueue && (st.busy || st.draining || len(st.queue) > 0) {
+	if !fromQueue && (st.busy || st.draining || st.rewinding || len(st.queue) > 0) {
 		return b.enqueueLocked(workspaceDir, st, prompt)
 	}
-	if st.busy {
+	if st.busy || st.rewinding {
 		// a queued prompt never runs over a turn: the caller puts it back
 		st.mu.Unlock()
 		return backend.ErrSessionBusy
@@ -304,7 +315,7 @@ func (b *Backend) prompt(ctx context.Context, workspaceDir, sessionID string, pr
 	st.turn++
 	turn := st.turn
 	userMsgID := fmt.Sprintf("%s:t%d:user", sessionID, turn)
-	st.userMsgID = userMsgID
+	st.userMsgID, st.userText, st.echoSeen = userMsgID, prompt.Text, false
 	userPartID := userMsgID + ":text"
 	st.assistantMsgID = fmt.Sprintf("%s:t%d:assistant", sessionID, turn)
 	st.textPartID = st.assistantMsgID + ":text"
@@ -358,7 +369,7 @@ func (b *Backend) awaitPromptResult(workspaceDir, sessionID string, st *sessionS
 
 	st.mu.Lock()
 	st.busy = false
-	b.finishChildrenLocked(st)
+	finished := b.finishChildrenLocked(st)
 	st.draining = len(st.queue) > 0
 	assistantMsgID := st.assistantMsgID
 	st.status = backend.StatusIdle
@@ -366,6 +377,7 @@ func (b *Backend) awaitPromptResult(workspaceDir, sessionID string, st *sessionS
 
 	if msg.Error != nil {
 		st.mu.Unlock()
+		b.emitSessions(workspaceDir, finished...)
 		// -32800 is "request cancelled" (cancellation.md): an agent may answer a
 		// cancelled prompt with it instead of stopReason "cancelled". Either way
 		// a cancel is a quiet end of turn, never an error.
@@ -391,6 +403,7 @@ func (b *Backend) awaitPromptResult(workspaceDir, sessionID string, st *sessionS
 		st.messages[idx].Message.Error = errMsg
 	}
 	st.mu.Unlock()
+	b.emitSessions(workspaceDir, finished...)
 
 	// Per-turn token counts: the end-turn usage field is still a draft RFD
 	// (not in the v1 schema), read when an agent sends it, also under _meta.

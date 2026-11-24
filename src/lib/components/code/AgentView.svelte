@@ -661,6 +661,7 @@
 			historyHasMore = cached.hasMore;
 			historyBefore = cached.before;
 			staging = [];
+			queued = [];
 		} else {
 			messages = [];
 			usage = null;
@@ -910,7 +911,14 @@
 	async function confirmUndo() {
 		if (!undoTarget) return;
 		const { userMessageId } = undoTarget;
-		await revertAgent(deviceId, agentId, userMessageId);
+		try {
+			await revertAgent(deviceId, agentId, userMessageId);
+		} catch (err) {
+			// a rollback that happened but could not restore every file still changed the
+			// history: show it, then say which files remain
+			restartStream();
+			throw err;
+		}
 		undoTarget = null;
 		restartStream();
 	}

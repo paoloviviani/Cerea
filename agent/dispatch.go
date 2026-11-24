@@ -1098,6 +1098,13 @@ func (mc *machine) opSessionRevert(ctx context.Context, args json.RawMessage) (a
 		return nil, opErrf("invalid", "the session is mid-turn; stop it before rolling back")
 	}
 	if err := reverter.Revert(ctx, dir, a.SessionID, a.MessageID); err != nil {
+		var partial *backend.PartialRevertError
+		if errors.As(err, &partial) {
+			// the history is back though some files are not: the client must still re-sync,
+			// and the person is told which files remain
+			mc.mat.Reseed(a.SessionID)
+			return nil, opErrf("backend", "%v", partial)
+		}
 		return nil, backendErr(err)
 	}
 	mc.mat.Reseed(a.SessionID)

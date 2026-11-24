@@ -81,7 +81,7 @@ func (b *Backend) enqueueLocked(workspaceDir string, st *sessionState, prompt ba
 // (the agent is down) goes back at the front and the drain stops: nothing is discarded.
 func (b *Backend) drainQueue(workspaceDir string, st *sessionState) {
 	st.mu.Lock()
-	if st.busy || len(st.queue) == 0 {
+	if st.busy || st.rewinding || len(st.queue) == 0 {
 		st.draining = false
 		st.mu.Unlock()
 		return

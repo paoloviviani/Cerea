@@ -878,7 +878,7 @@ describe("the handoff route (parity plan §4.2(a))", () => {
 				session: {
 					id: "forked-1",
 					workspaceId: workspace.id,
-					backend: source.provider,
+					backend: "opencode",
 					title: args.title ?? "",
 					status: "idle",
 					createdAt: new Date().toISOString(),
@@ -1043,8 +1043,11 @@ describe("the SSE bridge over a live machine link", () => {
 		expect(reader).toBeTruthy();
 		if (!reader) return;
 
-		// The empty snapshot's own turn state ("idle" status -> done) arrives
-		// first, with no live activity needed.
+		// The snapshot's own frames arrive first, with no live activity needed: the (empty)
+		// follow-up list that replaces whatever a client showed, then the empty snapshot's
+		// turn state ("idle" status -> done).
+		const queuedFrame = await readOneFrame(reader);
+		expect(JSON.parse(queuedFrame.data)).toEqual({ type: "queued", queued: [] });
 		const first = await readOneFrame(reader);
 		expect(first.event).toBe("update");
 

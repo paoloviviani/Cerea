@@ -1121,3 +1121,84 @@ func TestVibeEngineForkCopiesTheHistoryUpToATurn(t *testing.T) {
 		t.Fatalf("the source lost messages: %v", u)
 	}
 }
+
+// A rewind that would restore a file through a symlink the workspace now holds is refused
+// before Vibe is asked to do it: the file the link points at (a temp HOME's .bashrc) is never
+// touched, and the history stays as it was.
+func TestVibeEngineRevertNeverRestoresThroughASymlink(t *testing.T) {
+	r := newVibeRig(t)
+	ctx := context.Background()
+	sess, err := r.b.CreateSession(ctx, r.work, backend.CreateSessionOptions{Title: "link"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.scenario(mockllm.Scenario{Content: []string{"first"}, FinishReason: "stop"})
+	r.turn(sess.ID, "link first", backend.DecisionOnce)
+	target := filepath.Join(r.work, "linked.txt")
+	r.scenario(mockllm.Scenario{
+		ToolCalls:    []mockllm.ToolCall{{ID: "w1", Name: "write_file", Arguments: `{"path":"` + target + `","content":"turn two\n"}`}},
+		FinishReason: "tool_calls",
+		Routes:       []mockllm.Route{{Contains: "turn two", Scenario: mockllm.Scenario{Content: []string{"done"}, FinishReason: "stop"}}},
+	})
+	r.turn(sess.ID, "link second", backend.DecisionOnce)
+	bashrc := filepath.Join(t.TempDir(), ".bashrc")
+	if err := os.WriteFile(bashrc, []byte("keep me\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(target); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(bashrc, target); err != nil {
+		t.Skip("no symlinks")
+	}
+	users, _, _ := transcriptIDs(t, r, sess.ID)
+	err = r.b.(backend.Reverter).Revert(ctx, r.work, sess.ID, users[1])
+	if err == nil {
+		t.Fatal("a rollback through a symlink was done")
+	}
+	t.Logf("refused: %v", err)
+	if b, _ := os.ReadFile(bashrc); string(b) != "keep me\n" {
+		t.Fatalf("the file behind the link was written: %q", b)
+	}
+	if u, _, _ := transcriptIDs(t, r, sess.ID); len(u) != 2 {
+		t.Fatalf("the history changed: %v", u)
+	}
+}
+
+// A fork keeps Vibe's entry ids, so rewinding and forking inside a fork, to a message copied
+// from the parent, work.
+func TestVibeEngineForkSupportsRevertAndForkOnCopiedMessages(t *testing.T) {
+	r := newVibeRig(t)
+	ctx := context.Background()
+	sess, _ := r.b.CreateSession(ctx, r.work, backend.CreateSessionOptions{Title: "src"})
+	r.scenario(mockllm.Scenario{Content: []string{"answer"}, FinishReason: "stop"})
+	for _, p := range []string{"fk-one", "fk-two", "fk-three"} {
+		r.turn(sess.ID, p, backend.DecisionOnce)
+	}
+	_, asst, _ := transcriptIDs(t, r, sess.ID)
+	forker := r.b.(backend.Forker)
+	child, err := forker.Fork(ctx, r.work, sess.ID, asst[1], "Fork: src") // one and two
+	if err != nil {
+		t.Fatal(err)
+	}
+	users, asst2, _ := transcriptIDs(t, r, child.ID)
+	if len(users) != 2 {
+		t.Fatalf("fork holds %v", users)
+	}
+	// rewind the fork to a message copied from the parent
+	if err := r.b.(backend.Reverter).Revert(ctx, r.work, child.ID, users[1]); err != nil {
+		t.Fatalf("revert on a copied message of a fork: %v", err)
+	}
+	if u, _, _ := transcriptIDs(t, r, child.ID); len(u) != 1 {
+		t.Fatalf("after the rollback: %v", u)
+	}
+	// and a fork of the fork
+	grand, err := forker.Fork(ctx, r.work, child.ID, asst2[0], "Fork: fork")
+	if err != nil {
+		t.Fatalf("fork of a fork: %v", err)
+	}
+	r.turn(grand.ID, "fk-four", backend.DecisionOnce)
+	if u, _, _ := transcriptIDs(t, r, grand.ID); len(u) != 2 {
+		t.Fatalf("grandchild = %v", u)
+	}
+}

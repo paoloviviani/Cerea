@@ -85,5 +85,5 @@ func (b *Backend) sessionBusy(sessionID string) bool {
 	}
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	return st.busy || st.draining || len(st.queue) > 0
+	return st.busy || st.draining || st.rewinding || len(st.queue) > 0
 }
