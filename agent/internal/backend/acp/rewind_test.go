@@ -445,3 +445,59 @@ func TestForkInheritsThePermissionSelectorAndSubagentsEmitAndAreDeletedWithThePa
 		t.Fatal("the subagent outlived its parent")
 	}
 }
+
+func TestAnAttachmentsOnlyPromptsEchoIsStillTheTurnsEntryID(t *testing.T) {
+	b, fa := newTestBackendCfg(t, false, func(c *Config) { c.Rewind = true })
+	ctx := context.Background()
+	sess, _ := b.CreateSession(ctx, "/work", backend.CreateSessionOptions{})
+	events, _ := b.Subscribe(ctx)
+	if err := b.Prompt(ctx, "/work", sess.ID, backend.Prompt{Text: ""}); err != nil {
+		t.Fatal(err)
+	}
+	pr := <-fa.promptReqs
+	<-fa.promptParams
+	fa.update(sess.ID, map[string]any{"sessionUpdate": "user_message_chunk", "messageId": "img1", "content": map[string]any{"type": "image", "data": "x", "mimeType": "image/png"}})
+	fa.respond(pr.id, map[string]any{"stopReason": "end_turn"})
+	drainEvents(t, events, sess.ID, 5*time.Second, isIdle)
+	st, _ := b.reg.get(sess.ID)
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.entryIDs[st.userMsgID] != "img1" {
+		t.Fatalf("entry ids = %v", st.entryIDs)
+	}
+}
+
+func TestEchoMatchesAnEmptyPromptOnItsFirstEcho(t *testing.T) {
+	if !echoMatches("whatever the agent echoes", "") || echoMatches("a", "b") || !echoMatches("  b  ", "b") {
+		t.Fatal("echoMatches")
+	}
+}
+
+// A fork whose reload fails keeps galopin's copy of the history it shares.
+func TestForkReloadFailureKeepsTheCopiedHistory(t *testing.T) {
+	b, fa := newTestBackendCfg(t, false, func(c *Config) { c.Fork = true })
+	fa.hook = func(fa *fakeAgent, id json.RawMessage, method string, p map[string]any) bool {
+		switch method {
+		case "session/fork":
+			fa.respond(id, map[string]any{"sessionId": "forked-1", "configOptions": []any{}})
+			return true
+		case "session/load":
+			if p["sessionId"] == "forked-1" {
+				_ = fa.conn.respond(id, nil, &rpcError{Code: -32603, Message: "boom"})
+				return true
+			}
+		}
+		return false
+	}
+	ctx := context.Background()
+	sess, _ := b.CreateSession(ctx, "/work", backend.CreateSessionOptions{})
+	events, _ := b.Subscribe(ctx)
+	runTurn(t, b, fa, events, sess.ID, "one", "e1")
+	child, err := b.Fork(ctx, "/work", sess.ID, "", "Fork")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := userIDs(t, b, child.ID); len(got) != 1 {
+		t.Fatalf("the fork lost its history when the reload failed: %v", got)
+	}
+}

@@ -384,10 +384,25 @@ func (b *Backend) reopenFork(ctx context.Context, workspaceDir string, child *se
 		return false
 	}
 	child.mu.Lock()
+	// the copy is kept aside: a load that fails (the replay clears the transcript first) must
+	// not leave the fork with an empty history
+	kept := struct {
+		messages  []backend.TranscriptEntry
+		msgIndex  map[string]int
+		partIndex map[string]int
+		partOwner map[string]int
+		todos     []backend.Todo
+		entryIDs  map[string]string
+	}{child.messages, child.msgIndex, child.partIndex, child.partOwner, child.todos, child.entryIDs}
 	child.active, child.loaded = false, false
 	child.mu.Unlock()
 	if err := b.openSession(ctx, workspaceDir, child, true); err != nil {
 		b.cfg.Logf("acp: reloading fork %s: %v", child.id, err)
+		child.mu.Lock()
+		child.messages, child.msgIndex, child.partIndex, child.partOwner = kept.messages, kept.msgIndex, kept.partIndex, kept.partOwner
+		child.todos, child.entryIDs = kept.todos, kept.entryIDs
+		child.loaded, child.replaying = true, false // active stays false: the next prompt reopens it
+		child.mu.Unlock()
 		return false
 	}
 	return true

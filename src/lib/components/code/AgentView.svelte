@@ -916,6 +916,7 @@
 		} catch (err) {
 			// a rollback that happened but could not restore every file still changed the
 			// history: show it, then say which files remain
+			undoTarget = null;
 			restartStream();
 			throw err;
 		}

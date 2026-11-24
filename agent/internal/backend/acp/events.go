@@ -209,6 +209,19 @@ func (b *Backend) handleAvailableCommands(st *sessionState, upd map[string]any) 
 func (b *Backend) handleTextChunk(st *sessionState, role string, upd map[string]any, reasoning bool) {
 	content := getMap(upd, "content")
 	text := getStr(content, "text")
+	if content != nil && getStr(content, "type") != "text" && role == "user" && !reasoning {
+		// An image or file chunk of the person's own prompt (an attachments-only prompt has no
+		// text): the agent's id for the turn's message is still the first echo's.
+		st.mu.Lock()
+		if !st.replaying && st.busy && st.userMsgID != "" && !st.echoSeen && st.userText == "" {
+			st.echoSeen = true
+			if id := getStr(upd, "messageId", "messageID"); id != "" {
+				st.entryIDs[st.userMsgID] = id
+			}
+		}
+		st.mu.Unlock()
+		return
+	}
 	if content == nil || getStr(content, "type") != "text" {
 		return
 	}
@@ -623,5 +636,9 @@ func (b *Backend) applyTurnUsage(workspaceDir string, st *sessionState, turn map
 // text of its own around it, never remove it.
 func echoMatches(echo, prompt string) bool {
 	p := strings.TrimSpace(prompt)
-	return p != "" && strings.Contains(strings.TrimSpace(echo), p)
+	if p == "" {
+		// a prompt of attachments only has no text to compare: its first echo of the turn is it
+		return true
+	}
+	return strings.Contains(strings.TrimSpace(echo), p)
 }
