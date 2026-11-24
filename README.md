@@ -7,23 +7,93 @@
 
 # Cerea
 
-A self-hosted chat for any OpenAI-compatible endpoint, with knowledge bases,
-artifacts, Python (in the browser, or in a server sandbox), and coding agents
-on your own machines.
+**Self-hosted chat and coding agents for teams: every user with their own spend, quotas and privacy rules.**
 
-**The name.** _Cerea_ is a Turinese _modo di dire_: a historic, affectionate
-greeting that means both _buongiorno_ and _arrivederci_.
+<p align="center">
+  <a href="docs/assets/cerea-demo.mp4" title="Watch the demo as a video">
+    <img src="docs/assets/cerea-demo.webp" alt="Cerea demo: a question answered with an artifact, then a coding agent's approval card allowed once on desktop and on a phone" width="900">
+  </a>
+</p>
 
-![Cerea](docs/assets/cerea-chat-light-framed.webp)
+## Try it in 5 minutes
+
+You need Docker. The **deploy kit** (the `kit/` directory of this repository)
+runs the full stack: the chat, the Pystino gateway and its console, a bundled
+identity provider, a TLS proxy and the add-ons. Its installer fetches only that
+directory:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/paoloviviani/Cerea/stable/kit/get-kit.sh | sh
+cd cerea/kit
+./configure
+docker compose up -d
+```
+
+For a chat-only install, against a central Pystino (`--preset satellite`) or any
+OpenAI-compatible endpoint without Pystino (`--preset generic`), and for what each
+shape gives and lacks, see [docs/deploy.md](docs/deploy.md). The chat also runs
+without the kit.
+
+<p align="center">
+  <a href="https://github.com/paoloviviani/Cerea/releases/latest"><img src="https://img.shields.io/github/v/release/paoloviviani/Cerea?label=release" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/licence-Apache--2.0-blue" alt="Licence: Apache-2.0"></a>
+  <a href="https://paoloviviani.github.io/Cerea/"><img src="https://img.shields.io/badge/docs-paoloviviani.github.io%2FCerea-informational" alt="Documentation site"></a>
+</p>
+
+## Why Cerea
+
+- **Every user has their own account at the gateway.** With
+  [Pystino](https://github.com/paoloviviani/Pystino), each call carries the
+  signed-in user's own token, so spend, quotas and model access are per user
+  and per group, not one shared key.
+- **Privacy rules before the model.** The gateway redacts personal data and
+  applies the rules your administrator sets (a message holding an API key can
+  be refused, for example) before anything reaches a provider.
+- **Coding agents on your own computers.** The `/code` panel drives agents on
+  machines you pair, in Plan, Ask or Allow mode, with approval cards for what
+  they want to do, which you can answer from a phone.
+- **Artifacts and Office files.** HTML, React and Mermaid previews, and Word,
+  Excel, PowerPoint and PDF files the assistant creates and edits.
+- **Python in your browser, or in a server sandbox.** By default a WebAssembly
+  sandbox on your device, so files stay there; or, when the operator enables
+  it, a gVisor sandbox on the server.
+- **One connector list** (MCP servers) for the chat and for your agents.
+
+Cerea is a fork of Hugging Face's
+[chat-ui](https://github.com/huggingface/chat-ui) (see [Origin](#origin)); it
+keeps what that project built and adds the rest.
+
+## How it compares
+
+How Cerea sits next to the other self-hosted chat front ends. Each of them is
+good at something Cerea is not, and the table says so.
+
+|                                                                       | Cerea                        | Open WebUI                                      | LibreChat                | LobeChat                                       | HF chat-ui                |
+| --------------------------------------------------------------------- | ---------------------------- | ----------------------------------------------- | ------------------------ | ---------------------------------------------- | ------------------------- |
+| Self-hosted                                                           | ✅                           | ✅                                              | ✅                       | ✅                                             | ✅                        |
+| Licence                                                               | Apache-2.0                   | own licence, BSD-3 based with a branding clause | MIT                      | own licence, Apache-2.0 based with extra terms | Apache-2.0                |
+| Per-user spend accounting and quotas                                  | ✅ with Pystino              | via plugin                                      | partial (token balances) | ?                                              | ❌                        |
+| PII redaction or privacy routing before the model                     | ✅ with Pystino              | via plugin                                      | ?                        | ?                                              | ❌                        |
+| Coding agents on users' own machines, with approvals                  | ✅                           | ❌                                              | ❌                       | ❌                                             | ❌                        |
+| MCP connectors                                                        | ✅                           | ✅                                              | ✅                       | ✅                                             | ✅                        |
+| Artifacts                                                             | ✅                           | partial                                         | ✅                       | ✅                                             | ❌                        |
+| Python execution                                                      | ✅ browser or server sandbox | ✅                                              | partial                  | ?                                              | ❌                        |
+| Native provider APIs (Anthropic, Gemini and others) without a gateway | ❌ OpenAI-compatible only    | partial                                         | ✅                       | ✅                                             | ❌ OpenAI-compatible only |
+| Community, ecosystem and maturity                                     | young, one maintainer        | very large, many integrations                   | large, mature            | large                                          | backed by Hugging Face    |
+
+_As of 2026-11; corrections welcome, please open an issue. "with Pystino"
+means the gateway that pairs with Cerea; "via plugin" means a community or
+bundled extension rather than the core; "?" means we have not been able to
+confirm it._
 
 ## Cerea and Pystino
 
 Cerea is one half of a pair. Each half solves a different problem, and each
 runs on its own:
 
-- **Cerea** (this repository) serves the people using models: the chat, its
+- **Cerea** (this repository) serves the users of models: the chat, its
   knowledge, artifacts and tools, and **galopin**, which pairs coding agents
-  on a person's own machine.
+  on a user's own machine.
 - **[Pystino](https://github.com/paoloviviani/Pystino)** serves the
   organisation paying for them: an OpenAI-compatible gateway with per-user
   and per-group accounting, quotas, PII redaction, model access and an admin
@@ -31,11 +101,16 @@ runs on its own:
 
 Cerea alone runs against any OpenAI-compatible endpoint with one shared key.
 Pystino alone serves any OpenAI or Anthropic client. Together they are the
-intended setup: the chat calls Pystino's `/v1` with each person's own sign-in
-token, so spend, quotas and model access follow the person, and the gateway
+intended setup: the chat calls Pystino's `/v1` with each user's own sign-in
+token, so spend, quotas and model access follow the user, and the gateway
 adds web search, a local document reader and metered coding agents. Below, **the
 gateway** means Pystino. The deploy kit in this repository (`kit/`) runs both
 together, or the chat alone.
+
+## The name
+
+_Cerea_ is a Turinese _modo di dire_: a historic, affectionate greeting that
+means both _buongiorno_ and _arrivederci_.
 
 ## Features
 
@@ -43,7 +118,7 @@ Unmarked features work against any endpoint; those marked _(Pystino)_ need
 the gateway.
 
 - **Chat over any model your endpoint serves**, signed in with OIDC. With
-  Pystino each call carries the person's own token, so quotas and billing are
+  Pystino each call carries the user's own token, so quotas and billing are
   theirs; without it, every call uses the one key you configure. The stack
   currently signs the chat and the console in against one provider; to combine
   several sources of users, federate them in your own IdP (Keycloak,
@@ -66,7 +141,7 @@ the gateway.
 - **Skills and connectors**: built-in skills for office files and data
   analysis ([docs/skills.md](docs/skills.md)), and remote MCP servers as
   connectors ([docs/connectors.md](docs/connectors.md)).
-- **Knowledge bases and projects**, shareable with people or groups, with an
+- **Knowledge bases and projects**, shareable with users or groups, with an
   optional project memory ([docs/knowledge.md](docs/knowledge.md)).
 - **Python the assistant runs**: by default in your browser, in a WebAssembly
   sandbox with the scientific and office libraries, so your files never leave
@@ -101,23 +176,10 @@ the gateway.
 
 ## Quick start
 
-The **deploy kit**, the `kit/` directory of this repository, runs the full
-stack by default: the chat, Pystino and its console, a bundled identity
-provider, a TLS proxy and the add-ons. It is one `compose.yaml`, a documented
-`.env.example`, and a `./configure` script. Its installer fetches only that
-directory:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/paoloviviani/Cerea/stable/kit/get-kit.sh | sh
-cd cerea/kit
-./configure
-docker compose up -d
-```
-
-It also covers a chat-only install, against a central Pystino
-(`--preset satellite`) or any OpenAI-compatible endpoint without Pystino
-(`--preset generic`). What each shape gives and lacks is in
-[docs/deploy.md](docs/deploy.md); the chat also runs without the kit.
+See [Try it in 5 minutes](#try-it-in-5-minutes) above. Which shape fits (the full stack,
+a chat-only satellite, or any OpenAI-compatible endpoint) and what each gives and lacks is
+in [docs/deploy.md](docs/deploy.md); the kit itself is described in
+[docs/deploy-kit.md](docs/deploy-kit.md).
 
 ## Configuration
 
@@ -126,7 +188,7 @@ Cerea reads its settings from the environment. The ones that matter most:
 | Variable                                                                                      | What                                                                        |
 | --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
 | `OPENAI_BASE_URL`                                                                             | the OpenAI-compatible API the chat calls (Pystino's `/v1`, or any endpoint) |
-| `USE_USER_TOKEN`                                                                              | `true` with Pystino: each call carries the signed-in person's own token     |
+| `USE_USER_TOKEN`                                                                              | `true` with Pystino: each call carries the signed-in user's own token       |
 | `OPENAI_API_KEY`                                                                              | the one shared key, without Pystino                                         |
 | `OPENID_PROVIDER_URL`, `OPENID_CLIENT_ID`, `OPENID_CLIENT_SECRET`                             | the OIDC sign-in                                                            |
 | `MONGODB_URL`                                                                                 | conversations, settings and pairing records                                 |
@@ -141,7 +203,7 @@ here lists every variable the app understands.
 
 ## Agents
 
-galopin runs next to the coding agent (opencode, or goose) on a person's machine, dials out to Cerea with
+galopin runs next to the coding agent (opencode, or goose) on a user's machine, dials out to Cerea with
 its own OIDC credential, and is confirmed by its owner in `/code`. What a
 machine allows (the permission ceiling, workspace roots, files, the terminal) is fixed on
 the machine at enroll time; the terminal also needs `CODE_TERMINAL_ENABLED=true`

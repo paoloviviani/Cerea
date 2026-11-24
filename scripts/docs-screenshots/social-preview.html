@@ -1,0 +1,60 @@
+<!doctype html>
+<!-- Source of docs/assets/social-preview.png (1280x640, GitHub's social preview size).
+     Render: node scripts/docs-screenshots/social-preview.mjs -->
+<meta charset="utf-8" />
+<title>Cerea social preview</title>
+<style>
+	html,
+	body {
+		margin: 0;
+		width: 1280px;
+		height: 640px;
+		overflow: hidden;
+	}
+	body {
+		position: relative;
+		background: linear-gradient(135deg, #fffaf3 0%, #fdf1e4 100%);
+		font-family: "Inter", "Helvetica Neue", Arial, sans-serif;
+		color: #1a2340;
+	}
+	.logo {
+		position: absolute;
+		left: 72px;
+		top: 92px;
+		width: 330px;
+	}
+	.pitch {
+		position: absolute;
+		left: 72px;
+		top: 236px;
+		width: 520px;
+		font-size: 42px;
+		line-height: 1.18;
+		font-weight: 700;
+		letter-spacing: -0.01em;
+	}
+	.sub {
+		position: absolute;
+		left: 72px;
+		top: 366px;
+		width: 480px;
+		line-height: 1.35;
+		font-size: 26px;
+		color: #5a4a8b;
+		font-weight: 500;
+	}
+	.shot {
+		position: absolute;
+		left: 640px;
+		top: 96px;
+		width: 760px;
+		border-radius: 14px;
+		box-shadow:
+			0 24px 60px rgba(26, 35, 64, 0.28),
+			0 2px 8px rgba(26, 35, 64, 0.18);
+	}
+</style>
+<img class="logo" src="../../brand/logo_gradient_day.svg" alt="Cerea" />
+<div class="pitch">Self-hosted chat and coding agents for teams</div>
+<div class="sub">Every user with their own spend, quotas and privacy rules.</div>
+<img class="shot" src="../../docs/assets/cerea-chat-light-framed.webp" alt="" />
