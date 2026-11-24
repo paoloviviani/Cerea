@@ -32,6 +32,8 @@
 					"questions": true,
 					"revert": true,
 					"revertFiles": true,
+					"unrevert": true,
+					"fork": false,
 					"efforts": true,
 					"commands": true,
 					"toolImages": true,

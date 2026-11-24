@@ -7,6 +7,8 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **Mistral Vibe parity, phase 2** (needs the matching galopin): Vibe computers can roll a session back (`/undo`, files restored; final, no `/redo`), fork from a message on the same computer without a history file, and show subagents as task cards with a child session. Phase 1 (same series): the workspace's `AGENTS.md`, `/compact`, thinking effort, `ask_user` questions, queued follow-ups.
+
 ## v0.64.1 — 2026-11-24
 
 Pins: Cerea `0.64.1` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.34.0`, opencode `2.4.1`.

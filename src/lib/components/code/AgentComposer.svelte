@@ -193,6 +193,8 @@
 		/** Whether the backend can roll a session back (`hello` capability
 		 * `revert`) — `/undo` and `/redo` need it. */
 		revertSupported?: boolean;
+		/** Whether a rollback can be undone (`unrevert`): without it `/redo` is not offered. */
+		unrevertSupported?: boolean;
 		/** Whether the backend folds a prompt sent mid-turn into the running
 		 * turn (`hello` capability `steer`): Send stays beside Stop and the
 		 * "Stop and send" chevron shows only then. Without it the stop
@@ -234,6 +236,7 @@
 		modelsHidden = 0,
 		compactSupported = false,
 		revertSupported = false,
+		unrevertSupported = true,
 		steerSupported = false,
 		onundo,
 		onnew,
@@ -592,6 +595,7 @@
 		return panelCommandTable({
 			compact: compactSupported,
 			revert: revertSupported,
+			unrevert: unrevertSupported,
 			efforts: effortsSupported,
 		});
 	});
@@ -633,6 +637,7 @@
 		const panel = panelCommandTable({
 			compact: compactSupported,
 			revert: revertSupported,
+			unrevert: unrevertSupported,
 			efforts: effortsSupported,
 		});
 		const panelNames = new Set(panel.concat(panelCommands).map((c) => c.name.toLowerCase()));

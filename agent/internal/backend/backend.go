@@ -2,6 +2,7 @@ package backend
 
 import (
 	"context"
+	"errors"
 
 	"galopin/internal/permrules"
 )
@@ -29,6 +30,12 @@ type Capabilities struct {
 	// changed (opencode: yes, from its per-step snapshots).
 	Revert      bool `json:"revert"`
 	RevertFiles bool `json:"revertFiles"`
+	// Unrevert says session.unrevert works: a rollback can be undone while no prompt has
+	// been sent since (opencode). An engine whose rollback is final (Vibe's rewind) says no.
+	Unrevert bool `json:"unrevert"`
+	// Fork says session.fork works: a new session that continues from a copy of this one,
+	// up to a message (Vibe's session/fork).
+	Fork bool `json:"fork"`
 	// Efforts is a per-session thinking effort (session.setEffort), picked
 	// from the model's Efforts: opencode sends it as the prompt's variant.
 	Efforts bool `json:"efforts"`
@@ -200,6 +207,15 @@ type Reverter interface {
 	Revert(ctx context.Context, workspaceDir, sessionID, messageID string) error
 	Unrevert(ctx context.Context, workspaceDir, sessionID string) error
 }
+
+// Forker is the optional "fork" capability: a new session continuing from a copy of this
+// one up to (and including) the turn that ends with messageID ("" for the whole session).
+type Forker interface {
+	Fork(ctx context.Context, workspaceDir, sessionID, messageID, title string) (Session, error)
+}
+
+// ErrUnrevertUnsupported is session.unrevert on an engine whose rollback cannot be undone.
+var ErrUnrevertUnsupported = errors.New("this engine's rollback cannot be undone")
 
 // EffortSetter is the optional "efforts" capability: remember a thinking
 // effort for a session ("" for the model's default), used on every prompt.

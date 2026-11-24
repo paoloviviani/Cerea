@@ -1,0 +1,17 @@
+{
+	"_meta": {
+		"spec": "\u00a76",
+		"direction": "C\u2192M",
+		"op": "session.fork"
+	},
+	"frame": {
+		"type": "req",
+		"id": "r1",
+		"op": "session.fork",
+		"args": {
+			"sessionId": "ses_01",
+			"messageId": "msg_03",
+			"title": "Fork: refactor"
+		}
+	}
+}

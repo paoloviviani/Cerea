@@ -50,6 +50,8 @@ export interface SlashRun {
 export interface PanelCommandFlags {
 	compact: boolean;
 	revert: boolean;
+	/** Whether a rollback can be undone (`/redo`); absent reads as true where `revert` is. */
+	unrevert?: boolean;
 	efforts: boolean;
 }
 
@@ -72,7 +74,15 @@ export function panelCommands(flags: PanelCommandFlags): SlashCommand[] {
 						description: m["chat.slash.cmd.undo"](),
 						group: "panel" as const,
 					},
-					{ name: "redo", description: m["chat.slash.cmd.redo"](), group: "panel" as const },
+					...(flags.unrevert === false
+						? []
+						: [
+								{
+									name: "redo",
+									description: m["chat.slash.cmd.redo"](),
+									group: "panel" as const,
+								},
+							]),
 				]
 			: []),
 		{

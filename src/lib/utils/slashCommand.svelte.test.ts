@@ -256,6 +256,16 @@ describe("panelCommands", () => {
 		expect(names).toEqual(["compact", "model", "mode", "effort", "new"]);
 	});
 
+	it("drops redo, and only redo, when a rollback cannot be undone", () => {
+		const names = panelCommands({
+			compact: true,
+			revert: true,
+			unrevert: false,
+			efforts: true,
+		}).map((c) => c.name);
+		expect(names).toEqual(["compact", "undo", "model", "mode", "effort", "new"]);
+	});
+
 	it("drops effort without the efforts capability", () => {
 		const names = panelCommands({ compact: true, revert: true, efforts: false }).map((c) => c.name);
 		expect(names).toEqual(["compact", "undo", "redo", "model", "mode", "new"]);

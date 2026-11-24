@@ -864,6 +864,58 @@ describe("the handoff route (parity plan §4.2(a))", () => {
 		machine.close();
 	});
 
+	it("forks natively when the machine can, with no history file, and falls back when it cannot", async () => {
+		const machine = await connectAndPair();
+		const deviceId = machine.deviceId as string;
+		const { workspace } = await createWorkspace(machine, deviceId);
+		const { agent: source } = await createSession(machine, deviceId, workspace.id);
+
+		const forks: Array<{ sessionId: string; messageId?: string; title?: string }> = [];
+		const prompts: Array<{ sessionId: string; text: string; attachments?: unknown[] }> = [];
+		machine.onOp("session.fork", (args: (typeof forks)[number]) => {
+			forks.push(args);
+			return {
+				session: {
+					id: "forked-1",
+					workspaceId: workspace.id,
+					backend: source.provider,
+					title: args.title ?? "",
+					status: "idle",
+					createdAt: new Date().toISOString(),
+					updatedAt: new Date().toISOString(),
+				},
+			};
+		});
+		machine.onOp("session.prompt", (args: (typeof prompts)[number]) => {
+			prompts.push(args);
+			return {};
+		});
+
+		const res = await forwarder(
+			forwarderPOST,
+			`/api/v2/code/v1/agents/${source.id}/handoff?device=${deviceId}`,
+			{
+				method: "POST",
+				body: JSON.stringify({
+					prompt: "carry on",
+					carry: true,
+					native: true,
+					uptoMessageId: "msg_9",
+				}),
+				locals: user.locals,
+			}
+		);
+		expect(res.status).toBe(200);
+		const { agent } = await parse<{ agent: { id: string } }>(res);
+		expect(agent.id).toBe("forked-1");
+		expect(forks).toEqual([
+			{ sessionId: source.id, messageId: "msg_9", title: "Fork: New session" },
+		]);
+		expect(prompts).toEqual([{ sessionId: "forked-1", text: "carry on" }]);
+
+		machine.close();
+	});
+
 	it("hands off across the caller's own paired devices", async () => {
 		const source = await connectAndPair();
 		// Two devices for the same user, so each needs its own machine id —

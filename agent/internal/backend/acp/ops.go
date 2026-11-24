@@ -85,6 +85,10 @@ func (b *Backend) ListSessions(ctx context.Context, workspaceDir string) ([]back
 	var out []backend.Session
 	for _, st := range b.reg.list(workspaceDir) {
 		st.mu.Lock()
+		if st.parentID != "" { // a subagent is listed under its parent (Children), never alone
+			st.mu.Unlock()
+			continue
+		}
 		out = append(out, st.toSession(b.ID()))
 		st.mu.Unlock()
 	}
@@ -300,6 +304,7 @@ func (b *Backend) prompt(ctx context.Context, workspaceDir, sessionID string, pr
 	st.turn++
 	turn := st.turn
 	userMsgID := fmt.Sprintf("%s:t%d:user", sessionID, turn)
+	st.userMsgID = userMsgID
 	userPartID := userMsgID + ":text"
 	st.assistantMsgID = fmt.Sprintf("%s:t%d:assistant", sessionID, turn)
 	st.textPartID = st.assistantMsgID + ":text"
@@ -353,6 +358,7 @@ func (b *Backend) awaitPromptResult(workspaceDir, sessionID string, st *sessionS
 
 	st.mu.Lock()
 	st.busy = false
+	b.finishChildrenLocked(st)
 	st.draining = len(st.queue) > 0
 	assistantMsgID := st.assistantMsgID
 	st.status = backend.StatusIdle

@@ -82,6 +82,14 @@ type Config struct {
 	// before any other session opens (Vibe: the instructions file is removed again, so no
 	// later re-read of it, such as a /reload, can pick up another workspace's text).
 	AfterSession func()
+	// Rewind says the agent rolls a session back with the _rewind/preview and _rewind/to
+	// extension methods (Vibe): Revert and RevertFiles, without an undo.
+	Rewind bool
+	// Fork says the agent forks a session at a message (session/fork with message_id).
+	Fork bool
+	// Subagents says the agent reports its subagents as tool calls with _meta.effect_kind
+	// "subagent" and a child_session_id (Vibe): they become child sessions with a card.
+	Subagents bool
 	// MCPHTTP says the agent takes an HTTP MCP server in session/new although it does
 	// not advertise mcpCapabilities.http (Vibe 3.x does and does not say so).
 	MCPHTTP bool
@@ -243,10 +251,12 @@ func (b *Backend) Capabilities() backend.Capabilities {
 	// session/request_permission asks go through the same decision function as
 	// opencode's (permissions.go), so the Plan/Ask/Allow selector works here too.
 	return backend.Capabilities{
-		Diff: true, Children: false, HistoryPaging: true, Usage: true, Compact: b.cfg.CompactCommand != "", Permissions: true,
+		Diff: true, HistoryPaging: true, Usage: true, Compact: b.cfg.CompactCommand != "", Permissions: true,
 		Efforts: b.cfg.Efforts,
 		// Queue: a prompt sent mid-turn waits and is sent when the turn ends (queue.go).
-		Queue:  true,
+		Queue: true,
+		// Revert/Fork/Children: the engine's own rewind, fork and subagent reports (rewind.go).
+		Revert: b.cfg.Rewind, RevertFiles: b.cfg.Rewind, Fork: b.cfg.Fork, Children: b.cfg.Subagents,
 		Images: images, Files: embedded, Worktrees: false,
 		// Questions: galopin's ask_user tool (questions.go), so only where the agent has the tools.
 		Questions: tools,

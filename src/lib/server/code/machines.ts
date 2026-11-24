@@ -588,6 +588,14 @@ export class MachineLink {
 	sessionCancel(args: { sessionId: string }): Promise<Record<string, never>> {
 		return this.call("session.cancel", args);
 	}
+	/** A native copy of the session up to the turn ending with `messageId` (capability `fork`). */
+	sessionFork(args: {
+		sessionId: string;
+		messageId?: string;
+		title?: string;
+	}): Promise<{ session: Session }> {
+		return this.call("session.fork", args);
+	}
 	/** Withdraw a follow-up still waiting for the running turn to end (capability `queue`). */
 	sessionDequeue(args: { sessionId: string; id: string }): Promise<Record<string, never>> {
 		return this.call("session.dequeue", args);

@@ -594,7 +594,7 @@ func buildHello(back backend.Backend, pol policy.Policy) link.Hello {
 		Capabilities: map[string]bool{
 			"diff": caps.Diff, "children": caps.Children, "usage": caps.Usage,
 			"compact": caps.Compact, "images": caps.Images, "files": caps.Files,
-			"worktrees": caps.Worktrees,
+			"worktrees": caps.Worktrees, "unrevert": caps.Unrevert, "fork": caps.Fork,
 			"questions": caps.Questions, "revert": caps.Revert, "revertFiles": caps.RevertFiles,
 			"efforts": caps.Efforts, "commands": caps.Commands, "toolImages": caps.ToolImages,
 			"agentTools": caps.AgentTools, "steer": caps.Steer, "queue": caps.Queue,

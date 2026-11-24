@@ -60,6 +60,13 @@ type sessionState struct {
 	// effortConfigID is the thinking-level option's id ("" when the agent has none);
 	// effortNow is the value the agent is on, effortValues what it offers, and effort
 	// the person's choice ("" for the model's default): see efforts.go.
+	// userMsgID is the running turn's user message (galopin's own id); entryIDs maps such
+	// ids to the agent's own entry id for that message (rewind and fork name it).
+	userMsgID string
+	entryIDs  map[string]string
+	// parentID is set for a subagent's session; children lists a session's own, in order.
+	parentID string
+	children []string
 	// queue is the follow-up prompts held until the running turn ends (queue.go).
 	queue []queuedPrompt
 	// draining is set from the end of a turn that leaves prompts waiting until the next one
@@ -148,7 +155,7 @@ func newSessionState(id, workspaceDir string) *sessionState {
 		id: id, workspaceDir: workspaceDir,
 		status: backend.StatusIdle, createdAt: now, updatedAt: now,
 		msgIndex: map[string]int{}, partIndex: map[string]int{}, partOwner: map[string]int{},
-		pending: map[string]pendingPermission{},
+		pending: map[string]pendingPermission{}, entryIDs: map[string]string{},
 	}
 }
 
@@ -194,7 +201,7 @@ func (s *sessionState) appendDelta(partID, text string) {
 func (s *sessionState) toSession(backendID string) backend.Session {
 	return backend.Session{
 		ID: s.id, Backend: backendID, Title: s.title, Status: s.status,
-		PendingPermissions: len(s.pending), ModeID: s.modeID, ModelID: s.modelID, Effort: s.effort, Usage: s.usage,
+		ParentID: s.parentID, PendingPermissions: len(s.pending), ModeID: s.modeID, ModelID: s.modelID, Effort: s.effort, Usage: s.usage,
 		CreatedAt: s.createdAt, UpdatedAt: s.updatedAt, SpawnedBy: s.spawnedBy,
 	}
 }

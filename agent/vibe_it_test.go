@@ -920,3 +920,204 @@ func TestVibeEngineEffortDoesNotLeakBetweenLiveSessions(t *testing.T) {
 		}
 	}
 }
+
+// userMessageIDs are the ids of a session's user messages, oldest first, and its assistant ones.
+func transcriptIDs(t *testing.T, r *vibeRig, sessionID string) (users, assistants []string, texts map[string]string) {
+	t.Helper()
+	tr, err := r.b.Transcript(context.Background(), r.work, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	texts = map[string]string{}
+	for _, e := range tr.Messages {
+		for _, p := range e.Parts {
+			if p.Type == backend.PartText {
+				texts[e.Message.ID] += p.Text
+			}
+		}
+		if e.Message.Role == "user" {
+			users = append(users, e.Message.ID)
+		} else {
+			assistants = append(assistants, e.Message.ID)
+		}
+	}
+	return
+}
+
+// Vibe's rewind: the capabilities are on (Revert, RevertFiles, no Unrevert), a rollback to a
+// user message removes it and what followed, restores the file the later turn wrote, and the
+// session answers afterwards without the rolled-back turn in its context.
+func TestVibeEngineRevertRollsBackHistoryAndFiles(t *testing.T) {
+	r := newVibeRig(t)
+	ctx := context.Background()
+	caps := r.b.Capabilities()
+	if !caps.Revert || !caps.RevertFiles || caps.Unrevert {
+		t.Fatalf("caps: revert %v files %v unrevert %v", caps.Revert, caps.RevertFiles, caps.Unrevert)
+	}
+	sess, err := r.b.CreateSession(ctx, r.work, backend.CreateSessionOptions{Title: "revert"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.scenario(mockllm.Scenario{Content: []string{"first answer"}, FinishReason: "stop"})
+	r.turn(sess.ID, "first prompt", backend.DecisionOnce)
+	target := filepath.Join(r.work, "made-in-turn-two.txt")
+	r.scenario(mockllm.Scenario{
+		ToolCalls:    []mockllm.ToolCall{{ID: "w1", Name: "write_file", Arguments: `{"path":"` + target + `","content":"turn two wrote this\n"}`}},
+		FinishReason: "tool_calls",
+		Routes:       []mockllm.Route{{Contains: "turn two wrote", Scenario: mockllm.Scenario{Content: []string{"second answer galopin-second-marker"}, FinishReason: "stop"}}},
+	})
+	r.turn(sess.ID, "second prompt", backend.DecisionOnce)
+	if _, err := os.Stat(target); err != nil {
+		t.Fatalf("the second turn did not write its file: %v", err)
+	}
+	users, _, _ := transcriptIDs(t, r, sess.ID)
+	if len(users) != 2 {
+		t.Fatalf("user messages before the rollback: %v (a Vibe echo must not duplicate them)", users)
+	}
+	rv := r.b.(backend.Reverter)
+	if err := rv.Revert(ctx, r.work, sess.ID, users[1]); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Errorf("the file the rolled-back turn wrote is still there: %v", err)
+	}
+	users, _, texts := transcriptIDs(t, r, sess.ID)
+	if len(users) != 1 || strings.Contains(strings.Join(mapValues(texts), " "), "second") {
+		t.Fatalf("the transcript still holds the rolled-back turn: %v %v", users, texts)
+	}
+	if err := rv.Unrevert(ctx, r.work, sess.ID); !errors.Is(err, backend.ErrUnrevertUnsupported) {
+		t.Errorf("unrevert = %v", err)
+	}
+	r.scenario(mockllm.Scenario{Content: []string{"third answer"}, FinishReason: "stop"})
+	r.turn(sess.ID, "third prompt", backend.DecisionOnce)
+	for _, q := range r.requestLog() {
+		if strings.Contains(strings.Join(q.Prompts, " "), "third prompt") && strings.Contains(strings.Join(q.Prompts, " "), "second prompt") {
+			t.Error("the rolled-back prompt is still in the model's context")
+		}
+	}
+	// a restart of the agent reloads the same shortened history, with Vibe's own ids
+	_ = r.b.Stop()
+	killVibeAgents(t, r.home)
+	r.start()
+	users2, _, _ := transcriptIDs(t, r, sess.ID)
+	if len(users2) != 2 {
+		t.Fatalf("after a restart: %v", users2)
+	}
+	if err := r.b.(backend.Reverter).Revert(ctx, r.work, sess.ID, users2[1]); err != nil {
+		t.Fatalf("a reloaded session cannot be rolled back: %v", err)
+	}
+}
+
+func mapValues(m map[string]string) []string {
+	var out []string
+	for _, v := range m {
+		out = append(out, v)
+	}
+	return out
+}
+
+// A subagent Vibe starts (a run_typescript program calling agents.spawn) is a "task" card
+// on the parent's transcript, with a child session that Children lists and that carries the
+// task as its prompt.
+func TestVibeEngineSubagentIsACardAndAChildSession(t *testing.T) {
+	r := newVibeRig(t)
+	ctx := context.Background()
+	if !r.b.Capabilities().Children {
+		t.Fatal("the children capability is off")
+	}
+	sess, err := r.b.CreateSession(ctx, r.work, backend.CreateSessionOptions{Title: "sub"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, _ := json.Marshal(map[string]string{"code": "async function main() {\n  const r = await tools.agents.spawn({ name: 'scout', instructions: 'You are a scout.', message: 'galopin-child-task look around' });\n  return r;\n}"})
+	r.scenario(mockllm.Scenario{
+		ToolCalls:    []mockllm.ToolCall{{ID: "s1", Name: "run_typescript", Arguments: string(code)}},
+		FinishReason: "tool_calls",
+		Routes:       []mockllm.Route{{Contains: "\"type\":\"success\"", Scenario: mockllm.Scenario{Content: []string{"delegated"}, FinishReason: "stop"}}},
+	})
+	r.turn(sess.ID, "delegate it", backend.DecisionOnce)
+	tr, err := r.b.Transcript(ctx, r.work, sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var card *backend.Part
+	for _, e := range tr.Messages {
+		for i, p := range e.Parts {
+			if p.Type == backend.PartTool && p.Tool == "task" && p.SubtaskSessionID != "" && card == nil {
+				card = &e.Parts[i]
+			}
+		}
+	}
+	if card == nil || card.SubtaskSessionID == "" {
+		for _, e := range tr.Messages {
+			for _, p := range e.Parts {
+				t.Logf("PART %s tool=%q title=%q status=%s sub=%q input=%v", p.Type, p.Tool, p.Title, p.ToolStatus, p.SubtaskSessionID, p.Input)
+			}
+		}
+		t.Fatalf("no task card with a child session on the parent")
+	}
+	if got := card.Input["prompt"]; got != "galopin-child-task look around" {
+		t.Errorf("card input = %v", card.Input)
+	}
+	kids, err := r.b.(backend.Childrener).Children(ctx, r.work, sess.ID)
+	if err != nil || len(kids) != 1 || kids[0].ID != card.SubtaskSessionID || kids[0].ParentID != sess.ID {
+		t.Fatalf("children = %+v, %v", kids, err)
+	}
+	if kids[0].Status != backend.StatusIdle {
+		t.Errorf("the child is still %s after the parent's turn ended", kids[0].Status)
+	}
+	ctr, err := r.b.Transcript(ctx, r.work, kids[0].ID)
+	if err != nil || len(ctr.Messages) == 0 || !strings.Contains(ctr.Messages[0].Parts[0].Text, "galopin-child-task") {
+		t.Fatalf("child transcript = %+v, %v", ctr, err)
+	}
+	// the child is never listed as a top-level session
+	list, _ := r.b.ListSessions(ctx, r.work)
+	for _, s := range list {
+		if s.ID == kids[0].ID {
+			t.Error("the subagent is listed as a session of its own")
+		}
+	}
+}
+
+// Fork: a new session with a copy of the history up to a turn; the later turn is not in it,
+// and it answers on its own.
+func TestVibeEngineForkCopiesTheHistoryUpToATurn(t *testing.T) {
+	r := newVibeRig(t)
+	ctx := context.Background()
+	if !r.b.Capabilities().Fork {
+		t.Fatal("the fork capability is off")
+	}
+	sess, err := r.b.CreateSession(ctx, r.work, backend.CreateSessionOptions{Title: "src"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.scenario(mockllm.Scenario{Content: []string{"answer"}, FinishReason: "stop"})
+	r.turn(sess.ID, "fork-first", backend.DecisionOnce)
+	r.turn(sess.ID, "fork-second", backend.DecisionOnce)
+	_, asst, _ := transcriptIDs(t, r, sess.ID)
+	forker := r.b.(backend.Forker)
+	child, err := forker.Fork(ctx, r.work, sess.ID, asst[0], "Fork: src")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if child.ID == sess.ID || child.Title != "Fork: src" {
+		t.Fatalf("fork = %+v", child)
+	}
+	users, _, texts := transcriptIDs(t, r, child.ID)
+	if len(users) != 1 || !strings.Contains(strings.Join(mapValues(texts), " "), "fork-first") || strings.Contains(strings.Join(mapValues(texts), " "), "fork-second") {
+		t.Fatalf("the fork holds %v %v, want only the first turn", users, texts)
+	}
+	r.turn(child.ID, "fork-third", backend.DecisionOnce)
+	// the whole session when no turn follows the message
+	whole, err := forker.Fork(ctx, r.work, sess.ID, asst[1], "Fork: all")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u, _, _ := transcriptIDs(t, r, whole.ID); len(u) != 2 {
+		t.Fatalf("a fork from the last turn holds %d user messages, want 2", len(u))
+	}
+	// the source is untouched
+	if u, _, _ := transcriptIDs(t, r, sess.ID); len(u) != 2 {
+		t.Fatalf("the source lost messages: %v", u)
+	}
+}

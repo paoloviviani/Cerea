@@ -216,6 +216,16 @@ func (b *Backend) handleTextChunk(st *sessionState, role string, upd map[string]
 
 	st.mu.Lock()
 	replaying := st.replaying
+	if role == "user" && !replaying && st.busy && st.userMsgID != "" && !reasoning {
+		// An agent that echoes the person's prompt while the turn runs (Vibe): the message is
+		// already in the transcript, galopin wrote it; only the agent's own id for it is kept,
+		// which rewind and fork name.
+		if acpMsgID != "" {
+			st.entryIDs[st.userMsgID] = acpMsgID
+		}
+		st.mu.Unlock()
+		return
+	}
 	if st.replaying {
 		// A replayed history: an agent that sends no message ids (goose) is
 		// grouped one message per run of the same role.
@@ -363,6 +373,7 @@ func (b *Backend) handleToolCall(st *sessionState, upd map[string]any) {
 		// erase images an earlier one delivered.
 		part.Attachments, part.AttachmentsOmitted = atts, omitted
 	}
+	b.noteSubagent(st, &part, upd)
 	st.upsertPart(part)
 	workspaceDir := st.workspaceDir
 	st.mu.Unlock()

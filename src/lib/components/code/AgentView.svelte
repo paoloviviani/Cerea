@@ -311,6 +311,14 @@
 			?.backends?.find((b) => b.id === agent?.provider)?.capabilities;
 		return Boolean(caps?.revert);
 	});
+	/** A rollback can be undone: opencode keeps it until the next prompt, Vibe's rewind is final
+	 * (`unrevert`; an older machine omits it and had both with `revert`). */
+	let unrevertSupported = $derived.by(() => {
+		const caps = codeDeviceList.devices
+			.find((d) => d.id === deviceId)
+			?.backends?.find((b) => b.id === agent?.provider)?.capabilities;
+		return caps?.unrevert !== false;
+	});
 	/** The explorer: on for this deployment, implemented by this galopin,
 	 * and not vetoed by the machine (then the button says how to allow it). */
 	let filesOffered = $derived(
@@ -1676,6 +1684,7 @@
 					{effortsSupported}
 					{compactSupported}
 					{revertSupported}
+					{unrevertSupported}
 					{steerSupported}
 					onundo={openUndoConfirm}
 					onnew={openNewAgentDialog}

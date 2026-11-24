@@ -936,6 +936,10 @@ const handoffSchema = z.object({
 	modelId: z.string().trim().min(1).max(200).optional(),
 	carry: z.boolean(),
 	uptoMessageId: z.string().trim().min(1).max(128).optional(),
+	// Ask the machine for a native fork (capability `fork`: Mistral Vibe copies the session
+	// itself, up to the turn) instead of seeding a new session with a chat-history file. Only
+	// within one computer and workspace; a machine without it falls back to the handoff.
+	native: z.boolean().optional(),
 });
 
 const modeSchema = z.object({
@@ -1465,6 +1469,49 @@ export const POST: RequestHandler = async (event) => {
 		const { session: sourceSession } = await callOp(() =>
 			link.sessionGet({ sessionId: sourceSessionId })
 		);
+
+		if (
+			parsed.data.native &&
+			targetLink === link &&
+			(!parsed.data.workspaceId || parsed.data.workspaceId === sourceSession.workspaceId)
+		) {
+			try {
+				const forked = await callOp(() =>
+					link.sessionFork({
+						sessionId: sourceSessionId,
+						...(parsed.data.uptoMessageId ? { messageId: parsed.data.uptoMessageId } : {}),
+						title: `${HANDOFF_TITLE_PREFIX}${sourceSession.title}`.slice(0, 120),
+					})
+				);
+				if (parsed.data.modeId && parsed.data.modeId !== forked.session.modeId) {
+					await callOp(() =>
+						link.sessionSetMode({
+							sessionId: forked.session.id,
+							modeId: parsed.data.modeId as string,
+						})
+					);
+				}
+				if (parsed.data.modelId && parsed.data.modelId !== forked.session.modelId) {
+					await callOp(() =>
+						link.sessionSetModel({
+							sessionId: forked.session.id,
+							modelId: parsed.data.modelId as string,
+						})
+					);
+				}
+				await callOp(() =>
+					link.sessionPrompt({ sessionId: forked.session.id, text: parsed.data.prompt })
+				);
+				return superjsonResponse({
+					agent: toSession(forked.session),
+					deviceId: targetDevice._id.toString(),
+				});
+			} catch (err) {
+				// a machine that cannot fork natively (404) takes the handoff below
+				const status = (err as { status?: unknown } | null)?.status;
+				if (status !== 404) throw err;
+			}
+		}
 
 		let attachments: Array<{ type: "file"; mime: string; filename: string; url: string }> = [];
 		if (parsed.data.carry) {

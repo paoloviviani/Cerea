@@ -278,6 +278,8 @@ func (mc *machine) Handle(ctx context.Context, op string, args json.RawMessage) 
 		return mc.opSessionCommand(ctx, args)
 	case "session.dequeue":
 		return mc.opSessionDequeue(ctx, args)
+	case "session.fork":
+		return mc.opSessionFork(ctx, args)
 	case "session.cancel":
 		return mc.opSessionCancel(ctx, args)
 	case "session.rename":
@@ -636,6 +638,39 @@ func (mc *machine) opSessionDequeue(ctx context.Context, args json.RawMessage) (
 		return nil, backendErr(err)
 	}
 	return map[string]any{}, nil
+}
+
+// opSessionFork implements `session.fork` (capability `fork`): a new session in the same
+// workspace that continues from a copy of this one, up to the turn ending with messageId
+// (absent: the whole session).
+func (mc *machine) opSessionFork(ctx context.Context, args json.RawMessage) (any, *link.OpError) {
+	var a struct {
+		SessionID string `json:"sessionId"`
+		MessageID string `json:"messageId"`
+		Title     string `json:"title"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil {
+		return nil, invalidArgs(err)
+	}
+	dir, workspaceID, operr := mc.resolveSession(a.SessionID)
+	if operr != nil {
+		return nil, operr
+	}
+	forker, ok := mc.back.(backend.Forker)
+	if !ok || !mc.back.Capabilities().Fork {
+		return nil, opErrf("unsupported", "backend %s cannot fork a session", mc.back.ID())
+	}
+	if status, known := mc.mat.Status(a.SessionID); known && (status == backend.StatusBusy || status == backend.StatusRetry) {
+		return nil, opErrf("invalid", "the session is mid-turn; stop it before forking")
+	}
+	s, err := forker.Fork(ctx, dir, a.SessionID, a.MessageID, a.Title)
+	if err != nil {
+		return nil, backendErr(err)
+	}
+	if w, ok := mc.workspaces.Get(workspaceID); ok {
+		mc.trackSession(w, s)
+	}
+	return map[string]any{"session": mc.enrich(s, workspaceID)}, nil
 }
 
 func (mc *machine) opSessionCancel(ctx context.Context, args json.RawMessage) (any, *link.OpError) {
@@ -1082,8 +1117,8 @@ func (mc *machine) opSessionUnrevert(ctx context.Context, args json.RawMessage) 
 		return nil, operr
 	}
 	reverter, ok := mc.back.(backend.Reverter)
-	if !ok || !mc.back.Capabilities().Revert {
-		return nil, opErrf("unsupported", "backend %s has no revert capability", mc.back.ID())
+	if !ok || !mc.back.Capabilities().Revert || !mc.back.Capabilities().Unrevert {
+		return nil, opErrf("unsupported", "backend %s cannot undo a rollback", mc.back.ID())
 	}
 	if err := reverter.Unrevert(ctx, dir, a.SessionID); err != nil {
 		return nil, backendErr(err)
