@@ -147,9 +147,11 @@ func (b *Backend) CreateSession(ctx context.Context, workspaceDir string, opts b
 	st.modeID = curMode
 	st.modelID = curModel
 	st.modeConfigID, st.modelConfigID = cfg.modeConfigID, cfg.modelConfigID
+	st.effortConfigID, st.effortNow, st.effortValues = cfg.effortConfigID, cfg.effortID, cfg.effortValues
 	st.spawnedBy = opts.SpawnedBy
 	st.mu.Unlock()
 	b.adoptMCP(st, ep)
+	b.syncEffort(ctx, workspaceDir, st)
 
 	if opts.ModeID != "" && opts.ModeID != curMode {
 		if _, err := b.SetMode(ctx, workspaceDir, id, opts.ModeID); err != nil {
@@ -513,6 +515,11 @@ func (b *Backend) SetModel(ctx context.Context, workspaceDir, sessionID, modelID
 	st.mu.Lock()
 	st.modelID = modelID
 	st.updatedAt = time.Now()
+	st.mu.Unlock()
+	// the agent puts the new model on that model's own thinking level: the person's choice
+	// (or the default) goes back on
+	b.syncEffort(ctx, workspaceDir, st)
+	st.mu.Lock()
 	sess := st.toSession(b.ID())
 	st.mu.Unlock()
 	return sess, nil
@@ -531,6 +538,11 @@ func (b *Backend) applyConfigResult(workspaceDir string, st *sessionState, raw j
 // applyConfig records a session's selectors from a configOptions list (an
 // answer or a config_option_update). Only selectors the list names change.
 func (b *Backend) applyConfig(workspaceDir string, st *sessionState, cfg sessionConfig) {
+	if cfg.effortConfigID != "" {
+		st.mu.Lock()
+		st.effortConfigID, st.effortNow, st.effortValues = cfg.effortConfigID, cfg.effortID, cfg.effortValues
+		st.mu.Unlock()
+	}
 	if cfg.modeConfigID == "" && cfg.modelConfigID == "" {
 		return
 	}
@@ -613,8 +625,15 @@ func (b *Backend) Models(ctx context.Context, workspaceDir string) ([]backend.Mo
 	// ACP agent has one prompt capability for all its models.
 	images := b.promptCaps().promptImage
 	models := append([]backend.Model(nil), b.reg.getCaps(workspaceDir).models...)
+	var efforts map[string][]string
+	if b.cfg.Efforts && b.cfg.ModelEfforts != nil {
+		efforts = b.cfg.ModelEfforts()
+	}
 	for i := range models {
 		models[i].Images = images
+		if e := efforts[models[i].ID]; len(e) > 0 {
+			models[i].Efforts, models[i].Reasoning = append([]string(nil), e...), true
+		}
 	}
 	return models, nil
 }
@@ -746,6 +765,7 @@ func (b *Backend) openSession(ctx context.Context, workspaceDir string, st *sess
 			st.modelID = cfg.modelID
 		}
 		st.modeConfigID, st.modelConfigID = cfg.modeConfigID, cfg.modelConfigID
+		st.effortConfigID, st.effortNow, st.effortValues = cfg.effortConfigID, cfg.effortID, cfg.effortValues
 		st.mu.Unlock()
 	}
 	st.mu.Lock()
@@ -754,6 +774,7 @@ func (b *Backend) openSession(ctx context.Context, workspaceDir string, st *sess
 	st.replayed = method == "session/load"
 	st.mu.Unlock()
 	b.adoptMCP(st, ep)
+	b.syncEffort(ctx, workspaceDir, st)
 	if method == "session/load" {
 		b.trimReplays(sessionID)
 	}

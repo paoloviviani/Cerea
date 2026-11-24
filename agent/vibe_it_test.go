@@ -86,7 +86,7 @@ func newVibeRigPolicy(t *testing.T, pol policy.Policy) *vibeRig {
 	srv := &httptest.Server{Listener: ln, Config: &http.Server{Handler: http.HandlerFunc(proxy.requireLocalAuth(proxy.handler))}}
 	srv.Start()
 	t.Cleanup(srv.Close)
-	if err := writeVibeEngineConfig(vibeHomeFor(credsPath), creds, []gatewayModel{{ID: "mock-model", ContextWindow: 32000}}); err != nil {
+	if err := writeVibeEngineConfig(vibeHomeFor(credsPath), creds, []gatewayModel{{ID: "mock-model", ContextWindow: 32000, SupportedFeatures: []string{"reasoning"}}}); err != nil {
 		t.Fatal(err)
 	}
 	r := &vibeRig{t: t, pol: pol, work: t.TempDir(), home: vibeHomeFor(credsPath), credsPath: credsPath, stateDir: stateDir, mockURL: mock.URL}
@@ -600,5 +600,77 @@ func waitIdle(t *testing.T, r *vibeRig, sessionID string) {
 		case <-deadline:
 			t.Fatal("the turn did not end")
 		}
+	}
+}
+
+// Cerea's effort selector reaches the model: Vibe's thinking level goes out as the
+// request's reasoning_effort, the default sends none, and a new session (and a restarted
+// agent) starts on the default although Vibe keeps the last level set per model.
+func TestVibeEngineEfforts(t *testing.T) {
+	r := newVibeRig(t)
+	ctx := context.Background()
+	if !r.b.Capabilities().Efforts {
+		t.Fatal("the efforts capability is off for Vibe")
+	}
+	setter := r.b.(backend.EffortSetter)
+	effortOfLast := func() string {
+		log := r.requestLog()
+		for i := len(log) - 1; i >= 0; i-- {
+			if len(log[i].Prompts) > 0 && strings.Contains(strings.Join(log[i].Prompts, " "), "effort-probe") {
+				return log[i].Headers["x-body-reasoning-effort"]
+			}
+		}
+		t.Fatal("no request of the probe turn")
+		return ""
+	}
+	r.scenario(mockllm.Scenario{Content: []string{"ok"}, FinishReason: "stop"})
+	sess, err := r.b.CreateSession(ctx, r.work, backend.CreateSessionOptions{Title: "effort"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	models, err := r.b.Models(ctx, r.work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var offered []string
+	for _, m := range models {
+		if m.ID == "mock-model" {
+			offered = m.Efforts
+		}
+	}
+	if strings.Join(offered, ",") != "low,medium,high" {
+		t.Fatalf("Cerea is offered %v", offered)
+	}
+	r.turn(sess.ID, "effort-probe default", backend.DecisionOnce)
+	if got := effortOfLast(); got != "" {
+		t.Fatalf("the default sent reasoning_effort %q", got)
+	}
+	got, err := setter.SetEffort(ctx, r.work, sess.ID, "high")
+	if err != nil || got.Effort != "high" {
+		t.Fatalf("SetEffort: %v %+v", err, got)
+	}
+	r.turn(sess.ID, "effort-probe high", backend.DecisionOnce)
+	if got := effortOfLast(); got != "high" {
+		t.Fatalf("reasoning_effort = %q, want high", got)
+	}
+	// Vibe keeps "high" for this model now: a new session still starts on the default
+	other, err := r.b.CreateSession(ctx, r.work, backend.CreateSessionOptions{Title: "effort2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.turn(other.ID, "effort-probe fresh", backend.DecisionOnce)
+	if got := effortOfLast(); got != "" {
+		t.Fatalf("a new session inherited reasoning_effort %q from another", got)
+	}
+	// back to the model's default on the first session
+	if _, err := setter.SetEffort(ctx, r.work, sess.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	r.turn(sess.ID, "effort-probe cleared", backend.DecisionOnce)
+	if got := effortOfLast(); got != "" {
+		t.Fatalf("cleared effort sent %q", got)
+	}
+	if _, err := setter.SetEffort(ctx, r.work, sess.ID, "extreme"); err == nil {
+		t.Fatal("an unoffered level was accepted")
 	}
 }

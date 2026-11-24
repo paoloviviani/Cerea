@@ -57,6 +57,13 @@ type sessionState struct {
 	// session/set_mode|set_model form).
 	modeConfigID  string
 	modelConfigID string
+	// effortConfigID is the thinking-level option's id ("" when the agent has none);
+	// effortNow is the value the agent is on, effortValues what it offers, and effort
+	// the person's choice ("" for the model's default): see efforts.go.
+	effortConfigID string
+	effortNow      string
+	effortValues   []string
+	effort         string
 	// active is set once this process's agent holds the session in memory
 	// (created, loaded or resumed since the agent last started); a listed or
 	// restart-orphaned session must be reopened before it can be prompted.
@@ -178,7 +185,7 @@ func (s *sessionState) appendDelta(partID, text string) {
 func (s *sessionState) toSession(backendID string) backend.Session {
 	return backend.Session{
 		ID: s.id, Backend: backendID, Title: s.title, Status: s.status,
-		PendingPermissions: len(s.pending), ModeID: s.modeID, ModelID: s.modelID, Usage: s.usage,
+		PendingPermissions: len(s.pending), ModeID: s.modeID, ModelID: s.modelID, Effort: s.effort, Usage: s.usage,
 		CreatedAt: s.createdAt, UpdatedAt: s.updatedAt, SpawnedBy: s.spawnedBy,
 	}
 }

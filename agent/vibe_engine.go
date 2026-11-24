@@ -15,6 +15,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -60,7 +61,23 @@ type vibeModel struct {
 	Display string
 	Context int
 	Images  bool
+	// Reasoning is the gateway's "reasoning" feature: the model takes a thinking effort.
+	Reasoning bool
 }
+
+// vibeEfforts are the levels a reasoning model offers Cerea, the same three opencode's
+// variants have. The models carry no thinking_levels in the config: a model whose levels
+// are listed and include off gets reasoning_effort "none" sent for off (checked against
+// Vibe 3.1.3), while one without the list sends nothing for off, which is what no choice
+// means here (as for opencode).
+var vibeEfforts = []string{"low", "medium", "high"}
+
+// vibeEffortDefault is the Vibe thinking level that stands for "the model's default".
+const vibeEffortDefault = "off"
+
+// vibeEffortsFile is galopin's record, in the Vibe home, of which models offer which
+// efforts (Vibe reports levels for the model a session is on only).
+const vibeEffortsFile = "galopin-efforts.json"
 
 // vibeModels turns the gateway catalogue into Vibe's models (chat models only, sorted
 // by id so the file is stable).
@@ -86,7 +103,7 @@ func vibeModels(models []gatewayModel) []vibeModel {
 				images = true
 			}
 		}
-		out = append(out, vibeModel{ID: m.ID, Display: m.DisplayName, Context: ctx, Images: images})
+		out = append(out, vibeModel{ID: m.ID, Display: m.DisplayName, Context: ctx, Images: images, Reasoning: hasFeature(m.SupportedFeatures, "reasoning")})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
@@ -216,9 +233,20 @@ func writeVibeEngineConfig(home string, creds *credentials, models []gatewayMode
 			return err
 		}
 	}
-	body := vibeConfigTOML(fmt.Sprintf("127.0.0.1:%d", creds.ShimPort), creds.ShimSecret, vibeModels(models))
+	vm := vibeModels(models)
+	body := vibeConfigTOML(fmt.Sprintf("127.0.0.1:%d", creds.ShimPort), creds.ShimSecret, vm)
 	if err := writeFileAtomic(filepath.Join(home, "config.toml"), []byte(body), 0o600); err != nil {
 		return fmt.Errorf("writing Vibe config: %w", err)
+	}
+	efforts := map[string][]string{}
+	for _, m := range vm {
+		if m.Reasoning {
+			efforts[m.ID] = vibeEfforts
+		}
+	}
+	eb, _ := json.Marshal(efforts)
+	if err := writeFileAtomic(filepath.Join(home, vibeEffortsFile), eb, 0o600); err != nil {
+		return fmt.Errorf("writing Vibe efforts: %w", err)
 	}
 	return resetVibeTrust(home)
 }
@@ -228,6 +256,15 @@ func writeVibeEngineConfig(home string, creds *credentials, models []gatewayMode
 // .vibe/ config, which could loosen the floor.
 func resetVibeTrust(home string) error {
 	return writeFileAtomic(filepath.Join(home, "trusted_folders.toml"), []byte("trusted = []\nuntrusted = []\n"), 0o600)
+}
+
+// readVibeEfforts reads galopin's model -> efforts record (empty when absent).
+func readVibeEfforts(home string) map[string][]string {
+	out := map[string][]string{}
+	if b, err := os.ReadFile(filepath.Join(home, vibeEffortsFile)); err == nil {
+		_ = json.Unmarshal(b, &out)
+	}
+	return out
 }
 
 // readVibeModels reads model id -> context window back from galopin's config.toml
@@ -357,6 +394,7 @@ func startVibeBackend(ctx context.Context, opts *runOptions, credsPath, stateDir
 	if err := resetVibeTrust(home); err != nil {
 		return nil, err
 	}
+	efforts := readVibeEfforts(home)
 	acpBackend := backendacp.New(backendacp.Config{
 		Command:        cmd,
 		Env:            vibeEnv(home, os.Environ()),
@@ -368,8 +406,12 @@ func startVibeBackend(ctx context.Context, opts *runOptions, credsPath, stateDir
 		// Vibe advertises /compact in available_commands_update (3.1.3): it summarises the
 		// session's history and replaces it, as a turn whose answer is a tool call card.
 		CompactCommand: "/compact",
-		BeforeSession:  vibeBeforeSession(home, pol.ProjectConfigAllowed(), protect, logf),
-		Logf:           func(format string, args ...any) { logf(format, args...) },
+		// Vibe's "thinking" session option takes the level (3.1.3); the levels each model
+		// offers are galopin's own record, written with the config.
+		Efforts: true, EffortDefault: vibeEffortDefault,
+		ModelEfforts:  func() map[string][]string { return efforts },
+		BeforeSession: vibeBeforeSession(home, pol.ProjectConfigAllowed(), protect, logf),
+		Logf:          func(format string, args ...any) { logf(format, args...) },
 	})
 	if err := acpBackend.Start(ctx); err != nil {
 		return nil, fmt.Errorf("starting Vibe: %w", err)

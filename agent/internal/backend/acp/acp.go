@@ -81,6 +81,14 @@ type Config struct {
 	// MCPHTTP says the agent takes an HTTP MCP server in session/new although it does
 	// not advertise mcpCapabilities.http (Vibe 3.x does and does not say so).
 	MCPHTTP bool
+	// Efforts says the agent has a thinking-level session option (Vibe: "thinking"), so
+	// session.setEffort works: the option is set on the session, ModelEfforts says which
+	// levels each model offers Cerea (an agent's option lists levels for its current model
+	// only), and EffortDefault is the level that means "the model's default" (Vibe: "off";
+	// the agent keeps the last level set per model, so a new or reopened session is put back on it).
+	Efforts       bool
+	EffortDefault string
+	ModelEfforts  func() map[string][]string
 	// Logf receives lifecycle-only messages: started, ready, restarting,
 	// exited (R6 — never frame or response bodies, which may carry a
 	// user's prompt text).
@@ -225,7 +233,8 @@ func (b *Backend) Capabilities() backend.Capabilities {
 	// opencode's (permissions.go), so the Plan/Ask/Allow selector works here too.
 	return backend.Capabilities{
 		Diff: true, Children: false, HistoryPaging: true, Usage: true, Compact: b.cfg.CompactCommand != "", Permissions: true,
-		Images: images, Files: embedded, Worktrees: false,
+		Efforts: b.cfg.Efforts,
+		Images:  images, Files: embedded, Worktrees: false,
 		Questions: false,
 		// Commands: always — the agent's available_commands_update carries
 		// the list per session (PROTOCOL.md §6 backend.commands), and before

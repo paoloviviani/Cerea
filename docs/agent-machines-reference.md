@@ -271,6 +271,13 @@ What galopin sets up for Vibe:
     list, skills, scratchpad, scheduled prompts and goals. They do not reach files or the
     shell without a tool call that asks. Vibe's session "always allow" is never chosen:
     galopin answers each ask once, and an "always" from a user is galopin's own exception.
+- **Thinking effort.** For a model the gateway marks as reasoning, Cerea's effort selector
+  offers low, medium and high (as for opencode). galopin sets Vibe's per-session `thinking`
+  option, which Vibe sends as the request's `reasoning_effort`; no choice means no
+  `reasoning_effort` at all. Vibe remembers the last level set for a model and starts the
+  next session on it, so galopin puts a new or reopened session back on the default, and
+  keeps a chosen level across a model change when the new model offers it. A chosen effort
+  lives in galopin's memory: after a restart of galopin the session is on the default.
 - **Vibe's own session store.** Sessions live in the `vibe/` directory (not shared with
   your Vibe, unlike goose's), listed and reopened from Cerea, including after galopin or
   Vibe restarts. Vibe keeps a lock on a session it has open; if a reopen meets the lock of
