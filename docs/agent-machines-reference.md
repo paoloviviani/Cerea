@@ -299,13 +299,51 @@ waits), and the model list
 shows only what the gateway offers. Compaction is Vibe's own `/compact`, run as a turn like
 goose's (it appears as a tool card in the transcript). Usage comes from Vibe itself (it reports the context
 meter over its protocol), and the context window is the gateway's, with a floor of 13,334
-tokens that Vibe needs. Vibe sends no session identifier on its model calls, so the
-gateway's cost is metered for the computer but not split per session. Changes, history,
+tokens that Vibe needs. Vibe sends its session id on every model call (`x-affinity`),
+which galopin's proxy reads, so the gateway's cost is metered per session as for opencode. Changes, history,
 model choice, connectors and the task list work as they do elsewhere. In the Agents panel
 the engine shows as **Mistral Vibe** with its mark.
 
 Sessions cannot reach your own Vibe's settings: `~/.vibe` and `VIBE_HOME` are protected
 like galopin's own files, and reading them is a secrets request.
+
+#### What Vibe 3.1.3 offers over ACP
+
+Checked against the pinned release (source and a live `vibe-acp`), for the next round of parity work:
+
+- **Slash commands** (`available_commands_update`, per session): `compact` (optional
+  instructions), `help`, `reload` (config, instructions and skills), `log`, `mcp`,
+  `proxy-setup`, `retry`, `data-retention`, `leanstall`/`unleanstall`, plus the user-invocable
+  skills (`vibe:create-plugin`, `vibe:import`, `vibe:skill-creator`, `vibe:worktree`).
+- **Config options** (`session/set_config_option`; `session/set_mode` also works): `mode`,
+  `model` and `thinking` (levels off, low, medium, high, max; a model's `thinking_levels` in
+  `config.toml` narrow it), and `max_turns`/`max_tokens`. A set persists in `config.toml`
+  (the model's `thinking`, the active model) and the next session starts on it; changing the
+  model puts the session on that model's own level. A model with no `thinking_levels` sends no
+  `reasoning_effort` for `off`; one that lists `off` sends `"none"`.
+- **Concurrency and cost.** One `vibe-acp` process serves many sessions at once (its session
+  table is keyed by id; a session is locked while open). The provider and its headers are
+  global in `config.toml`, so a per-session API key is not possible, but Vibe sends the
+  session's id as `x-affinity` on every model call (a forked session sends its root's), which
+  is enough to attribute cost per session.
+- **Subagents.** In 3.1.3 delegation is a programmatic tool: the model reaches subagents (and
+  every MCP tool, background processes and goals) from a `run_typescript` program, finding
+  functions with `search_tool_functions`. A subagent call reaches ACP as a tool call of kind
+  `think` whose `_meta` has `effect_kind: "subagent"`, `agent`, `task`, `child_session_id` and,
+  when done, `turn_count` and `response`. The older `task` tool (read-only `explore` agent)
+  still exists in the code.
+- **Questions.** Vibe has its own `ask_user_question` tool. It is enabled only when the client
+  advertises `elicitation.form` in `initialize` and answers `session/elicitation` forms (one
+  string or array property per question, options as `oneOf`); galopin does not use it, it
+  offers its own `ask_user` over MCP so goose shares the path.
+- **Fork and rewind.** `sessionCapabilities.fork` takes an optional `messageId` (the child
+  starts at that message). `rewind/preview` and `rewind` extension methods (`sessionId`,
+  `messageId`, `restoreFiles`) roll a session back in place and restore the files, which is
+  the shape of `session.revert`; not built.
+- **Not advertised:** `mcpCapabilities` (HTTP MCP servers in `session/new` work regardless),
+  `sessionCapabilities.resume` and `delete`, and a `session/set_model` method (the model is a
+  config option). Per-session instructions have no ACP field: Vibe reads `AGENTS.md` in
+  `VIBE_HOME` when a session opens.
 
 ### Your own goose, through galopin
 

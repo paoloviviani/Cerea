@@ -36,6 +36,7 @@ type vibeRig struct {
 	mockURL   string
 	requests  func() [][]string
 	pol       policy.Policy
+	proxy     *shim
 }
 
 func vibeITBin(t *testing.T) string {
@@ -91,7 +92,7 @@ func newVibeRigPolicy(t *testing.T, pol policy.Policy) *vibeRig {
 	if err := writeVibeEngineConfig(vibeHomeFor(credsPath), creds, []gatewayModel{{ID: "mock-model", ContextWindow: 32000, SupportedFeatures: []string{"reasoning"}}}); err != nil {
 		t.Fatal(err)
 	}
-	r := &vibeRig{t: t, pol: pol, work: t.TempDir(), home: vibeHomeFor(credsPath), credsPath: credsPath, stateDir: stateDir, mockURL: mock.URL}
+	r := &vibeRig{t: t, pol: pol, proxy: proxy, work: t.TempDir(), home: vibeHomeFor(credsPath), credsPath: credsPath, stateDir: stateDir, mockURL: mock.URL}
 	r.start()
 	return r
 }
@@ -845,5 +846,28 @@ func TestVibeEngineQueuesFollowUps(t *testing.T) {
 	}
 	if n == 0 {
 		t.Error("the queued message never reached the model")
+	}
+}
+
+// Vibe sends its session id on every model call (x-affinity), so the proxy can tag the
+// gateway's usage with the exact session: per-session cost, as for opencode.
+func TestVibeEngineModelCallsCarryTheSessionForCost(t *testing.T) {
+	r := newVibeRig(t)
+	ctx := context.Background()
+	r.proxy.setSessionTag(func(id string) string { return "tag:" + id })
+	sess, err := r.b.CreateSession(ctx, r.work, backend.CreateSessionOptions{Title: "cost"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.scenario(mockllm.Scenario{Content: []string{"ok"}, FinishReason: "stop"})
+	r.turn(sess.ID, "cost-probe", backend.DecisionOnce)
+	tagged := 0
+	for _, q := range r.requestLog() {
+		if q.Headers["x-pystino-tag"] == "tag:"+sess.ID {
+			tagged++
+		}
+	}
+	if tagged == 0 {
+		t.Fatalf("no model call carried the session's tag (headers of the last: %v)", r.requestLog()[len(r.requestLog())-1].Headers)
 	}
 }

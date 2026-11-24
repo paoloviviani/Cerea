@@ -45,6 +45,27 @@ func TestShimTagsForwardedRequestsWithTheSession(t *testing.T) {
 	}
 }
 
+// Vibe names its session in x-affinity, not x-session-id.
+func TestShimTagsAVibeRequestByItsAffinityHeader(t *testing.T) {
+	s, seen := tagShim(t)
+	var got string
+	s.setSessionTag(func(id string) string { got = id; return "root-of-" + id })
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{}`))
+	req.Header.Set("x-affinity", "vibe-session-1")
+	s.handler(httptest.NewRecorder(), req)
+	if got != "vibe-session-1" || seen.Get("x-pystino-tag") != "root-of-vibe-session-1" {
+		t.Errorf("resolver saw %q, tag %q", got, seen.Get("x-pystino-tag"))
+	}
+	// x-session-id wins when both are there
+	req = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{}`))
+	req.Header.Set("x-session-id", "ses_a")
+	req.Header.Set("x-affinity", "ses_b")
+	s.handler(httptest.NewRecorder(), req)
+	if got != "ses_a" {
+		t.Errorf("resolver saw %q, want x-session-id's", got)
+	}
+}
+
 func TestShimSendsNoTagWithoutAResolverOrAnAnswer(t *testing.T) {
 	s, seen := tagShim(t)
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{}`))

@@ -92,7 +92,7 @@ const tagHeader = "x-pystino-tag"
 
 // setSessionTag installs the resolver `run` builds once the backend exists:
 // given the session id an engine put on its request (opencode sends
-// x-session-id; an engine that sends none passes ""), it returns the id of the
+// x-session-id, Vibe x-affinity; an engine that sends none passes ""), it returns the id of the
 // top-level session to tag the request with, or "" for none. Until it is set,
 // requests are forwarded untagged.
 func (s *shim) setSessionTag(fn func(engineSessionID string) string) {
@@ -110,7 +110,13 @@ func (s *shim) tagFor(h http.Header) string {
 	if fn == nil {
 		return ""
 	}
-	return fn(strings.TrimSpace(h.Get("x-session-id")))
+	id := strings.TrimSpace(h.Get("x-session-id"))
+	if id == "" {
+		// Mistral Vibe (3.1.x) names its session in x-affinity, a cache-routing hint it sends
+		// on every model call; it is the session's id (a forked one carries its root's).
+		id = strings.TrimSpace(h.Get("x-affinity"))
+	}
+	return fn(id)
 }
 
 // Token and ForceRefresh implement link.Credential: the shim is the single
