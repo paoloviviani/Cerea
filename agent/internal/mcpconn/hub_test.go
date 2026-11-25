@@ -774,3 +774,87 @@ func TestSetRequestIDWrapsTheCancelledId(t *testing.T) {
 		t.Fatalf("%s (%v)", out, err)
 	}
 }
+
+// MCP Apps (#44): an app from a connector on this machine reaches Cerea. The tool's `_meta.ui`
+// survives tools/list, also through the allowedTools filter, and resources/list and
+// resources/read for the `ui://` page pass through unchanged, `_meta` of the content included.
+func TestMCPAppsMetaAndUIResourcesCrossTheRelay(t *testing.T) {
+	for name, extra := range map[string]string{"no ceiling": "", "ceiling": `, "allowedTools": ["read_file"]`} {
+		t.Run(name, func(t *testing.T) {
+			r := newRig(t, fakeConfig("", extra), nil)
+			ch := r.open("fake")
+			r.call(ch, 1, "initialize", `{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"t","version":"1"}}`)
+
+			list := r.call(ch, 2, "tools/list", `{}`)
+			var tl struct {
+				Tools []struct {
+					Name string
+					Meta struct {
+						UI struct {
+							ResourceURI string `json:"resourceUri"`
+						} `json:"ui"`
+					} `json:"_meta"`
+				}
+			}
+			if err := json.Unmarshal(list["result"], &tl); err != nil {
+				t.Fatal(err)
+			}
+			var uri string
+			for _, tool := range tl.Tools {
+				if tool.Name == "read_file" {
+					uri = tool.Meta.UI.ResourceURI
+				}
+			}
+			if uri != "ui://fake/app.html" {
+				t.Fatalf("the tool's _meta.ui.resourceUri did not survive tools/list: %s", list["result"])
+			}
+
+			rl := r.call(ch, 3, "resources/list", `{}`)
+			if !strings.Contains(string(rl["result"]), `"ui://fake/app.html"`) || !strings.Contains(string(rl["result"]), "text/html;profile=mcp-app") {
+				t.Errorf("resources/list = %s", rl["result"])
+			}
+			rr := r.call(ch, 4, "resources/read", `{"uri":"ui://fake/app.html"}`)
+			if len(rr["error"]) != 0 {
+				t.Fatalf("resources/read refused: %s", rr["error"])
+			}
+			for _, want := range []string{`"mimeType":"text/html;profile=mcp-app"`, "<html><body>fake app v1</body></html>", `"connectDomains":["https://api.example.com"]`} {
+				if !strings.Contains(string(rr["result"]), want) {
+					t.Errorf("resources/read lacks %s: %s", want, rr["result"])
+				}
+			}
+			if strings.Contains(string(rr["result"]), `\u003c`) {
+				t.Error("the page was HTML-escaped")
+			}
+		})
+	}
+}
+
+// An app page over the message cap is answered to Cerea as a JSON-RPC error (it is not a tool
+// result), and the channel goes on.
+func TestOversizeUIResourceIsAnsweredWithAnError(t *testing.T) {
+	r := newRig(t, fakeConfig("bigui", ""), nil)
+	ch := r.open("fake")
+	resp := r.call(ch, 1, "resources/read", `{"uri":"ui://fake/app.html"}`)
+	var e struct {
+		Code    int
+		Message string
+	}
+	if err := json.Unmarshal(resp["error"], &e); err != nil || e.Code != -32603 || !strings.Contains(e.Message, "too large") {
+		t.Fatalf("response = %s", resp["error"])
+	}
+	if len(resp["result"]) != 0 {
+		t.Errorf("a result crossed: %.100s", resp["result"])
+	}
+	r.call(ch, 2, "ping", `{}`)
+}
+
+// A kept server's page is re-encoded to restore its client id: it must not grow by escaping.
+func TestKeptServerUIResourceIsNotGrownByEscaping(t *testing.T) {
+	r := newRig(t, fakeConfig("htmlui", ""), keepTweak(0, time.Minute))
+	ch := r.open("fake")
+	r.hub.Message(ch, []byte(`{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"ui://fake/app.html"}}`))
+	f := r.next()
+	if !strings.Contains(string(f.message), `"result"`) || strings.Contains(string(f.message), "too large") || strings.Contains(string(f.message), `\u003c`) {
+		t.Fatalf("the page did not cross intact: %.200s", f.message)
+	}
+}
