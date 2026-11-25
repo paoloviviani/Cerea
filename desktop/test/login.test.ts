@@ -34,7 +34,10 @@ describe("start at login", () => {
 
 	it("quotes an Exec line the way the Desktop Entry spec asks", () => {
 		expect(execQuote("/opt/My App/cerea")).toBe('"/opt/My App/cerea"');
-		expect(execQuote('/a/"b"$c')).toBe('"/a/\\"b\\"\\$c"');
+		expect(execQuote('/a/"b"$c')).toBe('"/a/\\\\"b\\\\"\\\\$c"');
+		expect(execQuote("/a\\b")).toBe('"/a\\\\\\\\b"'); // a literal backslash is four in the file
+		expect(() => execQuote("/a\nExec=evil")).toThrow(/line break/);
+		expect(() => execQuote("/a\rb")).toThrow(/line break/);
 		expect(execQuote("/a/100%")).toBe('"/a/100%%"');
 		expect(autostartEntry(["/opt/My App/cerea"])).toContain('Exec="/opt/My App/cerea"');
 	});
