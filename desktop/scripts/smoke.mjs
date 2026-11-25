@@ -242,21 +242,38 @@ try {
 		});
 		await new Promise((r) => setTimeout(r, 500));
 		assert.ok(session, "a session on a panel page");
-		for (const [m, p] of [
-			["Target.getTargets", {}],
-			["Target.attachToTarget", { targetId: "x", flatten: true }],
-			["Storage.getCookies", {}],
-			["SystemInfo.getInfo", {}],
-			["Page.navigate", { url: "file:///etc/hostname" }],
-		]) {
-			assert.ok((await send(m, p, session)).error, `${m} must be refused`);
-		}
-		const ev = await send(
-			"Runtime.evaluate",
-			{ expression: "typeof window.cerea", returnByValue: true },
-			session
+		const real = await hook("targetids", "TARGETIDS");
+		const ui = real.find((t) => t.url.startsWith("app://ui"));
+		const cerea = real.find((t) => t.url.startsWith(address));
+		assert.ok(ui && cerea, "the UI's and the Cerea view's real target ids");
+		const refused = async (m, p, re) => {
+			const r = await send(m, p, session);
+			assert.ok(r.error, `${m} must be refused`);
+			assert.match(r.error.message, re, `${m}: the policy's own refusal, not some other failure`);
+		};
+		await refused("Target.getTargets", {}, /not available here/);
+		await refused(
+			"Target.attachToTarget",
+			{ targetId: ui.id, flatten: true },
+			/not available here/
 		);
-		assert.equal(ev.result.result.value, "undefined", "the panel's pages have no window.cerea");
+		await refused(
+			"Target.attachToTarget",
+			{ targetId: cerea.id, flatten: true },
+			/not available here/
+		);
+		await refused("Storage.getCookies", {}, /not available here/);
+		await refused("SystemInfo.getInfo", {}, /not available here/);
+		await refused("Page.navigate", { url: "file:///etc/hostname" }, /Only web pages/);
+		await refused(
+			"Input.dispatchDragEvent",
+			{ type: "drop", x: 1, y: 1, data: { items: [], files: ["/etc/hostname"] } },
+			/Dropping files/
+		);
+		await refused("DOM.setFileInputFiles", { files: ["/etc/hostname"] }, /not available here/);
+		// the same ids over the browser-level connection: no session can be made on them either
+		const viaBrowser = await send("Target.attachToTarget", { targetId: ui.id, flatten: true });
+		assert.ok(viaBrowser.error, "no browser-level attach to the UI");
 		ws.close();
 		step(
 			"a connected runtime cannot list, attach to or navigate to anything but the panel's web pages"
