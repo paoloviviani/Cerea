@@ -199,6 +199,15 @@ takes effect without a restart.
 - Nothing else on the computer is offered: the chat sees the servers of
   `mcp.json` and nothing it did not list.
 
+### Apps from local connectors
+
+A server in `mcp.json` can offer an app (an interactive `ui://` page linked to a
+tool) and the chat shows it like one from a connector on a server. galopin has
+nothing to turn on: the tool's metadata and the page cross the link unchanged,
+and a page larger than the 8 MiB message cap is answered as an error, so the
+chat shows the tool's text result without the app. `allowedTools` limits the
+tools, not the pages: a tool you leave out has no app either.
+
 ## A browser as a local connector
 
 `galopin browser enable` offers a browser to Cerea's `browse` tool as the well-known

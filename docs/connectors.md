@@ -193,6 +193,23 @@ For a connector each user signs in to (OAuth), the tool list comes from the
 checking administrator's own sign-in, so it reflects what that administrator's
 account can use.
 
+## Apps from a connector
+
+Some servers offer an **app** with a tool: an interactive page (a map, a chart,
+a form) the chat shows inside the tool's result, in a sandbox, instead of only
+its text. A connector is allowed to show apps by default.
+
+- **Administrators** turn it off per connector in **Admin → Connectors**, with
+  **Allow apps from this connector**: for a connector they added and for a
+  `.env` one. With the switch off the chat shows only the tool's text result,
+  as before. A change applies from the next result; one already shown stays in
+  its conversation.
+- **Users** have the same switch, **Allow apps from this connector**, in the
+  edit form of a connector they added themselves.
+- A connector on your own computer
+  ([Local connectors](local-connectors.md#apps-from-local-connectors)) may
+  always show apps: its server runs as you.
+
 ## For operators
 
 A deployment can also configure servers with the `MCP_SERVERS` variable (see

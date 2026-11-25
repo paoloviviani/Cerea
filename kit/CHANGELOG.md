@@ -8,6 +8,7 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 ## Unreleased
 
 - New: the assistant can send a file it fetched or received (downloaded from the web, returned by a connector, or made in the sandbox) to the document reader (OCR), cached so a file is never read twice.
+- **MCP Apps, connector side.** An administrator can switch **Allow apps from this connector** off per connector (Admin → Connectors), and a user can for a connector they added. Apps from connectors on users' computers cross galopin's link unchanged (tool metadata, `resources/list` and `resources/read` for `ui://` pages), within the 8 MiB message cap. The rendering itself ships with the MCP Apps feature.
 
 ## v0.65.0 — 2026-11-24
 
