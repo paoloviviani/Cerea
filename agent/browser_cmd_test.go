@@ -796,3 +796,36 @@ func TestBrowserToolsCoverCereaRuntimeTools(t *testing.T) {
 		}
 	}
 }
+
+func TestBrowserSetupAndEnableForTheDesktopAppInstallNoBrowserAndRegisterConnectMode(t *testing.T) {
+	r := newBrowserRig(t)
+	file := "/run/user/1000/cerea-desktop/cdp-endpoint"
+	if err := r.run(t, "setup", "--connect-file", "relative/path"); err == nil || !strings.Contains(err.Error(), "absolute") {
+		t.Fatalf("relative path: %v", err)
+	}
+	if err := r.run(t, "setup", "--connect-file", file); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range r.calls {
+		if contains(c.args, "--self-test") || contains(c.args, "install") {
+			t.Errorf("a browser was installed or tried: %v", c.args)
+		}
+	}
+	if err := r.run(t, "enable"); err != nil {
+		t.Fatal(err)
+	}
+	var e browserEntry
+	if err := json.Unmarshal(readServers(t, r.mcp)[browserConnectorName], &e); err != nil {
+		t.Fatal(err)
+	}
+	args := strings.Join(e.Args, " ")
+	if !strings.Contains(args, "--connect-file "+file) || strings.Contains(args, "--profile") || strings.Contains(args, "--headed") || strings.Contains(args, "--headless") {
+		t.Errorf("args %q", args)
+	}
+	if !strings.Contains(args, "--key-file") || !strings.Contains(args, "--state-dir") {
+		t.Errorf("the approval key and state dir must still be passed: %q", args)
+	}
+	if len(e.AllowedTools) != len(browserTools) {
+		t.Errorf("ceiling %v", e.AllowedTools)
+	}
+}

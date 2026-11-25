@@ -16,6 +16,7 @@ import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import {
 	chromium,
+	type Browser,
 	type BrowserContext,
 	type Download,
 	type Locator,
@@ -95,6 +96,17 @@ export interface SessionOptions {
 	computerName?: string;
 	/** Make the profile recognisable (theme colour, name, start page). Default true. */
 	branding?: boolean;
+	/**
+	 * Drive a browser that something else owns (the Cerea desktop app) over CDP instead of
+	 * launching Chromium: a `ws://` or `ws+unix://` endpoint. The profile, branding, sandbox and
+	 * display options then do nothing; the owner decides which pages this runtime can see.
+	 */
+	connect?: string;
+	/**
+	 * Like `connect`, but the endpoint is read from this file each time the browser is reached (the
+	 * desktop app writes a fresh one, with a secret, at every start).
+	 */
+	connectFile?: string;
 }
 
 export const DEFAULT_MAX_SNAPSHOT_CHARS = 9_000;
@@ -478,6 +490,8 @@ export function launchOptions(options: SessionOptions) {
 export class BrowserSession {
 	private readonly options: SessionOptions;
 	private context?: BrowserContext;
+	/** Set only in connect mode: the connection to the browser that something else owns. */
+	private cdpBrowser?: Browser;
 	private active?: Page;
 	/** The pages this runtime opened for the task. Tabs it did not open are never used or touched. */
 	private readonly taskPages = new Set<Page>();
@@ -902,9 +916,24 @@ export class BrowserSession {
 		return !!host && this.tabDeny.some((entry) => hostMatches(host, entry));
 	}
 
+	private async connectEndpoint(): Promise<string | undefined> {
+		const { connect, connectFile } = this.options;
+		if (connect) return connect;
+		if (!connectFile) return undefined;
+		try {
+			return (await readFile(connectFile, "utf8")).trim();
+		} catch {
+			throw new ToolError(
+				"The Cerea desktop app is not running, so its browser panel is not reachable. Open the app, then try again."
+			);
+		}
+	}
+
 	private async launch(): Promise<void> {
 		const { headless, profileDir } = this.options;
+		const connect = await this.connectEndpoint();
 		if (
+			!connect &&
 			!headless &&
 			process.platform === "linux" &&
 			!process.env.DISPLAY &&
@@ -914,15 +943,42 @@ export class BrowserSession {
 				"The browser is set to show a window, but this computer has no display. Start the runtime with --headless."
 			);
 		}
-		await removeStaleDirs();
-		await chmod(profileDir, 0o700).catch(() => {});
-		// Before Chrome starts, never while it runs (see profile.ts).
-		if (this.options.branding !== false) await applyCereaProfile(profileDir);
+		if (!connect) {
+			await removeStaleDirs();
+			await chmod(profileDir, 0o700).catch(() => {});
+			// Before Chrome starts, never while it runs (see profile.ts).
+			if (this.options.branding !== false) await applyCereaProfile(profileDir);
+		}
 		this.downloadDir ??= await mkdtemp(join(tmpdir(), `cerea-browser-${process.pid}-`));
 		let context: BrowserContext;
 		try {
-			context = await chromium.launchPersistentContext(profileDir, launchOptions(this.options));
+			if (connect) {
+				const browser = await chromium.connectOverCDP(connect, { timeout: 10_000 });
+				const first = browser.contexts()[0];
+				if (!first) {
+					await browser.close().catch(() => {});
+					throw new Error("the desktop app's browser offered no context");
+				}
+				this.cdpBrowser = browser;
+				context = first;
+				browser.on("disconnected", () => {
+					if (this.cdpBrowser === browser) this.cdpBrowser = undefined;
+					if (this.context === context) {
+						this.context = undefined;
+						this.active = undefined;
+						this.baseline = undefined;
+						this.taskPages.clear();
+					}
+				});
+			} else {
+				context = await chromium.launchPersistentContext(profileDir, launchOptions(this.options));
+			}
 		} catch (err) {
+			if (connect) {
+				throw new ToolError(
+					"The browser panel of the Cerea desktop app is not reachable. Open the app and its Browser panel, then try again."
+				);
+			}
 			const message = firstLine(err, 600);
 			if (
 				/ProcessSingleton|profile.*in use|SingletonLock|user data directory is already in use/i.test(
@@ -1186,9 +1242,13 @@ export class BrowserSession {
 		clearTimeout(this.idleTimer);
 		this.taskPages.clear();
 		const context = this.context;
+		const cdp = this.cdpBrowser;
 		this.context = undefined;
+		this.cdpBrowser = undefined;
 		this.active = undefined;
-		if (context) await Promise.race([context.close().catch(() => {}), sleep(5_000)]);
+		// A browser that something else owns is only disconnected from, never closed.
+		if (cdp) await Promise.race([cdp.close().catch(() => {}), sleep(5_000)]);
+		else if (context) await Promise.race([context.close().catch(() => {}), sleep(5_000)]);
 		if (this.downloadDir)
 			await rm(this.downloadDir, { recursive: true, force: true }).catch(() => {});
 		this.downloadDir = undefined;

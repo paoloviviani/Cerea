@@ -1,0 +1,36 @@
+{
+	"name": "cerea-desktop",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Cerea desktop app: your Cerea, an embedded browser the chat can drive, and galopin.",
+	"license": "Apache-2.0",
+	"main": "dist/main/main.js",
+	"type": "commonjs",
+	"engines": {
+		"node": ">=22.18"
+	},
+	"scripts": {
+		"build": "node scripts/build.mjs",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run",
+		"smoke": "xvfb-run -a node scripts/smoke.mjs",
+		"start": "npm run build && electron . --no-sandbox",
+		"lint": "prettier --check . && tsc --noEmit",
+		"format": "prettier --write .",
+		"dist": "npm run build && electron-builder",
+		"galopin:build": "cd ../agent && go build -o ../desktop/resources/galopin/galopin ."
+	},
+	"dependencies": {},
+	"devDependencies": {
+		"@types/node": "^24.0.0",
+		"electron": "45.3.0",
+		"electron-builder": "26.8.1",
+		"esbuild": "^0.28.2",
+		"playwright-core": "1.66.0-alpha-2026-11-09",
+		"prettier": "3.9.5",
+		"typescript": "^5.9.0",
+		"vitest": "^3.2.0",
+		"ws": "8.18.3",
+		"@types/ws": "^8.18.1"
+	}
+}

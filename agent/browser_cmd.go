@@ -33,8 +33,8 @@ const browserConnectorName = "cerea-browser"
 const browserUsage = `galopin browser — the browser Cerea's browse tool uses on this machine.
 
 Usage:
-  galopin browser setup   [--bundled] [--prune] [--state-dir PATH] [--creds PATH]
-  galopin browser enable  [--headed | --headless] [--no-sandbox] [--state-dir PATH] [--creds PATH] [--mcp-config PATH]
+  galopin browser setup   [--bundled] [--prune] [--connect-file PATH] [--state-dir PATH] [--creds PATH]
+  galopin browser enable  [--headed | --headless] [--no-sandbox] [--connect-file PATH] [--state-dir PATH] [--creds PATH] [--mcp-config PATH]
   galopin browser disable [--remove-profile] [--state-dir PATH] [--creds PATH] [--mcp-config PATH]
   galopin browser status  [--state-dir PATH] [--creds PATH] [--mcp-config PATH]
 
@@ -50,6 +50,9 @@ Usage:
            logins). The window is shown when this machine has a display, unless you say
            --headless. Cerea gives this machine a key for approvals the first time its
            browser is used; run 'galopin run' (or keep it running) for that.
+           With --connect-file PATH (the Cerea desktop app), no browser is installed or tried:
+           the runtime is set up to drive the desktop app's own browser panel, whose address
+           the app writes to PATH each time it starts. 'enable' then registers that.
   disable  Remove the connector from mcp.json. The profile is kept unless
            --remove-profile is given.
   status   Say whether the runtime is installed, offered to Cerea and answering.
@@ -126,6 +129,9 @@ type browserInfo struct {
 	// Sandbox says whether Chromium's own sandbox works on this machine; when it does not
 	// (a restricted user namespace, a container), enable starts the browser without it.
 	Sandbox bool `json:"sandbox"`
+	// ConnectFile is set when the runtime drives the Cerea desktop app's browser panel instead of
+	// a browser of its own: the file the app writes its endpoint to.
+	ConnectFile string `json:"connectFile,omitempty"`
 }
 
 func runBrowser(args []string) error {
@@ -144,6 +150,7 @@ func runBrowser(args []string) error {
 type browserFlags struct {
 	connectorsOptions
 	headed, headless, noSandbox, removeProfile, bundled, prune bool
+	connectFile                                                string
 }
 
 func runBrowserWith(ctx context.Context, env *browserEnv, args []string) error {
@@ -159,6 +166,7 @@ func runBrowserWith(ctx context.Context, env *browserEnv, args []string) error {
 	fs.BoolVar(&f.removeProfile, "remove-profile", false, "")
 	fs.BoolVar(&f.bundled, "bundled", false, "")
 	fs.BoolVar(&f.prune, "prune", false, "")
+	fs.StringVar(&f.connectFile, "connect-file", "", "")
 	if err := fs.Parse(rest); err != nil {
 		return err
 	}
@@ -274,6 +282,19 @@ func browserSetup(ctx context.Context, env *browserEnv, f browserFlags) error {
 		if out, err := env.run(ctx, p.runtime, nil, npm, "ci", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"); err != nil {
 			return fmt.Errorf("npm install failed: %w\n%s", err, tail(out))
 		}
+	}
+	if f.connectFile != "" {
+		if !filepath.IsAbs(f.connectFile) {
+			return errors.New("--connect-file needs an absolute path")
+		}
+		info := browserInfo{Node: node, NodeVer: version, Playwright: pinned, Browser: "desktop", Version: "app", Sandbox: true, ConnectFile: f.connectFile}
+		body, _ := json.MarshalIndent(info, "", "\t")
+		if err := writeFileAtomic(p.info, append(body, '\n'), 0o600); err != nil {
+			return err
+		}
+		env.say("The runtime will drive the Cerea desktop app's browser panel (%s). No browser was installed.", f.connectFile)
+		env.say("Done. Next: galopin browser enable")
+		return nil
 	}
 	browsersEnv := []string{"PLAYWRIGHT_BROWSERS_PATH=" + p.browsers}
 
@@ -436,6 +457,12 @@ func browserEnable(env *browserEnv, f browserFlags) error {
 	if _, err := os.Stat(p.bundle); err != nil {
 		return errors.New("the runtime is not installed: run 'galopin browser setup' first")
 	}
+	if f.connectFile != "" && info.ConnectFile == "" {
+		info.ConnectFile = f.connectFile
+	}
+	if info.ConnectFile != "" {
+		return browserEnableDesktop(env, p, info)
+	}
 	headed := env.hasDisplay() && !f.headless
 	if f.headed {
 		if !env.hasDisplay() {
@@ -471,6 +498,27 @@ func browserEnable(env *browserEnv, f browserFlags) error {
 		env.say("Chromium runs without its sandbox on this machine.")
 	}
 	env.say("galopin picks the change up by itself if it is running; otherwise start it with 'galopin run'. Cerea hands this machine its approval key the first time the browser is used.")
+	return nil
+}
+
+// browserEnableDesktop registers the runtime in connect mode: it drives the Cerea desktop app's
+// browser panel, reached through the endpoint file the app writes. No profile, no display, no
+// sandbox: the app owns the browser.
+func browserEnableDesktop(env *browserEnv, p browserPaths, info *browserInfo) error {
+	tighten(p.dir)
+	entry := browserEntry{
+		Command:      info.Node,
+		Args:         []string{p.bundle, "--state-dir", p.dir, "--connect-file", info.ConnectFile, "--key-file", p.key},
+		Env:          map[string]string{},
+		Description:  "Browser for Cerea's browse tool, in the Cerea desktop app (managed by 'galopin browser'; do not edit)",
+		AllowedTools: browserTools,
+	}
+	raw, _ := json.Marshal(entry)
+	if _, err := editMcpServers(env.mcpPath, browserConnectorName, raw); err != nil {
+		return err
+	}
+	env.say("Enabled the local connector %q in %s (the Cerea desktop app's browser panel).", browserConnectorName, env.mcpPath)
+	env.say("Open the desktop app for the browser to answer. Cerea hands this machine its approval key the first time the browser is used.")
 	return nil
 }
 
@@ -670,6 +718,9 @@ func channelOf(info *browserInfo) string {
 
 // browserLabel is how status names the browser in use.
 func browserLabel(info *browserInfo) string {
+	if info.Browser == "desktop" {
+		return "the Cerea desktop app's browser panel"
+	}
 	if info.Browser == "chrome" {
 		return "Google Chrome " + info.Version + " (installed)"
 	}

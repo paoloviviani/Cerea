@@ -1,0 +1,336 @@
+/**
+ * The CDP bridge: what lets browser-runtime (Playwright over `connectOverCDP`) drive the desktop
+ * app's browser panel, and nothing else.
+ *
+ * Chromium's own remote-debugging port or pipe would expose the whole app, the Cerea window
+ * included, to anyone who can reach it, and CDP has no authentication. So the app opens neither.
+ * It answers the small part of the browser-level protocol Playwright needs ("a browser with one
+ * context and these pages") itself, and forwards page-level commands to the panel's pages through
+ * `webContents.debugger`. A page that is not in the `TargetHost` is not reachable by
+ * construction: there is no code path from a socket message to any other webContents.
+ */
+
+export type Json = Record<string, unknown>;
+
+/** One page of the panel, as the bridge sees it. Implemented over a webContents in `browserPanel.ts`. */
+export interface PageTarget {
+	readonly id: string;
+	/** Run a page-level CDP command on this page (or on a child session of it). */
+	send(method: string, params: Json, childSession?: string): Promise<unknown>;
+	/** Events and responses from the page's own CDP agent. Returns the unsubscribe. */
+	onEvent(cb: (method: string, params: Json, childSession?: string) => void): () => void;
+	onDetach(cb: () => void): () => void;
+	attach(): void;
+	detach(): void;
+	/** The first navigation of a page the runtime asked for (what Chrome does once the client lets it start). */
+	initialNavigate(url: string): void;
+	url(): string;
+	title(): string;
+}
+
+export interface DownloadEvent {
+	guid: string;
+	url: string;
+	suggestedFilename: string;
+	frameId: string;
+	/** Resolves with progress events until done; the host saves into `dir/guid`. */
+	progress(
+		cb: (received: number, total: number, state: "inProgress" | "completed" | "canceled") => void
+	): void;
+}
+
+/** The panel, as the bridge sees it: the only pages the runtime may ever reach. */
+export interface TargetHost {
+	targets(): PageTarget[];
+	/** A new page, committed on a blank document and not yet navigated anywhere. */
+	create(): Promise<PageTarget>;
+	close(id: string): void;
+	activate(id: string): void;
+	onTargetCreated(cb: (t: PageTarget) => void): () => void;
+	onTargetDestroyed(cb: (id: string) => void): () => void;
+	/** Where a download goes (the runtime asks for a directory); null refuses downloads. */
+	setDownloadDir(dir: string | null): void;
+	onDownload(cb: (d: DownloadEvent) => void): () => void;
+	/** The window's size, for `Browser.getWindowForTarget`. */
+	bounds(): { left: number; top: number; width: number; height: number };
+}
+
+/** Called with every command the runtime sends, before it runs: the take-over gate. */
+export interface Gate {
+	/** Resolves when the command may run; rejects (with a message) when it must not. */
+	pass(method: string, targetId: string | undefined): Promise<void>;
+	/** The runtime did something (activity feeds the "Cerea is browsing" indicator). */
+	activity(): void;
+}
+
+export interface Transport {
+	send(data: string): void;
+	onMessage(cb: (data: string) => void): void;
+	onClose(cb: () => void): void;
+	close(): void;
+}
+
+export const BRIDGE_PRODUCT = "Chrome/Cerea-desktop-panel";
+const BROWSER_CONTEXT_ID = "cerea-panel-context";
+
+interface Msg {
+	id?: number;
+	method?: string;
+	params?: Json;
+	sessionId?: string;
+}
+
+class Connection {
+	private readonly sessions = new Map<string, PageTarget>(); // virtual top-level session -> page
+	private readonly byTarget = new Map<string, string>(); // page id -> virtual session
+	private readonly child = new Map<string, PageTarget>(); // child session id (from the page) -> page
+	private readonly unsub: (() => void)[] = [];
+	private seq = 0;
+	private autoAttach = false;
+	/** Pages made by `Target.createTarget`: their first navigation starts when the client says go. */
+	private readonly pendingInitial = new Map<string, string>();
+	private closed = false;
+
+	constructor(
+		private readonly host: TargetHost,
+		private readonly gate: Gate,
+		private readonly transport: Transport,
+		private readonly log: (m: string) => void
+	) {
+		transport.onMessage((d) => void this.onMessage(d));
+		transport.onClose(() => this.dispose());
+		this.unsub.push(
+			host.onTargetCreated((t) => {
+				if (this.autoAttach) this.attachTarget(t);
+			}),
+			host.onTargetDestroyed((id) => this.targetGone(id)),
+			host.onDownload((d) => this.onDownload(d))
+		);
+	}
+
+	dispose(): void {
+		if (this.closed) return;
+		this.closed = true;
+		for (const u of this.unsub) u();
+		for (const t of this.sessions.values()) t.detach();
+		this.sessions.clear();
+	}
+
+	private out(m: Json): void {
+		if (!this.closed) this.transport.send(JSON.stringify(m));
+	}
+
+	private info(t: PageTarget, attached: boolean): Json {
+		return {
+			targetId: t.id,
+			type: "page",
+			title: t.title(),
+			url: t.url(),
+			attached,
+			canAccessOpener: false,
+			browserContextId: BROWSER_CONTEXT_ID,
+		};
+	}
+
+	private attachTarget(t: PageTarget, waiting = false): void {
+		if (this.byTarget.has(t.id)) return;
+		const sessionId = `cerea-s${++this.seq}`;
+		this.sessions.set(sessionId, t);
+		this.byTarget.set(t.id, sessionId);
+		t.attach();
+		this.unsub.push(
+			t.onEvent((method, params, childSession) => {
+				if (method === "Target.attachedToTarget" && typeof params.sessionId === "string") {
+					this.child.set(params.sessionId, t);
+				}
+				this.out({ method, params, sessionId: childSession ?? sessionId });
+			}),
+			t.onDetach(() => this.targetGone(t.id))
+		);
+		this.out({
+			method: "Target.attachedToTarget",
+			params: { sessionId, targetInfo: this.info(t, true), waitingForDebugger: waiting },
+		});
+	}
+
+	private targetGone(id: string): void {
+		const sessionId = this.byTarget.get(id);
+		if (!sessionId) return;
+		this.byTarget.delete(id);
+		this.sessions.delete(sessionId);
+		this.out({ method: "Target.detachedFromTarget", params: { sessionId, targetId: id } });
+		this.out({ method: "Target.targetDestroyed", params: { targetId: id } });
+	}
+
+	private onDownload(d: DownloadEvent): void {
+		this.out({
+			method: "Browser.downloadWillBegin",
+			params: {
+				frameId: d.frameId,
+				guid: d.guid,
+				url: d.url,
+				suggestedFilename: d.suggestedFilename,
+			},
+		});
+		d.progress((received, total, state) =>
+			this.out({
+				method: "Browser.downloadProgress",
+				params: { guid: d.guid, totalBytes: total, receivedBytes: received, state },
+			})
+		);
+	}
+
+	private async onMessage(data: string): Promise<void> {
+		let msg: Msg;
+		try {
+			msg = JSON.parse(data) as Msg;
+		} catch {
+			return;
+		}
+		if (typeof msg.id !== "number" || typeof msg.method !== "string") return;
+		const id = msg.id;
+		const method = msg.method;
+		const params = (msg.params ?? {}) as Json;
+		try {
+			const result = await this.dispatch(method, params, msg.sessionId);
+			this.out({
+				id,
+				result: result ?? {},
+				...(msg.sessionId ? { sessionId: msg.sessionId } : {}),
+			});
+		} catch (err) {
+			this.out({
+				id,
+				error: { code: -32000, message: err instanceof Error ? err.message : String(err) },
+				...(msg.sessionId ? { sessionId: msg.sessionId } : {}),
+			});
+		}
+	}
+
+	private async dispatch(
+		method: string,
+		params: Json,
+		sessionId: string | undefined
+	): Promise<unknown> {
+		if (sessionId === undefined) return this.browserLevel(method, params);
+		const page = this.sessions.get(sessionId);
+		const viaChild = page ? undefined : this.child.get(sessionId);
+		const target = page ?? viaChild;
+		if (!target) throw new Error(`No session ${sessionId}`);
+		this.gate.activity();
+		await this.gate.pass(method, target.id);
+		if (method === "Runtime.runIfWaitingForDebugger") {
+			const url = this.pendingInitial.get(target.id);
+			if (url !== undefined) {
+				this.pendingInitial.delete(target.id);
+				// After the reply, so the client has the answer before the navigation's events.
+				queueMicrotask(() => target.initialNavigate(url));
+			}
+			return {};
+		}
+		return target.send(method, params, page ? undefined : sessionId);
+	}
+
+	private async browserLevel(method: string, params: Json): Promise<unknown> {
+		this.gate.activity();
+		switch (method) {
+			case "Browser.getVersion":
+				return {
+					protocolVersion: "1.3",
+					product: BRIDGE_PRODUCT,
+					revision: "0",
+					userAgent: "Mozilla/5.0 Chrome (Cerea desktop panel)",
+					jsVersion: "0",
+				};
+			case "Target.getTargetInfo":
+				return {
+					targetInfo: {
+						targetId: "cerea-browser",
+						type: "browser",
+						title: "",
+						url: "",
+						attached: true,
+						canAccessOpener: false,
+					},
+				};
+			case "Target.setDiscoverTargets":
+				return {};
+			case "Target.getBrowserContexts":
+				return { browserContextIds: [] };
+			case "Target.setAutoAttach": {
+				this.autoAttach = params.autoAttach === true;
+				if (this.autoAttach) for (const t of this.host.targets()) this.attachTarget(t);
+				return {};
+			}
+			case "Target.getTargets":
+				return {
+					targetInfos: this.host.targets().map((t) => this.info(t, this.byTarget.has(t.id))),
+				};
+			case "Target.createTarget": {
+				await this.gate.pass(method, undefined);
+				const url = typeof params.url === "string" ? params.url : "about:blank";
+				const t = await this.host.create();
+				this.pendingInitial.set(t.id, url);
+				this.attachTarget(t, true);
+				return { targetId: t.id };
+			}
+			case "Target.closeTarget": {
+				await this.gate.pass(method, undefined);
+				const id = String(params.targetId);
+				if (!this.host.targets().some((t) => t.id === id))
+					throw new Error("No target with that id");
+				this.host.close(id);
+				return { success: true };
+			}
+			case "Target.activateTarget": {
+				const id = String(params.targetId);
+				if (this.host.targets().some((t) => t.id === id)) this.host.activate(id);
+				return {};
+			}
+			case "Browser.setDownloadBehavior": {
+				this.host.setDownloadDir(
+					params.behavior === "deny" || typeof params.downloadPath !== "string"
+						? null
+						: String(params.downloadPath)
+				);
+				return {};
+			}
+			case "Browser.getWindowForTarget":
+				return { windowId: 1, bounds: { ...this.host.bounds(), windowState: "normal" } };
+			case "Browser.setWindowBounds":
+			case "Browser.cancelDownload":
+				return {};
+			case "Browser.close":
+				this.transport.close();
+				return {};
+			case "Target.disposeBrowserContext":
+			case "Target.createBrowserContext":
+				// One context only: the runtime may not make more, so there is nothing to isolate it from.
+				throw new Error("This browser has one context and cannot make or drop others.");
+			default:
+				this.log(`unsupported browser-level method ${method}`);
+				throw new Error(`'${method}' wasn't found`);
+		}
+	}
+}
+
+export class CdpBridge {
+	private current?: Connection;
+
+	constructor(
+		private readonly host: TargetHost,
+		private readonly gate: Gate,
+		private readonly log: (m: string) => void = () => {}
+	) {}
+
+	/** A new runtime connection replaces the old one (one task at a time on a machine). */
+	connect(transport: Transport): void {
+		this.current?.dispose();
+		this.current = new Connection(this.host, this.gate, transport, this.log);
+	}
+
+	disconnect(): void {
+		this.current?.dispose();
+		this.current = undefined;
+	}
+}

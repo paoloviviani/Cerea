@@ -1,0 +1,27 @@
+appId: org.cerea.desktop
+productName: Cerea
+directories:
+  output: release
+files:
+  - dist/**
+  - package.json
+# galopin (one binary per platform, built from agent/ at the same commit) and the browser runtime.
+extraResources:
+  - from: resources/galopin
+    to: galopin
+asar: true
+mac:
+  category: public.app-category.productivity
+  target: [zip]
+  # Unsigned for now, as the Cerea connector app is; see docs/dev/desktop-app.md.
+  identity: null
+linux:
+  category: Utility
+  target: [AppImage, deb]
+  maintainer: Cerea
+electronFuses:
+  runAsNode: false
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true

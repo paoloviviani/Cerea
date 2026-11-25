@@ -1,4 +1,4 @@
-// cerea-browser runtime 0.1.0; source-hash: c030b82bbe226893ba7f56a8f8bef8d56ec539bb8a37a1d23de8ad8579d0fc10
+// cerea-browser runtime 0.1.0; source-hash: 363bfe7a031170a6f94ead01ffc5c71b0ba0d472453a5c5ab12e6d82758827ff
 // inlined: @hono/node-server@2.1.8 @modelcontextprotocol/sdk@1.32.2 ajv@8.20.0 ajv-formats@3.0.1 content-type@1.0.5 fast-deep-equal@3.1.3 fast-uri@3.1.9 hono@4.13.18 json-schema-traverse@1.0.0 tldts@7.4.26 zod@3.25.76 zod-to-json-schema@3.25.2
 import { createRequire as __cr } from "node:module";
 const require = __cr(import.meta.url);
@@ -23688,6 +23688,8 @@ function launchOptions(options) {
 var BrowserSession = class {
   options;
   context;
+  /** Set only in connect mode: the connection to the browser that something else owns. */
+  cdpBrowser;
   active;
   /** The pages this runtime opened for the task. Tabs it did not open are never used or touched. */
   taskPages = /* @__PURE__ */ new Set();
@@ -24026,22 +24028,63 @@ var BrowserSession = class {
     const host = hostOf(url);
     return !!host && this.tabDeny.some((entry) => hostMatches(host, entry));
   }
+  async connectEndpoint() {
+    const { connect, connectFile } = this.options;
+    if (connect) return connect;
+    if (!connectFile) return void 0;
+    try {
+      return (await readFile2(connectFile, "utf8")).trim();
+    } catch {
+      throw new ToolError(
+        "The Cerea desktop app is not running, so its browser panel is not reachable. Open the app, then try again."
+      );
+    }
+  }
   async launch() {
     const { headless, profileDir: profileDir2 } = this.options;
-    if (!headless && process.platform === "linux" && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
+    const connect = await this.connectEndpoint();
+    if (!connect && !headless && process.platform === "linux" && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
       throw new ToolError(
         "The browser is set to show a window, but this computer has no display. Start the runtime with --headless."
       );
     }
-    await removeStaleDirs();
-    await chmod(profileDir2, 448).catch(() => {
-    });
-    if (this.options.branding !== false) await applyCereaProfile(profileDir2);
+    if (!connect) {
+      await removeStaleDirs();
+      await chmod(profileDir2, 448).catch(() => {
+      });
+      if (this.options.branding !== false) await applyCereaProfile(profileDir2);
+    }
     this.downloadDir ??= await mkdtemp(join2(tmpdir(), `cerea-browser-${process.pid}-`));
     let context;
     try {
-      context = await chromium.launchPersistentContext(profileDir2, launchOptions(this.options));
+      if (connect) {
+        const browser = await chromium.connectOverCDP(connect, { timeout: 1e4 });
+        const first = browser.contexts()[0];
+        if (!first) {
+          await browser.close().catch(() => {
+          });
+          throw new Error("the desktop app's browser offered no context");
+        }
+        this.cdpBrowser = browser;
+        context = first;
+        browser.on("disconnected", () => {
+          if (this.cdpBrowser === browser) this.cdpBrowser = void 0;
+          if (this.context === context) {
+            this.context = void 0;
+            this.active = void 0;
+            this.baseline = void 0;
+            this.taskPages.clear();
+          }
+        });
+      } else {
+        context = await chromium.launchPersistentContext(profileDir2, launchOptions(this.options));
+      }
     } catch (err) {
+      if (connect) {
+        throw new ToolError(
+          "The browser panel of the Cerea desktop app is not reachable. Open the app and its Browser panel, then try again."
+        );
+      }
       const message = firstLine(err, 600);
       if (/ProcessSingleton|profile.*in use|SingletonLock|user data directory is already in use/i.test(
         message
@@ -24285,9 +24328,13 @@ var BrowserSession = class {
     clearTimeout(this.idleTimer);
     this.taskPages.clear();
     const context = this.context;
+    const cdp = this.cdpBrowser;
     this.context = void 0;
+    this.cdpBrowser = void 0;
     this.active = void 0;
-    if (context) await Promise.race([context.close().catch(() => {
+    if (cdp) await Promise.race([cdp.close().catch(() => {
+    }), sleep(5e3)]);
+    else if (context) await Promise.race([context.close().catch(() => {
     }), sleep(5e3)]);
     if (this.downloadDir)
       await rm(this.downloadDir, { recursive: true, force: true }).catch(() => {
@@ -25150,6 +25197,9 @@ Usage: cerea-browser --profile DIR [options]
   --max-snapshot-chars N   Size budget of one snapshot (default ${DEFAULT_MAX_SNAPSHOT_CHARS}).
   --idle-minutes N     Close the task's pages after N minutes without a call (default 10).
   --viewport WxH       Viewport of a headless browser (default 1280x800).
+  --connect URL        Drive a browser something else owns (the Cerea desktop app) over CDP:
+                       ws://\u2026 or ws+unix://SOCKET:/PATH. Nothing is launched; no profile is used.
+  --connect-file PATH  Like --connect, with the endpoint read from this file (0600) at each use.
   --self-test          Start Chromium once and report: {"ok":true,"sandbox":true|false,"version":"..."}.
   -h, --help           This text.
 `;
@@ -25177,6 +25227,8 @@ var { values } = (() => {
         executable: { type: "string" },
         "max-snapshot-chars": { type: "string" },
         viewport: { type: "string" },
+        connect: { type: "string" },
+        "connect-file": { type: "string" },
         "self-test": { type: "boolean" },
         help: { type: "boolean", short: "h" }
       },
@@ -25195,9 +25247,14 @@ if (values["self-test"]) {
   process.exit(await selfTest(values.executable, values.channel));
 }
 var profileDir = values.profile ?? process.env.CEREA_BROWSER_PROFILE;
-if (!profileDir) fail("--profile DIR is required.");
-mkdirSync2(profileDir, { recursive: true, mode: 448 });
-chmodSync2(profileDir, 448);
+if (!profileDir && !values.connect && !values["connect-file"]) fail("--profile DIR is required.");
+if ((values.connect || values["connect-file"]) && !profileDir && !values["state-dir"]) {
+  fail("--connect without --profile needs --state-dir (where spent approvals are remembered).");
+}
+if (profileDir) {
+  mkdirSync2(profileDir, { recursive: true, mode: 448 });
+  chmodSync2(profileDir, 448);
+}
 var maxChars = values["max-snapshot-chars"] ? Number(values["max-snapshot-chars"]) : void 0;
 if (maxChars !== void 0 && !(maxChars >= 1e3 && maxChars <= 2e5)) {
   fail("--max-snapshot-chars must be between 1000 and 200000.");
@@ -25221,7 +25278,7 @@ function parsePace(text) {
 }
 var pace = parsePace(values.pace);
 var session = new BrowserSession({
-  profileDir,
+  profileDir: profileDir ?? tmpdir2(),
   headless: !values.headed,
   noSandbox: values["no-sandbox"] === true,
   executablePath: values.executable,
@@ -25231,7 +25288,9 @@ var session = new BrowserSession({
   stateDir: values["state-dir"],
   ...values["idle-minutes"] ? { idleMs: Number(values["idle-minutes"]) * 6e4 } : {},
   maxSnapshotChars: maxChars,
-  viewport
+  viewport,
+  connect: values.connect,
+  connectFile: values["connect-file"]
 });
 if (values.http !== void 0) {
   const port = Number(values.http);
