@@ -97,6 +97,10 @@ TOOL` (not `--desktop`) takes no `--creds`: its shims follow the default pairing
   set aside (`credentials.json.unpaired-<time>`). The server is not told: this computer's sign-in
   there stays valid until the computer is removed from that server's Agents panel. Removing the
   active profile switches to another first; removing the last leaves the first-run screen.
+- **Profile operations run one at a time** (a mutex): a second switch, add or remove waits, and
+  each stops whichever galopin is current when it actually runs. The earlier single-server
+  config is saved as profile 1 the first time it is read, and its two session directories are
+  moved to the profile's own, so the user stays signed in and no partition is orphaned.
 - Up to 9 profiles; the same address cannot be added twice.
 
 ## How the chat drives the embedded browser (the core decision)
@@ -131,8 +135,8 @@ these pages) itself and forwards page-level commands to the panel's pages throug
 (the six operations, the classifier, signed grants, tabs, downloads) is untouched.
 
 ```
-Cerea (server) -- galopin run -- mcp.json "cerea-browser" -- node cerea-browser.mjs --connect-file <run>/cdp-endpoint
-                                                                |  ws+unix://<run>/cdp.sock:/cdp/<secret>
+Cerea (server) -- galopin run -- mcp.json "cerea-browser" -- node cerea-browser.mjs --connect-file <galopin dir>/cdp-endpoint
+                                                                |  ws+unix://<run>/cdp.sock:/cdp/<profile's secret>
                                                                 v
   Electron main:  bridgeServer (0600 socket, secret path, no Origin) -> CdpBridge (fake browser) -> Control (take over gate)
                                                                 -> BrowserPanel.targets() = the panel's pages ONLY
@@ -144,11 +148,15 @@ Why this meets the requirement:
 - **No TCP port at all.** The socket is mode 0600 in a 0700 directory (`<userData>/run`, or a
   per-user temp directory when the path is too long for `sun_path`). Another OS user cannot open
   it, a web page cannot reach it (no TCP, and a request carrying an `Origin` header is refused).
-- **A secret per start.** The path carries 256 random bits made at each app start. The endpoint
-  (socket and secret) is written to `cdp-endpoint`, 0600, and the runtime reads that file at every
-  connect, so the connector entry in `mcp.json` is static and survives restarts. Another process
-  of the same user could read the file, which is the same boundary as galopin's key file and
-  profile today; it cannot connect without that.
+- **A secret per profile and per start.** The path carries 256 random bits, made at each app start
+  for each profile. A profile's endpoint (socket and secret) is written to `cdp-endpoint`, 0600, in
+  **that profile's own galopin directory** (galopin's default directory for profile 1), and
+  `galopin browser setup --connect-file` registers that file for that profile's connector, so the
+  entry in its `mcp.json` is static and survives restarts. **Only the active profile's secret is
+  served**, on CDP and on `/ctl`: another profile's gets `403 This browser belongs to another
+profile.`, so a galopin of an inactive profile (a `galopin run` or a shim outside the app) cannot
+  drive the panel that is open. Another process of the same user could read a profile's file, which
+  is the same boundary as galopin's key file and profile today; it cannot connect without it.
 - **The Cerea window is unreachable, structurally.** `CdpBridge` is constructed with the
   `BrowserPanel` and nothing else. It has no reference to the Cerea view or the local UI. A
   `sessionId` the bridge did not mint is refused; `Target.closeTarget` and `activateTarget` take
