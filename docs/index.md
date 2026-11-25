@@ -1,16 +1,24 @@
+![Cerea](assets/brand/logo_gradient_day.svg#only-light){ .hero-logo }
+![Cerea](assets/brand/logo_gradient_night.svg#only-dark){ .hero-logo }
+
 # Cerea
 
 Cerea is a self-hosted chat for any OpenAI-compatible endpoint, with
 knowledge bases, artifacts, Python in the browser, and coding agents on your
 own computers. It pairs with **Pystino**, a gateway for accounting, quotas and
 redaction: each runs on its own, and together they are the intended setup.
+{ .lead }
+
+[Deploy it](deploy.md){ .md-button .md-button--primary }
+[What it can do](features.md){ .md-button }
+{ .hero-actions }
 
 !!! info "For everyone"
 
     Start here to find the section written for you.
 
-![Cerea: a chat with a document open in the side panel](assets/cerea-chat-light-framed.webp#only-light)
-![Cerea: a chat with a document open in the side panel](assets/cerea-chat-dark-framed.webp#only-dark)
+![Cerea: a chat with a document open in the side panel](assets/cerea-chat-light-framed.webp#only-light){ .hero-shot }
+![Cerea: a chat with a document open in the side panel](assets/cerea-chat-dark-framed.webp#only-dark){ .hero-shot }
 
 _A chat where the assistant kept a plan and handed two lookups to sub-agents._
 
