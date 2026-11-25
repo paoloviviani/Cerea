@@ -33,6 +33,9 @@ Usage: cerea-browser --profile DIR [options]
   --max-snapshot-chars N   Size budget of one snapshot (default ${DEFAULT_MAX_SNAPSHOT_CHARS}).
   --idle-minutes N     Close the task's pages after N minutes without a call (default 10).
   --viewport WxH       Viewport of a headless browser (default 1280x800).
+  --connect URL        Drive a browser something else owns (the Cerea desktop app) over CDP:
+                       ws://… or ws+unix://SOCKET:/PATH. Nothing is launched; no profile is used.
+  --connect-file PATH  Like --connect, with the endpoint read from this file (0600) at each use.
   --self-test          Start Chromium once and report: {"ok":true,"sandbox":true|false,"version":"..."}.
   -h, --help           This text.
 `;
@@ -61,6 +64,8 @@ const { values } = (() => {
 				executable: { type: "string" },
 				"max-snapshot-chars": { type: "string" },
 				viewport: { type: "string" },
+				connect: { type: "string" },
+				"connect-file": { type: "string" },
 				"self-test": { type: "boolean" },
 				help: { type: "boolean", short: "h" },
 			},
@@ -80,10 +85,15 @@ if (values["self-test"]) {
 	process.exit(await selfTest(values.executable, values.channel));
 }
 const profileDir = values.profile ?? process.env.CEREA_BROWSER_PROFILE;
-if (!profileDir) fail("--profile DIR is required.");
-mkdirSync(profileDir, { recursive: true, mode: 0o700 });
-// A profile made earlier (or by another tool) may be looser: it holds logins.
-chmodSync(profileDir, 0o700);
+if (!profileDir && !values.connect && !values["connect-file"]) fail("--profile DIR is required.");
+if ((values.connect || values["connect-file"]) && !profileDir && !values["state-dir"]) {
+	fail("--connect without --profile needs --state-dir (where spent approvals are remembered).");
+}
+if (profileDir) {
+	mkdirSync(profileDir, { recursive: true, mode: 0o700 });
+	// A profile made earlier (or by another tool) may be looser: it holds logins.
+	chmodSync(profileDir, 0o700);
+}
 
 const maxChars = values["max-snapshot-chars"] ? Number(values["max-snapshot-chars"]) : undefined;
 if (maxChars !== undefined && !(maxChars >= 1000 && maxChars <= 200_000)) {
@@ -110,7 +120,7 @@ function parsePace(text: string | undefined): { minMs: number; maxMs: number } |
 const pace = parsePace(values.pace);
 
 const session = new BrowserSession({
-	profileDir,
+	profileDir: profileDir ?? tmpdir(),
 	headless: !values.headed,
 	noSandbox: values["no-sandbox"] === true,
 	executablePath: values.executable,
@@ -121,6 +131,8 @@ const session = new BrowserSession({
 	...(values["idle-minutes"] ? { idleMs: Number(values["idle-minutes"]) * 60_000 } : {}),
 	maxSnapshotChars: maxChars,
 	viewport,
+	connect: values.connect,
+	connectFile: values["connect-file"],
 });
 
 if (values.http !== undefined) {
