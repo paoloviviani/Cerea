@@ -21,7 +21,7 @@ mac:
 linux:
   category: Utility
   target: [AppImage, deb]
-  maintainer: Cerea
+  maintainer: Cerea <noreply@github.com>
 electronFuses:
   runAsNode: false
   enableNodeOptionsEnvironmentVariable: false

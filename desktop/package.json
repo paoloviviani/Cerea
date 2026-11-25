@@ -32,5 +32,10 @@
 		"vitest": "^3.2.0",
 		"ws": "8.18.3",
 		"@types/ws": "^8.18.1"
+	},
+	"homepage": "https://github.com/paoloviviani/Cerea",
+	"author": {
+		"name": "Cerea",
+		"email": "noreply@github.com"
 	}
 }
