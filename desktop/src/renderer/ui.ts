@@ -57,7 +57,7 @@ function render() {
 				? "This Mac build is not signed or notarised by Apple, so macOS asks you to confirm the first time you open it, and the app does not update itself: download a new version to update."
 				: "The app does not update itself yet: install a new version to update."
 		}`;
-	$("s-current").textContent = s.server ? `${s.server.name} (${s.server.address})` : "";
+	renderProfiles(s);
 
 	// browser
 	const b = s.browser;
@@ -92,6 +92,50 @@ function render() {
 	}
 	btn.onclick = () => void call("browser:control", { mode: b.mode === "user" ? "agent" : "user" });
 	reportLayout();
+}
+
+function renderProfiles(s: AppState) {
+	const sel = $<HTMLSelectElement>("profile-select");
+	sel.hidden = s.profiles.length === 0;
+	sel.replaceChildren(
+		...s.profiles.map((p) => {
+			const o = document.createElement("option");
+			o.value = p.id;
+			o.textContent = p.name;
+			o.selected = p.active;
+			return o;
+		}),
+		Object.assign(document.createElement("option"), {
+			value: "__add",
+			textContent: "Add profile...",
+		})
+	);
+	const list = $("profile-list");
+	// Not rebuilt while a name is being typed.
+	if (list.contains(document.activeElement)) return;
+	list.replaceChildren(
+		...s.profiles.map((p) => {
+			const li = document.createElement("li");
+			const name = document.createElement("input");
+			name.type = "text";
+			name.value = p.name;
+			name.maxLength = 40;
+			name.setAttribute("aria-label", "Profile name");
+			name.onchange = () => void call("profile:rename", { id: p.id, name: name.value });
+			const addr = document.createElement("span");
+			addr.className = "muted";
+			addr.textContent = `${p.active ? "Active. " : ""}${p.address}`;
+			const use = document.createElement("button");
+			use.textContent = "Switch";
+			use.disabled = p.active;
+			use.onclick = () => void call("profile:switch", { id: p.id });
+			const rm = document.createElement("button");
+			rm.textContent = "Remove...";
+			rm.onclick = () => void call("profile:remove", { id: p.id });
+			li.append(name, addr, use, rm);
+			return li;
+		})
+	);
 }
 
 function reportLayout() {
@@ -166,7 +210,7 @@ function wire() {
 	$("setup-use").onclick = async () => {
 		if (!candidate) return;
 		try {
-			await call("server:set", { address: candidate.address });
+			await call("profile:add", { address: candidate.address });
 		} catch (err) {
 			$("setup-error").textContent = msg(err);
 		}
@@ -188,11 +232,22 @@ function wire() {
 	$("switch-go").onclick = async () => {
 		if (!switchCandidate) return;
 		try {
-			const r = await call("server:switch", { address: switchCandidate.address, confirm: true });
-			if (r) card("switch", undefined);
+			await call("profile:add", { address: switchCandidate.address });
+			card("switch", undefined);
+			$<HTMLInputElement>("switch-address").value = "";
 		} catch (err) {
 			$("switch-error").textContent = msg(err);
 		}
+	};
+	const sel = $<HTMLSelectElement>("profile-select");
+	sel.onchange = () => {
+		if (sel.value === "__add") {
+			pane = "server";
+			render();
+			$<HTMLInputElement>("switch-address").focus();
+			return;
+		}
+		void call("profile:switch", { id: sel.value }).catch((err) => log(`switch: ${msg(err)}`));
 	};
 	$("nav-back").onclick = () => void call("browser:nav", { action: "back" });
 	$("nav-forward").onclick = () => void call("browser:nav", { action: "forward" });

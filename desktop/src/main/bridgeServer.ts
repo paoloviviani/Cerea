@@ -12,7 +12,7 @@ import http from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
-import type { CdpBridge, Transport } from "./cdpBridge.ts";
+import type { Transport } from "./cdpBridge.ts";
 
 export function socketPathFor(runDir: string, uid: number): string {
 	const p = join(runDir, "cdp.sock");
@@ -56,7 +56,7 @@ export interface BridgeServer {
 }
 
 export async function startBridgeServer(
-	bridge: CdpBridge,
+	bridge: { connect(t: Transport): void; disconnect(): void },
 	opts: { runDir: string; uid: number; secret?: string; control?: ModeSource }
 ): Promise<BridgeServer> {
 	const secret = opts.secret ?? randomBytes(32).toString("base64url");

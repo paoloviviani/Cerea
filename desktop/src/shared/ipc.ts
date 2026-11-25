@@ -12,8 +12,10 @@ export type Engine = (typeof ENGINES)[number];
 /** One-way calls the renderer may make, by channel; the value is the validated argument. */
 export interface Calls {
 	"server:probe": { address: string };
-	"server:set": { address: string };
-	"server:switch": { address: string; confirm: true };
+	"profile:add": { address: string; name?: string };
+	"profile:switch": { id: string };
+	"profile:rename": { id: string; name: string };
+	"profile:remove": { id: string };
 	"server:get": undefined;
 	"galopin:status": undefined;
 	"galopin:pair": PairOptions;
@@ -60,6 +62,12 @@ export interface PairOptions {
 }
 
 export class IpcError extends Error {}
+
+/** A profile id as the main process generates them: 12 lower-case hex characters, nothing else. */
+function profileId(v: unknown): string {
+	if (typeof v !== "string" || !/^[a-f0-9]{12}$/.test(v)) throw new IpcError("bad profile id");
+	return v;
+}
 
 const isObj = (v: unknown): v is Record<string, unknown> =>
 	typeof v === "object" && v !== null && !Array.isArray(v);
@@ -125,15 +133,25 @@ export function validate<C extends Channel>(channel: C, raw: unknown): Calls[C] 
 			const o = obj(["enabled"]);
 			return out({ enabled: bool(o.enabled, "enabled") });
 		}
-		case "server:probe":
-		case "server:set": {
+		case "server:probe": {
 			const o = obj(["address"]);
 			return out({ address: str(o.address, "address", 300) });
 		}
-		case "server:switch": {
-			const o = obj(["address", "confirm"]);
-			if (o.confirm !== true) throw new IpcError("switching a server needs confirmation");
-			return out({ address: str(o.address, "address", 300), confirm: true });
+		case "profile:add": {
+			const o = obj(["address", "name"]);
+			return out({
+				address: str(o.address, "address", 300),
+				...(o.name === undefined ? {} : { name: str(o.name, "name", 80) }),
+			});
+		}
+		case "profile:switch":
+		case "profile:remove": {
+			const o = obj(["id"]);
+			return out({ id: profileId(o.id) });
+		}
+		case "profile:rename": {
+			const o = obj(["id", "name"]);
+			return out({ id: profileId(o.id), name: str(o.name, "name", 80) });
 		}
 		case "galopin:launch": {
 			const o = obj(["tool", "dir"]);
@@ -241,8 +259,10 @@ export function validate<C extends Channel>(channel: C, raw: unknown): Calls[C] 
 
 export const CHANNELS: Channel[] = [
 	"server:probe",
-	"server:set",
-	"server:switch",
+	"profile:add",
+	"profile:switch",
+	"profile:rename",
+	"profile:remove",
 	"server:get",
 	"galopin:status",
 	"galopin:pair",
@@ -284,8 +304,16 @@ export interface ServerInfo {
 	name: string;
 	icon?: string;
 }
+export interface ProfileSummary {
+	id: string;
+	name: string;
+	address: string;
+	icon?: string;
+	active: boolean;
+}
 export interface AppState {
 	server: ServerInfo | null;
+	profiles: ProfileSummary[];
 	galopin: { available: boolean; paired: boolean; pairedAddress: string; running: boolean };
 	browser: BrowserState;
 	platform: string;

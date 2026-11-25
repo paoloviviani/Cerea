@@ -23,8 +23,6 @@ import type { BrowserState } from "../shared/ipc.ts";
 /** The most tabs the panel holds, whoever opens them. */
 export const MAX_TABS = 20;
 
-export const PANEL_PARTITION = "persist:cerea-browser";
-
 class ElectronPage implements PageTarget {
 	private attached = false;
 	private eventCbs = new Set<(m: string, p: Json, s?: string) => void>();
@@ -136,19 +134,56 @@ export class BrowserPanel implements TargetHost {
 		private readonly win: BrowserWindow,
 		private readonly control: Control,
 		private readonly emit: (s: BrowserState) => void,
-		private readonly isConnected: () => boolean
+		private readonly isConnected: () => boolean,
+		/** This profile's own session: cookies and logins of the panel never reach another profile's. */
+		private readonly partition: string
 	) {
-		const ses = session.fromPartition(PANEL_PARTITION);
+		const ses = session.fromPartition(partition);
 		// A page in the panel asks for nothing: no camera, location, notifications, clipboard read.
 		ses.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
 		ses.setPermissionCheckHandler(() => false);
 		ses.on("will-download", (_e, item, wc) => this.onWillDownload(item, wc));
-		control.onChange(() => this.refresh());
+		this.offControl = control.onChange(() => this.refresh());
 		const seen = () => this.setWindowVisible(win.isVisible() && !win.isMinimized());
 		win.on("minimize", seen);
 		win.on("hide", seen);
 		win.on("restore", seen);
 		win.on("show", seen);
+		this.offWindow.push(
+			() => win.removeListener("minimize", seen),
+			() => win.removeListener("hide", seen),
+			() => win.removeListener("restore", seen),
+			() => win.removeListener("show", seen)
+		);
+	}
+
+	private offControl: () => void = () => {};
+	private readonly offWindow: (() => void)[] = [];
+	private disposed = false;
+
+	/**
+	 * Closes every tab and lets go of the window and the control gate: the panel of a profile that
+	 * is left. Nothing of it can be reached afterwards (the bridge is detached first, by the caller).
+	 */
+	dispose(): void {
+		if (this.disposed) return;
+		this.disposed = true;
+		clearTimeout(this.idleTimer);
+		this.offControl();
+		for (const off of this.offWindow) off();
+		for (const id of [...this.tabs.keys()]) this.close(id);
+		this.created.clear();
+		this.destroyed.clear();
+		this.downloads.clear();
+		if (this.shield) {
+			try {
+				this.win.contentView.removeChildView(this.shield);
+				this.shield.webContents.close();
+			} catch {
+				// the window is closing
+			}
+			this.shield = undefined;
+		}
 	}
 
 	// ---- the user's side -------------------------------------------------------------------
@@ -268,10 +303,11 @@ export class BrowserPanel implements TargetHost {
 	}
 
 	async create(): Promise<PageTarget> {
+		if (this.disposed) throw new Error("This panel is closed.");
 		if (this.tabs.size >= MAX_TABS) throw new Error(`The panel holds at most ${MAX_TABS} tabs.`);
 		const view = new WebContentsView({
 			webPreferences: {
-				partition: PANEL_PARTITION,
+				partition: this.partition,
 				sandbox: true,
 				contextIsolation: true,
 				nodeIntegration: false,

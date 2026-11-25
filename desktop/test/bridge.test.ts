@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	BridgeRouter,
 	CdpBridge,
 	type DownloadEvent,
 	type Json,
@@ -393,5 +394,59 @@ describe("CDP bridge", () => {
 		const attached = out.filter((m) => m.method === "Target.attachedToTarget");
 		expect(attached.length).toBe(3); // the first one, and both tabs again
 		expect(page.attached).toBe(true);
+	});
+});
+
+describe("a profile switch mid-session", () => {
+	const pair = () => {
+		const host = new FakeHost();
+		const bridge = new CdpBridge(host, new Control());
+		return { host, bridge };
+	};
+	const transport = () => {
+		const out: Json[] = [];
+		let recv: (d: string) => void = () => {};
+		let closed = false;
+		const t: Transport = {
+			send: (d) => out.push(JSON.parse(d)),
+			onMessage: (cb) => (recv = cb),
+			onClose: () => {},
+			close: () => {
+				closed = true;
+			},
+		};
+		return { t, out, recv: (m: object) => recv(JSON.stringify(m)), isClosed: () => closed };
+	};
+
+	it("cuts the old connection off, and a command with the old session id lands nowhere in the new profile", async () => {
+		const a = pair();
+		const b = pair();
+		const router = new BridgeRouter();
+		router.set(a.bridge);
+		const c1 = transport();
+		router.connect(c1.t);
+		c1.recv({ id: 1, method: "Target.setAutoAttach", params: { autoAttach: true, flatten: true } });
+		await new Promise((r) => setTimeout(r, 10));
+		const old = (
+			c1.out.find((m) => m.method === "Target.attachedToTarget")!.params as { sessionId: string }
+		).sessionId;
+		// the switch: nothing is reachable between the old panel and the new one
+		router.set(undefined);
+		expect(c1.isClosed()).toBe(true);
+		expect(a.host.pages[0].attached).toBe(false);
+		const during = transport();
+		router.connect(during.t);
+		expect(during.isClosed()).toBe(true);
+		router.set(b.bridge);
+		// the runtime reconnects to the new profile's panel; the old session id means nothing there
+		const c2 = transport();
+		router.connect(c2.t);
+		c2.recv({ id: 1, method: "Runtime.evaluate", params: { expression: "1" }, sessionId: old });
+		await new Promise((r) => setTimeout(r, 10));
+		expect((c2.out.find((m) => m.id === 1)!.error as { message: string }).message).toMatch(
+			/No session/
+		);
+		expect(b.host.pages[0].sent).toEqual([]);
+		expect(a.host.pages[0].sent).toEqual([]);
 	});
 });

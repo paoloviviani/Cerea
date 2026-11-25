@@ -179,7 +179,7 @@ export interface SwitchSteps {
 	detachRuntime(): void;
 	closePanel(): void;
 	loadProfile(p: Profile): void;
-	startGalopin(p: Profile): void;
+	startGalopin(p: Profile): void | Promise<void>;
 	save(s: Store): void;
 }
 
@@ -193,6 +193,6 @@ export async function switchTo(s: Store, id: string, steps: SwitchSteps): Promis
 	const store = { ...s, active: id };
 	steps.loadProfile(next);
 	steps.save(store);
-	steps.startGalopin(next);
+	await steps.startGalopin(next);
 	return store;
 }
