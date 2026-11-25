@@ -50,36 +50,66 @@ export function safeEqual(a: string, b: string): boolean {
 }
 
 export interface BridgeServer {
-	endpointFile: string;
-	endpoint: string;
+	/** The socket every profile's runtime connects to (each with its own secret). */
+	socket: string;
+	/**
+	 * Gives a profile its own secret and writes its endpoint file into `dir` (that profile's galopin
+	 * directory), 0600. The runtime of that profile's galopin is registered with this file.
+	 */
+	addProfile(id: string, dir: string, secret?: string): string;
+	removeProfile(id: string): void;
+	/** The profile whose runtime is served now; streams of any other end. */
+	setActive(id: string | null): void;
+	endpointFile(id: string): string | undefined;
 	close(): Promise<void>;
 }
 
+export const OTHER_PROFILE = "This browser belongs to another profile.";
+
+/**
+ * One socket, one secret per profile, and only the active profile's secret is served: a galopin of
+ * an inactive profile (a `galopin run` or a shim outside the app, say) cannot drive the panel of the
+ * profile that is open. It is told so, and its connection is refused.
+ */
 export async function startBridgeServer(
 	bridge: { connect(t: Transport): void; disconnect(): void },
-	opts: { runDir: string; uid: number; secret?: string; control?: ModeSource }
+	opts: {
+		runDir: string;
+		uid: number;
+		control?: ModeSource;
+		/** The active profile's id. */
+		active: () => string | null;
+	}
 ): Promise<BridgeServer> {
-	const secret = opts.secret ?? randomBytes(32).toString("base64url");
 	const sock = socketPathFor(opts.runDir, opts.uid);
 	for (const dir of new Set([opts.runDir, join(sock, "..")])) ensurePrivateDir(dir, opts.uid);
 	if (existsSync(sock)) rmSync(sock);
-	const ctlPath = `/ctl/${secret}`;
-	const streams = new Set<http.ServerResponse>();
+	const secrets = new Map<string, { secret: string; file: string }>();
+	/** Which profile a request path belongs to, comparing against every secret in constant time per secret. */
+	const owner = (url: string, kind: "cdp" | "ctl"): string | undefined => {
+		let found: string | undefined;
+		for (const [id, v] of secrets) if (safeEqual(url, `/${kind}/${v.secret}`)) found = id;
+		return found;
+	};
+	const streams = new Map<http.ServerResponse, string>();
 	const unwatch = opts.control?.onChange(() => {
-		for (const res of streams) res.write(modeEvent(opts.control!.current()));
+		for (const res of streams.keys()) res.write(modeEvent(opts.control!.current()));
 	});
 	const server = http.createServer((req, res) => {
 		// Who is driving, pushed to the runtime: one event now and one on every change. The same
-		// secret and rules as the CDP socket (no Origin, exact path).
-		if (
-			opts.control &&
-			req.method === "GET" &&
-			!req.headers.origin &&
-			safeEqual(req.url ?? "", ctlPath)
-		) {
+		// secret rules as the CDP socket (no Origin, exact path, the active profile's secret).
+		const id =
+			opts.control && req.method === "GET" && !req.headers.origin
+				? owner(req.url ?? "", "ctl")
+				: undefined;
+		if (id !== undefined) {
+			if (id !== opts.active()) {
+				res.writeHead(403, { "content-type": "text/plain" });
+				return void res.end(OTHER_PROFILE);
+			}
 			res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store" });
-			res.write(modeEvent(opts.control.current()));
-			streams.add(res);
+			res.write(modeEvent(opts.control!.current()));
+			streams.set(res, id);
 			res.on("close", () => streams.delete(res));
 			return;
 		}
@@ -91,12 +121,18 @@ export async function startBridgeServer(
 		maxPayload: 32 * 1024 * 1024,
 		perMessageDeflate: false,
 	});
-	const path = `/cdp/${secret}`;
 	server.on("upgrade", (req, socket, head) => {
 		// A browser always sends Origin; the runtime never does.
-		const ok = !req.headers.origin && safeEqual(req.url ?? "", path);
-		if (!ok) {
+		const id = req.headers.origin ? undefined : owner(req.url ?? "", "cdp");
+		if (id === undefined) {
 			socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+			socket.destroy();
+			return;
+		}
+		if (id !== opts.active()) {
+			socket.write(
+				`HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n${OTHER_PROFILE}`
+			);
 			socket.destroy();
 			return;
 		}
@@ -112,20 +148,33 @@ export async function startBridgeServer(
 		process.umask(oldMask);
 	}
 	chmodSync(sock, 0o600);
-	const endpoint = `ws+unix://${sock}:${path}`;
-	const endpointFile = join(opts.runDir, "cdp-endpoint");
-	writeFileSync(endpointFile, endpoint + "\n", { mode: 0o600 });
-	chmodSync(endpointFile, 0o600);
 	return {
-		endpointFile,
-		endpoint,
+		socket: sock,
+		addProfile(id, dir, secret = randomBytes(32).toString("base64url")) {
+			ensurePrivateDir(dir, opts.uid);
+			const file = join(dir, "cdp-endpoint");
+			writeFileSync(file, `ws+unix://${sock}:/cdp/${secret}\n`, { mode: 0o600 });
+			chmodSync(file, 0o600);
+			secrets.set(id, { secret, file });
+			return file;
+		},
+		removeProfile(id) {
+			const v = secrets.get(id);
+			secrets.delete(id);
+			if (v) rmSync(v.file, { force: true });
+			for (const [res, owner] of streams) if (owner === id) (res.end(), streams.delete(res));
+		},
+		setActive(id) {
+			for (const [res, owner] of streams) if (owner !== id) (res.end(), streams.delete(res));
+		},
+		endpointFile: (id) => secrets.get(id)?.file,
 		close: () =>
 			new Promise<void>((resolve) => {
 				unwatch?.();
-				for (const r of streams) r.end();
+				for (const res of streams.keys()) res.end();
 				bridge.disconnect();
 				for (const c of wss.clients) c.terminate();
-				rmSync(endpointFile, { force: true });
+				for (const v of secrets.values()) rmSync(v.file, { force: true });
 				server.close(() => resolve());
 				server.closeAllConnections?.();
 			}),

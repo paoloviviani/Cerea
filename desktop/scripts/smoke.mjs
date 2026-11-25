@@ -367,8 +367,29 @@ try {
 			"sessions are separate: a cookie in one profile is not in the other, Cerea window or panel"
 		);
 
-		// the old session id means nothing to the new profile's panel
-		const ws2 = new WebSocket(ep);
+		// the old profile's own secret is refused now (a galopin of that profile outside the app cannot drive this panel)
+		const refusedOld = await new Promise((resolve) => {
+			const w = new WebSocket(ep);
+			w.on("unexpected-response", (_q, res) => {
+				let body = "";
+				res.on("data", (c) => (body += c));
+				res.on("end", () => resolve(`${res.statusCode} ${body}`));
+			});
+			w.on("open", () => resolve("OPENED"));
+			w.on("error", () => {});
+		});
+		assert.equal(refusedOld, "403 This browser belongs to another profile.");
+		// the new profile has its own endpoint file in its own galopin directory
+		const eps = await hook("endpoints", "ENDPOINTS");
+		assert.notEqual(eps[0], eps[1]);
+		assert.ok(
+			eps[1].includes("/profiles/"),
+			"the second profile's endpoint is in its own directory"
+		);
+		const ep2 = fs.readFileSync(eps[1], "utf8").trim();
+		assert.notEqual(ep2, ep);
+		// and the old session id means nothing to the new profile's panel
+		const ws2 = new WebSocket(ep2);
 		await new Promise((r, j) => (ws2.once("open", r), ws2.once("error", j)));
 		const reply = await new Promise((resolve) => {
 			ws2.on("message", (m) => {
@@ -390,7 +411,9 @@ try {
 			"a command aimed at the old profile's page is refused"
 		);
 		ws2.close();
-		step("a command aimed at the old profile's pages is refused after the switch");
+		step(
+			"each profile has its own bridge secret; the inactive one is refused, and the old session id is refused"
+		);
 
 		// switch back: the first server, its sessions intact
 		const back = await hook("switchprofile 0", "PROFILES");

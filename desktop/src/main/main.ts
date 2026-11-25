@@ -16,6 +16,7 @@ import {
 	type IpcMainInvokeEvent,
 	type WebContents,
 } from "electron";
+import { Mutex } from "./mutex.ts";
 import { BridgeRouter, CdpBridge } from "./cdpBridge.ts";
 import { startBridgeServer, type BridgeServer } from "./bridgeServer.ts";
 import { BrowserPanel } from "./browserPanel.ts";
@@ -73,6 +74,8 @@ let galopin: Galopin;
 let bridgeServer: BridgeServer | undefined;
 let store: Store = { active: null, profiles: [] };
 const router = new BridgeRouter();
+/** Profile operations (switch, add, remove) run one at a time, in order. */
+const ops = new Mutex();
 let nodeBinDir: string | undefined;
 const guard: GuardState = { origin: "" };
 const control = new Control();
@@ -205,6 +208,10 @@ const cur = (): Profile | undefined => activeProfile(store);
  */
 function loadActive(): void {
 	const p = cur();
+	// The old panel goes on every path, including the last profile having been removed.
+	panel?.dispose();
+	panel = undefined;
+	bridgeServer?.setActive(p?.id ?? null);
 	if (ceraeView && win) {
 		try {
 			win.contentView.removeChildView(ceraeView);
@@ -303,15 +310,18 @@ const handlers: { [C in Channel]: Handler<C> } = {
 	"server:probe": async ({ address }) => probe(address),
 	"profile:add": async ({ address, name }) => {
 		const server = await probe(address);
-		const { store: next, profile } = addProfile(store, server, name);
-		const first = store.profiles.length === 0;
-		store = next;
-		saveStore(app.getPath("userData"), store);
-		if (first) loadActive();
-		else await switchProfile(profile.id);
-		setMenu();
-		pushState();
-		return profile.id;
+		return ops.run(async () => {
+			const { store: next, profile } = addProfile(store, server, name);
+			const first = store.profiles.length === 0;
+			store = next;
+			saveStore(app.getPath("userData"), store);
+			registerEndpoint(profile);
+			if (first) loadActive();
+			else await doSwitch(profile.id);
+			setMenu();
+			pushState();
+			return profile.id;
+		});
 	},
 	"profile:switch": async ({ id }) => {
 		await switchProfile(id);
@@ -424,7 +434,9 @@ const handlers: { [C in Channel]: Handler<C> } = {
 			galopin.useNode(node.binDir);
 			line(`Using the app's own Node ${node.version}.`);
 		}
-		const a = await galopin.exec(["browser", "setup", "--connect-file", bridgeServer.endpointFile]);
+		const file = bridgeServer.endpointFile(cur()?.id ?? "");
+		if (!file) throw new IpcError("This profile's browser panel is not ready.");
+		const a = await galopin.exec(["browser", "setup", "--connect-file", file]);
 		if (a.code !== 0) return a.output;
 		return (await galopin.exec(["browser", "enable"])).output;
 	},
@@ -506,7 +518,12 @@ function setMenu(): void {
  * Cerea view and panel are the new profile's own, on their own sessions. An installed galopin
  * service follows the active profile, after a confirmation.
  */
-async function switchProfile(id: string): Promise<void> {
+/** Public entry: queued behind any other profile operation. */
+function switchProfile(id: string): Promise<void> {
+	return ops.run(() => doSwitch(id));
+}
+
+async function doSwitch(id: string): Promise<void> {
 	const target = store.profiles.find((p) => p.id === id);
 	if (!target || store.active === id) return;
 	const service = galopin.serviceInstalled();
@@ -545,36 +562,56 @@ async function switchProfile(id: string): Promise<void> {
 }
 
 /** Removes a profile after a confirmation: its sessions and its pairing on this computer go; the server is not told. */
-async function removeProfileFlow(id: string): Promise<boolean> {
+function removeProfileFlow(id: string): Promise<boolean> {
+	return ops.run(() => doRemove(id));
+}
+
+async function doRemove(id: string): Promise<boolean> {
 	const p = store.profiles.find((x) => x.id === id);
 	if (!p) throw new IpcError("No such profile.");
 	const ok = await confirm(
 		`Remove ${p.name}?`,
-		`Its sign-in here, its browser panel's logins and this computer's pairing with it are deleted from this computer. The server is not told: this computer's sign-in there stays valid until you remove the computer from that server's Agents panel.`,
+		`Its sign-in here and its browser panel's logins are deleted from this computer, and this computer's pairing with it is ${
+			p.defaultGalopin
+				? "set aside on this computer (the file is kept, renamed)"
+				: "deleted from this computer"
+		}. The server is not told: this computer's sign-in there stays valid until you remove the computer from that server's Agents panel.`,
 		"Remove"
 	);
 	if (!ok) return false;
 	if (store.active === id) {
 		const other = store.profiles.find((x) => x.id !== id);
-		if (other) await switchProfile(other.id);
+		if (other) await doSwitch(other.id);
 		else {
 			await galopin.stop();
 			if (galopin.serviceInstalled()) await galopin.exec(serviceArgs("uninstall"));
 		}
 		if (store.active === id && other) return false; // the switch was declined: nothing removed
 	}
-	// A galopin of that profile (never the running one) to set its pairing aside.
 	const dir = profileGalopinDir(app.getPath("userData"), p);
+	store = removeProfile(store, id);
+	saveStore(app.getPath("userData"), store);
+	bridgeServer?.removeProfile(id);
+	// Its views are closed first (the last profile's are closed here), and only then its storage is cleared.
+	if (!store.active) loadActive();
 	if (dir) rmSync(join(dir, ".."), { recursive: true, force: true });
 	else makeGalopin(p).unpairLocal();
 	await session.fromPartition(ceraePartition(p.id)).clearStorageData();
 	await session.fromPartition(panelPartition(p.id)).clearStorageData();
-	store = removeProfile(store, id);
-	saveStore(app.getPath("userData"), store);
-	if (!store.active) loadActive();
 	setMenu();
 	pushState();
 	return true;
+}
+
+/** Gives a profile its own bridge secret and endpoint file, inside that profile's galopin directory. */
+function registerEndpoint(p: Profile): void {
+	try {
+		bridgeServer?.addProfile(p.id, makeGalopin(p).configDir());
+	} catch (err) {
+		line(
+			`The browser panel of ${p.name} is off: ${err instanceof Error ? err.message : String(err)}`
+		);
+	}
 }
 
 // ---- energy -----------------------------------------------------------------------------------
@@ -645,6 +682,10 @@ function testHooks(): void {
 						if (!had) dbg.detach();
 					}
 				})();
+			} else if (cmd === "endpoints") {
+				process.stdout.write(
+					`ENDPOINTS ${JSON.stringify(store.profiles.map((p) => bridgeServer?.endpointFile(p.id) ?? null))}\n`
+				);
 			} else if (cmd.startsWith("addprofile ")) {
 				void Promise.resolve(handlers["profile:add"]({ address: cmd.slice(11) })).then(
 					() => process.stdout.write(`PROFILES ${JSON.stringify(appState().profiles)}\n`),
@@ -745,7 +786,9 @@ async function createWindow(): Promise<void> {
 			runDir: join(app.getPath("userData"), "run"),
 			uid: process.getuid?.() ?? 0,
 			control,
+			active: () => store.active,
 		});
+		for (const p of store.profiles) registerEndpoint(p);
 	} catch (err) {
 		// A bridge that cannot start switches the browser panel off, not the app.
 		bridgeServer = undefined;
@@ -792,7 +835,11 @@ else {
 		// window is looked at (focus), so a galopin started elsewhere shows up when it matters.
 		win?.on("focus", pushState);
 		if (TEST) testHooks();
-		if (TEST) process.stdout.write(`CEREA_DESKTOP_READY ${bridgeServer?.endpointFile}\n`);
+		if (TEST) {
+			process.stdout.write(
+				`CEREA_DESKTOP_READY ${bridgeServer?.endpointFile(store.active ?? "")}\n`
+			);
+		}
 	});
 	app.on("window-all-closed", () => app.quit());
 	let quitting = false;
