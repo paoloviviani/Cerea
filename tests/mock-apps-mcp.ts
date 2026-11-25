@@ -314,6 +314,7 @@ export async function startMockAppsMcp(port: number = MOCK_APPS_MCP_PORT): Promi
 		}
 		if (url.pathname === "/__control/calls") return json(recorded);
 		if (url.pathname === "/__control/pings") return json({ pings });
+		if (url.pathname === "/__control/reads") return json(reads);
 		if (url.pathname === "/__control/reset" && req.method === "POST") {
 			recorded.length = 0;
 			reads.length = 0;

@@ -324,6 +324,8 @@ export interface MockAppsMcpControl {
 	calls(): Promise<AppsToolCall[]>;
 	/** Requests that reached the undeclared-domain target: must stay 0. */
 	escapePings(): Promise<number>;
+	/** `resources/read` requests the server served, by URI. */
+	reads(): Promise<string[]>;
 	reset(): Promise<void>;
 }
 
@@ -337,6 +339,10 @@ export function mockAppsMcpControl(request: APIRequestContext): MockAppsMcpContr
 		async escapePings() {
 			const res = await request.get(`${MOCK_APPS_MCP_ORIGIN}/__control/pings`);
 			return (await res.json()).pings;
+		},
+		async reads() {
+			const res = await request.get(`${MOCK_APPS_MCP_ORIGIN}/__control/reads`);
+			return res.json();
 		},
 		async reset() {
 			await request.post(`${MOCK_APPS_MCP_ORIGIN}/__control/reset`, { data: {} });
