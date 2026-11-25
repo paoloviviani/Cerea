@@ -204,6 +204,29 @@ describe("CDP bridge", () => {
 		}
 	});
 
+	it("refuses what would hand the page a local file: file inputs, file drops, file info", async () => {
+		const { call, out } = rig();
+		await call("Target.setAutoAttach", { autoAttach: true, flatten: true });
+		const sid = (
+			out.find((m) => m.method === "Target.attachedToTarget")!.params as { sessionId: string }
+		).sessionId;
+		const drop = (data: unknown) =>
+			call("Input.dispatchDragEvent", { type: "drop", x: 1, y: 1, data }, sid);
+		expect(
+			((await drop({ items: [], files: ["/etc/passwd"] })).error as { message: string }).message
+		).toMatch(/Dropping files/);
+		expect(
+			((await drop({ items: [], files: "/etc/passwd" })).error as { message: string }).message
+		).toMatch(/Dropping files/);
+		expect(
+			(await drop({ items: [{ mimeType: "text/plain", data: "hi" }], files: [] })).result
+		).toBeTruthy();
+		expect((await drop({ items: [] })).result).toBeTruthy();
+		expect(
+			((await call("DOM.getFileInfo", { objectId: "x" }, sid)).error as { message: string }).message
+		).toMatch(/not available/);
+	});
+
 	it("registers a child session only for a frame or worker of a panel page", async () => {
 		const { host, call, out } = rig();
 		await call("Target.setAutoAttach", { autoAttach: true, flatten: true });

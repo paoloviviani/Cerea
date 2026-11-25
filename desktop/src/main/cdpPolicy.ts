@@ -34,6 +34,8 @@ const DENIED = new Set([
 	"Network.loadNetworkResource",
 	"Page.setWebLifecycleState",
 	"Page.generateTestReport",
+	// Reads a local file's size and type: nothing in a web page needs it.
+	"DOM.getFileInfo",
 ]);
 
 export class CommandRefused extends Error {}
@@ -48,11 +50,14 @@ export function checkPageCommand(method: string, params: Record<string, unknown>
 	if (!DOMAINS.has(domain) || DENIED.has(method)) {
 		throw new CommandRefused(`'${method}' is not available here.`);
 	}
-	if (method === "Page.navigate" || method === "Page.setDocumentContent") {
-		if (method === "Page.navigate") checkUrl(params.url);
-	}
-	if (method === "Network.setCookie" || method === "Network.setCookies") {
-		// A page's own session only; no cookie from the runtime may name another origin's page.
+	if (method === "Page.navigate") checkUrl(params.url);
+	// A drop carrying file paths hands the page those local files (the debugger client reads them),
+	// which is what DOM.setFileInputFiles would do: refused the same way. A drag of text or a link is fine.
+	if (method === "Input.dispatchDragEvent") {
+		const files = (params.data as { files?: unknown } | undefined)?.files;
+		if (files !== undefined && !(Array.isArray(files) && files.length === 0)) {
+			throw new CommandRefused("Dropping files is not available here.");
+		}
 	}
 }
 
