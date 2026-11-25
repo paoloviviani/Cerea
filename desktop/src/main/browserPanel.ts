@@ -16,7 +16,11 @@ import {
 import type { DownloadEvent, Json, PageTarget, TargetHost } from "./cdpBridge.ts";
 import type { Control } from "./control.ts";
 import { guardPanel } from "./navGuard.ts";
+import { RateLimit } from "./rateLimit.ts";
 import type { BrowserState } from "../shared/ipc.ts";
+
+/** The most tabs the panel holds, whoever opens them. */
+export const MAX_TABS = 20;
 
 export const PANEL_PARTITION = "persist:cerea-browser";
 
@@ -251,6 +255,8 @@ export class BrowserPanel implements TargetHost {
 		else if (action === "reload") tab.page.wc.reload();
 	}
 
+	private readonly popupLimit = new RateLimit(5, 10_000);
+
 	// ---- TargetHost ------------------------------------------------------------------------
 
 	targets(): PageTarget[] {
@@ -258,6 +264,7 @@ export class BrowserPanel implements TargetHost {
 	}
 
 	async create(): Promise<PageTarget> {
+		if (this.tabs.size >= MAX_TABS) throw new Error(`The panel holds at most ${MAX_TABS} tabs.`);
 		const view = new WebContentsView({
 			webPreferences: {
 				partition: PANEL_PARTITION,
@@ -294,11 +301,12 @@ export class BrowserPanel implements TargetHost {
 			}
 		});
 		wc.setWindowOpenHandler(({ url: to }) => {
-			if (guardPanel(to) === "allow") {
-				void this.create().then((t) => {
-					(t as ElectronPage).initialNavigate(to);
-					this.activate(t.id);
-				});
+			// A popup is a background tab: it is not shown unless the user picks it. At most MAX_TABS
+			// tabs, and five popups in ten seconds, so a page cannot flood the panel.
+			if (guardPanel(to) === "allow" && this.tabs.size < MAX_TABS && this.popupLimit.take()) {
+				void this.create()
+					.then((t) => (t as ElectronPage).initialNavigate(to))
+					.catch(() => {});
 			}
 			return { action: "deny" };
 		});

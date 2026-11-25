@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { guardCerea, guardPanel, mayOpenExternally } from "../src/main/navGuard.ts";
 
 const origin = "https://cerea.example.org";
-const state = { origin };
+const state = { origin, idp: "https://idp.example.org" };
 
 describe("Cerea window navigation guard", () => {
 	it("allows its own origin and nothing else by a click", () => {
@@ -50,14 +50,23 @@ describe("Cerea window navigation guard", () => {
 		expect(guardCerea(s2, "redirect", `${origin}/callback?code=1`, idp).decision).toBe("allow");
 		// a third site is not reachable by a click from there
 		expect(guardCerea(s2, "navigate", "https://evil.example/", idp).decision).toBe("external");
-		// a redirect chain (the provider federating to another) may go on, over https only
-		expect(guardCerea(s2, "redirect", "https://upstream.example/", idp).decision).toBe("allow");
-		expect(guardCerea(s2, "redirect", "http://upstream.example/", idp).decision).toBe("external");
+		// a provider upstream of the server's own is not reachable, redirect or not
+		expect(guardCerea(s2, "redirect", "https://upstream.example/", idp).decision).toBe("external");
+		expect(guardCerea(s2, "redirect", "http://idp.example.org/", idp).decision).toBe("external");
 		// and the excursion lapses
 		const late = Date.now() + 11 * 60 * 1000;
 		expect(guardCerea(s2, "navigate", "https://idp.example.org/login", idp, late).decision).toBe(
 			"external"
 		);
+	});
+
+	it("lets a redirect reach only the identity provider the server named", () => {
+		expect(
+			guardCerea(state, "redirect", "https://other-idp.example/", `${origin}/login`).decision
+		).toBe("external");
+		expect(
+			guardCerea({ origin }, "redirect", "https://idp.example.org/", `${origin}/login`).decision
+		).toBe("external");
 	});
 
 	it("does not start an excursion from a click or to an insecure provider", () => {

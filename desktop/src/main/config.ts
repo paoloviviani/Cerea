@@ -24,6 +24,7 @@ export function loadConfig(userData: string): Config {
 				server: {
 					address,
 					origin: new URL(address).origin,
+					idp: typeof s.idp === "string" ? s.idp : new URL(address).origin,
 					name: typeof s.name === "string" ? s.name.slice(0, 80) : new URL(address).host,
 					...(typeof s.icon === "string" && s.icon.startsWith(new URL(address).origin)
 						? { icon: s.icon }

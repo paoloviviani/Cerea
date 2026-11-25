@@ -6,6 +6,8 @@
  */
 
 export interface ServerInfo {
+	/** The sign-in provider's origin (the issuer in enroll.json). */
+	idp: string;
 	/** The address as stored: scheme, host and base path, no trailing slash. */
 	address: string;
 	origin: string;
@@ -94,6 +96,17 @@ export async function probeServer(address: string, fetchFn: Fetch): Promise<Serv
 			`${new URL(norm).host} is not a Cerea (it did not give its sign-in settings).`
 		);
 	}
+	let idp: string;
+	try {
+		const iss = new URL(f.issuer);
+		if (iss.protocol !== "https:" && !(iss.protocol === "http:" && isLoopbackHost(iss.hostname)))
+			throw new Error("insecure");
+		idp = iss.origin;
+	} catch {
+		throw new ServerError(
+			`${new URL(norm).host} gave a sign-in address that is not secure, so it cannot be used.`
+		);
+	}
 	let name = new URL(norm).host;
 	let icon: string | undefined;
 	try {
@@ -112,5 +125,5 @@ export async function probeServer(address: string, fetchFn: Fetch): Promise<Serv
 	} catch {
 		// the name and logo are a courtesy: the host name stands in
 	}
-	return { address: norm, origin, name, ...(icon ? { icon } : {}) };
+	return { address: norm, origin, idp, name, ...(icon ? { icon } : {}) };
 }
