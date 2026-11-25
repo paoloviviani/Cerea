@@ -38,6 +38,11 @@ strict: true
 
 theme:
   name: material
+  # Self-contained: Inter is served from docs/stylesheets/fonts (see brand.css),
+  # so no request goes to Google Fonts.
+  font: false
+  logo: assets/brand/logo_gradient_day.svg
+  favicon: assets/brand/favicon.svg
   features:
     - content.code.copy
     - navigation.footer
@@ -52,16 +57,24 @@ theme:
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
+      primary: custom
+      accent: custom
       toggle:
         icon: material/weather-night
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
+      primary: custom
+      accent: custom
       toggle:
         icon: material/weather-sunny
         name: Switch to light mode
   icon:
     repo: fontawesome/brands/github
+
+# The brand theme: the shared design tokens as material variables.
+extra_css:
+  - stylesheets/brand.css
 
 # An old deep link into the pre-split agent-machines page lands on the
 # reference page when its anchor moved there (see the script's header).
