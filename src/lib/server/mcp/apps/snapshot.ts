@@ -66,7 +66,13 @@ export async function appSnapshotFor(input: {
 			...(page.prefersBorder !== undefined ? { prefersBorder: page.prefersBorder } : {}),
 		};
 	} catch (err) {
-		if (err instanceof McpAppError && err.code === "not-allowed") return undefined;
+		if (err instanceof McpAppError && err.code === "not-allowed") {
+			logger.info(
+				{ connector: server.name },
+				"[mcp-app] apps are not allowed for this connector or user"
+			);
+			return undefined;
+		}
 		logger.info(
 			{ connector: server.name, tool, err: err instanceof Error ? err.message : String(err) },
 			"[mcp-app] no page for this result, the text result stands"
