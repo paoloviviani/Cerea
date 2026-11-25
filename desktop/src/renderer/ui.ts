@@ -50,6 +50,13 @@ function render() {
 		: `${g.paired ? `Paired with ${g.pairedAddress || "your Cerea"}` : "Not paired"}. galopin is ${g.running ? "running" : "stopped"}.`;
 	$<HTMLButtonElement>("g-start").disabled = !g.available || g.running || !g.paired;
 	$<HTMLButtonElement>("g-stop").disabled = !g.running;
+	$<HTMLInputElement>("s-login").checked = s.startAtLogin;
+	$("s-about").textContent =
+		`Cerea desktop ${s.version}${s.packaged ? "" : " (development build)"}. ${
+			s.platform === "darwin"
+				? "This Mac build is not signed or notarised by Apple, so macOS asks you to confirm the first time you open it, and the app does not update itself: download a new version to update."
+				: "The app does not update itself yet: install a new version to update."
+		}`;
 	$("s-current").textContent = s.server ? `${s.server.name} (${s.server.address})` : "";
 
 	// browser
@@ -139,6 +146,8 @@ function wire() {
 			render();
 		};
 	}
+	$<HTMLInputElement>("s-login").onchange = (e) =>
+		void call("app:login", { enabled: (e.target as HTMLInputElement).checked });
 	$("open-cerea").onclick = () => void call("app:open-cerea");
 	$("setup-form").onsubmit = async (e) => {
 		e.preventDefault();

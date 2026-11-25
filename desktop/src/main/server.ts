@@ -133,3 +133,47 @@ export async function probeServer(
 	}
 	return { address: norm, origin, idp, name, ...(icon ? { icon } : {}) };
 }
+
+/**
+ * The user types a site (`chat.example.org`); the Cerea may live under a path (`/chat`). Candidates
+ * are tried in order and the first that answers like a Cerea wins: the address as typed; the
+ * start page of the site's own web app manifest, when it has one; then `/chat`. When the user
+ * typed a path, only that path is tried. The caller shows what was found before anything is saved.
+ */
+export async function discoverServer(
+	input: string,
+	fetchFn: Fetch,
+	fetchIcon?: (url: string) => Promise<string | undefined>
+): Promise<ServerInfo> {
+	const typed = normalizeAddress(input);
+	const u = new URL(typed);
+	if (u.pathname !== "/") return probeServer(typed, fetchFn, fetchIcon);
+	const candidates = [typed];
+	try {
+		const m = (await getJson(fetchFn, `${typed}/manifest.webmanifest`, 64 * 1024)) as {
+			start_url?: unknown;
+		};
+		if (typeof m.start_url === "string") {
+			const start = new URL(m.start_url, `${typed}/`);
+			const first = start.pathname.split("/").filter(Boolean)[0];
+			if (start.origin === u.origin && first)
+				candidates.push(`${u.origin}/${encodeURIComponent(first)}`);
+		}
+	} catch {
+		// no manifest at the root: the conventional path is next
+	}
+	candidates.push(`${u.origin}/chat`);
+	let firstError: unknown;
+	for (const c of new Set(candidates)) {
+		try {
+			return await probeServer(c, fetchFn, fetchIcon);
+		} catch (e) {
+			firstError ??= e;
+		}
+	}
+	throw firstError instanceof ServerError
+		? new ServerError(
+				`${u.host} did not answer like a Cerea, at / or at /chat. If your Cerea lives under another path, type it too (for example ${u.host}/assistant).`
+			)
+		: firstError;
+}

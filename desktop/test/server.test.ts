@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeAddress, probeServer, ServerError } from "../src/main/server.ts";
+import { discoverServer, normalizeAddress, probeServer, ServerError } from "../src/main/server.ts";
 
 const facts = {
 	issuer: "https://idp.example.org",
@@ -97,5 +97,55 @@ describe("probeServer", () => {
 		await expect(
 			probeServer(base, fakeFetch({ [`${base}/galopin/enroll.json`]: { status: 302 } }))
 		).rejects.toThrow(/did not answer/);
+	});
+});
+
+describe("discoverServer: the user types just the site", () => {
+	const site = "https://chat.example.org";
+	it("finds a Cerea at the root when it answers there", async () => {
+		const info = await discoverServer(
+			"chat.example.org",
+			fakeFetch({ [`${site}/galopin/enroll.json`]: { body: facts } })
+		);
+		expect(info.address).toBe(site);
+	});
+
+	it("falls back to /chat", async () => {
+		const info = await discoverServer(
+			"chat.example.org",
+			fakeFetch({ [`${site}/chat/galopin/enroll.json`]: { body: facts } })
+		);
+		expect(info.address).toBe(`${site}/chat`);
+	});
+
+	it("follows the root manifest's start page to the base path", async () => {
+		const info = await discoverServer(
+			"chat.example.org",
+			fakeFetch({
+				[`${site}/manifest.webmanifest`]: { body: { start_url: "/assistant/" } },
+				[`${site}/assistant/galopin/enroll.json`]: { body: facts },
+			})
+		);
+		expect(info.address).toBe(`${site}/assistant`);
+	});
+
+	it("tries only the path the user typed", async () => {
+		await expect(
+			discoverServer(
+				"chat.example.org/other",
+				fakeFetch({ [`${site}/chat/galopin/enroll.json`]: { body: facts } })
+			)
+		).rejects.toThrow(ServerError);
+	});
+
+	it("says where it looked when nothing answers, and ignores a start page on another origin", async () => {
+		await expect(
+			discoverServer(
+				"chat.example.org",
+				fakeFetch({
+					[`${site}/manifest.webmanifest`]: { body: { start_url: "https://evil.example/x/" } },
+				})
+			)
+		).rejects.toThrow(/at \/ or at \/chat/);
 	});
 });
