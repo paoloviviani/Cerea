@@ -55,15 +55,49 @@ The main process (never the renderer) finds the Cerea and asks it who it is:
   never loads anything from the server. A card shows **what was found** (name, icon and the full
   address, path included) before the user confirms with "Use this server".
 
-The address, origin, identity provider's origin and icon are stored in `config.json` (userData, 0600)
-and re-validated on every start. The origin is the
+The address, origin, identity provider's origin and icon are stored with the profile (below) in
+`config.json` (userData, 0600) and re-validated on every start. The origin is the
 only origin the Cerea window may load (navigation guard below), and pairing uses it: `galopin enroll
 --cerea <address>`, so the issuer, gateway and client id are discovered from the server the way the
-Pair dialog's line does it, never typed. **Server tab, Switch server**: probe the new address, then
-a native confirmation (in the main process, so a compromised renderer cannot skip it): signs the
-Cerea window out (its storage is cleared), stops galopin and sets this computer's credentials aside
-(`credentials.json.unpaired-<time>`, not deleted), because a pairing belongs to one server. It says
-to remove the computer from the old server's Agents panel too, as removing the Mac app does.
+Pair dialog's line does it, never typed.
+
+### Server profiles: a work server and a home server
+
+A **profile** is a server (address and discovered chat path, identity provider, icon) with a
+display name, its own web sessions and its own galopin pairing. The switcher is a box in the
+window's header, a **Profiles** menu (Ctrl or Cmd with Shift and 1 to 9), and the **Profiles** tab,
+where profiles are added (the same address check as the first run, showing what was found),
+renamed and removed. The window title names the active profile. There is no tray icon yet (v1 has
+none), so the menu is the "tray entry" for now.
+
+- **Nothing crosses.** The Cerea window uses `persist:cerea-<id>` and the browser panel
+  `persist:panel-<id>`; the ids are 12 random hex characters made by the app, validated wherever
+  they are read (config file, IPC, partition and directory names), never taken from user text.
+  The smoke test sets cookies in one profile and shows they are in neither session of the other.
+- **galopin is enrolled on each server separately; credentials never move between profiles.**
+  The first profile (and the single server of the earlier version of this app, which becomes
+  profile 1 when the file is read) uses galopin's default configuration directory, so a computer
+  already paired with the CLI keeps that pairing and the shims `galopin setup` made keep working.
+  Every later profile has `<userData>/profiles/<id>/galopin/` and every command for it gets
+  `--creds <that>/credentials.json` (`service install` passes it as a run flag). `galopin setup
+TOOL` (not `--desktop`) takes no `--creds`: its shims follow the default pairing, so they belong
+  to the first profile.
+- **Switching** (one code path, `switchTo`, whose order is tested): stop the active profile's
+  galopin and wait for its exit; cut the runtime off (the bridge router closes the old connection
+  and refuses new ones) and dispose the old panel (its tabs close); load the other profile (a new
+  Cerea view and a new panel on that profile's own sessions, a new bridge behind the router); save;
+  start that profile's galopin. Only the active profile's galopin runs, and the bridge only ever
+  targets the active profile's panel: a command with an old session id gets "No session" from the
+  new bridge (unit test and smoke step).
+- **A galopin service follows the active profile**, after a confirmation on switch: it is installed
+  again for the new profile (or removed when this computer is not paired there yet). **Start at
+  login** is the app's, not a profile's: it opens the app on the profile that was active.
+- **Remove** (Profiles tab) asks first, in the main process: the profile's sessions (both) are
+  cleared, a profile with its own directory has it deleted, and the default one's credentials are
+  set aside (`credentials.json.unpaired-<time>`). The server is not told: this computer's sign-in
+  there stays valid until the computer is removed from that server's Agents panel. Removing the
+  active profile switches to another first; removing the last leaves the first-run screen.
+- Up to 9 profiles; the same address cannot be added twice.
 
 ## How the chat drives the embedded browser (the core decision)
 
@@ -251,7 +285,7 @@ user's own browsing in the panel is never blocked when no task runs. Live view i
 
 - `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`, `webSecurity: true` on
   every web contents; no `<webview>` (attaching one is refused).
-- **Only the local UI has a preload**, exposing `window.cerea.call(channel, arg)` for the 23
+- **Only the local UI has a preload**, exposing `window.cerea.call(channel, arg)` for the 25
   channels in `shared/ipc.ts` and `window.cerea.on` for three events. The Cerea window and the
   browser panel's pages have no preload and no Node: they are web pages.
 - **Every IPC argument is validated again in the main process** (`validate()`: closed object
