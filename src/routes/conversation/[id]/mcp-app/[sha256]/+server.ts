@@ -33,7 +33,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 	const page = await openAppPage(conversationId, sha256.data);
 	if (!page) error(404, "Not found");
 	// The connector is the one recorded with the stored page on the server, not anything the browser says.
-	if (!(await appsAllowedFor(page.connector, locals.user?._id))) {
+	if (!locals.user || !(await appsAllowedFor(page.connector, locals.user._id))) {
 		page.stream.destroy();
 		error(403, "Apps are not allowed here");
 	}

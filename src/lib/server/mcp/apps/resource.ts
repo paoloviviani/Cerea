@@ -76,7 +76,8 @@ export async function resolveAppServer(
 	const { connectors } = await resolveConnectors(userId);
 	const connector = connectors.find((c) => c.key === connectorRef);
 	if (!connector) throw new McpAppError("unknown-connector", "That connector is not available.");
-	if (!(await appsAllowedFor(connectorRef, userId))) {
+	// Apps are a signed-in feature: without a user the answer is no (the policy is per user).
+	if (!userId || !(await appsAllowedFor(connectorRef, userId))) {
 		throw new McpAppError("not-allowed", "Apps are not allowed for this connector.");
 	}
 	const opened = await connector.open();
@@ -104,7 +105,7 @@ export async function readUiResource(
 	if (typeof connector === "string") {
 		server = await resolveAppServer(connector, userId);
 	} else {
-		if (connector.key && !(await appsAllowedFor(connector.key, userId))) {
+		if (connector.key && (!userId || !(await appsAllowedFor(connector.key, userId)))) {
 			throw new McpAppError("not-allowed", "Apps are not allowed for this connector.");
 		}
 		server = connector;

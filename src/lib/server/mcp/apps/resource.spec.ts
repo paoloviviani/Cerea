@@ -30,7 +30,9 @@ vi.mock("$lib/server/logger", () => ({
 	logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-const { readUiResource, McpAppError, resetUiResourceCache } = await import("./resource");
+const { readUiResource: read, McpAppError, resetUiResourceCache } = await import("./resource");
+const userId = new (await import("mongodb")).ObjectId();
+const readUiResource = (c: Parameters<typeof read>[0], uri: string) => read(c, uri, { userId });
 const { MAX_APP_HTML_BYTES } = await import("$lib/utils/mcpApp");
 
 const MIME = "text/html;profile=mcp-app";
@@ -84,7 +86,7 @@ describe("readUiResource", () => {
 		await readUiResource("connector:1", URI);
 
 		expect(open).toHaveBeenCalled();
-		expect(fake.allowed).toHaveBeenCalledWith("connector:1", undefined);
+		expect(fake.allowed).toHaveBeenCalledWith("connector:1", userId);
 	});
 
 	it("refuses a connector the user cannot use", async () => {
@@ -107,6 +109,11 @@ describe("readUiResource", () => {
 		expect(await codeOf(readUiResource(server, URI))).toBe("bad-uri");
 		expect(fake.read).not.toHaveBeenCalled();
 		fake.tools = [{ name: "show", ui: { resourceUri: URI } }];
+	});
+
+	it("reads nothing without a signed-in user: the policy is per user", async () => {
+		expect(await codeOf(read(server, URI))).toBe("not-allowed");
+		expect(fake.read).not.toHaveBeenCalled();
 	});
 
 	it("refuses an address that is not ui://", async () => {
