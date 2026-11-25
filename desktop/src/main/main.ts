@@ -455,7 +455,24 @@ function testHooks(): void {
 			} else if (cmd === "hide") win?.hide();
 			else if (cmd === "show") win?.show();
 			else if (cmd === "state") process.stdout.write(`STATE ${JSON.stringify(appState())}\n`);
-			else if (cmd.startsWith("usernav ")) panel?.openForUser(cmd.slice(8));
+			else if (cmd === "targetids") {
+				// The real DevTools target ids of the local UI and the Cerea view, for the smoke test to aim at.
+				void (async () => {
+					const dbg = win!.webContents.debugger;
+					const had = dbg.isAttached();
+					if (!had) dbg.attach("1.3");
+					try {
+						const t = (await dbg.sendCommand("Target.getTargets")) as {
+							targetInfos: { targetId: string; url: string; type: string }[];
+						};
+						process.stdout.write(
+							`TARGETIDS ${JSON.stringify(t.targetInfos.filter((x) => x.type === "page").map((x) => ({ id: x.targetId, url: x.url })))}\n`
+						);
+					} finally {
+						if (!had) dbg.detach();
+					}
+				})();
+			} else if (cmd.startsWith("usernav ")) panel?.openForUser(cmd.slice(8));
 			else if (cmd.startsWith("control ")) control.set(cmd.endsWith("user") ? "user" : "agent");
 			else if (cmd === "tabs")
 				process.stdout.write(`TABS ${JSON.stringify(panel?.state().tabs ?? [])}\n`);
