@@ -26,9 +26,7 @@ export function loadConfig(userData: string): Config {
 					origin: new URL(address).origin,
 					idp: typeof s.idp === "string" ? s.idp : new URL(address).origin,
 					name: typeof s.name === "string" ? s.name.slice(0, 80) : new URL(address).host,
-					...(typeof s.icon === "string" && s.icon.startsWith(new URL(address).origin)
-						? { icon: s.icon }
-						: {}),
+					...(typeof s.icon === "string" && safeIcon(s.icon) ? { icon: s.icon } : {}),
 				},
 			};
 		}
@@ -45,4 +43,12 @@ export function saveConfig(userData: string, c: Config): void {
 	mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
 	writeFileSync(file, JSON.stringify(c, null, 2) + "\n", { mode: 0o600 });
 	chmodSync(file, 0o600);
+}
+
+/** A stored icon is only ever a small base64 image, never a URL the window would fetch. */
+export function safeIcon(icon: string): boolean {
+	return (
+		/^data:image\/(png|jpeg|webp|gif|x-icon);base64,[A-Za-z0-9+/=]+$/.test(icon) &&
+		icon.length < 300_000
+	);
 }

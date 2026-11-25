@@ -73,7 +73,12 @@ async function getJson(fetchFn: Fetch, url: string, maxBytes: number): Promise<u
 }
 
 /** Asks the server who it is. Throws a ServerError saying why it is not a Cerea. */
-export async function probeServer(address: string, fetchFn: Fetch): Promise<ServerInfo> {
+export async function probeServer(
+	address: string,
+	fetchFn: Fetch,
+	/** Fetches an image and returns it as a `data:` URL (size and type checked by the caller), or nothing. */
+	fetchIcon?: (url: string) => Promise<string | undefined>
+): Promise<ServerInfo> {
 	const norm = normalizeAddress(address);
 	const origin = new URL(norm).origin;
 	let facts: unknown;
@@ -120,7 +125,8 @@ export async function probeServer(address: string, fetchFn: Fetch): Promise<Serv
 		if (typeof src === "string") {
 			const abs = new URL(src, `${norm}/`);
 			// Only an icon from the server itself is shown.
-			if (abs.origin === origin) icon = abs.href;
+			if (abs.origin === origin && fetchIcon)
+				icon = await fetchIcon(abs.href).catch(() => undefined);
 		}
 	} catch {
 		// the name and logo are a courtesy: the host name stands in
