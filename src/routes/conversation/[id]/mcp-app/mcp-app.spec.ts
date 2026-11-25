@@ -16,21 +16,23 @@ vi.mock("$lib/server/database", () => ({
 				fake.conversation ? { _id: 1, approvedTools: [], toolApprovalOverride: undefined } : null
 			),
 		},
-		codeExecutionOutputs: {
-			findOne: vi.fn(async () => (fake.row ? { _id: 1, summary: "connector:1" } : null)),
-		},
+		codeExecutionOutputs: { findOne: vi.fn(async () => (fake.row ? { _id: 1 } : null)) },
 		settings: { findOne: vi.fn(async () => ({ toolApprovalPolicy: "manual" })) },
 	},
 }));
 vi.mock("$lib/server/execution/deliverables", async () => {
 	const { Readable } = await import("node:stream");
 	return {
-		openDeliverable: vi.fn(async () => ({
-			stream: Readable.from([Buffer.from("<script>alert(1)</script>")]),
-			size: 25,
-			mime: "text/html",
-			name: "mcp-app-x.html",
-		})),
+		MCP_APP_FILE_TOOL: "mcp_app",
+		openAppPage: vi.fn(async () =>
+			fake.row
+				? {
+						stream: Readable.from([Buffer.from("<script>alert(1)</script>")]),
+						size: 25,
+						connector: "connector:1",
+					}
+				: undefined
+		),
 	};
 });
 vi.mock("$lib/server/mcp/appsPolicy", () => ({ appsAllowedFor: fake.allowed }));
@@ -48,11 +50,18 @@ const getPage = () =>
 		locals,
 	} as never) as Promise<Response>;
 
-const postCall = (body: unknown) =>
+const postCall = (
+	body: unknown,
+	headers: Record<string, string> = {
+		"content-type": "application/json",
+		origin: "http://x",
+	}
+) =>
 	call.POST({
 		params: { id },
 		locals,
-		request: new Request("http://x/call", { method: "POST", body: JSON.stringify(body) }),
+		url: new URL("http://x/conversation/c/mcp-app/call"),
+		request: new Request("http://x/call", { method: "POST", body: JSON.stringify(body), headers }),
 	} as never) as Promise<Response>;
 
 beforeEach(() => {
@@ -133,15 +142,31 @@ describe("the page tool-call route", () => {
 		expect(fake.callToolFromPage).not.toHaveBeenCalled();
 	});
 
-	it("takes an approval only in the two forms the card sends", async () => {
-		await expect(postCall({ connector: "c", tool: "t", approval: "always" })).rejects.toMatchObject(
-			{ status: 400 }
-		);
+	it("takes an approval only as the id the 409 issued with a choice, never a bare word", async () => {
+		await expect(postCall({ connector: "c", tool: "t", approval: "once" })).rejects.toMatchObject({
+			status: 400,
+		});
+		await expect(
+			postCall({ connector: "c", tool: "t", approval: { id: "not-a-uuid", choice: "once" } })
+		).rejects.toMatchObject({ status: 400 });
 		fake.callToolFromPage.mockResolvedValue({ ok: true, result: { content: [] } });
-		await postCall({ connector: "c", tool: "t", approval: "once" });
-		expect(fake.callToolFromPage).toHaveBeenCalledWith(
-			expect.objectContaining({ approval: "once" })
-		);
+		const approval = { id: "11111111-1111-4111-8111-111111111111", choice: "once" };
+		await postCall({ connector: "c", tool: "t", approval });
+		expect(fake.callToolFromPage).toHaveBeenCalledWith(expect.objectContaining({ approval }));
+	});
+
+	it("takes only a JSON body from this site's own origin", async () => {
+		const body = { connector: "connector:1", tool: "t" };
+		await expect(
+			postCall(body, { "content-type": "text/plain", origin: "http://x" })
+		).rejects.toMatchObject({ status: 415 });
+		await expect(
+			postCall(body, { "content-type": "application/json", origin: "https://evil.example" })
+		).rejects.toMatchObject({ status: 403 });
+		await expect(postCall(body, { "content-type": "application/json" })).rejects.toMatchObject({
+			status: 403,
+		});
+		expect(fake.callToolFromPage).not.toHaveBeenCalled();
 	});
 
 	it("refuses a conversation the caller does not own, and a malformed body", async () => {

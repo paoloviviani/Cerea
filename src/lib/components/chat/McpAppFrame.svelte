@@ -59,6 +59,10 @@
 	let fullscreen = $state(false);
 	let isDark = $state(false);
 	let note = $state<string | null>(null);
+	/** The page left its document (self-navigation): the bridge is closed and the frame is gone. */
+	let dead = $state(false);
+	/** The anti-clickjacking delay: the approval's buttons do nothing for a moment after it appears. */
+	let approvalReady = $state(false);
 	let linkUrl = $state<URL | null>(null);
 	let linkAnswer: ((opened: boolean) => void) | null = null;
 	type PendingApproval = {
@@ -71,13 +75,21 @@
 	let bridge: AppBridge | undefined;
 	let started = false;
 	let initialized = false;
+	/** Documents loaded in the frame since it was given the page: only the first may talk to the bridge. */
+	let armed = false;
+	let pageLoads = 0;
+	let initializations = 0;
+	const APPROVAL_DELAY_MS = 500;
+
+	/** Where Cerea itself is served: never a domain the page may be given. */
+	const ownOrigins = () => (typeof location === "undefined" ? [] : [location.origin]);
 	const callTimes: number[] = [];
 
 	const declaredDomains = $derived(
 		[
-			...cleanDomains(app.csp?.connectDomains).kept,
-			...cleanDomains(app.csp?.resourceDomains).kept,
-			...cleanDomains(app.csp?.frameDomains).kept,
+			...cleanDomains(app.csp?.connectDomains, { ownOrigins: ownOrigins() }).kept,
+			...cleanDomains(app.csp?.resourceDomains, { ownOrigins: ownOrigins() }).kept,
+			...cleanDomains(app.csp?.frameDomains, { ownOrigins: ownOrigins() }).kept,
 		].filter((value, index, all) => all.indexOf(value) === index)
 	);
 
@@ -127,33 +139,31 @@
 		return { isError: true as const, content: [{ type: "text" as const, text }] };
 	}
 
-	/** One answer at a time: two calls that both need approval are asked one after the other. */
-	let askChain: Promise<unknown> = Promise.resolve();
+	/** One card at a time: a second call that needs approval while one waits is refused. */
 	function askApproval(
 		tool: string,
 		args: Record<string, unknown>
-	): Promise<"once" | "conversation" | "deny"> {
-		const next = askChain.then(
-			() =>
-				new Promise<"once" | "conversation" | "deny">((resolve) => {
-					approval = {
-						tool,
-						args,
-						answer: (choice) => {
-							approval = null;
-							resolve(choice);
-						},
-					};
-				})
-		);
-		askChain = next.catch(() => undefined);
-		return next;
+	): Promise<"once" | "conversation" | "deny"> | null {
+		if (approval) return null;
+		return new Promise<"once" | "conversation" | "deny">((resolve) => {
+			approvalReady = false;
+			setTimeout(() => (approvalReady = true), APPROVAL_DELAY_MS);
+			approval = {
+				tool,
+				args,
+				answer: (choice) => {
+					if (!approvalReady && choice !== "deny") return;
+					approval = null;
+					resolve(choice);
+				},
+			};
+		});
 	}
 
 	async function forwardCall(
 		name: string,
 		args: Record<string, unknown>,
-		choice?: "once" | "conversation"
+		approvalAnswer?: { id: string; choice: "once" | "conversation" | "deny" }
 	) {
 		const response = await fetch(`${base}/conversation/${conversationId}/mcp-app/call`, {
 			method: "POST",
@@ -162,7 +172,7 @@
 				connector: app.connector,
 				tool: name,
 				arguments: args,
-				...(choice ? { approval: choice } : {}),
+				...(approvalAnswer ? { approval: approvalAnswer } : {}),
 			}),
 		});
 		const body = (await response.json().catch(() => null)) as {
@@ -174,13 +184,21 @@
 			};
 			code?: string;
 			message?: string;
+			approval?: { id?: string };
 		} | null;
 		if (response.ok && body?.ok && body.result) return body.result;
-		if (response.status === 409 && body?.code === "approval_required") {
-			const answer = await askApproval(name, args);
+		if (response.status === 409 && body?.code === "approval_required" && body.approval?.id) {
+			const id = body.approval.id;
+			const asked = askApproval(name, args);
 			// Texts below go to the page, not to the user: they are not interface copy.
-			if (answer === "deny") return failure("The user denied this call."); // i18n: server text
-			return forwardCall(name, args, answer);
+			if (!asked) return failure("Another call is waiting for the user's answer."); // i18n: server text
+			const answer = await asked;
+			if (answer === "deny") {
+				// Frees the server's one waiting slot; what the page sees does not depend on it.
+				void forwardCall(name, args, { id, choice: "deny" }).catch(() => undefined);
+				return failure("The user denied this call."); // i18n: server text
+			}
+			return forwardCall(name, args, { id, choice: answer });
 		}
 		return failure(body?.message ?? "The call failed."); // i18n: server text
 	}
@@ -223,6 +241,9 @@
 		);
 		bridge = instance;
 		instance.oninitialized = () => {
+			// A document that says it is ready a second time is not the page that was given: close.
+			initializations += 1;
+			if (initializations > 1) return kill();
 			initialized = true;
 			void instance
 				// Snapshots: a reactive proxy cannot be posted to another window.
@@ -248,8 +269,8 @@
 				return { isError: true };
 			}
 			const text = texts.join("\n").trim().slice(0, MAX_APP_MESSAGE_CHARS);
-			if (!text || !messageSink) return { isError: true };
-			messageSink(text, app.server);
+			// A suggestion the user sees above the composer, never text written into it.
+			if (!text || !messageSink || !messageSink(text, app.server)) return { isError: true };
 			note = m["chat.mcp_app.message_added"]({ server: app.server });
 			return {};
 		};
@@ -267,7 +288,35 @@
 		};
 		await instance.connect(new PostMessageTransport(win, win));
 		// Only now does the page get its document: the bridge is listening before its first message.
-		srcdoc = buildMcpAppSrcdoc(page, app.csp);
+		armed = true;
+		srcdoc = buildMcpAppSrcdoc(page, app.csp, { ownOrigins: ownOrigins() });
+	}
+
+	/**
+	 * The frame loaded a document. The first after the page was given is the page; any later one means it
+	 * navigated itself (script, meta refresh, a link to itself): that document is outside the CSP we built and
+	 * must not keep the bridge, so the bridge is closed and the frame removed.
+	 */
+	function onFrameLoad() {
+		if (!armed) return;
+		try {
+			// The initial blank document is readable, a sandboxed one is not.
+			if (iframeEl?.contentWindow?.location.href === "about:blank") return;
+		} catch {
+			// Opaque origin: this is the page (or a document it moved to).
+		}
+		pageLoads += 1;
+		if (pageLoads > 1) kill();
+	}
+
+	function kill() {
+		if (dead) return;
+		dead = true;
+		const instance = bridge;
+		bridge = undefined;
+		srcdoc = undefined;
+		initialized = false;
+		void instance?.close().catch(() => undefined);
 	}
 
 	$effect(() => {
@@ -326,7 +375,7 @@
 		data-testid="mcp-app"
 		class={fullscreen
 			? "fixed inset-0 z-50 flex flex-col bg-white dark:bg-gray-900"
-			: "my-2 flex flex-col overflow-hidden rounded-xl bg-white dark:bg-gray-900 " +
+			: "relative my-2 flex flex-col overflow-hidden rounded-xl bg-white dark:bg-gray-900 " +
 				(app.prefersBorder === false ? "" : "border border-gray-200 dark:border-gray-700")}
 	>
 		<div
@@ -361,7 +410,7 @@
 		{#if approval}
 			<div
 				data-testid="mcp-app-approval"
-				class="space-y-2 border-b border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-100"
+				class="absolute inset-x-0 top-0 z-10 space-y-2 border-b border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-100"
 			>
 				<p>{m["chat.mcp_app.approval.title"]({ server: app.server, tool: approval.tool })}</p>
 				<div class="text-xxs font-semibold uppercase">{m["chat.mcp_app.approval.args"]()}</div>
@@ -374,12 +423,14 @@
 				<div class="flex flex-wrap gap-2">
 					<button
 						type="button"
-						class="rounded-lg bg-gray-900 px-3 py-1 text-xs font-semibold text-white hover:bg-black dark:bg-gray-100 dark:text-gray-900"
+						disabled={!approvalReady}
+						class="rounded-lg bg-gray-900 px-3 py-1 text-xs font-semibold text-white hover:bg-black disabled:opacity-40 dark:bg-gray-100 dark:text-gray-900"
 						onclick={() => approval?.answer("once")}>{m["chat.approval.allow_once"]()}</button
 					>
 					<button
 						type="button"
-						class="rounded-lg border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-900 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
+						disabled={!approvalReady}
+						class="rounded-lg border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-900 hover:bg-gray-50 disabled:opacity-40 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
 						onclick={() => approval?.answer("conversation")}
 						>{m["chat.mcp_app.approval.allow_conversation"]()}</button
 					>
@@ -401,7 +452,11 @@
 			</p>
 		{/if}
 
-		{#if html === null}
+		{#if dead}
+			<p data-testid="mcp-app-closed" class="px-3 py-6 text-center text-xs text-gray-500">
+				{m["chat.mcp_app.closed"]()}
+			</p>
+		{:else if html === null}
 			<div class="px-3 py-6 text-center text-xs text-gray-400" data-testid="mcp-app-loading">
 				{m["chat.mcp_app.loading"]()}
 			</div>
@@ -414,7 +469,7 @@
 				class="w-full border-0 bg-white dark:bg-gray-900 {fullscreen ? 'min-h-0 flex-1' : ''}"
 				style={fullscreen ? undefined : `height: ${frameHeight}px`}
 				sandbox={MCP_APP_SANDBOX}
-				allow="clipboard-write *"
+				onload={onFrameLoad}
 				referrerpolicy="no-referrer"
 				{srcdoc}
 			></iframe>

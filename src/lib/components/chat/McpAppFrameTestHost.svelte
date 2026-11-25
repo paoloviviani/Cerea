@@ -12,7 +12,7 @@
 		toolInput,
 		toolResult,
 		pageUrl,
-	}: { sink: (text: string, from: string) => void } & Props = $props();
+	}: { sink: (text: string, from: string) => boolean } & Props = $props();
 
 	setAppMessageSink((text, from) => sink(text, from));
 </script>

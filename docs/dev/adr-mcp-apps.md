@@ -21,7 +21,7 @@ design.
 
 ### 1. Where the page runs
 
-- **One sandboxed iframe, rendered from `srcdoc`, with `sandbox="allow-scripts allow-forms ..."` and no
+- **One sandboxed iframe, rendered from `srcdoc`, with `sandbox="allow-scripts"` and no
   `allow-same-origin`.** The page gets an opaque origin: it cannot read Cerea's cookies, storage, DOM or session, and it
   cannot make a credentialed request to Cerea. This is the sink that HTML artifacts already use (`PREVIEW_SANDBOX`,
   `previewSrcdoc.ts`; `artifactTool.ts` noted that the `ui://` slice would share it). No popups, no downloads, no
@@ -34,6 +34,8 @@ design.
   Pages written for the common examples do not need any of these. The `postMessage` channel is the official
   `PostMessageTransport`, which accepts messages only from that one iframe's window.
 - The page is **never** loaded from the connector's URL, only from the HTML Cerea read itself.
+- **The frame cannot take the bridge with it.** A sandboxed frame can navigate itself (script, meta refresh, a link to itself), and the new document would keep the same window and the bridge, outside the CSP built for the first one. The card counts the frame's `load` events: any load after the page's own, or a second `initialized`, closes the bridge and removes the frame (the card says so). `navigate-to` is not available in browsers, so detection is what there is.
+- **No delegated permissions** (`allow` is not set: no clipboard, camera, fullscreen), and `allow-forms` is not granted: `form-action 'none'` makes it moot.
 - **Single iframe, not the reference double iframe.** There is no outer proxy frame on a second origin: one sandboxed frame, opaque origin, and the bridge talks to it directly.
 
 ### 2. What the page may load (CSP)
@@ -58,15 +60,15 @@ design.
 
 Everything goes through the official `AppBridge` and a small set of handlers. **A request with no handler is refused.**
 
-| Page request                                                                                          | Cerea                                                                                                                                                                                                                                    |
-| ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tools/call`                                                                                          | Server-side, **through the approval gate**, same connector only, only tools whose `_meta.ui.visibility` includes `"app"` (default both). See below.                                                                                      |
-| `ui/message`                                                                                          | Allowed, **conservatively**: the text becomes a _draft in the composer_, labelled as coming from the page. The user reads it and sends it, or clears it. It is never sent as a user turn on the page's say-so. Text only; length-capped. |
-| `ui/open-link`                                                                                        | `http`/`https` only, after a **confirmation dialog** that shows the full address and the connector's name. Opened with `noopener,noreferrer`.                                                                                            |
-| `ui/request-display-mode`                                                                             | `inline` and `fullscreen` (a fixed overlay in the same page; Escape or a button closes it). `pip` is declined.                                                                                                                           |
-| `ui/notifications/size-changed`                                                                       | Height follows the page, capped.                                                                                                                                                                                                         |
-| `notifications/message` (logging)                                                                     | Accepted, kept in the browser console at debug level. Not shown.                                                                                                                                                                         |
-| `ui/update-model-context`, `ui/download-file`, `resources/*`, `tools/list`, `sampling/*`, `prompts/*` | **Not supported yet**, refused.                                                                                                                                                                                                          |
+| Page request                                                                                          | Cerea                                                                                                                                                                                                                                                                                                               |
+| ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tools/call`                                                                                          | Server-side, **through the approval gate**, same connector only, only tools whose `_meta.ui.visibility` includes `"app"` (default both). See below.                                                                                                                                                                 |
+| `ui/message`                                                                                          | Allowed, **conservatively**: the text becomes a _suggestion chip above the composer_, "<connector> suggests a message: Insert · Dismiss". It is never written into the draft, never takes the focus and is never sent: Insert is the user's click. At most one suggestion per 10 seconds. Text only; length-capped. |
+| `ui/open-link`                                                                                        | `http`/`https` only, after a **confirmation dialog** that shows the full address and the connector's name. Opened with `noopener,noreferrer`.                                                                                                                                                                       |
+| `ui/request-display-mode`                                                                             | `inline` and `fullscreen` (a fixed overlay in the same page; Escape or a button closes it). `pip` is declined.                                                                                                                                                                                                      |
+| `ui/notifications/size-changed`                                                                       | Height follows the page, capped.                                                                                                                                                                                                                                                                                    |
+| `notifications/message` (logging)                                                                     | Accepted, kept in the browser console at debug level. Not shown.                                                                                                                                                                                                                                                    |
+| `ui/update-model-context`, `ui/download-file`, `resources/*`, `tools/list`, `sampling/*`, `prompts/*` | **Not supported yet**, refused.                                                                                                                                                                                                                                                                                     |
 
 **Page-initiated tool calls (the one real risk).** The page is untrusted, and a call it starts acts with the
 connector's credential. So:
@@ -76,16 +78,24 @@ connector's credential. So:
    that user, resolved by the same resolver a turn uses (ADR 0104), never a credential or address the browser or the
    page supplies. The connector must be on for this user and apps must be allowed for it (`appsAllowedFor`).
 2. The tool must belong to **that connector** and be visible to apps. The page names no server.
-3. **The gate is the model's gate, unchanged** (ADR 0075): under _Allow_ (`always-allow`) a call runs; under _Ask_
-   (`manual`) a call runs only if the conversation already holds a grant for `connector:tool`, **otherwise the server
-   answers "approval required"** and runs nothing. The browser then shows Cerea's own approval card, _worded as the page's
-   request_, "The page from <connector> wants to call <tool>", with the arguments, and **Allow this one call / Allow
-   this tool for the rest of the conversation / Deny**. Only that click (Cerea's own UI, in the top document, which a
-   page cannot reach) sends the retry with the approval; "for the conversation" records the same
-   `conv.approvedTools` grant a model call would. A grant given to the model's call covers the page's call and the other
-   way round, since both are `connector:tool`.
+3. **The gate is the model's gate, with the page's own grants** (ADR 0075; owner decision): under _Allow_
+   (`always-allow`) a call runs; under _Ask_ (`manual`) a call runs only if the conversation holds a grant **for pages**
+   for `connector:tool`, **otherwise the server answers "approval required"** with an id and runs nothing. The browser then
+   shows Cerea's own approval card, _worded as the page's request_, "The view from <connector> wants to call <tool>", with
+   the arguments, and **Allow once / Allow this tool for the rest of the conversation / Deny**. "For the conversation"
+   records `Conversation.approvedAppTools`: **a separate list from the model's `approvedTools`. A grant given to the
+   model's call never covers a page's call, and the other way round.**
+   - The id is issued with the 409, bound to (conversation, connector, tool, hash of the arguments, user), valid for two
+     minutes and **spent once**. The server never trusts a bare `once` in a request body: the retry carries the id and
+     the choice, and an id that was not issued for exactly this call, was spent or has expired runs nothing. A denial
+     spends it too, so the one waiting slot is freed.
+   - **At most one approval waits per conversation**; another page call while one waits is refused. Asking (the 409 path)
+     is rate limited like calling.
+   - The card is a fixed overlay that does not move the frame, and its buttons do nothing for about half a second after it
+     appears (a click aimed at the page must not land on an Allow that just appeared).
 4. The page cannot send the retry itself: the route needs the user's session cookie, which an opaque-origin frame does
-   not have, and the route is not CORS-enabled.
+   not have. As a second wall the route takes only a JSON body whose `Origin` is this site's own, and a connector the
+   conversation holds a stored page of (recorded on the server).
 5. **Rate limit**: per conversation and user, a small burst and a per-minute ceiling, on the server (and a lower one in
    the browser for kindness). An answer past it is an error the page sees.
 6. A call has the same timeout as a model's, no elicitation (an `input_required` is an error: there is no turn to park),
@@ -99,8 +109,9 @@ already reads, is unchanged and still marked as outside data (`untrusted.ts`).
 
 - The HTML is read **once**, when the tool result arrives, with the connector's credential, through the pooled MCP client
   (`resources/read`), and stored in the conversation's file store (content-addressed by sha256, deduped, so repeated
-  calls to the same app store it once; the same retention as other produced files). The message keeps a small
+  calls to the same app store it once; the same retention period as other produced files). The message keeps a small
   reference, not the HTML: `{connector, server, tool, uri, sha256, size, csp, prefersBorder}`.
+- **Stored pages have their own caps and are not the user's files.** They do not count toward the conversation's deliverable limits (file count and bytes); they are kept up to 50 per conversation (oldest first dropped) and 3 versions of one connector's one address (the connector and address are recorded on the row). No file route serves them (the download, preview and share routes refuse them) and file lists leave them out; the only reader is the card's own route.
 - A reload renders from the stored copy with the stored tool input and result, **without the connector being reachable**.
   The stored copy is fetched through an access-controlled route that checks apps are still allowed for the connector.
   Past the retention period the card falls back to the text result.
@@ -131,11 +142,16 @@ shared page shows the text result). Sub-agent turns show the card of the call th
 ## Consequences
 
 - The page can do nothing that the user has not seen the effect of or agreed to: it cannot act (the gate), speak for the
-  user (draft only), navigate (confirm), or load from undeclared hosts (CSP).
+  user (a suggestion only), navigate (confirm), or load from undeclared hosts (CSP).
 - Network exfiltration to **declared** connect domains is possible by design (that is what the declaration is for), so
   they are shown, and an administrator can block a connector's apps.
 - Opaque origin breaks pages that need storage. That is accepted for the first version; a dedicated apps origin
   (`apps.<host>`, single iframe with response CSP headers, as the spec's own recommendation) is the follow-up if such
   pages matter.
+- **Accepted risks.** WebRTC (STUN) and DNS prefetch are not governed by `connect-src`, so a page can leak a little
+  to the network (an address, a lookup) without a declared domain; `dns-prefetch` hints are not blocked. Accepted for a page the
+  user chose to open from a connector they enabled, and an administrator can block the connector's apps.
+- **A future nonce-based `script-src` in Cerea's own CSP would break `srcdoc` apps** (the frame inherits the embedder's
+  policy): if Cerea moves to nonces, apps need the dedicated origin above first.
 - One more dependency: `@modelcontextprotocol/ext-apps` 2.1.0. Its peer range wants zod 4.2; Cerea is on zod 3.25, whose
   `zod/v4` subpath the bridge imports, so `package.json` carries an `overrides` entry for it.

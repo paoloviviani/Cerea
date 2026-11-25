@@ -4,6 +4,7 @@ import {
 	buildMcpAppCsp,
 	buildMcpAppSrcdoc,
 	cleanDomains,
+	coversOwnOrigin,
 	isMcpAppMime,
 	isUiResourceUri,
 	readToolUiMeta,
@@ -171,8 +172,45 @@ describe("the page's document and sandbox", () => {
 		expect(meta.match(/"/g)).toHaveLength(4);
 	});
 
-	it("is sandboxed for scripts and forms and never for same-origin, popups, downloads or modals", () => {
+	it("is sandboxed for scripts only and never for same-origin, popups, downloads or modals", () => {
 		const tokens = MCP_APP_SANDBOX.split(/\s+/);
-		expect(tokens).toEqual(["allow-scripts", "allow-forms"]);
+		expect(tokens).toEqual(["allow-scripts"]);
+	});
+});
+
+describe("Cerea's own origin", () => {
+	const own = ["https://chat.example.com"];
+
+	it("is never handed to a page, not by name and not by a wildcard that covers it", () => {
+		const { kept, dropped } = cleanDomains(
+			[
+				"https://chat.example.com",
+				"wss://chat.example.com",
+				"https://*.example.com",
+				"https://api.other.com",
+			],
+			{ ownOrigins: own }
+		);
+		expect(kept).toEqual(["https://api.other.com"]);
+		expect(dropped).toHaveLength(3);
+	});
+
+	it("matches the port, so another port of the same host is a different origin", () => {
+		expect(
+			coversOwnOrigin("https://chat.example.com:8443", ["https://chat.example.com:9443"])
+		).toBe(false);
+		expect(
+			coversOwnOrigin("https://chat.example.com:8443", ["https://chat.example.com:8443"])
+		).toBe(true);
+		expect(coversOwnOrigin("https://chat.example.com", ["https://chat.example.com"])).toBe(true);
+	});
+
+	it("is dropped from the built policy too", () => {
+		const csp = buildMcpAppCsp(
+			{ connectDomains: ["https://chat.example.com", "https://api.other.com"] },
+			{ ownOrigins: own }
+		);
+		expect(csp).toContain("connect-src https://api.other.com;");
+		expect(csp).not.toContain("chat.example.com");
 	});
 });

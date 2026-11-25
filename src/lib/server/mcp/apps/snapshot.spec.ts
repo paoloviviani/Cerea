@@ -19,7 +19,10 @@ vi.mock("./resource", async () => {
 	}
 	return { McpAppError, readUiResource: fake.read };
 });
-vi.mock("$lib/server/execution/deliverables", () => ({ storeDeliverable: fake.store }));
+vi.mock("$lib/server/execution/deliverables", () => ({
+	storeDeliverable: fake.store,
+	MCP_APP_FILE_TOOL: "mcp_app",
+}));
 vi.mock("$lib/server/logger", () => ({
 	logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
@@ -77,6 +80,7 @@ describe("the snapshot of a tool's page", () => {
 				mime: "text/html",
 				tool: MCP_APP_FILE_TOOL,
 				messageId: "m1",
+				appPage: { connector: "connector:1", uri: "ui://maps/view" },
 				bytes: Buffer.from("<p>map</p>"),
 			})
 		);

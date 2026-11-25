@@ -158,7 +158,9 @@ export async function readUiResource(
 		}
 		const html = decodePage(item);
 		const meta = { ...listingMeta, ...uiMetaOf(item) };
-		const { csp, dropped } = sanitizeAppCsp(meta.csp);
+		const { csp, dropped } = sanitizeAppCsp(meta.csp, {
+			ownOrigins: process.env.ORIGIN ? [process.env.ORIGIN] : [],
+		});
 		if (dropped.length > 0) {
 			logger.warn(
 				{ connector: server.name, uri, dropped },

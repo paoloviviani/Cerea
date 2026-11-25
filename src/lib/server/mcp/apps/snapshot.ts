@@ -1,14 +1,13 @@
 import { createHash } from "node:crypto";
 import type { ObjectId } from "mongodb";
 import { logger } from "$lib/server/logger";
-import { storeDeliverable } from "$lib/server/execution/deliverables";
+import { MCP_APP_FILE_TOOL, storeDeliverable } from "$lib/server/execution/deliverables";
 import type { McpServerConfig } from "../httpClient";
 import { getToolUiMeta } from "../tools";
 import type { McpAppSnapshot } from "$lib/utils/mcpApp";
 import { McpAppError, readUiResource } from "./resource";
 
-/** Marks the stored page in the file store so file lists leave it out: it is the card's, not the user's. */
-export const MCP_APP_FILE_TOOL = "mcp_app";
+export { MCP_APP_FILE_TOOL };
 
 /**
  * The page a tool linked to (`_meta.ui.resourceUri`), read and kept for the card (docs/dev/adr-mcp-apps.md,
@@ -45,8 +44,8 @@ export async function appSnapshotFor(input: {
 			mime: "text/html",
 			bytes,
 			tool: MCP_APP_FILE_TOOL,
-			// The connector's key: the routes read it back from here, never from the browser.
-			summary: server.key,
+			// Recorded on the server: the routes read the connector back from here, never from the browser.
+			appPage: { connector: server.key, uri: page.uri },
 			messageId,
 		});
 		if (!stored.ok) {

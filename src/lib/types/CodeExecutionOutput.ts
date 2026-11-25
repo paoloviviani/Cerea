@@ -44,6 +44,9 @@ export interface CodeExecutionOutput {
 	version?: number;
 	/** The tool that made it ("doc_edit", "doc_create"...); absent for a sandbox run's file. */
 	tool?: string;
+	/** An MCP App page (`tool: "mcp_app"`): the connector's key and the `ui://` address it was read from. */
+	appConnector?: string;
+	appUri?: string;
 	/** One line on what it is, for the version list ("replace_text x2; from version 1"). */
 	summary?: string;
 	/**

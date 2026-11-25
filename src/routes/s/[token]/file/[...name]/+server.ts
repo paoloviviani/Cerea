@@ -30,6 +30,7 @@ export const GET: RequestHandler = async (event) => {
 		conversationId: share.conversationId,
 		sha256: snapshot.sha256,
 		name: snapshot.name,
+		tool: { $ne: "mcp_app" },
 	});
 	if (!row || row.withheld) return notAvailable(locale);
 	// The same bytes under another name may be the one a privacy rule refused.

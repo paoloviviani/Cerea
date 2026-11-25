@@ -48,6 +48,17 @@ import {
 export const MAX_DELIVERABLE_BYTES = MAX_FILE_BYTES;
 
 /**
+ * Marks the stored page of an MCP App (docs/dev/adr-mcp-apps.md): kept for the card's reload, not the
+ * user's file. Such rows do not count toward the deliverable caps, have their own (below), are never
+ * served by the file routes or shared, and are left out of file lists.
+ */
+export const MCP_APP_FILE_TOOL = "mcp_app";
+/** Pages one conversation keeps, newest first; older ones are dropped. */
+export const MAX_APP_PAGES_PER_CONVERSATION = 50;
+/** Distinct versions kept of one connector's one page. */
+export const MAX_APP_PAGE_VERSIONS = 3;
+
+/**
  * A generous but bounded ceiling on how many distinct deliverables one
  * conversation can accumulate. Past this, a runaway loop that keeps
  * generating "new" files would otherwise grow the metadata collection
@@ -131,6 +142,7 @@ export async function storeDeliverable({
 	tool,
 	summary,
 	messageId,
+	appPage,
 }: {
 	conversationId: Conversation["_id"];
 	userId?: User["_id"];
@@ -148,6 +160,8 @@ export async function storeDeliverable({
 	 * again on another branch add that message to the same row.
 	 */
 	messageId?: string;
+	/** Set for an MCP App page: it takes the app caps instead of the deliverable ones. */
+	appPage?: { connector: string; uri: string };
 }): Promise<StoreDeliverableResult> {
 	if (bytes.byteLength > MAX_DELIVERABLE_BYTES) {
 		return {
@@ -164,26 +178,33 @@ export async function storeDeliverable({
 	const existing = await collections.codeExecutionOutputs.findOne({ conversationId, name, sha256 });
 	if (existing) {
 		await noteProducer(existing._id, messageId);
+		if (appPage) {
+			// Used again: newest for the pruning below.
+			await collections.codeExecutionOutputs.updateOne(
+				{ _id: existing._id },
+				{ $set: { createdAt: new Date() } }
+			);
+		}
 		return { ok: true, ref: { name: existing.name, size: existing.size, sha256 }, existing: true };
 	}
 
 	const usage = await collections.codeExecutionOutputs
 		.aggregate<{ count: number; totalBytes: number }>([
-			{ $match: { conversationId } },
+			{ $match: { conversationId, tool: { $ne: MCP_APP_FILE_TOOL } } },
 			{ $group: { _id: null, count: { $sum: 1 }, totalBytes: { $sum: "$size" } } },
 		])
 		.next();
 	const count = usage?.count ?? 0;
 	const totalBytes = usage?.totalBytes ?? 0;
 
-	if (count >= MAX_DELIVERABLES_PER_CONVERSATION) {
+	if (!appPage && count >= MAX_DELIVERABLES_PER_CONVERSATION) {
 		return {
 			ok: false,
 			status: 413,
 			error: "This conversation has reached its limit of persisted deliverable files.",
 		};
 	}
-	if (totalBytes + bytes.byteLength > MAX_DELIVERABLE_TOTAL_BYTES_PER_CONVERSATION) {
+	if (!appPage && totalBytes + bytes.byteLength > MAX_DELIVERABLE_TOTAL_BYTES_PER_CONVERSATION) {
 		return {
 			ok: false,
 			status: 413,
@@ -232,6 +253,7 @@ export async function storeDeliverable({
 				version,
 				...(refused?.withheld ? { withheld: refused.withheld } : {}),
 				...(tool ? { tool } : {}),
+				...(appPage ? { appConnector: appPage.connector, appUri: appPage.uri } : {}),
 				...(summary ? { summary: summary.slice(0, 200) } : {}),
 				...(messageId ? { messageIds: [messageId] } : {}),
 				createdAt: new Date(),
@@ -248,6 +270,8 @@ export async function storeDeliverable({
 		}
 	}
 
+	if (appPage) await pruneAppPages(conversationId);
+
 	// A produced Office file is opened at once, so its PDF preview is made now
 	// (when the deployment has a converter) instead of at the first click.
 	if (wantsEagerPreview(name, bytes.byteLength)) {
@@ -259,6 +283,28 @@ export async function storeDeliverable({
 	}
 
 	return { ok: true, ref: { name, size: bytes.byteLength, sha256 } };
+}
+
+/**
+ * Keeps a conversation's MCP App pages within their own caps: the newest versions of each connector's
+ * page, and at most `MAX_APP_PAGES_PER_CONVERSATION` overall. The rest, oldest first, are deleted.
+ */
+async function pruneAppPages(conversationId: Conversation["_id"]): Promise<void> {
+	const rows = await collections.codeExecutionOutputs
+		.find({ conversationId, tool: MCP_APP_FILE_TOOL })
+		.sort({ createdAt: -1, _id: -1 })
+		.toArray();
+	const perPage = new Map<string, number>();
+	const keep = new Set<string>();
+	for (const row of rows) {
+		const key = `${row.appConnector ?? ""}|${row.appUri ?? ""}`;
+		const seen = (perPage.get(key) ?? 0) + 1;
+		perPage.set(key, seen);
+		if (seen <= MAX_APP_PAGE_VERSIONS && keep.size < MAX_APP_PAGES_PER_CONVERSATION) {
+			keep.add(row._id.toString());
+		}
+	}
+	await deleteRows(rows.filter((row) => !keep.has(row._id.toString())));
 }
 
 /** Another message made these same bytes again: the row counts on its branch too. */
@@ -347,7 +393,11 @@ export async function downloadDeliverable(
 	conversationId: Conversation["_id"],
 	sha256: string
 ): Promise<{ buffer: Buffer; name: string; mime: string } | undefined> {
-	const meta = await collections.codeExecutionOutputs.findOne({ conversationId, sha256 });
+	const meta = await collections.codeExecutionOutputs.findOne({
+		conversationId,
+		sha256,
+		tool: { $ne: MCP_APP_FILE_TOOL },
+	});
 	if (!meta) return undefined;
 	await refuseWithheld(conversationId, sha256, meta);
 
@@ -361,7 +411,11 @@ export async function openDeliverable(
 	conversationId: Conversation["_id"],
 	sha256: string
 ): Promise<{ stream: Readable; name: string; mime: string; size: number } | undefined> {
-	const meta = await collections.codeExecutionOutputs.findOne({ conversationId, sha256 });
+	const meta = await collections.codeExecutionOutputs.findOne({
+		conversationId,
+		sha256,
+		tool: { $ne: MCP_APP_FILE_TOOL },
+	});
 	if (!meta) return undefined;
 	await refuseWithheld(conversationId, sha256, meta);
 	return {
@@ -369,6 +423,24 @@ export async function openDeliverable(
 		name: meta.name,
 		mime: meta.mime,
 		size: meta.size,
+	};
+}
+
+/** The stored page of an MCP App as a stream, with the connector it was read from; undefined when there is none. */
+export async function openAppPage(
+	conversationId: Conversation["_id"],
+	sha256: string
+): Promise<{ stream: Readable; size: number; connector: string } | undefined> {
+	const meta = await collections.codeExecutionOutputs.findOne({
+		conversationId,
+		sha256,
+		tool: MCP_APP_FILE_TOOL,
+	});
+	if (!meta?.appConnector) return undefined;
+	return {
+		stream: await collections.blobStore.open("codeOutputs", meta.gridFsId),
+		size: meta.size,
+		connector: meta.appConnector,
 	};
 }
 

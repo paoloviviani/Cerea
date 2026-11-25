@@ -104,8 +104,40 @@ export function isMcpAppMime(mime: unknown): boolean {
 const DOMAIN_SOURCE =
 	/^(?:https|wss):\/\/(?:\*\.)?(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?::\d{1,5})?$/i;
 
+/** Where Cerea itself is served (`location.origin`, the configured origin): a page may never be given it. */
+export interface DomainOptions {
+	ownOrigins?: string[];
+}
+
+function hostAndPort(source: string): { host: string; port: string } | undefined {
+	const match = /^(?:https?|wss?):\/\/([^/:]+)(?::(\d+))?$/i.exec(source.trim());
+	return match ? { host: match[1].toLowerCase(), port: match[2] ?? "" } : undefined;
+}
+
+/** Whether a declared source (possibly `*.` wildcard) would let the page reach one of Cerea's own origins. */
+export function coversOwnOrigin(source: string, ownOrigins: string[]): boolean {
+	const declared = hostAndPort(source.replace("://*.", "://"));
+	if (!declared) return false;
+	const wildcard = source.includes("://*.");
+	return ownOrigins.some((origin) => {
+		const own = hostAndPort(origin);
+		if (!own) return false;
+		const samePort =
+			declared.port === own.port ||
+			(declared.port === "" && (own.port === "" || own.port === "443" || own.port === "80")) ||
+			(own.port === "" && (declared.port === "443" || declared.port === "80"));
+		if (!samePort && !wildcard) return false;
+		return wildcard
+			? own.host === declared.host || own.host.endsWith("." + declared.host)
+			: own.host === declared.host;
+	});
+}
+
 /** Keeps the origins a CSP may carry, in order and without repeats; reports what it dropped. */
-export function cleanDomains(list: unknown): { kept: string[]; dropped: string[] } {
+export function cleanDomains(
+	list: unknown,
+	options: DomainOptions = {}
+): { kept: string[]; dropped: string[] } {
 	const kept: string[] = [];
 	const dropped: string[] = [];
 	if (!Array.isArray(list)) return { kept, dropped };
@@ -119,6 +151,11 @@ export function cleanDomains(list: unknown): { kept: string[]; dropped: string[]
 			dropped.push(value.slice(0, 80));
 			continue;
 		}
+		// A page that may reach this site's own origin could be handed one of its endpoints.
+		if (coversOwnOrigin(value, options.ownOrigins ?? [])) {
+			dropped.push(value);
+			continue;
+		}
 		if (!kept.includes(value) && kept.length < MAX_DOMAINS_PER_DIRECTIVE) kept.push(value);
 	}
 	return { kept, dropped };
@@ -127,12 +164,15 @@ export function cleanDomains(list: unknown): { kept: string[]; dropped: string[]
 const CSP_KEYS = ["connectDomains", "resourceDomains", "frameDomains", "baseUriDomains"] as const;
 
 /** A resource's declared CSP, reduced to the origins that pass validation. `dropped` is for the audit log. */
-export function sanitizeAppCsp(declared: unknown): { csp: McpAppCsp; dropped: string[] } {
+export function sanitizeAppCsp(
+	declared: unknown,
+	options: DomainOptions = {}
+): { csp: McpAppCsp; dropped: string[] } {
 	const csp: McpAppCsp = {};
 	const dropped: string[] = [];
 	if (!isRecord(declared)) return { csp, dropped };
 	for (const key of CSP_KEYS) {
-		const cleaned = cleanDomains(declared[key]);
+		const cleaned = cleanDomains(declared[key], options);
 		dropped.push(...cleaned.dropped);
 		if (cleaned.kept.length > 0) csp[key] = cleaned.kept;
 	}
@@ -145,8 +185,8 @@ export function sanitizeAppCsp(declared: unknown): { csp: McpAppCsp; dropped: st
  * declared origins are validated here again, so a stored value that was not clean never reaches a header.
  * `unsafe-eval` and `blob:` are not granted.
  */
-export function buildMcpAppCsp(declared?: McpAppCsp | null): string {
-	const { csp } = sanitizeAppCsp(declared ?? {});
+export function buildMcpAppCsp(declared?: McpAppCsp | null, options: DomainOptions = {}): string {
+	const { csp } = sanitizeAppCsp(declared ?? {}, options);
 	const resource = csp.resourceDomains?.join(" ") ?? "";
 	const withResource = (base: string) => (resource ? `${base} ${resource}` : base);
 	return [
@@ -173,13 +213,17 @@ function escapeAttribute(value: string): string {
  * concatenated after it, so nothing in the page can run before the policy applies (its `<!doctype>` and
  * repeated `<html>`/`<head>` tags are ignored or merged by the parser).
  */
-export function buildMcpAppSrcdoc(html: string, declared?: McpAppCsp | null): string {
+export function buildMcpAppSrcdoc(
+	html: string,
+	declared?: McpAppCsp | null,
+	options: DomainOptions = {}
+): string {
 	return (
 		"<!doctype html><html><head>" +
-		`<meta http-equiv="Content-Security-Policy" content="${escapeAttribute(buildMcpAppCsp(declared))}">` +
+		`<meta http-equiv="Content-Security-Policy" content="${escapeAttribute(buildMcpAppCsp(declared, options))}">` +
 		html
 	);
 }
 
-/** The iframe's `sandbox`: scripts and forms; never `allow-same-origin`, popups, downloads, modals or top navigation. */
-export const MCP_APP_SANDBOX = "allow-scripts allow-forms";
+/** The iframe's `sandbox`: scripts only (`form-action 'none'` makes `allow-forms` moot); never `allow-same-origin`, popups, downloads, modals or top navigation. */
+export const MCP_APP_SANDBOX = "allow-scripts";

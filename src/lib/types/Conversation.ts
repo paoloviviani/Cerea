@@ -110,6 +110,19 @@ export interface Conversation extends Timestamps {
 	approvedTools?: string[];
 
 	/**
+	 * Tools an MCP App page may call for the rest of this conversation (`"<server>:<tool>"`): the user's
+	 * own grants from the page's approval card. A separate list on purpose (docs/dev/adr-mcp-apps.md): a
+	 * grant given to the model's call never covers a page's call, and the other way round.
+	 */
+	approvedAppTools?: string[];
+
+	/**
+	 * The page-call approval waiting for the user's click (at most one): its id is issued with the 409 and
+	 * is bound to the call (connector, tool, arguments, user); consumed once. Short-lived.
+	 */
+	appApprovals?: Array<{ id: string; hash: string; exp: Date }>;
+
+	/**
 	 * Chat-local override of `Settings.toolApprovalPolicy` (ADR 0075). Absent
 	 * means this chat follows the user's setting. Set by the composer's
 	 * toggle, in either direction — turning always-allow on for one chat

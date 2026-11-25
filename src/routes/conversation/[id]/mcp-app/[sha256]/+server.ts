@@ -1,9 +1,8 @@
 import type { RequestHandler } from "./$types";
 import { authCondition } from "$lib/server/auth";
 import { collections } from "$lib/server/database";
-import { openDeliverable } from "$lib/server/execution/deliverables";
+import { openAppPage } from "$lib/server/execution/deliverables";
 import { appsAllowedFor } from "$lib/server/mcp/appsPolicy";
-import { MCP_APP_FILE_TOOL } from "$lib/server/mcp/apps/snapshot";
 import { error } from "@sveltejs/kit";
 import { Readable } from "node:stream";
 import { ObjectId } from "mongodb";
@@ -31,27 +30,21 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 	);
 	if (!conversation) error(404, "Conversation not found");
 
-	const row = await collections.codeExecutionOutputs.findOne({
-		conversationId,
-		sha256: sha256.data,
-		tool: MCP_APP_FILE_TOOL,
-	});
-	if (!row) error(404, "Not found");
+	const page = await openAppPage(conversationId, sha256.data);
+	if (!page) error(404, "Not found");
 	// The connector is the one recorded with the stored page on the server, not anything the browser says.
-	const connector = row.summary;
-	if (!connector || !(await appsAllowedFor(connector, locals.user?._id))) {
+	if (!(await appsAllowedFor(page.connector, locals.user?._id))) {
+		page.stream.destroy();
 		error(403, "Apps are not allowed here");
 	}
-	const file = await openDeliverable(conversationId, sha256.data);
-	if (!file) error(404, "Not found");
 
-	return new Response(Readable.toWeb(file.stream) as ReadableStream, {
+	return new Response(Readable.toWeb(page.stream) as ReadableStream, {
 		headers: {
 			"Content-Type": "text/plain; charset=utf-8",
 			"Content-Security-Policy": "default-src 'none'; sandbox;",
 			"X-Content-Type-Options": "nosniff",
 			"Cache-Control": "private, max-age=3600",
-			"Content-Length": file.size.toString(),
+			"Content-Length": page.size.toString(),
 		},
 	});
 };

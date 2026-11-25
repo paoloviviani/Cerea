@@ -17,6 +17,7 @@ const send = (m) => parent.postMessage(m, "*");
 window.addEventListener("message", (e) => {
 	const d = e.data;
 	if (d && d.__cmd) return send(d.__cmd);
+	if (d && d.__nav) { location.href = "data:text/html,<p>elsewhere</p>"; return; }
 	parent.postMessage({ __probe: d }, "*");
 	if (d && d.id === 1 && d.result) send({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} });
 });
@@ -37,6 +38,7 @@ const app: McpAppSnapshot = {
 	},
 };
 
+const APPROVAL_ID = "11111111-1111-4111-8111-111111111111";
 const toolResult = { content: [{ type: "text", text: "3 results" }], structuredContent: { n: 3 } };
 
 let probes: Array<Record<string, unknown>> = [];
@@ -86,7 +88,7 @@ const props = {
 	pageUrl: "/stored-page",
 };
 
-async function mounted(sink?: (text: string, from: string) => void) {
+async function mounted(sink?: (text: string, from: string) => boolean) {
 	const view = sink ? render(McpAppFrameTestHost, { ...props, sink }) : render(McpAppFrame, props);
 	await settle(() => view.baseElement.querySelector("iframe")?.getAttribute("srcdoc") != null);
 	const iframe = view.baseElement.querySelector("iframe") as HTMLIFrameElement;
@@ -110,7 +112,9 @@ describe("McpAppFrame", () => {
 		const { iframe } = await mounted();
 
 		const sandbox = iframe.getAttribute("sandbox") ?? "";
-		expect(sandbox.split(/\s+/)).toContain("allow-scripts");
+		expect(sandbox.split(/\s+/)).toEqual(["allow-scripts"]);
+		// Nothing delegated to the page either (no clipboard, camera, fullscreen).
+		expect(iframe.hasAttribute("allow")).toBe(false);
 		expect(sandbox).not.toContain("allow-same-origin");
 		expect(sandbox).not.toContain("allow-popups");
 		expect(sandbox).not.toContain("allow-top-navigation");
@@ -218,7 +222,12 @@ describe("McpAppFrame", () => {
 			attempts += 1;
 			return attempts === 1
 				? new Response(
-						JSON.stringify({ ok: false, code: "approval_required", message: "approval" }),
+						JSON.stringify({
+							ok: false,
+							code: "approval_required",
+							message: "approval",
+							approval: { id: APPROVAL_ID },
+						}),
 						{ status: 409 }
 					)
 				: new Response(
@@ -245,21 +254,36 @@ describe("McpAppFrame", () => {
 			tool: "refresh",
 		});
 
-		(
-			Array.from(card.querySelectorAll("button")).find((b) =>
-				b.textContent?.includes("Allow once")
-			) as HTMLElement
-		).click();
+		const allow = Array.from(card.querySelectorAll("button")).find((b) =>
+			b.textContent?.includes("Allow once")
+		) as HTMLButtonElement;
+		// Anti-clickjacking: a click in the first moments does nothing.
+		expect(allow.disabled).toBe(true);
+		allow.click();
+		await new Promise((r) => setTimeout(r, 50));
+		expect(calls.filter((c) => c.url.endsWith("/mcp-app/call"))).toHaveLength(1);
+		await settle(() => !allow.disabled);
+		allow.click();
 		await settle(() => probes.some((p) => p.id === 9 && "result" in p));
 
 		const retried = calls.filter((c) => c.url.endsWith("/mcp-app/call"))[1];
-		expect(retried.body).toMatchObject({ approval: "once", tool: "refresh" });
+		expect(retried.body).toMatchObject({
+			approval: { id: APPROVAL_ID, choice: "once" },
+			tool: "refresh",
+		});
 	});
 
 	it("gives the page an error when the user denies the call", async () => {
 		const calls = stubFetch((url) =>
 			url.endsWith("/mcp-app/call")
-				? new Response(JSON.stringify({ ok: false, code: "approval_required" }), { status: 409 })
+				? new Response(
+						JSON.stringify({
+							ok: false,
+							code: "approval_required",
+							approval: { id: APPROVAL_ID },
+						}),
+						{ status: 409 }
+					)
 				: new Response(PAGE, { status: 200 })
 		);
 		const { view, iframe } = await mounted();
@@ -280,13 +304,68 @@ describe("McpAppFrame", () => {
 
 		const answer = probes.find((p) => p.id === 11) as { result: { isError?: boolean } };
 		expect(answer.result.isError).toBe(true);
-		expect(calls.filter((c) => c.url.endsWith("/mcp-app/call"))).toHaveLength(1);
+		// The denial is told to the server too, so its one waiting slot is freed.
+		await settle(() => calls.filter((c) => c.url.endsWith("/mcp-app/call")).length === 2);
+		expect(calls.filter((c) => c.url.endsWith("/mcp-app/call"))[1].body).toMatchObject({
+			approval: { id: APPROVAL_ID, choice: "deny" },
+		});
 	});
 
-	it("puts a page's message in the composer as a draft and never sends it", async () => {
+	it("refuses a second call that needs approval while a card is already open", async () => {
+		stubFetch((url) =>
+			url.endsWith("/mcp-app/call")
+				? new Response(
+						JSON.stringify({
+							ok: false,
+							code: "approval_required",
+							approval: { id: APPROVAL_ID },
+						}),
+						{ status: 409 }
+					)
+				: new Response(PAGE, { status: 200 })
+		);
+		const { view, iframe } = await mounted();
+
+		pageSends(iframe, {
+			jsonrpc: "2.0",
+			id: 20,
+			method: "tools/call",
+			params: { name: "a", arguments: {} },
+		});
+		await settle(() => view.baseElement.querySelector("[data-testid='mcp-app-approval']") !== null);
+		pageSends(iframe, {
+			jsonrpc: "2.0",
+			id: 21,
+			method: "tools/call",
+			params: { name: "b", arguments: {} },
+		});
+		await settle(() => probes.some((p) => p.id === 21 && "result" in p));
+
+		expect(
+			(probes.find((p) => p.id === 21) as { result: { isError?: boolean } }).result.isError
+		).toBe(true);
+		expect(view.baseElement.querySelectorAll("[data-testid='mcp-app-approval']")).toHaveLength(1);
+	});
+
+	it("closes the page and its bridge when the page navigates itself away", async () => {
+		stubFetch();
+		const { view, iframe } = await mounted();
+
+		// The page's own handler navigates it (to a data: document, as a link or a script would).
+		iframe.contentWindow?.postMessage({ __nav: true }, "*");
+		await settle(() => view.baseElement.querySelector("[data-testid='mcp-app-closed']") !== null);
+
+		expect(view.baseElement.querySelector("iframe")).toBeNull();
+		expect(view.baseElement.textContent).toContain("closed");
+	});
+
+	it("puts a page's message in front of the user as a suggestion and never writes it anywhere", async () => {
 		stubFetch();
 		const drafts: Array<[string, string]> = [];
-		const { view, iframe } = await mounted((text, from) => drafts.push([text, from]));
+		const { view, iframe } = await mounted((text, from) => {
+			drafts.push([text, from]);
+			return true;
+		});
 
 		pageSends(iframe, {
 			jsonrpc: "2.0",
@@ -301,8 +380,25 @@ describe("McpAppFrame", () => {
 
 		expect(drafts).toEqual([["Tell me more about the 2nd pin", "Maps"]]);
 		expect(view.baseElement.querySelector("[data-testid='mcp-app-note']")?.textContent).toContain(
-			"read it before you send it"
+			"above your message box"
 		);
+	});
+
+	it("refuses a message when the chat declines the suggestion (one per ten seconds)", async () => {
+		stubFetch();
+		const { iframe } = await mounted(() => false);
+
+		pageSends(iframe, {
+			jsonrpc: "2.0",
+			id: 30,
+			method: "ui/message",
+			params: { role: "user", content: [{ type: "text", text: "again" }] },
+		});
+		await settle(() => probes.some((p) => p.id === 30 && "result" in p));
+
+		expect(
+			(probes.find((p) => p.id === 30) as { result: { isError?: boolean } }).result.isError
+		).toBe(true);
 	});
 
 	it("refuses a link that is not http(s), and asks before opening one that is", async () => {

@@ -9,12 +9,19 @@ import { callMcpTool, getMcpToolTimeoutMs } from "../httpClient";
 import { getToolUiMeta } from "../tools";
 import { McpAppError, resolveAppServer } from "./resource";
 import { pageCallAllowed } from "./pageCallLimit";
+import { approvalHash, consumeApproval, issueApproval } from "./pageApprovals";
 
-/** What the user chose on the approval card, sent by Cerea's own UI after the click. */
-export type PageCallApproval = "once" | "conversation";
+/**
+ * What the user chose on the approval card, sent by Cerea's own UI after the click, with the id the 409
+ * issued for exactly this call. The id, not the word, is what the server trusts.
+ */
+export interface PageCallApproval {
+	id: string;
+	choice: "once" | "conversation" | "deny";
+}
 
 export interface PageCallInput {
-	conversation: Pick<Conversation, "_id" | "toolApprovalOverride" | "approvedTools">;
+	conversation: Pick<Conversation, "_id" | "toolApprovalOverride" | "approvedAppTools">;
 	settings: Pick<Settings, "toolApprovalPolicy"> | null | undefined;
 	userId?: ObjectId;
 	/** The connector's key, from the card's stored snapshot; resolved again here, for this user. */
@@ -40,6 +47,9 @@ export type PageCallOutcome =
 			status: number;
 			code:
 				| "approval_required"
+				| "approval_invalid"
+				| "approval_busy"
+				| "denied"
 				| "rate_limited"
 				| "not_allowed"
 				| "unknown_connector"
@@ -48,7 +58,7 @@ export type PageCallOutcome =
 				| "failed";
 			message: string;
 			/** For `approval_required`: what the card asks about. */
-			approval?: { tool: string; server: string; toolName: string };
+			approval?: { id: string; tool: string; server: string; toolName: string };
 	  };
 
 const MAX_ARGS_BYTES = 256 * 1024;
@@ -100,24 +110,57 @@ export async function callToolFromPage(input: PageCallInput): Promise<PageCallOu
 		};
 	}
 
-	// The model's gate (ADR 0075): under `manual` a call runs only when the conversation holds the grant.
+	// The model's gate (ADR 0075), with the page's own grants: under `manual` a call runs only when the
+	// conversation holds a grant for the page (never the model's grant: separate lists).
 	const qualified = `${server.name}:${tool}`;
 	const policy = resolveToolApprovalPolicy(conversation, settings);
-	const granted = (conversation.approvedTools ?? []).includes(qualified);
+	const granted = (conversation.approvedAppTools ?? []).includes(qualified);
 	if (policy === "manual" && !granted) {
+		const hash = approvalHash({ userId, connector, tool, args });
 		if (!approval) {
+			// The 409 path costs something too: asking is rate limited like calling.
+			if (!pageCallAllowed(`${conversation._id.toString()}|${userId?.toString() ?? ""}|ask`)) {
+				return {
+					ok: false,
+					status: 429,
+					code: "rate_limited",
+					message: "This page is asking too often. Try again in a moment.",
+				};
+			}
+			const issued = await issueApproval(conversation._id, hash);
+			if (!issued.ok) {
+				return {
+					ok: false,
+					status: 429,
+					code: "approval_busy",
+					message: "Another call from a page is waiting for the user's answer.",
+				};
+			}
 			return {
 				ok: false,
 				status: 409,
 				code: "approval_required",
 				message: "This call needs the user's approval.",
-				approval: { tool: qualified, server: server.name, toolName: tool },
+				approval: { id: issued.id, tool: qualified, server: server.name, toolName: tool },
 			};
 		}
-		if (approval === "conversation") {
+		// Spent whatever the answer: a refusal frees the slot, an allow is one call.
+		const spent = await consumeApproval(conversation._id, approval.id, hash);
+		if (!spent) {
+			return {
+				ok: false,
+				status: 403,
+				code: "approval_invalid",
+				message: "That approval is not valid for this call, or has expired.",
+			};
+		}
+		if (approval.choice === "deny") {
+			return { ok: false, status: 403, code: "denied", message: "The user denied this call." };
+		}
+		if (approval.choice === "conversation") {
 			await collections.conversations.updateOne(
 				{ _id: conversation._id },
-				{ $addToSet: { approvedTools: qualified } }
+				{ $addToSet: { approvedAppTools: qualified } }
 			);
 		}
 	}
@@ -132,7 +175,7 @@ export async function callToolFromPage(input: PageCallInput): Promise<PageCallOu
 	}
 
 	logger.info(
-		{ connector: server.name, tool, source: "app", granted, approval: approval ?? null },
+		{ connector: server.name, tool, source: "app", granted, approval: approval?.choice ?? null },
 		"[mcp-app] page-initiated tool call"
 	);
 	try {
