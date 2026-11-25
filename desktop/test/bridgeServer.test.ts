@@ -94,3 +94,45 @@ describe("the bridge directory", () => {
 		expect(statSync(fresh).mode & 0o777).toBe(0o700);
 	});
 });
+
+describe("the control stream", () => {
+	it("pushes who is driving, with the same secret rules as the socket", async () => {
+		const http = await import("node:http");
+		const dir = mkdtempSync(join(tmpdir(), "ctl-"));
+		let mode: "agent" | "user" = "agent";
+		const cbs = new Set<() => void>();
+		const server = await startBridgeServer(new CdpBridge(host, new Control()), {
+			runDir: dir,
+			uid: process.getuid?.() ?? 0,
+			secret: "ctlsecret",
+			control: { current: () => mode, onChange: (cb) => (cbs.add(cb), () => cbs.delete(cb)) },
+		});
+		const sock = server.endpoint.split("ws+unix://")[1].split(":/cdp/")[0];
+		const get = (path: string, headers: Record<string, string> = {}) =>
+			new Promise<{ status?: number; events: string[]; req: import("node:http").ClientRequest }>(
+				(resolve) => {
+					const events: string[] = [];
+					const req = http.request({ socketPath: sock, path, headers }, (res) => {
+						res.setEncoding("utf8");
+						res.on("data", (c: string) => events.push(c));
+						setTimeout(() => resolve({ status: res.statusCode, events, req }), 100);
+					});
+					req.end();
+				}
+			);
+		try {
+			expect((await get("/ctl/wrong")).status).toBe(404);
+			expect((await get("/ctl/ctlsecret", { Origin: "https://evil.example" })).status).toBe(404);
+			const ok = await get("/ctl/ctlsecret");
+			expect(ok.status).toBe(200);
+			expect(ok.events.join("")).toContain('data: {"mode":"agent"}');
+			mode = "user";
+			for (const cb of cbs) cb();
+			await new Promise((r) => setTimeout(r, 50));
+			expect(ok.events.join("")).toContain('data: {"mode":"user"}');
+			ok.req.destroy();
+		} finally {
+			await server.close();
+		}
+	});
+});

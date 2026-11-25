@@ -36,6 +36,13 @@ export function ensurePrivateDir(dir: string, uid: number): void {
 	}
 }
 
+export interface ModeSource {
+	current(): "agent" | "user";
+	onChange(cb: () => void): () => void;
+}
+
+export const modeEvent = (mode: "agent" | "user") => `data: ${JSON.stringify({ mode })}\n\n`;
+
 export function safeEqual(a: string, b: string): boolean {
 	const x = Buffer.from(a);
 	const y = Buffer.from(b);
@@ -50,13 +57,32 @@ export interface BridgeServer {
 
 export async function startBridgeServer(
 	bridge: CdpBridge,
-	opts: { runDir: string; uid: number; secret?: string }
+	opts: { runDir: string; uid: number; secret?: string; control?: ModeSource }
 ): Promise<BridgeServer> {
 	const secret = opts.secret ?? randomBytes(32).toString("base64url");
 	const sock = socketPathFor(opts.runDir, opts.uid);
 	for (const dir of new Set([opts.runDir, join(sock, "..")])) ensurePrivateDir(dir, opts.uid);
 	if (existsSync(sock)) rmSync(sock);
-	const server = http.createServer((_req, res) => {
+	const ctlPath = `/ctl/${secret}`;
+	const streams = new Set<http.ServerResponse>();
+	const unwatch = opts.control?.onChange(() => {
+		for (const res of streams) res.write(modeEvent(opts.control!.current()));
+	});
+	const server = http.createServer((req, res) => {
+		// Who is driving, pushed to the runtime: one event now and one on every change. The same
+		// secret and rules as the CDP socket (no Origin, exact path).
+		if (
+			opts.control &&
+			req.method === "GET" &&
+			!req.headers.origin &&
+			safeEqual(req.url ?? "", ctlPath)
+		) {
+			res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store" });
+			res.write(modeEvent(opts.control.current()));
+			streams.add(res);
+			res.on("close", () => streams.delete(res));
+			return;
+		}
 		res.statusCode = 404;
 		res.end();
 	});
@@ -95,6 +121,8 @@ export async function startBridgeServer(
 		endpoint,
 		close: () =>
 			new Promise<void>((resolve) => {
+				unwatch?.();
+				for (const r of streams) r.end();
 				bridge.disconnect();
 				for (const c of wss.clients) c.terminate();
 				rmSync(endpointFile, { force: true });

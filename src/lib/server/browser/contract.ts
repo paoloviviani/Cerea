@@ -33,6 +33,7 @@ export const RUNTIME_TOOLS = [
 	"tabs",
 	"resume",
 	"open",
+	"control",
 	"end_task",
 ] as const;
 export type RuntimeToolName = (typeof RUNTIME_TOOLS)[number];
@@ -427,6 +428,24 @@ export const openResultSchema = z.object({
 });
 export type OpenResult = z.infer<typeof openResultSchema>;
 
+/**
+ * `control({wait?})` says who is driving the browser. `agent` is the normal state. `user` means
+ * the person took the browser over (the desktop app's panel: Take over) and is using it
+ * themselves: the runtime holds every other call (it does not fail them), and the loop shows
+ * "You are driving" and goes on when the state is `agent` again. With `wait`, the call
+ * returns when the state changes to `agent`, or after `waitedMs` (at most 25 s) with the state
+ * as it is, so a long take-over is a series of short calls, each inside the call timeout.
+ * A runtime with no way to be taken over (a headless browser) always answers `agent`.
+ */
+export const controlRequestSchema = z.object({ wait: z.boolean().optional() });
+export type ControlRequest = z.infer<typeof controlRequestSchema>;
+export const controlResultSchema = z.object({
+	state: z.enum(["agent", "user"]),
+});
+export type ControlResult = z.infer<typeof controlResultSchema>;
+/** The longest one `control({wait:true})` call may take. */
+export const CONTROL_WAIT_MS = 25_000;
+
 export const downloadResultSchema = z.object({
 	files: z
 		.array(
@@ -473,6 +492,11 @@ export interface BrowserRuntime {
 	resume(token: string, signal?: AbortSignal): Promise<ResumeResult>;
 	/** Open a page of its own (no task); its token resumes it. Throws on a refused address or site. */
 	open(request?: OpenRequest, signal?: AbortSignal): Promise<OpenResult>;
+	/**
+	 * Who is driving. An older runtime has no such tool and its error is read as `agent`
+	 * by the loop, never as a failure.
+	 */
+	control(request?: ControlRequest, signal?: AbortSignal): Promise<ControlResult>;
 	/** End the task (ends of every kind); with `keep` its last page stays open. */
 	endTask(options?: { keep?: boolean }, signal?: AbortSignal): Promise<EndTaskResult>;
 	/**

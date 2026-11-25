@@ -18,6 +18,7 @@ async function exercise(client: Client, fx: Fixtures) {
 	const tools = await client.listTools();
 	assert.deepEqual(tools.tools.map((t) => t.name).sort(), [
 		"act",
+		"control",
 		"diff",
 		"download",
 		"end_task",

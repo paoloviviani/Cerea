@@ -449,6 +449,8 @@ export interface MessageBrowseUpdate {
 	activity?: string;
 	/** Set while the loop waits for the user: the sentence they are asked about. */
 	waitingOn?: string;
+	/** The user took the browser over: the task waits for them to hand it back. */
+	driving?: boolean;
 	steps: BrowseStep[];
 	/** The page the browser ended on. */
 	finalUrl?: string;

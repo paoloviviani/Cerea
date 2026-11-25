@@ -421,6 +421,7 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 			let status: MessageBrowseUpdate["status"] = "running";
 			let activity: string | undefined = "starting";
 			let waitingOn: string | undefined;
+			let driving = false;
 			const ending: {
 				finalUrl?: string;
 				stoppedReason?: string;
@@ -433,8 +434,9 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 					uuid: ctx.uuid,
 					goal: singleLine(goal, 200),
 					model,
-					status: waitingOn ? "waiting" : status,
-					...(status === "running" && !waitingOn && activity ? { activity } : {}),
+					status: waitingOn || driving ? "waiting" : status,
+					...(status === "running" && !waitingOn && !driving && activity ? { activity } : {}),
+					...(driving ? { driving: true } : {}),
 					...(waitingOn ? { waitingOn } : {}),
 					steps: [...steps.values()].slice(-MAX_STEPS_SHOWN),
 					...(ending.finalUrl ? { finalUrl: ending.finalUrl } : {}),
@@ -448,6 +450,10 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 				step(step) {
 					steps.set(step.id, step);
 					activity = step.action;
+					emit();
+				},
+				driving(on) {
+					driving = on;
 					emit();
 				},
 				waiting(sentence) {

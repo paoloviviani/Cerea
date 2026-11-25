@@ -391,7 +391,7 @@ func TestBrowserStatusReportsEachStep(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := r.out.String()
-	for _, want := range []string{"installed, up to date", "Chromium 158.0.1 (bundled), sandboxed", "yes, with a window", "not fetched yet", "yes (cerea-browser 0.1.0, 10 tools)"} {
+	for _, want := range []string{"installed, up to date", "Chromium 158.0.1 (bundled), sandboxed", "yes, with a window", "not fetched yet", "yes (cerea-browser 0.1.0, 11 tools)"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("status lacks %q:\n%s", want, out)
 		}

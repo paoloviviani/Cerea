@@ -1847,10 +1847,12 @@
 	"chat.browse.expand": "Show the browsing steps: {goal}",
 	"chat.browse.phase.working": "Browsing",
 	"chat.browse.phase.waiting": "Waiting for you",
+	"chat.browse.phase.driving": "You are driving",
 	"chat.browse.phase.done": "Done",
 	"chat.browse.phase.failed": "Could not finish",
 	"chat.browse.phase.stopped": "Stopped",
 	"chat.browse.waiting": "Waiting for your approval: {sentence}",
+	"chat.browse.driving": "You took over the browser. The task goes on when you hand it back.",
 	"chat.browse.result": "Result",
 	"chat.browse.no_steps": "No steps yet.",
 	"chat.browse.steps": [
