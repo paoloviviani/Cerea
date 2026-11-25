@@ -140,14 +140,19 @@
 	 */
 	async function setPolicy(
 		target: { kind: "base"; name: string } | { kind: "connector"; id: string },
-		change: { mode?: ConnectorMode; alwaysLoaded?: boolean }
+		change: { mode?: ConnectorMode; alwaysLoaded?: boolean; appsAllowed?: boolean }
 	) {
 		const beforeEnv = envList;
 		const beforeShared = connectors;
-		const apply = <T extends { mode?: ConnectorMode; alwaysLoaded?: boolean }>(row: T): T => ({
+		const apply = <
+			T extends { mode?: ConnectorMode; alwaysLoaded?: boolean; appsAllowed?: boolean },
+		>(
+			row: T
+		): T => ({
 			...row,
 			...(change.mode !== undefined ? { mode: change.mode } : {}),
 			...(change.alwaysLoaded !== undefined ? { alwaysLoaded: change.alwaysLoaded } : {}),
+			...(change.appsAllowed !== undefined ? { appsAllowed: change.appsAllowed } : {}),
 		});
 		if (target.kind === "base") {
 			envList = envList.map((row) => (row.name === target.name ? apply(row) : row));
@@ -439,9 +444,11 @@
 	id: string,
 	mode: ConnectorMode | undefined,
 	alwaysLoaded: boolean | undefined,
+	appsAllowed: boolean | undefined,
 	label: string,
 	onmode: (mode: ConnectorMode) => void,
-	onloaded: (on: boolean) => void
+	onloaded: (on: boolean) => void,
+	onapps: (on: boolean) => void
 )}
 	{@const current = mode ?? "on"}
 	<div class="mt-3 flex flex-col gap-2 border-t border-gray-200 pt-3 dark:border-gray-700">
@@ -488,6 +495,13 @@
 			</div>
 			<p class="text-xs text-gray-500 dark:text-gray-400">
 				{m["admin.connectors.mode.always_loaded_hint"]()}
+			</p>
+			<div class="flex items-center gap-2">
+				<Switch name={`apps-${id}`} bind:checked={() => appsAllowed !== false, onapps} />
+				<span class="text-xs font-medium">{m["admin.connectors.mode.apps_allowed"]()}</span>
+			</div>
+			<p class="text-xs text-gray-500 dark:text-gray-400">
+				{m["admin.connectors.mode.apps_allowed_hint"]()}
 			</p>
 		{/if}
 	</div>
@@ -755,9 +769,11 @@
 							server.id,
 							server.mode,
 							server.alwaysLoaded,
+							server.appsAllowed,
 							server.name,
 							(mode) => setPolicy({ kind: "base", name: server.name }, { mode }),
-							(alwaysLoaded) => setPolicy({ kind: "base", name: server.name }, { alwaysLoaded })
+							(alwaysLoaded) => setPolicy({ kind: "base", name: server.name }, { alwaysLoaded }),
+							(appsAllowed) => setPolicy({ kind: "base", name: server.name }, { appsAllowed })
 						)}
 					</li>
 				{/each}
@@ -1080,9 +1096,11 @@
 						connector.id,
 						connector.mode,
 						connector.alwaysLoaded,
+						connector.appsAllowed,
 						connector.name,
 						(mode) => setPolicy({ kind: "connector", id: connector.id }, { mode }),
-						(alwaysLoaded) => setPolicy({ kind: "connector", id: connector.id }, { alwaysLoaded })
+						(alwaysLoaded) => setPolicy({ kind: "connector", id: connector.id }, { alwaysLoaded }),
+						(appsAllowed) => setPolicy({ kind: "connector", id: connector.id }, { appsAllowed })
 					)}
 				</li>
 			{/each}

@@ -34,6 +34,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 				url: server.url,
 				type: "base" as const,
 				mode: policy.mode,
+				appsAllowed: policy.appsAllowed,
 				enabled: isEnabled(key, policy, switches),
 				...(admin ? { alwaysLoaded: policy.alwaysLoaded } : {}),
 				// headers intentionally omitted

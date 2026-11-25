@@ -59,6 +59,8 @@ export interface ConnectorModeRow extends Timestamps {
 	mode: ConnectorMode;
 	/** Loaded from the start of every turn instead of being a catalogue line the model loads. */
 	alwaysLoaded?: boolean;
+	/** MCP Apps (#44): `false` blocks the `ui://` pages of this connector. Absent means allowed. */
+	appsAllowed?: boolean;
 }
 
 /**
@@ -107,6 +109,12 @@ export interface McpConnector extends Timestamps {
 	 * says so rather than leaving it to be discovered.
 	 */
 	scope: "user" | "deployment";
+
+	/**
+	 * MCP Apps (#44), a person's own connector only: `false` blocks the `ui://` pages it offers.
+	 * Absent means allowed. A deployment connector's switch is its policy row (`ConnectorModeRow`).
+	 */
+	appsAllowed?: boolean;
 
 	name: string;
 	/** The MCP endpoint, e.g. `https://mcp.notion.com/mcp`. */
@@ -272,6 +280,8 @@ export interface McpConnectorView {
 	mode?: ConnectorMode;
 	/** Deployment connector: loaded from the start of every turn (administrators see it). */
 	alwaysLoaded?: boolean;
+	/** Whether the apps (`ui://` pages) this connector offers may be shown. Default true. */
+	appsAllowed?: boolean;
 	/** Whether this person's turns use it: its mode and their own switch together. */
 	enabled: boolean;
 	/** Whether *this* person has a usable credential for it. */

@@ -36,9 +36,15 @@ import { getMcpServers } from "./registry";
 export interface ConnectorPolicy {
 	mode: ConnectorMode;
 	alwaysLoaded: boolean;
+	/** MCP Apps (#44): whether the `ui://` pages of this connector may be shown. */
+	appsAllowed: boolean;
 }
 
-export const DEFAULT_POLICY: ConnectorPolicy = { mode: "on", alwaysLoaded: false };
+export const DEFAULT_POLICY: ConnectorPolicy = {
+	mode: "on",
+	alwaysLoaded: false,
+	appsAllowed: true,
+};
 
 export const baseKey = (name: string) => `base:${name}`;
 export const connectorKey = (id: string) => `connector:${id}`;
@@ -55,7 +61,14 @@ export async function loadPolicies(): Promise<Map<string, ConnectorPolicy>> {
 		return new Map(
 			rows
 				.filter((r) => isConnectorMode(r.mode))
-				.map((r) => [r.key, { mode: r.mode, alwaysLoaded: r.alwaysLoaded === true }])
+				.map((r) => [
+					r.key,
+					{
+						mode: r.mode,
+						alwaysLoaded: r.alwaysLoaded === true,
+						appsAllowed: r.appsAllowed !== false,
+					},
+				])
 		);
 	} catch (err) {
 		// Fails closed: an unreadable policy must never read as "On" for a connector set Off.
@@ -72,14 +85,19 @@ export function policyIn(policies: Map<string, ConnectorPolicy>, key: string): C
 /** Change a connector's mode and/or its always-loaded flag. The default is stored as no row. */
 export async function setPolicy(
 	key: string,
-	change: { mode?: ConnectorMode; alwaysLoaded?: boolean }
+	change: { mode?: ConnectorMode; alwaysLoaded?: boolean; appsAllowed?: boolean }
 ): Promise<ConnectorPolicy> {
 	const current = policyIn(await loadPolicies(), key);
 	const next: ConnectorPolicy = {
 		mode: change.mode ?? current.mode,
 		alwaysLoaded: change.alwaysLoaded ?? current.alwaysLoaded,
+		appsAllowed: change.appsAllowed ?? current.appsAllowed,
 	};
-	if (next.mode === DEFAULT_POLICY.mode && next.alwaysLoaded === DEFAULT_POLICY.alwaysLoaded) {
+	if (
+		next.mode === DEFAULT_POLICY.mode &&
+		next.alwaysLoaded === DEFAULT_POLICY.alwaysLoaded &&
+		next.appsAllowed === DEFAULT_POLICY.appsAllowed
+	) {
 		await collections.connectorModes.deleteOne({ key });
 		return next;
 	}
@@ -87,7 +105,12 @@ export async function setPolicy(
 	await collections.connectorModes.updateOne(
 		{ key },
 		{
-			$set: { mode: next.mode, alwaysLoaded: next.alwaysLoaded, updatedAt: now },
+			$set: {
+				mode: next.mode,
+				alwaysLoaded: next.alwaysLoaded,
+				appsAllowed: next.appsAllowed,
+				updatedAt: now,
+			},
 			$setOnInsert: { createdAt: now },
 		},
 		{ upsert: true }

@@ -49,8 +49,17 @@ describe("PUT /api/v2/admin/connector-modes", () => {
 		expect(policyIn(await loadPolicies(), baseKey("search"))).toEqual({
 			mode: "locked",
 			alwaysLoaded: true,
+			appsAllowed: true,
 		});
 		await put({ kind: "base", name: "search", mode: "on", alwaysLoaded: false });
+		expect(await collections.connectorModes.countDocuments({ key: baseKey("search") })).toBe(0);
+	});
+
+	it("switches apps off for a connector, and the default stores nothing", async () => {
+		expect((await put({ kind: "base", name: "search", appsAllowed: false })).status).toBe(200);
+		expect(policyIn(await loadPolicies(), baseKey("search")).appsAllowed).toBe(false);
+		expect(policyIn(await loadPolicies(), baseKey("search")).mode).toBe("on");
+		await put({ kind: "base", name: "search", appsAllowed: true });
 		expect(await collections.connectorModes.countDocuments({ key: baseKey("search") })).toBe(0);
 	});
 

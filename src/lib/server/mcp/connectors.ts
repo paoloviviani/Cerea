@@ -116,6 +116,8 @@ export async function view(
 		checkedAt: connector.checkedAt?.toISOString(),
 		scope: connector.scope ?? "user",
 		key,
+		// MCP Apps (#44): a deployment connector's own policy, else the person's setting.
+		appsAllowed: deployment ? policy?.appsAllowed !== false : connector.appsAllowed !== false,
 		// This person's turns use it: its mode, then their own switch.
 		enabled: isEnabled(key, policy, ctx.switches),
 		...(policy
