@@ -25,10 +25,10 @@ describe("which galopin runs", () => {
 	it("sees an installed service and waits for a stopped galopin", async () => {
 		const home = mkdtempSync(join(tmpdir(), "home-"));
 		const g = new Galopin(undefined, () => {}, { HOME: home });
-		expect(g.serviceInstalled(home)).toBe(false);
+		expect(g.serviceInstalled(home, "")).toBe(false);
 		mkdirSync(join(home, ".config", "systemd", "user"), { recursive: true });
 		writeFileSync(join(home, ".config", "systemd", "user", "galopin.service"), "");
-		expect(g.serviceInstalled(home)).toBe(true);
+		expect(g.serviceInstalled(home, "")).toBe(true);
 		await expect(g.stop()).resolves.toBeUndefined();
 		// XDG_CONFIG_HOME moves the unit
 		const xdg = mkdtempSync(join(tmpdir(), "xdg-"));
