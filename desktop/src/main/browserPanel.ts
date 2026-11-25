@@ -242,10 +242,12 @@ export class BrowserPanel implements TargetHost {
 		const text = input.trim();
 		const url = /^[a-z][a-z0-9+.-]*:/i.test(text) ? text : `https://${text}`;
 		if (guardPanel(url) !== "allow") return;
-		void this.create().then((t) => {
-			(t as ElectronPage).initialNavigate(url);
-			this.activate(t.id);
-		});
+		void this.create()
+			.then((t) => {
+				(t as ElectronPage).initialNavigate(url);
+				this.activate(t.id);
+			})
+			.catch(() => {}); // at the tab cap there is nothing to open
 	}
 
 	navigate(action: "back" | "forward" | "reload"): void {
