@@ -417,9 +417,12 @@ function ocrResponseShape(answer: unknown): Record<string, unknown> {
 	};
 }
 
-function textFromOcrResponse(answer: OcrResponse): Extracted | null {
+function textFromOcrResponse(answer: OcrResponse, selected?: number[]): Extracted | null {
 	const entries = (answer.pages ?? []).map((page, position) => ({
-		page: (Number.isInteger(page.index) ? (page.index as number) : position) + 1,
+		// Without an `index`, an entry stands for the position-th page of the selection sent (in order).
+		page: Number.isInteger(page.index)
+			? (page.index as number) + 1
+			: (selected?.[position] ?? position + 1),
 		text: page.markdown ?? "",
 	}));
 	const text = entries
@@ -939,7 +942,7 @@ async function extractViaGateway(options: {
 				scan: composed.scan,
 			};
 		}
-		const extracted = textFromOcrResponse(answer);
+		const extracted = textFromOcrResponse(answer, pages);
 		if (!extracted) {
 			logger.info(
 				{ filename, model, shape: ocrResponseShape(answer) },
@@ -1176,7 +1179,7 @@ async function extractDocumentDirect(options: {
 		};
 	}
 
-	const extracted = textFromOcrResponse(answer);
+	const extracted = textFromOcrResponse(answer, pages);
 	if (!extracted) {
 		logger.info(
 			{ filename, model, shape: ocrResponseShape(answer) },

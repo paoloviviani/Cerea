@@ -38,4 +38,10 @@ describe("docExtractGate", () => {
 		await docExtractGate({} as App.Locals, "tok");
 		expect(mocks.available).toHaveBeenCalledTimes(1);
 	});
+
+	it("keeps nothing for a call with no credential", async () => {
+		await docExtractGate({} as App.Locals, undefined);
+		await docExtractGate({} as App.Locals, undefined);
+		expect(mocks.available).toHaveBeenCalledTimes(2);
+	});
 });

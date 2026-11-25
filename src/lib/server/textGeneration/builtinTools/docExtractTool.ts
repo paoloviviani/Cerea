@@ -46,6 +46,9 @@ const TURN_LIMIT_MESSAGE =
 	`doc_extract has reached its limit of ${MAX_EXTRACT_CALLS_PER_TURN} calls for this turn. ` +
 	"Say what you read and let the user ask for more.";
 
+/** What a page of a file whose page count is unknown is taken to weigh: a scan page weighs more, so this errs high. */
+const ESTIMATED_BYTES_PER_PAGE = 20_000;
+
 const budgetMessage = (needed: number, billed: number) =>
 	`The page budget for this turn (${DOC_EXTRACT_TURN_PAGE_BUDGET} pages read by the document reader) is reached: ` +
 	`${billed} already read and this read needs about ${needed} more. Do not retry; tell the user and ask whether to go on.`;
@@ -270,7 +273,8 @@ export function createDocExtractBuiltin(params: DocExtractParams): BuiltinTool[]
 
 				const total = mime === "application/pdf" ? await pdfPageCount(file.bytes) : null;
 				const want =
-					parsed.pages ?? (total ? range(Math.min(total, DOC_EXTRACT_MAX_PAGES)) : undefined);
+					parsed.pages?.slice().sort((a, b) => a - b) ??
+					(total ? range(Math.min(total, DOC_EXTRACT_MAX_PAGES)) : undefined);
 				if (want && total) {
 					const outside = want.filter((n) => n > total);
 					if (outside.length > 0) {
@@ -292,10 +296,16 @@ export function createDocExtractBuiltin(params: DocExtractParams): BuiltinTool[]
 					// Only what is asked for goes to a reader that takes a selection; else the whole file is read.
 					const selects =
 						Boolean(missing?.length) && (await readerSelectsPages(token, reader, mime));
-					const cost = selects ? (missing?.length ?? 0) : (total ?? 1);
+					// Reserved before the call (calls on other files run at the same time), corrected after.
+					// An unknown count is estimated from the size, high rather than low.
+					const cost = selects
+						? (missing?.length ?? 0)
+						: (total ?? Math.max(1, Math.ceil(file.bytes.byteLength / ESTIMATED_BYTES_PER_PAGE)));
 					if (billed + cost > DOC_EXTRACT_TURN_PAGE_BUDGET) {
 						return { error: budgetMessage(cost, billed) };
 					}
+					if (ctx.abortSignal?.aborted) return { error: "The turn was stopped; nothing was read." };
+					billed += cost;
 					const extraction = await extractDocument({
 						bytes: file.bytes.buffer.slice(
 							file.bytes.byteOffset,
@@ -309,6 +319,7 @@ export function createDocExtractBuiltin(params: DocExtractParams): BuiltinTool[]
 						...(selects && missing ? { pages: missing } : {}),
 					});
 					if (!extraction.ok) {
+						billed -= cost;
 						logger.info(
 							{ file: file.name, kind: extraction.kind, status: extraction.status },
 							"doc_extract_failed"
@@ -322,7 +333,7 @@ export function createDocExtractBuiltin(params: DocExtractParams): BuiltinTool[]
 						}
 						return { error: failureMessage(file.name, extraction) };
 					}
-					billed += Math.max(extraction.pages, 0);
+					billed += Math.max(extraction.pages, 0) - cost;
 
 					const entry: CachedExtraction = extraction.unpaged
 						? { text: extraction.text, readerModel: extraction.readerModel }

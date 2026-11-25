@@ -1568,6 +1568,22 @@ describe("what the reader's answer says about pages", () => {
 		expect(await extractDocument(pdfOptions)).toMatchObject({ unpaged: true });
 	});
 
+	it("maps entries with no index to the pages of the selection sent, not to 1..n", async () => {
+		setEnvModel("mistral-ocr");
+		gatewayGetMock.mockResolvedValue({ data: [{ id: "mistral-ocr", kind: "ocr" }] });
+		gatewayPostMock.mockResolvedValue({
+			pages: [{ markdown: "five" }, { markdown: "nine" }],
+			usage_info: { pages_processed: 2 },
+		});
+		const result = await extractDocument({ ...pdfOptions, pages: [5, 9] });
+		expect(result).toMatchObject({
+			pageEntries: [
+				{ page: 5, text: "five" },
+				{ page: 9, text: "nine" },
+			],
+		});
+	});
+
 	it("sends an image as image_url, not document_url", async () => {
 		setEnvModel("mistral-ocr");
 		gatewayGetMock.mockResolvedValue({ data: [{ id: "mistral-ocr", kind: "ocr" }] });

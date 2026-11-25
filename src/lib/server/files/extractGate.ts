@@ -21,13 +21,15 @@ export async function docExtractGate(
 	token: string | undefined
 ): Promise<DocExtractGate | undefined> {
 	const key = token ?? "";
-	const hit = answers.get(key);
+	const hit = token ? answers.get(key) : undefined;
 	if (hit && Date.now() - hit.at < EXTRACT_GATE_TTL_MS) return hit.value;
 	let value: DocExtractGate | undefined;
 	if (await extractorAvailable(token)) {
 		const reader = locals ? await userDocumentReader(locals).catch(() => undefined) : undefined;
 		value = { token, readerModel: reader?.model, readerLocal: reader?.local };
 	}
+	// Without a credential there is nothing to key the answer on: it is not kept.
+	if (!token) return value;
 	if (answers.size > 500) answers.clear();
 	answers.set(key, { at: Date.now(), value });
 	return value;

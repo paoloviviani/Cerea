@@ -331,6 +331,47 @@ describe("doc_extract", () => {
 		expect(mocks.extract).not.toHaveBeenCalled();
 	});
 
+	it("reserves the budget before the call, so concurrent reads of different files cannot all pass", async () => {
+		mocks.pageCount.mockResolvedValue(150);
+		mocks.selects.mockResolvedValue(false);
+		let release: (v: unknown) => void = () => undefined;
+		mocks.extract.mockImplementation(() => new Promise((resolve) => (release = resolve)));
+		mocks.find.mockImplementation(async (_c: unknown, name: string) => pdf({ name, sha256: name }));
+		const t = tool();
+		const both = Promise.all([run({ file: "a.pdf" }, t), run({ file: "b.pdf" }, t)]);
+		await vi.waitFor(() => expect(mocks.extract).toHaveBeenCalledTimes(1));
+		release(wholeBlock("x", 150));
+		const results = await both;
+		expect(results.filter((r) => "error" in r)).toHaveLength(1);
+		expect(err(results.find((r) => "error" in r) as never)).toMatch(/page budget for this turn/);
+		expect(mocks.extract).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not assume one page when the count is unknown: it estimates from the size", async () => {
+		mocks.pageCount.mockResolvedValue(null);
+		mocks.selects.mockResolvedValue(false);
+		mocks.find.mockResolvedValue(
+			pdf({ bytes: Buffer.concat([PDF, Buffer.alloc(5 * 1024 * 1024)]) })
+		);
+		expect(err(await run({ file: "big.pdf" }))).toMatch(/page budget for this turn/);
+		expect(mocks.extract).not.toHaveBeenCalled();
+		mocks.find.mockResolvedValue(pdf());
+		mocks.extract.mockResolvedValue(wholeBlock("small", 1));
+		expect(text(await run({ file: "small.pdf" }))).toContain("small");
+	});
+
+	it("does not start a queued read once the turn is aborted", async () => {
+		mocks.find.mockResolvedValue(pdf());
+		const controller = new AbortController();
+		controller.abort();
+		const result = await tool().execute(
+			{ file: "scan.pdf" },
+			{ ...ctx(), abortSignal: controller.signal }
+		);
+		expect(err(result)).toMatch(/stopped/);
+		expect(mocks.extract).not.toHaveBeenCalled();
+	});
+
 	it("caps the pages per call and refuses pages the file does not have", async () => {
 		mocks.find.mockResolvedValue(pdf());
 		mocks.pageCount.mockResolvedValue(3);

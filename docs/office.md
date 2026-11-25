@@ -263,7 +263,7 @@ pages through by character. A turn reads at most 200 pages in all; past that the
 asks you. The text is kept for the conversation by the file's content and the reader that read it,
 so asking again, or for pages already read, makes no new call, and calls made at the same moment on
 the same file share one read. A file you uploaded returns the text from its upload (read by the
-reader chosen then). Kept text is deleted with the conversation and, like an upload's text, is not
+reader chosen then). A file the sandbox made itself stays on that sandbox's disk after a refusal: the refusal withholds the stored copy, not the sandbox's own files. Kept text is deleted with the conversation and, like an upload's text, is not
 re-checked when a privacy rule changes later (the gateway's rules still apply to every chat request
 that carries it). The tool is offered only where an upload would be read: a reader the gateway
 provides, or `CHAT_OCR_BASE_URL`.

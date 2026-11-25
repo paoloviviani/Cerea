@@ -203,6 +203,12 @@ export async function storeDeliverable({
 		bytes
 	);
 
+	// The same bytes under another name are withheld too when a privacy rule refused them there.
+	const refused = await collections.codeExecutionOutputs.findOne(
+		{ conversationId, sha256, withheld: { $exists: true } },
+		{ projection: { withheld: 1 } }
+	);
+
 	let version = await nextVersionNumber(conversationId, name);
 	// A save racing this one can take the same version number between the read
 	// and the insert; the unique (conversation, name, version) index refuses
@@ -224,6 +230,7 @@ export async function storeDeliverable({
 					? { derivedFromSha256: derivedFrom.sha256, derivedFromName: derivedFrom.name }
 					: {}),
 				version,
+				...(refused?.withheld ? { withheld: refused.withheld } : {}),
 				...(tool ? { tool } : {}),
 				...(summary ? { summary: summary.slice(0, 200) } : {}),
 				...(messageId ? { messageIds: [messageId] } : {}),
@@ -306,6 +313,20 @@ export class WithheldDeliverableError extends Error {
 	}
 }
 
+/** Refuses when ANY row of these bytes in the conversation is withheld, whatever name this row has. */
+async function refuseWithheld(
+	conversationId: Conversation["_id"],
+	sha256: string,
+	meta: { withheld?: WithheldByPrivacy }
+): Promise<void> {
+	if (meta.withheld) throw new WithheldDeliverableError(meta.withheld);
+	const other = await collections.codeExecutionOutputs.findOne(
+		{ conversationId, sha256, withheld: { $exists: true } },
+		{ projection: { withheld: 1 } }
+	);
+	if (other?.withheld) throw new WithheldDeliverableError(other.withheld);
+}
+
 /**
  * Mark a produced file withheld, as an upload is when the reader is refused by a privacy rule:
  * every reader of its bytes (`downloadDeliverable`, `openDeliverable`, the share route) then refuses.
@@ -328,7 +349,7 @@ export async function downloadDeliverable(
 ): Promise<{ buffer: Buffer; name: string; mime: string } | undefined> {
 	const meta = await collections.codeExecutionOutputs.findOne({ conversationId, sha256 });
 	if (!meta) return undefined;
-	if (meta.withheld) throw new WithheldDeliverableError(meta.withheld);
+	await refuseWithheld(conversationId, sha256, meta);
 
 	const buffer = await collections.blobStore.read("codeOutputs", meta.gridFsId);
 
@@ -342,7 +363,7 @@ export async function openDeliverable(
 ): Promise<{ stream: Readable; name: string; mime: string; size: number } | undefined> {
 	const meta = await collections.codeExecutionOutputs.findOne({ conversationId, sha256 });
 	if (!meta) return undefined;
-	if (meta.withheld) throw new WithheldDeliverableError(meta.withheld);
+	await refuseWithheld(conversationId, sha256, meta);
 	return {
 		stream: await collections.blobStore.open("codeOutputs", meta.gridFsId),
 		name: meta.name,

@@ -32,6 +32,13 @@ export const GET: RequestHandler = async (event) => {
 		name: snapshot.name,
 	});
 	if (!row || row.withheld) return notAvailable(locale);
+	// The same bytes under another name may be the one a privacy rule refused.
+	const refused = await collections.codeExecutionOutputs.findOne({
+		conversationId: share.conversationId,
+		sha256: snapshot.sha256,
+		withheld: { $exists: true },
+	});
+	if (refused) return notAvailable(locale);
 	try {
 		const stream = await collections.blobStore.open("codeOutputs", row.gridFsId);
 		return new Response(Readable.toWeb(stream) as ReadableStream, {
