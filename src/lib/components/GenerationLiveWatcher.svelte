@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { visibleInterval } from "$lib/utils/visibleInterval";
 	import { browser } from "$app/environment";
 	import { base } from "$app/paths";
 	import { page } from "$app/state";
@@ -103,9 +104,9 @@
 	onMount(() => {
 		// Catch runs already in flight (e.g. started elsewhere before this load).
 		open();
-		const pruneTimer = setInterval(() => activeGenerations.pruneExpired(), PRUNE_INTERVAL_MS);
+		const stopPrune = visibleInterval(() => activeGenerations.pruneExpired(), PRUNE_INTERVAL_MS);
 		return () => {
-			clearInterval(pruneTimer);
+			stopPrune();
 			close();
 		};
 	});

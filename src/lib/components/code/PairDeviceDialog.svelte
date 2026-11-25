@@ -154,7 +154,7 @@
 	const upgradeCommand = $derived(buildUpgradeCommand(origin));
 	const pending = $derived(codeDeviceList.devices.filter((device) => device.status === "pending"));
 
-	onMount(() => useCodeDevicePoll());
+	onMount(() => useCodeDevicePoll({ fast: true }));
 
 	async function confirm(device: CodeDeviceView) {
 		busy = device.id;

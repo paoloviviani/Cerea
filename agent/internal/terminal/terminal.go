@@ -35,11 +35,11 @@ const MaxOutputFrame = 32 << 10
 // hangs because every tab is asleep (PROTOCOL.md §9.2).
 const DefaultStarveTimeout = 10 * time.Second
 
-// DefaultPollInterval is how often the read loop rechecks whether it may
-// resume: after an ack, after a viewer (dis)connects, or once the starve
-// timeout elapses. Not event-driven, so real responsiveness is bounded by
-// this — small enough that it is not felt in practice.
-const DefaultPollInterval = 20 * time.Millisecond
+// DefaultPollInterval is the slowest the read loop rechecks whether it may
+// resume while held back by flow control. An ack and a viewer (dis)connecting
+// wake it at once (wakeCh), so this only bounds the starve-timeout expiry:
+// it was 20ms and cost 50 wakeups a second for as long as a viewer stalled.
+const DefaultPollInterval = 500 * time.Millisecond
 
 // IdleReapAfter is how long a terminal may sit with no attached viewer
 // before it gets SIGHUP (PROTOCOL.md §9.3 "Terminal process rules").
@@ -181,6 +181,8 @@ type Terminal struct {
 
 	closeOnce sync.Once
 	doneCh    chan struct{}
+	// wakeCh (capacity 1) cuts the read loop's flow-control wait short.
+	wakeCh chan struct{}
 }
 
 // newTerminal builds a Terminal around an already-spawned PTY. Unexported:
@@ -194,7 +196,7 @@ func newTerminal(id, workspaceID, cwd, shell string, cols, rows int, ptmx ptyIO,
 		onOutput: onOutput, onNotice: onNotice,
 		cols: cols, rows: rows, createdAt: time.Now(), state: StateRunning,
 		viewers: map[string]*viewer{}, lastViewerAt: time.Now(),
-		doneCh: make(chan struct{}),
+		doneCh: make(chan struct{}), wakeCh: make(chan struct{}, 1),
 	}
 	go t.readLoop()
 	if proc != nil {
@@ -261,6 +263,7 @@ func (t *Terminal) readLoop() {
 			select {
 			case <-t.doneCh:
 				return
+			case <-t.wakeCh:
 			case <-time.After(t.pollInterval):
 			}
 		}
@@ -277,6 +280,14 @@ func (t *Terminal) readLoop() {
 			}
 			return
 		}
+	}
+}
+
+// wake lets a read loop held by flow control re-evaluate now.
+func (t *Terminal) wake() {
+	select {
+	case t.wakeCh <- struct{}{}:
+	default:
 	}
 }
 
@@ -412,6 +423,7 @@ func (t *Terminal) Attach(channel string, from *int64) (effectiveFrom int64, res
 	}
 	snap = t.snapshotLocked()
 	t.mu.Unlock()
+	t.wake()
 	go t.flushViewer(v)
 	return effectiveFrom, reset, prelude, snap
 }
@@ -425,6 +437,7 @@ func (t *Terminal) Detach(channel string) error {
 	}
 	delete(t.viewers, channel)
 	t.lastViewerAt = time.Now()
+	t.wake()
 	return nil
 }
 
@@ -442,6 +455,7 @@ func (t *Terminal) Ack(channel string, upTo uint64) error {
 		v.acked = upTo
 	}
 	t.mu.Unlock()
+	t.wake()
 	t.flushViewer(v)
 	return nil
 }

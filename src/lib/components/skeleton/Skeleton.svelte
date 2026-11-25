@@ -47,7 +47,8 @@
 		background-size: 200% 100%;
 		background-repeat: no-repeat;
 		background-position: 200% 0;
-		animation: skeleton-shimmer 1.6s ease-in-out infinite;
+		/* Bounded: the gradient repaints every frame, so a skeleton that never resolves must not shimmer forever. */
+		animation: skeleton-shimmer 1.6s ease-in-out 8;
 	}
 	.skeleton-line {
 		width: 100%;

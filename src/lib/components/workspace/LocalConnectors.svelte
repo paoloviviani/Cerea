@@ -14,6 +14,7 @@
 	in the Agents panel.
 -->
 <script lang="ts">
+	import { visibleInterval } from "$lib/utils/visibleInterval";
 	import { m } from "$lib/paraglide/messages";
 	import { onMount } from "svelte";
 	import { page } from "$app/state";
@@ -156,10 +157,10 @@
 
 	onMount(() => {
 		void refresh();
-		const timer = setInterval(() => void refresh(), POLL_MS);
+		const stopPoll = visibleInterval(() => void refresh(), POLL_MS);
 		const stopResume = onAppResume(() => void refresh());
 		return () => {
-			clearInterval(timer);
+			stopPoll();
 			stopResume();
 		};
 	});

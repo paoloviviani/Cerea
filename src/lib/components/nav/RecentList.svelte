@@ -13,6 +13,7 @@
 	machines: the list is chats only.
 -->
 <script lang="ts">
+	import { visibleInterval } from "$lib/utils/visibleInterval";
 	import { m } from "$lib/paraglide/messages";
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
@@ -143,22 +144,20 @@
 		}
 	});
 	onMount(() => {
-		const clock = setInterval(() => (now = Date.now()), 30_000);
-		if (!agentsEnabled) return () => clearInterval(clock);
+		const stopClock = visibleInterval(() => (now = Date.now()), 30_000);
+		if (!agentsEnabled) return stopClock;
 		const stopPoll = useCodeDevicePoll();
 		void refreshTrees(true);
-		const interval = setInterval(() => {
-			if (!document.hidden) void refreshTrees(false);
-		}, TREE_POLL_MS);
+		const stopTreePoll = visibleInterval(() => void refreshTrees(false), TREE_POLL_MS);
 		const onFocus = () => {
 			void refreshCodeDevices();
 			void refreshTrees(false);
 		};
 		window.addEventListener("focus", onFocus);
 		return () => {
-			clearInterval(clock);
+			stopClock();
 			stopPoll();
-			clearInterval(interval);
+			stopTreePoll();
 			window.removeEventListener("focus", onFocus);
 		};
 	});

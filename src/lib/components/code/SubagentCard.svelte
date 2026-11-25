@@ -19,6 +19,7 @@
 	settled row whose roster entry has not moved serves its cache instead.
 -->
 <script lang="ts">
+	import { visibleInterval } from "$lib/utils/visibleInterval";
 	import { m } from "$lib/paraglide/messages";
 	import { setCodeExecutionDisabled } from "$lib/utils/execution/codeExecutionDisabled";
 	import { tick } from "svelte";
@@ -36,6 +37,8 @@
 
 	/** At most one timeline re-sync per second while expanded. */
 	const RESYNC_THROTTLE_MS = 1000;
+	/** The safety-net poll while expanded and visible; live activity re-syncs sooner. */
+	const RESYNC_POLL_MS = 3000;
 
 	interface Props {
 		anchor: CodeSubagentAnchor;
@@ -139,8 +142,7 @@
 	});
 	$effect(() => {
 		if (!open) return;
-		const timer = setInterval(() => void refresh(), RESYNC_THROTTLE_MS);
-		return () => clearInterval(timer);
+		return visibleInterval(() => void refresh(), RESYNC_POLL_MS);
 	});
 </script>
 

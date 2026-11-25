@@ -858,3 +858,11 @@ func TestKeptServerUIResourceIsNotGrownByEscaping(t *testing.T) {
 		t.Fatalf("the page did not cross intact: %.200s", f.message)
 	}
 }
+
+// The mcp.json watcher is idle most of the day: its default poll is not a busy tick.
+func TestWatchPollDefaultIsNotBusy(t *testing.T) {
+	r := newRig(t, fakeConfig("", ""), nil)
+	if got := r.hub.cfg.PollEvery; got < 5*time.Second {
+		t.Fatalf("default PollEvery = %v, want at least 5s", got)
+	}
+}

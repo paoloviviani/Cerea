@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { visibleInterval } from "$lib/utils/visibleInterval";
 	import { m } from "$lib/paraglide/messages";
 	import Rich from "$lib/i18n/Rich.svelte";
 	import { questionSummary } from "$lib/utils/questionSummary";
@@ -81,8 +82,7 @@
 	$effect(() => {
 		if (!open || expiresAt === undefined) return;
 		const period = expiresAt - now > 120_000 ? 30_000 : 1_000;
-		const timer = setInterval(() => (now = Date.now()), period);
-		return () => clearInterval(timer);
+		return visibleInterval(() => (now = Date.now()), period);
 	});
 
 	let timeLeft = $derived.by(() => {

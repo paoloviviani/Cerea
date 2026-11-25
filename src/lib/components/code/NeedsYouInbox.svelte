@@ -47,6 +47,7 @@
 	inbox.
 -->
 <script lang="ts">
+	import { visibleInterval } from "$lib/utils/visibleInterval";
 	import * as s from "$lib/components/overlay/styles";
 	import { m } from "$lib/paraglide/messages";
 	import { onMount, untrack } from "svelte";
@@ -498,14 +499,10 @@
 
 	onMount(() => {
 		if (!browser) return;
-		const timer = setInterval(() => void refresh(), POLL_MS);
-		const onVisible = () => {
-			if (!document.hidden) void refresh();
-		};
-		document.addEventListener("visibilitychange", onVisible);
+		// Stops while the tab is hidden; re-reads the moment it is shown again.
+		const stopPoll = visibleInterval(() => void refresh(), POLL_MS);
 		return () => {
-			document.removeEventListener("visibilitychange", onVisible);
-			clearInterval(timer);
+			stopPoll();
 			fetchSeq += 1;
 			browseAbort?.abort();
 			for (const abort of tails.values()) abort.abort();

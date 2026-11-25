@@ -362,3 +362,46 @@ func waitFor(t *testing.T, cond func() bool, timeout time.Duration) {
 		t.Fatal("condition never became true")
 	}
 }
+
+// A stalled viewer must not make the read loop poll fast: the default wait is
+// not a busy tick, and an ack (not the timer) is what resumes output.
+func TestFlowControlWaitIsEventDriven(t *testing.T) {
+	if DefaultPollInterval < 100*time.Millisecond {
+		t.Fatalf("DefaultPollInterval = %v: a stalled viewer would wake the agent too often", DefaultPollInterval)
+	}
+	var mu sync.Mutex
+	received := 0
+	term, fp := newFakeTerminal(func(_, _ string, _ uint64, payload []byte) {
+		mu.Lock()
+		received += len(payload)
+		mu.Unlock()
+	})
+	defer func() { _ = fp.Close() }()
+	term.pollInterval = time.Hour // only wakeCh can end the wait
+	term.starveTimeout = time.Hour
+
+	term.Attach("v1", int64Ptr(0))
+	chunk := bytes.Repeat([]byte("w"), 8192)
+	go func() {
+		for i := 0; i < 60; i++ {
+			fp.produce(chunk)
+		}
+	}()
+	waitFor(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return received >= CreditWindow
+	}, 3*time.Second)
+	time.Sleep(100 * time.Millisecond)
+	mu.Lock()
+	before := received
+	mu.Unlock()
+	if err := term.Ack("v1", uint64(before)); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return received > before
+	}, 3*time.Second)
+}
