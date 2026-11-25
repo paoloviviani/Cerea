@@ -159,11 +159,36 @@ describe("storage and migration", () => {
 		expect(existsSync(join(ud, "Partitions", "cerea-browser"))).toBe(false);
 		expect(readFileSync(join(ud, "Partitions", `cerea-${id}`, "Cookies"), "utf8")).toBe("login");
 		expect(existsSync(join(ud, "Partitions", `panel-${id}`))).toBe(true);
-		// a destination that already exists is left alone, and a bad id is refused
-		mkdirSync(join(ud, "Partitions", "cerea"), { recursive: true });
-		migratePartitions(ud, id);
-		expect(existsSync(join(ud, "Partitions", "cerea"))).toBe(true);
+		// a bad id is refused
 		expect(() => migratePartitions(ud, "../x")).toThrow();
+	});
+
+	it("sweeps leftovers at every start: moved when the profile has none yet, removed when it has", () => {
+		const ud = dir();
+		const id = newProfileId();
+		const server = { address: "https://c.example.org/chat", name: "Acme" };
+		// a v2 store, as after the save but before a crash lost the rename
+		writeFileSync(
+			join(ud, "config.json"),
+			JSON.stringify({
+				version: 2,
+				active: id,
+				profiles: [{ id, name: "Acme", server, defaultGalopin: true }],
+			})
+		);
+		mkdirSync(join(ud, "Partitions", "cerea"), { recursive: true });
+		writeFileSync(join(ud, "Partitions", "cerea", "Cookies"), "login");
+		mkdirSync(join(ud, "Partitions", "cerea-browser"), { recursive: true });
+		loadStore(ud);
+		expect(existsSync(join(ud, "Partitions", "cerea"))).toBe(false);
+		expect(readFileSync(join(ud, "Partitions", `cerea-${id}`, "Cookies"), "utf8")).toBe("login");
+		expect(existsSync(join(ud, "Partitions", `panel-${id}`))).toBe(true);
+		// the profile's sessions exist now: leftovers that turn up again are stale and removed, never merged in
+		mkdirSync(join(ud, "Partitions", "cerea"), { recursive: true });
+		writeFileSync(join(ud, "Partitions", "cerea", "Cookies"), "stale");
+		loadStore(ud);
+		expect(existsSync(join(ud, "Partitions", "cerea"))).toBe(false);
+		expect(readFileSync(join(ud, "Partitions", `cerea-${id}`, "Cookies"), "utf8")).toBe("login");
 	});
 
 	it("does not touch the earlier sessions when there is nothing to migrate", () => {
@@ -339,5 +364,55 @@ describe("profile operations are serialised", () => {
 		await expect(bad).rejects.toThrow("boom");
 		await good;
 		expect(out).toEqual(["ran"]);
+	});
+});
+
+describe("galopin actions go through the same queue as switches", () => {
+	it("a start queued during a switch runs after it, on the new profile's galopin", async () => {
+		const { Mutex, serialize } = await import("../src/main/mutex.ts");
+		const ops = new Mutex();
+		let current = "a";
+		const log: string[] = [];
+		const handlers: Record<string, (arg: never) => unknown> = {
+			"galopin:start": async () => void log.push(`start on ${current}`),
+			"galopin:pair": async () => void log.push(`pair on ${current}`),
+			"galopin:service": async () => void log.push(`service on ${current}`),
+			"galopin:browser-setup": async () => void log.push(`browser-setup on ${current}`),
+			"galopin:stop": async () => void log.push(`stop on ${current}`),
+			"galopin:status": async () => void log.push(`status on ${current}`),
+		};
+		serialize(ops, handlers, [
+			"galopin:start",
+			"galopin:pair",
+			"galopin:service",
+			"galopin:browser-setup",
+			"galopin:stop",
+		] as const);
+		// a switch from a to b that takes a while
+		const sw = ops.run(async () => {
+			log.push("switch begins");
+			await new Promise((r) => setTimeout(r, 30));
+			current = "b";
+			log.push("switch done");
+		});
+		const results = [
+			handlers["galopin:start"](undefined as never),
+			handlers["galopin:pair"](undefined as never),
+			handlers["galopin:service"](undefined as never),
+			handlers["galopin:browser-setup"](undefined as never),
+			handlers["galopin:stop"](undefined as never),
+			handlers["galopin:status"](undefined as never), // not serialised: a read
+		];
+		await Promise.all([sw, ...results]);
+		const afterSwitch = log.slice(log.indexOf("switch done") + 1);
+		expect(afterSwitch).toEqual([
+			"start on b",
+			"pair on b",
+			"service on b",
+			"browser-setup on b",
+			"stop on b",
+		]);
+		expect(log).not.toContain("start on a");
+		expect(log).toContain("status on a");
 	});
 });

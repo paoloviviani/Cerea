@@ -190,3 +190,29 @@ describe("the control stream", () => {
 		}
 	});
 });
+
+describe("the endpoint file", () => {
+	it("is written without following a link planted at its path", async () => {
+		const { writeEndpointFile } = await import("../src/main/bridgeServer.ts");
+		const { lstatSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } =
+			await import("node:fs");
+		const dir = mkdtempSync(join(tmpdir(), "ep-"));
+		const victim = join(dir, "victim");
+		writeFileSync(victim, "precious");
+		const file = join(dir, "cdp-endpoint");
+		symlinkSync(victim, file);
+		writeEndpointFile(file, "ws+unix://s:/cdp/x\n");
+		expect(readFileSync(victim, "utf8")).toBe("precious");
+		expect(lstatSync(file).isSymbolicLink()).toBe(false);
+		expect(readFileSync(file, "utf8")).toBe("ws+unix://s:/cdp/x\n");
+		expect(lstatSync(file).mode & 0o777).toBe(0o600);
+		// a dangling link, and a directory in the way, are replaced too
+		const file2 = join(dir, "cdp2");
+		symlinkSync(join(dir, "nowhere"), file2);
+		writeEndpointFile(file2, "a");
+		expect(lstatSync(file2).isFile()).toBe(true);
+		// a rewrite truncates
+		writeEndpointFile(file, "b");
+		expect(readFileSync(file, "utf8")).toBe("b");
+	});
+});

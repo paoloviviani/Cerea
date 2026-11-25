@@ -1,3 +1,19 @@
+/**
+ * Wraps the named handlers so each runs through `ops`, one at a time with profile switches, adds
+ * and removals: a handler that starts, stops or configures "the" galopin then acts on whichever
+ * profile is current when it runs, never on one that a switch in flight is leaving.
+ */
+export function serialize<H extends Record<string, (arg: never) => unknown>>(
+	ops: Mutex,
+	handlers: H,
+	keys: readonly (keyof H)[]
+): void {
+	for (const key of keys) {
+		const h = handlers[key];
+		handlers[key] = ((arg: never) => ops.run(() => h(arg))) as H[typeof key];
+	}
+}
+
 /** Runs one async operation at a time, in the order asked. A failure of one does not stop the next. */
 export class Mutex {
 	private tail: Promise<void> = Promise.resolve();

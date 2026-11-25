@@ -16,7 +16,7 @@ import {
 	type IpcMainInvokeEvent,
 	type WebContents,
 } from "electron";
-import { Mutex } from "./mutex.ts";
+import { Mutex, serialize } from "./mutex.ts";
 import { BridgeRouter, CdpBridge } from "./cdpBridge.ts";
 import { startBridgeServer, type BridgeServer } from "./bridgeServer.ts";
 import { BrowserPanel } from "./browserPanel.ts";
@@ -472,6 +472,15 @@ const handlers: { [C in Channel]: Handler<C> } = {
 		if (a && mayOpenExternally(a)) void shell.openExternal(a);
 	},
 };
+
+// These act on "the" galopin: queued behind any switch, so none reaches a profile that is being left.
+serialize(ops, handlers, [
+	"galopin:start",
+	"galopin:stop",
+	"galopin:pair",
+	"galopin:service",
+	"galopin:browser-setup",
+] as const);
 
 function registerIpc(): void {
 	for (const channel of CHANNELS) {
