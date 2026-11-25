@@ -85,7 +85,8 @@ async function fileItems(chats: Map<string, string>): Promise<ArtifactListItem[]
 			at: Date;
 		}>(
 			[
-				{ $match: { conversationId: { $in: ids } } },
+				// An MCP App's stored page is kept in this store for reloads, but it is not the user's file.
+				{ $match: { conversationId: { $in: ids }, tool: { $ne: "mcp_app" } } },
 				// The version that is current now: a restore (`latestAt`) puts an older one back on top.
 				{
 					$project: {

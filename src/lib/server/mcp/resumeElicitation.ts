@@ -3,6 +3,7 @@ import type { ObjectId } from "mongodb";
 import { logger } from "$lib/server/logger";
 import { callMcpTool, getMcpToolTimeoutMs } from "./httpClient";
 import { saveResultFiles } from "./resultFiles";
+import { appSnapshotFor } from "./apps/snapshot";
 import { openDurableElicitation, takeResumableElicitation } from "./elicitation";
 import { ToolResultStatus } from "$lib/types/Tool";
 import {
@@ -391,6 +392,15 @@ async function runApprovedCall(
 				),
 			};
 		}
+		// A tool linked to an MCP App page: read and kept for the card. Never fails the call.
+		const app = await appSnapshotFor({
+			server,
+			tool: mcp.toolName,
+			conversationId: owner?.conversationId,
+			userId: owner?.userId,
+			messageId: owner?.messageId,
+			signal,
+		});
 		return {
 			type: MessageUpdateType.Tool,
 			subtype: MessageToolUpdateType.Result,
@@ -407,6 +417,7 @@ async function runApprovedCall(
 				],
 				display: true,
 				external: true,
+				...(app ? { app } : {}),
 			},
 		};
 	} catch (err) {
@@ -648,6 +659,9 @@ export async function resumeParkedToolCall({
 
 	let update: MessageUpdate;
 	let filesUpdate: MessageUpdate | undefined;
+	const ownerUserId = (
+		await collections.conversations.findOne({ _id: conversationId }, { projection: { userId: 1 } })
+	)?.userId;
 	try {
 		const raw = await callMcpTool(server, pending.tool, fileRefs.args, {
 			signal,
@@ -662,12 +676,7 @@ export async function resumeParkedToolCall({
 			? undefined
 			: await saveResultFiles(raw, {
 					conversationId,
-					userId: (
-						await collections.conversations.findOne(
-							{ _id: conversationId },
-							{ projection: { userId: 1 } }
-						)
-					)?.userId,
+					userId: ownerUserId,
 					messageId: pending.messageId,
 					tool: pending.tool,
 					args: pending.args,
@@ -715,6 +724,17 @@ export async function resumeParkedToolCall({
 			};
 		}
 
+		// A tool linked to an MCP App page: read and kept for the card. Never fails the call.
+		const app = response.isError
+			? undefined
+			: await appSnapshotFor({
+					server,
+					tool: pending.tool,
+					conversationId,
+					userId: ownerUserId,
+					messageId: pending.messageId,
+					signal,
+				});
 		update = response.isError
 			? {
 					type: MessageUpdateType.Tool,
@@ -741,6 +761,7 @@ export async function resumeParkedToolCall({
 						],
 						display: true,
 						external: true,
+						...(app ? { app } : {}),
 					},
 				};
 	} catch (err) {

@@ -26,7 +26,7 @@ design.
   cannot make a credentialed request to Cerea. This is the sink that HTML artifacts already use (`PREVIEW_SANDBOX`,
   `previewSrcdoc.ts`; `artifactTool.ts` noted that the `ui://` slice would share it). No popups, no downloads, no
   modals, no top navigation.
-- **Deviation from the spec text, on purpose.** The spec asks for `allow-same-origin` plus a *different* origin served
+- **Deviation from the spec text, on purpose.** The spec asks for `allow-same-origin` plus a _different_ origin served
   by a host-controlled server with CSP response headers (single or double iframe). Cerea has one origin per deployment
   and no second domain to rely on. An opaque origin gives the same isolation (a unique origin the host cannot be
   confused with) without a domain. The cost: the page has no origin-bound storage (`localStorage`, cookies, IndexedDB
@@ -34,6 +34,7 @@ design.
   Pages written for the common examples do not need any of these. The `postMessage` channel is the official
   `PostMessageTransport`, which accepts messages only from that one iframe's window.
 - The page is **never** loaded from the connector's URL, only from the HTML Cerea read itself.
+- **Single iframe, not the reference double iframe.** There is no outer proxy frame on a second origin: one sandboxed frame, opaque origin, and the bridge talks to it directly.
 
 ### 2. What the page may load (CSP)
 
@@ -43,7 +44,7 @@ design.
   of anything the page contains (the page's markup is concatenated after it, so a script cannot run before the policy).
 - **Strict default** when nothing is declared: the spec's restrictive default (`default-src 'none'`, inline script and
   style, `data:` images and media, `connect-src 'none'`, `object-src 'none'`), plus `form-action 'none'`.
-- Declared domains are **validated**, not pasted: only `https:` and `wss:` origins (and `http://localhost` is *not*
+- Declared domains are **validated**, not pasted: only `https:` and `wss:` origins (and `http://localhost` is _not_
   accepted), with an optional leading `*.` wildcard label and an optional port. A value with a space, quote, semicolon,
   comma, path, or any other character, a bare `*`, a scheme-only source or `'unsafe-*'` is dropped (and logged), never
   rewritten. Wildcards are accepted only as a first label of a host with at least two more labels.
@@ -57,27 +58,28 @@ design.
 
 Everything goes through the official `AppBridge` and a small set of handlers. **A request with no handler is refused.**
 
-| Page request | Cerea |
-| --- | --- |
-| `tools/call` | Server-side, **through the approval gate**, same connector only, only tools whose `_meta.ui.visibility` includes `"app"` (default both). See below. |
-| `ui/message` | Allowed, **conservatively**: the text becomes a *draft in the composer*, labelled as coming from the page. The user reads it and sends it, or clears it. It is never sent as a user turn on the page's say-so. Text only; length-capped. |
-| `ui/open-link` | `http`/`https` only, after a **confirmation dialog** that shows the full address and the connector's name. Opened with `noopener,noreferrer`. |
-| `ui/request-display-mode` | `inline` and `fullscreen` (a fixed overlay in the same page; Escape or a button closes it). `pip` is declined. |
-| `ui/notifications/size-changed` | Height follows the page, capped. |
-| `notifications/message` (logging) | Accepted, kept in the browser console at debug level. Not shown. |
-| `ui/update-model-context`, `ui/download-file`, `resources/*`, `tools/list`, `sampling/*`, `prompts/*` | **Not supported yet**, refused. |
+| Page request                                                                                          | Cerea                                                                                                                                                                                                                                    |
+| ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tools/call`                                                                                          | Server-side, **through the approval gate**, same connector only, only tools whose `_meta.ui.visibility` includes `"app"` (default both). See below.                                                                                      |
+| `ui/message`                                                                                          | Allowed, **conservatively**: the text becomes a _draft in the composer_, labelled as coming from the page. The user reads it and sends it, or clears it. It is never sent as a user turn on the page's say-so. Text only; length-capped. |
+| `ui/open-link`                                                                                        | `http`/`https` only, after a **confirmation dialog** that shows the full address and the connector's name. Opened with `noopener,noreferrer`.                                                                                            |
+| `ui/request-display-mode`                                                                             | `inline` and `fullscreen` (a fixed overlay in the same page; Escape or a button closes it). `pip` is declined.                                                                                                                           |
+| `ui/notifications/size-changed`                                                                       | Height follows the page, capped.                                                                                                                                                                                                         |
+| `notifications/message` (logging)                                                                     | Accepted, kept in the browser console at debug level. Not shown.                                                                                                                                                                         |
+| `ui/update-model-context`, `ui/download-file`, `resources/*`, `tools/list`, `sampling/*`, `prompts/*` | **Not supported yet**, refused.                                                                                                                                                                                                          |
 
 **Page-initiated tool calls (the one real risk).** The page is untrusted, and a call it starts acts with the
 connector's credential. So:
 
+0. **The connector is never taken from the browser or the page.** It is the one recorded on the server when the tool answered (stored with the page), and the call route refuses a connector the conversation holds no stored page of. `appsAllowedFor(connectorRef, userId)` is asked with that record and the user.
 1. The call is made by the **server** (`POST /conversation/<id>/mcp-app/call`), with the connector's own credential for
    that user, resolved by the same resolver a turn uses (ADR 0104), never a credential or address the browser or the
    page supplies. The connector must be on for this user and apps must be allowed for it (`appsAllowedFor`).
 2. The tool must belong to **that connector** and be visible to apps. The page names no server.
-3. **The gate is the model's gate, unchanged** (ADR 0075): under *Allow* (`always-allow`) a call runs; under *Ask*
+3. **The gate is the model's gate, unchanged** (ADR 0075): under _Allow_ (`always-allow`) a call runs; under _Ask_
    (`manual`) a call runs only if the conversation already holds a grant for `connector:tool`, **otherwise the server
-   answers "approval required"** and runs nothing. The browser then shows Cerea's own approval card, *worded as the page's
-   request*, "The page from <connector> wants to call <tool>", with the arguments, and **Allow this one call / Allow
+   answers "approval required"** and runs nothing. The browser then shows Cerea's own approval card, _worded as the page's
+   request_, "The page from <connector> wants to call <tool>", with the arguments, and **Allow this one call / Allow
    this tool for the rest of the conversation / Deny**. Only that click (Cerea's own UI, in the top document, which a
    page cannot reach) sends the retry with the approval; "for the conversation" records the same
    `conv.approvedTools` grant a model call would. A grant given to the model's call covers the page's call and the other
@@ -89,7 +91,7 @@ connector's credential. So:
 6. A call has the same timeout as a model's, no elicitation (an `input_required` is an error: there is no turn to park),
    and is logged (connector, tool, user; never arguments or results) with `source: "app"`.
 
-Anything a page returns to the *model* is not in this version: there is no `ui/update-model-context`, and a page
+Anything a page returns to the _model_ is not in this version: there is no `ui/update-model-context`, and a page
 message is a draft, so page content reaches the model only by a user sending it. The tool's own result, the text the model
 already reads, is unchanged and still marked as outside data (`untrusted.ts`).
 
@@ -102,6 +104,7 @@ already reads, is unchanged and still marked as outside data (`untrusted.ts`).
 - A reload renders from the stored copy with the stored tool input and result, **without the connector being reachable**.
   The stored copy is fetched through an access-controlled route that checks apps are still allowed for the connector.
   Past the retention period the card falls back to the text result.
+- Only the exact `ui://` URI that a tool of the same connector names in `_meta.ui.resourceUri` is ever read: never another URI or scheme.
 - Validation before anything is stored: scheme `ui://`; MIME exactly `text/html;profile=mcp-app` (parameters
   normalised); a `text` or a base64 `blob` that decodes as UTF-8; size at most **2 MiB** (a larger page is not rendered
   and the text result stands); a read time-out. A failure never fails the tool call: the model's result is unaffected.

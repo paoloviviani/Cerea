@@ -17,6 +17,8 @@ import type { McpConnector } from "$lib/types/McpConnector";
 export interface ResolvedServer {
 	name: string;
 	url: string;
+	/** The connector's key, so what a turn calls can be traced back to its connector. */
+	key?: string;
 	headers?: Record<string, string>;
 }
 

@@ -1,5 +1,6 @@
 import { Client, type ClientCapabilities } from "@modelcontextprotocol/client";
 import { isElicitationEnabled } from "./elicitationConfig";
+import { MCP_APP_EXTENSION_ID, MCP_APP_MIME } from "$lib/utils/mcpApp";
 
 /**
  * Declare a capability only in the change that implements its handler, or servers issue
@@ -8,9 +9,16 @@ import { isElicitationEnabled } from "./elicitationConfig";
  * reads as form-only and the server SDK then refuses to send a URL elicitation at all.
  */
 export function mcpClientCapabilities(kind: McpClientKind): ClientCapabilities {
-	return CLIENT_INFO[kind].elicits && isElicitationEnabled()
-		? { elicitation: { form: {}, url: {} } }
-		: {};
+	const capabilities: ClientCapabilities = {};
+	if (CLIENT_INFO[kind].elicits && isElicitationEnabled()) {
+		capabilities.elicitation = { form: {}, url: {} };
+	}
+	// MCP Apps: the chat renders a tool's `ui://` page (docs/dev/adr-mcp-apps.md), so a server may
+	// offer UI-enabled tools. Declared here and only for a client that has a chat behind it.
+	if (CLIENT_INFO[kind].apps) {
+		capabilities.extensions = { [MCP_APP_EXTENSION_ID]: { mimeTypes: [MCP_APP_MIME] } };
+	}
+	return capabilities;
 }
 
 /**
@@ -23,8 +31,8 @@ export function mcpClientCapabilities(kind: McpClientKind): ClientCapabilities {
  * lose every prompt.
  */
 const CLIENT_INFO = {
-	session: { name: "chat-ui-mcp", version: "0.1.0", elicits: true },
-	health: { name: "chat-ui-health-check", version: "1.0.0", elicits: false },
+	session: { name: "chat-ui-mcp", version: "0.1.0", elicits: true, apps: true },
+	health: { name: "chat-ui-health-check", version: "1.0.0", elicits: false, apps: false },
 } as const;
 
 export type McpClientKind = keyof typeof CLIENT_INFO;

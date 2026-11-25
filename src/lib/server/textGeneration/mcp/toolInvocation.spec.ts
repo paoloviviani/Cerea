@@ -25,6 +25,9 @@ vi.mock("$lib/server/mcp/clientPool", () => ({
 	getClient: vi.fn(async () => ({})),
 }));
 
+const appMock = vi.hoisted(() => ({ appSnapshotFor: vi.fn(async () => undefined as unknown) }));
+vi.mock("$lib/server/mcp/apps/snapshot", () => ({ appSnapshotFor: appMock.appSnapshotFor }));
+
 vi.mock("../../logger", () => ({
 	logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
@@ -118,6 +121,42 @@ describe("executeToolCalls", () => {
 		if (result?.subtype === MessageToolUpdateType.Result) {
 			expect(result.result.status).toBe(ToolResultStatus.Success);
 		}
+	});
+
+	it("attaches the page a tool linked to onto its result, and leaves the text as it was", async () => {
+		const snapshot = {
+			connector: "base:hf",
+			server: "hf",
+			tool: "do_thing",
+			uri: "ui://hf/view",
+			sha256: "a".repeat(64),
+			size: 12,
+		};
+		appMock.appSnapshotFor.mockResolvedValueOnce(snapshot);
+		mcpMock.callMcpTool.mockResolvedValue(mcpResult({ text: "all good" }));
+
+		const events = await drain([CALL], { conversationId: new ObjectId(), messageId: "m1" });
+
+		const result = toolUpdatesOf(events).find((u) => u.subtype === MessageToolUpdateType.Result);
+		if (result?.subtype !== MessageToolUpdateType.Result) throw new Error("no result");
+		expect(result.result).toMatchObject({ status: ToolResultStatus.Success, app: snapshot });
+		expect(toolMessagesOf(events)[0].content).toBe(markUntrustedResult("do_thing", "all good"));
+		expect(appMock.appSnapshotFor).toHaveBeenCalledWith(
+			expect.objectContaining({ tool: "do_thing", messageId: "m1" })
+		);
+	});
+
+	it("adds no page to a result when the tool linked none, and none to a failed call", async () => {
+		mcpMock.callMcpTool.mockResolvedValue(mcpResult({ text: "plain" }));
+		const plain = await drain([CALL]);
+		const result = toolUpdatesOf(plain).find((u) => u.subtype === MessageToolUpdateType.Result);
+		if (result?.subtype !== MessageToolUpdateType.Result) throw new Error("no result");
+		expect(result.result).not.toHaveProperty("app");
+
+		appMock.appSnapshotFor.mockClear();
+		mcpMock.callMcpTool.mockResolvedValue(mcpResult({ text: "nope", isError: true }));
+		await drain([CALL]);
+		expect(appMock.appSnapshotFor).not.toHaveBeenCalled();
 	});
 
 	// MCP reports tool failures as a normal result with `isError: true` rather than by

@@ -89,6 +89,7 @@
 		"@duckduckgo/autoconsent": "16.55.0",
 		"@iconify-json/bi": "^1.1.21",
 		"@modelcontextprotocol/client": "^2.0.0",
+		"@modelcontextprotocol/ext-apps": "2.1.0",
 		"@modelcontextprotocol/node": "^2.0.0",
 		"@modelcontextprotocol/server": "^2.0.0",
 		"@mozilla/readability": "0.6.0",
@@ -146,6 +147,9 @@
 		"zod": "^3.22.3"
 	},
 	"overrides": {
-		"@reflink/reflink": "file:stub/@reflink/reflink"
+		"@reflink/reflink": "file:stub/@reflink/reflink",
+		"@modelcontextprotocol/ext-apps": {
+			"zod": "$zod"
+		}
 	}
 }

@@ -56,7 +56,19 @@ describe("createMcpClient", () => {
 		// A bare `elicitation: {}` reads as form-only and URL mode is never sent.
 		createMcpClient("session");
 
-		expect(built(0).options.capabilities).toEqual({ elicitation: { form: {}, url: {} } });
+		expect(built(0).options.capabilities).toMatchObject({ elicitation: { form: {}, url: {} } });
+	});
+
+	it("advertises the MCP Apps extension on session clients, as the spec spells it", () => {
+		createMcpClient("session");
+
+		expect(built(0).options.capabilities).toMatchObject({
+			extensions: { "io.modelcontextprotocol/ui": { mimeTypes: ["text/html;profile=mcp-app"] } },
+		});
+	});
+
+	it("never advertises MCP Apps to a health probe", () => {
+		expect(mcpClientCapabilities("health")).not.toHaveProperty("extensions");
 	});
 
 	it("never declares elicitation to a health probe", () => {
@@ -67,10 +79,13 @@ describe("createMcpClient", () => {
 	});
 
 	it("registers a handler for every capability it declares", () => {
-		// A capability without a handler gets servers a method-not-found.
+		// A capability without a handler gets servers a method-not-found. The MCP Apps extension is
+		// the exception by design: it asks the server for nothing the server then calls back.
 		createMcpClient("session");
 
-		expect(Object.keys(built(0).options.capabilities)).toHaveLength(built(0).handlers.size);
+		const rest = { ...built(0).options.capabilities };
+		delete rest.extensions;
+		expect(Object.keys(rest)).toHaveLength(built(0).handlers.size);
 	});
 
 	it("declares nothing when elicitation is switched off", () => {
@@ -78,9 +93,9 @@ describe("createMcpClient", () => {
 
 		createMcpClient("session");
 
-		expect(built(0).options.capabilities).toEqual({});
+		expect(built(0).options.capabilities).not.toHaveProperty("elicitation");
 		expect(built(0).handlers.size).toBe(0);
-		expect(mcpClientCapabilities("session")).toEqual({});
+		expect(mcpClientCapabilities("session")).not.toHaveProperty("elicitation");
 	});
 });
 

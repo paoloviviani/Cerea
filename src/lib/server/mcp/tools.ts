@@ -3,6 +3,7 @@ import { withUntrustedSuffix } from "$lib/server/textGeneration/untrusted";
 import { isLocalServerUrl } from "./localUrl";
 import type { McpServerConfig } from "./httpClient";
 import { logger } from "$lib/server/logger";
+import { readToolUiMeta, visibleToModel, type ToolUiMeta } from "$lib/utils/mcpApp";
 // use console.* for lightweight diagnostics in production logs
 
 export type OpenAiTool = {
@@ -29,6 +30,8 @@ export interface McpToolMapping {
 	/** The server's unsanitized inputSchema, for checking arguments before dispatch. */
 	inputSchema?: Record<string, unknown>;
 	annotations?: McpToolAnnotations;
+	/** The tool's MCP App page link and visibility, when it declares one. */
+	ui?: ToolUiMeta;
 }
 
 // Tool listings are cached per server (url + headers), not per server set, so
@@ -48,6 +51,7 @@ type CachedServerTool = {
 	 */
 	inputSchema?: Record<string, unknown>;
 	annotations?: McpToolAnnotations;
+	ui?: ToolUiMeta;
 };
 
 interface ServerCacheEntry {
@@ -167,6 +171,7 @@ type ListedTool = {
 	inputSchema?: Record<string, unknown>;
 	description?: string;
 	annotations?: Record<string, unknown>;
+	_meta?: unknown;
 };
 
 const ANNOTATION_HINTS = [
@@ -281,6 +286,7 @@ async function fetchServerTools(
 				: undefined,
 			inputSchema: isPlainObject(tool.inputSchema) ? tool.inputSchema : undefined,
 			annotations: readAnnotations(tool.annotations),
+			ui: readToolUiMeta(tool._meta),
 		});
 	}
 	return normalized;
@@ -321,7 +327,14 @@ async function fetchWithLocalRetry(
 export async function listMcpServerTools(
 	server: McpServerConfig,
 	{ ttlMs = DEFAULT_TTL_MS, signal }: { ttlMs?: number; signal?: AbortSignal } = {}
-): Promise<Array<{ name: string; description?: string; inputSchema?: Record<string, unknown> }>> {
+): Promise<
+	Array<{
+		name: string;
+		description?: string;
+		inputSchema?: Record<string, unknown>;
+		ui?: ToolUiMeta;
+	}>
+> {
 	const now = Date.now();
 	evictExpired(now);
 	const key = serverCacheKey(server);
@@ -335,7 +348,22 @@ export async function listMcpServerTools(
 		name: t.name,
 		...(t.description ? { description: t.description } : {}),
 		...(t.inputSchema ? { inputSchema: t.inputSchema } : {}),
+		...(t.ui ? { ui: t.ui } : {}),
 	}));
+}
+
+/**
+ * One tool's MCP App link and visibility, from the same per-server listing the chat uses (a cold
+ * listing is fetched). `listed` is false for a tool the server does not list.
+ */
+export async function getToolUiMeta(
+	server: McpServerConfig,
+	toolName: string,
+	opts: { signal?: AbortSignal } = {}
+): Promise<{ listed: boolean; ui?: ToolUiMeta }> {
+	const tools = await listMcpServerTools(server, opts);
+	const tool = tools.find((t) => t.name === toolName);
+	return { listed: Boolean(tool), ...(tool?.ui ? { ui: tool.ui } : {}) };
 }
 
 export async function getOpenAiToolsForMcp(
@@ -419,6 +447,8 @@ export async function getOpenAiToolsForMcp(
 
 	for (const [index, server] of servers.entries()) {
 		for (const tool of listed[index]) {
+			// A tool only its page may call (`_meta.ui.visibility` without "model") is never offered.
+			if (!visibleToModel(tool.ui)) continue;
 			// Emit a collision-aware function name.
 			// Prefer the plain tool name; on conflict, suffix with server name.
 			let plainName = sanitizeName(tool.name);
@@ -446,6 +476,7 @@ export async function getOpenAiToolsForMcp(
 				tool: tool.name,
 				...(tool.inputSchema ? { inputSchema: tool.inputSchema } : {}),
 				...(tool.annotations ? { annotations: tool.annotations } : {}),
+				...(tool.ui ? { ui: tool.ui } : {}),
 			};
 		}
 	}
