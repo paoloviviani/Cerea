@@ -1,3 +1,4 @@
+import type { WithheldByPrivacy } from "./Message";
 import type { ObjectId } from "mongodb";
 import type { Conversation } from "./Conversation";
 import type { User } from "./User";
@@ -60,5 +61,11 @@ export interface CodeExecutionOutput {
 	 * message is known for: those count on every branch.
 	 */
 	messageIds?: string[];
+	/**
+	 * Set when a privacy rule of the gateway refused to let the document reader read this
+	 * file (`doc_extract`): the same withholding an upload gets (`MessageFile.withheld`).
+	 * `downloadDeliverable`, `openDeliverable` and the share route refuse it.
+	 */
+	withheld?: WithheldByPrivacy;
 	createdAt: Date;
 }

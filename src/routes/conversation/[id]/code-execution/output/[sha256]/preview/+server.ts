@@ -1,11 +1,12 @@
 import type { RequestHandler } from "./$types";
 import { authCondition } from "$lib/server/auth";
 import { collections } from "$lib/server/database";
-import { downloadDeliverable } from "$lib/server/execution/deliverables";
+import { WithheldDeliverableError, downloadDeliverable } from "$lib/server/execution/deliverables";
 import { officeFileName } from "$lib/server/office/gotenberg";
 import { previewOwner } from "$lib/server/office/previewStore";
 import { previewResponse } from "$lib/server/office/previewResponse";
 import { error } from "@sveltejs/kit";
+import { withheldMessage } from "$lib/server/files/downloadFile";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
 
@@ -27,7 +28,10 @@ export const GET: RequestHandler = async ({ params, locals, request }) => {
 	);
 	if (!conversation) error(404, "Conversation not found");
 
-	const file = await downloadDeliverable(conversationId, sha256);
+	const file = await downloadDeliverable(conversationId, sha256).catch((err: unknown) => {
+		if (err instanceof WithheldDeliverableError) error(403, withheldMessage(err.withheld));
+		throw err;
+	});
 	if (!file) error(404, "File not found");
 	const name = officeFileName(file.mime, file.name);
 	if (!name) error(415, "This file is not an Office document.");

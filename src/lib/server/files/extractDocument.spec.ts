@@ -1512,3 +1512,74 @@ describe("dataUri", () => {
 		expect(dataUri(padded.subarray(2, 2 + raw.length), "application/pdf")).toBe(expected);
 	});
 });
+
+describe("what the reader's answer says about pages", () => {
+	const pdfOptions = { bytes: BYTES, mime: "application/pdf", filename: "a.pdf", token: "t" };
+
+	it("a Mistral-style answer is per page, with the real page numbers of a selection", async () => {
+		setEnvModel("mistral-ocr");
+		gatewayGetMock.mockResolvedValue({ data: [{ id: "mistral-ocr", kind: "ocr" }] });
+		gatewayPostMock.mockResolvedValue({
+			pages: [
+				{ index: 4, markdown: "five" },
+				{ index: 5, markdown: "six" },
+			],
+			usage_info: { pages_processed: 2 },
+		});
+		const result = await extractDocument({ ...pdfOptions, pages: [5, 6] });
+		expect(gatewayPostMock.mock.calls[0][2]).toMatchObject({ pages: [4, 5] });
+		expect(result).toMatchObject({
+			ok: true,
+			pagesSelected: true,
+			pageEntries: [
+				{ page: 5, text: "five" },
+				{ page: 6, text: "six" },
+			],
+		});
+		expect(result).not.toHaveProperty("unpaged");
+	});
+
+	it("Pystino's local reader answers one block with the real count in usage_info: unpaged", async () => {
+		setEnvModel("markitdown");
+		gatewayGetMock.mockResolvedValue({ data: [{ id: "markitdown", kind: "ocr", local: true }] });
+		gatewayPostMock.mockResolvedValue({
+			pages: [{ index: 0, markdown: "the whole twelve pages" }],
+			usage_info: { pages_processed: 12 },
+		});
+		const result = await extractDocument({ ...pdfOptions, pages: [3] });
+		// The local reader ignores a selection, so none is sent.
+		expect(gatewayPostMock.mock.calls[0][2]).not.toHaveProperty("pages");
+		expect(result).toMatchObject({ ok: true, unpaged: true, pages: 12 });
+		expect(result).not.toHaveProperty("pageEntries");
+		expect(result).not.toHaveProperty("pagesSelected");
+	});
+
+	it("a one-page document read locally is page 1, not unpaged; an Office file (count 0) is unpaged", async () => {
+		setEnvModel("markitdown");
+		gatewayGetMock.mockResolvedValue({ data: [{ id: "markitdown", kind: "ocr", local: true }] });
+		gatewayPostMock.mockResolvedValue(OCR_OK);
+		expect(await extractDocument(pdfOptions)).toMatchObject({
+			pageEntries: [{ page: 1, text: "page one text" }],
+		});
+		gatewayPostMock.mockResolvedValue({
+			pages: [{ index: 0, markdown: "doc text" }],
+			usage_info: { pages_processed: 0 },
+		});
+		expect(await extractDocument(pdfOptions)).toMatchObject({ unpaged: true });
+	});
+
+	it("sends an image as image_url, not document_url", async () => {
+		setEnvModel("mistral-ocr");
+		gatewayGetMock.mockResolvedValue({ data: [{ id: "mistral-ocr", kind: "ocr" }] });
+		gatewayPostMock.mockResolvedValue(OCR_OK);
+		await extractDocument({ ...pdfOptions, mime: "image/png", filename: "a.png" });
+		expect(gatewayPostMock.mock.calls[0][2].document).toMatchObject({ type: "image_url" });
+		expect(gatewayPostMock.mock.calls[0][2].document.image_url).toMatch(/^data:image\/png;base64,/);
+	});
+
+	it("resolves the reader that would read, for a cache key", async () => {
+		const { resolvedReader } = await import("./extractDocument");
+		setEnvModel("env-reader");
+		expect(await resolvedReader({ token: "t", mime: "application/pdf" })).toBe("env-reader");
+	});
+});

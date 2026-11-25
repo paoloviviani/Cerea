@@ -2,9 +2,10 @@ import { attachmentDisposition } from "$lib/server/files/contentDisposition";
 import type { RequestHandler } from "./$types";
 import { authCondition } from "$lib/server/auth";
 import { collections } from "$lib/server/database";
-import { openDeliverable } from "$lib/server/execution/deliverables";
+import { WithheldDeliverableError, openDeliverable } from "$lib/server/execution/deliverables";
 import { Readable } from "node:stream";
 import { error } from "@sveltejs/kit";
+import { withheldMessage } from "$lib/server/files/downloadFile";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
 
@@ -27,7 +28,10 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 	);
 	if (!conversation) error(404, "Conversation not found");
 
-	const file = await openDeliverable(conversationId, sha256);
+	const file = await openDeliverable(conversationId, sha256).catch((err: unknown) => {
+		if (err instanceof WithheldDeliverableError) error(403, withheldMessage(err.withheld));
+		throw err;
+	});
 	if (!file) error(404, "File not found");
 
 	return new Response(Readable.toWeb(file.stream) as ReadableStream, {

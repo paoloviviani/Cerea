@@ -122,6 +122,7 @@ vi.mock("$lib/server/mcp/registry", () => ({
 	getMcpServers: () => mocks.servers,
 }));
 
+vi.mock("$lib/server/files/extractGate", () => ({ docExtractGate: async () => undefined }));
 vi.mock("$lib/server/urlSafety", () => ({ isValidUrl: () => true }));
 
 vi.mock("$lib/server/visibleModels", () => ({ visibleModels: async () => mocks.visible }));

@@ -350,11 +350,19 @@ export interface Extracted {
 	text: string;
 	pages: number;
 	/**
-	 * The text of each page, in page order (an empty string for a page with none), when the reader
-	 * answered per page. `doc_extract` keeps these so a later page range is served without a new
-	 * (per-page priced) call. `text` is these joined.
+	 * The text of each page the reader returned, with its 1-based page number, when it answered per
+	 * page (a remote OCR model does). `doc_extract` keeps these so another range of the same file is
+	 * served without a new (per-page priced) call. Absent when `unpaged`.
 	 */
-	pageTexts?: string[];
+	pageEntries?: { page: number; text: string }[];
+	/**
+	 * The reader returned the whole document as one block (Pystino's local reader: one `pages` entry
+	 * with the real count only in `usage_info.pages_processed`; every Office file): there are no page
+	 * boundaries to pick from.
+	 */
+	unpaged?: boolean;
+	/** The `pages` selection was sent to the reader, so only those pages were read (and billed). */
+	pagesSelected?: boolean;
 	/** The reader that actually produced this text (a gateway model id), when known. */
 	readerModel?: string;
 	/** The chosen reader was not available to this user, so the default read it. */
@@ -410,13 +418,22 @@ function ocrResponseShape(answer: unknown): Record<string, unknown> {
 }
 
 function textFromOcrResponse(answer: OcrResponse): Extracted | null {
-	const perPage = (answer.pages ?? []).map((page) => page.markdown ?? "");
-	const text = perPage.filter((page) => page.trim()).join("\n\n");
+	const entries = (answer.pages ?? []).map((page, position) => ({
+		page: (Number.isInteger(page.index) ? (page.index as number) : position) + 1,
+		text: page.markdown ?? "",
+	}));
+	const text = entries
+		.map((entry) => entry.text)
+		.filter((page) => page.trim())
+		.join("\n\n");
 	if (!text.trim()) return null;
+	const processed = answer.usage_info?.pages_processed;
+	// One entry that says the document had a different number of pages is the whole text in one block.
+	const unpaged = entries.length === 1 && processed !== undefined && processed !== 1;
 	return {
 		text,
-		pages: answer.usage_info?.pages_processed ?? (answer.pages ?? []).length,
-		pageTexts: perPage,
+		pages: processed ?? entries.length,
+		...(unpaged ? { unpaged: true } : { pageEntries: entries }),
 	};
 }
 
@@ -450,6 +467,45 @@ export interface ExtractionFailure {
 export function privacyRefusal(err: unknown): WithheldByPrivacy | undefined {
 	if (!(err instanceof GatewayCallFailed) || err.code !== "routing_refused") return undefined;
 	return refusalRule(err.message ?? "");
+}
+
+/** A direct OCR endpoint is configured: it reads PDFs only and has no catalogue of readers. */
+export function directOcrConfigured(): boolean {
+	return directOcrBaseUrl() !== undefined;
+}
+
+/**
+ * Whether a `pages` selection sent with this document is honoured, so that only those pages are read
+ * and billed: a remote OCR model (and the direct endpoint, Mistral's shape) takes it for a PDF; the
+ * local reader ignores it and reads the whole file.
+ */
+export async function readerSelectsPages(
+	token: string,
+	model: string | null,
+	mime: string
+): Promise<boolean> {
+	if (mime !== "application/pdf") return false;
+	if (directOcrBaseUrl()) return true;
+	return model !== null && !(await isLocalReader(token, model));
+}
+
+/**
+ * The reader this document would be read with, resolved as `extractDocument` does (the user's
+ * choice when it is still theirs to use, else the deployment's default; an Office file goes to a
+ * local reader), or null. A name, so a cache can be keyed on what actually reads.
+ */
+export async function resolvedReader(options: {
+	token: string;
+	readerModel?: string | null;
+	mime: string;
+}): Promise<string | null> {
+	const { token, mime } = options;
+	if (directOcrBaseUrl() && isOcrNative(mime)) return config.CHAT_OCR_MODEL?.trim() || null;
+	const choice = await chosenReader(token, options.readerModel, mime);
+	if (!isOcrNative(mime)) {
+		return choice.reader?.local ? choice.reader.id : await resolveOfficeReader(token);
+	}
+	return choice.reader?.id ?? (await resolveExtractorModel(token));
 }
 
 /**
@@ -631,22 +687,28 @@ export async function extractDocument(options: {
 	 * remote OCR model, the extraction is refused rather than falling back.
 	 */
 	readerLocal?: boolean;
+	/**
+	 * Only these pages (1-based) of a PDF, sent to the reader as its `pages` selection when it honours
+	 * one (`readerSelectsPages`); `pagesSelected` on the result says whether it did.
+	 */
+	pages?: number[];
 }): Promise<Extraction> {
 	// What actually read it, recorded on the result so the document and the
 	// attachment can say so; the fallback case is flagged.
-	const trace: { model?: string; fallback: boolean } = { fallback: false };
+	const trace: { model?: string; fallback: boolean; pagesSelected?: boolean } = { fallback: false };
 	const result = await extractDocumentTraced(options, trace);
 	if (!result.ok) return result;
 	return {
 		...result,
 		...(trace.model ? { readerModel: trace.model } : {}),
 		...(trace.fallback ? { readerFallback: true } : {}),
+		...(trace.pagesSelected ? { pagesSelected: true } : {}),
 	};
 }
 
 async function extractDocumentTraced(
 	options: Parameters<typeof extractDocument>[0],
-	trace: { model?: string; fallback: boolean }
+	trace: { model?: string; fallback: boolean; pagesSelected?: boolean }
 ): Promise<Extraction> {
 	const { bytes, mime, filename, token } = options;
 	if (!token) {
@@ -725,19 +787,28 @@ async function extractDocumentTraced(
 	const baseUrl = directOcrBaseUrl();
 	if (baseUrl) {
 		trace.model = model;
-		return extractDocumentDirect({ bytes, mime, filename, baseUrl, model });
+		const selection =
+			options.pages?.length && mime === "application/pdf" ? options.pages : undefined;
+		if (selection) trace.pagesSelected = true;
+		return extractDocumentDirect({ bytes, mime, filename, baseUrl, model, pages: selection });
 	}
 	// Page images are for the local reader only: a remote OCR model reads a scan
 	// itself, and is never sent the request. The same rule for the fallback below.
 	const wantsPages =
 		options.pageImages === true && mime === "application/pdf" && pdfImagePageLimit() > 0;
 	trace.model = model;
+	const selection =
+		options.pages?.length && (await readerSelectsPages(token, model, mime))
+			? options.pages
+			: undefined;
+	if (selection) trace.pagesSelected = true;
 	const first = await extractViaGateway({
 		bytes,
 		mime,
 		filename,
 		token,
 		model,
+		pages: selection,
 		imagePages: wantsPages && (await isLocalReader(token, model)) ? pdfImagePageLimit() : 0,
 	});
 	if (first.ok || mime !== "application/pdf" || first.kind === "no-credential") return first;
@@ -770,6 +841,7 @@ async function extractDocumentTraced(
 			: first;
 	}
 	trace.model = local;
+	trace.pagesSelected = false;
 	logger.info(
 		{ filename, model, fallback: local, firstStatus: first.status },
 		"document_extraction_fallback: the OCR model failed, the local reader read the document"
@@ -800,6 +872,13 @@ async function isLocalReader(token: string, model: string): Promise<boolean> {
 	}
 }
 
+/** An image goes as `image_url`, any other document as `document_url` (the OCR API's two shapes). */
+function documentField(mime: string, uri: string) {
+	return mime.startsWith("image/")
+		? { type: "image_url", image_url: uri }
+		: { type: "document_url", document_url: uri };
+}
+
 /** One `POST /v1/ocr` call with the model already chosen, as the calling user. */
 async function extractViaGateway(options: {
 	bytes: ArrayBuffer;
@@ -809,8 +888,10 @@ async function extractViaGateway(options: {
 	model: string;
 	/** Image pages to ask for; 0 asks for none. */
 	imagePages?: number;
+	/** 1-based pages to read; only for a reader that honours the selection. */
+	pages?: number[];
 }): Promise<Extraction> {
-	const { bytes, mime, filename, token, model, imagePages = 0 } = options;
+	const { bytes, mime, filename, token, model, imagePages = 0, pages } = options;
 
 	// A `data:` URI rather than a URL, deliberately: the other form has the
 	// provider fetch the document, which means this deployment never holds it
@@ -829,7 +910,8 @@ async function extractViaGateway(options: {
 				// `type` is required and is the provider's own discriminator, passed
 				// through rather than reinterpreted — the gateway refuses the request
 				// without it (`document.type: Field required`).
-				document: { type: "document_url", document_url: uri },
+				document: documentField(mime, uri),
+				...(pages?.length ? { pages: pages.map((n) => n - 1) } : {}),
 				...(imagePages > 0
 					? { page_images: { max_pages: imagePages, long_side: PAGE_IMAGE_LONG_SIDE } }
 					: {}),
@@ -975,8 +1057,9 @@ async function extractDocumentDirect(options: {
 	filename: string;
 	baseUrl: string;
 	model: string;
+	pages?: number[];
 }): Promise<Extraction> {
-	const { bytes, mime, filename, baseUrl, model } = options;
+	const { bytes, mime, filename, baseUrl, model, pages } = options;
 
 	if (!(DIRECT_OCR_MIME_ALLOWLIST as readonly string[]).includes(mime)) {
 		return {
@@ -1016,7 +1099,8 @@ async function extractDocumentDirect(options: {
 			},
 			body: JSON.stringify({
 				model,
-				document: { type: "document_url", document_url: uri },
+				document: documentField(mime, uri),
+				...(pages?.length ? { pages: pages.map((n) => n - 1) } : {}),
 			}),
 		});
 	} catch (err) {

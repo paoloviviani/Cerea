@@ -419,14 +419,9 @@ export async function* runMcpFlow({
 	// not configured or not answering. Resolved here like the probe above.
 	const documentCapabilities = await getDocumentCapabilities();
 	// `doc_extract` is offered where an upload would have been read: the same question, the same reader.
-	const documentExtract = await (async () => {
-		if (!artifactToolsEnabled) return undefined;
-		const { extractorAvailable } = await import("$lib/server/files/extractDocument");
-		if (!(await extractorAvailable(turnToken))) return undefined;
-		const { userDocumentReader } = await import("$lib/server/files/userReader");
-		const reader = locals ? await userDocumentReader(locals).catch(() => undefined) : undefined;
-		return { token: turnToken, readerModel: reader?.model, readerLocal: reader?.local };
-	})();
+	const documentExtract = artifactToolsEnabled
+		? await (await import("$lib/server/files/extractGate")).docExtractGate(locals, turnToken)
+		: undefined;
 	// Set when the endpoint rejects a request carrying look_doc pictures: no more pictures this turn.
 	const pictureState: PictureState = { unavailable: false };
 	const imageGeneration = await imageGenerationPromise;

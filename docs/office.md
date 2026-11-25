@@ -250,16 +250,23 @@ A file you attach is read by the document reader (OCR) once, when it arrives. A 
 assistant gets another way (downloaded from the web, returned by a connector, or made in the
 sandbox) has no text yet, so the assistant has `doc_extract`: it sends the file to the same reader,
 chosen the same way as for an upload (your own reader setting, else the deployment's), and gets the
-text back, for a scanned PDF, a photographed document (png, jpg, webp) or a long document where
-looking at page images would take many pictures. It tries `doc_read` first when a file has a text
-layer, and uses `look_doc` for layout. Files and pages are limited as for uploads, and a privacy
-rule can refuse the read, in which case the assistant says so and does not retry.
+text back, for a scanned PDF, a photographed document (png, jpg, webp; not with `CHAT_OCR_BASE_URL`,
+which reads PDFs only) or a long document where looking at page images would take many pictures.
+It tries `doc_read` first when a file has a text layer, and uses `look_doc` for layout. Files are
+limited as for uploads, and a privacy rule can refuse the read: the file is then withheld like a
+refused upload (nothing reads it any more) and the assistant says so and does not retry.
 
-Reading may be billed per page, like an upload. The text is kept for the conversation by the
-file's content, so asking again, or for other pages of the same file, makes no new call; a file you
-uploaded returns the text from its upload. The kept text is deleted with the conversation. The
-tool is offered only where an upload would be read: a reader the gateway provides, or
-`CHAT_OCR_BASE_URL`.
+Reading may be billed per page, like an upload, so it is bounded. A reader that takes a page
+selection (a remote OCR model) is sent only the pages asked for, up to 40 per call; the local
+reader reads the whole file and returns it as one text without page boundaries, which the assistant
+pages through by character. A turn reads at most 200 pages in all; past that the assistant stops and
+asks you. The text is kept for the conversation by the file's content and the reader that read it,
+so asking again, or for pages already read, makes no new call, and calls made at the same moment on
+the same file share one read. A file you uploaded returns the text from its upload (read by the
+reader chosen then). Kept text is deleted with the conversation and, like an upload's text, is not
+re-checked when a privacy rule changes later (the gateway's rules still apply to every chat request
+that carries it). The tool is offered only where an upload would be read: a reader the gateway
+provides, or `CHAT_OCR_BASE_URL`.
 
 - **It looks sparingly.** At most 6 pages or slides per call, about 1,000 tokens
   or more for each, and not after small text edits.

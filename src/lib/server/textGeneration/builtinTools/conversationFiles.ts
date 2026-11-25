@@ -1,5 +1,5 @@
 import type { ObjectId } from "mongodb";
-import { downloadDeliverable } from "$lib/server/execution/deliverables";
+import { WithheldDeliverableError, downloadDeliverable } from "$lib/server/execution/deliverables";
 import {
 	attachmentNamed,
 	withheldAttachmentNamed,
@@ -313,7 +313,12 @@ export async function findConversationFile(
 				? { name: listing.attachment.file.name, bytes: Buffer.from(stored.value, "base64") }
 				: undefined;
 		}
-		const bytes = (await downloadDeliverable(conversationId, entry.sha256))?.buffer;
+		const bytes = (
+			await downloadDeliverable(conversationId, entry.sha256).catch((err: unknown) => {
+				if (err instanceof WithheldDeliverableError) refusal = withheldMessage(err.withheld);
+				return undefined;
+			})
+		)?.buffer;
 		return bytes ? { name: wanted, bytes } : undefined;
 	};
 	let found = await read(pick);

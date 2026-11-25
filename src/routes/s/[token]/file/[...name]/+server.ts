@@ -31,7 +31,7 @@ export const GET: RequestHandler = async (event) => {
 		sha256: snapshot.sha256,
 		name: snapshot.name,
 	});
-	if (!row) return notAvailable(locale);
+	if (!row || row.withheld) return notAvailable(locale);
 	try {
 		const stream = await collections.blobStore.open("codeOutputs", row.gridFsId);
 		return new Response(Readable.toWeb(stream) as ReadableStream, {
