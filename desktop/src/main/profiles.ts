@@ -97,14 +97,17 @@ function serverOf(s: Partial<ServerInfo> | undefined): ServerInfo | undefined {
  */
 export function loadStore(userData: string): Store {
 	const { store, migrated } = readStore(userData);
-	if (migrated && store.profiles[0]) {
-		saveStore(userData, store);
-		migratePartitions(userData, store.profiles[0].id);
-	}
+	if (migrated && store.profiles[0]) saveStore(userData, store);
+	// At every start, not only after a migration: a crash between the save and the move leaves the
+	// earlier directories behind, and they must not stay (nor sign anyone in to the wrong profile).
+	if (store.profiles[0]) migratePartitions(userData, store.profiles[0].id);
 	return store;
 }
 
-/** Moves the earlier app's two session directories to profile `id`'s (done before any session is opened). */
+/**
+ * Moves the earlier app's two session directories to profile `id`'s (done before any session is
+ * opened); if that profile's directory already exists, the leftovers are removed instead.
+ */
 export function migratePartitions(userData: string, id: string): void {
 	assertId(id);
 	for (const [from, to] of [
@@ -113,7 +116,12 @@ export function migratePartitions(userData: string, id: string): void {
 	]) {
 		const src = join(userData, "Partitions", from);
 		const dst = join(userData, "Partitions", to);
-		if (!existsSync(src) || existsSync(dst)) continue;
+		if (!existsSync(src)) continue;
+		// The profile's own sessions already exist: what is left is stale, and goes.
+		if (existsSync(dst)) {
+			rmSync(src, { recursive: true, force: true });
+			continue;
+		}
 		try {
 			renameSync(src, dst);
 		} catch {
