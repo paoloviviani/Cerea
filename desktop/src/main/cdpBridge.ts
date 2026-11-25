@@ -10,6 +10,8 @@
  * construction: there is no code path from a socket message to any other webContents.
  */
 
+import { checkPageCommand, checkUrl, CHILD_TYPES, isForwardableTargetEvent } from "./cdpPolicy.ts";
+
 export type Json = Record<string, unknown>;
 
 /** One page of the panel, as the bridge sees it. Implemented over a webContents in `browserPanel.ts`. */
@@ -61,6 +63,9 @@ export interface Gate {
 	pass(method: string, targetId: string | undefined): Promise<void>;
 	/** The runtime did something (activity feeds the "Cerea is browsing" indicator). */
 	activity(): void;
+	/** Who drives now. While the user does, the runtime has no session on any page. */
+	current(): "agent" | "user";
+	onChange(cb: () => void): () => void;
 }
 
 export interface Transport {
@@ -101,12 +106,42 @@ class Connection {
 		transport.onClose(() => this.dispose());
 		this.unsub.push(
 			host.onTargetCreated((t) => {
-				if (this.autoAttach) this.attachTarget(t);
+				// A tab the user opens while they drive is theirs: the runtime is told once they hand back.
+				if (this.autoAttach && this.gate.current() === "agent") this.attachTarget(t);
 			}),
 			host.onTargetDestroyed((id) => this.targetGone(id)),
-			host.onDownload((d) => this.onDownload(d))
+			host.onDownload((d) => this.onDownload(d)),
+			gate.onChange(() => this.modeChanged())
 		);
 	}
+
+	private lastMode: "agent" | "user" = "agent";
+	/**
+	 * Taking over cuts the runtime off from the pages: every session is detached (Playwright sees
+	 * the pages close), the debugger is released (its request interception ends, so no request
+	 * waits for a runtime that is not there), and no event of what the user does reaches it. On
+	 * hand-back every tab is attached again as a fresh page. The runtime then finds the pages as
+	 * the user's own tabs, which is what they now are.
+	 */
+	private modeChanged(): void {
+		const mode = this.gate.current();
+		if (mode === this.lastMode || this.closed) return;
+		this.lastMode = mode;
+		if (mode === "user") {
+			for (const [sessionId, t] of this.sessions) {
+				t.detach();
+				this.out({ method: "Target.detachedFromTarget", params: { sessionId, targetId: t.id } });
+			}
+			this.sessions.clear();
+			this.byTarget.clear();
+			this.child.clear();
+			this.pendingInitial.clear();
+			for (const u of this.pageUnsubs.splice(0)) u();
+		} else if (this.autoAttach) {
+			for (const t of this.host.targets()) this.attachTarget(t);
+		}
+	}
+	private readonly pageUnsubs: (() => void)[] = [];
 
 	dispose(): void {
 		if (this.closed) return;
@@ -138,10 +173,34 @@ class Connection {
 		this.sessions.set(sessionId, t);
 		this.byTarget.set(t.id, sessionId);
 		t.attach();
-		this.unsub.push(
+		this.pageUnsubs.push(
 			t.onEvent((method, params, childSession) => {
-				if (method === "Target.attachedToTarget" && typeof params.sessionId === "string") {
-					this.child.set(params.sessionId, t);
+				if (this.gate.current() === "user") return;
+				if (method.startsWith("Target.")) {
+					if (!isForwardableTargetEvent(method)) return;
+					if (method === "Target.attachedToTarget") {
+						// Only a frame or worker of this page, reached from it by auto-attach, becomes a session.
+						const parentOk = childSession === undefined || this.child.get(childSession) === t;
+						const info = params.targetInfo as { type?: unknown } | undefined;
+						const id = params.sessionId;
+						if (
+							!parentOk ||
+							typeof id !== "string" ||
+							typeof info?.type !== "string" ||
+							!CHILD_TYPES.has(info.type)
+						) {
+							if (typeof id === "string") {
+								void t
+									.send("Target.detachFromTarget", { sessionId: id }, childSession)
+									.catch(() => {});
+							}
+							return;
+						}
+						this.child.set(id, t);
+					} else {
+						const id = params.sessionId;
+						if (typeof id !== "string" || !this.child.delete(id)) return;
+					}
 				}
 				this.out({ method, params, sessionId: childSession ?? sessionId });
 			}),
@@ -219,7 +278,9 @@ class Connection {
 		if (!target) throw new Error(`No session ${sessionId}`);
 		this.gate.activity();
 		await this.gate.pass(method, target.id);
-		if (method === "Runtime.runIfWaitingForDebugger") {
+		checkPageCommand(method, params);
+		// Only a page's own start (not a frame's or worker's) waits for the navigation to be released.
+		if (page && method === "Runtime.runIfWaitingForDebugger") {
 			const url = this.pendingInitial.get(target.id);
 			if (url !== undefined) {
 				this.pendingInitial.delete(target.id);
@@ -269,6 +330,7 @@ class Connection {
 			case "Target.createTarget": {
 				await this.gate.pass(method, undefined);
 				const url = typeof params.url === "string" ? params.url : "about:blank";
+				checkUrl(url);
 				const t = await this.host.create();
 				this.pendingInitial.set(t.id, url);
 				this.attachTarget(t, true);

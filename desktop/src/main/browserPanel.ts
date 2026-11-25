@@ -285,6 +285,14 @@ export class BrowserPanel implements TargetHost {
 		};
 		wc.on("will-navigate", (e, to) => block(e, to));
 		wc.on("will-redirect", (e, to) => block(e, to));
+		// A navigation started over CDP (Page.navigate) skips will-navigate: this catches what the
+		// bridge's own URL check did not, and puts the page back on a blank document.
+		wc.on("did-start-navigation", (details) => {
+			if (details.isMainFrame && guardPanel(details.url) !== "allow") {
+				wc.stop();
+				void wc.loadURL("about:blank").catch(() => {});
+			}
+		});
 		wc.setWindowOpenHandler(({ url: to }) => {
 			if (guardPanel(to) === "allow") {
 				void this.create().then((t) => {
