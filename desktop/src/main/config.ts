@@ -24,7 +24,7 @@ export function loadConfig(userData: string): Config {
 				server: {
 					address,
 					origin: new URL(address).origin,
-					idp: typeof s.idp === "string" ? s.idp : new URL(address).origin,
+					idp: safeIdp(s.idp) ?? new URL(address).origin,
 					name: typeof s.name === "string" ? s.name.slice(0, 80) : new URL(address).host,
 					...(typeof s.icon === "string" && safeIcon(s.icon) ? { icon: s.icon } : {}),
 				},
@@ -51,4 +51,18 @@ export function safeIcon(icon: string): boolean {
 		/^data:image\/(png|jpeg|webp|gif|x-icon);base64,[A-Za-z0-9+/=]+$/.test(icon) &&
 		icon.length < 300_000
 	);
+}
+
+/** A stored identity provider origin is only ever a bare https (or loopback http) origin. */
+export function safeIdp(v: unknown): string | undefined {
+	if (typeof v !== "string") return undefined;
+	try {
+		const u = new URL(v);
+		const loop = u.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname);
+		if (u.protocol !== "https:" && !loop) return undefined;
+		if (u.origin !== v || u.username || u.password) return undefined;
+		return u.origin;
+	} catch {
+		return undefined;
+	}
 }

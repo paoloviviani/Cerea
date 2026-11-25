@@ -155,9 +155,9 @@ export class Galopin {
 	}
 
 	/** Whether a galopin service (systemd user unit, LaunchAgent) is installed for this user. */
-	serviceInstalled(home = process.env.HOME ?? ""): boolean {
+	serviceInstalled(home = process.env.HOME ?? "", xdg = process.env.XDG_CONFIG_HOME): boolean {
 		return (
-			existsSync(join(home, ".config", "systemd", "user", "galopin.service")) ||
+			existsSync(join(xdg || join(home, ".config"), "systemd", "user", "galopin.service")) ||
 			existsSync(join(home, "Library", "LaunchAgents", "org.cerea.galopin.plist"))
 		);
 	}
