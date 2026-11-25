@@ -376,7 +376,10 @@ export class BrowserPanel implements TargetHost {
 
 	private onWillDownload(item: DownloadItem, wc: WebContents | null): void {
 		const dir = this.downloadDir;
-		if (!dir || this.downloads.size === 0) return; // no runtime: the user's own download, Electron asks where
+		// Saved silently only while the runtime is working and asked for it; any other download, a
+		// user's or a page's own, is Electron's usual one that asks where to save.
+		if (!dir || this.downloads.size === 0) return;
+		if (this.control.mode === "user" || !this.control.recentlyActive(30_000)) return;
 		const guid = randomUUID();
 		item.setSavePath(join(dir, guid));
 		let state: "inProgress" | "completed" | "canceled" = "inProgress";

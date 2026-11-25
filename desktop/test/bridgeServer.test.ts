@@ -73,3 +73,24 @@ describe("bridge socket", () => {
 		expect(safeEqual("abc", "abcd")).toBe(false);
 	});
 });
+
+describe("the bridge directory", () => {
+	it("refuses a symlink, another user's directory and an open one it cannot fix", async () => {
+		const { ensurePrivateDir } = await import("../src/main/bridgeServer.ts");
+		const { mkdtempSync, symlinkSync, mkdirSync, chmodSync, statSync } = await import("node:fs");
+		const base = mkdtempSync(join(tmpdir(), "ensure-"));
+		const uid = process.getuid?.() ?? 0;
+		const real = join(base, "real");
+		mkdirSync(real);
+		const link = join(base, "link");
+		symlinkSync(real, link);
+		expect(() => ensurePrivateDir(link, uid)).toThrow(/plain directory/);
+		expect(() => ensurePrivateDir(real, uid + 1)).toThrow(/another user/);
+		chmodSync(real, 0o777);
+		ensurePrivateDir(real, uid); // tightened, because it is ours
+		expect(statSync(real).mode & 0o777).toBe(0o700);
+		const fresh = join(base, "a", "b");
+		ensurePrivateDir(fresh, uid);
+		expect(statSync(fresh).mode & 0o777).toBe(0o700);
+	});
+});
