@@ -79,6 +79,7 @@ jobs:
           cache-dependency-path: agent/go.sum
       - run: npm ci
       - run: npm run galopin:build
+      - run: node scripts/fetch-node.mjs linux x64
       - run: npm run build
       - run: npx electron-builder --linux AppImage deb --publish never
       - uses: actions/upload-artifact@v4
@@ -113,6 +114,7 @@ jobs:
         run: |
           GOARCH=${{ matrix.arch == 'x64' && 'amd64' || 'arm64' }} GOOS=darwin CGO_ENABLED=0 \
             go build -o resources/galopin/galopin ../agent
+      - run: node scripts/fetch-node.mjs darwin ${{ matrix.arch }}
       - run: npm run build
       # Unsigned and not notarised, like the Cerea connector app: no Apple account yet.
       - run: npx electron-builder --mac zip --${{ matrix.arch }} --publish never

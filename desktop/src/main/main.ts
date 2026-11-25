@@ -21,6 +21,7 @@ import { startBridgeServer, type BridgeServer } from "./bridgeServer.ts";
 import { BrowserPanel } from "./browserPanel.ts";
 import { loadConfig, saveConfig, type Config } from "./config.ts";
 import { Control } from "./control.ts";
+import { ensureNode } from "./nodeRuntime.ts";
 import { linuxLogin, linuxLoginEnabled } from "./login.ts";
 import { findGalopin, Galopin } from "./galopin.ts";
 import { enrollArgs, launchArgs, serviceArgs, setupArgs, upgradeArgs } from "./galopinArgs.ts";
@@ -332,6 +333,15 @@ const handlers: { [C in Channel]: Handler<C> } = {
 	},
 	"galopin:browser-setup": async () => {
 		if (!bridgeServer) throw new IpcError("The browser panel is not ready.");
+		// The Node the app ships, unless this is a development run: then the one on PATH.
+		const node = ensureNode({
+			resources: process.resourcesPath,
+			userData: app.getPath("userData"),
+		});
+		if (node) {
+			galopin.useNode(node.binDir);
+			line(`Using the app's own Node ${node.version}.`);
+		}
 		const a = await galopin.exec(["browser", "setup", "--connect-file", bridgeServer.endpointFile]);
 		if (a.code !== 0) return a.output;
 		return (await galopin.exec(["browser", "enable"])).output;
