@@ -58,6 +58,29 @@ writeFileSync(
 	JSON.stringify({ server: { address, origin: address, name: "Smoke Cerea" } })
 );
 
+// A second stand-in Cerea, for the second profile.
+const fake2 = http.createServer((req, res) => {
+	const send = (type, body) => (res.setHeader("content-type", type), res.end(body));
+	if (req.url === "/galopin/enroll.json")
+		send(
+			"application/json",
+			JSON.stringify({
+				issuer: "https://idp2.example.org",
+				gateway: "https://llm2.example.org",
+				clientId: "opencode-enrollment",
+			})
+		);
+	else if (req.url === "/manifest.webmanifest")
+		send("application/manifest+json", JSON.stringify({ name: "Home Cerea", icons: [] }));
+	else
+		send(
+			"text/html",
+			"<!doctype html><title>Home Cerea page</title><h1>Hello from the second Cerea</h1>"
+		);
+});
+await new Promise((r) => fake2.listen(0, "127.0.0.1", r));
+const address2 = `http://127.0.0.1:${fake2.address().port}`;
+
 const fx = await startFixtures();
 const galopinBin = join(root, "resources", "galopin", "galopin");
 const env = {
@@ -289,8 +312,122 @@ try {
 	await assert.rejects(chromium.connectOverCDP(badEndpoint, { timeout: 5000 }));
 	step("a connection with the wrong secret is refused");
 
+	// 3b. profiles: the stored single-server config became profile 1; add, switch, switch back
+	{
+		const { WebSocket } = await import("ws");
+		const fs = await import("node:fs");
+		let st = await hook("state", "STATE");
+		assert.equal(st.profiles.length, 1, "the earlier single-server config became one profile");
+		assert.equal(st.profiles[0].active, true);
+		assert.match(st.profiles[0].id, /^[a-f0-9]{12}$/);
+		await hook("cookie work", "COOKIES");
+		// a runtime connection on the first profile's panel, to be cut off by the switch
+		const ep = fs.readFileSync(endpointFile, "utf8").trim();
+		const ws = new WebSocket(ep);
+		await new Promise((r, j) => (ws.once("open", r), ws.once("error", j)));
+		let oldSession;
+		let closed = false;
+		ws.on("close", () => (closed = true));
+		ws.on("message", (m) => {
+			const d = JSON.parse(m.toString());
+			if (d.method === "Target.attachedToTarget" && !oldSession) oldSession = d.params.sessionId;
+		});
+		ws.send(
+			JSON.stringify({
+				id: 1,
+				method: "Target.setAutoAttach",
+				params: { autoAttach: true, flatten: true },
+			})
+		);
+		await new Promise((r) => setTimeout(r, 600));
+		assert.ok(oldSession, "a session on the first profile's panel");
+
+		// add (the new profile becomes active)
+		const added = await hook(`addprofile ${address2}`, "PROFILES");
+		assert.equal(added.length, 2, JSON.stringify(added));
+		assert.equal(added[1].active, true, "adding a profile switches to it");
+		assert.equal(added[1].name, "Home Cerea");
+		await new Promise((r) => setTimeout(r, 2000));
+		const second = await hook("cerea", "CEREA");
+		assert.equal(second.url, `${address2}/`);
+		assert.match(second.title, /Home Cerea page/);
+		assert.ok(closed, "the switch closed the runtime's connection to the old profile's panel");
+		step("add profile: switched to the second server, the first panel's connection was cut");
+
+		// isolation: a cookie set in the first profile is not in the second, and the panels are separate too
+		let cookies = await hook("cookie -", "COOKIES");
+		assert.deepEqual(cookies[0].cerea, ["work"]);
+		assert.deepEqual(cookies[0].panel, ["work-panel"]);
+		assert.deepEqual(cookies[1].cerea, []);
+		assert.deepEqual(cookies[1].panel, []);
+		cookies = await hook("cookie home", "COOKIES");
+		assert.deepEqual(cookies[1].cerea, ["home"]);
+		assert.deepEqual(cookies[0].cerea, ["work"], "the first profile's cookies are untouched");
+		step(
+			"sessions are separate: a cookie in one profile is not in the other, Cerea window or panel"
+		);
+
+		// the old session id means nothing to the new profile's panel
+		const ws2 = new WebSocket(ep);
+		await new Promise((r, j) => (ws2.once("open", r), ws2.once("error", j)));
+		const reply = await new Promise((resolve) => {
+			ws2.on("message", (m) => {
+				const d = JSON.parse(m.toString());
+				if (d.id === 7) resolve(d);
+			});
+			ws2.send(
+				JSON.stringify({
+					id: 7,
+					method: "Runtime.evaluate",
+					params: { expression: "location.href" },
+					sessionId: oldSession,
+				})
+			);
+		});
+		assert.match(
+			reply.error?.message ?? "",
+			/No session/,
+			"a command aimed at the old profile's page is refused"
+		);
+		ws2.close();
+		step("a command aimed at the old profile's pages is refused after the switch");
+
+		// switch back: the first server, its sessions intact
+		const back = await hook("switchprofile 0", "PROFILES");
+		assert.equal(back[0].active, true);
+		await new Promise((r) => setTimeout(r, 2000));
+		const first = await hook("cerea", "CEREA");
+		assert.equal(first.url, `${address}/`);
+		cookies = await hook("cookie -", "COOKIES");
+		assert.deepEqual(cookies[0].cerea, ["work"], "signed-in state survives a round trip");
+		// and the runtime reaches the first profile's (new, empty) panel again
+		rt = new Client({ name: "smoke2", version: "1" });
+		await rt.connect(
+			new StdioClientTransport({
+				command: process.execPath,
+				args: [
+					join(rtDir, "src", "main.ts"),
+					"--connect-file",
+					endpointFile,
+					"--state-dir",
+					join(tmp, "rtstate2"),
+					"--pace",
+					"off",
+				],
+				stderr: "inherit",
+			})
+		);
+		const again = await rt.callTool({ name: "open", arguments: { url: `${fx.base}/form` } });
+		assert.ok(!again.isError, JSON.stringify(again.content));
+		await rt.close();
+		rt = undefined;
+		step(
+			"switch back: the first server and its sessions are as they were, and the runtime drives its panel again"
+		);
+	}
+
 	// 4. idle energy: the runtime goes away, then CPU is measured visible and hidden
-	await rt.close();
+	await rt?.close();
 	rt = undefined;
 	await new Promise((r) => setTimeout(r, 3000));
 	const cpuOf = (m) => m.cpu.reduce((a, p) => a + p.cpu, 0);
@@ -320,5 +457,6 @@ try {
 	app.kill("SIGTERM");
 	await fx.close?.();
 	fake.close();
+	fake2.close();
 }
 process.exit(failed ? 1 : 0);
