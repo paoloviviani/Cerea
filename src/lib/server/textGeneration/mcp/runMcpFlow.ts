@@ -418,6 +418,10 @@ export async function* runMcpFlow({
 	// The document service's capabilities (cached a minute); null when it is
 	// not configured or not answering. Resolved here like the probe above.
 	const documentCapabilities = await getDocumentCapabilities();
+	// `doc_extract` is offered where an upload would have been read: the same question, the same reader.
+	const documentExtract = artifactToolsEnabled
+		? await (await import("$lib/server/files/extractGate")).docExtractGate(locals, turnToken)
+		: undefined;
 	// Set when the endpoint rejects a request carrying look_doc pictures: no more pictures this turn.
 	const pictureState: PictureState = { unavailable: false };
 	const imageGeneration = await imageGenerationPromise;
@@ -455,6 +459,7 @@ export async function* runMcpFlow({
 		conv,
 		...(imageGeneration ? { imageGeneration } : {}),
 		documentCapabilities,
+		...(documentExtract ? { documentExtract } : {}),
 		// The model sees images (or the user's switch says so) and its pictures-in-tool-turns capability is not off.
 		modelSeesImages: Boolean(forceMultimodal ?? model.multimodal) && !model.toolImagesOff,
 		pictureState,

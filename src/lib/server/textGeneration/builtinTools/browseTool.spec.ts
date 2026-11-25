@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { ready } from "$lib/server/database";
 import { ObjectId } from "mongodb";
 import type { MessageUpdate } from "$lib/types/MessageUpdate";
 import { MessageUpdateType } from "$lib/types/MessageUpdate";
@@ -128,6 +129,12 @@ const browseUpdates = (updates: MessageUpdate[]) =>
 		MessageUpdate,
 		{ type: MessageUpdateType.Browse }
 	>[];
+
+// `machineChoice.ts` reads `collections`, which exists only once the database module's `ready` has
+// settled; without waiting for it these tests passed only when the process was slow enough.
+beforeAll(async () => {
+	await ready;
+});
 
 beforeEach(() => saveBrowserDownloads.mockReset());
 

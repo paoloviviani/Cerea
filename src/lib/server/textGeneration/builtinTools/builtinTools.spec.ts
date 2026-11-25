@@ -339,6 +339,20 @@ describe("look_doc", () => {
 	});
 });
 
+describe("doc_extract", () => {
+	const names = (extra: Partial<Parameters<typeof getEnabledBuiltinTools>[0]>) =>
+		getEnabledBuiltinTools({ conv: { _id: new ObjectId() }, ...extra }).map((tool) => tool.name);
+
+	it("is offered when an extractor is available and the model calls tools", () => {
+		expect(names({ toolsEnabled: true, documentExtract: { token: "t" } })).toContain("doc_extract");
+	});
+
+	it("is not listed without an extractor, or without tool calling", () => {
+		expect(names({ toolsEnabled: true })).not.toContain("doc_extract");
+		expect(names({ documentExtract: { token: "t" } })).not.toContain("doc_extract");
+	});
+});
+
 describe("a scheduled run's tools", () => {
 	const conv = { _id: new ObjectId() };
 	const names = (extra: Partial<Parameters<typeof getEnabledBuiltinTools>[0]> = {}) =>

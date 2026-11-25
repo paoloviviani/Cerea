@@ -10,6 +10,9 @@ import {
 	deleteConversationDeliverables,
 	deliverableStorageSummary,
 	downloadDeliverable,
+	openDeliverable,
+	withholdDeliverable,
+	WithheldDeliverableError,
 	parseRetentionDays,
 	storeDeliverable,
 	sweepExpiredDeliverables,
@@ -181,6 +184,51 @@ describe("storeDeliverable", () => {
 		expect(result.error).toContain("limit");
 	});
 });
+
+describe("a file a privacy rule withheld", () => {
+	it("is refused under every name of the same bytes, including a copy made afterwards", async () => {
+		const conversationId = newConversationId();
+		const bytes = Buffer.from("refused bytes");
+		const args = { conversationId, mime: "text/plain", bytes };
+		await storeDeliverable({ ...args, name: "a.txt" });
+		await storeDeliverable({ ...args, name: "b.txt" });
+		await withholdDeliverable(conversationId, sha(bytes), { rule: "no-pii" });
+		const hash = sha(bytes);
+		await expect(downloadDeliverable(conversationId, hash)).rejects.toBeInstanceOf(
+			WithheldDeliverableError
+		);
+		await expect(openDeliverable(conversationId, hash)).rejects.toBeInstanceOf(
+			WithheldDeliverableError
+		);
+		// A third name made later carries the withholding.
+		await storeDeliverable({ ...args, name: "c.txt" });
+		const rows = await collections.codeExecutionOutputs.find({ conversationId }).toArray();
+		expect(rows).toHaveLength(3);
+		expect(rows.every((row) => row.withheld?.rule === "no-pii")).toBe(true);
+	});
+
+	it("withholds one row only: a row whose bytes differ stays readable", async () => {
+		const conversationId = newConversationId();
+		await storeDeliverable({
+			conversationId,
+			name: "x.txt",
+			mime: "text/plain",
+			bytes: Buffer.from("x"),
+		});
+		await storeDeliverable({
+			conversationId,
+			name: "y.txt",
+			mime: "text/plain",
+			bytes: Buffer.from("y"),
+		});
+		await withholdDeliverable(conversationId, sha(Buffer.from("x")), { rule: "r" });
+		expect((await downloadDeliverable(conversationId, sha(Buffer.from("y"))))?.name).toBe("y.txt");
+	});
+});
+
+function sha(bytes: Buffer): string {
+	return createHash("sha256").update(bytes).digest("hex");
+}
 
 describe("a raced version number", () => {
 	it("recomputes the number and retries when another save took it", async () => {

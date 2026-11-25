@@ -32,6 +32,8 @@ export const EXTERNAL_BUILTIN_TOOLS: ReadonlySet<string> = new Set([
 	"view_image",
 	"doc_read",
 	"doc_outline",
+	// A file sent to the document reader: its text is whatever the document says.
+	"doc_extract",
 	// What an agent session wrote from repository content (ADR 0106): a session
 	// title is written by the agent too, so the list is outside content like a read.
 	"agent_sessions",
