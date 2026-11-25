@@ -10,7 +10,15 @@
  * app's data and is addressed with `--creds`. Credentials are never moved between profiles.
  */
 import { randomBytes } from "node:crypto";
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	renameSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import type { ServerInfo } from "../shared/ipc.ts";
 import { safeIcon, safeIdp } from "./config.ts";
@@ -80,13 +88,46 @@ function serverOf(s: Partial<ServerInfo> | undefined): ServerInfo | undefined {
 	}
 }
 
-/** Reads the store. The earlier single-server file `{server}` becomes profile 1; stored values are re-checked. */
+/**
+ * Reads the store. The earlier single-server file `{server}` becomes profile 1 and is **saved at
+ * once** (so its generated id is the same at the next start), and the earlier sessions
+ * (`persist:cerea`, `persist:cerea-browser`, stored under `Partitions/cerea` and
+ * `Partitions/cerea-browser`) are moved to the profile's own, keeping the user signed in; where a
+ * directory cannot be moved it is removed rather than left behind. Stored values are re-checked.
+ */
 export function loadStore(userData: string): Store {
+	const { store, migrated } = readStore(userData);
+	if (migrated && store.profiles[0]) {
+		saveStore(userData, store);
+		migratePartitions(userData, store.profiles[0].id);
+	}
+	return store;
+}
+
+/** Moves the earlier app's two session directories to profile `id`'s (done before any session is opened). */
+export function migratePartitions(userData: string, id: string): void {
+	assertId(id);
+	for (const [from, to] of [
+		["cerea", `cerea-${id}`],
+		["cerea-browser", `panel-${id}`],
+	]) {
+		const src = join(userData, "Partitions", from);
+		const dst = join(userData, "Partitions", to);
+		if (!existsSync(src) || existsSync(dst)) continue;
+		try {
+			renameSync(src, dst);
+		} catch {
+			rmSync(src, { recursive: true, force: true });
+		}
+	}
+}
+
+export function readStore(userData: string): { store: Store; migrated: boolean } {
 	let raw: unknown;
 	try {
 		raw = JSON.parse(readFileSync(join(userData, "config.json"), "utf8"));
 	} catch {
-		return { active: null, profiles: [] };
+		return { store: { active: null, profiles: [] }, migrated: false };
 	}
 	const o = raw as { profiles?: unknown; active?: unknown; server?: Partial<ServerInfo> };
 	if (Array.isArray(o.profiles)) {
@@ -114,12 +155,15 @@ export function loadStore(userData: string): Store {
 			isProfileId(o.active) && profiles.some((p) => p.id === o.active)
 				? (o.active as string)
 				: (profiles[0]?.id ?? null);
-		return { active, profiles };
+		return { store: { active, profiles }, migrated: false };
 	}
 	const server = serverOf(o.server);
-	if (!server) return { active: null, profiles: [] };
+	if (!server) return { store: { active: null, profiles: [] }, migrated: false };
 	const id = newProfileId();
-	return { active: id, profiles: [{ id, name: server.name, server, defaultGalopin: true }] };
+	return {
+		store: { active: id, profiles: [{ id, name: server.name, server, defaultGalopin: true }] },
+		migrated: true,
+	};
 }
 
 export function saveStore(userData: string, s: Store): void {

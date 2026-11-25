@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -9,6 +9,7 @@ import {
 	cleanName,
 	isProfileId,
 	loadStore,
+	migratePartitions,
 	newProfileId,
 	panelPartition,
 	profileGalopinDir,
@@ -128,6 +129,50 @@ describe("storage and migration", () => {
 		expect(s.active).toBe(s.profiles[0].id);
 	});
 
+	it("saves the migration at once: two loads in a row give the same id, and the second does not write", () => {
+		const ud = dir();
+		writeFileSync(
+			join(ud, "config.json"),
+			JSON.stringify({ server: { address: "https://c.example.org/chat", name: "Acme" } })
+		);
+		const first = loadStore(ud);
+		expect(JSON.parse(readFileSync(join(ud, "config.json"), "utf8")).version).toBe(2);
+		const mtime = statSync(join(ud, "config.json")).mtimeMs;
+		const second = loadStore(ud);
+		expect(second.profiles[0].id).toBe(first.profiles[0].id);
+		expect(second.active).toBe(first.active);
+		expect(statSync(join(ud, "config.json")).mtimeMs).toBe(mtime); // no second save
+		expect(loadStore(ud).profiles[0].id).toBe(first.profiles[0].id);
+	});
+
+	it("moves the earlier sessions to the profile's own, so the user stays signed in", () => {
+		const ud = dir();
+		mkdirSync(join(ud, "Partitions", "cerea"), { recursive: true });
+		mkdirSync(join(ud, "Partitions", "cerea-browser"), { recursive: true });
+		writeFileSync(join(ud, "Partitions", "cerea", "Cookies"), "login");
+		writeFileSync(
+			join(ud, "config.json"),
+			JSON.stringify({ server: { address: "https://c.example.org/chat", name: "Acme" } })
+		);
+		const id = loadStore(ud).profiles[0].id;
+		expect(existsSync(join(ud, "Partitions", "cerea"))).toBe(false);
+		expect(existsSync(join(ud, "Partitions", "cerea-browser"))).toBe(false);
+		expect(readFileSync(join(ud, "Partitions", `cerea-${id}`, "Cookies"), "utf8")).toBe("login");
+		expect(existsSync(join(ud, "Partitions", `panel-${id}`))).toBe(true);
+		// a destination that already exists is left alone, and a bad id is refused
+		mkdirSync(join(ud, "Partitions", "cerea"), { recursive: true });
+		migratePartitions(ud, id);
+		expect(existsSync(join(ud, "Partitions", "cerea"))).toBe(true);
+		expect(() => migratePartitions(ud, "../x")).toThrow();
+	});
+
+	it("does not touch the earlier sessions when there is nothing to migrate", () => {
+		const ud = dir();
+		mkdirSync(join(ud, "Partitions", "cerea"), { recursive: true });
+		expect(loadStore(ud)).toEqual(empty);
+		expect(existsSync(join(ud, "Partitions", "cerea"))).toBe(true);
+	});
+
 	it("round-trips, with a 0600 file", () => {
 		const ud = dir();
 		const a = addProfile(addProfile(empty, srv("work.example.org")).store, srv("home.example.org"));
@@ -233,5 +278,66 @@ describe("switching", () => {
 	it("finds the active profile", () => {
 		const { a, store } = rig();
 		expect(activeProfile(store)?.id).toBe(a.id);
+	});
+});
+
+describe("profile operations are serialised", () => {
+	it("runs two concurrent switches one after the other, each stopping the galopin that is current when it runs", async () => {
+		const { Mutex } = await import("../src/main/mutex.ts");
+		const ops = new Mutex();
+		const first = addProfile(empty, srv("a.example.org"));
+		const second = addProfile(first.store, srv("b.example.org"));
+		const third = addProfile(second.store, srv("c.example.org"));
+		let store = third.store; // active: a
+		let running = "a"; // the galopin running now
+		const log: string[] = [];
+		const steps = (label: string): SwitchSteps => ({
+			stopGalopin: async () => {
+				log.push(`${label}:stop(${running})`);
+				await new Promise((r) => setTimeout(r, 15));
+				running = "";
+				log.push(`${label}:stopped`);
+			},
+			detachRuntime: () => log.push(`${label}:detach`),
+			closePanel: () => log.push(`${label}:close`),
+			loadProfile: () => log.push(`${label}:load`),
+			save: () => {},
+			startGalopin: (p) => {
+				running = p.server.origin.includes("b.") ? "b" : "c";
+				log.push(`${label}:start(${running})`);
+			},
+		});
+		const toB = ops.run(async () => (store = await switchTo(store, second.profile.id, steps("1"))));
+		const toC = ops.run(async () => (store = await switchTo(store, third.profile.id, steps("2"))));
+		await Promise.all([toB, toC]);
+		expect(log).toEqual([
+			"1:stop(a)",
+			"1:stopped",
+			"1:detach",
+			"1:close",
+			"1:load",
+			"1:start(b)",
+			"2:stop(b)",
+			"2:stopped",
+			"2:detach",
+			"2:close",
+			"2:load",
+			"2:start(c)",
+		]);
+		expect(store.active).toBe(third.profile.id);
+		expect(running).toBe("c");
+	});
+
+	it("keeps going after an operation fails", async () => {
+		const { Mutex } = await import("../src/main/mutex.ts");
+		const ops = new Mutex();
+		const out: string[] = [];
+		const bad = ops.run(async () => {
+			throw new Error("boom");
+		});
+		const good = ops.run(async () => out.push("ran"));
+		await expect(bad).rejects.toThrow("boom");
+		await good;
+		expect(out).toEqual(["ran"]);
 	});
 });
