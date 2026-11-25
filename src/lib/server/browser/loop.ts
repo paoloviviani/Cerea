@@ -176,6 +176,8 @@ export interface LoopObserver {
 	/** The loop is waiting for the user to answer this sentence; null when it stopped waiting. */
 	waiting?(sentence: string | null): void;
 	activity?(text: string): void;
+	/** The user took the browser over (true) or handed it back (false): the task waits, and does not count the time. */
+	driving?(on: boolean): void;
 	/** The task continued on the page the conversation's previous task left open. */
 	resumed?(info: { title: string; changed: boolean }): void;
 	/** The task ended and left its last page open for the user. */
@@ -617,9 +619,56 @@ async function runInner(
 		}
 	};
 
+	/** False once a runtime has answered that it has no `control` tool (an older one): never asked again. */
+	let controlKnown = true;
+
+	/**
+	 * Has the user taken the browser over? Then the task waits (in short `control` calls, each
+	 * inside the call timeout) until they hand it back; the card says "You are driving" and the
+	 * wait is not task time, as with an approval. A runtime without the tool is always `agent`.
+	 */
+	const yieldToUser = async (): Promise<boolean> => {
+		if (!controlKnown || deps.unattended) return false;
+		let state: "agent" | "user";
+		try {
+			state = (await runtime.control({}, deps.signal)).state;
+		} catch (err) {
+			if (deps.signal?.aborted) throw new Stop("aborted");
+			controlKnown = false;
+			void err;
+			return false;
+		}
+		if (state !== "user") return false;
+		const askedAt = now();
+		observer?.driving?.(true);
+		try {
+			while (state === "user") {
+				if (deps.signal?.aborted) throw new Stop("aborted");
+				try {
+					state = (await runtime.control({ wait: true }, deps.signal)).state;
+				} catch (err) {
+					if (deps.signal?.aborted) throw new Stop("aborted");
+					if (err instanceof BrowserRuntimeError && err.kind !== "tool") {
+						throw new Stop("runtime_error", stopDetailOf(err));
+					}
+					controlKnown = false;
+					return true;
+				}
+			}
+		} finally {
+			waitedMs += now() - askedAt;
+			observer?.driving?.(false);
+		}
+		return true;
+	};
+
 	/** Still the holder of the machine's browser? Checked before anything that reads or acts. */
 	const assertLease = async () => {
 		if (deps.leaseHeld && !(await deps.leaseHeld())) throw new Stop("lease_lost");
+		// The user may have been at the window for an hour: is this still our browser?
+		if ((await yieldToUser()) && deps.leaseHeld && !(await deps.leaseHeld())) {
+			throw new Stop("lease_lost");
+		}
 	};
 
 	/** Page state into a tool message, older page states compacted away. */

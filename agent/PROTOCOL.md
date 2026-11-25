@@ -561,7 +561,12 @@ showed it. A page showing a bot check carries `challenge:{kind}` on `snapshot` a
 answers `refused: "challenge"`; Cerea pauses for the user and never solves it. `end_task {keep?}` →
 `{closed, kept?:{token,id,title,url}}` (never for a tab the user opened) and `resume {token}` →
 `{id,title,url,changed,was?}` or `{refused:"page_changed",title,url}` let the next task of the same
-conversation continue on the kept page.
+conversation continue on the kept page. `control {wait?}` → `{state:"agent"|"user"}` says who is
+driving: `user` while a person has taken the browser over in the Cerea desktop app. The runtime holds
+every other call while it is `user` (a call held longer than 25 s fails with a readable error), and
+`wait` returns at hand-back or after at most 25 s with the state as it is; Cerea calls `control`
+before each step and shows "You are driving" until it answers `agent`. A runtime that cannot be taken
+over always answers `agent`; one without the tool is read as `agent`.
 
 ## 11. Relayed coordination across a user's computers (ADR 0121)
 

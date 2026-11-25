@@ -1859,10 +1859,12 @@
 	"chat.browse.expand": "Mostra i passaggi di navigazione: {goal}",
 	"chat.browse.phase.working": "Navigazione",
 	"chat.browse.phase.waiting": "Aspetta te",
+	"chat.browse.phase.driving": "Stai guidando tu",
 	"chat.browse.phase.done": "Fatto",
 	"chat.browse.phase.failed": "Non è riuscito a finire",
 	"chat.browse.phase.stopped": "Fermato",
 	"chat.browse.waiting": "In attesa della tua approvazione: {sentence}",
+	"chat.browse.driving": "Hai preso il controllo del browser. L'attività prosegue quando lo restituisci.",
 	"chat.browse.result": "Risultato",
 	"chat.browse.no_steps": "Ancora nessun passaggio.",
 	"chat.browse.steps": [

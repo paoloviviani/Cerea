@@ -181,6 +181,8 @@ try {
 	// take over: the runtime is cut off, the user navigates freely, the runtime sees nothing
 	await hook("control user");
 	await new Promise((r) => setTimeout(r, 500));
+	const driver = await call("control");
+	assert.equal(driver.structuredContent.state, "user", "the runtime is told the user is driving");
 	const blocked = await call("act", { actions: [{ type: "fill", ref: field.ref, text: "Grace" }] });
 	assert.ok(
 		blocked.isError || blocked.structuredContent?.results?.[0]?.ok !== true,
@@ -198,7 +200,9 @@ try {
 		!during.includes("/staff") && !during.includes("/form"),
 		"the runtime sees none of the user's pages while they drive"
 	);
-	await hook("control agent");
+	setTimeout(() => void hook("control agent"), 300);
+	const back = await call("control", { wait: true });
+	assert.equal(back.structuredContent.state, "agent", "control waits for the hand-back");
 	await new Promise((r) => setTimeout(r, 1500));
 	const after = (await call("tabs")).structuredContent.tabs;
 	assert.ok(

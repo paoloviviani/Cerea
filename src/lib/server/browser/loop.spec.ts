@@ -1753,3 +1753,53 @@ describe("a task after another one on the same runtime", () => {
 		expect(first.slice(at).indexOf(PAGE_OPEN.replace(/"/g, '\\"'))).toBeLessThan(80);
 	});
 });
+
+describe("runBrowseLoop: the user takes the browser over", () => {
+	it("waits while the user drives, says so, does not count the time, and goes on at hand-back", async () => {
+		const { deps, runtime } = setup({
+			script: [
+				callTurn("act", { actions: [{ type: "fill", ref: "e1", text: "shoes" }] }),
+				answerTurn("done"),
+			],
+		});
+		const driving: boolean[] = [];
+		deps.observer = { ...deps.observer, driving: (on) => driving.push(on) };
+		let t = 0;
+		deps.now = () => t;
+		runtime.takeOver();
+		// the user hands back after a while; the loop is parked in control({wait:true}) meanwhile
+		setTimeout(() => {
+			t += 3_600_000;
+			runtime.handBack();
+		}, 30);
+		const result = await runBrowseLoop({ goal: "x" }, deps);
+		expect(result.result).toBe("done");
+		expect(driving).toEqual([true, false]);
+		// the hour at the window did not use the task's time budget
+		expect(result).not.toHaveProperty("stopped_reason");
+		// nothing ran before the hand-back: the fill happened once, after it
+		expect(runtime.performed.map((a) => a.type)).toEqual(["fill"]);
+	});
+
+	it("stops with aborted when the turn is stopped while the user drives", async () => {
+		const { deps, runtime } = setup({ script: [callTurn("snapshot", {}), answerTurn("x")] });
+		const ac = new AbortController();
+		deps.signal = ac.signal;
+		runtime.takeOver();
+		setTimeout(() => ac.abort(), 30);
+		const result = await runBrowseLoop({ goal: "x" }, deps);
+		expect((result as { stopped_reason?: string }).stopped_reason).toBe("aborted");
+	});
+
+	it("treats a runtime with no control tool as always the agent's", async () => {
+		const { deps, runtime } = setup({ script: [answerTurn("ok")] });
+		runtime.control = async () => {
+			throw new BrowserRuntimeError("unknown tool control", "tool");
+		};
+		const driving: boolean[] = [];
+		deps.observer = { ...deps.observer, driving: (on) => driving.push(on) };
+		const result = await runBrowseLoop({ goal: "x" }, deps);
+		expect(result.result).toBe("ok");
+		expect(driving).toEqual([]);
+	});
+});

@@ -298,11 +298,13 @@ leaves for another site.
 
 - An approval waits inside the running turn. If the chat restarts while one is
   open, the task ends and the card shows it as expired.
-- Live view and taking over the browser, and replaying known tasks, are not part
-  of this release.
+- Live view in the chat and replaying known tasks are not part of this release. Taking over
+  the browser is a feature of the Cerea desktop app: **Take over** in its browser panel makes the
+  Browsing card say "You are driving", the task waits (the time does not count) and goes on when
+  you hand the browser back. The panel's pages then count as your own tabs, so using one asks first.
 
 ## For developers
 
 The runtime contract (MCP tools: `snapshot`, `diff`, `act`, `extract`,
-`screenshot`, `download`, `tabs`, `open`, `resume`, `end_task`) is in `src/lib/server/browser/contract.ts`, with a fake
+`screenshot`, `download`, `tabs`, `open`, `resume`, `control`, `end_task`) is in `src/lib/server/browser/contract.ts`, with a fake
 runtime for tests in `fakeRuntime.ts`. The design is ADR 0116.

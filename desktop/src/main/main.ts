@@ -517,6 +517,7 @@ async function createWindow(): Promise<void> {
 		bridgeServer = await startBridgeServer(bridge, {
 			runDir: join(app.getPath("userData"), "run"),
 			uid: process.getuid?.() ?? 0,
+			control,
 		});
 	} catch (err) {
 		// A bridge that cannot start switches the browser panel off, not the app.

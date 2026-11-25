@@ -1968,10 +1968,12 @@
 	"chat.browse.expand": "[Śȟóŵ ťȟé ƀŕóŵśíńǧ śťéþś: {goal}]",
 	"chat.browse.phase.working": "[Ɓŕóŵśíńǧ]",
 	"chat.browse.phase.waiting": "[Ŵáíťíńǧ ƒóŕ ýóú]",
+	"chat.browse.phase.driving": "[Ýóú áŕé ďŕíǚíńǧ]",
 	"chat.browse.phase.done": "[Ďóńé]",
 	"chat.browse.phase.failed": "[Ćóúľď ńóť ƒíńíśȟ]",
 	"chat.browse.phase.stopped": "[Śťóþþéď]",
 	"chat.browse.waiting": "[Ŵáíťíńǧ ƒóŕ ýóúŕ áþþŕóǚáľ: {sentence}]",
+	"chat.browse.driving": "[Ýóú ťóóķ óǚéŕ ťȟé ƀŕóŵśéŕ. Ťȟé ťáśķ ǧóéś óń ŵȟéń ýóú ȟáńď íť ƀáćķ.]",
 	"chat.browse.result": "[Ŕéśúľť]",
 	"chat.browse.no_steps": "[Ńó śťéþś ýéť.]",
 	"chat.browse.steps": [

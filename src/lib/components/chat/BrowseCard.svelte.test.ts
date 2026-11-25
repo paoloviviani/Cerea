@@ -108,6 +108,17 @@ describe("the browse card", () => {
 		expect(q(baseElement, "browse-waiting")?.textContent).toContain("Click 'Pay €120'");
 	});
 
+	it("when the user took the browser over: says you are driving, not that it waits for approval", () => {
+		const { baseElement } = render(BrowseCard, {
+			update: state({ status: "waiting", driving: true }),
+			loading: true,
+		});
+		expect(q(baseElement, "browse-card")?.getAttribute("data-status")).toBe("waiting");
+		expect(q(baseElement, "browse-status")?.textContent).toContain("You are driving");
+		expect(q(baseElement, "browse-driving")?.textContent).toContain("hand it back");
+		expect(q(baseElement, "browse-waiting")).toBeNull();
+	});
+
 	it("when done: collapsed, with the report previewed as plain text", () => {
 		const { baseElement } = render(BrowseCard, {
 			update: state({

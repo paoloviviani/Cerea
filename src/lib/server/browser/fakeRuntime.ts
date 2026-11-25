@@ -424,6 +424,29 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 		};
 	}
 
+	/** Who is driving (tests flip it with `takeOver` and `handBack`). */
+	private driver: "agent" | "user" = "agent";
+	private waiters: Array<() => void> = [];
+	/** The calls the fake held while the user drove, in order: nothing runs until hand-back. */
+	held: string[] = [];
+	takeOver(): void {
+		this.driver = "user";
+	}
+	handBack(): void {
+		this.driver = "agent";
+		for (const w of this.waiters.splice(0)) w();
+	}
+	async control(request?: { wait?: boolean }): Promise<{ state: "agent" | "user" }> {
+		this.record("control", request?.wait ? { wait: true } : {});
+		if (request?.wait && this.driver === "user") {
+			await new Promise<void>((resolve) => {
+				this.waiters.push(resolve);
+				setTimeout(resolve, 10).unref?.();
+			});
+		}
+		return { state: this.driver };
+	}
+
 	async resume(token: string): Promise<ResumeResult> {
 		this.record("resume", { token });
 		const kept = this.keptPages.get(token);
@@ -541,6 +564,8 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 						return json(await this.tabs(args.deny ? { deny: args.deny as string[] } : undefined));
 					case "resume":
 						return json(await this.resume(String(args.token ?? "")));
+					case "control":
+						return json(await this.control({ wait: args.wait === true }));
 					case "open":
 						return json(
 							await this.open({
