@@ -5,8 +5,8 @@
  */
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync, renameSync } from "node:fs";
-import { delimiter, join } from "node:path";
-import { galopinConfigDir, terminalCommand } from "./galopinArgs.ts";
+import { delimiter, dirname, join } from "node:path";
+import { galopinConfigDir, terminalCommand, withCreds } from "./galopinArgs.ts";
 
 export function findGalopin(opts: {
 	resources?: string;
@@ -39,7 +39,9 @@ export class Galopin {
 		readonly bin: string | undefined,
 		private readonly onLine: (line: string) => void,
 		private env: NodeJS.ProcessEnv = process.env,
-		private readonly onChange: () => void = () => {}
+		private readonly onChange: () => void = () => {},
+		/** This profile's credentials file; absent for the profile that uses galopin's default directory. */
+		readonly credsPath?: string
 	) {}
 
 	get available(): boolean {
@@ -52,6 +54,7 @@ export class Galopin {
 	}
 
 	configDir(): string {
+		if (this.credsPath) return dirname(this.credsPath);
 		return galopinConfigDir(this.env);
 	}
 	credentialsFile(): string {
@@ -80,7 +83,8 @@ export class Galopin {
 	}
 
 	/** Run a command to the end, streaming its lines. */
-	exec(args: string[]): Promise<RunResult> {
+	exec(rawArgs: string[]): Promise<RunResult> {
+		const args = withCreds(rawArgs, this.credsPath);
 		return new Promise((resolve) => {
 			if (!this.bin)
 				return resolve({ code: null, output: "galopin is not installed with this app." });
@@ -115,7 +119,10 @@ export class Galopin {
 		if (!this.bin || !this.wantRunning) return;
 		this.startedAt = Date.now();
 		this.onLine("$ galopin run");
-		const child = spawn(this.bin, ["run"], { env: this.env, stdio: ["ignore", "pipe", "pipe"] });
+		const child = spawn(this.bin, withCreds(["run"], this.credsPath), {
+			env: this.env,
+			stdio: ["ignore", "pipe", "pipe"],
+		});
 		this.run = child;
 		this.onChange();
 		const feed = (b: Buffer) => {
