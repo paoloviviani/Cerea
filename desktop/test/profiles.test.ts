@@ -201,7 +201,7 @@ describe("switching", () => {
 			detachRuntime: () => log.push("detach-runtime"),
 			closePanel: () => log.push("close-panel"),
 			loadProfile: (p) => log.push(`load:${p.name}`),
-			startGalopin: (p) => log.push(`start:${p.name}`),
+			startGalopin: (p) => void log.push(`start:${p.name}`),
 			save: (s) => log.push(`save:${s.active === b.id ? "home" : "work"}`),
 		};
 		return { log, a, b, store, steps };

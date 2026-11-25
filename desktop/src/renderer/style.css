@@ -201,3 +201,24 @@ body.hidden *::after {
 		transition: none !important;
 	}
 }
+
+.plist {
+	list-style: none;
+	padding: 0;
+	margin: 8px 0;
+}
+.plist li {
+	display: grid;
+	grid-template-columns: 1fr auto auto;
+	gap: 4px 6px;
+	align-items: center;
+	margin: 8px 0;
+}
+.plist li span {
+	grid-column: 1 / -1;
+	order: 3;
+	font-size: 12px;
+}
+#profile-select {
+	max-width: 220px;
+}

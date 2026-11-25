@@ -39,14 +39,29 @@ describe("IPC validation", () => {
 		expect(() => validate("galopin:pair", { agent: true, engine: "emacs" })).toThrow(IpcError);
 	});
 
-	it("needs an explicit confirmation to switch servers", () => {
-		expect(() => validate("server:switch", { address: "https://x.example" })).toThrow(IpcError);
-		expect(() =>
-			validate("server:switch", { address: "https://x.example", confirm: false })
-		).toThrow(IpcError);
-		expect(validate("server:switch", { address: "https://x.example", confirm: true }).confirm).toBe(
-			true
+	it("takes profile ids only in the form the app generates", () => {
+		expect(validate("profile:switch", { id: "0123456789ab" }).id).toBe("0123456789ab");
+		for (const id of [
+			"../etc",
+			"work",
+			"0123456789AB",
+			"0123456789a",
+			"0123456789abc",
+			"../../x/0123456789",
+			5,
+		]) {
+			expect(() => validate("profile:switch", { id }), String(id)).toThrow(IpcError);
+			expect(() => validate("profile:remove", { id }), String(id)).toThrow(IpcError);
+			expect(() => validate("profile:rename", { id, name: "x" }), String(id)).toThrow(IpcError);
+		}
+		expect(validate("profile:rename", { id: "0123456789ab", name: "Home" }).name).toBe("Home");
+		expect(() => validate("profile:rename", { id: "0123456789ab", name: "x".repeat(100) })).toThrow(
+			IpcError
 		);
+		expect(validate("profile:add", { address: "chat.example.org" })).toEqual({
+			address: "chat.example.org",
+		});
+		expect(() => validate("profile:add", { address: "x", extra: 1 })).toThrow(IpcError);
 	});
 
 	it("checks the browser layout numbers and control modes", () => {

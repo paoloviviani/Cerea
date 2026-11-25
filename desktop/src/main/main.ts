@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -16,18 +16,38 @@ import {
 	type IpcMainInvokeEvent,
 	type WebContents,
 } from "electron";
-import { CdpBridge } from "./cdpBridge.ts";
+import { BridgeRouter, CdpBridge } from "./cdpBridge.ts";
 import { startBridgeServer, type BridgeServer } from "./bridgeServer.ts";
 import { BrowserPanel } from "./browserPanel.ts";
-import { loadConfig, saveConfig, type Config } from "./config.ts";
 import { Control } from "./control.ts";
 import { ensureNode } from "./nodeRuntime.ts";
 import { linuxLogin, linuxLoginEnabled } from "./login.ts";
 import { findGalopin, Galopin } from "./galopin.ts";
-import { enrollArgs, launchArgs, serviceArgs, setupArgs, upgradeArgs } from "./galopinArgs.ts";
+import {
+	enrollArgs,
+	launchArgs,
+	serviceArgs,
+	setupArgs,
+	upgradeArgs,
+	withCreds,
+} from "./galopinArgs.ts";
 import { guardCerea, mayOpenExternally, UI_CSP, type GuardState } from "./navGuard.ts";
 import { resolveUiFile, UI_ORIGIN } from "./uiProtocol.ts";
 import { cappedFetch, iconFetcher } from "./probeFetch.ts";
+import {
+	activeProfile,
+	addProfile,
+	ceraePartition,
+	panelPartition,
+	profileGalopinDir,
+	removeProfile,
+	renameProfile,
+	saveStore,
+	switchTo,
+	loadStore,
+	type Profile,
+	type Store,
+} from "./profiles.ts";
 import { discoverServer, ServerError } from "./server.ts";
 import {
 	CHANNELS,
@@ -39,7 +59,6 @@ import {
 } from "../shared/ipc.ts";
 
 const HEADER = 40;
-const CEREA_PARTITION = "persist:cerea";
 // Test hooks exist only in an unpackaged run: a packaged app ignores these variables.
 const TEST = !app.isPackaged && process.env.CEREA_DESKTOP_TEST === "1";
 
@@ -52,7 +71,9 @@ let ceraeView: WebContentsView | undefined;
 let panel: BrowserPanel | undefined;
 let galopin: Galopin;
 let bridgeServer: BridgeServer | undefined;
-let config: Config = { server: null };
+let store: Store = { active: null, profiles: [] };
+const router = new BridgeRouter();
+let nodeBinDir: string | undefined;
 const guard: GuardState = { origin: "" };
 const control = new Control();
 let bridgeConnected = false;
@@ -71,7 +92,14 @@ function line(l: string): void {
 
 function appState(): AppState {
 	return {
-		server: config.server,
+		server: cur()?.server ?? null,
+		profiles: store.profiles.map((p) => ({
+			id: p.id,
+			name: p.name,
+			address: p.server.address,
+			...(p.server.icon ? { icon: p.server.icon } : {}),
+			active: p.id === store.active,
+		})),
 		galopin: {
 			available: galopin.available,
 			paired: galopin.paired(),
@@ -103,17 +131,17 @@ const pushState = () => push("state", appState());
 function placeCerea(): void {
 	if (!win || !ceraeView) return;
 	const b = win.getContentBounds();
-	const show = !!config.server && sideWidth < b.width;
+	const show = !!cur() && sideWidth < b.width;
 	ceraeView.setVisible(show);
 	if (show)
 		ceraeView.setBounds({ x: 0, y: HEADER, width: b.width - sideWidth, height: b.height - HEADER });
 }
 
-function makeCereaView(): WebContentsView {
+function makeCereaView(profile: Profile): WebContentsView {
 	const view = new WebContentsView({
 		// The deployment's own page: no preload, no Node, sandboxed, its own storage.
 		webPreferences: {
-			partition: CEREA_PARTITION,
+			partition: ceraePartition(profile.id),
 			sandbox: true,
 			contextIsolation: true,
 			nodeIntegration: false,
@@ -148,7 +176,7 @@ function makeCereaView(): WebContentsView {
 		else if (r.decision === "external" && mayOpenExternally(url)) void shell.openExternal(url);
 		return { action: "deny" };
 	});
-	const ses = session.fromPartition(CEREA_PARTITION);
+	const ses = session.fromPartition(ceraePartition(profile.id));
 	// What Cerea may ask the OS for: the clipboard (copy buttons) and notifications.
 	// Only the chosen server itself (not the identity provider, not a frame of another origin) is asked.
 	const granted = (perm: string, origin: string | undefined) =>
@@ -168,14 +196,73 @@ function makeCereaView(): WebContentsView {
 	return view;
 }
 
-function loadServer(): void {
-	guard.origin = config.server?.origin ?? "";
-	guard.idp = config.server?.idp;
+const cur = (): Profile | undefined => activeProfile(store);
+
+/**
+ * Shows the active profile: a new Cerea view on that profile's own session (the old one is
+ * closed), the guard for its origin and identity provider, a new browser panel on its own
+ * session behind the bridge, and its galopin. With no profile, nothing of Cerea is loaded.
+ */
+function loadActive(): void {
+	const p = cur();
+	if (ceraeView && win) {
+		try {
+			win.contentView.removeChildView(ceraeView);
+			ceraeView.webContents.close();
+		} catch {
+			// the window is closing
+		}
+		ceraeView = undefined;
+	}
+	guard.origin = p?.server.origin ?? "";
+	guard.idp = p?.server.idp;
 	guard.excursion = undefined;
-	if (config.server && ceraeView)
-		void ceraeView.webContents.loadURL(config.server.address + "/").catch(() => {});
+	control.set("agent");
+	if (win && p) {
+		ceraeView = makeCereaView(p);
+		// Under the browser panel's views: they are added after, so they stay on top.
+		win.contentView.addChildView(ceraeView, 0);
+		void ceraeView.webContents.loadURL(p.server.address + "/").catch(() => {});
+		panel = new BrowserPanel(
+			win,
+			control,
+			(st) => push("state", { ...appState(), browser: st }),
+			() => bridgeConnected,
+			panelPartition(p.id)
+		);
+		panel.setLayout(lastRect);
+		router.set(new CdpBridge(panel, control, (m) => line(`[bridge] ${m}`)));
+		galopin = makeGalopin(p);
+	} else {
+		panel = undefined;
+		router.set(undefined);
+		galopin = makeGalopin(undefined);
+	}
+	win?.setTitle(p ? `Cerea \u2014 ${p.name}` : "Cerea");
+	setMenu();
 	placeCerea();
 	pushState();
+}
+
+let lastRect = { x: 0, y: 0, width: 0, height: 0, visible: false };
+
+/** A galopin for a profile: the first uses galopin's default directory, the others their own (`--creds`). */
+function makeGalopin(p: Profile | undefined): Galopin {
+	const dir = p ? profileGalopinDir(app.getPath("userData"), p) : undefined;
+	if (dir) mkdirSync(dir, { recursive: true, mode: 0o700 });
+	const g = new Galopin(
+		findGalopin({
+			resources: process.resourcesPath,
+			devRoot: join(__dirname, "..", ".."),
+			packaged: app.isPackaged,
+		}),
+		line,
+		process.env,
+		pushState,
+		dir ? join(dir, "credentials.json") : undefined
+	);
+	if (nodeBinDir) g.useNode(nodeBinDir);
+	return g;
 }
 
 // ---- IPC ------------------------------------------------------------------------------------
@@ -212,44 +299,37 @@ const fetchForProbe = cappedFetch(netFetch);
 const probe = (address: string) => discoverServer(address, fetchForProbe, iconFetcher(netFetch));
 
 const handlers: { [C in Channel]: Handler<C> } = {
-	"server:get": () => config.server,
+	"server:get": () => cur()?.server ?? null,
 	"server:probe": async ({ address }) => probe(address),
-	"server:set": async ({ address }) => {
-		if (config.server) throw new ServerError("A server is already chosen. Use Switch server.");
-		config = { server: await probe(address) };
-		saveConfig(app.getPath("userData"), config);
-		loadServer();
-		return config.server;
+	"profile:add": async ({ address, name }) => {
+		const server = await probe(address);
+		const { store: next, profile } = addProfile(store, server, name);
+		const first = store.profiles.length === 0;
+		store = next;
+		saveStore(app.getPath("userData"), store);
+		if (first) loadActive();
+		else await switchProfile(profile.id);
+		setMenu();
+		pushState();
+		return profile.id;
 	},
-	"server:switch": async ({ address }) => {
-		const next = await probe(address);
-		const paired = galopin.paired();
-		const service = galopin.serviceInstalled();
-		const ok = await confirm(
-			`Switch to ${next.name}?`,
-			`You will be signed out of ${config.server?.name ?? "the current server"}.` +
-				(paired
-					? " This computer's pairing is per server, so it is removed here too. The old server is not told: its sign-in for this computer stays valid until you remove the computer from its Agents panel."
-					: "") +
-				(service ? " The galopin service installed on this computer is removed too." : ""),
-			"Switch server"
-		);
-		if (!ok) return null;
-		// galopin must be gone before its credentials are moved, or it would write them back.
-		await galopin.stop();
-		if (service) await galopin.exec(serviceArgs("uninstall"));
-		const kept = galopin.unpairLocal();
-		if (kept) line(`Pairing set aside: ${kept}`);
-		await session.fromPartition(CEREA_PARTITION).clearStorageData();
-		config = { server: next };
-		saveConfig(app.getPath("userData"), config);
-		loadServer();
-		return next;
+	"profile:switch": async ({ id }) => {
+		await switchProfile(id);
+		return id;
 	},
+	"profile:rename": ({ id, name }) => {
+		store = renameProfile(store, id, name);
+		saveStore(app.getPath("userData"), store);
+		win?.setTitle(cur() ? `Cerea \u2014 ${cur()!.name}` : "Cerea");
+		setMenu();
+		pushState();
+	},
+	"profile:remove": async ({ id }) => removeProfileFlow(id),
 	"galopin:status": async () => (await galopin.exec(["status"])).output,
 	"galopin:pair": async (o) => {
-		if (!config.server) throw new IpcError("Choose a server first.");
-		const r = await galopin.exec(enrollArgs(config.server.address, o));
+		const p = cur();
+		if (!p) throw new IpcError("Choose a server first.");
+		const r = await galopin.exec(enrollArgs(p.server.address, o));
 		if (r.code === 0) galopin.start();
 		pushState();
 		return r.code === 0 ? "Paired." : `Pairing failed (exit ${r.code}).`;
@@ -272,7 +352,7 @@ const handlers: { [C in Channel]: Handler<C> } = {
 			if (r.canceled || !r.filePaths[0]) return "Cancelled.";
 			cwd = r.filePaths[0];
 		}
-		return galopin.launchInTerminal(launchArgs(tool), cwd).message;
+		return galopin.launchInTerminal(withCreds(launchArgs(tool), galopin.credsPath), cwd).message;
 	},
 	"galopin:setup": async ({ tool, remove, makeDefault }) => {
 		if (
@@ -340,6 +420,7 @@ const handlers: { [C in Channel]: Handler<C> } = {
 			userData: app.getPath("userData"),
 		});
 		if (node) {
+			nodeBinDir = node.binDir;
 			galopin.useNode(node.binDir);
 			line(`Using the app's own Node ${node.version}.`);
 		}
@@ -359,6 +440,7 @@ const handlers: { [C in Channel]: Handler<C> } = {
 	"galopin:logs": () => log.join("\n"),
 	"browser:layout": ({ sideWidth: w, ...rect }) => {
 		sideWidth = w;
+		lastRect = rect;
 		placeCerea();
 		panel?.setLayout(rect);
 	},
@@ -374,8 +456,8 @@ const handlers: { [C in Channel]: Handler<C> } = {
 		return enabled;
 	},
 	"app:open-cerea": () => {
-		if (config.server && mayOpenExternally(config.server.address))
-			void shell.openExternal(config.server.address);
+		const a = cur()?.server.address;
+		if (a && mayOpenExternally(a)) void shell.openExternal(a);
 	},
 };
 
@@ -396,13 +478,103 @@ function registerIpc(): void {
 
 /** A menu for copy and paste and window keys; no View menu, so no DevTools in a packaged app. */
 function setMenu(): void {
+	const profiles: Electron.MenuItemConstructorOptions = {
+		label: "Profiles",
+		submenu: store.profiles.map((p, i) => ({
+			label: p.name,
+			type: "radio" as const,
+			checked: p.id === store.active,
+			accelerator: i < 9 ? `CmdOrCtrl+Shift+${i + 1}` : undefined,
+			click: () => void switchProfile(p.id).catch((e) => line(`Switch failed: ${String(e)}`)),
+		})),
+	};
 	const template: Electron.MenuItemConstructorOptions[] = [
 		...(process.platform === "darwin" ? [{ role: "appMenu" as const }] : []),
 		{ role: "editMenu" },
+		...(store.profiles.length > 1 ? [profiles] : []),
 		{ role: "windowMenu" },
 		...(app.isPackaged ? [] : [{ role: "viewMenu" as const }]),
 	];
 	Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+// ---- profiles -------------------------------------------------------------------------------
+
+/**
+ * Makes another profile the active one: its galopin runs and the old one does not (the old one is
+ * gone before anything of the new starts), the runtime is cut off from the old panel, and the
+ * Cerea view and panel are the new profile's own, on their own sessions. An installed galopin
+ * service follows the active profile, after a confirmation.
+ */
+async function switchProfile(id: string): Promise<void> {
+	const target = store.profiles.find((p) => p.id === id);
+	if (!target || store.active === id) return;
+	const service = galopin.serviceInstalled();
+	if (
+		service &&
+		!(await confirm(
+			`Switch to ${target.name}?`,
+			`The galopin service follows the active profile. It is installed again for ${target.name}, or removed if this computer is not paired with that server yet.`,
+			"Switch"
+		))
+	) {
+		return;
+	}
+	store = await switchTo(store, id, {
+		stopGalopin: () => galopin.stop(),
+		detachRuntime: () => {
+			router.set(undefined);
+			control.set("agent");
+		},
+		closePanel: () => {
+			panel?.dispose();
+			panel = undefined;
+		},
+		loadProfile: (p) => {
+			store = { ...store, active: p.id };
+			loadActive();
+		},
+		save: (st) => saveStore(app.getPath("userData"), st),
+		startGalopin: async () => {
+			if (service) {
+				await galopin.exec(serviceArgs(galopin.paired() ? "install" : "uninstall"));
+			} else if (galopin.paired() && !TEST) galopin.start();
+		},
+	});
+	pushState();
+}
+
+/** Removes a profile after a confirmation: its sessions and its pairing on this computer go; the server is not told. */
+async function removeProfileFlow(id: string): Promise<boolean> {
+	const p = store.profiles.find((x) => x.id === id);
+	if (!p) throw new IpcError("No such profile.");
+	const ok = await confirm(
+		`Remove ${p.name}?`,
+		`Its sign-in here, its browser panel's logins and this computer's pairing with it are deleted from this computer. The server is not told: this computer's sign-in there stays valid until you remove the computer from that server's Agents panel.`,
+		"Remove"
+	);
+	if (!ok) return false;
+	if (store.active === id) {
+		const other = store.profiles.find((x) => x.id !== id);
+		if (other) await switchProfile(other.id);
+		else {
+			await galopin.stop();
+			if (galopin.serviceInstalled()) await galopin.exec(serviceArgs("uninstall"));
+		}
+		if (store.active === id && other) return false; // the switch was declined: nothing removed
+	}
+	// A galopin of that profile (never the running one) to set its pairing aside.
+	const dir = profileGalopinDir(app.getPath("userData"), p);
+	if (dir) rmSync(join(dir, ".."), { recursive: true, force: true });
+	else makeGalopin(p).unpairLocal();
+	await session.fromPartition(ceraePartition(p.id)).clearStorageData();
+	await session.fromPartition(panelPartition(p.id)).clearStorageData();
+	store = removeProfile(store, id);
+	saveStore(app.getPath("userData"), store);
+	if (!store.active) loadActive();
+	setMenu();
+	pushState();
+	return true;
 }
 
 // ---- energy -----------------------------------------------------------------------------------
@@ -473,6 +645,42 @@ function testHooks(): void {
 						if (!had) dbg.detach();
 					}
 				})();
+			} else if (cmd.startsWith("addprofile ")) {
+				void Promise.resolve(handlers["profile:add"]({ address: cmd.slice(11) })).then(
+					() => process.stdout.write(`PROFILES ${JSON.stringify(appState().profiles)}\n`),
+					(e) => process.stdout.write(`PROFILES ${JSON.stringify({ error: String(e) })}\n`)
+				);
+			} else if (cmd.startsWith("switchprofile ")) {
+				const target = store.profiles[Number(cmd.slice(14))];
+				void Promise.resolve(target && handlers["profile:switch"]({ id: target.id })).then(() =>
+					process.stdout.write(`PROFILES ${JSON.stringify(appState().profiles)}\n`)
+				);
+			} else if (cmd.startsWith("cookie ")) {
+				// Sets a cookie in the ACTIVE profile's Cerea session and its panel session, then lists
+				// the cookie names of every profile's two sessions, to show nothing crosses.
+				const name = cmd.slice(7);
+				void (async () => {
+					const p = cur()!;
+					if (name !== "-") {
+						await session
+							.fromPartition(ceraePartition(p.id))
+							.cookies.set({ url: p.server.origin + "/", name, value: "1" });
+						await session
+							.fromPartition(panelPartition(p.id))
+							.cookies.set({ url: p.server.origin + "/", name: name + "-panel", value: "1" });
+					}
+					const out = [];
+					for (const q of store.profiles) {
+						const c = (await session.fromPartition(ceraePartition(q.id)).cookies.get({})).map(
+							(x) => x.name
+						);
+						const d = (await session.fromPartition(panelPartition(q.id)).cookies.get({})).map(
+							(x) => x.name
+						);
+						out.push({ cerea: c, panel: d });
+					}
+					process.stdout.write(`COOKIES ${JSON.stringify(out)}\n`);
+				})();
 			} else if (cmd.startsWith("usernav ")) panel?.openForUser(cmd.slice(8));
 			else if (cmd.startsWith("control ")) control.set(cmd.endsWith("user") ? "user" : "agent");
 			else if (cmd === "tabs")
@@ -530,19 +738,10 @@ async function createWindow(): Promise<void> {
 	win.webContents.on("will-navigate", (e) => e.preventDefault());
 	win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 
-	ceraeView = makeCereaView();
-	win.contentView.addChildView(ceraeView);
-	panel = new BrowserPanel(
-		win,
-		control,
-		(s) => push("state", { ...appState(), browser: s }),
-		() => bridgeConnected
-	);
 	win.on("resize", placeCerea);
 
-	const bridge = new CdpBridge(panel, control, (m) => line(`[bridge] ${m}`));
 	try {
-		bridgeServer = await startBridgeServer(bridge, {
+		bridgeServer = await startBridgeServer(router, {
 			runDir: join(app.getPath("userData"), "run"),
 			uid: process.getuid?.() ?? 0,
 			control,
@@ -554,7 +753,7 @@ async function createWindow(): Promise<void> {
 	}
 	control.onChange(pushState);
 	await win.loadURL(`${UI_ORIGIN}/index.html`);
-	loadServer();
+	loadActive();
 }
 
 protocol.registerSchemesAsPrivileged([
@@ -582,13 +781,8 @@ else {
 		session.defaultSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
 		session.defaultSession.setPermissionCheckHandler(() => false);
 		setMenu();
-		config = loadConfig(app.getPath("userData"));
-		const bin = findGalopin({
-			resources: process.resourcesPath,
-			devRoot: join(__dirname, "..", ".."),
-			packaged: app.isPackaged,
-		});
-		galopin = new Galopin(bin, line, process.env, pushState);
+		store = loadStore(app.getPath("userData"));
+		galopin = makeGalopin(cur());
 		registerIpc();
 		await createWindow();
 		// A paired computer keeps galopin going while the app is open (the Mac connector app's job).

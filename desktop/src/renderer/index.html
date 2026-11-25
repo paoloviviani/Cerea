@@ -14,10 +14,11 @@
 		<header id="bar">
 			<img id="logo" alt="" hidden />
 			<strong id="server-name">Cerea</strong>
+			<select id="profile-select" title="Switch profile" aria-label="Profile" hidden></select>
 			<span class="spacer"></span>
 			<button id="tab-browser" data-pane="browser">Browser</button>
 			<button id="tab-galopin" data-pane="galopin">galopin</button>
-			<button id="tab-server" data-pane="server">Server</button>
+			<button id="tab-server" data-pane="server">Profiles</button>
 			<button id="open-cerea" title="Open this Cerea in your web browser">Open in browser</button>
 		</header>
 
@@ -139,25 +140,19 @@
 			</section>
 
 			<section id="pane-server" hidden>
-				<h2>Server</h2>
-				<p id="s-current"></p>
-				<h3>Settings</h3>
-				<label><input type="checkbox" id="s-login" /> Start Cerea when I log in</label>
+				<h2>Profiles</h2>
 				<p class="muted">
-					Off by default. It opens the app, which then keeps galopin running if this computer is
-					paired.
+					A profile is a server, such as a work one and a home one, with its own sign-in, browser
+					panel and computer pairing. Only the active profile's galopin runs. Switch with the box at
+					the top, or Ctrl or Cmd with Shift and 1 to 9.
 				</p>
-				<h3>About</h3>
-				<p id="s-about" class="muted"></p>
-				<p class="muted">
-					Switching signs you out and removes this computer's pairing, because a pairing belongs to
-					one server.
-				</p>
+				<ul id="profile-list" class="plist"></ul>
+				<h3>Add a profile</h3>
 				<form id="switch-form">
 					<input
 						id="switch-address"
 						type="text"
-						placeholder="Another Cerea's address"
+						placeholder="chat.example.org"
 						autocomplete="off"
 						spellcheck="false"
 					/>
@@ -169,8 +164,16 @@
 						<strong id="switch-name"></strong>
 						<div id="switch-url" class="muted"></div>
 					</div>
-					<button id="switch-go">Switch server...</button>
+					<button id="switch-go">Add profile</button>
 				</div>
+				<h3>Settings</h3>
+				<label><input type="checkbox" id="s-login" /> Start Cerea when I log in</label>
+				<p class="muted">
+					Off by default. It opens the app, which then keeps galopin running if this computer is
+					paired.
+				</p>
+				<h3>About</h3>
+				<p id="s-about" class="muted"></p>
 			</section>
 		</aside>
 		<script src="ui.js"></script>

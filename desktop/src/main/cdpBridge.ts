@@ -156,6 +156,13 @@ class Connection {
 		for (const u of this.unsub) u();
 		for (const t of this.sessions.values()) t.detach();
 		this.sessions.clear();
+		this.child.clear();
+		// A connection that is let go is closed, not left open and mute.
+		try {
+			this.transport.close();
+		} catch {
+			// already closed
+		}
 	}
 
 	private out(m: Json): void {
@@ -394,6 +401,26 @@ class Connection {
 				this.log(`unsupported browser-level method ${method}`);
 				throw new Error(`'${method}' wasn't found`);
 		}
+	}
+}
+
+/**
+ * The one door the runtime's socket opens onto, pointed at the active profile's bridge. A switch
+ * disconnects the old bridge and, until the new profile's panel exists, closes every connection at
+ * once, so a command aimed at a page of the profile that was left has nowhere to land.
+ */
+export class BridgeRouter {
+	private current?: { connect(t: Transport): void; disconnect(): void };
+	set(next: { connect(t: Transport): void; disconnect(): void } | undefined): void {
+		this.current?.disconnect();
+		this.current = next;
+	}
+	connect(t: Transport): void {
+		if (!this.current) return t.close();
+		this.current.connect(t);
+	}
+	disconnect(): void {
+		this.current?.disconnect();
 	}
 }
 
