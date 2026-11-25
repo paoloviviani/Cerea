@@ -11,6 +11,8 @@ export type Decision = "allow" | "external" | "deny";
 export interface GuardState {
 	/** The chosen server's origin; empty when none is chosen yet (the Cerea window loads nothing). */
 	origin: string;
+	/** The identity provider's origin from the server's sign-in settings: the only other origin a redirect may reach. */
+	idp?: string;
 	/** Set while the window is on an identity provider reached by a redirect from the server. */
 	excursion?: { origin: string; since: number };
 }
@@ -53,9 +55,9 @@ export function guardCerea(
 	const f = parse(from);
 	const live =
 		state.excursion && now - state.excursion.since < EXCURSION_MS ? state.excursion : undefined;
-	if (kind === "redirect" && f && secureOrLoopback(u)) {
-		// A redirect leaving the server's origin starts a sign-in excursion; one leaving the
-		// identity provider's page stays inside it.
+	// Only the server's own identity provider is reachable, and only by a redirect: a provider
+	// upstream of it is not (an administrator will be able to list more hops later).
+	if (kind === "redirect" && f && secureOrLoopback(u) && state.idp && u.origin === state.idp) {
 		if (f.origin === state.origin)
 			return { decision: "allow", excursion: { origin: u.origin, since: now } };
 		if (live && f.origin === live.origin)

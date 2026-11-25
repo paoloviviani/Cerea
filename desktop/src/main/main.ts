@@ -130,17 +130,27 @@ function makeCereaView(): WebContentsView {
 	});
 	const ses = session.fromPartition(CEREA_PARTITION);
 	// What Cerea may ask the OS for: the clipboard (copy buttons) and notifications.
-	ses.setPermissionRequestHandler((_wc, perm, cb) =>
-		cb(["clipboard-sanitized-write", "notifications"].includes(perm))
-	);
-	ses.setPermissionCheckHandler((_wc, perm) =>
-		["clipboard-sanitized-write", "notifications"].includes(perm)
-	);
+	// Only the chosen server itself (not the identity provider, not a frame of another origin) is asked.
+	const granted = (perm: string, origin: string | undefined) =>
+		["clipboard-sanitized-write", "notifications"].includes(perm) &&
+		!!origin &&
+		origin === guard.origin;
+	ses.setPermissionRequestHandler((_wc, perm, cb, details) => {
+		let o: string | undefined;
+		try {
+			o = new URL(details.requestingUrl).origin;
+		} catch {
+			o = undefined;
+		}
+		cb(granted(perm, o));
+	});
+	ses.setPermissionCheckHandler((_wc, perm, requestingOrigin) => granted(perm, requestingOrigin));
 	return view;
 }
 
 function loadServer(): void {
 	guard.origin = config.server?.origin ?? "";
+	guard.idp = config.server?.idp;
 	guard.excursion = undefined;
 	if (config.server && ceraeView)
 		void ceraeView.webContents.loadURL(config.server.address + "/").catch(() => {});

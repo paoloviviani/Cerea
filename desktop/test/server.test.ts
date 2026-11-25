@@ -52,6 +52,7 @@ describe("probeServer", () => {
 		expect(info).toEqual({
 			address: base,
 			origin: "https://cerea.example.org",
+			idp: "https://idp.example.org",
 			name: "Acme Cerea",
 			icon: "https://cerea.example.org/chat/icon.png",
 		});
@@ -73,6 +74,17 @@ describe("probeServer", () => {
 			fakeFetch({ [`${base}/galopin/enroll.json`]: { body: facts } })
 		);
 		expect(bare.name).toBe("cerea.example.org");
+	});
+
+	it("refuses a server whose sign-in address is not secure", async () => {
+		await expect(
+			probeServer(
+				base,
+				fakeFetch({
+					[`${base}/galopin/enroll.json`]: { body: { ...facts, issuer: "http://idp.example.org" } },
+				})
+			)
+		).rejects.toThrow(/not secure/);
 	});
 
 	it("refuses a site that is not a Cerea", async () => {
