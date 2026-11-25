@@ -49,6 +49,13 @@ async function seedAppsConnector(db: Db, sessionId: string, opts: { appsAllowed?
 	const userId = await seedUser(db, sessionId, `e2e-${randomUUID()}`);
 	// Ask: a call the page starts must raise the same card a model's call does.
 	await db.collection("settings").updateOne({ userId }, { $set: { toolApprovalPolicy: "manual" } });
+	// The database lives across the tests of a run, and a call finds its connector by name: an earlier
+	// test's connector of the same name (with its own switch) would be the one the call resolves to.
+	const stale = await db.collection("mcpConnectors").find({ name: "Apps" }).toArray();
+	await db.collection("mcpConnectors").deleteMany({ name: "Apps" });
+	await db.collection("connectorModes").deleteMany({
+		key: { $in: stale.map((row) => `connector:${row._id}`) },
+	});
 	const id = new ObjectId();
 	const tool = (name: string, description: string, ui?: Record<string, unknown>) => ({
 		name,
@@ -274,6 +281,9 @@ test.describe("MCP Apps: rendering @needs-apps-render", () => {
 			(await APP.inside(page).locator("#probe-results").textContent()) ?? "{}"
 		) as Record<string, { ok: boolean; detail: string }>;
 		for (const name of PROBES_MUST_FAIL) {
+			// `sendBeacon` answers true when it only queued the request; whether it left is the
+			// fixture's own count below, which is the proof.
+			if (name === "beacon") continue;
 			expect(results[name], `${name} was not probed`).toBeDefined();
 			expect(results[name].ok, `${name} succeeded: ${results[name].detail}`).toBe(false);
 		}
