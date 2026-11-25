@@ -178,35 +178,86 @@ try {
 	assert.ok(!tabs.some((t) => t.url.startsWith(address)), "and not among the panel's tabs");
 	step("the runtime sees the panel's pages and never the Cerea window");
 
-	// take over and hand back
+	// take over: the runtime is cut off, the user navigates freely, the runtime sees nothing
 	await hook("control user");
-	await new Promise((r) => setTimeout(r, 300));
+	await new Promise((r) => setTimeout(r, 500));
 	const blocked = await call("act", { actions: [{ type: "fill", ref: field.ref, text: "Grace" }] });
-	const blockedText = JSON.stringify(blocked);
-	assert.match(blockedText, /taken over|user|fail|ok":false/i, blockedText);
 	assert.ok(
-		!(blocked.structuredContent?.results?.[0]?.ok === true),
+		blocked.isError || blocked.structuredContent?.results?.[0]?.ok !== true,
 		"an action while the user drives must not run"
 	);
-	await hook("control agent");
-	await new Promise((r) => setTimeout(r, 300));
-	const snap2 = await call("snapshot");
-	const fill2 = await call("act", {
-		actions: [
-			{
-				type: "fill",
-				ref: snap2.structuredContent.elements.find((e) => e.name === "Full name").ref,
-				text: "Grace",
-			},
-		],
-	});
-	assert.equal(
-		fill2.structuredContent.results[0].ok,
-		true,
-		JSON.stringify(fill2.structuredContent)
+	await hook(`usernav ${fx.base}/staff`);
+	await new Promise((r) => setTimeout(r, 1500));
+	const userTabs = await hook("tabs", "TABS");
+	assert.ok(
+		userTabs.some((t) => t.url.includes("/staff")),
+		"the user can browse while they drive"
 	);
-	step("take over refuses the runtime's actions; hand back lets them run");
+	const during = JSON.stringify((await call("tabs").catch(() => ({}))).structuredContent ?? {});
+	assert.ok(
+		!during.includes("/staff") && !during.includes("/form"),
+		"the runtime sees none of the user's pages while they drive"
+	);
+	await hook("control agent");
+	await new Promise((r) => setTimeout(r, 1500));
+	const after = (await call("tabs")).structuredContent.tabs;
+	assert.ok(
+		after.some((t) => t.url.includes("/staff") && t.mine === false),
+		"after hand-back the pages are the user's tabs"
+	);
+	step(
+		"take over cuts the runtime off (it sees nothing the user does); hand back shows the pages as the user's tabs"
+	);
 	await call("end_task", {});
+
+	// a runtime with the right secret still cannot reach another web contents (raw CDP, as an attacker would)
+	{
+		const fs = await import("node:fs");
+		const { WebSocket } = await import("ws");
+		const ep = fs.readFileSync(endpointFile, "utf8").trim();
+		const ws = new WebSocket(ep);
+		await new Promise((r, j) => (ws.once("open", r), ws.once("error", j)));
+		let nextId = 0;
+		const pending = new Map();
+		let session;
+		ws.on("message", (m) => {
+			const d = JSON.parse(m.toString());
+			if (d.method === "Target.attachedToTarget" && !session) session = d.params.sessionId;
+			if (d.id && pending.has(d.id)) pending.get(d.id)(d);
+		});
+		const send = (method, params = {}, sessionId) =>
+			new Promise((r) => {
+				const id = ++nextId;
+				pending.set(id, r);
+				ws.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
+			});
+		await send("Target.setAutoAttach", {
+			autoAttach: true,
+			waitForDebuggerOnStart: false,
+			flatten: true,
+		});
+		await new Promise((r) => setTimeout(r, 500));
+		assert.ok(session, "a session on a panel page");
+		for (const [m, p] of [
+			["Target.getTargets", {}],
+			["Target.attachToTarget", { targetId: "x", flatten: true }],
+			["Storage.getCookies", {}],
+			["SystemInfo.getInfo", {}],
+			["Page.navigate", { url: "file:///etc/hostname" }],
+		]) {
+			assert.ok((await send(m, p, session)).error, `${m} must be refused`);
+		}
+		const ev = await send(
+			"Runtime.evaluate",
+			{ expression: "typeof window.cerea", returnByValue: true },
+			session
+		);
+		assert.equal(ev.result.result.value, "undefined", "the panel's pages have no window.cerea");
+		ws.close();
+		step(
+			"a connected runtime cannot list, attach to or navigate to anything but the panel's web pages"
+		);
+	}
 
 	// a wrong secret is refused
 	const badEndpoint = (await import("node:fs"))

@@ -392,6 +392,7 @@ function testHooks(): void {
 			} else if (cmd === "hide") win?.hide();
 			else if (cmd === "show") win?.show();
 			else if (cmd === "state") process.stdout.write(`STATE ${JSON.stringify(appState())}\n`);
+			else if (cmd.startsWith("usernav ")) panel?.openForUser(cmd.slice(8));
 			else if (cmd.startsWith("control ")) control.set(cmd.endsWith("user") ? "user" : "agent");
 			else if (cmd === "tabs")
 				process.stdout.write(`TABS ${JSON.stringify(panel?.state().tabs ?? [])}\n`);

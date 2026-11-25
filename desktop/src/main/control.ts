@@ -36,6 +36,11 @@ export class Control implements Gate {
 		return () => this.listeners.delete(cb);
 	}
 
+	// Gate.mode
+	current(): Mode {
+		return this.mode;
+	}
+
 	set(mode: Mode): void {
 		if (mode === this.mode) return;
 		this.mode = mode;
