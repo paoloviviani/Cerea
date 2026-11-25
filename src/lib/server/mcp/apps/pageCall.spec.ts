@@ -167,7 +167,7 @@ describe("a tool call started by a page", () => {
 
 		expect(fake.updateOne).toHaveBeenCalledWith(
 			{ _id: (conv as { _id: ObjectId })._id },
-			{ $addToSet: { approvedAppTools: "Maps:refresh" } }
+			{ $addToSet: { approvedAppTools: "connector:1:refresh" } }
 		);
 		expect(fake.callMcpTool).toHaveBeenCalledTimes(1);
 	});
@@ -181,9 +181,22 @@ describe("a tool call started by a page", () => {
 		expect(fake.callMcpTool).not.toHaveBeenCalled();
 	});
 
+	it("keys a grant by the connector, so a grant for a user's connector 'Maps' never covers a deployment connector 'Maps'", async () => {
+		// The grant was given to another connector that has the same name.
+		const outcome = await callToolFromPage(
+			base({
+				conversation: conversation({ approvedAppTools: ["connector:other:refresh"] }),
+				connector: "connector:1",
+			})
+		);
+
+		expect(outcome).toMatchObject({ ok: false, code: "approval_required" });
+		expect(fake.callMcpTool).not.toHaveBeenCalled();
+	});
+
 	it("runs without asking when the conversation already holds the grant", async () => {
 		const outcome = await callToolFromPage(
-			base({ conversation: conversation({ approvedAppTools: ["Maps:refresh"] }) })
+			base({ conversation: conversation({ approvedAppTools: ["connector:1:refresh"] }) })
 		);
 
 		expect(outcome.ok).toBe(true);

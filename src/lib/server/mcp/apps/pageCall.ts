@@ -112,9 +112,11 @@ export async function callToolFromPage(input: PageCallInput): Promise<PageCallOu
 
 	// The model's gate (ADR 0075), with the page's own grants: under `manual` a call runs only when the
 	// conversation holds a grant for the page (never the model's grant: separate lists).
+	// Grants are keyed by the connector's key, not its name: two connectors may share a name.
+	const grantKey = `${connector}:${tool}`;
 	const qualified = `${server.name}:${tool}`;
 	const policy = resolveToolApprovalPolicy(conversation, settings);
-	const granted = (conversation.approvedAppTools ?? []).includes(qualified);
+	const granted = (conversation.approvedAppTools ?? []).includes(grantKey);
 	if (policy === "manual" && !granted) {
 		const hash = approvalHash({ userId, connector, tool, args });
 		if (!approval) {
@@ -160,7 +162,7 @@ export async function callToolFromPage(input: PageCallInput): Promise<PageCallOu
 		if (approval.choice === "conversation") {
 			await collections.conversations.updateOne(
 				{ _id: conversation._id },
-				{ $addToSet: { approvedAppTools: qualified } }
+				{ $addToSet: { approvedAppTools: grantKey } }
 			);
 		}
 	}

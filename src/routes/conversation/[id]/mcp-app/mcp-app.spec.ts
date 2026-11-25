@@ -2,12 +2,20 @@ import { ObjectId } from "mongodb";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const fake = vi.hoisted(() => ({
+	publicOrigin: undefined as string | undefined,
 	conversation: true,
 	row: true,
 	allowed: vi.fn(async () => true),
 	callToolFromPage: vi.fn(),
 }));
 
+vi.mock("$lib/server/config", () => ({
+	config: {
+		get PUBLIC_ORIGIN() {
+			return fake.publicOrigin;
+		},
+	},
+}));
 vi.mock("$lib/server/auth", () => ({ authCondition: () => ({}) }));
 vi.mock("$lib/server/database", () => ({
 	collections: {
@@ -167,6 +175,37 @@ describe("the page tool-call route", () => {
 			status: 403,
 		});
 		expect(fake.callToolFromPage).not.toHaveBeenCalled();
+	});
+
+	it('refuses an opaque origin ("null", what a sandboxed page sends)', async () => {
+		await expect(
+			postCall(
+				{ connector: "connector:1", tool: "t" },
+				{ "content-type": "application/json", origin: "null" }
+			)
+		).rejects.toMatchObject({ status: 403 });
+		expect(fake.callToolFromPage).not.toHaveBeenCalled();
+	});
+
+	it("accepts the host of the configured public origin (behind a proxy the request URL differs)", async () => {
+		fake.publicOrigin = "https://chat.example.com";
+		try {
+			fake.callToolFromPage.mockResolvedValue({ ok: true, result: { content: [] } });
+			const res = await postCall(
+				{ connector: "connector:1", tool: "t" },
+				{ "content-type": "application/json", origin: "https://chat.example.com" }
+			);
+			expect(res.status).toBe(200);
+			// Another host is still refused.
+			await expect(
+				postCall(
+					{ connector: "connector:1", tool: "t" },
+					{ "content-type": "application/json", origin: "https://other.example.com" }
+				)
+			).rejects.toMatchObject({ status: 403 });
+		} finally {
+			fake.publicOrigin = undefined;
+		}
 	});
 
 	it("refuses a conversation the caller does not own, and a malformed body", async () => {

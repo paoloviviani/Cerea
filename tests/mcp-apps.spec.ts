@@ -49,8 +49,9 @@ async function seedAppsConnector(db: Db, sessionId: string, opts: { appsAllowed?
 	const userId = await seedUser(db, sessionId, `e2e-${randomUUID()}`);
 	// Ask: a call the page starts must raise the same card a model's call does.
 	await db.collection("settings").updateOne({ userId }, { $set: { toolApprovalPolicy: "manual" } });
-	// The database lives across the tests of a run, and a call finds its connector by name: an earlier
-	// test's connector of the same name (with its own switch) would be the one the call resolves to.
+	// The database lives across the tests of a run, and tool names are shared across connectors: an
+	// earlier test's connector (with its own switch) would own the same tool names and be the one a
+	// call resolves to. A unique name does not help; the earlier rows have to go.
 	const stale = await db.collection("mcpConnectors").find({ name: "Apps" }).toArray();
 	await db.collection("mcpConnectors").deleteMany({ name: "Apps" });
 	await db.collection("connectorModes").deleteMany({
@@ -283,12 +284,16 @@ test.describe("MCP Apps: rendering @needs-apps-render", () => {
 		for (const name of PROBES_MUST_FAIL) {
 			// `sendBeacon` answers true when it only queued the request; whether it left is the
 			// fixture's own count below, which is the proof.
-			if (name === "beacon") continue;
+			if (name === "beacon") {
+				expect(results[name], "beacon was not probed").toBeDefined();
+				continue;
+			}
 			expect(results[name], `${name} was not probed`).toBeDefined();
 			expect(results[name].ok, `${name} succeeded: ${results[name].detail}`).toBe(false);
 		}
 		// The CSP stopped the request before it left: the fixture never saw it.
-		expect(await control.escapePings()).toBe(0);
+		await page.waitForTimeout(1000);
+		await expect.poll(() => control.escapePings(), { timeout: 2000 }).toBe(0);
 		// And the chat itself did not navigate away.
 		expect(page.url()).toMatch(/\/conversation\//);
 	});
