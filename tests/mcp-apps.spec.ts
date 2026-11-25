@@ -24,6 +24,7 @@ import {
 	mockAppsMcpControl,
 	waitForHydration,
 } from "./fixtures";
+import { PROBES_MUST_FAIL } from "./mock-apps-mcp";
 import { seedUser } from "./machineHarness";
 
 /** What this spec needs from A's rendering (its test ids). The single place to reconcile. */
@@ -35,6 +36,12 @@ const APP = {
 	/** The page inside that iframe. */
 	inside: (page: Page) => page.frameLocator('[data-testid="mcp-app"] iframe').last(),
 };
+
+/**
+ * The rendering specs run only once the rendering is on main: they fail on a tree without it.
+ * PR A's merge sets `E2E_APPS_RENDER=1` in CI (or removes this guard).
+ */
+const RENDERED = process.env.E2E_APPS_RENDER === "1";
 
 const lastAssistant = (page: Page) => page.locator('[data-message-role="assistant"]').last();
 
@@ -60,6 +67,11 @@ async function seedAppsConnector(db: Db, sessionId: string, opts: { appsAllowed?
 			tool("show_probe", "Shows the probe app.", { resourceUri: "ui://mock-apps/probe.html" }),
 			tool("show_time", "Shows the time app.", { resourceUri: "ui://mock-apps/time.html" }),
 			tool("plain", "A tool with no app."),
+			// Only the page may call it: the model is never offered it.
+			tool("echo_app", "Echoes text; only the app page calls it.", {
+				resourceUri: "ui://mock-apps/probe.html",
+				visibility: ["app"],
+			}),
 		],
 		createdAt: new Date(),
 		updatedAt: new Date(),
@@ -125,6 +137,7 @@ test.describe("MCP Apps: without a rendered app (holds with or without PR A)", (
 });
 
 test.describe("MCP Apps: rendering @needs-apps-render", () => {
+	test.skip(!RENDERED, "needs the MCP Apps rendering (feat/mcp-apps): set E2E_APPS_RENDER=1");
 	test.beforeEach(async ({ request }) => {
 		await mockAppsMcpControl(request).reset();
 	});
@@ -145,6 +158,23 @@ test.describe("MCP Apps: rendering @needs-apps-render", () => {
 		expect(sandbox).not.toContain("allow-same-origin");
 		expect(sandbox).not.toContain("allow-top-navigation");
 		await expect(APP.inside(page).locator("#input")).toContainText('input:{"label":"hello"}');
+	});
+
+	test("apps on is the control for apps off: the same turn renders the app, and the model never sees the app-only tool", async ({
+		page,
+		db,
+		session,
+		mockOpenAI,
+	}) => {
+		await seedAppsConnector(db, session.sessionId, { appsAllowed: true });
+		await runTool(page, mockOpenAI, "show_probe", { label: "on" });
+		await allowModelCall(page);
+		await expect(APP.frame(page)).toBeVisible({ timeout: 45_000 });
+		const offered = ((await mockOpenAI.requests()) as { body: { tools?: unknown } }[]).flatMap(
+			(r) => JSON.stringify(r.body.tools ?? [])
+		);
+		expect(offered.join("")).toContain("show_probe");
+		expect(offered.join("")).not.toContain("echo_app");
 	});
 
 	test("a tool call from the page asks for approval like a model's call", async ({
@@ -206,7 +236,7 @@ test.describe("MCP Apps: rendering @needs-apps-render", () => {
 		await expect(page.getByText("hello from the app")).toBeVisible({ timeout: 20_000 });
 	});
 
-	test("sandbox escapes fail: cookie, parent, top navigation, storage, undeclared domain", async ({
+	test("sandbox escapes fail: cookie, origin, parent, top navigation, storage, undeclared domain, image and beacon", async ({
 		page,
 		db,
 		session,
@@ -224,13 +254,7 @@ test.describe("MCP Apps: rendering @needs-apps-render", () => {
 		const results = JSON.parse(
 			(await APP.inside(page).locator("#probe-results").textContent()) ?? "{}"
 		) as Record<string, { ok: boolean; detail: string }>;
-		for (const name of [
-			"cookie",
-			"parentDocument",
-			"topNavigation",
-			"fetchUndeclared",
-			"localStorage",
-		]) {
+		for (const name of PROBES_MUST_FAIL) {
 			expect(results[name], `${name} was not probed`).toBeDefined();
 			expect(results[name].ok, `${name} succeeded: ${results[name].detail}`).toBe(false);
 		}

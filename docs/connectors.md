@@ -204,6 +204,12 @@ its text. A connector is allowed to show apps by default.
   `.env` one. With the switch off the chat shows only the tool's text result,
   as before. A change applies from the next result; one already shown stays in
   its conversation.
+- **Everywhere at once:** Admin → Connectors, **Apps from connectors**, is `Off`
+  (no apps anywhere), `Only connectors provided here` (the administrator's and
+  `.env` connectors, not users' own or those on their computers) or
+  `All connectors` (the default; each connector's own switch still applies).
+  `MCP_APPS` (`off`, `deployment`, `all`) sets the default and a saved choice
+  overrides it; a value that is set but unknown reads as off.
 - **Users** have the same switch, **Allow apps from this connector**, in the
   edit form of a connector they added themselves.
 - A connector on your own computer

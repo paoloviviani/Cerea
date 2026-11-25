@@ -17,7 +17,10 @@
  *                     only its text result.
  *
  * The probe page writes what happened into `#probe-results` (JSON) and sets
- * `data-done="1"` on `<body>` when every probe has settled. Every probe that must FAIL under a
+ * `data-done="1"` on `<body>` when every probe has settled. `ok: true` means the page got through:
+ * `cookie` is ok whenever reading `document.cookie` does not throw (an opaque origin throws), `origin`
+ * whenever `self.origin` is not "null" (a host that serves the page from a sandbox-proxy origin
+ * instead of an opaque one must drop that probe from its spec). Every probe that must FAIL under a
  * correct host sandbox is named in `PROBES_MUST_FAIL`. The server counts requests to its
  * `/__control/escape-ping` endpoint, the target of the undeclared-domain fetch, so a spec can
  * assert that no request ever arrived (`escapePings()`).
@@ -42,9 +45,12 @@ export const PROBE_URI = "ui://mock-apps/probe.html";
 /** Probe names the page reports as `{ ok: false }` when the host's sandbox holds. */
 export const PROBES_MUST_FAIL = [
 	"cookie",
+	"origin",
 	"parentDocument",
 	"topNavigation",
 	"fetchUndeclared",
+	"imgExfil",
+	"beacon",
 	"localStorage",
 ] as const;
 
@@ -178,7 +184,8 @@ document.getElementById("send-message").onclick = () =>
 	request("ui/message", { role: "user", content: [{ type: "text", text: "hello from the app" }] }).catch(() => {});
 
 async function probes() {
-	try { const c = document.cookie; record("cookie", c.length > 0, "read:" + c); } catch (e) { record("cookie", false, e.name); }
+	try { const c = document.cookie; record("cookie", true, "read:" + c.length); } catch (e) { record("cookie", false, e.name); }
+	record("origin", self.origin !== "null", self.origin);
 	try { const d = window.parent.document.body.innerHTML; record("parentDocument", true, d.length); } catch (e) { record("parentDocument", false, e.name); }
 	try { window.top.location.href = "about:blank#escaped"; record("topNavigation", true, "navigated"); } catch (e) { record("topNavigation", false, e.name); }
 	try { localStorage.setItem("x", "1"); record("localStorage", true, "set"); } catch (e) { record("localStorage", false, e.name); }
@@ -186,6 +193,15 @@ async function probes() {
 		await fetch(${JSON.stringify(origin)} + "/__control/escape-ping", { mode: "no-cors" });
 		record("fetchUndeclared", true, "fetched");
 	} catch (e) { record("fetchUndeclared", false, e.name); }
+	await new Promise((resolve) => {
+		const img = new Image();
+		img.onload = () => { record("imgExfil", true, "loaded"); resolve(); };
+		img.onerror = () => { record("imgExfil", false, "blocked"); resolve(); };
+		setTimeout(resolve, 3000);
+		img.src = ${JSON.stringify(origin)} + "/__control/escape-ping?via=img";
+	});
+	try { record("beacon", navigator.sendBeacon(${JSON.stringify(origin)} + "/__control/escape-ping?via=beacon", "x"), "queued"); } catch (e) { record("beacon", false, e.name); }
+	await new Promise((resolve) => setTimeout(resolve, 500));
 	document.body.dataset.done = "1";
 }
 ready.then(probes, probes);
@@ -308,8 +324,9 @@ export async function startMockAppsMcp(port: number = MOCK_APPS_MCP_PORT): Promi
 		if (url.pathname === "/health") return json({ ok: true });
 		if (url.pathname === "/__control/escape-ping") {
 			pings++;
-			res.writeHead(200, { "access-control-allow-origin": "*" });
-			res.end("pong");
+			// A 1x1 GIF, so an <img> that gets through reports `load`.
+			res.writeHead(200, { "content-type": "image/gif", "access-control-allow-origin": "*" });
+			res.end(Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64"));
 			return;
 		}
 		if (url.pathname === "/__control/calls") return json(recorded);

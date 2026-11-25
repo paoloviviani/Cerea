@@ -82,40 +82,36 @@ export function policyIn(policies: Map<string, ConnectorPolicy>, key: string): C
 	return policies.get(key) ?? DEFAULT_POLICY;
 }
 
-/** Change a connector's mode and/or its always-loaded flag. The default is stored as no row. */
+/**
+ * Change a connector's mode, its always-loaded flag and/or its apps switch. Only the fields
+ * that change are written, in one update, so two administrators changing different fields
+ * never undo each other; a row left at the defaults is removed afterwards.
+ */
 export async function setPolicy(
 	key: string,
 	change: { mode?: ConnectorMode; alwaysLoaded?: boolean; appsAllowed?: boolean }
 ): Promise<ConnectorPolicy> {
-	const current = policyIn(await loadPolicies(), key);
-	const next: ConnectorPolicy = {
-		mode: change.mode ?? current.mode,
-		alwaysLoaded: change.alwaysLoaded ?? current.alwaysLoaded,
-		appsAllowed: change.appsAllowed ?? current.appsAllowed,
-	};
-	if (
-		next.mode === DEFAULT_POLICY.mode &&
-		next.alwaysLoaded === DEFAULT_POLICY.alwaysLoaded &&
-		next.appsAllowed === DEFAULT_POLICY.appsAllowed
-	) {
-		await collections.connectorModes.deleteOne({ key });
-		return next;
-	}
-	const now = new Date();
+	const set: Record<string, unknown> = { updatedAt: new Date() };
+	if (change.mode !== undefined) set.mode = change.mode;
+	if (change.alwaysLoaded !== undefined) set.alwaysLoaded = change.alwaysLoaded;
+	if (change.appsAllowed !== undefined) set.appsAllowed = change.appsAllowed;
+	const insert: Record<string, unknown> = { createdAt: new Date() };
+	if (change.mode === undefined) insert.mode = DEFAULT_POLICY.mode;
+	if (change.alwaysLoaded === undefined) insert.alwaysLoaded = DEFAULT_POLICY.alwaysLoaded;
+	if (change.appsAllowed === undefined) insert.appsAllowed = DEFAULT_POLICY.appsAllowed;
 	await collections.connectorModes.updateOne(
 		{ key },
-		{
-			$set: {
-				mode: next.mode,
-				alwaysLoaded: next.alwaysLoaded,
-				appsAllowed: next.appsAllowed,
-				updatedAt: now,
-			},
-			$setOnInsert: { createdAt: now },
-		},
+		{ $set: set, $setOnInsert: insert },
 		{ upsert: true }
 	);
-	return next;
+	// The default is stored as no row.
+	await collections.connectorModes.deleteOne({
+		key,
+		mode: DEFAULT_POLICY.mode,
+		alwaysLoaded: DEFAULT_POLICY.alwaysLoaded,
+		appsAllowed: DEFAULT_POLICY.appsAllowed,
+	});
+	return policyIn(await loadPolicies(), key);
 }
 
 export async function clearPolicy(key: string): Promise<void> {

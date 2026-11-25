@@ -214,7 +214,54 @@
 		}
 	}
 
-	onMount(load);
+	// MCP Apps, deployment-wide: off, only the deployment's connectors, or all.
+	const APPS_OPTIONS = ["off", "deployment", "all"] as const;
+	type AppsMode = (typeof APPS_OPTIONS)[number];
+	let appsMode = $state<AppsMode>("all");
+	let appsConfigurable = $state(true);
+	const appsLabel = (mode: AppsMode) =>
+		mode === "off"
+			? m["admin.connectors.apps.off"]()
+			: mode === "deployment"
+				? m["admin.connectors.apps.deployment"]()
+				: m["admin.connectors.apps.all"]();
+
+	async function loadAppsMode() {
+		try {
+			const response = await fetch(`${base}/api/v2/admin/mcp-apps`);
+			if (!response.ok) return;
+			const data = (await response.json()) as { mode: AppsMode; configurable: boolean };
+			appsMode = data.mode;
+			appsConfigurable = data.configurable;
+		} catch {
+			// The setting stays at its default on screen; the next load tries again.
+		}
+	}
+
+	async function saveAppsMode(next: AppsMode) {
+		const before = appsMode;
+		appsMode = next;
+		failure = null;
+		try {
+			const response = await fetch(`${base}/api/v2/admin/mcp-apps`, {
+				method: "PATCH",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ mode: next }),
+			});
+			if (!response.ok) {
+				const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
+				throw new Error(parsed?.message ?? m["admin.connectors.mode.save_failed"]());
+			}
+		} catch (err) {
+			appsMode = before;
+			failure = err instanceof Error ? err.message : m["admin.connectors.mode.save_failed"]();
+		}
+	}
+
+	onMount(() => {
+		void loadAppsMode();
+		void load();
+	});
 
 	async function add(event: SubmitEvent) {
 		event.preventDefault();
@@ -490,17 +537,27 @@
 		</p>
 		{#if current !== "off"}
 			<div class="flex items-center gap-2">
-				<Switch name={`loaded-${id}`} bind:checked={() => alwaysLoaded === true, onloaded} />
+				<Switch
+					name={`loaded-${id}`}
+					label={`${m["admin.connectors.mode.always_loaded"]()}: ${label}`}
+					describedby={`loaded-hint-${id}`}
+					bind:checked={() => alwaysLoaded === true, onloaded}
+				/>
 				<span class="text-xs font-medium">{m["admin.connectors.mode.always_loaded"]()}</span>
 			</div>
-			<p class="text-xs text-gray-500 dark:text-gray-400">
+			<p id={`loaded-hint-${id}`} class="text-xs text-gray-500 dark:text-gray-400">
 				{m["admin.connectors.mode.always_loaded_hint"]()}
 			</p>
 			<div class="flex items-center gap-2">
-				<Switch name={`apps-${id}`} bind:checked={() => appsAllowed !== false, onapps} />
+				<Switch
+					name={`apps-${id}`}
+					label={`${m["admin.connectors.mode.apps_allowed"]()}: ${label}`}
+					describedby={`apps-hint-${id}`}
+					bind:checked={() => appsAllowed !== false, onapps}
+				/>
 				<span class="text-xs font-medium">{m["admin.connectors.mode.apps_allowed"]()}</span>
 			</div>
-			<p class="text-xs text-gray-500 dark:text-gray-400">
+			<p id={`apps-hint-${id}`} class="text-xs text-gray-500 dark:text-gray-400">
 				{m["admin.connectors.mode.apps_allowed_hint"]()}
 			</p>
 		{/if}
@@ -532,6 +589,28 @@
 			{failure}
 		</p>
 	{/if}
+
+	<div class="flex flex-col gap-1">
+		<label class="flex flex-wrap items-center gap-2 text-xs font-medium">
+			{m["admin.connectors.apps.label"]()}
+			<select
+				name="apps-mode"
+				aria-describedby="apps-mode-hint"
+				class="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900"
+				value={appsMode}
+				disabled={!appsConfigurable}
+				onchange={(event) => saveAppsMode(event.currentTarget.value as AppsMode)}
+			>
+				{#each APPS_OPTIONS as option (option)}
+					<option value={option}>{appsLabel(option)}</option>
+				{/each}
+			</select>
+		</label>
+		<p id="apps-mode-hint" class="text-xs text-gray-500 dark:text-gray-400">
+			{m["admin.connectors.apps.hint"]()}
+			{#if !appsConfigurable}{m["admin.connectors.apps.env_only"]()}{/if}
+		</p>
+	</div>
 
 	{#if adding}
 		<form
