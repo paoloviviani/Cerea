@@ -6,6 +6,7 @@
  * opens a session on any of them, which `Runtime.evaluate` then uses as that page (reproduced on
  * the prototype: it read the local UI's `window.secret`).
  */
+import { lstatSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, resolve } from "node:path";
 import { guardPanel } from "./navGuard.ts";
@@ -77,6 +78,25 @@ export function downloadDirOk(
 	if (!/^(cerea-browser-|playwright-artifacts-)[A-Za-z0-9_.-]+$/.test(basename(norm))) return false;
 	const parent = dirname(norm);
 	return roots.some((r) => r && resolve(r) === parent);
+}
+
+/**
+ * The directory itself must be safe to write downloads into: a real directory (not a symlink to
+ * somewhere else), owned by this user, that no one else can write to (a shared temp directory is
+ * where another user could have made or swapped it).
+ */
+export function downloadDirSafe(
+	dir: string,
+	uid: number | undefined = process.getuid?.()
+): boolean {
+	try {
+		const st = lstatSync(dir);
+		if (!st.isDirectory() || st.isSymbolicLink()) return false;
+		if (uid !== undefined && st.uid !== uid) return false;
+		return (st.mode & 0o022) === 0;
+	} catch {
+		return false;
+	}
 }
 
 export function checkUrl(url: unknown): void {
