@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -6,6 +6,8 @@ import {
 	BrowserWindow,
 	dialog,
 	ipcMain,
+	Menu,
+	protocol,
 	powerMonitor,
 	net,
 	session,
@@ -22,6 +24,8 @@ import { Control } from "./control.ts";
 import { findGalopin, Galopin } from "./galopin.ts";
 import { enrollArgs, launchArgs, serviceArgs, setupArgs, upgradeArgs } from "./galopinArgs.ts";
 import { guardCerea, mayOpenExternally, UI_CSP, type GuardState } from "./navGuard.ts";
+import { resolveUiFile, UI_ORIGIN } from "./uiProtocol.ts";
+import { cappedFetch, iconFetcher } from "./probeFetch.ts";
 import { probeServer, ServerError } from "./server.ts";
 import {
 	CHANNELS,
@@ -100,6 +104,7 @@ function makeCereaView(): WebContentsView {
 			nodeIntegration: false,
 			webSecurity: true,
 			backgroundThrottling: true,
+			devTools: !app.isPackaged,
 		},
 	});
 	const wc = view.webContents;
@@ -161,7 +166,12 @@ function loadServer(): void {
 // ---- IPC ------------------------------------------------------------------------------------
 
 function fromUi(e: IpcMainInvokeEvent): boolean {
-	return !!win && e.sender === win.webContents && e.senderFrame === win.webContents.mainFrame;
+	return (
+		!!win &&
+		e.sender === win.webContents &&
+		e.senderFrame === win.webContents.mainFrame &&
+		(e.senderFrame?.url ?? "").startsWith(`${UI_ORIGIN}/`)
+	);
 }
 
 type Handler<C extends Channel> = (arg: Calls[C]) => Promise<unknown> | unknown;
@@ -179,25 +189,25 @@ async function confirm(message: string, detail: string, button: string): Promise
 	return r.response === 0;
 }
 
-const fetchForProbe = ((url: string, init: { signal: AbortSignal; redirect: "manual" }) =>
-	net.fetch(url, {
-		signal: init.signal,
-		redirect: init.redirect,
-		credentials: "omit",
-	})) as Parameters<typeof probeServer>[1];
+const netFetch = (
+	url: string,
+	init: { signal: AbortSignal; redirect: "manual"; credentials: "omit" }
+) => net.fetch(url, init);
+const fetchForProbe = cappedFetch(netFetch);
+const probe = (address: string) => probeServer(address, fetchForProbe, iconFetcher(netFetch));
 
 const handlers: { [C in Channel]: Handler<C> } = {
 	"server:get": () => config.server,
-	"server:probe": async ({ address }) => probeServer(address, fetchForProbe),
+	"server:probe": async ({ address }) => probe(address),
 	"server:set": async ({ address }) => {
 		if (config.server) throw new ServerError("A server is already chosen. Use Switch server.");
-		config = { server: await probeServer(address, fetchForProbe) };
+		config = { server: await probe(address) };
 		saveConfig(app.getPath("userData"), config);
 		loadServer();
 		return config.server;
 	},
 	"server:switch": async ({ address }) => {
-		const next = await probeServer(address, fetchForProbe);
+		const next = await probe(address);
 		const paired = galopin.paired();
 		const ok = await confirm(
 			`Switch to ${next.name}?`,
@@ -351,6 +361,17 @@ function registerIpc(): void {
 	}
 }
 
+/** A menu for copy and paste and window keys; no View menu, so no DevTools in a packaged app. */
+function setMenu(): void {
+	const template: Electron.MenuItemConstructorOptions[] = [
+		...(process.platform === "darwin" ? [{ role: "appMenu" as const }] : []),
+		{ role: "editMenu" },
+		{ role: "windowMenu" },
+		...(app.isPackaged ? [] : [{ role: "viewMenu" as const }]),
+	];
+	Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
 // ---- energy -----------------------------------------------------------------------------------
 
 /**
@@ -452,14 +473,10 @@ async function createWindow(): Promise<void> {
 			nodeIntegration: false,
 			webSecurity: true,
 			backgroundThrottling: true,
+			devTools: !app.isPackaged,
 		},
 	});
-	// The local UI is served with its own policy, and navigating away from it is refused.
-	session.defaultSession.webRequest.onHeadersReceived((details, cb) => {
-		if (details.url.startsWith("file://")) {
-			cb({ responseHeaders: { ...details.responseHeaders, "Content-Security-Policy": [UI_CSP] } });
-		} else cb({});
-	});
+	// The UI's policy is a <meta> tag and a header of its own protocol; navigating away is refused.
 	win.webContents.on("will-navigate", (e) => e.preventDefault());
 	win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 
@@ -479,9 +496,13 @@ async function createWindow(): Promise<void> {
 		uid: process.getuid?.() ?? 0,
 	});
 	control.onChange(pushState);
-	await win.loadFile(join(uiDir(), "index.html"), { hash: "" });
+	await win.loadURL(`${UI_ORIGIN}/index.html`);
 	loadServer();
 }
+
+protocol.registerSchemesAsPrivileged([
+	{ scheme: "app", privileges: { standard: true, secure: true } },
+]);
 
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
@@ -493,6 +514,17 @@ else {
 	});
 	app.whenReady().then(async () => {
 		lockDownWebContents();
+		protocol.handle("app", (req) => {
+			const f = resolveUiFile(uiDir(), req.url);
+			if (!f) return new Response("not found", { status: 404 });
+			return new Response(readFileSync(f.path), {
+				headers: { "content-type": f.type, "content-security-policy": UI_CSP },
+			});
+		});
+		// Nothing outside the two named partitions asks the OS for anything.
+		session.defaultSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
+		session.defaultSession.setPermissionCheckHandler(() => false);
+		setMenu();
 		config = loadConfig(app.getPath("userData"));
 		const bin = findGalopin({
 			resources: process.resourcesPath,

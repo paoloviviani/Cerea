@@ -7,6 +7,7 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import {
+	app,
 	BrowserWindow,
 	WebContentsView,
 	session,
@@ -192,6 +193,7 @@ export class BrowserPanel implements TargetHost {
 						contextIsolation: true,
 						nodeIntegration: false,
 						backgroundThrottling: true,
+						devTools: !app.isPackaged,
 					},
 				});
 				v.setBackgroundColor("#00000000");

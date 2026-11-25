@@ -47,14 +47,16 @@ describe("probeServer", () => {
 				[`${base}/manifest.webmanifest`]: {
 					body: { name: "Acme Cerea", icons: [{ src: "/chat/icon.png" }] },
 				},
-			})
+			}),
+			async (u) =>
+				u === "https://cerea.example.org/chat/icon.png" ? "data:image/png;base64,AAAA" : undefined
 		);
 		expect(info).toEqual({
 			address: base,
 			origin: "https://cerea.example.org",
 			idp: "https://idp.example.org",
 			name: "Acme Cerea",
-			icon: "https://cerea.example.org/chat/icon.png",
+			icon: "data:image/png;base64,AAAA",
 		});
 	});
 
