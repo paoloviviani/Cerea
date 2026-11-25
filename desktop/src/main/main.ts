@@ -209,16 +209,20 @@ const handlers: { [C in Channel]: Handler<C> } = {
 	"server:switch": async ({ address }) => {
 		const next = await probe(address);
 		const paired = galopin.paired();
+		const service = galopin.serviceInstalled();
 		const ok = await confirm(
 			`Switch to ${next.name}?`,
 			`You will be signed out of ${config.server?.name ?? "the current server"}.` +
 				(paired
-					? " This computer's pairing is per server, so it is removed here too (remove it from the Agents panel of the old server as well)."
-					: ""),
+					? " This computer's pairing is per server, so it is removed here too. The old server is not told: its sign-in for this computer stays valid until you remove the computer from its Agents panel."
+					: "") +
+				(service ? " The galopin service installed on this computer is removed too." : ""),
 			"Switch server"
 		);
 		if (!ok) return null;
-		galopin.stop();
+		// galopin must be gone before its credentials are moved, or it would write them back.
+		await galopin.stop();
+		if (service) await galopin.exec(serviceArgs("uninstall"));
 		const kept = galopin.unpairLocal();
 		if (kept) line(`Pairing set aside: ${kept}`);
 		await session.fromPartition(CEREA_PARTITION).clearStorageData();
@@ -239,9 +243,9 @@ const handlers: { [C in Channel]: Handler<C> } = {
 		galopin.start();
 		setTimeout(pushState, 500);
 	},
-	"galopin:stop": () => {
-		galopin.stop();
-		setTimeout(pushState, 500);
+	"galopin:stop": async () => {
+		await galopin.stop();
+		pushState();
 	},
 	"galopin:launch": async ({ tool, dir }) => {
 		let cwd = dir;
@@ -307,7 +311,7 @@ const handlers: { [C in Channel]: Handler<C> } = {
 			))
 		)
 			return "Cancelled.";
-		if (action === "install") galopin.stop();
+		if (action === "install") await galopin.stop();
 		const r = await galopin.exec(serviceArgs(action));
 		if (action === "uninstall" && r.code === 0 && galopin.paired()) galopin.start();
 		pushState();
@@ -491,10 +495,16 @@ async function createWindow(): Promise<void> {
 	win.on("resize", placeCerea);
 
 	const bridge = new CdpBridge(panel, control, (m) => line(`[bridge] ${m}`));
-	bridgeServer = await startBridgeServer(bridge, {
-		runDir: join(app.getPath("userData"), "run"),
-		uid: process.getuid?.() ?? 0,
-	});
+	try {
+		bridgeServer = await startBridgeServer(bridge, {
+			runDir: join(app.getPath("userData"), "run"),
+			uid: process.getuid?.() ?? 0,
+		});
+	} catch (err) {
+		// A bridge that cannot start switches the browser panel off, not the app.
+		bridgeServer = undefined;
+		line(`The browser panel is off: ${err instanceof Error ? err.message : String(err)}`);
+	}
 	control.onChange(pushState);
 	await win.loadURL(`${UI_ORIGIN}/index.html`);
 	loadServer();
@@ -529,6 +539,7 @@ else {
 		const bin = findGalopin({
 			resources: process.resourcesPath,
 			devRoot: join(__dirname, "..", ".."),
+			packaged: app.isPackaged,
 		});
 		galopin = new Galopin(bin, line, process.env, pushState);
 		registerIpc();
@@ -543,8 +554,12 @@ else {
 		if (TEST) process.stdout.write(`CEREA_DESKTOP_READY ${bridgeServer?.endpointFile}\n`);
 	});
 	app.on("window-all-closed", () => app.quit());
-	app.on("before-quit", () => {
-		galopin?.stop();
-		void bridgeServer?.close();
+	let quitting = false;
+	app.on("before-quit", (e) => {
+		if (quitting) return;
+		// Let go of the socket and the child before the process ends, not after.
+		e.preventDefault();
+		quitting = true;
+		void Promise.allSettled([galopin?.stop(), bridgeServer?.close()]).finally(() => app.quit());
 	});
 }

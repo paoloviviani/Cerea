@@ -12,10 +12,12 @@ export function findGalopin(opts: {
 	resources?: string;
 	devRoot: string;
 	env?: NodeJS.ProcessEnv;
+	/** A packaged app runs only the galopin it ships: no environment variable can swap in another. */
+	packaged?: boolean;
 }): string | undefined {
 	const env = opts.env ?? process.env;
 	const candidates = [
-		env.GALOPIN_BIN,
+		opts.packaged ? undefined : env.GALOPIN_BIN,
 		opts.resources && join(opts.resources, "galopin", "galopin"),
 		join(opts.devRoot, "resources", "galopin", "galopin"),
 	].filter((p): p is string => !!p);
@@ -132,9 +134,27 @@ export class Galopin {
 		});
 	}
 
-	stop(): void {
+	/** Stops `galopin run` and resolves when the process has exited (killed after 5 s). */
+	stop(): Promise<void> {
 		this.wantRunning = false;
-		this.run?.kill("SIGTERM");
+		const child = this.run;
+		if (!child || child.exitCode !== null) return Promise.resolve();
+		return new Promise((resolve) => {
+			const kill = setTimeout(() => child.kill("SIGKILL"), 5000);
+			child.once("close", () => {
+				clearTimeout(kill);
+				resolve();
+			});
+			child.kill("SIGTERM");
+		});
+	}
+
+	/** Whether a galopin service (systemd user unit, LaunchAgent) is installed for this user. */
+	serviceInstalled(home = process.env.HOME ?? ""): boolean {
+		return (
+			existsSync(join(home, ".config", "systemd", "user", "galopin.service")) ||
+			existsSync(join(home, "Library", "LaunchAgents", "org.cerea.galopin.plist"))
+		);
 	}
 
 	/** A tool in a terminal window: interactive, so it needs a real terminal and not a pipe. */

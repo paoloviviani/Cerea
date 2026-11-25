@@ -7,7 +7,7 @@
  * connects (`--connect-file`), so it survives app restarts without any configuration change.
  */
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,6 +18,22 @@ export function socketPathFor(runDir: string, uid: number): string {
 	const p = join(runDir, "cdp.sock");
 	// sun_path is 104 bytes on macOS, 108 on Linux.
 	return Buffer.byteLength(p) < 96 ? p : join(tmpdir(), `cerea-desktop-${uid}`, "cdp.sock");
+}
+
+/**
+ * A directory only this user can enter. One that exists must be a real directory (not a symlink)
+ * owned by this user with no group or world access; anything else is refused rather than trusted
+ * (the fallback directory sits in a shared temp directory where another user could have made it).
+ */
+export function ensurePrivateDir(dir: string, uid: number): void {
+	mkdirSync(dir, { recursive: true, mode: 0o700 });
+	const st = lstatSync(dir);
+	if (!st.isDirectory() || st.isSymbolicLink()) throw new Error(`${dir} is not a plain directory.`);
+	if (process.platform !== "win32") {
+		if (st.uid !== uid) throw new Error(`${dir} belongs to another user.`);
+		if ((st.mode & 0o077) !== 0) chmodSync(dir, 0o700);
+		if ((lstatSync(dir).mode & 0o077) !== 0) throw new Error(`${dir} is open to other users.`);
+	}
 }
 
 export function safeEqual(a: string, b: string): boolean {
@@ -38,10 +54,7 @@ export async function startBridgeServer(
 ): Promise<BridgeServer> {
 	const secret = opts.secret ?? randomBytes(32).toString("base64url");
 	const sock = socketPathFor(opts.runDir, opts.uid);
-	for (const dir of new Set([opts.runDir, join(sock, "..")])) {
-		mkdirSync(dir, { recursive: true, mode: 0o700 });
-		chmodSync(dir, 0o700);
-	}
+	for (const dir of new Set([opts.runDir, join(sock, "..")])) ensurePrivateDir(dir, opts.uid);
 	if (existsSync(sock)) rmSync(sock);
 	const server = http.createServer((_req, res) => {
 		res.statusCode = 404;
