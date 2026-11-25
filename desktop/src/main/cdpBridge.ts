@@ -10,7 +10,13 @@
  * construction: there is no code path from a socket message to any other webContents.
  */
 
-import { checkPageCommand, checkUrl, CHILD_TYPES, isForwardableTargetEvent } from "./cdpPolicy.ts";
+import {
+	checkPageCommand,
+	checkUrl,
+	CHILD_TYPES,
+	downloadDirOk,
+	isForwardableTargetEvent,
+} from "./cdpPolicy.ts";
 
 export type Json = Record<string, unknown>;
 
@@ -202,6 +208,8 @@ class Connection {
 						if (typeof id !== "string" || !this.child.delete(id)) return;
 					}
 				}
+				// An event of a child session the bridge never registered is not the runtime's to see.
+				if (childSession !== undefined && !this.child.has(childSession)) return;
 				this.out({ method, params, sessionId: childSession ?? sessionId });
 			}),
 			t.onDetach(() => this.targetGone(t.id))
@@ -319,13 +327,19 @@ class Connection {
 			case "Target.getBrowserContexts":
 				return { browserContextIds: [] };
 			case "Target.setAutoAttach": {
+				// Not while the user drives: it would watch (and, with waitForDebuggerOnStart, stall) their tabs.
+				await this.gate.pass(method, undefined);
 				this.autoAttach = params.autoAttach === true;
 				if (this.autoAttach) for (const t of this.host.targets()) this.attachTarget(t);
 				return {};
 			}
 			case "Target.getTargets":
+				// While the user drives their tabs are not the runtime's to list.
 				return {
-					targetInfos: this.host.targets().map((t) => this.info(t, this.byTarget.has(t.id))),
+					targetInfos:
+						this.gate.current() === "user"
+							? []
+							: this.host.targets().map((t) => this.info(t, this.byTarget.has(t.id))),
 				};
 			case "Target.createTarget": {
 				await this.gate.pass(method, undefined);
@@ -345,16 +359,18 @@ class Connection {
 				return { success: true };
 			}
 			case "Target.activateTarget": {
+				await this.gate.pass(method, undefined);
 				const id = String(params.targetId);
 				if (this.host.targets().some((t) => t.id === id)) this.host.activate(id);
 				return {};
 			}
 			case "Browser.setDownloadBehavior": {
-				this.host.setDownloadDir(
-					params.behavior === "deny" || typeof params.downloadPath !== "string"
-						? null
-						: String(params.downloadPath)
-				);
+				// Only a scratch directory the runtime made (its own or Playwright's), never an arbitrary path.
+				const dir = typeof params.downloadPath === "string" ? params.downloadPath : undefined;
+				if (params.behavior !== "deny" && dir !== undefined && !downloadDirOk(dir)) {
+					throw new Error("That download directory is not allowed.");
+				}
+				this.host.setDownloadDir(params.behavior === "deny" ? null : (dir ?? null));
 				return {};
 			}
 			case "Browser.getWindowForTarget":

@@ -10,7 +10,10 @@ describe("take over and hand back", () => {
 		await expect(c.pass("Page.navigate")).rejects.toThrow(/taken over/);
 		await expect(c.pass("Runtime.evaluate")).rejects.toThrow(/taken over/);
 		// connection wiring still works, so the runtime does not break
-		await expect(c.pass("Target.setAutoAttach")).resolves.toBeUndefined();
+		// nothing that watches or steers the user's tabs, wiring included
+		await expect(c.pass("Target.setAutoAttach")).rejects.toThrow(/taken over/);
+		await expect(c.pass("Target.activateTarget")).rejects.toThrow(/taken over/);
+		await expect(c.pass("Browser.getVersion")).resolves.toBeUndefined();
 		c.set("agent");
 		await expect(c.pass("Page.navigate")).resolves.toBeUndefined();
 	});

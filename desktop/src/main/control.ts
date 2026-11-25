@@ -12,7 +12,6 @@ export type Mode = "agent" | "user";
 /** Commands that only wire up the connection, allowed while the user drives. */
 const ALWAYS = new Set([
 	"Runtime.runIfWaitingForDebugger",
-	"Target.setAutoAttach",
 	"Target.setDiscoverTargets",
 	"Browser.getVersion",
 	"Browser.getWindowForTarget",

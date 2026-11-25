@@ -6,6 +6,8 @@
  * opens a session on any of them, which `Runtime.evaluate` then uses as that page (reproduced on
  * the prototype: it read the local UI's `window.secret`).
  */
+import { tmpdir } from "node:os";
+import { basename, dirname, isAbsolute, resolve } from "node:path";
 import { guardPanel } from "./navGuard.ts";
 
 /** Domains a page session may use. Everything else (Target, Browser, Storage, SystemInfo, IO,
@@ -59,6 +61,22 @@ export function checkPageCommand(method: string, params: Record<string, unknown>
 			throw new CommandRefused("Dropping files is not available here.");
 		}
 	}
+}
+
+/**
+ * Where the runtime may ask the app to save downloads: a directory it made itself under a temp
+ * directory (`cerea-browser-*`, or Playwright's `playwright-artifacts-*`). `roots` are the temp
+ * directories to accept (the app's and the runtime's can differ when TMPDIR is set).
+ */
+export function downloadDirOk(
+	dir: string,
+	roots: string[] = [tmpdir(), "/tmp", "/var/tmp", process.env.TMPDIR ?? ""]
+): boolean {
+	if (!isAbsolute(dir) || dir.includes("\0") || dir.split(/[\\/]/).includes("..")) return false;
+	const norm = resolve(dir);
+	if (!/^(cerea-browser-|playwright-artifacts-)[A-Za-z0-9_.-]+$/.test(basename(norm))) return false;
+	const parent = dirname(norm);
+	return roots.some((r) => r && resolve(r) === parent);
 }
 
 export function checkUrl(url: unknown): void {
