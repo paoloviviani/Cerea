@@ -11,8 +11,12 @@ export const AUTOSTART_FILE = "cerea-desktop.desktop";
 
 /** One argument of an Exec line, quoted the way the Desktop Entry spec asks. */
 export function execQuote(arg: string): string {
+	if (/[\n\r]/.test(arg)) throw new Error("A line break cannot be part of a command line.");
 	if (/^[A-Za-z0-9_\-./:=+@,]+$/.test(arg)) return arg;
-	return `"${arg.replace(/(["`$\\])/g, "\\$1").replace(/%/g, "%%")}"`;
+	// Exec's own quoting first (\ " ` $ each get a backslash, % is doubled), then the entry's string
+	// escape, which doubles every backslash again: a literal backslash is four in the file.
+	const quoted = arg.replace(/(["`$\\])/g, "\\$1").replace(/%/g, "%%");
+	return `"${quoted.replace(/\\/g, "\\\\")}"`;
 }
 
 export function autostartEntry(exec: string[]): string {
