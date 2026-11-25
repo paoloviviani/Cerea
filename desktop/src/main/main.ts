@@ -40,7 +40,8 @@ import {
 
 const HEADER = 40;
 const CEREA_PARTITION = "persist:cerea";
-const TEST = process.env.CEREA_DESKTOP_TEST === "1";
+// Test hooks exist only in an unpackaged run: a packaged app ignores these variables.
+const TEST = !app.isPackaged && process.env.CEREA_DESKTOP_TEST === "1";
 
 // The app's own settings, and nothing else, live in userData; a test points it elsewhere.
 if (process.env.CEREA_DESKTOP_USER_DATA)
