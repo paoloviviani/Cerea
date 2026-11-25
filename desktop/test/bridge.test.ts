@@ -227,6 +227,71 @@ describe("CDP bridge", () => {
 		).toMatch(/not available/);
 	});
 
+	it("lists nothing, attaches nothing and activates nothing while the user drives", async () => {
+		const { control, call, host, out } = rig();
+		await call("Target.setAutoAttach", { autoAttach: true, flatten: true });
+		expect(
+			((await call("Target.getTargets")).result as { targetInfos: unknown[] }).targetInfos
+		).toHaveLength(1);
+		control.set("user");
+		expect(
+			((await call("Target.getTargets")).result as { targetInfos: unknown[] }).targetInfos
+		).toEqual([]);
+		for (const m of [
+			"Target.setAutoAttach",
+			"Target.activateTarget",
+			"Target.createTarget",
+			"Target.closeTarget",
+		]) {
+			expect(
+				(
+					(
+						await call(m, {
+							autoAttach: true,
+							waitForDebuggerOnStart: true,
+							targetId: "A",
+							url: "about:blank",
+						})
+					).error as { message: string }
+				)?.message,
+				m
+			).toMatch(/taken over/);
+		}
+		const before = out.length;
+		host.created.forEach((cb) => cb(host.pages[0]));
+		expect(out.length).toBe(before);
+	});
+
+	it("does not forward an event of a child session it never registered", async () => {
+		const { host, call, out } = rig();
+		await call("Target.setAutoAttach", { autoAttach: true, flatten: true });
+		host.pages[0].cbs.forEach((cb) =>
+			cb("Runtime.consoleAPICalled", { type: "log" }, "unregistered")
+		);
+		expect(out.some((m) => m.method === "Runtime.consoleAPICalled")).toBe(false);
+	});
+
+	it("accepts a download directory only if it is a scratch directory the runtime made", async () => {
+		const { call } = rig();
+		const set = (downloadPath: string) =>
+			call("Browser.setDownloadBehavior", { behavior: "allowAndName", downloadPath });
+		expect((await set("/tmp/playwright-artifacts-AbC123")).result).toBeTruthy();
+		expect((await set("/var/tmp/cerea-browser-4242-xyz")).result).toBeTruthy();
+		for (const bad of [
+			"/home/u/.ssh",
+			"/tmp",
+			"/tmp/other",
+			"/tmp/playwright-artifacts-x/../../etc",
+			"relative/playwright-artifacts-x",
+			"/tmp/a/playwright-artifacts-x",
+			"/etc/cerea-browser-1",
+		]) {
+			expect(((await set(bad)).error as { message: string } | undefined)?.message, bad).toMatch(
+				/not allowed/
+			);
+		}
+	});
+
 	it("registers a child session only for a frame or worker of a panel page", async () => {
 		const { host, call, out } = rig();
 		await call("Target.setAutoAttach", { autoAttach: true, flatten: true });
