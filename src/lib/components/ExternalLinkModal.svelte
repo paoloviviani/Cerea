@@ -9,9 +9,11 @@
 		/** Must already be validated by the caller (parseExternalUrl): http(s) only, no userinfo */
 		url: URL;
 		onclose?: () => void;
+		/** Called when the user confirms, before the dialog closes (a caller that must answer someone). */
+		onconfirm?: () => void;
 	}
 
-	let { url, onclose }: Props = $props();
+	let { url, onclose, onconfirm }: Props = $props();
 
 	function close() {
 		onclose?.();
@@ -19,6 +21,7 @@
 
 	function confirmOpen() {
 		window.open(url.href, "_blank", "noopener,noreferrer");
+		onconfirm?.();
 		close();
 	}
 

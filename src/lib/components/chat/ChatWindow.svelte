@@ -54,6 +54,7 @@
 	import { FileDrag } from "$lib/utils/fileDrag.svelte";
 	import { pastedAttachments } from "$lib/utils/composerFiles";
 	import { chatDraftKey } from "$lib/utils/composerDraft";
+	import { setAppMessageSink } from "$lib/utils/appMessageDraft";
 	import { useSettingsStore } from "$lib/stores/settings";
 	import { error } from "$lib/stores/errors";
 	import ModelSwitch from "./ModelSwitch.svelte";
@@ -201,6 +202,14 @@
 	// conversation (`home` before one exists), kept on this device only.
 	// Switching conversations swaps the draft rather than carrying it over.
 	let draftKey = $derived(chatDraftKey(page.params.id));
+
+	// A message an MCP App page proposes lands here as a draft, never as a sent turn (docs/dev/adr-mcp-apps.md):
+	// the user reads it in the composer and sends it, edits it or clears it.
+	setAppMessageSink(async (text) => {
+		draft = draft.trim() ? `${draft.replace(/\s+$/, "")}\n\n${text}` : text;
+		await tick();
+		document.querySelector<HTMLTextAreaElement>("textarea[data-testid='chat-input']")?.focus();
+	});
 
 	/** The per-conversation model picker. Not the workspace's Models tab,
 	    which is the management surface and sets the default. */
