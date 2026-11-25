@@ -21,12 +21,13 @@ import { startBridgeServer, type BridgeServer } from "./bridgeServer.ts";
 import { BrowserPanel } from "./browserPanel.ts";
 import { loadConfig, saveConfig, type Config } from "./config.ts";
 import { Control } from "./control.ts";
+import { linuxLogin, linuxLoginEnabled } from "./login.ts";
 import { findGalopin, Galopin } from "./galopin.ts";
 import { enrollArgs, launchArgs, serviceArgs, setupArgs, upgradeArgs } from "./galopinArgs.ts";
 import { guardCerea, mayOpenExternally, UI_CSP, type GuardState } from "./navGuard.ts";
 import { resolveUiFile, UI_ORIGIN } from "./uiProtocol.ts";
 import { cappedFetch, iconFetcher } from "./probeFetch.ts";
-import { probeServer, ServerError } from "./server.ts";
+import { discoverServer, ServerError } from "./server.ts";
 import {
 	CHANNELS,
 	IpcError,
@@ -79,7 +80,19 @@ function appState(): AppState {
 			? panel.state()
 			: { tabs: [], mode: control.mode, agentBusy: false, connected: false },
 		platform: process.platform,
+		startAtLogin: loginEnabled(),
+		version: app.getVersion(),
+		packaged: app.isPackaged,
 	};
+}
+function loginEnabled(): boolean {
+	return process.platform === "darwin"
+		? app.getLoginItemSettings().openAtLogin
+		: linuxLoginEnabled();
+}
+function setLogin(enabled: boolean): void {
+	if (process.platform === "darwin") app.setLoginItemSettings({ openAtLogin: enabled });
+	else linuxLogin(enabled, { execPath: process.execPath });
 }
 const pushState = () => push("state", appState());
 
@@ -194,7 +207,7 @@ const netFetch = (
 	init: { signal: AbortSignal; redirect: "manual"; credentials: "omit" }
 ) => net.fetch(url, init);
 const fetchForProbe = cappedFetch(netFetch);
-const probe = (address: string) => probeServer(address, fetchForProbe, iconFetcher(netFetch));
+const probe = (address: string) => discoverServer(address, fetchForProbe, iconFetcher(netFetch));
 
 const handlers: { [C in Channel]: Handler<C> } = {
 	"server:get": () => config.server,
@@ -344,6 +357,11 @@ const handlers: { [C in Channel]: Handler<C> } = {
 	"browser:nav": ({ action }) => panel?.navigate(action),
 	"browser:control": ({ mode }) => control.set(mode),
 	"app:state": () => appState(),
+	"app:login": ({ enabled }) => {
+		setLogin(enabled);
+		pushState();
+		return enabled;
+	},
 	"app:open-cerea": () => {
 		if (config.server && mayOpenExternally(config.server.address))
 			void shell.openExternal(config.server.address);

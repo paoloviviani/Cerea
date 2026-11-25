@@ -23,12 +23,15 @@
 
 		<main id="setup" hidden>
 			<h1>Choose your Cerea</h1>
-			<p>Enter the address of the Cerea you use. You sign in the usual way.</p>
+			<p>
+				Type the address of the site where you use Cerea, such as chat.example.org. The app finds
+				the rest and shows you what it found. You sign in the usual way.
+			</p>
 			<form id="setup-form">
 				<input
 					id="setup-address"
 					type="text"
-					placeholder="cerea.example.org/chat"
+					placeholder="chat.example.org"
 					autocomplete="off"
 					spellcheck="false"
 				/>
@@ -138,6 +141,14 @@
 			<section id="pane-server" hidden>
 				<h2>Server</h2>
 				<p id="s-current"></p>
+				<h3>Settings</h3>
+				<label><input type="checkbox" id="s-login" /> Start Cerea when I log in</label>
+				<p class="muted">
+					Off by default. It opens the app, which then keeps galopin running if this computer is
+					paired.
+				</p>
+				<h3>About</h3>
+				<p id="s-about" class="muted"></p>
 				<p class="muted">
 					Switching signs you out and removes this computer's pairing, because a pairing belongs to
 					one server.

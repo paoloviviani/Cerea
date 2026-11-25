@@ -40,6 +40,7 @@ export interface Calls {
 	"browser:control": { mode: "agent" | "user" };
 	"app:open-cerea": undefined;
 	"app:state": undefined;
+	"app:login": { enabled: boolean };
 }
 export type Channel = keyof Calls;
 
@@ -120,6 +121,10 @@ export function validate<C extends Channel>(channel: C, raw: unknown): Calls[C] 
 		case "app:open-cerea":
 		case "app:state":
 			return none();
+		case "app:login": {
+			const o = obj(["enabled"]);
+			return out({ enabled: bool(o.enabled, "enabled") });
+		}
 		case "server:probe":
 		case "server:set": {
 			const o = obj(["address"]);
@@ -257,6 +262,7 @@ export const CHANNELS: Channel[] = [
 	"browser:control",
 	"app:open-cerea",
 	"app:state",
+	"app:login",
 ];
 
 /** Events main pushes to the renderer. */
@@ -283,4 +289,7 @@ export interface AppState {
 	galopin: { available: boolean; paired: boolean; pairedAddress: string; running: boolean };
 	browser: BrowserState;
 	platform: string;
+	startAtLogin: boolean;
+	version: string;
+	packaged: boolean;
 }
