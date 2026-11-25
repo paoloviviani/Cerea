@@ -272,11 +272,16 @@ describe("CDP bridge", () => {
 	});
 
 	it("accepts a download directory only if it is a scratch directory the runtime made", async () => {
+		const { mkdtempSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
 		const { call } = rig();
 		const set = (downloadPath: string) =>
 			call("Browser.setDownloadBehavior", { behavior: "allowAndName", downloadPath });
-		expect((await set("/tmp/playwright-artifacts-AbC123")).result).toBeTruthy();
-		expect((await set("/var/tmp/cerea-browser-4242-xyz")).result).toBeTruthy();
+		const pw = mkdtempSync(join(tmpdir(), "playwright-artifacts-"));
+		const cb = mkdtempSync(join(tmpdir(), "cerea-browser-"));
+		expect((await set(pw)).result).toBeTruthy();
+		expect((await set(cb)).result).toBeTruthy();
 		for (const bad of [
 			"/home/u/.ssh",
 			"/tmp",
@@ -285,6 +290,7 @@ describe("CDP bridge", () => {
 			"relative/playwright-artifacts-x",
 			"/tmp/a/playwright-artifacts-x",
 			"/etc/cerea-browser-1",
+			"/tmp/playwright-artifacts-doesnotexist",
 		]) {
 			expect(((await set(bad)).error as { message: string } | undefined)?.message, bad).toMatch(
 				/not allowed/

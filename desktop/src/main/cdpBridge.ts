@@ -15,6 +15,7 @@ import {
 	checkUrl,
 	CHILD_TYPES,
 	downloadDirOk,
+	downloadDirSafe,
 	isForwardableTargetEvent,
 } from "./cdpPolicy.ts";
 
@@ -367,7 +368,11 @@ class Connection {
 			case "Browser.setDownloadBehavior": {
 				// Only a scratch directory the runtime made (its own or Playwright's), never an arbitrary path.
 				const dir = typeof params.downloadPath === "string" ? params.downloadPath : undefined;
-				if (params.behavior !== "deny" && dir !== undefined && !downloadDirOk(dir)) {
+				if (
+					params.behavior !== "deny" &&
+					dir !== undefined &&
+					!(downloadDirOk(dir) && downloadDirSafe(dir))
+				) {
 					throw new Error("That download directory is not allowed.");
 				}
 				this.host.setDownloadDir(params.behavior === "deny" ? null : (dir ?? null));
