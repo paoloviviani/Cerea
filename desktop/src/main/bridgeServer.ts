@@ -7,7 +7,18 @@
  * connects (`--connect-file`), so it survives app restarts without any configuration change.
  */
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { chmodSync, existsSync, lstatSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	closeSync,
+	constants,
+	existsSync,
+	fchmodSync,
+	lstatSync,
+	mkdirSync,
+	openSync,
+	rmSync,
+	writeSync,
+} from "node:fs";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -33,6 +44,31 @@ export function ensurePrivateDir(dir: string, uid: number): void {
 		if (st.uid !== uid) throw new Error(`${dir} belongs to another user.`);
 		if ((st.mode & 0o077) !== 0) chmodSync(dir, 0o700);
 		if ((lstatSync(dir).mode & 0o077) !== 0) throw new Error(`${dir} is open to other users.`);
+	}
+}
+
+/**
+ * Writes the endpoint file without following a link planted at its path (the directory is the
+ * user's own, but a galopin directory can hold files other tools made): an existing link or
+ * non-file is removed first, and the open itself refuses a link (O_NOFOLLOW).
+ */
+export function writeEndpointFile(file: string, text: string): void {
+	try {
+		const st = lstatSync(file);
+		if (!st.isFile()) rmSync(file, { recursive: true, force: true });
+	} catch {
+		// nothing there
+	}
+	const fd = openSync(
+		file,
+		constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | (constants.O_NOFOLLOW ?? 0),
+		0o600
+	);
+	try {
+		writeSync(fd, text);
+		fchmodSync(fd, 0o600);
+	} finally {
+		closeSync(fd);
 	}
 }
 
@@ -153,8 +189,7 @@ export async function startBridgeServer(
 		addProfile(id, dir, secret = randomBytes(32).toString("base64url")) {
 			ensurePrivateDir(dir, opts.uid);
 			const file = join(dir, "cdp-endpoint");
-			writeFileSync(file, `ws+unix://${sock}:/cdp/${secret}\n`, { mode: 0o600 });
-			chmodSync(file, 0o600);
+			writeEndpointFile(file, `ws+unix://${sock}:/cdp/${secret}\n`);
 			secrets.set(id, { secret, file });
 			return file;
 		},
