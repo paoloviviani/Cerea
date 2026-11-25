@@ -142,7 +142,10 @@ export class BrowserPanel implements TargetHost {
 		// A page in the panel asks for nothing: no camera, location, notifications, clipboard read.
 		ses.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
 		ses.setPermissionCheckHandler(() => false);
-		ses.on("will-download", (_e, item, wc) => this.onWillDownload(item, wc));
+		// Registered once per panel and removed with it, so switching back and forth does not pile them up.
+		this.onDownloadEvent = (_e, item, wc) => this.onWillDownload(item, wc);
+		ses.on("will-download", this.onDownloadEvent);
+		this.offDownload = () => ses.removeListener("will-download", this.onDownloadEvent);
 		this.offControl = control.onChange(() => this.refresh());
 		const seen = () => this.setWindowVisible(win.isVisible() && !win.isMinimized());
 		win.on("minimize", seen);
@@ -157,6 +160,8 @@ export class BrowserPanel implements TargetHost {
 		);
 	}
 
+	private onDownloadEvent: (e: unknown, item: DownloadItem, wc: WebContents | null) => void;
+	private offDownload: () => void = () => {};
 	private offControl: () => void = () => {};
 	private readonly offWindow: (() => void)[] = [];
 	private disposed = false;
@@ -170,6 +175,7 @@ export class BrowserPanel implements TargetHost {
 		this.disposed = true;
 		clearTimeout(this.idleTimer);
 		this.offControl();
+		this.offDownload();
 		for (const off of this.offWindow) off();
 		for (const id of [...this.tabs.keys()]) this.close(id);
 		this.created.clear();
