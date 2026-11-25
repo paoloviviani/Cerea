@@ -108,6 +108,7 @@
 	let clientSecret = $state("");
 	let scopesText = $state("");
 	let editScopes = $state("");
+	let editAppsAllowed = $state(true);
 	let rowScopes = $state("");
 	/** One existing connector can be changed without losing its id or sign-in. */
 	let editing = $state<McpConnectorView | null>(null);
@@ -297,6 +298,7 @@
 		editToken = "";
 		editTokenHeader = "";
 		editScopes = (connector.scopes ?? []).join("\n");
+		editAppsAllowed = connector.appsAllowed !== false;
 		clearEditToken = false;
 		failure = null;
 	}
@@ -331,6 +333,9 @@
 							}
 						: {}),
 					...(clearEditToken ? { clearToken: true } : {}),
+					...(editAppsAllowed !== (editing.appsAllowed !== false)
+						? { appsAllowed: editAppsAllowed }
+						: {}),
 					// Always sent for a sign-in connector: empty clears them, and the
 					// server signs everybody out only when they changed.
 					// Only a change is sent: a changed value signs everyone out of this
@@ -960,6 +965,15 @@
 					{#if connector.auth === "oauth"}
 						<ScopesField bind:value={editScopes} disabled={busy} />
 					{/if}
+					<label class="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
+						<input
+							type="checkbox"
+							name="apps-allowed"
+							bind:checked={editAppsAllowed}
+							disabled={busy}
+						/>
+						{m["mcp.connectors.apps_allowed"]()}
+					</label>
 					<p class="text-xs text-gray-500 dark:text-gray-400">
 						{m["mcp.connectors.address_change"]()}
 					</p>

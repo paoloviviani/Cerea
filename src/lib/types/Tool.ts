@@ -70,6 +70,8 @@ export interface MCPServer {
 	enabled?: boolean;
 	/** Administrators only: loaded from the start of every turn. */
 	alwaysLoaded?: boolean;
+	/** MCP Apps (#44): whether the `ui://` pages of this server may be shown. Absent means allowed. */
+	appsAllowed?: boolean;
 	headers?: KeyValuePair[];
 	env?: KeyValuePair[];
 	status?: ServerStatus;

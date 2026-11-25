@@ -27,6 +27,7 @@ import {
 	E2E_GALOPIN_DIST_DIR,
 	E2E_MONGO_PORT,
 	E2E_MONGO_URL,
+	MOCK_APPS_MCP_ORIGIN,
 	MOCK_MCP_ORIGIN,
 	MOCK_OIDC_ISSUER,
 	MOCK_OPENAI_BASE_URL,
@@ -113,6 +114,15 @@ export default defineConfig({
 		{
 			command: `${NODE_TS} tests/mock-mcp.ts`,
 			url: `${MOCK_MCP_ORIGIN}/health`,
+			reuseExistingServer: !isCI,
+			timeout: 30_000,
+			stdout: "pipe",
+			stderr: "pipe",
+		},
+		{
+			// MCP Apps fixture: tools linked to ui:// pages, plus the sandbox-escape probe page.
+			command: `${NODE_TS} tests/mock-apps-mcp.ts`,
+			url: `${MOCK_APPS_MCP_ORIGIN}/health`,
 			reuseExistingServer: !isCI,
 			timeout: 30_000,
 			stdout: "pipe",

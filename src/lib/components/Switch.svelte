@@ -7,9 +7,20 @@
 		name: string;
 		size?: "sm" | "md";
 		disabled?: boolean;
+		/** The switch's accessible name: what it turns on or off. Defaults to a generic word. */
+		label?: string;
+		/** The id of the element that explains it, read after the name. */
+		describedby?: string;
 	}
 
-	let { checked = $bindable(), name, size = "md", disabled = false }: Props = $props();
+	let {
+		checked = $bindable(),
+		name,
+		size = "md",
+		disabled = false,
+		label,
+		describedby,
+	}: Props = $props();
 
 	// Explicit class strings per size (Tailwind needs literal class names to scan).
 	const trackClasses = $derived(
@@ -58,7 +69,8 @@
 	aria-checked={checked}
 	aria-disabled={disabled}
 	aria-roledescription={m["app.switch.role_description"]()}
-	aria-label={m["app.switch.label"]()}
+	aria-label={label ?? m["app.switch.label"]()}
+	aria-describedby={describedby}
 	role="switch"
 	tabindex={disabled ? -1 : 0}
 	onclick={onToggleClick}

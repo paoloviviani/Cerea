@@ -53,6 +53,8 @@ const body = z.object({
 	scopes: z.string().max(4000).optional(),
 	/** One sentence the assistant reads in its list of connectors. Empty clears it. */
 	description: z.string().trim().max(300).optional(),
+	/** `update`, a person's own connector: whether its apps (`ui://` pages) may be shown (#44). */
+	appsAllowed: z.boolean().optional(),
 	/** `setKey`: this person's own key for a connector where each user brings one. */
 	key: z.string().trim().min(1).max(4096).optional(),
 	/** `check` by an administrator: a key to list the tools with, used once and never stored. */
@@ -223,6 +225,11 @@ export const POST: RequestHandler = async ({ locals, params, request, url }) => 
 		let relist = false;
 
 		if (parsed.data.name) set.name = parsed.data.name;
+		if (parsed.data.appsAllowed !== undefined && (connector.scope ?? "user") === "user") {
+			// Stored only when it differs from the default (allowed).
+			if (parsed.data.appsAllowed) unset.appsAllowed = "";
+			else set.appsAllowed = false;
+		}
 		if (parsed.data.description !== undefined) {
 			if (parsed.data.description) set.description = parsed.data.description;
 			else unset.description = "";

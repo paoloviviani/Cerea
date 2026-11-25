@@ -8,6 +8,10 @@
 // 9 MiB tools/call result) and "html" (a 3 MiB result of '<' characters, which
 // a HTML-escaping encoder would grow six-fold). The text of a tools/call result ends with
 // $FAKE_VALUE.
+//
+// MCP Apps: read_file carries `_meta.ui.resourceUri` ("ui://fake/app.html"); resources/list and
+// resources/read serve that page as text/html;profile=mcp-app (with `_meta.ui.csp` on the content).
+// Mode "bigui" makes resources/read answer a 9 MiB page, and "htmlui" one of 3 MiB of '<'.
 package mcpfake
 
 import (
@@ -16,6 +20,12 @@ import (
 	"fmt"
 	"os"
 	"strings"
+)
+
+// UIResourceURI and UIMime are the MCP Apps page this server offers.
+const (
+	UIResourceURI = "ui://fake/app.html"
+	UIMime        = "text/html;profile=mcp-app"
 )
 
 // Enabled reports whether this process is to run as the fake server.
@@ -54,12 +64,16 @@ func Run() {
 			}
 			switch r.Method {
 			case "initialize":
-				reply(r.ID, map[string]any{"protocolVersion": "2025-03-26", "capabilities": map[string]any{"tools": map[string]any{}},
+				reply(r.ID, map[string]any{"protocolVersion": "2025-03-26", "capabilities": map[string]any{"tools": map[string]any{}, "resources": map[string]any{}},
 					"serverInfo": map[string]any{"name": "fake", "version": "1"}})
 			case "tools/list":
 				tools := []map[string]any{}
 				for _, n := range []string{"read_file", "write_file", "boom"} {
-					tools = append(tools, map[string]any{"name": n, "inputSchema": map[string]any{"type": "object"}})
+					tool := map[string]any{"name": n, "inputSchema": map[string]any{"type": "object"}}
+					if n == "read_file" {
+						tool["_meta"] = map[string]any{"ui": map[string]any{"resourceUri": UIResourceURI}}
+					}
+					tools = append(tools, tool)
 				}
 				reply(r.ID, map[string]any{"tools": tools, "extra": "kept"})
 			case "tools/call":
@@ -76,6 +90,20 @@ func Run() {
 				default:
 					reply(r.ID, map[string]any{"content": []map[string]any{{"type": "text", "text": "called " + r.Params.Name + " " + os.Getenv("FAKE_VALUE")}}, "isError": false})
 				}
+			case "resources/list":
+				reply(r.ID, map[string]any{"resources": []map[string]any{{"uri": UIResourceURI, "name": "app", "mimeType": UIMime}}})
+			case "resources/read":
+				text := "<html><body>fake app " + os.Getenv("FAKE_VALUE") + "</body></html>"
+				switch mode {
+				case "bigui":
+					text = strings.Repeat("x", 9<<20)
+				case "htmlui":
+					text = strings.Repeat("<", 3<<20)
+				}
+				reply(r.ID, map[string]any{"contents": []map[string]any{{
+					"uri": UIResourceURI, "mimeType": UIMime, "text": text,
+					"_meta": map[string]any{"ui": map[string]any{"csp": map[string]any{"connectDomains": []string{"https://api.example.com"}}}},
+				}}})
 			default:
 				reply(r.ID, map[string]any{})
 			}

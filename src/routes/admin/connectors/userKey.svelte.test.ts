@@ -45,6 +45,8 @@ beforeEach(() => {
 				posts.push({ url, body: JSON.parse(String(init.body)) });
 				return Response.json({});
 			}
+			if (url.includes("/api/v2/admin/mcp-apps"))
+				return Response.json({ mode: "all", configurable: true });
 			if (url.includes("/api/mcp/servers")) return Response.json([]);
 			if (url.includes("/api/v2/mcp/connectors")) return Response.json({ data: [KEYED] });
 			return Response.json({});
@@ -60,7 +62,7 @@ describe("admin connectors: each user provides their own key", () => {
 		await page.getByRole("button", { name: "Add", exact: true }).click();
 		await page.getByLabelText("Name").fill("GitHub");
 		await page.getByLabelText("URL").fill("https://github.test/mcp");
-		const select = document.querySelector("select") as HTMLSelectElement;
+		const select = document.querySelector("form select") as HTMLSelectElement;
 		await page.elementLocator(select).selectOptions("user_key");
 
 		// No key field and no "shared key" warning: the connector holds nothing.

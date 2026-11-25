@@ -21,6 +21,7 @@ import { getMcpServers } from "$lib/server/mcp/registry";
 const change = {
 	mode: z.enum(["off", "on", "locked"]).optional(),
 	alwaysLoaded: z.boolean().optional(),
+	appsAllowed: z.boolean().optional(),
 };
 const body = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("base"), name: z.string().min(1).max(256), ...change }),
@@ -32,14 +33,16 @@ export const PUT: RequestHandler = async ({ locals, request }) => {
 	const parsed = body.safeParse(await request.json().catch(() => null));
 	if (
 		!parsed.success ||
-		(parsed.data.mode === undefined && parsed.data.alwaysLoaded === undefined)
+		(parsed.data.mode === undefined &&
+			parsed.data.alwaysLoaded === undefined &&
+			parsed.data.appsAllowed === undefined)
 	) {
 		error(
 			400,
-			"Choose a connector, and a mode (off, on or locked) or whether it is always loaded."
+			"Choose a connector, and a mode (off, on or locked), whether it is always loaded or whether it may show apps."
 		);
 	}
-	const { mode, alwaysLoaded } = parsed.data;
+	const { mode, alwaysLoaded, appsAllowed } = parsed.data;
 
 	let key: string;
 	if (parsed.data.kind === "base") {
@@ -62,6 +65,7 @@ export const PUT: RequestHandler = async ({ locals, request }) => {
 	const policy = await setPolicy(key, {
 		...(mode !== undefined ? { mode } : {}),
 		...(alwaysLoaded !== undefined ? { alwaysLoaded } : {}),
+		...(appsAllowed !== undefined ? { appsAllowed } : {}),
 	});
 	logger.info({ key, ...policy, admin: admin.email }, "connector_policy_changed");
 	return json(policy);
