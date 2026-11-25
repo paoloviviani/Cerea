@@ -96,9 +96,20 @@ class ElectronPage implements PageTarget {
 			// a page that cannot be frozen (loading, crashed) simply keeps running
 		}
 	}
-	initialNavigate(url: string): void {
-		if (!this.wc.isDestroyed() && guardPanel(url) === "allow")
-			void this.wc.loadURL(url).catch(() => {});
+	/** Starts the first navigation; resolves when the load has stopped (or after 5 s). */
+	initialNavigate(url: string): Promise<void> {
+		const wc = this.wc;
+		if (wc.isDestroyed() || guardPanel(url) !== "allow") return Promise.resolve();
+		return new Promise((resolve) => {
+			const timer = setTimeout(done, 5000);
+			function done() {
+				clearTimeout(timer);
+				if (!wc.isDestroyed()) wc.removeListener("did-stop-loading", done);
+				resolve();
+			}
+			wc.once("did-stop-loading", done);
+			wc.loadURL(url).catch(done);
+		});
 	}
 	url(): string {
 		return this.wc.isDestroyed() ? "" : this.wc.getURL() || "about:blank";

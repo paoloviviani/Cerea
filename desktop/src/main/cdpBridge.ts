@@ -32,7 +32,7 @@ export interface PageTarget {
 	attach(): void;
 	detach(): void;
 	/** The first navigation of a page the runtime asked for (what Chrome does once the client lets it start). */
-	initialNavigate(url: string): void;
+	initialNavigate(url: string): void | Promise<void>;
 	url(): string;
 	title(): string;
 }
@@ -300,8 +300,12 @@ class Connection {
 			const url = this.pendingInitial.get(target.id);
 			if (url !== undefined) {
 				this.pendingInitial.delete(target.id);
-				// After the reply, so the client has the answer before the navigation's events.
-				queueMicrotask(() => target.initialNavigate(url));
+				// A blank start is finished before the client is answered: Playwright's newPage waits for
+				// that navigation, and every event of it (a same-address load can commit twice) must
+				// come before the reply, not during the goto that follows (CI saw "interrupted by
+				// another navigation to about:blank"). A real address is left to load on its own.
+				const nav = target.initialNavigate(url);
+				if (url === "about:blank") await nav;
 			}
 			return {};
 		}

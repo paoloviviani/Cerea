@@ -163,6 +163,29 @@ describe("CDP bridge", () => {
 		expect((await call("Input.dispatchMouseEvent", {}, sid2)).result).toBeTruthy();
 	});
 
+	it("answers a new page's start only after its blank first navigation has finished", async () => {
+		const { host, call, out } = rig();
+		const events: string[] = [];
+		const made = new FakePage("N9");
+		made.initialNavigate = () =>
+			new Promise<void>((resolve) =>
+				setTimeout(() => {
+					events.push("navigation finished");
+					resolve();
+				}, 40)
+			);
+		host.create = async () => made;
+		const created = await call("Target.createTarget", { url: "about:blank" });
+		const sid = (
+			out.find((m) => m.method === "Target.attachedToTarget")!.params as { sessionId: string }
+		).sessionId;
+		expect(created.result).toBeTruthy();
+		const reply = call("Runtime.runIfWaitingForDebugger", {}, sid);
+		void reply.then(() => events.push("replied"));
+		await reply;
+		expect(events).toEqual(["navigation finished", "replied"]);
+	});
+
 	it("creates pages through the host", async () => {
 		const { host, call } = rig();
 		const r = await call("Target.createTarget", { url: "about:blank" });
