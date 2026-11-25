@@ -31,6 +31,29 @@ function expandHome(p: string): string {
 	return p.startsWith("~/") ? join(homedir(), p.slice(2)) : p;
 }
 
+/**
+ * Points a command at a profile's own galopin directory. `creds` is that directory's
+ * credentials.json (everything else, mcp.json and the browser files, lives beside it); the
+ * profile that owns galopin's default directory passes none. `service install` takes it after
+ * `--`, as run flags. `setup TOOL` (not `--desktop`) has no such flag: the shims it writes follow
+ * galopin's default pairing, which is the first profile's.
+ */
+export function withCreds(args: string[], creds: string | undefined): string[] {
+	if (!creds) return args;
+	const [cmd, sub] = args;
+	if (cmd === "service") {
+		if (sub !== "install") return args;
+		const at = args.indexOf("--");
+		return at < 0
+			? [...args, "--", "--creds", creds]
+			: [...args.slice(0, at + 1), "--creds", creds, ...args.slice(at + 1)];
+	}
+	if (cmd === "setup" && !args.includes("--desktop")) return args;
+	if (cmd === "version" || cmd === "licenses") return args;
+	const at = cmd === "browser" || cmd === "launch" || cmd === "setup" ? 2 : 1;
+	return [...args.slice(0, at), "--creds", creds, ...args.slice(at)];
+}
+
 export const launchArgs = (tool: Tool) => ["launch", tool];
 export const setupArgs = (tool: Tool, remove: boolean, makeDefault: boolean) => [
 	"setup",

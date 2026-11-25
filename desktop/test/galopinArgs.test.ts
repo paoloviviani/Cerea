@@ -6,6 +6,7 @@ import {
 	setupArgs,
 	terminalCommand,
 	upgradeArgs,
+	withCreds,
 } from "../src/main/galopinArgs.ts";
 
 describe("galopin command lines", () => {
@@ -85,5 +86,46 @@ describe("galopin command lines", () => {
 		)!;
 		expect(mac.command).toBe("osascript");
 		expect(mac.args.join(" ")).toContain("do script");
+	});
+
+	it("points a command at a profile's own galopin directory, and leaves the default profile's commands alone", () => {
+		const c = "/ud/profiles/abc/galopin/credentials.json";
+		expect(withCreds(["status"], undefined)).toEqual(["status"]);
+		expect(withCreds(["status"], c)).toEqual(["status", "--creds", c]);
+		expect(withCreds(["run"], c)).toEqual(["run", "--creds", c]);
+		expect(withCreds(["enroll", "--cerea", "https://x"], c)).toEqual([
+			"enroll",
+			"--creds",
+			c,
+			"--cerea",
+			"https://x",
+		]);
+		expect(withCreds(["browser", "setup", "--connect-file", "/f"], c)).toEqual([
+			"browser",
+			"setup",
+			"--creds",
+			c,
+			"--connect-file",
+			"/f",
+		]);
+		expect(withCreds(["launch", "claude"], c)).toEqual(["launch", "claude", "--creds", c]);
+		// a service takes run flags after --
+		expect(withCreds(["service", "install"], c)).toEqual([
+			"service",
+			"install",
+			"--",
+			"--creds",
+			c,
+		]);
+		expect(withCreds(["service", "uninstall"], c)).toEqual(["service", "uninstall"]);
+		// setup's shims follow galopin's default pairing; only --desktop takes --creds
+		expect(withCreds(["setup", "claude", "--remove"], c)).toEqual(["setup", "claude", "--remove"]);
+		expect(withCreds(["setup", "goose", "--desktop"], c)).toEqual([
+			"setup",
+			"goose",
+			"--creds",
+			c,
+			"--desktop",
+		]);
 	});
 });
