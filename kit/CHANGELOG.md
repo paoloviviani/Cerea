@@ -7,6 +7,8 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- New: the assistant can send a file it fetched or received (downloaded from the web, returned by a connector, or made in the sandbox) to the document reader (OCR), cached so a file is never read twice.
+
 ## v0.65.0 — 2026-11-24
 
 Pins: Cerea `0.65.0` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.34.0`, opencode `2.4.1`.

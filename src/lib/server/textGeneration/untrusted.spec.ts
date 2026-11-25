@@ -63,6 +63,7 @@ const BUILTIN_TABLE: Record<string, "external" | "internal"> = {
 	doc_read: "external",
 	doc_outline: "external",
 	look_doc: "external",
+	doc_extract: "external",
 	view_image: "external",
 	doc_edit: "internal",
 	doc_create: "internal",

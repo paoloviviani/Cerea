@@ -15,6 +15,7 @@ import type { ProjectAgentProfile } from "$lib/types/AgentSession";
 import { createConvertDocumentBuiltin } from "./convertDocumentTool";
 import { createDocumentBuiltins, type DocumentTurnState } from "./documentTools";
 import { createLookDocBuiltins } from "./lookDocTool";
+import { createDocExtractBuiltin, type DocExtractParams } from "./docExtractTool";
 import { createViewImageBuiltin } from "./viewImageTool";
 import { createGenerateImageBuiltin } from "./generateImageTool";
 import type { PictureState } from "../mcp/pictureMessages";
@@ -39,6 +40,7 @@ export { isNestedAgentTool } from "./nestedAgent";
 export { DELEGATE_TOOL_NAME, RESEARCH_TOOL_NAME } from "./delegateTool";
 export { CONVERT_DOCUMENT_TOOL_NAME } from "./convertDocumentTool";
 export { LOOK_DOC_TOOL_NAME } from "./lookDocTool";
+export { DOC_EXTRACT_TOOL_NAME } from "./docExtractTool";
 export { VIEW_IMAGE_TOOL_NAME } from "./viewImageTool";
 export { GENERATE_IMAGE_TOOL_NAME } from "./generateImageTool";
 export { SCHEDULE_TOOL_NAME } from "./scheduleTool";
@@ -172,6 +174,12 @@ export function getEnabledBuiltinTools(params: {
 	 * text-only model, or one whose pictures in tool turns are switched off, is not offered it.
 	 */
 	modelSeesImages?: boolean;
+	/**
+	 * Sending a file to the document reader (`doc_extract`): present only when the caller found that
+	 * an upload would be read here (a reader the gateway resolves, or a direct OCR endpoint: a
+	 * network read, resolved by the caller like the others) and the turn can call tools. Absent offers no tool.
+	 */
+	documentExtract?: DocExtractParams;
 	/** Whether pictures have been refused by this turn's model, shared with the request loop (`pictureMessages.ts`). */
 	pictureState?: PictureState;
 	/**
@@ -257,6 +265,11 @@ export function getEnabledBuiltinTools(params: {
 		tools.push(
 			...createLookDocBuiltins(params.documentCapabilities, documentTurn, params.pictureState)
 		);
+	}
+
+	// Sending a file to the document reader (OCR): where an upload would have been read.
+	if (params.documentExtract && params.toolsEnabled) {
+		tools.push(...createDocExtractBuiltin(params.documentExtract));
 	}
 
 	// Looking at an image file of the conversation (a photo, a crop made in the sandbox): any model that sees images.

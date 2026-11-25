@@ -349,6 +349,12 @@ interface ModelCard {
 export interface Extracted {
 	text: string;
 	pages: number;
+	/**
+	 * The text of each page, in page order (an empty string for a page with none), when the reader
+	 * answered per page. `doc_extract` keeps these so a later page range is served without a new
+	 * (per-page priced) call. `text` is these joined.
+	 */
+	pageTexts?: string[];
 	/** The reader that actually produced this text (a gateway model id), when known. */
 	readerModel?: string;
 	/** The chosen reader was not available to this user, so the default read it. */
@@ -404,12 +410,14 @@ function ocrResponseShape(answer: unknown): Record<string, unknown> {
 }
 
 function textFromOcrResponse(answer: OcrResponse): Extracted | null {
-	const text = (answer.pages ?? [])
-		.map((page) => page.markdown ?? "")
-		.filter((page) => page.trim())
-		.join("\n\n");
+	const perPage = (answer.pages ?? []).map((page) => page.markdown ?? "");
+	const text = perPage.filter((page) => page.trim()).join("\n\n");
 	if (!text.trim()) return null;
-	return { text, pages: answer.usage_info?.pages_processed ?? (answer.pages ?? []).length };
+	return {
+		text,
+		pages: answer.usage_info?.pages_processed ?? (answer.pages ?? []).length,
+		pageTexts: perPage,
+	};
 }
 
 /**
@@ -442,6 +450,21 @@ export interface ExtractionFailure {
 export function privacyRefusal(err: unknown): WithheldByPrivacy | undefined {
 	if (!(err instanceof GatewayCallFailed) || err.code !== "routing_refused") return undefined;
 	return refusalRule(err.message ?? "");
+}
+
+/**
+ * Whether anything can read a document here: a direct OCR endpoint, or a reader the gateway
+ * resolves. What the upload path would find, so a tool that sends a file to the reader is
+ * offered exactly when an upload would have been read.
+ */
+export async function extractorAvailable(token: string | undefined): Promise<boolean> {
+	if (directOcrBaseUrl()) return true;
+	if (!token) return false;
+	try {
+		return (await resolveExtractorModel(token)) !== null;
+	} catch {
+		return false;
+	}
 }
 
 /**

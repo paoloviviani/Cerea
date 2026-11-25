@@ -244,6 +244,23 @@ assistant saved) the same models have `view_image`, which shows the picture, or 
 from the full-resolution original (`crop`, in pixels or fractions) or turned (`rotate`), so dense
 print can be read in pieces.
 
+### Sending a file to the document reader
+
+A file you attach is read by the document reader (OCR) once, when it arrives. A file the
+assistant gets another way (downloaded from the web, returned by a connector, or made in the
+sandbox) has no text yet, so the assistant has `doc_extract`: it sends the file to the same reader,
+chosen the same way as for an upload (your own reader setting, else the deployment's), and gets the
+text back, for a scanned PDF, a photographed document (png, jpg, webp) or a long document where
+looking at page images would take many pictures. It tries `doc_read` first when a file has a text
+layer, and uses `look_doc` for layout. Files and pages are limited as for uploads, and a privacy
+rule can refuse the read, in which case the assistant says so and does not retry.
+
+Reading may be billed per page, like an upload. The text is kept for the conversation by the
+file's content, so asking again, or for other pages of the same file, makes no new call; a file you
+uploaded returns the text from its upload. The kept text is deleted with the conversation. The
+tool is offered only where an upload would be read: a reader the gateway provides, or
+`CHAT_OCR_BASE_URL`.
+
 - **It looks sparingly.** At most 6 pages or slides per call, about 1,000 tokens
   or more for each, and not after small text edits.
 - **Office files need the converter.** They are drawn by LibreOffice, like the
