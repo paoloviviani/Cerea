@@ -24,23 +24,39 @@ One window, three parts:
 It does everything the Mac connector does today: connectors-only pairing (the default), the
 coding-agent option under the same switch, local connectors (`mcp.json` opens in the system
 editor, changes are picked up by galopin), browser ready, galopin kept running while the app is
-open, start and stop. Not in v1: the embedded terminal (see "Not in v1"), the Mac menu-bar item
-(the app has a tray later), Start at login (later; the service button covers it).
+open, start and stop, and **Start at login** (Settings, off by default; a macOS login item, a Linux
+XDG autostart entry). Not in v1: the embedded terminal (see "Not in v1") and a tray icon.
+
+**The Mac connector (`galopin-tray`) is kept for one release alongside the desktop app, then
+retired** (owner, 2026-11-25). The desktop app is the replacement: pairing, browser, connectors,
+keep-running and start-at-login are all in it. During the release both can be installed, and the
+docs say the desktop app is the one to use; pairing and the browser connector entry are shared
+(galopin's own state), so a Mac moving from one to the other keeps its pairing and runs `galopin
+browser setup --connect-file ...` once. The release after, the tray, its workflow and its docs are
+removed.
 
 ### First run: choose the server
 
-Before anything loads the user types their Cerea's address. The main process (never the
-renderer) asks the server who it is:
+Before anything loads the user types the site where they use Cerea, just that (`chat.example.org`).
+The main process (never the renderer) finds the Cerea and asks it who it is:
 
-- the address is normalised: https only, `http` for localhost, 127.0.0.1 and ::1 only, no user
-  name or password, query and fragment dropped, a base path such as `/chat` kept;
-- `GET <address>/galopin/enroll.json` must answer 200 with `issuer` and `clientId` (the public
-  facts galopin's own `enroll --cerea` reads, so it is the same test), no redirect followed, 64 KB
-  and 8 s at most; anything else is "did not answer like a Cerea";
-- `GET <address>/manifest.webmanifest` gives the name and an icon, shown on a confirmation card
-  ("Use this server"). An icon from another origin is never shown. Both are a courtesy.
+- the input is normalised: https only, `http` for localhost, 127.0.0.1 and ::1 only, no user name
+  or password, query and fragment dropped;
+- **the chat path is discovered**, not typed: when the user gave a path, only that is tried;
+  otherwise, in order, the site root, the first path segment of the root web app manifest's
+  `start_url` (same origin only), then `/chat`. The first candidate that passes the next check wins,
+  and the error names where it looked. Nothing in the web app had to change: `/galopin/enroll.json`
+  and the manifest already exist under the chat's base path;
+- `GET <address>/galopin/enroll.json` must answer 200 with `issuer` (https, or loopback http) and
+  `clientId`, the public facts galopin's own `enroll --cerea` reads, so it is the same test; no
+  redirect is followed, and the body is read with a 64 KB cap;
+- `GET <address>/manifest.webmanifest` gives the name and an icon. The icon is fetched in the main
+  process (200 only, a raster type, at most 200 KB) and handed to the UI as a `data:` URL, so the UI
+  never loads anything from the server. A card shows **what was found** (name, icon and the full
+  address, path included) before the user confirms with "Use this server".
 
-The origin is stored in `config.json` (userData, 0600) and is re-validated on every start. It is the
+The address, origin, identity provider's origin and icon are stored in `config.json` (userData, 0600)
+and re-validated on every start. The origin is the
 only origin the Cerea window may load (navigation guard below), and pairing uses it: `galopin enroll
 --cerea <address>`, so the issuer, gateway and client id are discovered from the server the way the
 Pair dialog's line does it, never typed. **Server tab, Switch server**: probe the new address, then
@@ -105,6 +121,20 @@ Why this meets the requirement:
   only ids the panel lists; `Target.createBrowserContext` and `disposeBrowserContext` are refused;
   any browser-wide command (`Storage.*`, `SystemInfo.*`, `Network.getAllCookies`) is unknown.
   The smoke test asserts the runtime's tab list never contains the Cerea page.
+- **Page-level commands are deny-by-default** (`cdpPolicy.ts`). A security review reproduced the
+  hole this closes: Electron's debugger is a full DevTools agent, so on the prototype a page
+  session's `Target.getTargets` listed the Cerea view and the local UI, `Target.attachToTarget`
+  with `flatten` opened a session on the UI, and `Runtime.evaluate` read its `window.secret`
+  (and `window.cerea.call(...)` would have passed the UI sender check); `Page.navigate` also took
+  the panel to `file:///etc/hostname`. Now only the Page, Runtime, DOM, Input, Emulation,
+  Network, Fetch, Accessibility, Log, Performance and Inspector domains pass; `Target.*` is
+  limited to `setAutoAttach` and `detachFromTarget`; `Storage`, `SystemInfo`, `IO`, `Tracing`,
+  `Debugger`, `Browser` and `DOM.setFileInputFiles` are refused. A child session is registered
+  only for an iframe or worker that a panel page's own auto-attach reported (anything else is
+  dropped and detached), and the Target events a page sends are not forwarded. Navigations (`Page.navigate`, `Target.createTarget`) are checked with the panel's URL
+  guard in the bridge, and `did-start-navigation` in the main process puts the panel back on a blank page if one
+  gets through anyway. Each of these has a test, and the smoke test repeats them over the real
+  socket (a raw CDP client with the right secret).
 
 ### What the prototype showed
 
@@ -131,24 +161,36 @@ Why this meets the requirement:
 
 ### Watch, take over, hand back
 
-The semantics follow ADR 0116's phase-2 note in `session.ts` ("a takeover pauses the protocol
-operations"): **while the user drives, the runtime's operations do not run.** In the MVP this is
-the `Control` gate in the bridge: in `user` mode every page-level command and `createTarget`
-and `closeTarget` is refused at once with "The user has taken over the browser and is using it
-themselves. Do nothing until they hand it back." (connection set-up calls still pass, so the
-runtime does not break); handing back lets them run, and the runtime looks at the page afresh before
-each action. An approval is bound to the page address and element as they were, so nothing
-approved earlier can run on a page that moved on.
+**Take over cuts the runtime off.** When the user takes over, the bridge detaches every session
+(Playwright sees the pages close), releases the debugger (its request interception ends, so no
+request waits for a runtime that is not there), forwards no event of what the user does, and does
+not attach a tab the user opens. On hand-back every tab is attached again as a fresh page. The
+runtime then finds the pages as the user's own tabs, so using one asks first ("Let Cerea use
+your tab"): the page is the user's now, and an approval is bound to the page address and element
+as they were. The cost is that the task's page is no longer "its own" after a take-over.
+
+**The `control` tool** (ADR 0116 phase 2; the contract is Cerea's `contract.ts`, copied to the
+runtime by `sync-contract.mjs`) is how Cerea and the runtime know: `control {wait?}` ->
+`{state: "agent" | "user"}`.
+
+- The desktop app pushes who is driving to the runtime over `GET /ctl/<secret>` on the same
+  private socket (one event now, one per change; a lost stream means "not driving", so the runtime
+  never holds for an app that is gone).
+- While the user drives, the runtime **holds** every other tool call (up to 25 s, inside Cerea's
+  call timeout) instead of failing it; one held longer fails with "The user is driving the browser"
+  and a pointer to `control`.
+- Cerea's loop calls `control` before each step. On `user` it shows **"You are driving"** on the
+  Browsing card (status waiting, `driving`), long-polls `control {wait: true}` until `agent`, does
+  not count the time against the task's budget (as an approval's wait), and carries on at
+  hand-back. A stopped turn ends it as `aborted`. A runtime with no such tool, or a browser that
+  cannot be taken over (headless), is read as always `agent`.
+- The "paused" semantics of ADR 0116 are the same shape as a verification: the task waits for the
+  user, the wait is not task time, the page is checked afresh afterwards, and a lost lease ends it.
 
 While the runtime works (a command in the last 4 s), a transparent shield view covers the panel so
 a stray click cannot disturb it, and the UI says "Cerea is browsing. Watch, or take over." The
-user's own browsing in the panel is never blocked when no task runs.
-
-Not done, and needs an owner decision because it changes the contract: the chat's Browsing card
-cannot yet say "you are driving"; the runtime sees a failed action with the message above. A
-proper `control` tool in `contract.ts` (and the runtime holding its queue instead of failing)
-is the phase-2 follow-up. Live view in the chat (screencast) is not needed by the desktop app: the
-user sees the real panel.
+user's own browsing in the panel is never blocked when no task runs. Live view in the chat
+(screencast) is not needed by the desktop app: the user sees the real panel.
 
 ## galopin as a bundled sidecar
 
@@ -168,8 +210,16 @@ user sees the real panel.
   `galopin browser enable`. These are new (agent/browser_cmd.go): `setup --connect-file` installs
   the runtime and its one dependency but **no Chrome or Chromium**, and `enable` registers
   `cerea-browser` with `--connect-file` and no profile, display or sandbox flags. galopin's own
-  status says "the Cerea desktop app's browser panel". It still needs Node 22.18+ on the computer
-  (the runtime is Node); bundling Node (as the Mac connector does) is the next packaging step.
+  status says "the Cerea desktop app's browser panel".
+- **Bundled Node.** The app ships a pinned Node.js (24.22.2; `node-pins.json` holds the SHA-256 of
+  each platform's tarball, checked by `scripts/fetch-node.mjs` before anything is unpacked, in CI
+  and locally) with npm, so browser use needs nothing installed. Set up browser copies it once into
+  `<userData>/node/<version>` (an AppImage mounts at a new path each start, and the connector
+  entry names Node by an absolute path that must last), checks the copy against the hash recorded
+  at build time and puts it first on galopin's PATH for that command. **Size:** 140 MB unpacked,
+  58 MB (Linux x64) and 53 MB (macOS arm64) compressed in the tarball, so roughly 45 to 60 MB more
+  for the app download, and 140 MB more on disk once copied. `npm ci` still needs the network, as
+  `galopin browser setup` always has. A development run uses the Node on PATH.
 - **Enrollment UX**: the panel's Pair runs `galopin enroll --cerea <chosen server>` with the Pair
   dialog's options (connectors-only unless "Also let Cerea use coding agents here"); galopin's own
   sign-in opens the system browser or prints the code, shown in the output log. The app never
@@ -188,7 +238,8 @@ user sees the real panel.
   two-week rule). Fuses: `runAsNode` off, node options and inspect arguments off, asar integrity
   on, `onlyLoadAppFromAsar`.
 - **Signing**: macOS **unsigned and not notarised for now, like the connector app** (no Apple
-  account). The same first-open steps apply (docs/agent-machines.md); an install script that
+  developer account yet, owner 2026-11-25), and **no macOS auto-update** (an unsigned app cannot
+  take one). The app's **About** (Server tab) says both, and that a new version is a new download. The same first-open steps apply (docs/agent-machines.md); an install script that
   clears quarantine can follow the connector's. Linux needs none.
 - **Auto-update**: later (electron-updater against GitHub releases once the app is signed; an
   unsigned macOS app cannot auto-update).
@@ -200,7 +251,7 @@ user sees the real panel.
 
 - `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`, `webSecurity: true` on
   every web contents; no `<webview>` (attaching one is refused).
-- **Only the local UI has a preload**, exposing `window.cerea.call(channel, arg)` for the 22
+- **Only the local UI has a preload**, exposing `window.cerea.call(channel, arg)` for the 23
   channels in `shared/ipc.ts` and `window.cerea.on` for three events. The Cerea window and the
   browser panel's pages have no preload and no Node: they are web pages.
 - **Every IPC argument is validated again in the main process** (`validate()`: closed object
@@ -220,9 +271,34 @@ user sees the real panel.
   `persist:cerea-browser`. Cookies and storage are not shared.
 - **Permission handlers**: the panel denies every permission request and check; the Cerea window
   allows only clipboard write and notifications.
+- **The local UI is `app://ui/`, not `file://`**: a custom standard scheme served by
+  `protocol.handle` from the UI directory only (dot segments cannot leave it, only three file
+  types), so `grantFileProtocolExtraPrivileges` is off. Its sender check requires that origin.
 - **CSP for local UI**: `default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'
-  data:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`, set on
-  every `file://` response. The renderer has no inline script or style and no network.
+data:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`, as a
+  `<meta>` tag in the page (a test keeps it equal to the header the protocol also sends:
+  `webRequest` does not see local pages). No inline script or style, no network, and the server's
+  icon arrives as a `data:` URL made in the main process.
+- **Permissions**: the default session denies everything; the Cerea window grants clipboard write
+  and notifications only to the chosen origin itself (the request's origin is checked, so not the
+  identity provider and not a frame); the panel denies all.
+- **Sign-in excursion**: the Cerea window may follow a server-side redirect only to the
+  **identity provider the server names** (`issuer` in `enroll.json`, stored with the server), and
+  back; a provider upstream of it is not reachable (an administrator-configured list of extra hops
+  can come later).
+- **Fuses**: `runAsNode`, node options and inspect arguments off; cookie encryption on; the file
+  protocol's extra privileges off; asar integrity and `onlyLoadAppFromAsar` on; the ad-hoc Darwin
+  signature reset for the unsigned arm64 build. No DevTools or View menu in a packaged app.
+- **The bridge directory** is a real directory owned by the user with no group or world access
+  (a symlink, another user's directory or an open one is refused), and a bridge that cannot start
+  switches the panel off, not the app. Quit waits for galopin and the socket to close.
+- **galopin**: a packaged app runs only the galopin it ships (`GALOPIN_BIN` is for development).
+  Switching server waits for galopin to exit before moving its credentials, removes an installed
+  service, and says the old server is not told (its sign-in for this computer stays valid until the
+  computer is removed from its Agents panel).
+- **The panel**: at most 20 tabs, five popups in ten seconds, a popup opens in the background; a
+  download is saved silently only while the runtime has just asked for one, and is otherwise
+  Electron's usual save dialog.
 - **The debugging surface is closed**: no remote-debugging switch is set; the runtime bridge is
   the only door and is described above.
 - galopin runs with the user's own privileges, as today; the app adds no new ones.
@@ -257,9 +333,9 @@ Rules, and where they are applied:
 
 Cumulative CPU of all app processes (`app.getAppMetrics`) over 60 s, as a share of one core:
 
-| State                                       | CPU    |
-| ------------------------------------------- | ------ |
-| visible, idle                               | 0.12 % |
+| State                                        | CPU    |
+| -------------------------------------------- | ------ |
+| visible, idle                                | 0.12 % |
 | hidden (`win.hide()`), idle, after 3 s grace | 0.05 % |
 
 `scripts/smoke.mjs` fails when the hidden figure is 1 % or more (`IDLE_BUDGET_PERCENT`); CI uses a
@@ -274,20 +350,24 @@ settle time, so the figure shows the window-hidden cost without the freeze.
   (Terminal.app through AppleScript; on Linux the first of x-terminal-emulator, gnome-terminal,
   konsole, xfce4-terminal, kitty, alacritty, xterm). `node-pty` is a native module per platform
   and Electron ABI; it is a packaging project of its own.
-- Tray icon and Start at login, auto-update, Windows, bundled Node (the runtime needs Node 22.18+
-  on the computer for now), downloads from the panel into a chat (the bridge implements the
+- Tray icon, auto-update, Windows, downloads from the panel into a chat (the bridge implements the
   download events, and no test exercises them yet), file uploads from the panel (the runtime
-  refuses file choosers in any case), a `control` tool in the contract (above).
+  refuses file choosers in any case).
 - The installer-less macOS first-open flow and a `curl | sh` installer like the connector's.
 
-## Open questions for the owner
+## Decisions taken (owner, 2026-11-25)
 
-1. Replace the Mac connector (`galopin-tray`) once the desktop app is on a Mac, or keep both for a
-   release? The tray's menu has no equivalent of "Start at login" yet.
-2. Bundle Node (about 40 MB) so the browser needs nothing installed, as the connector does?
-3. A `control` tool in the browse contract and a "You are driving" state on the Browsing card
-   (phase 2), so take over is visible to Cerea and the runtime holds its queue.
-4. Apple signing and notarisation, and so auto-update: is an Apple developer account coming?
-5. The stored Cerea address is the whole base URL (with `/chat`); is asking for it as a
-   plain address right for users, or should the app also accept the public origin and find the
-   chat (`/galopin/enroll.json` exists only under the base path)?
+1. The Mac connector stays one release beside the desktop app, then is retired; the desktop app
+   has start at login (opt in).
+2. Node is bundled (above, with its size).
+3. A `control` tool in the browse contract, "You are driving" on the Browsing card.
+4. No Apple account yet: unsigned, not notarised, no macOS auto-update; said in About.
+5. The user types just the site; the app finds the chat path and shows what it found.
+
+## Still open
+
+- An administrator-configured list of extra sign-in hops (federated identity providers upstream
+  of the server's own), if a deployment needs one.
+- Re-measure idle CPU on a real Mac (and on battery); the figures here are Xvfb.
+- After a take-over the task's page is the user's tab and asks for approval to use: acceptable, or
+  should hand-back re-adopt it without asking?

@@ -9,6 +9,9 @@ files:
 extraResources:
   - from: resources/galopin
     to: galopin
+  # Node.js (pinned, checksum-verified at build time), so browser use needs nothing installed.
+  - from: resources/node
+    to: node
 asar: true
 mac:
   category: public.app-category.productivity

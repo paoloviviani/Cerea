@@ -38,12 +38,17 @@ export class Galopin {
 	constructor(
 		readonly bin: string | undefined,
 		private readonly onLine: (line: string) => void,
-		private readonly env: NodeJS.ProcessEnv = process.env,
+		private env: NodeJS.ProcessEnv = process.env,
 		private readonly onChange: () => void = () => {}
 	) {}
 
 	get available(): boolean {
 		return !!this.bin;
+	}
+
+	/** Run every later galopin command with this directory first on PATH (the app's own Node). */
+	useNode(binDir: string): void {
+		this.env = { ...this.env, PATH: `${binDir}${delimiter}${this.env.PATH ?? ""}` };
 	}
 
 	configDir(): string {
