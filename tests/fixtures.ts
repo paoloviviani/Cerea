@@ -28,6 +28,7 @@ import { join } from "node:path";
 import superjson from "superjson";
 import { MOCK_OPENAI_PORT, type ScenarioSelector } from "./mock-openai.ts";
 import { MOCK_MCP_PORT, type RecordedToolCall } from "./mock-mcp.ts";
+import { MOCK_APPS_MCP_PORT, type AppsToolCall } from "./mock-apps-mcp.ts";
 import { mongoMemoryVersion } from "../src/lib/server/mongoMemoryVersion.ts";
 import { ensureLegacyOpenssl } from "../scripts/setups/legacyOpenssl.ts";
 
@@ -73,6 +74,9 @@ export const MOCK_OPENAI_ORIGIN = `http://127.0.0.1:${MOCK_OPENAI_PORT}`;
 export const MOCK_OPENAI_BASE_URL = `${MOCK_OPENAI_ORIGIN}/v1`;
 export const MOCK_MCP_ORIGIN = `http://127.0.0.1:${MOCK_MCP_PORT}`;
 export const MOCK_MCP_URL = `${MOCK_MCP_ORIGIN}/mcp`;
+/** The MCP Apps fixture (`tests/mock-apps-mcp.ts`): tools linked to `ui://` pages. */
+export const MOCK_APPS_MCP_ORIGIN = `http://127.0.0.1:${MOCK_APPS_MCP_PORT}`;
+export const MOCK_APPS_MCP_URL = `${MOCK_APPS_MCP_ORIGIN}/mcp`;
 export const MOCK_OIDC_PORT = Number(process.env.MOCK_OIDC_PORT ?? 8796);
 /** The mock issuer for machine tokens (`tests/mock-oidc.ts`). */
 export const MOCK_OIDC_ISSUER = `http://127.0.0.1:${MOCK_OIDC_PORT}`;
@@ -311,6 +315,31 @@ function mockMcpControl(request: APIRequestContext): MockMcpControl {
 		},
 		async reset() {
 			await request.post(`${MOCK_MCP_ORIGIN}/__control/reset`, { data: {} });
+		},
+	};
+}
+
+export interface MockAppsMcpControl {
+	url: string;
+	calls(): Promise<AppsToolCall[]>;
+	/** Requests that reached the undeclared-domain target: must stay 0. */
+	escapePings(): Promise<number>;
+	reset(): Promise<void>;
+}
+
+export function mockAppsMcpControl(request: APIRequestContext): MockAppsMcpControl {
+	return {
+		url: MOCK_APPS_MCP_URL,
+		async calls() {
+			const res = await request.get(`${MOCK_APPS_MCP_ORIGIN}/__control/calls`);
+			return res.json();
+		},
+		async escapePings() {
+			const res = await request.get(`${MOCK_APPS_MCP_ORIGIN}/__control/pings`);
+			return (await res.json()).pings;
+		},
+		async reset() {
+			await request.post(`${MOCK_APPS_MCP_ORIGIN}/__control/reset`, { data: {} });
 		},
 	};
 }
