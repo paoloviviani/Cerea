@@ -7,6 +7,8 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **Connector names are unique.** Adding or renaming a connector to a name already used by another of the user's own, or by one the deployment provides, is refused with a message next to the name field (an administrator's connector may not share a name with another of the deployment's). If two servers in `MCP_SERVERS` share a name, the first is kept and the log warns about the rest. A clash that already exists, or an administrator adds later, no longer sends a tool to the wrong connector: the deployment's connector wins over a user's, the older of two of a kind wins, and the other is left out and marked "Same name as another connector: rename it" until renamed (C169).
+
 ## v0.66.0 — 2026-11-26
 
 Pins: Cerea `0.66.0` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.34.1`, opencode `2.4.1`.

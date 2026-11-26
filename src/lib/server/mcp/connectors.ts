@@ -11,7 +11,10 @@ import type { ObjectId } from "mongodb";
 import { collections } from "$lib/server/database";
 import type { McpConnector, McpConnectorView, McpToken } from "$lib/types/McpConnector";
 import { stripAddress } from "$lib/utils/connectorUrl";
+import { getMcpServers } from "./registry";
+import { nameClashLosers, type NameCandidate } from "./nameClashes";
 import {
+	baseKey,
 	connectorKey,
 	isEnabled,
 	loadPolicies,
@@ -169,7 +172,33 @@ export async function viewsFor(
 			(row.scope ?? "user") !== "deployment" ||
 			policyIn(context.policies, connectorKey(row._id.toString())).mode !== "off"
 	);
-	return Promise.all(listed.map((row) => view(row, userId, isAdmin, context, includeOff)));
+	// Which of them lose their name to another (C169), so the list can say so. Decided like a
+	// turn does: among the connectors that are on for this user.
+	const on = (key: string, policy: ConnectorPolicy | undefined) =>
+		policy?.mode !== "off" && isEnabled(key, policy, context.switches);
+	const candidates: NameCandidate[] = [];
+	for (const server of getMcpServers()) {
+		const key = baseKey(server.name);
+		if (on(key, policyIn(context.policies, key))) {
+			candidates.push({ key, name: server.name, deployment: true });
+		}
+	}
+	for (const row of rows) {
+		const key = connectorKey(row._id.toString());
+		const deployment = (row.scope ?? "user") === "deployment";
+		if (!on(key, deployment ? policyIn(context.policies, key) : undefined)) continue;
+		candidates.push({
+			key,
+			name: row.name,
+			deployment,
+			...(row.createdAt ? { createdAt: new Date(row.createdAt).getTime() } : {}),
+		});
+	}
+	const losers = nameClashLosers(candidates);
+	const views = await Promise.all(
+		listed.map((row) => view(row, userId, isAdmin, context, includeOff))
+	);
+	return views.map((v) => (losers.has(v.key) ? { ...v, nameClash: true } : v));
 }
 
 /**

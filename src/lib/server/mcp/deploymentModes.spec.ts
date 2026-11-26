@@ -257,3 +257,63 @@ describe("recording a switch (review L3)", () => {
 		expect(spy).toHaveBeenCalledTimes(3);
 	});
 });
+
+describe("one name, one connector per turn (C169)", () => {
+	const nameIds = {
+		dep: new ObjectId(),
+		user: new ObjectId(),
+		old: new ObjectId(),
+		young: new ObjectId(),
+	};
+	const row = (_id: ObjectId, name: string, scope: "user" | "deployment", createdAt: number) => ({
+		_id,
+		userId,
+		scope,
+		name,
+		url: `https://${_id.toString()}.test/mcp`,
+		auth: "none" as const,
+		createdAt: new Date(createdAt),
+		updatedAt: new Date(createdAt),
+	});
+	afterEach(async () => {
+		await collections.mcpConnectors.deleteMany({ _id: { $in: Object.values(nameIds) } });
+	});
+
+	it("the deployment's connector wins over a newer-or-older user one, and the loser is left out with a reason", async () => {
+		await collections.mcpConnectors.insertMany([
+			row(nameIds.user, "Notion", "user", 1),
+			row(nameIds.dep, " notion ", "deployment", 2),
+		]);
+		const locals = await mcpLocalsFor({}, userId);
+		expect(locals.connectors.map((c) => c.key)).toEqual([connectorKey(nameIds.dep.toString())]);
+		expect(locals.blocked).toContainEqual({
+			key: connectorKey(nameIds.user.toString()),
+			name: "Notion",
+			reason: "same name",
+		});
+		expect(locals.unavailable).toContainEqual({
+			name: "Notion",
+			reason: "Same name as another connector: rename it",
+		});
+	});
+
+	it("of two user connectors the older wins, and no name is offered twice", async () => {
+		await collections.mcpConnectors.insertMany([
+			row(nameIds.young, "Docs", "user", 20),
+			row(nameIds.old, "docs", "user", 10),
+		]);
+		const locals = await mcpLocalsFor({}, userId);
+		expect(locals.connectors.map((c) => c.key)).toEqual([connectorKey(nameIds.old.toString())]);
+		expect(locals.blocked.map((b) => b.key)).toEqual([connectorKey(nameIds.young.toString())]);
+		const names = locals.connectors.map((c) => c.name.trim().toLowerCase());
+		expect(new Set(names).size).toBe(names.length);
+	});
+
+	it("an .env server wins over a user's connector of the same name", async () => {
+		env.servers = [{ name: "Docs", url: "https://env.test/mcp" }];
+		await collections.mcpConnectors.insertOne(row(nameIds.user, "docs", "user", 1));
+		const locals = await mcpLocalsFor({}, userId);
+		expect(locals.connectors.map((c) => c.key)).toEqual([baseKey("Docs")]);
+		expect(locals.blocked.map((b) => b.reason)).toEqual(["same name"]);
+	});
+});

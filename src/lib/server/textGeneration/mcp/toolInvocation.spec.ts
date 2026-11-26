@@ -102,6 +102,27 @@ beforeEach(() => {
 	mcpMock.callMcpTool.mockResolvedValue(mcpResult({ text: "ok" }));
 });
 
+describe("executeToolCalls: one name, one server (C169)", () => {
+	it("sends a tool to the first of two servers sharing a name, never the other", async () => {
+		const events = [];
+		for await (const event of executeToolCalls({
+			calls: [CALL],
+			mapping: MAPPING,
+			servers: [
+				{ name: "hf", url: "https://winner.test/mcp" },
+				{ name: "hf", url: "https://loser.test/mcp" },
+			],
+			parseArgs: parseToolArguments,
+			toPrimitive,
+			processToolOutput,
+		})) {
+			events.push(event);
+		}
+		expect(mcpMock.callMcpTool).toHaveBeenCalledTimes(1);
+		expect(mcpMock.callMcpTool.mock.calls[0][0]).toMatchObject({ url: "https://winner.test/mcp" });
+	});
+});
+
 describe("executeToolCalls", () => {
 	it("reports a successful call as a success", async () => {
 		mcpMock.callMcpTool.mockResolvedValue(mcpResult({ text: "all good" }));

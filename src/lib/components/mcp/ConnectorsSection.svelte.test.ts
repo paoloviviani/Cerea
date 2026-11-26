@@ -197,6 +197,44 @@ describe("ConnectorsSection: adding a token to a connector the probe could not w
 		connectors.set([]);
 	});
 
+	it("says next to the name field that a name is taken, and which connector is left out (C169)", async () => {
+		const mine = connector({ id: "c-dup", name: "Notion", nameClash: true });
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+				const method = init?.method ?? "GET";
+				if (String(input).includes("/api/v2/mcp/connectors") && method === "GET") {
+					return Response.json({ data: [mine] });
+				}
+				return Response.json({ message: "taken" }, { status: 409 });
+			})
+		);
+		const screen = mount();
+
+		await expect.element(screen.getByTestId("name-clash")).toBeInTheDocument();
+		await expect
+			.element(screen.getByTestId("name-clash"))
+			.toHaveTextContent("Same name as another connector: rename it");
+
+		[...screen.baseElement.querySelectorAll("button")]
+			.find((button) => button.textContent?.trim() === "Edit")
+			?.click();
+		const field = await vi.waitFor(() => {
+			const input = screen.baseElement.querySelector<HTMLInputElement>("form input[required]");
+			expect(input).not.toBeNull();
+			return input as HTMLInputElement;
+		});
+		field.value = "Docs";
+		field.dispatchEvent(new Event("input", { bubbles: true }));
+		[...screen.baseElement.querySelectorAll("button")]
+			.find((button) => button.textContent?.trim() === "Save changes")
+			?.click();
+
+		await expect
+			.element(screen.getByTestId("name-error"))
+			.toHaveTextContent('A connector named "Docs" already exists. Choose another name.');
+	});
+
 	it("offers a token field on a no-auth connector and sends what is typed", async () => {
 		// What auto mode leaves behind for a server that answered a bare 401:
 		// no sign-in, and a row error telling the person to add a token.

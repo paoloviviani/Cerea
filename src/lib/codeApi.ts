@@ -189,7 +189,7 @@ export interface AgentConnectorOption {
 	summary: string;
 	/** Secondary text after the name (a computer's own server id). */
 	detail?: string;
-	unavailable?: "switched off" | "needs sign-in";
+	unavailable?: "switched off" | "needs sign-in" | "same name";
 	locked?: boolean;
 }
 

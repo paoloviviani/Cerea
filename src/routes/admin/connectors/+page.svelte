@@ -13,6 +13,7 @@
 	it is a decision rather than an accident.
 -->
 <script lang="ts">
+	import { ConnectorNameTakenError } from "$lib/utils/connectorName";
 	import { delayedLoading } from "$lib/utils/delayedLoading.svelte";
 	import SkeletonBusy from "$lib/components/skeleton/SkeletonBusy.svelte";
 	import SkeletonFormRow from "$lib/components/skeleton/SkeletonFormRow.svelte";
@@ -45,6 +46,8 @@
 	let adding = $state(false);
 
 	let name = $state("");
+	/** The name the server refused as taken (C169), shown next to the name field. */
+	let nameError = $state<string | null>(null);
 	let url = $state("");
 	let authMode = $state<"auto" | "none" | "token" | "user_key">("auto");
 	let keyHelpText = $state("");
@@ -187,6 +190,7 @@
 
 	async function api<T>(path: string, init?: Call): Promise<T> {
 		const response = await fetch(`${base}/api/v2/mcp${path}`, init);
+		if (response.status === 409) throw new ConnectorNameTakenError();
 		if (!response.ok) {
 			const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
 			throw new Error(
@@ -267,6 +271,7 @@
 		event.preventDefault();
 		busy = true;
 		failure = null;
+		nameError = null;
 		try {
 			await api("/connectors", {
 				method: "POST",
@@ -308,7 +313,11 @@
 			adding = false;
 			await load();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : m["admin.connectors.add_failed"]();
+			if (err instanceof ConnectorNameTakenError) {
+				nameError = m["mcp.connectors.error.name_taken"]({ name: name.trim() });
+			} else {
+				failure = err instanceof Error ? err.message : m["admin.connectors.add_failed"]();
+			}
 		} finally {
 			busy = false;
 		}
@@ -330,6 +339,7 @@
 		editScopes = (connector.scopes ?? []).join("\n");
 		clearEditToken = false;
 		failure = null;
+		nameError = null;
 	}
 
 	function cancelEdit() {
@@ -344,6 +354,7 @@
 		if (!target || !editName.trim() || !editUrl.trim()) return;
 		busy = true;
 		failure = null;
+		nameError = null;
 		try {
 			const header = editTokenHeader.trim();
 			await api(asDeployment(target.id), {
@@ -386,7 +397,11 @@
 			cancelEdit();
 			await load();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : m["admin.connectors.edit_failed"]();
+			if (err instanceof ConnectorNameTakenError) {
+				nameError = m["mcp.connectors.error.name_taken"]({ name: editName.trim() });
+			} else {
+				failure = err instanceof Error ? err.message : m["admin.connectors.edit_failed"]();
+			}
 		} finally {
 			busy = false;
 		}
@@ -626,7 +641,15 @@
 						bind:value={name}
 						required
 						disabled={busy}
+						aria-invalid={nameError ? "true" : undefined}
 					/>
+					{#if nameError}
+						<span
+							class="text-xs text-red-600 dark:text-red-400"
+							role="alert"
+							data-testid="name-error">{nameError}</span
+						>
+					{/if}
 				</label>
 				<label class="flex flex-col gap-1" style="flex:2">
 					<span class="text-xs font-medium">{m["admin.connectors.form.url"]()}</span>
@@ -1037,7 +1060,15 @@
 									bind:value={editName}
 									required
 									disabled={busy}
+									aria-invalid={nameError ? "true" : undefined}
 								/>
+								{#if nameError}
+									<span
+										class="text-xs text-red-600 dark:text-red-400"
+										role="alert"
+										data-testid="name-error">{nameError}</span
+									>
+								{/if}
 							</label>
 							<label class="flex flex-col gap-1">
 								<span class="text-xs font-medium">{m["admin.connectors.form.url"]()}</span>

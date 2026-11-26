@@ -26,6 +26,8 @@ import { localConnectorViews } from "$lib/server/mcp/local";
 import { isInternalMcpHttpUrl } from "$lib/server/urlSafety";
 import { callerIdentity, requireAdmin } from "$lib/server/admin";
 import type { McpConnector } from "$lib/types/McpConnector";
+import { findNameClash } from "$lib/server/mcp/connectorNames";
+import { connectorNameTaken } from "$lib/utils/connectorName";
 
 /** How long an add waits for the tool listing it triggers; a failure is stored on the row. */
 const AUTO_CHECK_MS = 10_000;
@@ -155,6 +157,11 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		// Checked before the probe, so a non-administrator does not cause an
 		// outbound request to somebody else's server on their way to a 403.
 		await requireAdmin(locals);
+	}
+
+	// Before the probe, so a refused name costs no outbound request.
+	if (await findNameClash({ name, scope, userId: user._id })) {
+		error(409, connectorNameTaken(name));
 	}
 
 	if (authMode === "user_key" && scope !== "deployment") {

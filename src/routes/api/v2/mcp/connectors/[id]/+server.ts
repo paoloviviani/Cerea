@@ -20,6 +20,8 @@ import { checkConnectorTools } from "$lib/server/mcp/check";
 import { checkUserKey, storeUserKey } from "$lib/server/mcp/userKeys";
 import { seal, sealingAvailable } from "$lib/server/mcp/secretBox";
 import { logger } from "$lib/server/logger";
+import { findNameClash } from "$lib/server/mcp/connectorNames";
+import { connectorNameTaken } from "$lib/utils/connectorName";
 
 const body = z.object({
 	action: z.enum(["authorize", "reprobe", "disconnect", "check", "update", "setKey", "checkKey"]),
@@ -224,7 +226,16 @@ export const POST: RequestHandler = async ({ locals, params, request, url }) => 
 		/** The address or the credential changed: the tools are listed again. */
 		let relist = false;
 
-		if (parsed.data.name) set.name = parsed.data.name;
+		if (parsed.data.name) {
+			const clash = await findNameClash({
+				name: parsed.data.name,
+				scope: (connector.scope ?? "user") === "deployment" ? "deployment" : "user",
+				userId: connector.userId,
+				excludeId: connector._id,
+			});
+			if (clash) error(409, connectorNameTaken(parsed.data.name));
+			set.name = parsed.data.name;
+		}
 		if (parsed.data.appsAllowed !== undefined && (connector.scope ?? "user") === "user") {
 			// Stored only when it differs from the default (allowed).
 			if (parsed.data.appsAllowed) unset.appsAllowed = "";

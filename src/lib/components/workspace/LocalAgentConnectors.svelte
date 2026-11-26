@@ -19,7 +19,7 @@
 		name: string;
 		summary: string;
 		detail?: string;
-		unavailable?: "switched off" | "needs sign-in";
+		unavailable?: "switched off" | "needs sign-in" | "same name";
 	}
 
 	let loading = $state(true);
@@ -139,7 +139,9 @@
 									<span class="text-gray-500">
 										· {option.unavailable === "needs sign-in"
 											? m["workspace.agents.local.needs_sign_in"]()
-											: m["workspace.agents.local.switched_off"]()}</span
+											: option.unavailable === "same name"
+												? m["workspace.agents.local.same_name"]()
+												: m["workspace.agents.local.switched_off"]()}</span
 									>
 								{/if}
 								{#if option.summary}
