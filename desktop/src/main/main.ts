@@ -47,6 +47,7 @@ import { cappedFetch, iconFetcher } from "./probeFetch.ts";
 import {
 	activeProfile,
 	lacksIdentity,
+	probeMissingIdentity,
 	withIdentity,
 	addProfile,
 	ceraePartition,
@@ -697,21 +698,18 @@ function reconcile(): void {
  * profile's. The probe is the same public request as when the server was chosen.
  */
 async function ensureIdentity(): Promise<void> {
-	for (const p of store.profiles.filter(lacksIdentity)) {
-		try {
-			const probed = await probe(p.server.address);
-			const next = withIdentity(store, p.id, probed);
-			if (next !== store) {
-				store = next;
-				saveStore(app.getPath("userData"), store);
-			}
-		} catch {
-			// offline or changed: it stays unmatched, and the next start tries again
-		}
-	}
-	if (!galopin.running) galopin = makeGalopin(cur());
-	await refreshProfile(guardDeps()).catch(() => false);
-	pushState();
+	// Probed outside the queue (the network can take seconds); applied and rechecked inside it, so it
+	// cannot overlap a profile switch or another galopin action.
+	const found = await probeMissingIdentity(store, probe);
+	if (found.length === 0) return;
+	await ops.run(async () => {
+		const before = store;
+		for (const { id, info } of found) store = withIdentity(store, id, info);
+		if (store !== before) saveStore(app.getPath("userData"), store);
+		if (!galopin.running) galopin = makeGalopin(cur());
+		await refreshProfile(guardDeps());
+		pushState();
+	});
 }
 
 function guardDeps(): GuardDeps {
@@ -1191,10 +1189,13 @@ else {
 		session.defaultSession.setPermissionCheckHandler(() => false);
 		setMenu();
 		prepareGalopin();
-		void ensureIdentity();
 		store = loadStore(app.getPath("userData"));
 		reconcile();
 		galopin = makeGalopin(cur());
+		// Older profiles lack the exact issuer and client id: probed now that the store and galopin exist.
+		void ensureIdentity().catch((e) =>
+			line(`Could not check this server's sign-in settings: ${String(e)}`)
+		);
 		registerIpc();
 		await createWindow();
 		// A paired computer keeps galopin going while the app is open (the Mac connector app's job).

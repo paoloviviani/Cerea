@@ -309,12 +309,19 @@ try {
 		await wait(1500);
 		const info = await app.hook("galopininfo", "GINFO");
 		assert.equal(info.pairing, "none", "another server's pairing is not this profile's");
+		await wait(1500);
 		const cfg = JSON.parse(readFileSync(join(ud3, "config.json"), "utf8"));
 		assert.equal(
 			cfg.profiles[0].defaultGalopin,
 			false,
 			"the profile gave up galopin's default directory"
 		);
+		assert.equal(
+			cfg.profiles[0].server.clientId,
+			"opencode-enrollment",
+			"an older profile was probed at start for its client id"
+		);
+		assert.equal(cfg.profiles[0].server.issuer, "https://idp.example.org");
 		assert.equal(readFileSync(creds, "utf8"), before, "the other pairing is untouched");
 		await app.hook("panelset " + JSON.stringify({ open: true, pane: "galopin" }));
 		await wait(1200);
