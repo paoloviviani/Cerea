@@ -1,6 +1,7 @@
 # The Cerea desktop app (Electron, desktop/). Builds a Linux AppImage and deb and an unsigned
-# macOS zip (arm64 and x64) on pushes and pull requests that touch the app. It publishes nothing:
-# the artifacts are attached to the run only. See docs/dev/desktop-app.md.
+# macOS zip (arm64 and x64) on pushes and pull requests that touch the app. It publishes nothing itself:
+# the artifacts are attached to the run (kept 90 days, the maximum) and scripts/release/desktop-assets.sh
+# attaches them to each Cerea release. See docs/dev/desktop-app.md.
 name: desktop
 
 on:
@@ -85,6 +86,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: cerea-desktop-linux
+          retention-days: 90
           path: |
             desktop/release/*.AppImage
             desktop/release/*.deb
@@ -123,4 +125,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: cerea-desktop-macos-${{ matrix.arch }}
+          retention-days: 90
           path: desktop/release/*.zip
