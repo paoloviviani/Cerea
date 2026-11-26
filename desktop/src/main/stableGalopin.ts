@@ -36,6 +36,9 @@ export function ensureStableGalopin(opts: {
 	const dir = stableDir(opts.userData);
 	ensurePrivateDir(dir, opts.uid ?? process.getuid?.() ?? 0);
 	const target = join(dir, "galopin");
+	// Temporary copies a crash left behind.
+	for (const f of readdirSync(dir))
+		if (f.startsWith(".galopin-")) rmSync(join(dir, f), { force: true });
 	const want = sha256(opts.bundled);
 	let have: string | undefined;
 	try {
@@ -58,29 +61,62 @@ export function ensureStableGalopin(opts: {
 	return target;
 }
 
+export type FileKind = "shell" | "systemd" | "plist";
+
+export const kindOf = (file: string): FileKind =>
+	file.endsWith(".service") ? "systemd" : file.endsWith(".plist") ? "plist" : "shell";
+
+/** The path as it must be written inside quotes already there (`inQuotes`) or on its own, for each format. */
+export function quotePath(path: string, kind: FileKind, inQuotes: boolean): string {
+	if (kind === "shell") {
+		// Shims always single-quote the path: an apostrophe closes the quote, is escaped, and opens it again.
+		return inQuotes ? path.replace(/'/g, `'\\''`) : `'${path.replace(/'/g, `'\\''`)}'`;
+	}
+	if (kind === "plist")
+		return path.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+	// systemd ExecStart: inside double quotes, \ " are escaped, and % and $ are doubled (specifiers, variables).
+	const esc = path
+		.replace(/\\/g, "\\\\")
+		.replace(/"/g, '\\"')
+		.replace(/%/g, "%%")
+		.replace(/\$/g, "$$$$");
+	if (inQuotes) return esc;
+	return /[\s"'\\%$;]/.test(path) ? `"${esc}"` : esc;
+}
+
 /**
  * Rewrites a shim or service file so that every path to galopin that runs from an AppImage mount or
- * from the app's resources points at `stable` instead. Returns the new text, or undefined if there was
- * nothing to change.
+ * from the app's resources points at `stable` instead, quoted the way that format needs. Returns the
+ * new text, or undefined if there was nothing to change.
  */
 export function repointGalopin(
 	text: string,
 	stable: string,
-	resourcesGalopin?: string
+	resourcesGalopin?: string,
+	kind: FileKind = "shell"
 ): string | undefined {
 	let changed = false;
 	// A path token ends at whitespace, a quote or an angle bracket (shell quoting, systemd and plist).
-	const out = text.replace(/[^\s'"<>=]*\/galopin(?=[\s'"<>]|$)/g, (token) => {
-		const stale = token.includes("/.mount_") || (!!resourcesGalopin && token === resourcesGalopin);
-		if (!stale || token === stable) return token;
-		changed = true;
-		return stable;
-	});
+	const out = text.replace(
+		/[^\s'"<>=]*\/galopin(?=[\s'"<>]|$)/g,
+		(token, offset: number, whole: string) => {
+			const stale =
+				token.includes("/.mount_") || (!!resourcesGalopin && token === resourcesGalopin);
+			if (!stale || token === stable) return token;
+			changed = true;
+			const before = whole[offset - 1];
+			return quotePath(stable, kind, before === "'" || before === '"');
+		}
+	);
 	return changed ? out : undefined;
 }
 
 /** The files that may name galopin: the shims in the given directories and the service unit. */
-export function filesToRepoint(opts: { installDirs: string[]; home: string }): string[] {
+export function filesToRepoint(opts: {
+	installDirs: string[];
+	home: string;
+	xdgConfigHome?: string;
+}): string[] {
 	const files: string[] = [];
 	for (const d of opts.installDirs) {
 		for (const dir of [d, join(d, "galopin-shims")]) {
@@ -91,7 +127,10 @@ export function filesToRepoint(opts: { installDirs: string[]; home: string }): s
 			}
 		}
 	}
-	files.push(join(opts.home, ".config", "systemd", "user", "galopin.service"));
+	// The systemd user directory moves with XDG_CONFIG_HOME, like galopin's own.
+	files.push(
+		join(opts.xdgConfigHome || join(opts.home, ".config"), "systemd", "user", "galopin.service")
+	);
 	files.push(join(opts.home, "Library", "LaunchAgents", "org.cerea.galopin.plist"));
 	return files;
 }
@@ -102,6 +141,7 @@ export function migrateGalopinPaths(opts: {
 	resourcesGalopin?: string;
 	installDirs: string[];
 	home: string;
+	xdgConfigHome?: string;
 }): string[] {
 	const changed: string[] = [];
 	for (const f of filesToRepoint(opts)) {
@@ -113,7 +153,7 @@ export function migrateGalopinPaths(opts: {
 		}
 		// Only what galopin wrote: a shim has its marker, the unit and the plist name galopin.
 		if (text.length > 100_000) continue;
-		const next = repointGalopin(text, opts.stable, opts.resourcesGalopin);
+		const next = repointGalopin(text, opts.stable, opts.resourcesGalopin, kindOf(f));
 		if (next === undefined) continue;
 		writeFileSync(f, next, {
 			mode: f.endsWith(".service") || f.endsWith(".plist") ? 0o644 : 0o755,

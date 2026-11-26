@@ -128,6 +128,7 @@ function prepareGalopin(): void {
 			resourcesGalopin: bundled,
 			installDirs: [join(userData, "shims"), stableDir(userData)],
 			home: homedir(),
+			xdgConfigHome: process.env.XDG_CONFIG_HOME,
 		});
 		if (changed.some((f) => f.endsWith(".service"))) {
 			spawn("systemctl", ["--user", "daemon-reload"], { stdio: "ignore" }).on("error", () => {});
