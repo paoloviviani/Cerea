@@ -116,14 +116,21 @@ profile's bridge endpoint file> --key-file <own key file> --state-dir <own dir>`
     `enroll.json` as `sessionCookie`, read by the app when the profile is added (or once, for a profile saved before) and
     kept with the profile. The page sends no name and the ticket answer carries none. The app reads that cookie at the
     profile's base-path URL (so `Path=/chat` is found) and writes a key **only when exactly one cookie of that name is
-    visible, it is `HttpOnly` and, on an https server, `Secure`**; a cookie that script on the page could have set is
-    none of these, and a second cookie of the same name (a page-set one beside the real one) means no key. In every
-    other case an old key is removed. The app writes the key 0600 to the profile's own key file (removed when the
-    runtime starts and stops) and the runtime reads it at each check, as it reads a computer's key. With no key the
-    runtime accepts no approval;
+    visible, it is `HttpOnly`, on an https server `Secure`, and the server's own: host-only (no `Domain=`), its domain
+    the server's host and its path `/`**. A cookie that script on the page could have set is none of these; neither is
+    one a sibling host under the same registrable domain plants with `Domain=example.com` (after `/logout` deleted the
+    real one), nor one on another path; and a second cookie of the same name means no key. Deployments should name the
+    cookie with a `__Host-` prefix (`COOKIE_NAME`, see the configuration page; the default name is unchanged), which
+    makes browsers refuse such planted cookies outright. In every other case an old key is removed. The app writes the
+    key 0600 to the profile's own key file (removed when the runtime starts and stops) and the runtime reads it at each
+    check, as it reads a computer's key. Only the latest `cerea/window` announcement can write the key (a generation
+    counter), and nothing is written after the profile's browser is disposed. With no key the runtime accepts no
+    approval;
   - the **lease** and the **kept page** are in memory and live with the link (one task per window). A window that
-    reconnects starts free. A lease lapses after 5 minutes without a call or answer on the window (the loop's
-    keep-alive ping, every 2 minutes, holds a live task's), so a stuck task cannot keep the window for good.
+    reconnects starts free. A lease lapses after 5 minutes without a call or answer on the window; the loop's
+    keep-alive (every 2 minutes, which refreshes the lease without a message on the wire) holds a live task's, an
+    approval wait included, and the lease's `check()` is true only for the holder, so a task whose lease did lapse and
+    was taken stops with `lease_lost` instead of acting in the other task's page after its approval.
 
 ### 5. Lifecycle and UX
 
@@ -136,7 +143,8 @@ profile's bridge endpoint file> --key-file <own key file> --state-dir <own dir>`
   gone") and the lease goes with the link.
 - One driver at a time per panel: the bridge replaces an older, idle runtime connection with a newer one, but **refuses**
   a newcomer while the current one has sent a command in the last 30 s ("Another task is using this browser.", shown on
-  the card as the `busy` stop, en and it). A galopin task and a window task on the same panel at once therefore do not
+  the card as the `busy` stop, en and it; it is said only when the refused runtime was the app's own: the window
+  runtime connects with its own secret on the same bridge, `cdp-endpoint-window`, so a refusal is known to be its). A galopin task and a window task on the same panel at once therefore do not
   cut each other off: the one that started first keeps the panel. The app's own first-call sign of life (it opens the
   panel) is not a command and never makes its own runtime a newcomer to refuse. Coordinating beyond that is §7.
 

@@ -332,8 +332,9 @@ endpoint file> --key-file <userData>/winbrowser/<id>/approval-key --state-dir ..
   `cerea/window {windowId}`, five a minute. **The page never names the cookie.** Its name is the
   server's own word (`sessionCookie` in `enroll.json`, kept with the profile); the app reads that
   cookie from the Cerea view's cookie jar at the profile's base-path URL and uses it only when there
-  is exactly one, it is `HttpOnly` and, on https, `Secure` (a cookie script on the page could set is
-  none of these). Otherwise no key is written, an old one is removed, and the runtime accepts no
+  is exactly one, it is `HttpOnly`, on https `Secure`, host-only with the server's host as its domain,
+  and at path `/` (a cookie script on the page could set, or a sibling host with `Domain=`, is none of
+  these; the deployment should use a `__Host-` cookie name). Otherwise no key is written, an old one is removed, and the runtime accepts no
   approval. The key is derived with the same function the server uses and written 0600 to the key
   file. Caps: 256 KiB per request, 40 calls per 10 s, 8 in flight, 20 MiB per answer, and only
   `content`, `structuredContent` and `isError` cross back. The runtime child gets a minimal
@@ -342,7 +343,9 @@ endpoint file> --key-file <userData>/winbrowser/<id>/approval-key --state-dir ..
 - **A second driver is refused, not let in.** The bridge keeps one runtime connection; a newcomer
   replaces an idle one, but while the current one has sent a command in the last 30 s the newcomer
   is closed (`BUSY_MESSAGE`, "Another task is using this browser."). The window browser's own
-  `touch()` does not count as a command, or its own runtime would be refused. When its runtime
+  `touch()` does not count as a command, or its own runtime would be refused. The window runtime connects
+  with its own secret on the same bridge (`cdp-endpoint-window`, `windowEndpointFile`), so only a refusal of
+  that runtime is worded as "Another task is using this browser."; a refused galopin runtime is not. When its runtime
   failed right after a refusal, the page gets that message and the card says it (`busy` stop).
 - **The panel opens when a task starts**: the first call of a task is `control.touch()`, the same
   sign of life a galopin runtime task gives, so the panel opens on the Browser tab and "Browser
