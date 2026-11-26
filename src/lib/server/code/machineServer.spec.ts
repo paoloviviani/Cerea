@@ -23,7 +23,7 @@ function upgrade(url: string) {
 		socket: Duplex,
 		head: Buffer
 	) => void;
-	const socket = { write: vi.fn(), destroy: vi.fn() };
+	const socket = { write: vi.fn(), destroy: vi.fn(), on: vi.fn() };
 	handler({ url, headers: {} } as IncomingMessage, socket as unknown as Duplex, Buffer.alloc(0));
 	return socket;
 }
