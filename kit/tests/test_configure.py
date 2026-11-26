@@ -1709,7 +1709,14 @@ class TestMachineClientId(Deploy):
     def test_a_distinct_machine_id_is_kept_and_the_notes_say_to_re_enroll(self):
         r = self.rebuild(self.existing("galopin-app"), oidc_chat_client_id="new-app")
         self.assertEqual(r.values["OIDC_MACHINE_CLIENT_ID"], "galopin-app")
-        self.assertTrue(any("must re-enroll" in n for n in r.notes), r.notes)
+        self.assertTrue(any("changed but galopin's did not" in n and "must re-enroll" in n
+                            for n in r.notes), r.notes)
+
+    def test_a_changed_machine_id_says_the_enrolled_computers_name_the_old_one(self):
+        r = self.rebuild(self.existing("old-app"), oidc_chat_client_id="old-app",
+                         machine_client_id="flagged")
+        self.assertEqual(r.values["OIDC_MACHINE_CLIENT_ID"], "flagged")
+        self.assertTrue(any("their tokens name the old client id" in n for n in r.notes), r.notes)
 
     def test_the_flag_overrides_the_follow_rule(self):
         r = self.rebuild(self.existing("old-app"), oidc_chat_client_id="new-app",
@@ -1723,6 +1730,7 @@ class TestMachineClientId(Deploy):
 
     def interview(self, existing, agents, typed=""):
         asked = []
+        typed_replies = iter([typed] if isinstance(typed, str) else typed)
 
         def fake_input(prompt):
             asked.append(prompt)
@@ -1730,7 +1738,7 @@ class TestMachineClientId(Deploy):
                 raise AssertionError(f"the interview loops on {prompt!r}")
             if "client id" in prompt and "galopin" not in prompt:
                 return "new-app"
-            return typed if "galopin" in prompt else ""
+            return next(typed_replies, "") if "galopin" in prompt else ""
 
         given = {"share_mode", "origin", "admin_email", "preset", "tls", "idp", "oidc_issuer",
                  "office", "rustfs", "agents", "upstream_base_url", "group_import", "join_mode",
@@ -1756,6 +1764,12 @@ class TestMachineClientId(Deploy):
         self.assertEqual(result.machine_client_id, "galopin-app")
         result, _ = self.interview(self.existing("galopin-app"), True, typed="typed-app")
         self.assertEqual(result.machine_client_id, "typed-app")
+
+    def test_the_prompt_asks_again_on_a_bad_paste(self):
+        result, asked = self.interview(self.existing("galopin-app"), True,
+                                       typed=["bad id", "typed-app\\", " typed-app "])
+        self.assertEqual(result.machine_client_id, "typed-app")
+        self.assertEqual(len([p for p in asked if "galopin client id" in p]), 3, asked)
 
     def test_the_prompt_is_asked_only_when_agents_are_on(self):
         result, asked = self.interview(self.existing("old-app", agents=False), False)
@@ -1821,6 +1835,23 @@ class TestMachineClientId(Deploy):
         self.assertEqual(report.errors, [])
         self.assertEqual(len(report.warnings), 1)
 
+    def test_configure_check_runs_the_probe(self):
+        port, seen = self.serve(401, {"error": "invalid_client"})
+        self.discovery = {"issuer": "https://gitlab.example.org",
+                          "device_authorization_endpoint": f"http://127.0.0.1:{port}/device",
+                          "grant_types_supported": [cfg.DEVICE_CODE_GRANT]}
+        argv = ("--non-interactive", "--origin", "https://chat.example.org", "--admin-email",
+                "ops@example.org", "--idp", "external", "--oidc-issuer", "https://gitlab.example.org",
+                "--oidc-console-client-secret", "a", "--oidc-chat-client-secret", "b",
+                "--machine-client-id", "refused-app")
+        self.assertEqual(self.run_cli(*argv)[0], 0)
+        report = cfg.check(self.dir, network=True, probe_host=False)
+        self.assertTrue(any("refused-" in e and "refused" in e for e in report.errors), report.errors)
+        self.assertEqual(seen, [("/device", "client_id=refused-app&scope=openid")])
+        seen.clear()
+        cfg.check(self.dir, network=False, probe_host=False)
+        self.assertEqual(seen, [])
+
     def test_check_skips_the_probe_without_agents(self):
         port, seen = self.serve(401, {"error": "invalid_client"})
         report = self.checked(port, agents=False)
@@ -1872,6 +1903,12 @@ class TestEnvSafety(Deploy):
             got = cfg.ask("  client secret", "", secret=True, validate=cfg.credential_validator("secret"))
         self.assertEqual(got, "gloas-abc")
         self.assertTrue(any("ends with a backslash; paste it again without it" in p for p in printed), printed)
+
+    def test_a_bad_env_line_is_not_echoed(self):
+        with self.assertRaises(cfg.ConfigError) as caught:
+            cfg.parse_env("A='x'\ngloas-SECRETVALUE\n")
+        self.assertIn("line 2", str(caught.exception))
+        self.assertNotIn("SECRETVALUE", str(caught.exception))
 
     def test_the_sanitiser_keeps_line_and_key_and_drops_values(self):
         for raw in (
