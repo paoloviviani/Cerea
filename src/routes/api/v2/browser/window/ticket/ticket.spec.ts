@@ -8,7 +8,7 @@ vi.mock("$lib/server/browser/settings", async (orig) => ({
 	browserEnabled: () => state.enabled,
 }));
 
-import { redeemWindowTicket } from "$lib/server/browser/windowTickets";
+import { _resetTicketLimitsForTests, redeemWindowTicket } from "$lib/server/browser/windowTickets";
 import { windowGrantKey } from "$lib/server/browser/windowRegistry";
 import { config } from "$lib/server/config";
 import { POST } from "./+server";
@@ -39,14 +39,17 @@ const status = async (p: Promise<Response> | Response) => {
 
 beforeEach(() => {
 	state.enabled = true;
+	_resetTicketLimitsForTests();
 });
 
 describe("POST /api/v2/browser/window/ticket", () => {
 	it("mints a single-use ticket bound to the user, the session and the window id", async () => {
 		const res = await post({ windowId: WID }, { user, sessionId: "sess-1" });
-		const { ticket, cookie } = (await res.json()) as { ticket: string; cookie: string };
+		const body = (await res.json()) as { ticket: string };
+		const { ticket } = body;
+		// no cookie name, no key: the page learns only the ticket
+		expect(Object.keys(body)).toEqual(["ticket"]);
 		expect(ticket.length).toBeGreaterThan(30);
-		expect(cookie).toBe(config.COOKIE_NAME);
 		expect(redeemWindowTicket(ticket)).toEqual({
 			userId: user._id.toString(),
 			sessionId: "sess-1",
@@ -55,6 +58,17 @@ describe("POST /api/v2/browser/window/ticket", () => {
 			key: windowGrantKey("sess-secret", WID),
 		});
 		expect(redeemWindowTicket(ticket)).toBeNull();
+	});
+
+	it("allows ten tickets a minute per user, then answers 429", async () => {
+		for (let i = 0; i < 10; i++)
+			expect(await status(post({ windowId: WID }, { user, sessionId: "rate" }))).toBe(200);
+		expect(await status(post({ windowId: WID }, { user, sessionId: "rate" }))).toBe(429);
+		// a second session of the same user shares the budget
+		expect(await status(post({ windowId: WID }, { user, sessionId: "other" }))).toBe(429);
+		// another user is not affected
+		const other = { ...user, _id: new ObjectId() };
+		expect(await status(post({ windowId: WID }, { user: other, sessionId: "o" }))).toBe(200);
 	});
 
 	it("needs the session cookie: the key is derived from it", async () => {

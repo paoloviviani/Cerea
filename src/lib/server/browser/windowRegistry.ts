@@ -51,13 +51,23 @@ const CALL_TIMEOUT_MS = 60_000;
 const DOWNLOAD_TIMEOUT_MS = 180_000;
 /** A window that sends this many malformed messages is closed. */
 const MAX_OFFENCES = 5;
+/** Per window, inbound: messages in 10 s and bytes in a minute. A task sends one answer per call. */
+const MAX_MESSAGES_PER_10S = 50;
+const MAX_BYTES_PER_MINUTE = 96 * 1024 * 1024;
+/** Calls that timed out or were aborted may still be answered late, a few of them. */
+const MAX_LATE_ANSWERS = 8;
+/** At most this many live windows per user (a window that reconnects replaces its own). */
+export const MAX_WINDOWS_PER_USER = 4;
+/** A window lease lapses after this long with no call or answer, so a stuck task cannot hold it. */
+export const LEASE_IDLE_MS = 5 * 60_000;
 
 const contentBlock = z.union([
 	z.object({ type: z.literal("text"), text: z.string().max(MAX_WINDOW_MESSAGE_BYTES) }),
 	z.object({
 		type: z.literal("image"),
 		data: z.string().max(MAX_WINDOW_MESSAGE_BYTES),
-		mimeType: z.string().max(100),
+		// Only picture types the chat can show; anything else (svg, html, a made-up type) is refused whole.
+		mimeType: z.enum(["image/png", "image/jpeg", "image/webp", "image/gif"]),
 	}),
 ]);
 
@@ -112,16 +122,35 @@ interface Entry extends BrowserWindow {
 	transport: WindowTransport;
 	pending: Map<string, Pending>;
 	offences: number;
-	leased: boolean;
+	leasedBy: object | undefined;
+	lastActivity: number;
+	late: Set<string>;
+	lateAnswers: number;
+	recent: Array<[number, number]>;
 	closers: Set<() => void>;
 }
 
 const windows = new Map<string, Entry>();
 const mapKey = (userId: string, windowId: string) => `${userId}:${windowId}`;
 
+/** Whether this user may add a window with this id: below the cap, or it replaces its own. */
+export function windowCapacityFor(userId: string, windowId: string): boolean {
+	if (windows.has(mapKey(userId, windowId))) return true;
+	let n = 0;
+	for (const entry of windows.values()) if (entry.userId === userId && entry.open) n += 1;
+	return n < MAX_WINDOWS_PER_USER;
+}
+
+/** What the app answers when a second driver was refused its panel (`desktop/src/main/cdpBridge.ts`). */
+export const WINDOW_BUSY_MESSAGE = "Another task is using this browser.";
+
+export class WindowLimitError extends Error {}
+
 /**
  * Registers a window that authenticated as `userId` on `sessionId`. A window with the same id
- * (the page reconnecting) replaces the old link, which is closed.
+ * (the page reconnecting) replaces the old link, which is closed. Throws `WindowLimitError` when
+ * the user already has the most windows allowed (the upgrade checked this too, but it awaited
+ * the session in between, so two sockets could both have passed).
  */
 export function registerWindow(input: {
 	userId: string;
@@ -131,6 +160,7 @@ export function registerWindow(input: {
 	key: Buffer;
 	transport: WindowTransport;
 }): BrowserWindow {
+	if (!windowCapacityFor(input.userId, input.windowId)) throw new WindowLimitError();
 	const key = mapKey(input.userId, input.windowId);
 	const old = windows.get(key);
 	if (old) {
@@ -147,7 +177,11 @@ export function registerWindow(input: {
 		transport: input.transport,
 		pending: new Map(),
 		offences: 0,
-		leased: false,
+		leasedBy: undefined,
+		lastActivity: Date.now(),
+		late: new Set(),
+		lateAnswers: 0,
+		recent: [],
 		closers: new Set(),
 	};
 	windows.set(key, entry);
@@ -243,6 +277,17 @@ export function handleWindowMessage(window: BrowserWindow, raw: string): boolean
 		return false;
 	};
 	if (raw.length > MAX_WINDOW_MESSAGE_BYTES) return offend();
+	// Inbound budget per window: messages per 10 s and bytes per minute. Past it the window is closed.
+	const now = Date.now();
+	entry.recent = entry.recent.filter(([t]) => now - t < 60_000);
+	entry.recent.push([now, raw.length]);
+	const inTen = entry.recent.filter(([t]) => now - t < 10_000).length;
+	const bytes = entry.recent.reduce((n, [, b]) => n + b, 0);
+	if (inTen > MAX_MESSAGES_PER_10S || bytes > MAX_BYTES_PER_MINUTE) {
+		entry.transport.close(4429, "too many messages");
+		dropEntry(entry, "it sent more than a window may");
+		return false;
+	}
 	let json: unknown;
 	try {
 		json = JSON.parse(raw);
@@ -252,17 +297,27 @@ export function handleWindowMessage(window: BrowserWindow, raw: string): boolean
 	const parsed = windowResponseSchema.safeParse(json);
 	if (!parsed.success) return offend();
 	const pending = entry.pending.get(parsed.data.id);
-	// A late answer to a call that timed out or was aborted is not an offence.
-	if (!pending) return true;
+	if (!pending) {
+		// A late answer to a call that timed out or was aborted is fine, a few times; an answer to
+		// an id this process never issued is an offence.
+		if (entry.late.delete(parsed.data.id) && ++entry.lateAnswers <= MAX_LATE_ANSWERS) return true;
+		return offend();
+	}
+	entry.lastActivity = now;
 	entry.pending.delete(parsed.data.id);
 	clearTimeout(pending.timer);
 	if (pending.signal && pending.onAbort)
 		pending.signal.removeEventListener("abort", pending.onAbort);
 	if (parsed.data.error) {
+		// The app says another task holds its panel: that ends this task (the loop stops with
+		// `busy`), it is not a tool failure for the model to retry.
+		const busy = parsed.data.error.message === WINDOW_BUSY_MESSAGE;
 		pending.reject(
 			new BrowserRuntimeError(
-				`The browser in this app reported an error in ${pending.tool}: ${parsed.data.error.message}`,
-				"tool"
+				busy
+					? WINDOW_BUSY_MESSAGE
+					: `The browser in this app reported an error in ${pending.tool}: ${parsed.data.error.message}`,
+				busy ? "unavailable" : "tool"
 			)
 		);
 		return true;
@@ -280,6 +335,13 @@ export function handleWindowMessage(window: BrowserWindow, raw: string): boolean
 		content: result.content,
 	});
 	return true;
+}
+
+function noteLate(entry: Entry, id: string): void {
+	entry.late.add(id);
+	// Bounded: only the most recent few are remembered.
+	if (entry.late.size > MAX_LATE_ANSWERS)
+		entry.late.delete(entry.late.values().next().value as string);
 }
 
 /** The runtime transport of a window: one `tools/call` down the socket, one answer back. */
@@ -300,6 +362,7 @@ export function windowCall(window: BrowserWindow): RuntimeCall {
 			const timer = setTimeout(
 				() => {
 					entry.pending.delete(id);
+					noteLate(entry, id);
 					reject(
 						new BrowserRuntimeError(
 							`The browser in this app did not answer (${tool}).`,
@@ -314,9 +377,11 @@ export function windowCall(window: BrowserWindow): RuntimeCall {
 				if (!p) return;
 				entry.pending.delete(id);
 				clearTimeout(p.timer);
+				noteLate(entry, id);
 				reject(new Error("Aborted"));
 			};
 			signal?.addEventListener("abort", onAbort, { once: true });
+			entry.lastActivity = Date.now();
 			entry.pending.set(id, { tool, resolve, reject, timer, onAbort, signal });
 			try {
 				entry.transport.send(
@@ -349,8 +414,13 @@ export function windowLeaseStore(): LeaseStore {
 	return {
 		async acquire(windowId, userId) {
 			const entry = windows.get(mapKey(userId.toString(), windowId));
-			if (!entry || !entry.open || entry.leased) return null;
-			entry.leased = true;
+			if (!entry || !entry.open) return null;
+			// A lease nobody has used for a while (no call, no answer) is lapsed: a stuck task does not
+			// keep the window for good.
+			if (entry.leasedBy && Date.now() - entry.lastActivity < LEASE_IDLE_MS) return null;
+			const mine = {};
+			entry.leasedBy = mine;
+			entry.lastActivity = Date.now();
 			let held = true;
 			const cancel = onWindowClosed(entry, () => {
 				held = false;
@@ -362,7 +432,7 @@ export function windowLeaseStore(): LeaseStore {
 				release: async () => {
 					if (!held && !entry.open) return;
 					held = false;
-					entry.leased = false;
+					if (entry.leasedBy === mine) entry.leasedBy = undefined;
 					cancel();
 				},
 			};

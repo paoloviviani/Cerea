@@ -90,6 +90,7 @@
 			model_error: m["chat.browse.stopped.model_error"](),
 			denied: m["chat.browse.stopped.denied"](),
 			lease_lost: m["chat.browse.stopped.lease_lost"](),
+			busy: m["chat.browse.stopped.busy"](),
 			verification: m["chat.browse.stopped.verification"](),
 		};
 		return notes[reason];

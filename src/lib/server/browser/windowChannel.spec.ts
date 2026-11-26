@@ -8,7 +8,19 @@ import { ObjectId } from "mongodb";
 import { WebSocket } from "ws";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-const gate = vi.hoisted(() => ({ enabled: true }));
+const gate = vi.hoisted(() => ({ enabled: true, origin: undefined as string | undefined }));
+vi.mock("$lib/server/config", async (orig) => {
+	const real = await orig<typeof import("$lib/server/config")>();
+	return {
+		...real,
+		config: new Proxy(real.config, {
+			get: (target, key) =>
+				key === "PUBLIC_ORIGIN" && gate.origin !== undefined
+					? gate.origin
+					: Reflect.get(target, key),
+		}),
+	};
+});
 vi.mock("./settings", async (orig) => ({
 	...(await orig<typeof import("./settings")>()),
 	browserEnabled: () => gate.enabled,
@@ -33,8 +45,16 @@ const ORIGIN = "https://vitest.invalid"; // the mocked PUBLIC_ORIGIN
 const WID = "k".repeat(32);
 let httpServer: Server;
 let port: number;
-const session = { valid: true };
-const deps = { sessionValid: async () => session.valid };
+const session = { valid: true, fails: false, script: [] as ("fail" | "ok")[] };
+const deps = {
+	sessionValid: async () => {
+		const step = session.script.shift();
+		if (step === "fail") throw new Error("database down");
+		if (step === "ok") return true;
+		if (session.fails) throw new Error("database down");
+		return session.valid;
+	},
+};
 const sockets: WebSocket[] = [];
 
 beforeAll(async () => {
@@ -49,6 +69,8 @@ afterAll(() => new Promise<void>((r) => httpServer.close(() => r())));
 afterEach(() => {
 	gate.enabled = true;
 	session.valid = true;
+	session.fails = false;
+	session.script = [];
 	_setWindowRecheckMsForTests(60_000);
 	for (const s of sockets.splice(0)) {
 		s.on("error", () => undefined);
@@ -66,12 +88,11 @@ const ticket = (over: Partial<Parameters<typeof mintWindowTicket>[0]> = {}) =>
 		...over,
 	});
 
-function open(t: string | null, origin: string | null = ORIGIN) {
+function open(t: string | null, origin: string | null = ORIGIN, inUrl = false) {
 	const ws = new WebSocket(
-		`ws://127.0.0.1:${port}/api/v2/browser/window${t === null ? "" : `?ticket=${t}`}`,
-		{
-			headers: origin === null ? {} : { origin },
-		}
+		`ws://127.0.0.1:${port}/api/v2/browser/window${inUrl && t ? `?ticket=${t}` : ""}`,
+		t === null || inUrl ? [] : ["cerea-window.v1", `ticket.${t}`],
+		{ headers: origin === null ? {} : { origin } }
 	);
 	sockets.push(ws);
 	const messages: string[] = [];
@@ -101,12 +122,48 @@ describe("the window browser socket", () => {
 		expect(await refused(open(t).ws)).toBe(401); // single use
 	});
 
+	it("takes the ticket from the subprotocol only, never from the URL", async () => {
+		const t = ticket();
+		expect(await refused(open(t, ORIGIN, true).ws)).toBe(401);
+		// the ticket was not spent by that
+		const good = open(t);
+		await opened(good.ws);
+		expect(good.ws.protocol).toBe("cerea-window.v1");
+	});
+
+	it("allows at most four windows per user; a window reconnecting replaces its own", async () => {
+		for (let i = 0; i < 4; i++) {
+			const c = open(ticket({ windowId: `${i}`.repeat(32) }));
+			await opened(c.ws);
+		}
+		await vi.waitFor(() => expect(windowFor("u1", "s1", "3".repeat(32))).toBeDefined());
+		expect(await refused(open(ticket({ windowId: "9".repeat(32) })).ws)).toBe(429);
+		// another user is not affected
+		await opened(open(ticket({ userId: "u2", windowId: "8".repeat(32) })).ws);
+		// the same id again is a replacement, not a fifth window
+		await opened(open(ticket({ windowId: "0".repeat(32) })).ws);
+	});
+
 	it("refuses a foreign or missing Origin before the ticket is spent", async () => {
 		const t = ticket();
 		expect(await refused(open(t, "https://evil.example").ws)).toBe(403);
 		expect(await refused(open(t, null).ws)).toBe(403);
 		// the ticket was not spent by the refused attempts
 		await opened(open(t).ws);
+	});
+
+	it("fails closed when PUBLIC_ORIGIN is not set: no Origin can match, whatever it says", async () => {
+		gate.origin = "";
+		try {
+			const t = ticket();
+			expect(await refused(open(t, ORIGIN).ws)).toBe(403);
+			expect(await refused(open(t, "").ws)).toBe(403);
+		} finally {
+			gate.origin = undefined;
+		}
+		// the ticket was not spent, and with the origin back the same ticket opens
+		const t2 = ticket();
+		await opened(open(t2).ws);
 	});
 
 	it("refuses when the session is gone, and when browser use is off", async () => {
@@ -189,5 +246,22 @@ describe("the window browser socket", () => {
 		const done = closed(d.ws);
 		session.valid = false;
 		expect(await done).toBe(4403);
+	});
+
+	it("closes 4403 after three failed session re-checks in a row, and forgives a single blip", async () => {
+		_setWindowRecheckMsForTests(30);
+		const c = open(ticket({ windowId: "y".repeat(32) }));
+		await opened(c.ws);
+		const done = closed(c.ws);
+		session.fails = true;
+		expect(await done).toBe(4403);
+		session.fails = false;
+		// failed checks that are never three in a row do not close it, however many there are
+		const e = open(ticket({ windowId: "x".repeat(32) }));
+		await opened(e.ws);
+		session.script = ["fail", "fail", "ok", "fail", "fail", "ok", "fail", "fail", "ok", "ok"];
+		await vi.waitFor(() => expect(session.script).toHaveLength(0), { timeout: 3000 });
+		await new Promise((r) => setTimeout(r, 40));
+		expect(e.ws.readyState).toBe(WebSocket.OPEN);
 	});
 });

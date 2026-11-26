@@ -117,12 +117,18 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 		{ id: string; title: string; url: string; lent?: { origin: string } }
 	>();
 	private keptCount = 0;
+	private readonly spent = new Set<string>();
 	private openedCount = 0;
 
 	constructor(
 		pages: FakePage[],
 		start?: string,
-		private readonly options: { key?: Buffer; now?: () => number } = {}
+		private readonly options: {
+			key?: Buffer;
+			now?: () => number;
+			/** Like the real runtime: a grant whose id is not `site:` is spent by its first use. */
+			spendGrants?: boolean;
+		} = {}
 	) {
 		for (const page of pages) {
 			this.pages.set(page.id, {
@@ -299,6 +305,17 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 						error: "approval does not match",
 					});
 					break;
+				}
+				if (this.options.spendGrants && !grant.id.startsWith("site:")) {
+					if (this.spent.has(grant.id)) {
+						results.push({
+							ok: false,
+							refused: "approval_mismatch",
+							error: "This approval was already used for an earlier action.",
+						});
+						break;
+					}
+					this.spent.add(grant.id);
 				}
 			}
 			const outcome = this.perform(action, element, downloads, index, grant?.id);

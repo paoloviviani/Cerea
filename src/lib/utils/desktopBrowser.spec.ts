@@ -14,7 +14,10 @@ class FakeSocket {
 	onmessage: ((e: { data: unknown }) => void) | null = null;
 	onclose: ((e: { code: number }) => void) | null = null;
 	onerror: (() => void) | null = null;
-	constructor(readonly url: string) {
+	constructor(
+		readonly url: string,
+		readonly protocols: string[] = []
+	) {
 		FakeSocket.all.push(this);
 	}
 	open() {
@@ -47,7 +50,7 @@ function bridge() {
 }
 
 const okTicket = (ticket = "T1") =>
-	vi.fn(async () => new Response(JSON.stringify({ ticket, cookie: "hf-chat" }), { status: 200 }));
+	vi.fn(async () => new Response(JSON.stringify({ ticket }), { status: 200 }));
 
 describe("desktopBrowser", () => {
 	it("is only there when the app says it can run a browser", () => {
@@ -81,7 +84,7 @@ describe("desktopBrowser", () => {
 			base: "/chat",
 			bridge: b,
 			fetchFn: fetchFn as never,
-			socketFactory: (u) => new FakeSocket(u) as never,
+			socketFactory: (u, p) => new FakeSocket(u, p) as never,
 			origin: "https://cerea.example",
 			windowId: "i".repeat(32),
 		});
@@ -94,16 +97,17 @@ describe("desktopBrowser", () => {
 			})
 		);
 		const ws = FakeSocket.all[0];
-		expect(ws.url).toBe("wss://cerea.example/chat/api/v2/browser/window?ticket=T1");
+		expect(ws.url).toBe("wss://cerea.example/chat/api/v2/browser/window");
+		expect(ws.protocols).toEqual(["cerea-window.v1", "ticket.T1"]);
 		expect(currentWindowId()).toBeUndefined(); // not until it is open
 		ws.open();
 		expect(currentWindowId()).toBe("i".repeat(32));
-		// the page tells the app which window it is and where the session secret is: never a secret
+		// the page tells the app which window it is: no secret and no cookie name
 		expect(toApp).toEqual([
 			JSON.stringify({
 				jsonrpc: "2.0",
 				method: "cerea/window",
-				params: { windowId: "i".repeat(32), cookie: "hf-chat" },
+				params: { windowId: "i".repeat(32) },
 			}),
 		]);
 		toApp.length = 0;
@@ -135,14 +139,14 @@ describe("desktopBrowser", () => {
 		let n = 0;
 		const flaky = vi.fn(async () => {
 			if (++n === 1) throw new Error("offline");
-			return new Response(JSON.stringify({ ticket: "T2", cookie: "hf-chat" }), { status: 200 });
+			return new Response(JSON.stringify({ ticket: "T2" }), { status: 200 });
 		});
 		FakeSocket.all = [];
 		const stop = startDesktopBrowserLink({
 			base: "",
 			bridge: bridge().b,
 			fetchFn: flaky as never,
-			socketFactory: (u) => new FakeSocket(u) as never,
+			socketFactory: (u, p) => new FakeSocket(u, p) as never,
 			origin: "https://c",
 			backoff: [5, 5],
 		});
@@ -158,7 +162,7 @@ describe("desktopBrowser", () => {
 			base: "",
 			bridge: b,
 			fetchFn: fetchFn as never,
-			socketFactory: (u) => new FakeSocket(u) as never,
+			socketFactory: (u, p) => new FakeSocket(u, p) as never,
 			origin: "https://c",
 			windowId: "j".repeat(32),
 			backoff: [5, 5],

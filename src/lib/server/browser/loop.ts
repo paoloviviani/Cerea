@@ -56,6 +56,7 @@ export type StoppedReason =
 	| "model_error"
 	| "denied"
 	| "lease_lost"
+	| "busy"
 	| "verification";
 
 export interface BrowseFile {
@@ -104,6 +105,7 @@ export const PLAIN_STOP_REASONS: Record<StoppedReason, string> = {
 	model_error: "the model that drives the browser failed",
 	denied: "the page is on a site the browser is not allowed to use",
 	lease_lost: "another task took over the browser",
+	busy: "another task is using the browser at the moment",
 	verification: "a check on the page (such as a captcha or a sign-in) was not completed",
 };
 
@@ -121,6 +123,15 @@ const PLAIN_STOP_DETAILS: Record<StopDetail, string> = {
 
 export function plainStopReason(reason: StoppedReason, detail?: StopDetail): string {
 	return (detail && PLAIN_STOP_DETAILS[detail]) || PLAIN_STOP_REASONS[reason];
+}
+
+/** The runtime could not use the app's browser because another task has it (the window's own wording). */
+const isBusy = (err: BrowserRuntimeError): boolean =>
+	/another task is using this browser/i.test(err.message);
+
+/** How a runtime failure ends the task: `busy` when another task holds the panel, else `runtime_error`. */
+function runtimeStop(err: BrowserRuntimeError): Stop {
+	return isBusy(err) ? new Stop("busy") : new Stop("runtime_error", stopDetailOf(err));
 }
 
 /** The plain-words detail of a runtime failure, from what the error says. */
@@ -240,6 +251,12 @@ export interface LoopDeps {
 	saveDownloads?: (files: DownloadResult["files"]) => Promise<BrowseFile[]>;
 	/** The user stopped the turn. */
 	signal?: AbortSignal;
+	/**
+	 * Every grant is single-use, site rules included (`siteonce:` ids the runtime spends): for a
+	 * target whose grants cross untrusted hands, the desktop window's page (ADR 0122). A captured
+	 * `site:` grant would otherwise be a standing 10-minute licence to repeat that action.
+	 */
+	singleUseGrants?: boolean;
 	/** The machine's name, for the sentence that asks the user to solve a verification. */
 	machineName?: string;
 	/** The page the task left open (null: none): the caller keeps the token for the next task. */
@@ -618,8 +635,7 @@ async function runInner(
 		} catch (err) {
 			if (err instanceof Stop) throw err;
 			if (deps.signal?.aborted) throw new Stop("aborted");
-			if (err instanceof BrowserRuntimeError && err.kind !== "tool")
-				throw new Stop("runtime_error", stopDetailOf(err));
+			if (err instanceof BrowserRuntimeError && err.kind !== "tool") throw runtimeStop(err);
 			throw err;
 		}
 	};
@@ -654,7 +670,7 @@ async function runInner(
 				} catch (err) {
 					if (deps.signal?.aborted) throw new Stop("aborted");
 					if (err instanceof BrowserRuntimeError && err.kind !== "tool") {
-						throw new Stop("runtime_error", stopDetailOf(err));
+						throw runtimeStop(err);
 					}
 					controlKnown = false;
 					return true;
@@ -1125,7 +1141,8 @@ async function runInner(
 				halted = true;
 				break;
 			} else if (decision.viaSiteRule && classification.class === "commit") {
-				approvedBy = `site:${classification.targetHost ?? hostOf(finalUrl) ?? "rule"}`;
+				const host = classification.targetHost ?? hostOf(finalUrl) ?? "rule";
+				approvedBy = deps.singleUseGrants ? `siteonce:${host}:${randomUUID()}` : `site:${host}`;
 			}
 
 			// The task's own first move: the runtime cannot know it is the first, so it gets a
@@ -1180,7 +1197,7 @@ async function runInner(
 				note(
 					lines.length + 1,
 					sentence,
-					`${fenceInline(r.outcome ?? "ok")}${approvedBy && approvedBy.startsWith("scope:") ? " (allowed by the user for this site)" : approvedBy && !approvedBy.startsWith("site:") ? " (approved by the user)" : ""}`
+					`${fenceInline(r.outcome ?? "ok")}${approvedBy && approvedBy.startsWith("scope:") ? " (allowed by the user for this site)" : approvedBy && !approvedBy.startsWith("site:") && !approvedBy.startsWith("siteonce:") ? " (approved by the user)" : ""}`
 				);
 				if (outcome.downloads?.length) {
 					lines.push(
@@ -1556,8 +1573,9 @@ async function runInner(
 			stopped = "model_error";
 			observer?.activity?.(short(err.message, 80));
 		} else if (err instanceof BrowserRuntimeError) {
-			stopped = "runtime_error";
-			stopDetail = stopDetailOf(err);
+			const stop = runtimeStop(err);
+			stopped = stop.reason;
+			stopDetail = stop.detail;
 		} else throw err;
 	}
 
@@ -1572,6 +1590,7 @@ async function runInner(
 		request.outputSchema &&
 		stopped !== "aborted" &&
 		stopped !== "runtime_error" &&
+		stopped !== "busy" &&
 		stopped !== "denied"
 	) {
 		try {
@@ -1628,6 +1647,7 @@ async function runInner(
 		if (
 			reason === "aborted" ||
 			reason === "runtime_error" ||
+			reason === "busy" ||
 			reason === "model_error" ||
 			reason === "denied"
 		)

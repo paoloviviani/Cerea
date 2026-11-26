@@ -1,12 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ObjectId } from "mongodb";
 import {
+	WINDOW_BUSY_MESSAGE,
+	WindowLimitError,
 	_resetWindowsForTests,
 	handleWindowMessage,
 	onWindowClosed,
 	registerWindow,
 	unregisterWindow,
 	windowCall,
+	windowCapacityFor,
 	windowFor,
 	windowForTurn,
 	windowGrantKey,
@@ -137,6 +140,23 @@ describe("the window registry", () => {
 		await expect(p2).resolves.toMatchObject({ isError: true, text: "bad" });
 	});
 
+	it("the app's 'another task is using this browser' ends the task instead of being a tool error", async () => {
+		const { t, win } = register();
+		const p = windowCall(win)("act", {});
+		handleWindowMessage(
+			win,
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: lastCall(t).id,
+				error: { code: -32000, message: WINDOW_BUSY_MESSAGE },
+			})
+		);
+		await expect(p).rejects.toMatchObject({
+			message: "Another task is using this browser.",
+			kind: "unavailable",
+		});
+	});
+
 	it("refuses a window's malformed messages, and closes a window that keeps sending them", () => {
 		const { t, win } = register();
 		const bad = [
@@ -164,11 +184,91 @@ describe("the window registry", () => {
 		expect(windowFor(user, session, WID)).toBeUndefined();
 	});
 
-	it("an answer to a call nobody is waiting for is ignored, not an offence", () => {
-		const { win } = register();
-		for (let i = 0; i < 10; i++)
-			expect(handleWindowMessage(win, answer(`late${i}`, { content: [] }))).toBe(true);
+	it("an answer to an id this process never issued is an offence, and five close the window", () => {
+		const { t, win } = register();
+		for (let i = 0; i < 4; i++)
+			expect(handleWindowMessage(win, answer(`x${i}`, { content: [] }))).toBe(false);
 		expect(windowFor(user, session, WID)).toBeDefined();
+		handleWindowMessage(win, answer("x5", { content: [] }));
+		expect(t.closes.at(-1)?.[0]).toBe(4400);
+		expect(windowFor(user, session, WID)).toBeUndefined();
+	});
+
+	it("a late answer to a call that timed out is allowed, a few times", async () => {
+		vi.useFakeTimers();
+		try {
+			const { win, t } = register();
+			const ids: string[] = [];
+			for (let i = 0; i < 3; i++) {
+				const p = windowCall(win)("snapshot", {});
+				p.catch(() => undefined);
+				ids.push(lastCall(t).id);
+				await vi.advanceTimersByTimeAsync(61_000);
+			}
+			for (const id of ids)
+				expect(handleWindowMessage(win, answer(id, { content: [] }))).toBe(true);
+			// the same late id twice is not a second allowance
+			expect(handleWindowMessage(win, answer(ids[0], { content: [] }))).toBe(false);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("takes image answers only of the four picture types", async () => {
+		const { win, t } = register();
+		const call = windowCall(win);
+		for (const mimeType of ["image/png", "image/jpeg", "image/webp", "image/gif"]) {
+			const ok = call("screenshot", {});
+			handleWindowMessage(
+				win,
+				answer(lastCall(t).id, { content: [{ type: "image", data: "AAAA", mimeType }] })
+			);
+			await expect(ok).resolves.toBeDefined();
+		}
+		const bad = call("screenshot", {});
+		bad.catch(() => undefined);
+		expect(
+			handleWindowMessage(
+				win,
+				answer(lastCall(t).id, {
+					content: [{ type: "image", data: "AAAA", mimeType: "image/svg+xml" }],
+				})
+			)
+		).toBe(false);
+	});
+
+	it("closes a window that sends more than 50 messages in 10 seconds", async () => {
+		const { win, t } = register();
+		const call = windowCall(win);
+		const ids: string[] = [];
+		for (let i = 0; i < 52; i++) {
+			call("snapshot", {}).catch(() => undefined);
+			ids.push(lastCall(t).id);
+		}
+		const results = ids.map((id) => handleWindowMessage(win, answer(id, { content: [] })));
+		expect(results.slice(0, 50).every(Boolean)).toBe(true);
+		expect(results[50]).toBe(false);
+		expect(t.closes.at(-1)?.[0]).toBe(4429);
+		expect(windowFor(user, session, WID)).toBeUndefined();
+	});
+
+	it("closes a window that sends more than its bytes budget in a minute", () => {
+		const { win, t } = register();
+		const big = JSON.stringify({ pad: "a".repeat(20 * 1024 * 1024) });
+		for (let i = 0; i < 6; i++) handleWindowMessage(win, big);
+		expect(t.closes.some((c) => c[0] === 4429)).toBe(true);
+		expect(windowFor(user, session, WID)).toBeUndefined();
+	});
+
+	it("allows at most four windows per user, but lets a window replace itself", () => {
+		const ids = ["a", "b", "c", "d"].map((c) => c.repeat(32));
+		for (const id of ids) register(transport(), { windowId: id });
+		expect(windowCapacityFor(user, "e".repeat(32))).toBe(false);
+		expect(windowCapacityFor(user, ids[0])).toBe(true);
+		expect(windowCapacityFor("someone-else", "e".repeat(32))).toBe(true);
+		// registering enforces it too: two upgrades that both passed the early check cannot both land
+		expect(() => register(transport(), { windowId: "e".repeat(32) })).toThrow(WindowLimitError);
+		expect(() => register(transport(), { windowId: ids[1] })).not.toThrow();
 	});
 
 	it("times out a call, and aborts one when the task is stopped", async () => {
@@ -235,6 +335,26 @@ describe("the window lease", () => {
 		const leases = windowLeaseStore();
 		expect(await leases.acquire(WID, stranger, "h")).toBeNull();
 		expect(await leases.acquire("x".repeat(32), owner, "h")).toBeNull();
+	});
+
+	it("lapses when the window shows no activity for five minutes, so a stuck task cannot hold it", async () => {
+		vi.useFakeTimers();
+		try {
+			register();
+			const leases = windowLeaseStore();
+			const stuck = await leases.acquire(WID, owner, "stuck");
+			expect(stuck).not.toBeNull();
+			await vi.advanceTimersByTimeAsync(4 * 60_000);
+			expect(await leases.acquire(WID, owner, "early")).toBeNull();
+			await vi.advanceTimersByTimeAsync(2 * 60_000);
+			const next = await leases.acquire(WID, owner, "next");
+			expect(next).not.toBeNull();
+			// the old holder's late release does not free the new holder's lease
+			await must(stuck).release();
+			expect(await leases.acquire(WID, owner, "third")).toBeNull();
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("is released with the window: the next window of that id starts free", async () => {

@@ -46,7 +46,7 @@ export interface LinkOptions {
 	base: string;
 	bridge?: CereaDesktopBrowser;
 	fetchFn?: typeof fetch;
-	socketFactory?: (url: string) => WebSocket;
+	socketFactory?: (url: string, protocols: string[]) => WebSocket;
 	origin?: string;
 	windowId?: string;
 	/** Back-off between reconnects (ms), first and last. */
@@ -62,7 +62,8 @@ export function startDesktopBrowserLink(opts: LinkOptions): () => void {
 	const origin = opts.origin ?? location.origin;
 	const windowId = opts.windowId ?? newWindowId();
 	const [minWait, maxWait] = opts.backoff ?? [1000, 30_000];
-	const make = opts.socketFactory ?? ((url: string) => new WebSocket(url));
+	const make =
+		opts.socketFactory ?? ((url: string, protocols: string[]) => new WebSocket(url, protocols));
 	let stopped = false;
 	let socket: WebSocket | undefined;
 	let wait = minWait;
@@ -77,7 +78,6 @@ export function startDesktopBrowserLink(opts: LinkOptions): () => void {
 	async function connect(): Promise<void> {
 		if (stopped) return;
 		let ticket: string;
-		let cookie = "";
 		try {
 			const res = await fetchFn(`${opts.base}/api/v2/browser/window/ticket`, {
 				method: "POST",
@@ -87,26 +87,24 @@ export function startDesktopBrowserLink(opts: LinkOptions): () => void {
 			// Off for this deployment or this user, or signed out: nothing to link, and no retries.
 			if (res.status === 404 || res.status === 401 || res.status === 403) return;
 			if (!res.ok) return retry();
-			const body = (await res.json()) as { ticket?: unknown; cookie?: unknown };
-			if (typeof body.ticket !== "string" || typeof body.cookie !== "string") return retry();
+			const body = (await res.json()) as { ticket?: unknown };
+			if (typeof body.ticket !== "string") return retry();
 			ticket = body.ticket;
-			cookie = body.cookie;
 		} catch {
 			return retry();
 		}
 		if (stopped) return;
-		const url = `${origin.replace(/^http/, "ws")}${opts.base}/api/v2/browser/window?ticket=${encodeURIComponent(ticket)}`;
-		const ws = make(url);
+		const url = `${origin.replace(/^http/, "ws")}${opts.base}/api/v2/browser/window`;
+		// The ticket travels in a subprotocol, not in the URL (which is logged).
+		const ws = make(url, ["cerea-window.v1", `ticket.${ticket}`]);
 		socket = ws;
 		let unsubscribe: (() => void) | undefined;
 		ws.onopen = () => {
 			wait = minWait;
 			linkedWindowId = windowId;
-			// Tells the app which window this is and which cookie holds the session secret, so it
-			// derives the window's grant key itself. The page never sees the secret or the key.
-			bridge.send(
-				JSON.stringify({ jsonrpc: "2.0", method: "cerea/window", params: { windowId, cookie } })
-			);
+			// Tells the app which window this is, so it derives the window's grant key itself from the
+			// session cookie it knows the name of. The page never sees the secret or the key.
+			bridge.send(JSON.stringify({ jsonrpc: "2.0", method: "cerea/window", params: { windowId } }));
 			unsubscribe = bridge.onMessage((text) => {
 				if (ws.readyState === 1 && typeof text === "string") ws.send(text);
 			});

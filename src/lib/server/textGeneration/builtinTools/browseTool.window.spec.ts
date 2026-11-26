@@ -56,7 +56,10 @@ const WID = "w".repeat(32);
 afterEach(() => _resetWindowsForTests());
 
 /** A linked window whose app answers with a fake runtime that checks grants under the window's own key. */
-function linkedWindow(userId: ObjectId, opts: { silent?: boolean } = {}) {
+function linkedWindow(
+	userId: ObjectId,
+	opts: { silent?: boolean; spend?: boolean; pages?: FakePage[] } = {}
+) {
 	const ref: { fake?: FakeBrowserRuntime } = {};
 	const win: BrowserWindow = registerWindow({
 		userId: userId.toString(),
@@ -85,7 +88,10 @@ function linkedWindow(userId: ObjectId, opts: { silent?: boolean } = {}) {
 			close() {},
 		},
 	});
-	const runtime = new FakeBrowserRuntime(pages(), undefined, { key: win.key });
+	const runtime = new FakeBrowserRuntime(opts.pages ?? pages(), undefined, {
+		key: win.key,
+		spendGrants: opts.spend,
+	});
 	ref.fake = runtime;
 	return { win, fake: runtime };
 }
@@ -98,6 +104,8 @@ function build(options: {
 	userText?: string;
 	unattended?: boolean;
 	computerRuntime?: FakeBrowserRuntime;
+	rules?: BrowserSettings["rules"];
+	refusal?: string;
 }) {
 	const model = scriptedModel(options.script);
 	const asks: string[] = [];
@@ -105,7 +113,9 @@ function build(options: {
 	const tool = createBrowseTool({
 		machines: options.machines ?? [],
 		...(options.window ? { window: options.window } : {}),
-		settings,
+		settings: options.rules ? { ...settings, rules: options.rules } : settings,
+		...(options.refusal ? { refusal: options.refusal } : {}),
+		...(options.rules ? { rulesNow: () => options.rules as BrowserSettings["rules"] } : {}),
 		ceiling: "ask",
 		userId: options.userId,
 		unattended: options.unattended,
@@ -302,5 +312,72 @@ describe("browse: this window", () => {
 		});
 		expect(fake.calls.map((c) => c.tool)).toEqual(["open"]);
 		expect(await win.kept.get(WID, userId, t.ctx.conversationId.toString())).toBeDefined();
+	});
+
+	it("every grant on a window is single use: a captured site grant cannot be replayed", async () => {
+		const userId = new ObjectId();
+		// A page that stays put, so the same action can be repeated
+		const staying: FakePage[] = [
+			{
+				id: "p",
+				url: "https://shop.example.com/cart",
+				title: "Cart",
+				elements: [{ ref: "e1", role: "button", name: "Pay €120" }],
+			},
+		];
+		const { win, fake } = linkedWindow(userId, { spend: true, pages: staying });
+		const click = { type: "click", ref: "e1" };
+		const t = build({
+			script: [
+				callTurn("act", { actions: [click] }),
+				callTurn("act", { actions: [click] }),
+				answerTurn("paid twice"),
+			],
+			userId,
+			window: win,
+			rules: { allow: ["shop.example.com"], deny: [] },
+		});
+		await t.tool.execute({ goal: "pay" }, t.ctx);
+		// allowed by the site rule: no card asked, each grant that crossed the page is its own
+		expect(t.asks).toEqual([]);
+		const grants = fake.calls
+			.filter((c) => c.tool === "act")
+			.map((c) => (c.args as { approvals: { id: string }[] }).approvals[0]);
+		expect(grants).toHaveLength(2);
+		for (const g of grants) expect(g.id).toMatch(/^siteonce:shop\.example\.com:/);
+		expect(grants[0].id).not.toBe(grants[1].id);
+		expect(fake.performed.filter((a) => a.type === "click")).toHaveLength(2);
+		// the page captured the first grant: replaying it for the same action is refused
+		const replay = await fake.asRuntimeCall()("act", { actions: [click], approvals: [grants[0]] });
+		expect(replay.text).toMatch(/already used/);
+		expect(fake.performed.filter((a) => a.type === "click")).toHaveLength(2);
+	});
+
+	it("on a computer the site grant stays standing, as before", async () => {
+		const userId = new ObjectId();
+		const t = build({
+			script: [callTurn("act", { actions: [{ type: "click", ref: "e1" }] }), answerTurn("paid")],
+			userId,
+			machines: [laptop],
+			rules: { allow: ["shop.example.com"], deny: [] },
+		});
+		await t.tool.execute({ goal: "pay" }, t.ctx);
+		const act = t.computerRuntime.calls.find((c) => c.tool === "act");
+		expect((act?.args as { approvals: { id: string }[] }).approvals[0].id).toBe(
+			"site:shop.example.com"
+		);
+	});
+
+	it("refuses, and does not fall back to a computer, when the window is on another server instance", async () => {
+		const t = build({
+			script: [],
+			userId: new ObjectId(),
+			machines: [laptop],
+			refusal: "This app's browser is connected to another server instance; try again.",
+		});
+		expect(await t.tool.execute({ goal: "look" }, t.ctx)).toEqual({
+			error: "This app's browser is connected to another server instance; try again.",
+		});
+		expect(t.computerRuntime.calls).toEqual([]);
 	});
 });

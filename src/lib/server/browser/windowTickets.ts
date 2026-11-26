@@ -40,3 +40,26 @@ export function redeemWindowTicket(ticket: string, now = Date.now()): WindowTick
 	void _expiresAt;
 	return binding;
 }
+
+const MAX_MINTS_PER_MINUTE = 10;
+const mints = new Map<string, number[]>();
+
+/** At most ten tickets a minute per user, whatever the session: a page that loops cannot churn sockets. */
+export function windowTicketAllowed(userId: string, now = Date.now()): boolean {
+	const recent = (mints.get(userId) ?? []).filter((t) => now - t < 60_000);
+	if (recent.length >= MAX_MINTS_PER_MINUTE) {
+		mints.set(userId, recent);
+		return false;
+	}
+	recent.push(now);
+	mints.set(userId, recent);
+	// Bounded: forget entries that have gone quiet.
+	if (mints.size > 5000)
+		for (const [k, v] of mints) if (!v.some((t) => now - t < 60_000)) mints.delete(k);
+	return true;
+}
+
+/** Test seam. */
+export function _resetTicketLimitsForTests(): void {
+	mints.clear();
+}

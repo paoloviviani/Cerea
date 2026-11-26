@@ -1889,6 +1889,7 @@
 	"chat.browse.where_computer": "Runs on {computer}",
 	"chat.browse.page_changed": "The page had changed since the last task.",
 	"chat.browse.stopped.lease_lost": "Another task took over the browser on your machine.",
+	"chat.browse.stopped.busy": "Another task is using this browser.",
 	"chat.table.column": "Column {number}",
 	"chat.table.column_lower": "column {number}",
 	"chat.table.count": [

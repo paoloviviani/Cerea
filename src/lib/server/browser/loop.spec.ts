@@ -726,6 +726,17 @@ describe("runBrowseLoop: failures", () => {
 		expect(result.result).toContain("crashed, or the computer went offline");
 	});
 
+	it("stops with busy, and says so, when another task has the app's browser", async () => {
+		const { deps, runtime } = setup({ script: [answerTurn("never")] });
+		runtime.failNext.snapshot = new BrowserRuntimeError(
+			"Another task is using this browser.",
+			"unavailable"
+		);
+		const result = await runBrowseLoop({ goal: "look" }, deps);
+		expect(result.stopped_reason).toBe("busy");
+		expect(result.result).toContain("another task is using the browser");
+	});
+
 	it("an oversize result is an error the model reads and works around, not a stop", async () => {
 		const { deps, runtime, model } = setup({
 			script: [

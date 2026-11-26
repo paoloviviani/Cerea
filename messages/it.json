@@ -1916,6 +1916,7 @@
 	"chat.browse.where_computer": "Eseguito su {computer}",
 	"chat.browse.page_changed": "La pagina era cambiata dall'ultima attività.",
 	"chat.browse.stopped.lease_lost": "Un'altra attività ha preso il controllo del browser sul tuo computer.",
+	"chat.browse.stopped.busy": "Un'altra attività sta usando questo browser.",
 	"chat.table.column": "Colonna {number}",
 	"chat.table.column_lower": "colonna {number}",
 	"chat.table.count": [

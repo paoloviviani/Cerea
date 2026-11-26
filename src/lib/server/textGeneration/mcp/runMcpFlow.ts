@@ -442,16 +442,25 @@ export async function* runMcpFlow({
 				const { windowForTurn } = await import("$lib/server/browser/windowRegistry");
 				const windowId = locals?.browserWindowId;
 				const window = browserSettings().enabled ? windowForTurn(locals) : undefined;
-				if (windowId && !window) {
+				// A window the turn names but this process does not hold: with several replicas another
+				// probably holds it, so refuse; with one it is simply gone (`windowRefusal`).
+				let refusal: string | undefined;
+				if (windowId && !window && !locals?.scheduledRun) {
 					const { chatReplicas } = await import("$lib/server/code/relay/facts");
-					logger.info(
-						{ replicas: chatReplicas() },
-						"[browse] the turn's window is not linked here; using a computer"
-					);
+					const { windowRefusal } = await import("$lib/server/browser/windowTarget");
+					const replicas = chatReplicas();
+					logger.info({ replicas }, "[browse] the turn's window is not linked here");
+					refusal = windowRefusal({
+						windowId,
+						hasWindow: false,
+						scheduledRun: false,
+						replicas,
+					});
 				}
-				if (machines.length === 0 && !window) return undefined;
+				if (machines.length === 0 && !window && !refusal) return undefined;
 				return {
 					machines,
+					...(refusal ? { refusal } : {}),
 					...(window ? { window } : {}),
 					settings: browserSettings(),
 					ceiling: ceilingOf(toolApprovalPolicy),

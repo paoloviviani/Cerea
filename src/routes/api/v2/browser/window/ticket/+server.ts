@@ -10,13 +10,14 @@ import { z } from "zod";
 import { requireBrowserUse } from "$lib/server/browser/gate";
 import { config } from "$lib/server/config";
 import { WINDOW_ID_PATTERN, windowGrantKey } from "$lib/server/browser/windowRegistry";
-import { mintWindowTicket } from "$lib/server/browser/windowTickets";
+import { mintWindowTicket, windowTicketAllowed } from "$lib/server/browser/windowTickets";
 
 const bodySchema = z.object({ windowId: z.string().regex(WINDOW_ID_PATTERN) });
 
 export const POST: RequestHandler = async ({ locals, request, cookies }) => {
 	const { userId } = requireBrowserUse(locals);
 	if (!locals.sessionId) error(401, "Login required");
+	if (!windowTicketAllowed(userId.toString())) error(429, "Too many requests.");
 	const parsed = bodySchema.safeParse(await request.json().catch(() => null));
 	if (!parsed.success) error(400, "Invalid request");
 	// The session secret is the cookie's value (the database keeps only its hash). It is HttpOnly,
@@ -30,7 +31,5 @@ export const POST: RequestHandler = async ({ locals, request, cookies }) => {
 			windowId: parsed.data.windowId,
 			key: windowGrantKey(secret, parsed.data.windowId),
 		}),
-		// Which cookie the app reads the secret from (the page passes the name on; it learns no value).
-		cookie: config.COOKIE_NAME,
 	});
 };

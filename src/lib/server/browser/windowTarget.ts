@@ -24,3 +24,22 @@ export function windowTargetWins(input: {
 	}
 	return true;
 }
+
+export const OTHER_REPLICA_MESSAGE =
+	"This app's browser is connected to another server instance. Try again in a moment, or start the task from a computer.";
+
+/**
+ * A turn that names a window this process does not hold. With one replica the window is simply
+ * gone (closed or switched), and the turn goes on with computers as before. With several, another
+ * replica probably holds it: the turn refuses, in plain words, rather than quietly browsing on a
+ * computer the user did not choose. A scheduled run never names a window.
+ */
+export function windowRefusal(input: {
+	windowId?: string;
+	hasWindow: boolean;
+	scheduledRun: boolean;
+	replicas: number;
+}): string | undefined {
+	if (!input.windowId || input.hasWindow || input.scheduledRun) return undefined;
+	return input.replicas > 1 ? OTHER_REPLICA_MESSAGE : undefined;
+}
