@@ -2222,7 +2222,8 @@ class TestEnvSafety(Deploy):
             self.assertEqual(code, 0)
             self.assertEqual(stat.S_IMODE((self.dir / ".env").stat().st_mode), now, oct(wide))
             self.assertIn(f"was mode {wide:04o}", err)
-            self.assertIn("other users", err)
+            self.assertIn("other users had access", err)
+            self.assertNotIn("read", err)
 
     def test_a_first_write_docker_cannot_read_leaves_no_env(self):
         with self.real_check(), self.docker_fails():
@@ -2318,6 +2319,13 @@ class TestEnvSafety(Deploy):
             self.assertEqual((self.dir / ".env").read_text(), before)
             self.assertEqual([f for f in self.files() if "new-" in f or ".bak-" in f], [], argv)
 
+    @property
+    def good_env(self):
+        return "".join(
+            line + "\n" for line in (self.dir / ".env").read_text().splitlines()
+            if "CHAT_TITLE" not in line
+        )
+
     LINE_BREAKS = ("\v", "\f", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029")
 
     def test_a_value_with_a_line_break_character_is_never_written(self):
@@ -2357,7 +2365,7 @@ class TestEnvSafety(Deploy):
             self.assertEqual(len(err.strip().splitlines()), 1, err)
         code, out, _ = self.run_cli("--check", "--offline")
         self.assertEqual(code, 1)
-        self.assertIn(".env does not parse", out)
+        self.assertIn("U+2028", out)
 
     def test_main_prints_a_config_error_instead_of_a_traceback(self):
         with mock.patch.object(cfg, "cmd_set", side_effect=cfg.ConfigError("boom")):
@@ -2367,7 +2375,8 @@ class TestEnvSafety(Deploy):
     def test_a_malformed_set_item_shows_only_a_key_shaped_prefix(self):
         self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
         for item, shown in (("bad key=gloas-SECRETVALUE", None), ("gloas-SECRETVALUE", None),
-                            ("TOKEN:gloas-SECRETVALUE", "TOKEN"), ("1X=gloas-SECRETVALUE", None),
+                            ("chat_erasure_token:gloas-SECRETVALUE", "chat_erasure_token"),
+                            ("TOKEN:gloas-SECRETVALUE", None), ("1X=gloas-SECRETVALUE", None),
                             ("x" * 80 + "=gloas-SECRETVALUE", None)):
             code, _, err = self.run_cli("--set", item)
             self.assertEqual(code, 2, item)
@@ -2412,6 +2421,99 @@ class TestEnvSafety(Deploy):
         (elsewhere / "real.env.new-abc").write_text("X='y'\n")
         report = cfg.check(self.dir, network=False, probe_host=False)
         self.assertTrue(any(str(elsewhere / "real.env.new-abc") in w for w in report.warnings), report.warnings)
+
+    def test_a_break_glass_interrupted_after_the_rewrite_says_so(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        with mock.patch.object(cfg, "_run", side_effect=KeyboardInterrupt):
+            code, out, err = self.run_cli("--break-glass", "--admin-email", "ops@example.org")
+        self.assertEqual(code, 130)
+        backup = next(self.dir.glob(".env.bak-*"))
+        self.assertIn(f"interrupted after .env was rewritten; {backup} holds the previous one", err)
+        self.assertNotIn("unchanged", err)
+
+    def test_a_break_glass_interrupted_before_the_rewrite_says_unchanged(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        before = (self.dir / ".env").read_text()
+        with mock.patch.object(cfg, "_utc_backup", side_effect=KeyboardInterrupt):
+            code, _, err = self.run_cli("--break-glass", "--admin-email", "ops@example.org")
+        self.assertEqual(code, 130)
+        self.assertIn("interrupted; .env unchanged", err)
+        self.assertEqual((self.dir / ".env").read_text(), before)
+
+    def test_break_glass_rewrites_a_symlinked_env_at_its_target_and_keeps_group_access(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        elsewhere = Path(tempfile.mkdtemp(prefix="configure-target-"))
+        self.addCleanup(shutil.rmtree, elsewhere, True)
+        shutil.move(str(self.dir / ".env"), str(elsewhere / "real.env"))
+        os.chmod(elsewhere / "real.env", 0o640)
+        (self.dir / ".env").symlink_to(elsewhere / "real.env")
+        fake = subprocess.CompletedProcess([], 1, "", "boom")
+        with mock.patch.object(cfg, "_run", return_value=fake):
+            self.run_cli("--break-glass", "--admin-email", "ops@example.org")
+        self.assertTrue((self.dir / ".env").is_symlink())
+        self.assertEqual(stat.S_IMODE((elsewhere / "real.env").stat().st_mode), 0o640)
+        self.assertEqual(len(list(elsewhere.glob("real.env.bak-*"))), 1)
+        self.assertEqual(cfg.parse_env((elsewhere / "real.env").read_text())["OIDC_KIND"], "authelia")
+
+    def test_an_undecodable_double_quoted_escape_is_one_line_without_the_value(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        path = self.dir / ".env"
+        path.write_text(path.read_text() + 'ZZZ="gloas-SECRETVALUE\\xQ"\n')
+        with self.assertRaises(cfg.ConfigError) as caught:
+            cfg.parse_env(path.read_text())
+        self.assertIn("ZZZ: a backslash escape in double quotes does not decode", str(caught.exception))
+        for argv in (("--set", "CHAT_TITLE=x"), self.ARGV, ("--break-glass", "--admin-email", "ops@example.org"),
+                     ("--check", "--offline")):
+            code, out, err = self.run_cli(*argv)
+            self.assertNotEqual(code, 0, argv)
+            self.assertNotIn("Traceback", out + err)
+            self.assertNotIn("SECRETVALUE", out + err)
+            self.assertIn("does not decode", out + err)
+
+    def test_a_env_that_is_not_utf8_is_one_line_without_the_content(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        path = self.dir / ".env"
+        path.write_bytes(path.read_bytes() + b"CHAT_TITLE='gloas-SECRETVALUE \xff\xfe'\n")
+        for argv in (("--set", "CHAT_TITLE=x"), self.ARGV, ("--break-glass", "--admin-email", "ops@example.org"),
+                     ("--check", "--offline")):
+            code, out, err = self.run_cli(*argv)
+            self.assertNotEqual(code, 0, argv)
+            self.assertNotIn("Traceback", out + err)
+            self.assertNotIn("SECRETVALUE", out + err)
+            self.assertIn(".env is not UTF-8", out + err)
+
+    def test_a_malformed_set_item_shows_a_start_only_when_it_is_a_known_key(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        for item, shown in (("chat_erasure_token:x", "chat_erasure_token"), ("CHAT_ERASURE_TOKEN:x", "CHAT_ERASURE_TOKEN"),
+                            ("gloas-SECRETVALUE=", None), ("dGVzdHNlY3JldA==", None),
+                            ("token:SECRETVALUE", None), ("ghp_SECRETVALUE:x", None)):
+            code, _, err = self.run_cli("--set", item)
+            self.assertEqual(code, 2, item)
+            self.assertNotIn("SECRETVALUE", err)
+            self.assertNotIn("dGVzdHNlY3JldA", err)
+            self.assertEqual(f"starting '{shown}'" in err, shown is not None, (item, err))
+
+    def test_check_names_a_line_separator_with_its_line_and_key_not_its_value(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        path = self.dir / ".env"
+        for char in self.LINE_BREAKS:
+            path.write_text(self.good_env + f"CHAT_TITLE='gloas-SECRETVALUE{char}x'\n#{char}comment\n")
+            report = cfg.check(self.dir, network=False, probe_host=False)
+            joined = " ".join(report.errors)
+            self.assertIn(f"U+{ord(char):04X}", joined, repr(char))
+            self.assertIn("(CHAT_TITLE)", joined)
+            self.assertNotIn("SECRETVALUE", joined)
+            self.assertNotIn("does not parse", joined)
+
+    def test_the_parse_error_message_is_not_mangled_by_the_sanitiser(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        path = self.dir / ".env"
+        path.write_text(path.read_text() + "not a line gloas-SECRETVALUE\n")
+        report = cfg.check(self.dir, network=False, probe_host=False)
+        joined = " ".join(report.errors)
+        self.assertIn("expected a name followed by an equals sign", joined)
+        self.assertNotIn("SECRETVALUE", joined)
+        self.assertNotIn("KEY=…", joined)
 
     def test_a_failure_that_is_not_the_env_syntax_does_not_roll_back(self):
         fake = subprocess.CompletedProcess([], 1, "", "required variable FOO is missing a value")

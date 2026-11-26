@@ -504,22 +504,33 @@ def parse_env(text: str) -> dict:
         key = key.strip()
         if not sep or not KEY.match(key):
             # The line is not echoed: it may hold a secret.
-            raise ConfigError(f"line {number}: expected KEY=VALUE (the line is not shown: it may hold a secret)")
+            raise ConfigError(f"line {number}: expected a name followed by an equals sign (the line is not shown: it may hold a secret)")
         value = value.strip()
         if len(value) >= 2 and value[0] == value[-1] == "'":
             value = value[1:-1]
         elif len(value) >= 2 and value[0] == value[-1] == '"':
-            value = bytes(value[1:-1], "utf-8").decode("unicode_escape")
+            try:
+                value = bytes(value[1:-1], "utf-8").decode("unicode_escape")
+            except (UnicodeDecodeError, ValueError):
+                raise ConfigError(
+                    f"line {number}: {key}: a backslash escape in double quotes does not decode"
+                ) from None
         else:
             value = re.split(r"\s+#", value, maxsplit=1)[0].strip()
         values[key] = value
     return values
 
 
+#: What str.splitlines() splits on besides \n, \r and \r\n.
+LINE_SEPARATORS = re.compile("[\x0b\x0c\x1c-\x1e\x85\u2028\u2029]")
+
+
 def load_env(path: Path) -> dict:
     """A .env file's values; a file configure cannot read is one clear ConfigError."""
     try:
         return parse_env(path.read_text(encoding="utf-8"))
+    except UnicodeDecodeError:
+        raise ConfigError(f"{path.name} is not UTF-8 text (the file is not shown); save it as UTF-8 first") from None
     except ConfigError as exc:
         raise ConfigError(f"{path.name} does not parse ({exc}); fix or remove that line first") from None
 
@@ -2787,11 +2798,27 @@ def check(root: Path, *, network: bool = True, probe_host: bool = True) -> Repor
         report.errors.append(f"no .env in {root}: run ./configure (or copy .env.example) first")
         return report
     try:
-        values = parse_env(env_path.read_text(encoding="utf-8"))
+        text = env_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        report.errors.append(".env is not UTF-8 text (the file is not shown): save it as UTF-8")
+        return report
+    for number, raw in enumerate(text.split("\n"), 1):
+        found = LINE_SEPARATORS.search(raw)
+        if found:
+            named = re.match(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=", raw)
+            report.errors.append(
+                f".env line {number}{f' ({named.group(1)})' if named else ''} holds U+{ord(found.group(0)):04X}, "
+                "a line separator that docker compose keeps in the value but ./configure reads as a line break, "
+                "so ./configure cannot read this file: remove the character by hand"
+            )
+    if report.errors:
+        return report
+    try:
+        values = parse_env(text)
     except ConfigError as exc:
         report.errors.append(f".env does not parse: {redact_env_error(str(exc))}")
         return report
-    for number, raw in enumerate(env_path.read_text(encoding="utf-8").splitlines(), 1):
+    for number, raw in enumerate(text.splitlines(), 1):
         m = re.match(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*'.*\\'\s*$", raw)
         if m:
             report.errors.append(
@@ -3155,6 +3182,13 @@ def compose_env_problem(root: Path, env_file: Path | None = None) -> str | None:
     return redact_env_error(first.strip(), env_secrets(env_file or root / ".env"))
 
 
+def warn_wide_mode(env_path: Path, mode: int) -> None:
+    """Say so when the old .env gave other users any access: it holds every secret."""
+    if mode & 0o007:
+        print(f"configure: {env_path} was mode {mode:04o}: other users had access to a file that "
+              f"holds every secret; it is now {mode & 0o660:04o}", file=sys.stderr)
+
+
 def write_env_verified(env_path: Path, text: str, root: Path, *, keep_backup: bool = False) -> tuple:
     """(backup, problem): replace .env with `text` only if it reads back and docker compose reads it.
 
@@ -3195,9 +3229,7 @@ def write_env_verified(env_path: Path, text: str, root: Path, *, keep_backup: bo
                         leftover.unlink()
                     except OSError:
                         pass
-    if mode & 0o007:
-        print(f"configure: {env_path} was mode {mode:04o}, which let other users read every secret; "
-              f"it is now {mode & 0o660:04o}", file=sys.stderr)
+    warn_wide_mode(env_path, mode)
     return saved, None
 
 
@@ -3382,6 +3414,18 @@ def cmd_configure(args, root: Path) -> int:
 
 
 def cmd_break_glass(args, root: Path) -> int:
+    state: dict = {}
+    try:
+        return _break_glass(args, root, state)
+    except KeyboardInterrupt:
+        if not state.get("written"):
+            raise  # main(): nothing was rewritten
+        print(f"\nconfigure: interrupted after .env was rewritten; {state['saved']} holds the previous one",
+              file=sys.stderr)
+        return 130
+
+
+def _break_glass(args, root: Path, state: dict) -> int:
     """`./configure --break-glass` (ADR 0093 §10 host steps): the deeper
     recovery, when the configured identity provider itself is unreachable or
     every administrator is locked out. Switches `.env` to the bundled
@@ -3416,10 +3460,16 @@ def cmd_break_glass(args, root: Path) -> int:
         print(f"configure: {exc}", file=sys.stderr)
         return 2
 
+    env_path = Path(os.path.realpath(env_path))
+    mode = stat.S_IMODE(env_path.stat().st_mode)
     saved = _utc_backup(env_path)
+    state["saved"] = saved
     write_private(env_path, text)
-    print(f"wrote {env_path} (mode 0600); the previous one is {saved.name}" if saved
-          else f"wrote {env_path} (mode 0600)")
+    os.chmod(env_path, mode & 0o660)
+    state["written"] = True
+    warn_wide_mode(env_path, mode)
+    print(f"wrote {env_path} (mode {mode & 0o660:04o}); the previous one is {saved.name}" if saved
+          else f"wrote {env_path} (mode {mode & 0o660:04o})")
 
     def fail(step: str, proc: subprocess.CompletedProcess | None) -> int:
         detail = (proc.stderr.strip().splitlines() or ["?"])[-1] if proc else "docker not runnable"
@@ -3492,7 +3542,10 @@ def cmd_set(args, root: Path) -> int:
         key, sep, value = item.partition("=")
         if not sep or not KEY.match(key):
             lead = re.match(r"[A-Za-z_][A-Za-z0-9_]{0,63}(?=[=:])", item)
-            start = f" starting {lead.group(0)!r}" if lead else ""
+            known = {k.upper() for k in values} | {
+                k.upper() for k in re.findall(r"^#? ?([A-Z_][A-Z0-9_]*)=", template, re.M)}
+            # Only a key this deployment knows: anything else may be the start of a secret.
+            start = f" starting {lead.group(0)!r}" if lead and lead.group(0).upper() in known else ""
             print(f"configure: --set expects KEY=VALUE; the item{start} is not that "
                   "(the rest is not shown)", file=sys.stderr)
             return 2

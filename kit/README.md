@@ -989,10 +989,14 @@ parse again (a line separator such as U+2028, say) is refused before anything
 is written. The new file keeps the old one's owner and group access; world
 access is removed, with a warning, and special bits quietly. A `.env.new-*` file
 is left only by an interrupted run: `./configure --check` warns about it (also
-beside a symlinked `.env`'s target), and it is safe to delete. A Ctrl-C leaves
-`.env` as it was. `--break-glass` does not use this path: it writes `.env`
-itself, with a UTC-stamped backup, and docker compose reads the result
-when it brings the stack up.
+beside a symlinked `.env`'s target), and it is safe to delete. `--check` also
+names a line holding a line-separator character (U+2028 and the like) by line
+and key, and says when `.env` is not UTF-8. A Ctrl-C leaves
+`.env` as it was (not so with `--break-glass`, below). `--break-glass` does not use this path: it writes `.env` itself
+(at the symlink's target when `.env` is a link, keeping owner and group access
+like the other writes), keeps a UTC-stamped backup, and docker compose reads
+the result when it brings the stack up. A Ctrl-C after that rewrite says so and
+names the backup that holds the previous file; before it, `.env` is unchanged.
 
 ### Groups from the identity provider
 
