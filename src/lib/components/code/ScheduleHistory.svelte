@@ -4,6 +4,7 @@
 	its status, why, and a link to the session a run reached.
 -->
 <script lang="ts">
+	import { visibleInterval } from "$lib/utils/visibleInterval";
 	import { m } from "$lib/paraglide/messages";
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
@@ -41,8 +42,7 @@
 
 	onMount(() => {
 		void load();
-		const timer = setInterval(() => void load(), 10_000);
-		return () => clearInterval(timer);
+		return visibleInterval(() => void load(), 10_000);
 	});
 
 	function sessionHref(run: ScheduleRunView): string | null {

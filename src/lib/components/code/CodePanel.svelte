@@ -70,7 +70,7 @@
 	// The shared device poll runs only while the sign-in is known to be fresh;
 	// the moment it is found stale the effect's cleanup stops it.
 	$effect(() => {
-		if (codeReauth.checked && !codeReauth.required) return useCodeDevicePoll();
+		if (codeReauth.checked && !codeReauth.required) return useCodeDevicePoll({ fast: true });
 	});
 
 	/** The empty panes point at the Agents panel, which is where pairing

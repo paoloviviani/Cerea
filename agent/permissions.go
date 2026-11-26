@@ -774,8 +774,9 @@ func (mc *machine) policyTightened(ctx context.Context, ch policy.Change) {
 	}
 }
 
-// policyPollEvery is how often a running agent looks at policy.json.
-const policyPollEvery = 2 * time.Second
+// policyPollEvery is how often a running agent looks at policy.json: a
+// tightening takes effect within this long. Not shorter: it is idle wakeups.
+const policyPollEvery = 5 * time.Second
 
 // watchPolicy follows policy.json for tightening, until ctx ends. It re-reads
 // the file when its mtime or size moves, takes in only what is stricter

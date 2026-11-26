@@ -1,6 +1,7 @@
 import { CodeApiError, listDevices, loadCodeStatus, type CodeDeviceView } from "$lib/codeApi";
 import { reconcileById } from "$lib/utils/reconcileById";
 import { onAppResume } from "$lib/utils/appResume";
+import { visibleInterval } from "$lib/utils/visibleInterval";
 import { codeReauth, onCodeReauth } from "$lib/stores/codeReauth.svelte";
 
 /**
@@ -22,12 +23,16 @@ export const codeDeviceList = $state<{
 });
 
 const POLL_MS = 8000;
+/** With an empty machine list, only every this-many ticks asks (about 32 s). */
+const EMPTY_POLL_EVERY = 4;
 /** The list is kept across visits (stale-while-revalidate); entering the
  * panel re-reads it only once it is older than this. */
 export const CODE_LIST_STALE_MS = POLL_MS;
 
-let pollHandle: ReturnType<typeof setInterval> | null = null;
+let stopPoll: (() => void) | null = null;
 let refCount = 0;
+/** Consumers that wait for a machine to appear (the pairing dialog, the Agents panel) keep the full rate. */
+let fastRefs = 0;
 let stopResume: (() => void) | null = null;
 
 // A stale sign-in drops what the machines told us: the list, and with it every
@@ -105,14 +110,24 @@ export async function refreshCodeDevices(opts: { ifStale?: boolean } = {}): Prom
 
 /** Call from `onMount`; call the returned function from its cleanup. The
  * interval runs while at least one consumer is mounted, and stops with the
- * last one — never zero, never more than one. */
-export function useCodeDevicePoll(): () => void {
+ * last one — never zero, never more than one. `fast` keeps the full rate
+ * while the list is empty (someone is waiting for a machine to show up). */
+export function useCodeDevicePoll(opts: { fast?: boolean } = {}): () => void {
 	refCount += 1;
+	if (opts.fast) fastRefs += 1;
 	if (refCount === 1) {
 		void refreshCodeDevices({ ifStale: true });
-		// A hidden tab asks nothing; `onAppResume` below re-reads on return.
-		pollHandle = setInterval(() => {
-			if (typeof document !== "undefined" && document.hidden) return;
+		// A hidden tab asks nothing (`visibleInterval` stops, and re-reads on
+		// return). With no machine paired nothing can change on its own (pairing
+		// and removing both re-read at once), so that case asks every fourth tick.
+		let emptyTicks = 0;
+		stopPoll = visibleInterval(() => {
+			if (codeDeviceList.devices.length === 0 && !codeReauth.required && fastRefs === 0) {
+				emptyTicks += 1;
+				if (emptyTicks % EMPTY_POLL_EVERY !== 0) return;
+			} else {
+				emptyTicks = 0;
+			}
 			void refreshCodeDevices();
 		}, POLL_MS);
 		// A sleeping tab's interval is throttled or frozen: re-read the moment
@@ -123,10 +138,11 @@ export function useCodeDevicePoll(): () => void {
 		});
 	}
 	return () => {
+		if (opts.fast) fastRefs = Math.max(0, fastRefs - 1);
 		refCount = Math.max(0, refCount - 1);
-		if (refCount === 0 && pollHandle) {
-			clearInterval(pollHandle);
-			pollHandle = null;
+		if (refCount === 0 && stopPoll) {
+			stopPoll();
+			stopPoll = null;
 			stopResume?.();
 			stopResume = null;
 		}

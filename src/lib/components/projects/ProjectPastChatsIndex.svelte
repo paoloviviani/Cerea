@@ -13,6 +13,7 @@
 	Loads in `onMount`, like the other project sections, for the SSR reason.
 -->
 <script lang="ts">
+	import { visibleInterval } from "$lib/utils/visibleInterval";
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
 	import { m } from "$lib/paraglide/messages";
@@ -74,10 +75,9 @@
 	// A reindex runs behind the request: follow it until nothing is indexing.
 	$effect(() => {
 		if (index?.state !== "indexing" || working) return;
-		const timer = setInterval(() => {
+		return visibleInterval(() => {
 			void call("", "GET").catch(() => undefined);
 		}, 3000);
-		return () => clearInterval(timer);
 	});
 
 	const label = $derived.by(() => {

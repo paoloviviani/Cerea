@@ -13,6 +13,7 @@
 	  only: no state, no link to a page that would 404.
 -->
 <script lang="ts">
+	import { visibleInterval } from "$lib/utils/visibleInterval";
 	import { onMount } from "svelte";
 	import { base } from "$app/paths";
 	import { page } from "$app/state";
@@ -109,12 +110,12 @@
 		if (!live) return;
 		void loadCodeStatus();
 		const stopPoll = useCodeDevicePoll();
-		const timer = setInterval(() => {
+		const stopRead = visibleInterval(() => {
 			if (state === "working" || state === "needs-you") read();
 		}, POLL_MS);
 		return () => {
 			stopPoll();
-			clearInterval(timer);
+			stopRead();
 		};
 	});
 	// First read, and the machine coming online after the card mounted.

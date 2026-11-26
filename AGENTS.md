@@ -488,3 +488,12 @@ scripted by `scripts/release/release.sh X.Y.Z`; see MAINTAINING.md section 5.
 A release is done only when it prints `released vX.Y.Z`.
 
 Full reference: [docs/dev/releasing.md](docs/dev/releasing.md).
+
+### Energy
+
+Idle surfaces must cost nothing: poll with `visibleInterval` (stops while the tab
+is hidden), prefer a stream to a poll, no infinite animation without a running
+thing behind it, no sub-second ticker in galopin. Measure with the `ENERGY=1`
+specs.
+
+Full reference: [docs/dev/energy.md](docs/dev/energy.md).

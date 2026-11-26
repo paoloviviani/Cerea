@@ -48,7 +48,7 @@ type Config struct {
 	KeepAliveIdle time.Duration
 
 	IdleTimeout time.Duration // default 10 min
-	PollEvery   time.Duration // default 3 s
+	PollEvery   time.Duration // default 5 s
 	MaxChannels int           // per server, default 4
 	// ServerLimits lowers the channel limit of a named server (the browser runtime
 	// owns one profile, so one process: its limit is 1).
@@ -122,7 +122,7 @@ func New(cfg Config) *Hub {
 		cfg.KeepAliveIdle = time.Hour
 	}
 	if cfg.PollEvery == 0 {
-		cfg.PollEvery = 3 * time.Second
+		cfg.PollEvery = 5 * time.Second
 	}
 	if cfg.MaxChannels == 0 {
 		cfg.MaxChannels = 4

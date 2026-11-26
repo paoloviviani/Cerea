@@ -20,6 +20,7 @@
 	lands where the action put them.
 -->
 <script lang="ts">
+	import { visibleInterval } from "$lib/utils/visibleInterval";
 	import { agentDisplayTitle } from "$lib/utils/codeAgentTitle";
 	import * as s from "$lib/components/overlay/styles";
 	import { delayedLoading } from "$lib/utils/delayedLoading.svelte";
@@ -388,7 +389,7 @@
 	onMount(() => {
 		const stopDevicePoll = useCodeDevicePoll();
 		void refreshTrees({ ifStale: true });
-		const interval = setInterval(() => void refreshTrees(), TREE_POLL_MS);
+		const stopTreePoll = visibleInterval(() => void refreshTrees(), TREE_POLL_MS);
 		const onFocus = () => {
 			void refreshCodeDevices();
 			void refreshTrees();
@@ -396,7 +397,7 @@
 		window.addEventListener("focus", onFocus);
 		return () => {
 			stopDevicePoll();
-			clearInterval(interval);
+			stopTreePoll();
 			window.removeEventListener("focus", onFocus);
 		};
 	});

@@ -15,6 +15,7 @@
 	server owns the rows and the executor does the work.
 -->
 <script lang="ts">
+	import { visibleInterval } from "$lib/utils/visibleInterval";
 	import { m } from "$lib/paraglide/messages";
 	import { onMount } from "svelte";
 	import { page } from "$app/state";
@@ -113,10 +114,9 @@
 
 	onMount(() => {
 		void load();
-		const timer = setInterval(() => {
+		return visibleInterval(() => {
 			if (!scheduleId && !creating) void load();
 		}, 15_000);
-		return () => clearInterval(timer);
 	});
 
 	async function toggle(schedule: ScheduleView) {

@@ -22,10 +22,10 @@ const FileName = "app-status.json"
 
 // StaleAfter is how old a file may be before its writer is taken to be gone.
 // The publisher refreshes it every Interval, so a few missed writes still pass.
-const StaleAfter = 20 * time.Second
+const StaleAfter = 30 * time.Second
 
 // Interval is how often the publisher rewrites the file.
-const Interval = 5 * time.Second
+const Interval = 10 * time.Second
 
 // Link values.
 const (

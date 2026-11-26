@@ -7,6 +7,7 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **Lower idle energy use.** The web interface stops polling while its tab is hidden and re-reads when you return (the Needs-you bar, the sidebar's computers and sessions, schedules, connectors, running-session cards, countdown clocks); galopin wakes less when idle (policy and `mcp.json` watchers every 5 s instead of 2 s and 3 s, the app status file every 10 s, and a terminal held back by flow control waits for the acknowledgement instead of ticking every 20 ms). How it is measured: `docs/dev/energy.md`.
 - New: the assistant can send a file it fetched or received (downloaded from the web, returned by a connector, or made in the sandbox) to the document reader (OCR), cached so a file is never read twice.
 - **MCP Apps, connector side.** An administrator can switch **Allow apps from this connector** off per connector (Admin → Connectors), and a user can for a connector they added. Apps from connectors on users' computers cross galopin's link unchanged (tool metadata, `resources/list` and `resources/read` for `ui://` pages), within the 8 MiB message cap. A deployment-wide setting, **Apps from connectors** (`MCP_APPS`: `off`, `deployment`, `all`), is checked first. The rendering itself ships with the MCP Apps feature.
 

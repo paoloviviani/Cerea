@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { visibleInterval } from "$lib/utils/visibleInterval";
 	import { m } from "$lib/paraglide/messages";
 	import Rich from "$lib/i18n/Rich.svelte";
 	import CarbonTime from "~icons/carbon/time";
@@ -27,10 +28,9 @@
 
 	let now = $state(serverCorrectedNow());
 	$effect(() => {
-		const timer = setInterval(() => {
+		return visibleInterval(() => {
 			now = serverCorrectedNow();
 		}, 1000);
-		return () => clearInterval(timer);
 	});
 
 	let remainingMs = $derived(until - now);

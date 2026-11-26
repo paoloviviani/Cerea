@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { visibleInterval } from "$lib/utils/visibleInterval";
 	import { m } from "$lib/paraglide/messages";
 	import { onMount } from "svelte";
 
@@ -11,8 +12,7 @@
 
 	let now = $state(Date.now());
 	onMount(() => {
-		const timer = setInterval(() => (now = Date.now()), 1000);
-		return () => clearInterval(timer);
+		return visibleInterval(() => (now = Date.now()), 1000);
 	});
 
 	// A countdown only when the machine's clock and ours plausibly agree: a
