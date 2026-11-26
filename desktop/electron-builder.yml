@@ -2,6 +2,10 @@ appId: org.cerea.desktop
 productName: Cerea
 directories:
   output: release
+  buildResources: build
+# The Cerea mark on a light tile, the same artwork as the Cerea connector's Mac app
+# (agent/packaging/macos/app-icon-1024.png); electron-builder makes the .icns from it.
+icon: build/icon.png
 files:
   - dist/**
   - package.json
