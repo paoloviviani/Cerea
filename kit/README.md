@@ -430,7 +430,7 @@ Among them, what identity configuration turns up:
 - the `team` preset without SMTP — users cannot reset their own password;
 - `pystino idp check --discovery-only`, run in the gateway container against the configured issuer;
 - with an external IdP, any configured scope the issuer's `scopes_supported` does not list (`--offline` skips the lookup).
-- with an external IdP and coding agents on, whether the issuer accepts galopin's client id (`OIDC_MACHINE_CLIENT_ID`): it starts a device authorization at the issuer's device endpoint (GitLab's `<issuer>/oauth/authorize_device` when none is advertised), the first step of `galopin enroll`, and approves nothing. A refusal (`invalid_client`) is an error that names `./configure --machine-client-id <id>`; an issuer it cannot reach is only a warning (`--offline` skips it);
+- with an external IdP and coding agents on, whether the issuer accepts galopin's client id (`OIDC_MACHINE_CLIENT_ID`): it starts a device authorization at the issuer's device endpoint (GitLab's `<issuer>/oauth/authorize_device` when none is advertised), the first step of `galopin enroll`, and approves nothing. A refusal (`invalid_client`) is an error that names `./configure --machine-client-id <id>`; an issuer it cannot reach, a device endpoint that is not `https://`, or an answer it cannot read is only a warning (`--offline` skips it). Redirects are not followed;
 - a `.env` line docker compose cannot read, such as a quoted value ending in a backslash. Messages about a bad `.env` give the line number and the key, never the value.
 
 It changes nothing, so it is safe on a running install.
@@ -959,13 +959,22 @@ client id always carries that note: the tokens of paired computers name the
 old one. `./configure --check` tests the id against the issuer (see
 [Checking an install](#checking-an-install)).
 
-Values typed at a prompt are trimmed. A client id or secret may hold letters,
-digits and `. _ ~ + / = : -`; a space, a quote or a trailing backslash is
-refused with "paste it again" (the prompt asks again), because a stray
-backslash inside the quoted line of `.env` makes every `docker compose`
-command fail with "unterminated quoted value". After writing `.env`,
-`./configure` runs `docker compose config -q`; if docker cannot read the file
-the previous `.env` is put back and nothing is changed.
+Values typed at a prompt are trimmed, and a value `.env` cannot keep (a quote,
+a control character, a trailing backslash) is refused with "paste it again" and
+the prompt asks again. A client id may hold letters, digits and `. _ ~ + / = : -`;
+a client secret any printable character except quotes, backslashes and spaces.
+The message never shows the characters. An answer you keep (Enter at a prompt
+that offers the current value) is not judged again. `--set` applies the same
+rules to the client ids and secrets. A stray backslash inside the quoted line of
+`.env` makes every `docker compose` command fail with "unterminated quoted
+value", which is why.
+
+`./configure` writes the new `.env` next to the old one and runs
+`docker compose --env-file <the new file> config -q` before it replaces
+anything: if docker cannot read it, the old `.env` stays as it was (same mode,
+no backup, no leftover file) and the error names the line and the key, never
+the value. The interactive `./configure` keeps the previous file as
+`.env.bak-<time>` once the new one is accepted; `--set` keeps none.
 
 ### Groups from the identity provider
 

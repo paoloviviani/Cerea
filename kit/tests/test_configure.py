@@ -37,6 +37,7 @@ cfg = _load()
 # need a document set one (they patch `fetch_discovery` themselves, in
 # `Deploy`). A call that expects a document would fail its assertions, so
 # the stub cannot silently stand in for one.
+REAL_FETCH_DISCOVERY = cfg.fetch_discovery
 cfg.fetch_discovery = lambda issuer, timeout=8.0: None
 REAL_COMPOSE_ENV_PROBLEM = cfg.compose_env_problem
 TEMPLATE = (ROOT / ".env.example").read_text(encoding="utf-8")
@@ -1699,7 +1700,24 @@ class TestMachineClientId(Deploy):
         r = self.rebuild(self.existing("old-app"), oidc_console_client_id="new-app",
                          oidc_chat_client_id="new-app")
         self.assertEqual(r.values["OIDC_MACHINE_CLIENT_ID"], "new-app")
-        self.assertTrue(any("follows the new chat client id" in n for n in r.notes), r.notes)
+        self.assertTrue(any("changed from old-app to new-app, the new chat client id" in n
+                            for n in r.notes), r.notes)
+
+    def test_a_console_id_that_changes_alone_does_not_move_the_machine_id_to_the_chat_id(self):
+        r = self.rebuild(self.existing("old-console", console="old-console", chat="old-chat"),
+                         oidc_console_client_id="new-console", oidc_chat_client_id="old-chat")
+        self.assertEqual(r.values["OIDC_MACHINE_CLIENT_ID"], "old-console")
+        self.assertFalse([n for n in r.notes if "changed from" in n], r.notes)
+        self.assertTrue(any("changed but galopin's did not" in n for n in r.notes), r.notes)
+
+    def test_an_absent_machine_id_counts_as_the_default_for_the_re_enroll_notes(self):
+        old = self.existing("opencode-enrollment")
+        del old["OIDC_MACHINE_CLIENT_ID"]
+        r = self.rebuild(old, oidc_chat_client_id="new-app")
+        self.assertTrue(any("changed but galopin's did not (opencode-enrollment)" in n
+                            for n in r.notes), r.notes)
+        r = self.rebuild(old, machine_client_id="other-app")
+        self.assertTrue(any("their tokens name the old client id" in n for n in r.notes), r.notes)
 
     def test_machine_id_that_was_the_console_client_follows_too(self):
         r = self.rebuild(self.existing("old-console", console="old-console", chat="old-chat"),
@@ -1728,7 +1746,7 @@ class TestMachineClientId(Deploy):
         self.assertEqual(r.values["OIDC_MACHINE_CLIENT_ID"], "old-app")
         self.assertFalse([n for n in r.notes if "re-enroll" in n or "follows" in n], r.notes)
 
-    def interview(self, existing, agents, typed=""):
+    def interview(self, existing, agents, typed="", chat_secret_given=False):
         asked = []
         typed_replies = iter([typed] if isinstance(typed, str) else typed)
 
@@ -1745,7 +1763,8 @@ class TestMachineClientId(Deploy):
                  "oidc_console_client_secret", "oidc_chat_client_secret"}
         # The secrets are "given", so the client questions are skipped; drop the
         # chat secret from `given` to ask for the chat client.
-        given.discard("oidc_chat_client_secret")
+        if not chat_secret_given:
+            given.discard("oidc_chat_client_secret")
         a = answers(**dict(self.EXT, agents=agents))
         with mock.patch("builtins.input", side_effect=fake_input), \
                 mock.patch("getpass.getpass", return_value="secret"), \
@@ -1765,6 +1784,12 @@ class TestMachineClientId(Deploy):
         result, _ = self.interview(self.existing("galopin-app"), True, typed="typed-app")
         self.assertEqual(result.machine_client_id, "typed-app")
 
+    def test_the_prompt_is_asked_when_the_chat_secret_came_on_the_command_line(self):
+        result, asked = self.interview(self.existing("galopin-app"), True, typed="typed-app",
+                                       chat_secret_given=True)
+        self.assertTrue(any("galopin client id" in p for p in asked), asked)
+        self.assertEqual(result.machine_client_id, "typed-app")
+
     def test_the_prompt_asks_again_on_a_bad_paste(self):
         result, asked = self.interview(self.existing("galopin-app"), True,
                                        typed=["bad id", "typed-app\\", " typed-app "])
@@ -1778,7 +1803,13 @@ class TestMachineClientId(Deploy):
 
     # --- ./configure --check against a fake IdP -------------------------------------
 
-    def serve(self, status, payload):
+    def setUp(self):
+        super().setUp()
+        plain = mock.patch.object(cfg, "_ALLOW_PLAIN_HTTP_DEVICE_ENDPOINT", True)
+        plain.start()
+        self.addCleanup(plain.stop)
+
+    def serve(self, status, payload, headers=None):
         import http.server
         import json as _json
         import threading
@@ -1790,6 +1821,8 @@ class TestMachineClientId(Deploy):
                 body = _json.dumps(payload).encode()
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")
+                for name, value in (headers or {}).items():
+                    self.send_header(name, value)
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
@@ -1802,6 +1835,28 @@ class TestMachineClientId(Deploy):
         self.addCleanup(server.server_close)
         self.addCleanup(server.shutdown)
         return server.server_address[1], seen
+
+    def serve_garbage(self):
+        """A server that answers with something that is not HTTP."""
+        import socket
+        import threading
+        sock = socket.socket()
+        sock.bind(("127.0.0.1", 0))
+        sock.listen(5)
+
+        def loop():
+            while True:
+                try:
+                    conn, _ = sock.accept()
+                except OSError:
+                    return
+                with conn:
+                    conn.recv(65536)
+                    conn.sendall(b"this is not http\r\n\r\n")
+
+        threading.Thread(target=loop, daemon=True).start()
+        self.addCleanup(sock.close)
+        return sock.getsockname()[1]
 
     def checked(self, port, agents=True):
         self.discovery = {"issuer": "https://gitlab.example.org",
@@ -1846,11 +1901,49 @@ class TestMachineClientId(Deploy):
                 "--machine-client-id", "refused-app")
         self.assertEqual(self.run_cli(*argv)[0], 0)
         report = cfg.check(self.dir, network=True, probe_host=False)
-        self.assertTrue(any("refused-" in e and "refused" in e for e in report.errors), report.errors)
+        self.assertEqual(len(report.errors), 1, report.errors)
+        self.assertIn("./configure --machine-client-id <id>", report.errors[0])
         self.assertEqual(seen, [("/device", "client_id=refused-app&scope=openid")])
         seen.clear()
         cfg.check(self.dir, network=False, probe_host=False)
         self.assertEqual(seen, [])
+
+    def test_check_refuses_a_device_endpoint_that_is_not_https(self):
+        port, seen = self.serve(200, {"device_code": "d"})
+        for endpoint in (f"http://127.0.0.1:{port}/device", "file:///etc/passwd", "ftp://127.0.0.1/x"):
+            self.discovery = {"issuer": "https://gitlab.example.org",
+                              "device_authorization_endpoint": endpoint,
+                              "grant_types_supported": [cfg.DEVICE_CODE_GRANT]}
+            report = cfg.Report()
+            with mock.patch.object(cfg, "_ALLOW_PLAIN_HTTP_DEVICE_ENDPOINT", False):
+                cfg.check_machine_client(self.existing("b276916cdeadbeef"), report)
+            self.assertEqual(report.errors, [], endpoint)
+            self.assertEqual(len(report.warnings), 1, endpoint)
+            self.assertIn("not an https:// address", report.warnings[0])
+        self.assertEqual(seen, [])
+
+    def test_check_does_not_follow_a_redirect(self):
+        other, followed = self.serve(200, {"device_code": "d"})
+        port, seen = self.serve(302, {}, {"Location": f"http://127.0.0.1:{other}/steal"})
+        report = self.checked(port)
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(followed, [])
+        self.assertEqual(report.errors, [])
+        self.assertTrue(any("answered 302" in w for w in report.warnings), report.warnings)
+
+    def test_check_reads_a_bounded_answer(self):
+        port, _ = self.serve(200, {"device_code": "d", "padding": "x" * (cfg.DEVICE_RESPONSE_LIMIT * 2)})
+        report = self.checked(port)
+        self.assertEqual(report.notes, [])
+        self.assertEqual(len(report.warnings), 1)
+
+    def test_check_survives_an_answer_that_is_not_http(self):
+        report = self.checked(self.serve_garbage())
+        self.assertEqual(report.errors, [])
+        self.assertEqual(len(report.warnings), 1)
+
+    def test_discovery_survives_an_answer_that_is_not_http(self):
+        self.assertIsNone(REAL_FETCH_DISCOVERY(f"http://127.0.0.1:{self.serve_garbage()}", timeout=3))
 
     def test_check_skips_the_probe_without_agents(self):
         port, seen = self.serve(401, {"error": "invalid_client"})
@@ -1881,10 +1974,47 @@ class TestEnvSafety(Deploy):
         with self.assertRaisesRegex(cfg.ConfigError, "ends with a backslash; paste it again without it"):
             build(**dict(self.EXT, oidc_console_client_secret="gloas-abc\\"))
 
-    def test_a_secret_with_inner_spaces_or_quotes_is_refused(self):
-        for bad in ("gloas abc", "gloas'abc", 'gloas"abc', "gl\toas"):
+    def test_a_secret_with_inner_spaces_quotes_or_backslashes_is_refused(self):
+        for bad in ("gloas abc", "gloas'abc", 'gloas"abc', "gl\toas", "gl\\oas"):
             with self.assertRaises(cfg.ConfigError, msg=bad):
                 build(**dict(self.EXT, oidc_chat_client_secret=bad))
+
+    def test_a_secret_may_hold_punctuation_a_client_id_may_not(self):
+        v = build(**dict(self.EXT, oidc_chat_client_secret="p@ss!w%rd?[x]$#&(1)*;<>")).values
+        self.assertEqual(v["OIDC_CHAT_CLIENT_SECRET"], "p@ss!w%rd?[x]$#&(1)*;<>")
+        with self.assertRaises(cfg.ConfigError):
+            build(**dict(self.EXT, oidc_chat_client_id="app@home"))
+
+    def test_the_charset_error_never_shows_the_characters(self):
+        for secret in (True, False):
+            problem = cfg.credential_problem("chat client secret", "SECRETVALUE x'\"", secret)
+            self.assertIn("contains a character that is not allowed", problem)
+            self.assertNotIn("SECRETVALUE", problem)
+            self.assertNotIn("'", problem.split("allowed:")[0])
+
+    def test_a_kept_default_is_not_judged_again(self):
+        odd = "p@ss!w%rd\\"
+        with mock.patch("getpass.getpass", side_effect=[""]):
+            got = cfg.ask("  client secret", odd, secret=True,
+                          validate=cfg.credential_validator("client secret", True))
+        self.assertEqual(got, odd)
+
+    def test_a_new_secret_with_punctuation_is_taken_at_the_prompt(self):
+        with mock.patch("getpass.getpass", side_effect=["  p@ss!w%rd?[x]  "]):
+            got = cfg.ask("  client secret", "old", secret=True,
+                          validate=cfg.credential_validator("client secret", True))
+        self.assertEqual(got, "p@ss!w%rd?[x]")
+
+    def test_every_prompt_asks_again_on_an_unsafe_paste(self):
+        for bad in ("it's", "line\rbreak", "tail\\", "bell\x07"):
+            replies = iter([bad, "fine value"])
+            printed = []
+            with mock.patch("builtins.input", side_effect=lambda p: next(replies)), \
+                    mock.patch("builtins.print", side_effect=lambda *x, **k: printed.append(" ".join(map(str, x)))):
+                got = cfg.ask("Its API key", "")
+            self.assertEqual(got, "fine value", bad)
+            self.assertTrue(printed, bad)
+            self.assertNotIn(bad, " ".join(printed))
 
     def test_surrounding_whitespace_is_stripped_from_a_flag_value(self):
         v = build(**dict(self.EXT, oidc_chat_client_id="  new-app \n")).values
@@ -1900,9 +2030,9 @@ class TestEnvSafety(Deploy):
         printed = []
         with mock.patch("getpass.getpass", side_effect=lambda p: next(replies)), \
                 mock.patch("builtins.print", side_effect=lambda *x, **k: printed.append(" ".join(map(str, x)))):
-            got = cfg.ask("  client secret", "", secret=True, validate=cfg.credential_validator("secret"))
+            got = cfg.ask("  client secret", "", secret=True, validate=cfg.credential_validator("client secret", True))
         self.assertEqual(got, "gloas-abc")
-        self.assertTrue(any("ends with a backslash; paste it again without it" in p for p in printed), printed)
+        self.assertTrue(any("ends with a backslash" in p and "paste it again" in p for p in printed), printed)
 
     def test_a_bad_env_line_is_not_echoed(self):
         with self.assertRaises(cfg.ConfigError) as caught:
@@ -1922,6 +2052,20 @@ class TestEnvSafety(Deploy):
         self.assertIn("key cannot contain a space", cfg.redact_env_error(
             "failed to read /x/.env: line 618: key cannot contain a space"))
 
+    def test_the_sanitiser_keeps_a_path_that_holds_near(self):
+        out = cfg.redact_env_error("failed to read /home/near/cerea/.env: line 4: key cannot contain a space")
+        self.assertEqual(out, "failed to read /home/near/cerea/.env: line 4: key cannot contain a space")
+
+    def test_the_sanitiser_drops_an_unquoted_value_and_keeps_the_key(self):
+        out = cfg.redact_env_error("error: invalid interpolation for OIDC_CHAT_CLIENT_SECRET=gloas-SECRETVALUE in line 12")
+        self.assertNotIn("SECRETVALUE", out)
+        self.assertIn("OIDC_CHAT_CLIENT_SECRET=…", out)
+        self.assertIn("line 12", out)
+
+    def test_the_idp_check_detail_is_not_run_through_the_env_sanitiser(self):
+        proc = subprocess.CompletedProcess([], 1, "client 'cerea' does NOT match the audience 'x'\n", "")
+        self.assertEqual(cfg.idp_check_detail(proc), "client 'cerea' does NOT match the audience 'x'")
+
     def test_check_flags_a_backslash_line_without_echoing_the_value(self):
         self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
         path = self.dir / ".env"
@@ -1938,21 +2082,107 @@ class TestEnvSafety(Deploy):
         self.assertTrue(any("line 617" in e for e in report.errors), report.errors)
         self.assertNotIn("SECRETVALUE", " ".join(report.errors))
 
+    def files(self):
+        return sorted(p.name for p in self.dir.iterdir() if p.name.startswith(".") and p.name != ".env.example")
+
+    def real_check(self):
+        return mock.patch.object(cfg, "compose_env_problem", REAL_COMPOSE_ENV_PROBLEM)
+
     def test_a_write_docker_cannot_read_is_rolled_back(self):
         self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
         before = (self.dir / ".env").read_text()
-        with mock.patch.object(cfg, "compose_env_problem", REAL_COMPOSE_ENV_PROBLEM), self.docker_fails():
+        with self.real_check(), self.docker_fails():
             code, out, err = self.run_cli("--set", "CHAT_TITLE=Other")
         self.assertEqual(code, 2)
         self.assertEqual((self.dir / ".env").read_text(), before)
         self.assertIn("line 617", err)
         self.assertNotIn("SECRETVALUE", err + out)
 
+    def test_a_rolled_back_set_keeps_the_mode_and_leaves_nothing_behind(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        with self.real_check(), self.docker_fails():
+            self.assertEqual(self.run_cli("--set", "CHAT_TITLE=Other")[0], 2)
+        self.assertEqual(self.files(), [".env"])
+        self.assertEqual(stat.S_IMODE((self.dir / ".env").stat().st_mode), 0o600)
+
+    def test_a_rolled_back_configure_over_an_existing_env_changes_nothing(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        before = (self.dir / ".env").read_text()
+        with self.real_check(), self.docker_fails():
+            code, out, err = self.run_cli(*self.ARGV, "--link-by-email")
+        self.assertEqual(code, 2)
+        self.assertEqual((self.dir / ".env").read_text(), before)
+        self.assertEqual(self.files(), [".env"])
+        self.assertIn("nothing was changed", err)
+        self.assertNotIn("SECRETVALUE", err + out)
+
+    def test_a_successful_set_leaves_no_backup(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        self.assertEqual(self.run_cli("--set", "CHAT_TITLE=Other")[0], 0)
+        self.assertEqual(self.env()["CHAT_TITLE"], "Other")
+        self.assertEqual(self.files(), [".env"])
+
+    def test_a_successful_configure_over_an_existing_env_keeps_one_backup(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        self.assertEqual(self.run_cli(*self.ARGV, "--link-by-email")[0], 0)
+        self.assertEqual(len([f for f in self.files() if ".bak-" in f]), 1, self.files())
+
+    def test_the_candidate_is_checked_before_it_replaces_the_env(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        before = (self.dir / ".env").read_text()
+        seen = []
+
+        def run(cmd, timeout=30, cwd=None):
+            seen.append((cmd, (self.dir / ".env").read_text()))
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        with self.real_check(), mock.patch.object(cfg, "_run", side_effect=run):
+            self.assertEqual(self.run_cli("--set", "CHAT_TITLE=Other")[0], 0)
+        self.assertEqual(len(seen), 1)
+        cmd, env_then = seen[0]
+        self.assertIn("--env-file", cmd)
+        self.assertNotEqual(Path(cmd[cmd.index("--env-file") + 1]).name, ".env")
+        self.assertEqual(env_then, before)
+        self.assertNotEqual((self.dir / ".env").read_text(), before)
+
+    def test_an_interrupt_while_checking_leaves_the_env_and_no_temp_file(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        before = (self.dir / ".env").read_text()
+        with self.real_check(), mock.patch.object(cfg, "_run", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                self.run_cli("--set", "CHAT_TITLE=Other")
+        self.assertEqual((self.dir / ".env").read_text(), before)
+        self.assertEqual(self.files(), [".env"])
+
+    def test_replacing_the_env_keeps_its_mode(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        os.chmod(self.dir / ".env", 0o640)
+        self.assertEqual(self.run_cli("--set", "CHAT_TITLE=Other")[0], 0)
+        self.assertEqual(stat.S_IMODE((self.dir / ".env").stat().st_mode), 0o640)
+
     def test_a_first_write_docker_cannot_read_leaves_no_env(self):
-        with mock.patch.object(cfg, "compose_env_problem", REAL_COMPOSE_ENV_PROBLEM), self.docker_fails():
+        with self.real_check(), self.docker_fails():
             code, _, err = self.run_cli(*self.ARGV)
         self.assertEqual(code, 2)
-        self.assertFalse((self.dir / ".env").exists())
+        self.assertEqual(self.files(), [])
+
+    def test_set_applies_the_same_charset_as_the_prompt(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        before = (self.dir / ".env").read_text()
+        for item in ("OIDC_CHAT_CLIENT_SECRET=a b", "OIDC_CHAT_CLIENT_SECRET=ab\\", "OIDC_CHAT_CLIENT_ID=a@b",
+                     "OIDC_MACHINE_CLIENT_ID=it's"):
+            code, _, err = self.run_cli("--set", item)
+            self.assertEqual(code, 2, item)
+            self.assertIn("nothing written", err)
+            self.assertNotIn(item.split("=", 1)[1], err)
+        self.assertEqual((self.dir / ".env").read_text(), before)
+        self.assertEqual(self.run_cli("--set", "OIDC_CHAT_CLIENT_SECRET=  p@ss!%?[x]  ")[0], 0)
+        self.assertEqual(self.env()["OIDC_CHAT_CLIENT_SECRET"], "p@ss!%?[x]")
+
+    def test_a_value_survives_the_round_trip_through_a_quoted_line(self):
+        for value in ('a"b', "a\\b", "a$b", "a #b", 'say "hi" \\n', "p@ss!%?[x]"):
+            self.assertEqual(cfg.parse_env(cfg.quote("X", value)), {"X": value}, value)
+        self.assertEqual(cfg.parse_env('X="a\\"b"'), {"X": 'a"b'})
 
     def test_a_failure_that_is_not_the_env_syntax_does_not_roll_back(self):
         fake = subprocess.CompletedProcess([], 1, "", "required variable FOO is missing a value")
@@ -1972,6 +2202,17 @@ class TestEnvSafety(Deploy):
         proc = subprocess.run(["docker", "compose", "config", "-q"], capture_output=True, text=True,
                               cwd=self.dir, timeout=60)
         self.assertNotRegex(proc.stderr, r"failed to read|unterminated|key cannot contain")
+
+    @unittest.skipUnless(shutil.which("docker"), "docker is not installed")
+    def test_the_real_docker_compose_accepts_the_candidate_by_env_file(self):
+        if subprocess.run(["docker", "compose", "version"], capture_output=True).returncode:
+            self.skipTest("docker compose is not available")
+        argv = self.ARGV + ("--idp", "external", "--oidc-issuer", "https://gitlab.example.org",
+                            "--oidc-console-client-secret", "p@ss!%?[x]", "--oidc-chat-client-secret", "x.y=z/+")
+        with self.real_check():
+            self.assertEqual(self.run_cli(*argv)[0], 0)
+        self.assertEqual(self.env()["OIDC_CONSOLE_CLIENT_SECRET"], "p@ss!%?[x]")
+        self.assertEqual(self.files(), [".env"])
 
 
 class TestExtractor(Deploy):
