@@ -381,7 +381,7 @@ def idp_check_detail(proc) -> str:
     ]
     # The final "idp check: FAILED" summary adds nothing next to a cause.
     causes = [line for line in bad if line != "idp check: FAILED"]
-    return "; ".join(causes or bad or [out[-1].strip() if out else "?"])
+    return redact_env_error("; ".join(causes or bad or [out[-1].strip() if out else "?"]))
 
 
 def device_flow_problem(discovery: dict | None) -> str | None:
@@ -410,6 +410,56 @@ def device_flow_problem(discovery: dict | None) -> str | None:
             "will not work with it"
         )
     return None
+
+
+def device_endpoint(discovery: dict | None) -> str | None:
+    """Where galopin posts its device authorization request, as galopin works it out.
+
+    The advertised `device_authorization_endpoint`, else GitLab's
+    `<issuer>/oauth/authorize_device` derived from a Doorkeeper-shaped
+    `authorization_endpoint` when the issuer lists the device grant (the same
+    rule as `deriveDeviceEndpoint` in agent/oauth.go). None when neither.
+    """
+    if not discovery:
+        return None
+    advertised = str(discovery.get("device_authorization_endpoint") or "")
+    if advertised:
+        return advertised
+    grants = discovery.get("grant_types_supported")
+    if not (isinstance(grants, list) and any(g in DEVICE_CODE_GRANTS for g in grants)):
+        return None
+    authorize = str(discovery.get("authorization_endpoint") or "").rstrip("/")
+    if authorize.endswith(DOORKEEPER_AUTHORIZE) and authorize != DOORKEEPER_AUTHORIZE:
+        base = authorize[: -len(DOORKEEPER_AUTHORIZE)]
+        if base and not any(c in base for c in "?#"):
+            return base + "/oauth/authorize_device"
+    return None
+
+
+#: The machine client keeps the chat's id when both were the one application
+#: before this run replaced it (see machine_client_default).
+DEFAULT_MACHINE_CLIENT_ID = "opencode-enrollment"
+
+
+def machine_client_default(existing: dict, console_id: str | None, chat_id: str | None) -> tuple:
+    """(galopin's client id to offer, whether it follows the chat client).
+
+    The existing OIDC_MACHINE_CLIENT_ID is kept, except when it equals the
+    console or chat client id this run replaces: the three were then one
+    application, so the machine id follows the new chat client id. `console_id`
+    and `chat_id` are the new values (None: not changed).
+    """
+    current = existing.get("OIDC_MACHINE_CLIENT_ID") or ""
+    old_console = existing.get("OIDC_CONSOLE_CLIENT_ID") or ""
+    old_chat = existing.get("OIDC_CHAT_CLIENT_ID") or ""
+    new_console = console_id or old_console
+    new_chat = chat_id or old_chat
+    replaced = (new_console != old_console and current == old_console) or (
+        new_chat != old_chat and current == old_chat
+    )
+    if current and replaced and new_chat and new_chat != current:
+        return new_chat, True
+    return current or DEFAULT_MACHINE_CLIENT_ID, False
 
 
 def compute_scopes(discovery: dict | None) -> tuple:
@@ -449,7 +499,8 @@ def parse_env(text: str) -> dict:
         key, sep, value = line.partition("=")
         key = key.strip()
         if not sep or not KEY.match(key):
-            raise ConfigError(f"line {number}: expected KEY=VALUE, got {raw!r}")
+            # The line is not echoed: it may hold a secret.
+            raise ConfigError(f"line {number}: expected KEY=VALUE (the line is not shown: it may hold a secret)")
         value = value.strip()
         if len(value) >= 2 and value[0] == value[-1] == "'":
             value = value[1:-1]
@@ -462,9 +513,81 @@ def parse_env(text: str) -> dict:
 
 
 def quote(key: str, value: str) -> str:
-    if "'" in value or "\n" in value:
+    if "'" in value or "\n" in value or "\r" in value:
         raise ConfigError(f"{key}: a value holding a single quote or a newline cannot be written")
+    if value.endswith("\\"):
+        # Docker compose reads \' as an escaped quote, so the line never ends:
+        # "unterminated quoted value", and no `docker compose` command works.
+        raise ConfigError(
+            f"{key}: the value ends with a backslash, which docker compose cannot read back "
+            "from a quoted line; remove it (a pasted secret often carries a stray one)"
+        )
     return f"{key}='{value}'"
+
+
+#: What a client id or secret may hold. Every OAuth issuer this kit knows hands
+#: out values in this set; anything else is a paste accident.
+CREDENTIAL_CHARS = re.compile(r"^[A-Za-z0-9._~+/=:-]+$")
+
+
+def credential_problem(label: str, value: str) -> str | None:
+    """Why a pasted client id or secret cannot be right, or None.
+
+    Surrounding whitespace is stripped before this is called, so whitespace
+    here is inside the value.
+    """
+    if value.endswith("\\"):
+        return f"The {label} ends with a backslash; paste it again without it"
+    if CREDENTIAL_CHARS.match(value):
+        return None
+    bad = sorted({c for c in value if not re.match(r"[A-Za-z0-9._~+/=:-]", c)})
+    shown = " ".join("whitespace" if c.isspace() else repr(c) if not c.isprintable() else c for c in bad)
+    return (
+        f"The {label} holds characters that are not valid in one ({shown}); "
+        "paste it again, without quotes or spaces (allowed: letters, digits and . _ ~ + / = : -)"
+    )
+
+
+def credential_validator(label: str):
+    def validate(value: str) -> None:
+        problem = credential_problem(label, value)
+        if problem:
+            raise ConfigError(problem)
+    return validate
+
+
+# docker prints the text of a bad .env line, which can be a secret. Anything
+# between quotes goes, and so does the tail after "unterminated quoted value".
+_QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")
+_SECRET_KEY = re.compile(r"SECRET|PASSWORD|TOKEN|KEY|DIGEST", re.I)
+
+
+def redact_env_error(text: str, secrets: tuple = ()) -> str:
+    """docker's / configure's message about a bad .env, without any value in it.
+
+    The line number and the key name stay; quoted values become '…', whatever
+    follows an unterminated quote goes, and any known secret is replaced if it
+    appears in the open.
+    """
+    out = []
+    for line in str(text).splitlines():
+        line = re.sub(r"(unterminated quoted value|unexpected character|near)\b.*$",
+                      lambda m: m.group(1) + " '…'", line)
+        line = _QUOTED.sub("'…'", line)
+        for secret in secrets:
+            if len(secret) >= 4:
+                line = line.replace(secret, "…")
+        out.append(line)
+    return "\n".join(out)
+
+
+def env_secrets(env_path: Path) -> tuple:
+    """The values of the credential-looking keys in a .env, for redact_env_error."""
+    try:
+        values = parse_env(env_path.read_text(encoding="utf-8"))
+    except (OSError, ConfigError, ValueError):
+        return ()
+    return tuple(v for k, v in values.items() if _SECRET_KEY.search(k) and v)
 
 
 _ACTIVE = re.compile(r"^([A-Z_][A-Z0-9_]*)=")
@@ -1706,6 +1829,18 @@ def build(answers: Answers, existing: dict, template: str, discovery: dict | Non
                     values[key] = ""
             values["OIDC_KIND"] = "generic"
         old_issuer = values.get("OIDC_ISSUER", "")
+        for attr, label in (
+            ("oidc_console_client_id", "console client id"), ("oidc_console_client_secret", "console client secret"),
+            ("oidc_chat_client_id", "chat client id"), ("oidc_chat_client_secret", "chat client secret"),
+            ("machine_client_id", "galopin client id"),
+        ):
+            given_value = getattr(answers, attr)
+            if given_value is not None:
+                given_value = given_value.strip()
+                setattr(answers, attr, given_value)
+                problem = credential_problem(label, given_value) if given_value else None
+                if problem:
+                    raise ConfigError(problem)
         for attr, key in (
             ("oidc_issuer", "OIDC_ISSUER"),
             ("oidc_internal_base_url", "OIDC_INTERNAL_BASE_URL"),
@@ -1782,6 +1917,36 @@ def build(answers: Answers, existing: dict, template: str, discovery: dict | Non
                 "an external identity provider needs an admin rule: --admin-email, or "
                 "--admin-claim with --admin-claim-value"
             )
+        # galopin's client id. A run that replaces the console or chat app
+        # leaves a machine id that named the same app pointing at the old one,
+        # which the IdP may refuse: it follows the new chat client, unless
+        # --machine-client-id said otherwise. Machines paired with the old
+        # app cannot refresh, so they must re-enroll.
+        old_machine = existing.get("OIDC_MACHINE_CLIENT_ID") or ""
+        if existing and not answers.machine_client_id:
+            followed, follows = machine_client_default(
+                existing, values.get("OIDC_CONSOLE_CLIENT_ID"), values.get("OIDC_CHAT_CLIENT_ID")
+            )
+            if follows:
+                values["OIDC_MACHINE_CLIENT_ID"] = followed
+                notes.append(
+                    f"galopin's client id follows the new chat client id ({followed}): it was "
+                    "the same app before. Override it with --machine-client-id"
+                )
+        ids_changed = any(
+            existing.get(k) and values.get(k) != existing.get(k)
+            for k in ("OIDC_CONSOLE_CLIENT_ID", "OIDC_CHAT_CLIENT_ID")
+        )
+        if (existing and ids_changed and old_machine and values.get("CODE_AGENTS_ENABLED") == "true"
+                and values.get("OIDC_MACHINE_CLIENT_ID") == old_machine):
+            notes.append(
+                "the console or chat client id changed but galopin's did not "
+                f"({old_machine}): galopin machines enrolled with the old app must re-enroll if it "
+                "is gone. ./configure --check tests it"
+            )
+        elif existing and values.get("OIDC_MACHINE_CLIENT_ID") != old_machine and old_machine \
+                and values.get("CODE_AGENTS_ENABLED") == "true":
+            notes.append("galopin machines must re-enroll: their tokens name the old client id")
     # The gateway's setting is a JSON list; written from the one list above.
     values["OIDC_SCOPES_JSON"] = scopes_json(values.get("OIDC_SCOPES", ""))
     return result
@@ -2378,6 +2543,73 @@ def check_scopes(values: dict, report: Report) -> None:
         report.notes.append(f"the issuer offers every requested scope ({' '.join(asked)})")
 
 
+def check_machine_client(values: dict, report: Report, timeout: float = 8.0) -> None:
+    """Ask the issuer whether galopin's client id is one it accepts.
+
+    Starts a device authorization for OIDC_MACHINE_CLIENT_ID, which is what
+    `galopin enroll` does first. A 200 with a device_code is the proof; it
+    leaves a pending device code at the issuer that expires unused (nothing
+    is ever approved or polled). `invalid_client` means enroll would fail and
+    every machine already paired would fail its refresh.
+    """
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+
+    if values.get("CODE_AGENTS_ENABLED") != "true" or values.get("OIDC_KIND") == "authelia":
+        return
+    issuer = values.get("OIDC_ISSUER", "")
+    client = values.get("OIDC_MACHINE_CLIENT_ID", "")
+    if not issuer.startswith("https://") or not client:
+        return
+    discovery = fetch_discovery(issuer)
+    if discovery is None or device_flow_problem(discovery):
+        return  # unreadable is check_scopes' warning; no device flow is configure's note
+    endpoint = device_endpoint(discovery)
+    if not endpoint:
+        return
+    request = urllib.request.Request(
+        endpoint,
+        data=urllib.parse.urlencode({"client_id": client, "scope": "openid"}).encode(),
+        headers={"User-Agent": "cerea-configure", "Accept": "application/json",
+                 "Content-Type": "application/x-www-form-urlencoded"},
+    )
+    status, body = 0, b""
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            status, body = response.status, response.read()
+    except urllib.error.HTTPError as exc:
+        status = exc.code
+        try:
+            body = exc.read()
+        except OSError:
+            body = b""
+    except (OSError, ValueError) as exc:
+        report.warnings.append(f"could not reach {endpoint} to test galopin's client id here: {exc}")
+        return
+    try:
+        document = json.loads(body)
+    except ValueError:
+        document = None
+    if not isinstance(document, dict):
+        document = {}
+    error = str(document.get("error") or "")
+    if status == 200 and document.get("device_code"):
+        report.notes.append(f"galopin's client id {client[:8]}… is accepted by {issuer} (device flow)")
+    elif error == "invalid_client":
+        report.errors.append(
+            f"galopin's client id {client[:8]}… is refused by {issuer} (unknown, or a confidential app "
+            "that needs a secret). Set OIDC_MACHINE_CLIENT_ID to a public app: "
+            "./configure --machine-client-id <id>"
+        )
+    else:
+        report.warnings.append(
+            f"galopin's client id {client[:8]}…: {endpoint} answered {status}"
+            + (f" ({error})" if error else "")
+            + " to a device authorization request; ./configure --check could not tell whether enrollment works"
+        )
+
+
 def check_host(values: dict, report: Report, *, root: Path, network: bool) -> None:
     """What needs Docker, DNS or the network."""
     if values.get("SANDBOX") == "local":
@@ -2397,6 +2629,7 @@ def check_host(values: dict, report: Report, *, root: Path, network: bool) -> No
         proc = _run(["docker", "compose", "config", "--images"], timeout=60, cwd=root)
         if proc is None or proc.returncode != 0:
             detail = (proc.stderr.strip().splitlines() or ["?"])[-1] if proc else "docker not runnable"
+            detail = redact_env_error(detail, env_secrets(root / ".env"))
             report.errors.append(f"docker compose config fails: {detail}")
         else:
             images = sorted({line.strip() for line in proc.stdout.splitlines() if line.strip()})
@@ -2488,8 +2721,16 @@ def check(root: Path, *, network: bool = True, probe_host: bool = True) -> Repor
     try:
         values = parse_env(env_path.read_text(encoding="utf-8"))
     except ConfigError as exc:
-        report.errors.append(f".env does not parse: {exc}")
+        report.errors.append(f".env does not parse: {redact_env_error(str(exc))}")
         return report
+    for number, raw in enumerate(env_path.read_text(encoding="utf-8").splitlines(), 1):
+        m = re.match(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*'.*\\'\s*$", raw)
+        if m:
+            report.errors.append(
+                f".env line {number}: {m.group(1)} ends with a backslash inside quotes; docker compose reads "
+                "that as an escaped quote and fails ('unterminated quoted value'). Enter the value again "
+                f"without the backslash: ./configure --set {m.group(1)}=<value>"
+            )
     mode = stat.S_IMODE(env_path.stat().st_mode)
     if mode & 0o077:
         report.warnings.append(f".env is mode {oct(mode)}; it holds every secret: chmod 600 .env")
@@ -2503,6 +2744,7 @@ def check(root: Path, *, network: bool = True, probe_host: bool = True) -> Repor
     check_mongo(values, report, *detect_host())
     if network:
         check_scopes(values, report)
+        check_machine_client(values, report)
     if probe_host:
         check_host(values, report, root=root, network=network)
     return report
@@ -2649,6 +2891,7 @@ def interview(answers: Answers, given: set, existing: dict) -> Answers:
             },
             answers.idp,
         )
+    ask_machine = False
     if answers.idp == "authelia":
         refuse_authelia(host)
     else:
@@ -2660,16 +2903,23 @@ def interview(answers: Answers, given: set, existing: dict) -> Answers:
             )
         if PRESETS[answers.preset].standalone is False and "oidc_console_client_secret" not in given:
             print(f"  Console client: redirect URI {origin}/auth/callback/default")
-            answers.oidc_console_client_id = ask("  client id", existing.get("OIDC_CONSOLE_CLIENT_ID", "pystino-console"))
+            answers.oidc_console_client_id = ask(
+                "  client id", existing.get("OIDC_CONSOLE_CLIENT_ID", "pystino-console"),
+                validate=credential_validator("client id"))
             answers.oidc_console_client_secret = ask(
-                "  client secret", existing.get("OIDC_CONSOLE_CLIENT_SECRET", ""), secret=True
+                "  client secret", existing.get("OIDC_CONSOLE_CLIENT_SECRET", ""), secret=True,
+                validate=credential_validator("secret")
             )
         if "oidc_chat_client_secret" not in given:
             print(f"  Chat client: redirect URI {origin}/chat/login/callback")
-            answers.oidc_chat_client_id = ask("  client id", existing.get("OIDC_CHAT_CLIENT_ID", "cerea"))
+            answers.oidc_chat_client_id = ask(
+                "  client id", existing.get("OIDC_CHAT_CLIENT_ID", "cerea"),
+                validate=credential_validator("client id"))
             answers.oidc_chat_client_secret = ask(
-                "  client secret", existing.get("OIDC_CHAT_CLIENT_SECRET", ""), secret=True
+                "  client secret", existing.get("OIDC_CHAT_CLIENT_SECRET", ""), secret=True,
+                validate=credential_validator("secret")
             )
+            ask_machine = "machine_client_id" not in given
         if "group_import" not in given:
             answers.group_import = choose(
                 "Groups from the identity provider:",
@@ -2741,6 +2991,17 @@ def interview(answers: Answers, given: set, existing: dict) -> Answers:
             },
             "yes" if answers.agents is not False else "no",
         ) == "yes"
+    if ask_machine and answers.agents is not False:
+        default, follows = machine_client_default(
+            existing, answers.oidc_console_client_id, answers.oidc_chat_client_id
+        )
+        if follows:
+            print("  galopin's client id was the same app as the client you replaced: "
+                  "the default follows the new chat client id.")
+        answers.machine_client_id = ask(
+            "  galopin client id (a public app: no secret, device flow allowed)", default,
+            validate=credential_validator("client id"),
+        )
     if answers.preset == "generic" and "upstream_api_key" not in given:
         answers.upstream_base_url = ask(
             "OpenAI-compatible endpoint", existing.get("CHAT_OPENAI_BASE_URL", DEFAULT_UPSTREAM)
@@ -2778,7 +3039,7 @@ def import_smtp_env(root: Path) -> dict:
     )
     if proc is None or proc.returncode != 0:
         detail = (proc.stderr.strip().splitlines() or ["?"])[-1] if proc else "docker not runnable"
-        print(f"configure: --import-smtp: {detail}", file=sys.stderr)
+        print(f"configure: --import-smtp: {redact_env_error(detail, env_secrets(root / '.env'))}", file=sys.stderr)
         return {}
     values = {}
     for line in proc.stdout.splitlines():
@@ -2786,6 +3047,42 @@ def import_smtp_env(root: Path) -> dict:
         if sep and KEY.match(key):
             values[key] = value
     return values
+
+
+def compose_env_problem(root: Path) -> str | None:
+    """Why docker compose cannot read this directory's .env, or None.
+
+    Runs `docker compose config -q`. Only a failure that names the .env file
+    counts (a parse error); another (a required variable unset, say) is not
+    this file's syntax. None too when docker cannot run here. The message has
+    values removed.
+    """
+    proc = _run(["docker", "compose", "config", "-q"], timeout=60, cwd=root)
+    if proc is None or proc.returncode == 0:
+        return None
+    err = (proc.stderr or "").strip()
+    if not re.search(r"\.env\b.*\bline \d+|unterminated quoted value|key cannot contain", err):
+        return None
+    return redact_env_error(err.splitlines()[0] if err else "?", env_secrets(root / ".env"))
+
+
+def write_env_verified(env_path: Path, text: str, root: Path) -> tuple:
+    """(backup, problem): write .env, check docker compose reads it, else roll back.
+
+    On a problem the previous .env is restored (or the new file removed when
+    there was none) and `problem` says why, without any value in it.
+    """
+    saved = backup(env_path)
+    previous = env_path.read_text(encoding="utf-8") if env_path.exists() else None
+    write_private(env_path, text)
+    problem = compose_env_problem(root)
+    if problem:
+        if previous is None:
+            env_path.unlink()
+        else:
+            write_private(env_path, previous)
+        return saved, problem
+    return saved, None
 
 
 def cmd_configure(args, root: Path) -> int:
@@ -2923,8 +3220,11 @@ def cmd_configure(args, root: Path) -> int:
     if existing and parse_env(text) == existing:
         print(f"{env_path} is already up to date; nothing written")
     else:
-        saved = backup(env_path)
-        write_private(env_path, text)
+        saved, problem = write_env_verified(env_path, text, root)
+        if problem:
+            print(f"configure: docker compose cannot read the .env this would write ({problem}); "
+                  "nothing was changed", file=sys.stderr)
+            return 2
         print(f"wrote {env_path} (mode 0600)" + (f"; the previous one is {saved.name}" if saved else ""))
     for note in pre_notes + result.notes:
         print(f"note: {note}")
@@ -3002,6 +3302,7 @@ def cmd_break_glass(args, root: Path) -> int:
 
     def fail(step: str, proc: subprocess.CompletedProcess | None) -> int:
         detail = (proc.stderr.strip().splitlines() or ["?"])[-1] if proc else "docker not runnable"
+        detail = redact_env_error(detail, env_secrets(env_path))
         print(f"configure: --break-glass failed at {step!r}: {detail}", file=sys.stderr)
         if saved:
             print(f"{saved.name} holds the configuration from before this run", file=sys.stderr)
@@ -3100,7 +3401,11 @@ def cmd_set(args, root: Path) -> int:
     except ConfigError as exc:
         print(f"configure: {exc}", file=sys.stderr)
         return 2
-    write_private(env_path, text)
+    _, problem = write_env_verified(env_path, text, root)
+    if problem:
+        print(f"configure: docker compose cannot read the .env this would write ({problem}); "
+              "nothing was changed", file=sys.stderr)
+        return 2
     print(f"updated {', '.join(changes)} in {env_path}; apply with `docker compose up -d`")
     return 0
 
