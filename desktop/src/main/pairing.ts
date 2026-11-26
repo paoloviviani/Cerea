@@ -44,11 +44,16 @@ export function pairingFor(
 ): Pairing {
 	if (!creds) return { state: "none" };
 	const cerea = originOf(creds.cerea);
-	// A pairing with no recorded Cerea address (enrolled without one) cannot be shown to be this server's.
-	if (!cerea || cerea !== server.origin)
-		return { state: "other", address: creds.cerea ?? "another server" };
 	const issuer = originOf(creds.issuer);
-	if (issuer && issuer !== server.idp)
-		return { state: "other", address: creds.cerea ?? "another server" };
+	const other = (): Pairing => ({
+		state: "other",
+		address: creds.cerea ?? creds.issuer ?? "another server",
+	});
+	if (!cerea) {
+		// An older enrolment recorded no Cerea address: it is this server's only if its sign-in provider is.
+		return issuer && issuer === server.idp ? { state: "ok" } : other();
+	}
+	if (cerea !== server.origin) return other();
+	if (issuer && issuer !== server.idp) return other();
 	return { state: "ok" };
 }

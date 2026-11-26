@@ -193,6 +193,9 @@ export async function startBridgeServer(
 			ensurePrivateDir(dir, opts.uid);
 			const file = join(dir, "cdp-endpoint");
 			writeEndpointFile(file, `ws+unix://${sock}:/cdp/${secret}\n`);
+			// A profile that moves to another directory leaves nothing behind that carries its secret.
+			const prev = secrets.get(id);
+			if (prev && prev.file !== file) rmSync(prev.file, { force: true });
 			secrets.set(id, { secret, file });
 			return file;
 		},

@@ -226,12 +226,20 @@ export function setPanelWidth(s: Store, id: string, width: number): Store {
 export function reconcileDefault(s: Store, defaultCreds: Creds | undefined): Store {
 	if (!defaultCreds) return s;
 	let changed = false;
-	const profiles = s.profiles.map((p) => {
+	let profiles = s.profiles.map((p) => {
 		if (!p.defaultGalopin) return p;
 		if (pairingFor(defaultCreds, p.server).state === "ok") return p;
 		changed = true;
 		return { ...p, defaultGalopin: false };
 	});
+	// A default directory nobody owns goes to the profile its pairing is for (the CLI enrolled it).
+	if (!profiles.some((p) => p.defaultGalopin)) {
+		const match = profiles.find((p) => pairingFor(defaultCreds, p.server).state === "ok");
+		if (match) {
+			profiles = profiles.map((p) => (p === match ? { ...p, defaultGalopin: true } : p));
+			changed = true;
+		}
+	}
 	return changed ? { ...s, profiles } : s;
 }
 

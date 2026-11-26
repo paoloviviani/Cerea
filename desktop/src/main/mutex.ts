@@ -6,11 +6,17 @@
 export function serialize<H extends Record<string, (arg: never) => unknown>>(
 	ops: Mutex,
 	handlers: H,
-	keys: readonly (keyof H)[]
+	keys: readonly (keyof H)[],
+	/** Runs first, inside the queue, for the handler `key`: it may refuse by throwing. */
+	before?: (key: keyof H, arg: unknown) => unknown
 ): void {
 	for (const key of keys) {
 		const h = handlers[key];
-		handlers[key] = ((arg: never) => ops.run(() => h(arg))) as H[typeof key];
+		handlers[key] = ((arg: never) =>
+			ops.run(async () => {
+				await before?.(key, arg);
+				return h(arg);
+			})) as H[typeof key];
 	}
 }
 

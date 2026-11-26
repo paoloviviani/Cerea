@@ -39,6 +39,7 @@ import {
 import { ensureStableGalopin, migrateGalopinPaths, stableDir } from "./stableGalopin.ts";
 import { mcpSummary, signInState, toolsInfo } from "./galopinInfo.ts";
 import { readCreds } from "./pairing.ts";
+import { notPairedMessage, refreshProfile, type GuardDeps } from "./profileGuard.ts";
 import { guardCerea, mayOpenExternally, UI_CSP, type GuardState } from "./navGuard.ts";
 import { resolveUiFile, UI_ORIGIN } from "./uiProtocol.ts";
 import { cappedFetch, iconFetcher } from "./probeFetch.ts";
@@ -629,14 +630,36 @@ const handlers: { [C in Channel]: Handler<C> } = {
 };
 
 // These act on "the" galopin: queued behind any switch, so none reaches a profile that is being left.
-serialize(ops, handlers, [
-	"galopin:start",
-	"galopin:stop",
-	"galopin:pair",
-	"galopin:service",
-	"galopin:browser-setup",
-	"galopin:signin",
-] as const);
+serialize(
+	ops,
+	handlers,
+	[
+		"galopin:start",
+		"galopin:stop",
+		"galopin:pair",
+		"galopin:service",
+		"galopin:browser-setup",
+		"galopin:signin",
+		"galopin:launch",
+		"galopin:setup",
+		"galopin:upgrade",
+	] as const,
+	async (key, arg) => {
+		// Every time, not only at start: galopin's default directory can change while the app runs.
+		await refreshProfile(guardDeps());
+		const needsPairing =
+			key === "galopin:start" ||
+			key === "galopin:signin" ||
+			key === "galopin:browser-setup" ||
+			key === "galopin:launch" ||
+			key === "galopin:setup" ||
+			(key === "galopin:service" && (arg as { action: string }).action === "install") ||
+			(key === "galopin:upgrade" && !(arg as { show: boolean }).show);
+		if (!needsPairing) return;
+		const msg = notPairedMessage(galopin.pairing(), cur()?.server.name ?? "this server");
+		if (msg) throw new IpcError(msg);
+	}
+);
 
 /** A profile only keeps galopin's default directory if the pairing in it is for its own server. */
 function reconcile(): void {
@@ -646,6 +669,25 @@ function reconcile(): void {
 		readCreds(join(galopinConfigDir(process.env), "credentials.json"))
 	);
 	if (store !== before) saveStore(app.getPath("userData"), store);
+}
+
+function guardDeps(): GuardDeps {
+	return {
+		getStore: () => store,
+		setStore: (s) => {
+			store = s;
+			saveStore(app.getPath("userData"), store);
+		},
+		defaultCreds: () => readCreds(join(galopinConfigDir(process.env), "credentials.json")),
+		stopGalopin: () => galopin.stop(),
+		rebuild: () => {
+			const p = cur();
+			galopin = makeGalopin(p);
+			if (p) registerEndpoint(p);
+			setMenu();
+			pushState();
+		},
+	};
 }
 
 function registerIpc(): void {

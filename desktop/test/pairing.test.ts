@@ -38,8 +38,12 @@ describe("which server a pairing belongs to", () => {
 				mine
 			).state
 		).toBe("other");
-		// no recorded address: cannot be shown to be this server's
-		expect(pairingFor({ issuer: "https://auth.mine.example" }, mine).state).toBe("other");
+		// an older enrolment with no recorded address: this server's only if its sign-in provider is
+		expect(pairingFor({ issuer: "https://auth.mine.example/authelia" }, mine)).toEqual({
+			state: "ok",
+		});
+		expect(pairingFor({ issuer: "https://auth.other.example" }, mine).state).toBe("other");
+		expect(pairingFor({}, mine).state).toBe("other");
 		// a look-alike host
 		expect(pairingFor({ cerea: "https://cerea.mine.example.evil.example/chat" }, mine).state).toBe(
 			"other"
