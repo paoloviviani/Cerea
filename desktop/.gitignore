@@ -2,5 +2,5 @@ node_modules
 dist
 out
 release
-resources/galopin/
-resources/node/
+# Generated: galopin and Node for the package (a local symlink to them is not tracked either).
+resources
