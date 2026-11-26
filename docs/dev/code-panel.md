@@ -195,3 +195,21 @@ are answered, a card is put back through `Materializer.ReleaseAsk` (no second fi
 read leaves the session marked as top-level (`MarkTreeKnown`, so its next asks are not held again), which fails toward
 a card. Nothing here changes what a word allows: Plan, the machine's deny list, the floor and the exceptions are
 read by `decideAsk` exactly as before. Tests: `agent/subagent_first_ask_test.go`.
+
+## A committed .env is not a secret (galopin)
+
+The `.env` guards (`decide.Classify`'s read card, `bashSensitive`, and the secret-value guard of `secretvalue.go`,
+C73) skip a `.env` file that git tracks when its working-tree content equals its `HEAD` blob
+(`internal/decide/gittracked.go`). `.envrc` is never skipped; a `REV:.env` word and a glob are never cleared; a symlink
+is resolved first, so a tracked link to an untracked file stays guarded; any doubt (no git, not a repo, a git error, the
+2 s bound) keeps the guard. HEAD, not the index: an agent that only ran `git add` has committed nothing.
+
+The decision runs inside event application and must not do I/O beyond a stat, so `committedEnv` only reads a cache
+(keyed by the resolved path, its mtime and size, with a 1 minute TTL because a commit can move HEAD under an untouched
+file). A path with no fresh verdict is guarded and counted (`EnvTrackMisses`) and queued; `WarmEnvTracking` runs git
+(`ls-tree HEAD`, `hash-object --no-filters`, no filter program ever runs) off that path. The ask filter compares the
+counter across `decideAsk`: when it moved, the ask is consumed and `decideHeldAsk` (the same hold as a session whose
+tree is unknown, `permissions_tree.go`) warms and decides again, a card going back through `ReleaseAsk`. The secret-value
+guard asks about a file only when a needle of it matched the text, so an unrelated command never waits for git. Never
+call `WarmEnvTracking` from the filter. Tests: `internal/decide/gittracked_test.go` (temp repos, fake values),
+`agent/env_tracked_test.go`.

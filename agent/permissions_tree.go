@@ -22,10 +22,12 @@ const askTreeWait = 5 * time.Second
 // record that cannot be read within the bound leaves the session a root, which
 // fails toward a card.
 
-// decideHeldAsk decides an ask the pre-filter held, once the tree is learned:
-// reject and once are answered, a card is let through to the person.
+// decideHeldAsk decides an ask the pre-filter held, once the tree is learned and
+// the env files it names have been looked at in git: reject and once are
+// answered, a card is let through to the person.
 func (mc *machine) decideHeldAsk(dir string, req backend.PermissionRequest) {
 	mc.learnTree(dir, req.SessionID)
+	decide.WarmEnvTracking(context.Background())
 	rh, ok := mc.ruleHost()
 	if !ok {
 		mc.mat.ReleaseAsk(context.Background(), dir, req)

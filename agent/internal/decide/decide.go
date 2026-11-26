@@ -137,7 +137,7 @@ func Classify(p Policy, r Request) (cat Category, sensitive bool) {
 			}
 		}
 		for _, pat := range r.Patterns {
-			if isSensitive(pat) {
+			if isSensitive(pat) && !p.Protected.committedPattern(r.Workspace, pat) {
 				sensitive = true
 			}
 			if !p.withinPattern(r.Workspace, pat) {
@@ -198,6 +198,15 @@ func Known(key string) bool {
 		return true
 	}
 	return false
+}
+
+// committedPattern reports whether a read pattern names one file that git tracks
+// with no local edit (see committedEnv): that file is not a local secret.
+func (pr Protected) committedPattern(workspace, pat string) bool {
+	if !envTrackable(pat) || strings.ContainsAny(pat, "*?[") || strings.HasPrefix(pat, "mcp:") {
+		return false
+	}
+	return committedEnv(pr.abs(pat, workspace))
 }
 
 func isSensitive(path string) bool {

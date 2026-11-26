@@ -71,6 +71,9 @@ func (pr Protected) SecretValueLeak(r Request) *SecretLeak {
 	for _, e := range pr.secretEntries(r.Workspace) {
 		for _, n := range e.needles {
 			if strings.Contains(text, n) {
+				if e.env && committedEnv(e.path) {
+					break // tracked and unedited: not a local secret
+				}
 				return &SecretLeak{Key: e.key, File: e.file}
 			}
 		}
@@ -91,6 +94,10 @@ func outbound(text string) bool { return outboundRe.MatchString(text) }
 type secretEntry struct {
 	key, file string
 	needles   []string
+	// path and env are filled in per call: the file the entry came from, and
+	// whether it is one of the workspace's .env files (which git may vouch for).
+	path string
+	env  bool
 }
 
 type cachedSecrets struct {
@@ -111,14 +118,14 @@ func (pr Protected) secretEntries(workspace string) []secretEntry {
 	var out []secretEntry
 	seen := map[string]bool{}
 	budget := maxSecretFiles
-	add := func(path, display string) {
+	add := func(path, display string, env bool) {
 		if budget <= 0 || seen[path] {
 			return
 		}
 		seen[path] = true
 		budget--
 		for _, e := range fileSecrets(path) {
-			e.file = display
+			e.file, e.path, e.env = display, path, env
 			out = append(out, e)
 		}
 	}
@@ -128,11 +135,11 @@ func (pr Protected) secretEntries(workspace string) []secretEntry {
 			if err != nil {
 				rel = p
 			}
-			add(p, filepath.ToSlash(rel))
+			add(p, filepath.ToSlash(rel), true)
 		}
 	}
 	for _, d := range pr.SecretDirs {
-		walkSecretFiles(d, 0, func(p string) { add(p, pr.tildeForm(p)) })
+		walkSecretFiles(d, 0, func(p string) { add(p, pr.tildeForm(p), false) })
 	}
 	return out
 }

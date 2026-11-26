@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"galopin/internal/backend"
 	"galopin/internal/decide"
@@ -47,6 +48,10 @@ func TestSecretValueCardOnAllowNamesKeyAndFileNotValue(t *testing.T) {
 		Event: backend.Event{Kind: backend.EventPermissionAsked, Request: &backend.PermissionRequest{
 			ID: "per_2", SessionID: "s1", Tool: "bash", Patterns: []string{plain}, Metadata: map[string]any{"command": plain}}}})
 
+	// the .env is not in a repository, so the card follows git's answer (off the event path)
+	for deadline := time.Now().Add(10 * time.Second); mc.mat.PendingPermissions("s1") == 0 && time.Now().Before(deadline); {
+		time.Sleep(10 * time.Millisecond)
+	}
 	var card *backend.PermissionRequest
 	for _, r := range mc.mat.PendingPermissionRequests("s1") {
 		r := r

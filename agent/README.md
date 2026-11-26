@@ -361,8 +361,9 @@ veto that only `enroll` can loosen:
   galopin's **own state and configuration** (the state directory,
   `policy.json`, the credentials, the opencode config it owns) are refused
   always; a write into `.git` or a CI configuration file, a `.env` file or a
-  credential store, and a repeating agent are a card even on Allow and Auto;
-  read-only commands always run. `policy.json` limits and the flags `--limit`,
+  credential store, and a repeating agent are a card even on Allow and Auto
+  (a `.env` file that git tracks and nobody has edited is not a secret and is
+  not one of them: PROTOCOL.md §6); read-only commands always run. `policy.json` limits and the flags `--limit`,
   `--permission-max` and `--permission-rule` are **retired**: for one more
   release they are accepted and ignored with a warning, and `policy show` says
   so.

@@ -227,7 +227,15 @@ func (mc *machine) installPermissions() {
 			go mc.decideHeldAsk(dir, req)
 			return true
 		}
+		before := decide.EnvTrackMisses()
 		res := mc.decideAsk(rh, dir, req)
+		if decide.EnvTrackMisses() != before {
+			// the decision guarded a .env file it could not judge yet (is it
+			// committed and unedited?): git runs off the event path, then the ask
+			// is decided again (permissions_tree.go)
+			go mc.decideHeldAsk(dir, req)
+			return true
+		}
 		if res.Verdict == decide.Card {
 			return false
 		}
@@ -274,6 +282,8 @@ func (mc *machine) answerPending(ctx context.Context) {
 		if !ok || dir == "" {
 			continue
 		}
+		mc.decideAsk(rh, dir, req)
+		decide.WarmEnvTracking(ctx)
 		if res := mc.decideAsk(rh, dir, req); res.Verdict != decide.Card {
 			mc.answerAsk(dir, req, res)
 		}

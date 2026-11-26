@@ -53,6 +53,7 @@ type bashAnalysis struct {
 	unknown  []string // literal text of words with an expansion that could not be followed
 	globs    []string // absolute glob patterns (word x cwd)
 	paths    []string // absolute paths the words can name, and their symlink-resolved forms
+	cwds     []string // the working directories the line reaches
 	cdpath   bool     // the line sets CDPATH: cd targets are unknown
 	overflow bool     // the line is too large to check
 }
@@ -206,6 +207,7 @@ func (pr Protected) analyze(r Request) *bashAnalysis {
 		a.overflow = true
 		return a
 	}
+	a.cwds = cwds
 	for w := range words {
 		a.words = append(a.words, w)
 	}
@@ -442,13 +444,21 @@ func (pr Protected) bashSensitive(r Request) bool {
 		return true
 	}
 	for _, p := range a.paths {
-		if isSensitive(p) {
+		if isSensitive(p) && !committedEnv(p) {
 			return true // also a symlink to an env file
 		}
 	}
 	for _, w := range a.words {
-		for _, c := range []string{w, afterAny(w, ":"), afterAny(w, "=")} {
-			if c != "" && isSensitive(c) {
+		for i, c := range []string{w, afterAny(w, ":"), afterAny(w, "=")} {
+			if c == "" || !isSensitive(c) {
+				continue
+			}
+			if i == 0 && afterAny(w, "=") != "" {
+				continue // `--env-file=.env`: the path half is judged below
+			}
+			// a `REV:path` object name reads a revision, which may not be the file's
+			// committed state (a stash holds local edits): it is never cleared
+			if i == 1 || !a.committedWord(c) {
 				return true
 			}
 		}
@@ -459,6 +469,28 @@ func (pr Protected) bashSensitive(r Request) bool {
 		}
 	}
 	return false
+}
+
+// committedWord reports whether a word that names an env file names, in every
+// directory the line can be in, one that git tracks with no local edit.
+func (a *bashAnalysis) committedWord(c string) bool {
+	if strings.ContainsAny(c, "*?[") {
+		return false
+	}
+	if filepath.IsAbs(c) {
+		return committedEnv(filepath.Clean(c))
+	}
+	n := 0
+	for _, cwd := range a.cwds {
+		if cwd == "" {
+			continue
+		}
+		if !committedEnv(filepath.Join(cwd, c)) {
+			return false
+		}
+		n++
+	}
+	return n > 0
 }
 
 func afterAny(s, sep string) string {
