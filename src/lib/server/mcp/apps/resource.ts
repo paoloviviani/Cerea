@@ -5,6 +5,7 @@ import { listMcpServerTools } from "../tools";
 import { resolveConnectors } from "../turnConnectors";
 import type { ResolvedServer } from "../selection";
 import { logger } from "$lib/server/logger";
+import { config } from "$lib/server/config";
 import {
 	MAX_APP_HTML_BYTES,
 	isMcpAppMime,
@@ -160,7 +161,7 @@ export async function readUiResource(
 		const html = decodePage(item);
 		const meta = { ...listingMeta, ...uiMetaOf(item) };
 		const { csp, dropped } = sanitizeAppCsp(meta.csp, {
-			ownOrigins: process.env.ORIGIN ? [process.env.ORIGIN] : [],
+			ownOrigins: config.PUBLIC_ORIGIN ? [new URL(config.PUBLIC_ORIGIN).origin] : [],
 		});
 		if (dropped.length > 0) {
 			logger.warn(
