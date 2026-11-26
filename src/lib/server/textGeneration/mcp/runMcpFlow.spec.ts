@@ -72,6 +72,11 @@ const mocks = vi.hoisted(() => ({
 	searchGranted: [] as string[],
 	// What the document service reports (`getCapabilities`); null is "not configured".
 	documentCaps: null as unknown,
+	// Browser use (ADR 0122): the deployment switch, the replica count, and what the flow asked the
+	// builtin registry for.
+	browserEnabled: undefined as string | undefined,
+	replicas: undefined as string | undefined,
+	builtinParams: [] as Array<{ browse?: { refusal?: string; window?: unknown } }>,
 }));
 
 vi.mock("$lib/server/documents/client", async (importOriginal) => ({
@@ -115,8 +120,25 @@ vi.mock("$lib/server/config", () => ({
 		get CHAT_DELEGATION() {
 			return mocks.delegation;
 		},
+		get CHAT_BROWSER_ENABLED() {
+			return mocks.browserEnabled;
+		},
+		get CHAT_REPLICAS() {
+			return mocks.replicas;
+		},
 	},
 }));
+
+vi.mock("../builtinTools", async (importOriginal) => {
+	const real = await importOriginal<typeof import("../builtinTools")>();
+	return {
+		...real,
+		getEnabledBuiltinTools: (params: Parameters<typeof real.getEnabledBuiltinTools>[0]) => {
+			mocks.builtinParams.push(params as never);
+			return real.getEnabledBuiltinTools(params);
+		},
+	};
+});
 
 vi.mock("$lib/server/mcp/registry", () => ({
 	getMcpServers: () => mocks.servers,
@@ -372,6 +394,9 @@ beforeEach(async () => {
 	mocks.searchGranted = [];
 	mocks.documentCaps = null;
 	mocks.useUserToken = "false";
+	mocks.browserEnabled = undefined;
+	mocks.replicas = undefined;
+	mocks.builtinParams = [];
 	mocks.getAbortTime.mockReturnValue(undefined);
 	scriptToolResults();
 });
@@ -426,6 +451,48 @@ describe("runMcpFlow", () => {
 			tool_call_id: "call_1",
 			content: "the tool output",
 		});
+	});
+});
+
+describe("runMcpFlow and a desktop window that this process does not hold (ADR 0122)", () => {
+	const windowId = "w".repeat(32);
+	const localsOf = (extra: Record<string, unknown> = {}) =>
+		({
+			user: { _id: new ObjectId() },
+			sessionId: "s1",
+			...extra,
+		}) as unknown as RunMcpFlowContext["locals"];
+	const turn = () => ({ locals: localsOf({ browserWindowId: windowId }) });
+	const browseParams = () => mocks.builtinParams.at(-1)?.browse;
+
+	it("with several replicas the turn refuses, and the browse tool is there to say so", async () => {
+		mocks.browserEnabled = "true";
+		mocks.replicas = "2";
+		scriptRounds([{ content: "ok" }]);
+		await runFlow(turn());
+		expect(browseParams()?.refusal).toMatch(/another server instance/);
+		expect(mocks.sentTools[0]).toContain("browse");
+	});
+
+	it("with one replica the vanished window is not an error: no browse without a computer", async () => {
+		mocks.browserEnabled = "true";
+		mocks.replicas = "1";
+		scriptRounds([{ content: "ok" }]);
+		await runFlow(turn());
+		expect(browseParams()).toBeUndefined();
+		expect(mocks.sentTools[0]).not.toContain("browse");
+	});
+
+	it("a turn that names no window, or a scheduled run, is never refused", async () => {
+		mocks.browserEnabled = "true";
+		mocks.replicas = "3";
+		scriptRounds([{ content: "ok" }, { content: "ok" }]);
+		await runFlow({ locals: localsOf() });
+		expect(browseParams()).toBeUndefined();
+		await runFlow({
+			locals: localsOf({ browserWindowId: windowId, scheduledRun: { permissionMode: "ask" } }),
+		});
+		expect(browseParams()).toBeUndefined();
 	});
 });
 

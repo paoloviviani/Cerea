@@ -402,7 +402,12 @@ export function getEnabledBuiltinTools(params: {
 		tools.push(...createAgentSessionBuiltins({ profile: params.agentSessions.profile }));
 	}
 
-	if (params.browse && params.toolsEnabled && params.browse.machines.length > 0) {
+	// A computer, or this app's own window (ADR 0122), or a refusal the tool must still say aloud.
+	if (
+		params.browse &&
+		params.toolsEnabled &&
+		(params.browse.machines.length > 0 || params.browse.window || params.browse.refusal)
+	) {
 		tools.push(createBrowseTool(params.browse));
 	}
 

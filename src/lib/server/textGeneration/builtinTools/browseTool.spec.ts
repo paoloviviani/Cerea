@@ -649,6 +649,14 @@ describe("browse: when it is offered", () => {
 		expect(offered({ ...base, toolsEnabled: false, browse })).toBe(false);
 		expect(offered({ ...base })).toBe(false);
 	});
+	it("is offered with only the app's own window (no computer), or a refusal to say aloud", () => {
+		const window = { windowId: "w".repeat(32) } as never;
+		expect(offered({ ...base, browse: { ...browse, machines: [], window } })).toBe(true);
+		expect(offered({ ...base, browse: { ...browse, machines: [], refusal: "No." } })).toBe(true);
+		expect(
+			offered({ ...base, toolsEnabled: false, browse: { ...browse, machines: [], window } })
+		).toBe(false);
+	});
 	it("is marked as returning outside content", () => {
 		const tool = getEnabledBuiltinTools({ ...base, browse }).find(
 			(t) => t.name === BROWSE_TOOL_NAME
