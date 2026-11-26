@@ -204,7 +204,13 @@ const own = (list) =>
 		cerea: x.cerea.filter((n) => n !== "hf-chat" && n !== "smoke-httponly"),
 		panel: x.panel.filter((n) => n !== "hf-chat" && n !== "smoke-httponly"),
 	}));
-const step = (s) => console.log(`ok  ${s}`);
+const step = (s) => ((lastStep = s), console.log(`ok  ${s}`));
+// Nothing here may hang for good: past this the run fails with the last step it reached.
+let lastStep = "(none yet)";
+setTimeout(() => {
+	console.error(`SMOKE FAILED: no end after 10 minutes; last step: ${lastStep}`);
+	process.exit(1);
+}, 10 * 60_000).unref();
 let failed;
 let rt;
 try {
@@ -341,8 +347,30 @@ try {
 		assert.equal((await hook("panel", "PANEL")).open, false);
 		const via = await serverCall("s9", "open", { url: `${fx.base}/form` });
 		assert.ok(!via.error, JSON.stringify(via));
+		const { WebSocket } = await import("ws");
+		// a second runtime (a galopin task, say) while the window's task is running is refused, not let
+		// in: it is closed at once with the reason, and the running task is not cut off
 		{
-			const { WebSocket } = await import("ws");
+			const ws = new WebSocket(readFileSync(endpointFile, "utf8").trim());
+			const closedWith = await new Promise((r, j) => {
+				const t = setTimeout(
+					() => j(new Error("a second runtime was neither served nor refused")),
+					10_000
+				);
+				ws.once(
+					"close",
+					(code, reason) => (clearTimeout(t), r({ code, reason: reason.toString() }))
+				);
+				ws.once("error", () => undefined);
+			});
+			assert.equal(closedWith.reason, "Another task is using this browser.");
+			const still = await serverCall("s9b", "snapshot", {});
+			assert.ok(!still.error && !still.result.isError, "the running window task was not cut off");
+			step("window browser: a second runtime is refused while a task runs, and the task goes on");
+		}
+		// "working" ends after 30 s without a sign of life: then the panel takes a runtime again
+		await new Promise((r) => setTimeout(r, 31_000));
+		{
 			const ws = new WebSocket(readFileSync(endpointFile, "utf8").trim());
 			await new Promise((r, j) => (ws.once("open", r), ws.once("error", j)));
 			let session;
@@ -354,9 +382,10 @@ try {
 				if (d.id && pending.has(d.id)) pending.get(d.id)(d);
 			});
 			const send = (method, params = {}, sessionId) =>
-				new Promise((r) => {
+				new Promise((r, j) => {
 					const id = ++n;
-					pending.set(id, r);
+					const t = setTimeout(() => j(new Error(`no answer to ${method}`)), 10_000);
+					pending.set(id, (d) => (clearTimeout(t), r(d)));
 					ws.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
 				});
 			await send("Target.setAutoAttach", {
@@ -366,6 +395,11 @@ try {
 			});
 			await new Promise((r) => setTimeout(r, 500));
 			assert.ok(session, "a session on a panel page");
+			// the first command started a task and opened the panel: hide it again (same task, so it stays
+			// hidden), as a user who closed the panel mid-task would
+			await hook("uiclick side-close");
+			await new Promise((r) => setTimeout(r, 500));
+			assert.equal((await hook("panel", "PANEL")).open, false);
 			const r = await send("Page.bringToFront", {}, session);
 			assert.match(r.error?.message ?? "", /not showing/, "bringToFront is refused while hidden");
 			ws.close();
@@ -532,6 +566,10 @@ try {
 		"take over cuts the runtime off (it sees nothing the user does); hand back shows the pages as the user's tabs"
 	);
 	await call("end_task", {});
+	// The raw clients below stand in for other runtimes, and the bridge refuses a second runtime while
+	// the first has a task: this one is done, so it goes (its connection ends).
+	await rt.close();
+	rt = undefined;
 
 	// a runtime with the right secret still cannot reach another web contents (raw CDP, as an attacker would)
 	{
@@ -549,9 +587,10 @@ try {
 			if (d.id && pending.has(d.id)) pending.get(d.id)(d);
 		});
 		const send = (method, params = {}, sessionId) =>
-			new Promise((r) => {
+			new Promise((r, j) => {
 				const id = ++nextId;
-				pending.set(id, r);
+				const t = setTimeout(() => j(new Error(`no answer to ${method}`)), 10_000);
+				pending.set(id, (d) => (clearTimeout(t), r(d)));
 				ws.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
 			});
 		await send("Target.setAutoAttach", {

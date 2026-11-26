@@ -161,6 +161,17 @@ export function runtimeEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.Process
 	return out;
 }
 
+/** The answer, or a rejection when it takes longer than `ms`: no wait in the app is unbounded. */
+function bounded<T>(work: T | Promise<T>, ms: number, what: string): Promise<T> {
+	return new Promise<T>((resolve, reject) => {
+		const timer = setTimeout(() => reject(new Error(`${what} took longer than ${ms} ms`)), ms);
+		Promise.resolve(work).then(
+			(v) => (clearTimeout(timer), resolve(v)),
+			(e) => (clearTimeout(timer), reject(e))
+		);
+	});
+}
+
 /** Where the runtime and the Node that runs it are, or undefined when this build has none. */
 export interface RuntimeLocation {
 	node: string;
@@ -327,6 +338,8 @@ export interface WindowBrowserDeps {
 	spawnFn?: SpawnFn;
 	uid?: number;
 	now?: () => number;
+	/** How long the cookie name and the cookie jar may take before there is simply no key (default 10 s). */
+	keyWaitMs?: number;
 }
 
 export class WindowBrowser {
@@ -472,9 +485,10 @@ export class WindowBrowser {
 	private async storeKey(windowId: string): Promise<void> {
 		try {
 			rmSync(this.keyFile(), { force: true });
-			const name = await this.deps.cookieName();
+			const wait = this.deps.keyWaitMs ?? 10_000;
+			const name = await bounded(this.deps.cookieName(), wait, "the cookie name");
 			if (!name || this.disposed) return;
-			const found = await this.deps.readCookies(name);
+			const found = await bounded(this.deps.readCookies(name), wait, "the cookie jar");
 			const only = found.length === 1 ? found[0] : undefined;
 			if (!only || !only.value || !only.httpOnly || (this.deps.https && !only.secure)) {
 				if (found.length > 0)

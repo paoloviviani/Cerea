@@ -458,6 +458,20 @@ describe("WindowBrowser", () => {
 		await vi.waitFor(() => expect(existsSync(join(dir, "approval-key"))).toBe(true));
 		await wb.dispose();
 	});
+	it("never waits for ever on a cookie name or a cookie jar that does not answer: no key, calls go on", async () => {
+		for (const stuck of [
+			{ cookieName: () => new Promise<string>(() => {}) },
+			{ readCookies: () => new Promise<never>(() => {}) },
+		]) {
+			const { wb, dir, next } = make({ ...stuck, keyWaitMs: 40 });
+			wb.start();
+			wb.handleFromPage(announce());
+			wb.handleFromPage(call("c1", "snapshot"));
+			expect((await next()).id).toBe("c1");
+			expect(existsSync(join(dir, "approval-key"))).toBe(false);
+			await wb.dispose();
+		}
+	});
 	it("limits how often a page may announce a window", async () => {
 		const { wb } = make();
 		let reads = 0;
