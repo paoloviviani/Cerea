@@ -186,6 +186,20 @@ describe("CDP bridge", () => {
 		expect(events).toEqual(["navigation finished", "replied"]);
 	});
 
+	it("refuses Page.bringToFront while the browser panel is not showing", async () => {
+		const { control, call, out } = rig();
+		await call("Target.setAutoAttach", { autoAttach: true, flatten: true });
+		const sid = (
+			out.find((m) => m.method === "Target.attachedToTarget")!.params as { sessionId: string }
+		).sessionId;
+		control.panelShowing = () => false;
+		expect(
+			((await call("Page.bringToFront", {}, sid)).error as { message: string }).message
+		).toMatch(/not showing/);
+		control.panelShowing = () => true;
+		expect((await call("Page.bringToFront", {}, sid)).result).toBeTruthy();
+	});
+
 	it("creates pages through the host", async () => {
 		const { host, call } = rig();
 		const r = await call("Target.createTarget", { url: "about:blank" });

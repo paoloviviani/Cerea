@@ -14,6 +14,7 @@ import {
 	panelPartition,
 	profileGalopinDir,
 	removeProfile,
+	setPanelWidth,
 	renameProfile,
 	saveStore,
 	switchTo,
@@ -243,6 +244,31 @@ describe("storage and migration", () => {
 		expect(s.profiles.map((p) => p.name)).toEqual(["ok", "second owner"]);
 		expect(s.profiles.filter((p) => p.defaultGalopin)).toHaveLength(1);
 		expect(s.active).toBe(ok);
+	});
+
+	it("remembers the tool panel's width per profile, and cleans what it reads", () => {
+		const ud = dir();
+		const a = addProfile(addProfile(empty, srv("work.example.org")).store, srv("home.example.org"));
+		let s = setPanelWidth(a.store, a.profile.id, 612.4);
+		saveStore(ud, s);
+		const back = loadStore(ud);
+		expect(back.profiles[0].panelWidth).toBeUndefined(); // the other profile's is its own
+		expect(back.profiles[1].panelWidth).toBe(612);
+		s = { ...back, profiles: back.profiles.map((p) => ({ ...p, panelWidth: p.panelWidth })) };
+		writeFileSync(
+			join(ud, "config.json"),
+			JSON.stringify({
+				version: 2,
+				active: back.profiles[0].id,
+				profiles: [
+					{ ...back.profiles[0], panelWidth: "wide" },
+					{ ...back.profiles[1], panelWidth: 999999 },
+				],
+			})
+		);
+		const cleaned = loadStore(ud);
+		expect(cleaned.profiles[0].panelWidth).toBeUndefined();
+		expect(cleaned.profiles[1].panelWidth).toBe(4000);
 	});
 
 	it("starts empty for a missing or damaged file", () => {

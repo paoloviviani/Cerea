@@ -30,4 +30,27 @@ describe("take over and hand back", () => {
 		t += 200_000;
 		expect(c.recentlyActive(120_000)).toBe(false);
 	});
+
+	it("tells the app when a task starts (the first sign after 30 s of quiet), not on every step", () => {
+		let t = 1_000_000;
+		const c = new Control(() => t);
+		let starts = 0;
+		let changes = 0;
+		c.onTaskStart(() => starts++);
+		c.onChange(() => changes++);
+		expect(c.working).toBe(false);
+		c.activity();
+		expect(starts).toBe(1);
+		expect(c.working).toBe(true);
+		t += 10_000;
+		c.activity();
+		t += 25_000;
+		c.activity(); // 25 s after the last one: still the same task
+		expect(starts).toBe(1);
+		t += 31_000;
+		expect(c.working).toBe(false);
+		c.activity(); // a new task
+		expect(starts).toBe(2);
+		expect(changes).toBeGreaterThan(0);
+	});
 });

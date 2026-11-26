@@ -22,6 +22,10 @@
 * {
 	box-sizing: border-box;
 }
+/* The hidden attribute must win over any display set below (a flex panel stayed on screen without it). */
+[hidden] {
+	display: none !important;
+}
 html,
 body {
 	margin: 0;
@@ -83,13 +87,15 @@ textarea {
 	position: fixed;
 	inset: 40px 0 0 0;
 	padding: 48px max(24px, calc(50% - 280px));
+	/* The first-run screen has the whole window; at the smallest size it scrolls instead of clipping. */
+	overflow: auto;
 }
 #side {
 	position: fixed;
 	top: 40px;
 	right: 0;
 	bottom: 0;
-	width: 480px;
+	width: var(--side-w, 440px);
 	border-left: 1px solid var(--line);
 	display: flex;
 	flex-direction: column;
@@ -221,4 +227,106 @@ body.hidden *::after {
 }
 #profile-select {
 	max-width: 220px;
+}
+
+#side-handle {
+	position: absolute;
+	left: 0;
+	top: 0;
+	bottom: 0;
+	width: 8px;
+	cursor: col-resize;
+	z-index: 3;
+	touch-action: none;
+}
+#side-handle::after {
+	content: "";
+	position: absolute;
+	left: 0;
+	top: 0;
+	bottom: 0;
+	width: 2px;
+	background: transparent;
+}
+#side-handle:hover::after,
+#side-handle:focus-visible::after,
+#side-handle.dragging::after {
+	background: var(--accent);
+}
+#side-close {
+	position: absolute;
+	top: 4px;
+	right: 6px;
+	z-index: 3;
+	padding: 0 8px;
+	font-size: 18px;
+	line-height: 24px;
+}
+#side {
+	padding-top: 34px;
+}
+#bar button .icon {
+	vertical-align: -2px;
+	margin-right: 4px;
+}
+#tab-browser.working #tab-browser-label::after {
+	content: "";
+	display: inline-block;
+	width: 7px;
+	height: 7px;
+	margin-left: 6px;
+	border-radius: 50%;
+	background: var(--accent);
+	animation: pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulse {
+	50% {
+		opacity: 0.25;
+	}
+}
+
+.status-card {
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	background: var(--card);
+	padding: 12px;
+	margin: 8px 0;
+}
+.headline {
+	font-size: 15px;
+	font-weight: 600;
+	margin: 0 0 4px;
+}
+button.primary {
+	background: var(--accent);
+	color: var(--bg);
+	border-color: var(--accent);
+}
+.tools {
+	list-style: none;
+	padding: 0;
+	margin: 4px 0;
+}
+.tools li {
+	display: grid;
+	grid-template-columns: 1fr auto;
+	gap: 2px 8px;
+	align-items: center;
+	padding: 8px 0;
+	border-bottom: 1px solid var(--line);
+}
+.tools li.absent {
+	opacity: 0.55;
+}
+.tools li .note {
+	grid-column: 1 / -1;
+	font-size: 12px;
+	word-break: break-all;
+}
+.line {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	justify-content: space-between;
+	margin: 6px 0;
 }

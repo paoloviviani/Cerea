@@ -147,7 +147,9 @@ export class BrowserPanel implements TargetHost {
 		private readonly emit: (s: BrowserState) => void,
 		private readonly isConnected: () => boolean,
 		/** This profile's own session: cookies and logins of the panel never reach another profile's. */
-		private readonly partition: string
+		private readonly partition: string,
+		/** Keyboard focus goes back to the chat when a page that has it is hidden. */
+		private readonly focusChat: () => void = () => {}
 	) {
 		const ses = session.fromPartition(partition);
 		// A page in the panel asks for nothing: no camera, location, notifications, clipboard read.
@@ -224,6 +226,41 @@ export class BrowserPanel implements TargetHost {
 		this.emit(this.state());
 	}
 
+	/** Test aids: which pages hold keyboard focus, focus the first one, run a script in it. */
+	focusedPages(): string[] {
+		return [...this.tabs.values()]
+			.filter((t) => !t.page.wc.isDestroyed() && t.page.wc.isFocused())
+			.map((t) => t.page.id);
+	}
+	focusFirstPage(): void {
+		[...this.tabs.values()][0]?.page.wc.focus();
+	}
+	runInFirstPage(js: string): void {
+		void [...this.tabs.values()][0]?.page.wc.executeJavaScript(js).catch(() => {});
+	}
+
+	private isShown(id: string): boolean {
+		return this.rect.visible && id === this.activeId;
+	}
+
+	/** Whether the panel is showing its pages now. */
+	get showing(): boolean {
+		return this.rect.visible;
+	}
+
+	/** What the tests look at: every page's view, whether it shows and where. */
+	debugViews(): {
+		id: string;
+		visible: boolean;
+		bounds: { x: number; y: number; width: number; height: number };
+	}[] {
+		return [...this.tabs.values()].map((t) => ({
+			id: t.page.id,
+			visible: t.view.getVisible(),
+			bounds: t.view.getBounds(),
+		}));
+	}
+
 	setLayout(r: { x: number; y: number; width: number; height: number; visible: boolean }): void {
 		this.rect = r;
 		this.layout();
@@ -232,8 +269,12 @@ export class BrowserPanel implements TargetHost {
 	private layout(): void {
 		for (const t of this.tabs.values()) {
 			const show = this.rect.visible && t.page.id === this.activeId;
+			// A page that is hidden must not keep the keyboard: what the user types goes to the chat.
+			if (!show && !t.page.wc.isDestroyed() && t.page.wc.isFocused()) this.focusChat();
 			t.view.setVisible(show);
-			if (show) t.view.setBounds(this.rect);
+			// A native view is above the page's own HTML: when the side area shows another tab it must
+			// be neither visible nor take any room, whatever it was last asked to cover.
+			t.view.setBounds(show ? this.rect : { x: 0, y: 0, width: 0, height: 0 });
 		}
 		const shield = this.rect.visible && this.control.mode === "agent" && this.control.agentBusy;
 		if (shield) {
@@ -366,6 +407,10 @@ export class BrowserPanel implements TargetHost {
 					.catch(() => {});
 			}
 			return { action: "deny" };
+		});
+		// A hidden page that takes focus (window.focus(), a script) gives it straight back.
+		wc.on("focus", () => {
+			if (!this.isShown(id)) this.focusChat();
 		});
 		wc.on("page-title-updated", () => this.refresh());
 		wc.on("did-navigate", () => this.refresh());

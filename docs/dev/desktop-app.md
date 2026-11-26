@@ -103,6 +103,71 @@ TOOL` (not `--desktop`) takes no `--creds`: its shims follow the default pairing
   moved to the profile's own, so the user stays signed in and no partition is orphaned.
 - Up to 9 profiles; the same address cannot be added twice.
 
+### The window: the chat, and a side area that is a tool
+
+The Cerea view takes the window; the **side area** at the right (Browser, galopin and Profiles,
+three views of one panel) is closed at every start and on the first-run screen, and never overlaps
+the chat. One function decides where everything goes (`layout.ts`, tested): with the panel closed the
+Cerea view is the whole window under the 40 px header; open, it is exactly `window width - panel
+width`, re-laid out on every resize; with no server chosen there is no panel and the first-run screen
+has the whole window (it scrolls rather than clips, down to 900 x 560).
+
+- **Opens when needed:** the browser runtime starting on a task (its first command, or its control
+  stream connecting, after 30 s of quiet) opens it on the Browser tab; the user opens it with the
+  header's Browser button (a globe), Window, Show Browser (a packaged app has no View menu, so it is in
+  the Window menu) or Ctrl or Cmd+Shift+B. **Closing only hides it**: the panel's pages stay and the
+  task goes on, and the same task does not reopen it. While a task runs the Browser button says
+  "Browser working" with a pulse.
+- **Resizable:** a divider (8 px hit area, accent line on hover or focus, `col-resize`) between the
+  chat and the panel. Drag it (pointer capture, so the moves keep coming over the native views),
+  arrow keys when focused (Shift for bigger steps), double-click for the default 440 px. 360 px at
+  least, 70% of the window at most. The HTML panel follows the pointer at once and the main process
+  moves the Cerea view and the browser's pages to the same width in the same turn. The width is
+  remembered per profile (written once when it settles, and at quit); whether the panel is open is
+  remembered per profile for the session only.
+- **One tab at a time:** the browser's pages are native views, which sit above any HTML, so they are
+  hidden **and given zero bounds** whenever the panel is closed or shows galopin or Profiles, and
+  their toolbar is HTML that is hidden with the pane. (A `display: flex` rule had overridden the
+  `hidden` attribute, so the panel and the browser's toolbar were drawn on every tab and at start; a
+  global `[hidden] { display: none !important }` fixes the cause, and the smoke test asserts the
+  rendered state, not the attribute.)
+
+### The galopin tab
+
+A status card at the top with one sentence and one action (Pair this computer, Sign in again, Stop,
+Start); one row per coding tool (Launch, and a switch "Use galopin by default" = `setup TOOL
+--default` or `--remove`; a tool not found on PATH is greyed with no buttons; galopin's own shims are
+not counted as the tool); Browser and connectors, each with a line of status; one switch for the
+background service; and a collapsed Advanced (version and upgrade, and the log, de-duplicated so a
+repeated line shows once with a count, copyable). The shims go to `<userData>/shims`
+(`GALOPIN_INSTALL_DIR`), a place that does not move, because the app's own galopin may live in a
+mount that does; the row says to put that folder first on PATH. "Sign-in expired" is read from
+galopin's own `invalid_grant` link error; **Sign in again** runs `galopin auth login` with the
+profile's `--creds`. galopin cannot tell expired from revoked in that message, so there is one state.
+
+### galopin runs from a stable copy
+
+The bundled galopin is copied to `<userData>/bin/galopin` (a 0700 directory and file, checked against
+the bundled binary's hash and made again when they differ: a new app version, or a copy that was
+changed) and **every** galopin command the app runs goes through that copy, on every platform. Why:
+`galopin setup` and `galopin service install` record the path of the galopin that wrote them
+(`os.Executable()`), and an AppImage runs from `/tmp/.mount_<random>`, which is gone when the app
+quits and can be recreated by another local user, so a shim or a login service would run whatever
+they plant there, as the victim. `GALOPIN_INSTALL_DIR` is `<userData>/bin`, so shims and units name the
+stable copy. At every start, shims and the service unit that name a mount or resources path (written
+by an earlier version) are re-pointed (a changed unit is followed by `systemctl --user daemon-reload`;
+a changed macOS plist takes effect when it is next loaded). `galopin upgrade` would replace this copy,
+and the next start puts the app's own back: the app's update is galopin's update.
+
+### A profile uses only a pairing for its own server
+
+A credential counts for a profile only when its recorded Cerea address (origin) and identity provider
+match the profile's. Profile 1 used to adopt galopin's default directory whatever was in it. Now,
+when that directory holds another server's pairing (made by the CLI or for another profile), the
+profile gives the default directory up and gets its own: that pairing is neither used nor
+overwritten nor set aside, galopin is **never started** on it, and the card says "Paired with another
+server ... Pair for this profile", which pairs into the profile's own directory.
+
 ## How the chat drives the embedded browser (the core decision)
 
 Today galopin offers `browser-runtime` (a Node MCP server over `playwright-core`) as the local
@@ -407,6 +472,23 @@ failure there never fails the Cerea release; rerun the script.
   download events, and no test exercises them yet), file uploads from the panel (the runtime
   refuses file choosers in any case).
 - The installer-less macOS first-open flow and a `curl | sh` installer like the connector's.
+
+The check runs **before every galopin action** (start, pair, sign in, service, browser setup, launch,
+setup, upgrade), not only at start, because the default directory can change while the app runs; the
+action refuses with a message when there is no pairing for this profile, and the profile's endpoint
+file moves with its directory (the old one is removed). A credential with no recorded Cerea address (an
+older enrolment) counts if its identity provider is the profile's, and a default directory nobody owns
+goes to the profile its pairing is for. **The base path (`/chat`) is not compared**, only the origin and
+the identity provider: two deployments on one origin under different paths would look the same.
+Accepted for now. The shims `galopin setup` writes follow galopin's default pairing, so only the
+profile that owns that directory shows the "Use galopin by default" switches; the others say whose
+pairing coding tools use. The log is kept per profile, so one profile's sign-in problem is not read
+from another's lines.
+
+A hidden browser page must not keep or take the keyboard: hiding the panel while a page has focus gives
+focus to the chat, a hidden page calling `window.focus()` gives it straight back, and `Page.bringToFront`
+is refused while the panel is not showing. The header's Browser button shows "Browser working" while a
+task runs, whether or not the panel is open.
 
 ## Decisions taken (owner, 2026-11-25)
 

@@ -1,8 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
 	app,
+	clipboard,
 	BrowserWindow,
 	dialog,
 	ipcMain,
@@ -17,6 +19,7 @@ import {
 	type WebContents,
 } from "electron";
 import { Mutex, serialize } from "./mutex.ts";
+import { clampPanelWidth, computeLayout, PANEL_DEFAULT, type Layout } from "./layout.ts";
 import { BridgeRouter, CdpBridge } from "./cdpBridge.ts";
 import { startBridgeServer, type BridgeServer } from "./bridgeServer.ts";
 import { BrowserPanel } from "./browserPanel.ts";
@@ -26,12 +29,18 @@ import { linuxLogin, linuxLoginEnabled } from "./login.ts";
 import { findGalopin, Galopin } from "./galopin.ts";
 import {
 	enrollArgs,
+	galopinConfigDir,
 	launchArgs,
 	serviceArgs,
 	setupArgs,
 	upgradeArgs,
 	withCreds,
 } from "./galopinArgs.ts";
+import { ensureStableGalopin, migrateGalopinPaths, stableDir } from "./stableGalopin.ts";
+import { APP_LOG, ProfileLogs } from "./profileLogs.ts";
+import { mcpSummary, signInState, toolsInfo } from "./galopinInfo.ts";
+import { readCreds } from "./pairing.ts";
+import { notPairedMessage, refreshProfile, type GuardDeps } from "./profileGuard.ts";
 import { guardCerea, mayOpenExternally, UI_CSP, type GuardState } from "./navGuard.ts";
 import { resolveUiFile, UI_ORIGIN } from "./uiProtocol.ts";
 import { cappedFetch, iconFetcher } from "./probeFetch.ts";
@@ -42,8 +51,10 @@ import {
 	panelPartition,
 	profileGalopinDir,
 	removeProfile,
+	reconcileDefault,
 	renameProfile,
 	saveStore,
+	setPanelWidth,
 	switchTo,
 	loadStore,
 	type Profile,
@@ -57,9 +68,10 @@ import {
 	type AppState,
 	type Calls,
 	type Channel,
+	type GalopinInfo,
+	type Pane,
 } from "../shared/ipc.ts";
 
-const HEADER = 40;
 // Test hooks exist only in an unpackaged run: a packaged app ignores these variables.
 const TEST = !app.isPackaged && process.env.CEREA_DESKTOP_TEST === "1";
 
@@ -79,18 +91,61 @@ const ops = new Mutex();
 let nodeBinDir: string | undefined;
 const guard: GuardState = { origin: "" };
 const control = new Control();
+// The browser runtime starting on a task opens the panel (a user who closes it keeps the task going).
+control.onTaskStart(() => {
+	if (cur() && !(panelUi.open && panelUi.pane === "browser"))
+		setPanel({ open: true, pane: "browser" });
+});
 let bridgeConnected = false;
-let sideWidth = 0;
-let log: string[] = [];
+/** galopin's output, kept per profile: one profile's sign-in problem is never read from another's lines. */
+const logs = new ProfileLogs();
+const logOf = (id: string | undefined): string[] => logs.get(id);
 
 const uiDir = () => join(__dirname, "..", "renderer");
 
 function push(event: string, data: unknown): void {
 	if (win && !win.isDestroyed()) win.webContents.send(`ev:${event}`, data);
 }
+let galopinVersion = "";
+/** galopin as run by the app: the stable copy in the app's data directory (see stableGalopin.ts). */
+let galopinBin: string | undefined;
+
+/** Makes the stable copy and re-points what an AppImage run wrote (shims, the service unit). */
+function prepareGalopin(): void {
+	const bundled = findGalopin({
+		resources: process.resourcesPath,
+		devRoot: join(__dirname, "..", ".."),
+		packaged: app.isPackaged,
+	});
+	if (!bundled) return;
+	try {
+		const userData = app.getPath("userData");
+		galopinBin = ensureStableGalopin({ bundled, userData });
+		const changed = migrateGalopinPaths({
+			stable: galopinBin,
+			resourcesGalopin: bundled,
+			installDirs: [join(userData, "shims"), stableDir(userData)],
+			home: homedir(),
+		});
+		if (changed.some((f) => f.endsWith(".service"))) {
+			spawn("systemctl", ["--user", "daemon-reload"], { stdio: "ignore" }).on("error", () => {});
+		}
+		if (changed.length > 0)
+			line(`Re-pointed ${changed.length} galopin file(s) to the app's own copy.`);
+	} catch (err) {
+		line(`galopin is off: ${err instanceof Error ? err.message : String(err)}`);
+	}
+}
+/** Where `galopin setup` keeps its commands and shims: the app's own, stable (the app's galopin may live in a mount that moves). */
+const shimDir = () => stableDir(app.getPath("userData"));
+
+function lineFor(profileId: string | undefined, l: string): void {
+	logs.add(profileId, l);
+	if ((profileId ?? APP_LOG) === (cur()?.id ?? APP_LOG)) push("output", l);
+}
+/** App-level lines (and the active profile's, for bridge and switch messages). */
 function line(l: string): void {
-	log = [...log.slice(-499), l];
-	push("output", l);
+	lineFor(cur()?.id, l);
 }
 
 function appState(): AppState {
@@ -114,6 +169,12 @@ function appState(): AppState {
 			: { tabs: [], mode: control.mode, agentBusy: false, connected: false },
 		platform: process.platform,
 		startAtLogin: loginEnabled(),
+		panel: {
+			open: panelUi.open && !!cur(),
+			pane: panelUi.pane,
+			width: currentLayout().panelWidth,
+			working: control.working && !!cur(),
+		},
 		version: app.getVersion(),
 		packaged: app.isPackaged,
 	};
@@ -131,13 +192,77 @@ const pushState = () => push("state", appState());
 
 // ---- the Cerea window -----------------------------------------------------------------------
 
+// ---- the tool panel -------------------------------------------------------------------------
+
+/** The tool panel (browser, galopin, profiles) at the right: closed at every start. */
+let panelUi: { open: boolean; pane: Pane } = { open: false, pane: "browser" };
+/** Each profile keeps its own open state and pane for the session; a fresh start is closed again. */
+const panelMemory = new Map<string, { open: boolean; pane: Pane }>();
+
+function currentLayout(): Layout {
+	const b = win && !win.isDestroyed() ? win.getContentBounds() : { width: 1360, height: 860 };
+	return computeLayout({
+		width: b.width,
+		height: b.height,
+		hasServer: !!cur(),
+		open: panelUi.open,
+		panelWidth: cur()?.panelWidth ?? PANEL_DEFAULT,
+	});
+}
+
+/** One place decides where the Cerea view and the browser's pages go, so they cannot overlap. */
 function placeCerea(): void {
-	if (!win || !ceraeView) return;
-	const b = win.getContentBounds();
-	const show = !!cur() && sideWidth < b.width;
-	ceraeView.setVisible(show);
-	if (show)
-		ceraeView.setBounds({ x: 0, y: HEADER, width: b.width - sideWidth, height: b.height - HEADER });
+	const l = currentLayout();
+	if (ceraeView) {
+		ceraeView.setVisible(!!l.cerea);
+		if (l.cerea) ceraeView.setBounds(l.cerea);
+	}
+	// The panel's pages show only while the panel is open on its Browser pane (and only where the UI says).
+	panel?.setLayout({
+		...lastRect,
+		visible: !!l.panel && panelUi.pane === "browser" && lastRect.width > 0,
+	});
+}
+
+let widthTimer: NodeJS.Timeout | undefined;
+/** Dragging the handle changes the width many times a second; the file is written once, when it settles. */
+/** Writes a pending width now (at quit, so a drag just before closing is not lost). */
+function flushWidth(): void {
+	if (!widthTimer) return;
+	clearTimeout(widthTimer);
+	widthTimer = undefined;
+	saveStore(app.getPath("userData"), store);
+}
+
+function saveWidthSoon(): void {
+	clearTimeout(widthTimer);
+	widthTimer = setTimeout(() => saveStore(app.getPath("userData"), store), 400);
+	widthTimer.unref();
+}
+
+function setPanel(change: { open?: boolean; pane?: Pane; width?: number }): void {
+	const p = cur();
+	if (!p) return;
+	if (change.pane !== undefined) panelUi.pane = change.pane;
+	if (change.open !== undefined) panelUi.open = change.open;
+	panelMemory.set(p.id, { ...panelUi });
+	if (change.width !== undefined) {
+		const b = win?.getContentBounds().width ?? 1360;
+		store = setPanelWidth(
+			store,
+			p.id,
+			clampPanelWidth(change.width === 0 ? PANEL_DEFAULT : change.width, b)
+		);
+		saveWidthSoon();
+	}
+	placeCerea();
+	setMenu();
+	pushState();
+}
+
+/** Ctrl or Cmd with Shift and B: the browser panel opens, or closes if it is the one showing. */
+function toggleBrowser(): void {
+	setPanel({ open: !(panelUi.open && panelUi.pane === "browser"), pane: "browser" });
 }
 
 function makeCereaView(profile: Profile): WebContentsView {
@@ -235,9 +360,11 @@ function loadActive(): void {
 			control,
 			(st) => push("state", { ...appState(), browser: st }),
 			() => bridgeConnected,
-			panelPartition(p.id)
+			panelPartition(p.id),
+			() => ceraeView?.webContents.focus()
 		);
 		panel.setLayout(lastRect);
+		control.panelShowing = () => panel?.showing ?? false;
 		router.set(new CdpBridge(panel, control, (m) => line(`[bridge] ${m}`)));
 		galopin = makeGalopin(p);
 	} else {
@@ -245,6 +372,11 @@ function loadActive(): void {
 		router.set(undefined);
 		galopin = makeGalopin(undefined);
 	}
+	// Closed unless this profile had it open this session, or a task is running right now.
+	panelUi = p
+		? { ...(panelMemory.get(p.id) ?? { open: false, pane: "browser" as Pane }) }
+		: { open: false, pane: "browser" };
+	if (p && control.working) panelUi = { open: true, pane: "browser" };
 	win?.setTitle(p ? `Cerea \u2014 ${p.name}` : "Cerea");
 	setMenu();
 	placeCerea();
@@ -257,16 +389,14 @@ let lastRect = { x: 0, y: 0, width: 0, height: 0, visible: false };
 function makeGalopin(p: Profile | undefined): Galopin {
 	const dir = p ? profileGalopinDir(app.getPath("userData"), p) : undefined;
 	if (dir) mkdirSync(dir, { recursive: true, mode: 0o700 });
+	mkdirSync(shimDir(), { recursive: true, mode: 0o700 });
 	const g = new Galopin(
-		findGalopin({
-			resources: process.resourcesPath,
-			devRoot: join(__dirname, "..", ".."),
-			packaged: app.isPackaged,
-		}),
-		line,
-		process.env,
+		galopinBin,
+		(l) => lineFor(p?.id, l),
+		{ ...process.env, GALOPIN_INSTALL_DIR: shimDir() },
 		pushState,
-		dir ? join(dir, "credentials.json") : undefined
+		dir ? join(dir, "credentials.json") : undefined,
+		p ? { origin: p.server.origin, idp: p.server.idp } : undefined
 	);
 	if (nodeBinDir) g.useNode(nodeBinDir);
 	return g;
@@ -314,8 +444,9 @@ const handlers: { [C in Channel]: Handler<C> } = {
 			const { store: next, profile } = addProfile(store, server, name);
 			const first = store.profiles.length === 0;
 			store = next;
+			reconcile();
 			saveStore(app.getPath("userData"), store);
-			registerEndpoint(profile);
+			registerEndpoint(store.profiles.find((x) => x.id === profile.id) ?? profile);
 			if (first) loadActive();
 			else await doSwitch(profile.id);
 			setMenu();
@@ -449,13 +580,49 @@ const handlers: { [C in Channel]: Handler<C> } = {
 		const err = await shell.openPath(file);
 		return err || "Opened. Saved changes are picked up automatically.";
 	},
-	"galopin:logs": () => log.join("\n"),
-	"browser:layout": ({ sideWidth: w, ...rect }) => {
-		sideWidth = w;
+	"galopin:logs": () => logOf(cur()?.id).join("\n"),
+	"galopin:info": async () => {
+		const g = galopin;
+		const p = cur();
+		const pairing = g.pairing();
+		const mcp = mcpSummary(join(g.configDir(), "mcp.json"));
+		if (!galopinVersion && g.available) {
+			galopinVersion =
+				(await g.exec(["version"], { quiet: true })).output.trim().split("\n")[0] ?? "";
+		}
+		const info: GalopinInfo = {
+			version: galopinVersion,
+			pairing: pairing.state,
+			otherAddress: pairing.state === "other" ? pairing.address : "",
+			signIn: signInState(logOf(p?.id)),
+			ownsDefault: !!p?.defaultGalopin,
+			defaultOwner: store.profiles.find((x) => x.defaultGalopin)?.name ?? "",
+			running: g.running,
+			profileName: p?.name ?? "",
+			serverName: p?.server.name ?? "",
+			tools: toolsInfo({ path: process.env.PATH ?? "", home: homedir(), installDir: shimDir() }),
+			shimDir: join(shimDir(), "galopin-shims"),
+			service: { installed: g.serviceInstalled() },
+			browser: { configured: mcp.browser },
+			connectors: mcp.connectors,
+		};
+		return info;
+	},
+	"galopin:signin": async () => {
+		const r = await galopin.exec(["auth", "login"]);
+		if (r.code === 0) {
+			line("Signed in again.");
+			if (galopin.paired() && !TEST) galopin.start();
+		}
+		pushState();
+		return r.code === 0 ? "Signed in." : `Sign-in failed (exit ${r.code}).`;
+	},
+	"app:copy": ({ text }) => clipboard.writeText(text),
+	"browser:layout": (rect) => {
 		lastRect = rect;
 		placeCerea();
-		panel?.setLayout(rect);
 	},
+	"panel:set": (change) => setPanel(change),
 	"browser:open": ({ url }) => panel?.openForUser(url),
 	"browser:tab": ({ action, id }) =>
 		action === "activate" ? panel?.activate(id) : panel?.close(id),
@@ -474,13 +641,65 @@ const handlers: { [C in Channel]: Handler<C> } = {
 };
 
 // These act on "the" galopin: queued behind any switch, so none reaches a profile that is being left.
-serialize(ops, handlers, [
-	"galopin:start",
-	"galopin:stop",
-	"galopin:pair",
-	"galopin:service",
-	"galopin:browser-setup",
-] as const);
+serialize(
+	ops,
+	handlers,
+	[
+		"galopin:start",
+		"galopin:stop",
+		"galopin:pair",
+		"galopin:service",
+		"galopin:browser-setup",
+		"galopin:signin",
+		"galopin:launch",
+		"galopin:setup",
+		"galopin:upgrade",
+	] as const,
+	async (key, arg) => {
+		// Every time, not only at start: galopin's default directory can change while the app runs.
+		await refreshProfile(guardDeps());
+		const needsPairing =
+			key === "galopin:start" ||
+			key === "galopin:signin" ||
+			key === "galopin:browser-setup" ||
+			key === "galopin:launch" ||
+			key === "galopin:setup" ||
+			(key === "galopin:service" && (arg as { action: string }).action === "install") ||
+			(key === "galopin:upgrade" && !(arg as { show: boolean }).show);
+		if (!needsPairing) return;
+		const msg = notPairedMessage(galopin.pairing(), cur()?.server.name ?? "this server");
+		if (msg) throw new IpcError(msg);
+	}
+);
+
+/** A profile only keeps galopin's default directory if the pairing in it is for its own server. */
+function reconcile(): void {
+	const before = store;
+	store = reconcileDefault(
+		store,
+		readCreds(join(galopinConfigDir(process.env), "credentials.json"))
+	);
+	if (store !== before) saveStore(app.getPath("userData"), store);
+}
+
+function guardDeps(): GuardDeps {
+	return {
+		getStore: () => store,
+		setStore: (s) => {
+			store = s;
+			saveStore(app.getPath("userData"), store);
+		},
+		defaultCreds: () => readCreds(join(galopinConfigDir(process.env), "credentials.json")),
+		stopGalopin: () => galopin.stop(),
+		rebuild: () => {
+			const p = cur();
+			galopin = makeGalopin(p);
+			if (p) registerEndpoint(p);
+			setMenu();
+			pushState();
+		},
+	};
+}
 
 function registerIpc(): void {
 	for (const channel of CHANNELS) {
@@ -509,11 +728,30 @@ function setMenu(): void {
 			click: () => void switchProfile(p.id).catch((e) => line(`Switch failed: ${String(e)}`)),
 		})),
 	};
+	// The browser panel is in the Window menu (a packaged app has no View menu).
+	const windowMenu: Electron.MenuItemConstructorOptions = {
+		label: "Window",
+		submenu: [
+			{
+				id: "toggle-browser",
+				label: panelUi.open && panelUi.pane === "browser" ? "Hide Browser" : "Show Browser",
+				accelerator: "CmdOrCtrl+Shift+B",
+				enabled: !!cur(),
+				click: () => toggleBrowser(),
+			},
+			{ type: "separator" },
+			{ role: "minimize" },
+			...(process.platform === "darwin"
+				? [{ role: "zoom" as const }, { role: "front" as const }]
+				: []),
+			{ role: "close" },
+		],
+	};
 	const template: Electron.MenuItemConstructorOptions[] = [
 		...(process.platform === "darwin" ? [{ role: "appMenu" as const }] : []),
 		{ role: "editMenu" },
 		...(store.profiles.length > 1 ? [profiles] : []),
-		{ role: "windowMenu" },
+		windowMenu,
 		...(app.isPackaged ? [] : [{ role: "viewMenu" as const }]),
 	];
 	Menu.setApplicationMenu(Menu.buildFromTemplate(template));
@@ -601,6 +839,7 @@ async function doRemove(id: string): Promise<boolean> {
 	store = removeProfile(store, id);
 	saveStore(app.getPath("userData"), store);
 	bridgeServer?.removeProfile(id);
+	logs.drop(id);
 	// Its views are closed first (the last profile's are closed here), and only then its storage is cleared.
 	if (!store.active) loadActive();
 	if (dir) rmSync(join(dir, ".."), { recursive: true, force: true });
@@ -691,6 +930,89 @@ function testHooks(): void {
 						if (!had) dbg.detach();
 					}
 				})();
+			} else if (cmd === "panel") {
+				const l = currentLayout();
+				const b = win!.getContentBounds();
+				process.stdout.write(
+					`PANEL ${JSON.stringify({
+						open: panelUi.open && !!cur(),
+						pane: panelUi.pane,
+						width: l.panelWidth,
+						content: { width: b.width, height: b.height },
+						cereaVisible: ceraeView?.getVisible() ?? false,
+						cerea: ceraeView?.getBounds() ?? null,
+						panelRect: l.panel,
+						views: panel?.debugViews() ?? [],
+						focus: {
+							cerea: ceraeView?.webContents.isFocused() ?? false,
+							pages: panel?.focusedPages() ?? [],
+						},
+						working: control.working,
+						menu: (() => {
+							const it = Menu.getApplicationMenu()?.getMenuItemById("toggle-browser");
+							return it ? { label: it.label, accelerator: String(it.accelerator) } : null;
+						})(),
+					})}\n`
+				);
+			} else if (cmd === "focuspage") {
+				panel?.focusFirstPage();
+			} else if (cmd === "pagefocusjs") {
+				panel?.runInFirstPage("window.focus()");
+			} else if (cmd.startsWith("panelset ")) {
+				handlers["panel:set"](JSON.parse(cmd.slice(9)));
+			} else if (cmd.startsWith("uieval ")) {
+				void win?.webContents
+					.executeJavaScript(
+						`(async () => JSON.stringify(await (async () => { ${cmd.slice(7)} })()))()`
+					)
+					.then((r: string) => process.stdout.write(`UIEVAL ${r ?? "null"}\n`))
+					.catch((e: unknown) =>
+						process.stdout.write(`UIEVAL ${JSON.stringify({ error: String(e) })}\n`)
+					);
+			} else if (cmd === "galopininfo") {
+				void Promise.resolve(handlers["galopin:info"](undefined as never)).then((i) =>
+					process.stdout.write(`GINFO ${JSON.stringify(i)}\n`)
+				);
+			} else if (cmd.startsWith("mouse ")) {
+				const [type, x, y, clicks] = cmd.slice(6).split(" ");
+				win?.webContents.sendInputEvent({
+					type: type as "mouseDown" | "mouseMove" | "mouseUp",
+					x: Number(x),
+					y: Number(y),
+					button: "left",
+					clickCount: Number(clicks ?? 1),
+				});
+			} else if (cmd.startsWith("keydown ")) {
+				win?.webContents.sendInputEvent({ type: "keyDown", keyCode: cmd.slice(8) });
+				win?.webContents.sendInputEvent({ type: "keyUp", keyCode: cmd.slice(8) });
+			} else if (cmd === "togglemenu") {
+				Menu.getApplicationMenu()?.getMenuItemById("toggle-browser")?.click();
+			} else if (cmd.startsWith("key ")) {
+				const mods = cmd.slice(4).split("+");
+				const key = mods.pop()!.toUpperCase();
+				for (const type of ["rawKeyDown", "char", "keyUp"] as const) {
+					win?.webContents.sendInputEvent({ type, keyCode: key, modifiers: mods as never });
+				}
+			} else if (cmd.startsWith("uiclick ")) {
+				void win?.webContents.executeJavaScript(
+					`document.getElementById(${JSON.stringify(cmd.slice(8))}).click()`
+				);
+			} else if (cmd.startsWith("size ")) {
+				const [w, h] = cmd.slice(5).split(" ").map(Number);
+				win?.setContentSize(w, h);
+			} else if (cmd.startsWith("screenshot ")) {
+				void win?.capturePage().then((img) => {
+					writeFileSync(cmd.slice(11), img.toPNG());
+					process.stdout.write(
+						`SHOT ${JSON.stringify({ size: img.getSize(), path: cmd.slice(11) })}\n`
+					);
+				});
+			} else if (cmd === "uimetrics") {
+				void win?.webContents
+					.executeJavaScript(
+						`JSON.stringify((() => { const r = (id) => { const e = document.getElementById(id); if (!e) return null; const b = e.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height, hidden: e.getClientRects().length === 0 }; }; const setup = document.getElementById('setup'); return { win: { w: innerWidth, h: innerHeight }, setup: r('setup'), setupScroll: { sw: setup.scrollWidth, cw: setup.clientWidth }, use: r('setup-use'), form: r('setup-form'), side: r('side'), handle: r('side-handle'), close: r('side-close'), bar: r('bar'), tabBrowser: document.getElementById('tab-browser-label').textContent, dpr: devicePixelRatio }; })())`
+					)
+					.then((r: string) => process.stdout.write(`UIMETRICS ${r}\n`));
 			} else if (cmd === "endpoints") {
 				process.stdout.write(
 					`ENDPOINTS ${JSON.stringify(store.profiles.map((p) => bridgeServer?.endpointFile(p.id) ?? null))}\n`
@@ -788,7 +1110,10 @@ async function createWindow(): Promise<void> {
 	win.webContents.on("will-navigate", (e) => e.preventDefault());
 	win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 
-	win.on("resize", placeCerea);
+	win.on("resize", () => {
+		placeCerea();
+		pushState();
+	});
 
 	try {
 		bridgeServer = await startBridgeServer(router, {
@@ -833,7 +1158,9 @@ else {
 		session.defaultSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
 		session.defaultSession.setPermissionCheckHandler(() => false);
 		setMenu();
+		prepareGalopin();
 		store = loadStore(app.getPath("userData"));
+		reconcile();
 		galopin = makeGalopin(cur());
 		registerIpc();
 		await createWindow();
@@ -857,6 +1184,7 @@ else {
 		// Let go of the socket and the child before the process ends, not after.
 		e.preventDefault();
 		quitting = true;
+		flushWidth();
 		void Promise.allSettled([galopin?.stop(), bridgeServer?.close()]).finally(() => app.quit());
 	});
 }

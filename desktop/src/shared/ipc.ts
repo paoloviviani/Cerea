@@ -8,6 +8,8 @@ export const TOOLS = ["opencode", "goose", "vibe", "claude"] as const;
 export type Tool = (typeof TOOLS)[number];
 export const ENGINES = ["opencode", "goose", "vibe"] as const;
 export type Engine = (typeof ENGINES)[number];
+export const PANES = ["browser", "galopin", "server"] as const;
+export type Pane = (typeof PANES)[number];
 
 /** One-way calls the renderer may make, by channel; the value is the validated argument. */
 export interface Calls {
@@ -34,14 +36,17 @@ export interface Calls {
 		width: number;
 		height: number;
 		visible: boolean;
-		sideWidth: number;
 	};
+	"panel:set": { open?: boolean; pane?: Pane; width?: number };
 	"browser:open": { url: string };
 	"browser:tab": { action: "activate" | "close"; id: string };
 	"browser:nav": { action: "back" | "forward" | "reload" };
 	"browser:control": { mode: "agent" | "user" };
 	"app:open-cerea": undefined;
 	"app:state": undefined;
+	"galopin:info": undefined;
+	"galopin:signin": undefined;
+	"app:copy": { text: string };
 	"app:login": { enabled: boolean };
 }
 export type Channel = keyof Calls;
@@ -127,6 +132,8 @@ export function validate<C extends Channel>(channel: C, raw: unknown): Calls[C] 
 		case "galopin:edit-connectors":
 		case "galopin:logs":
 		case "app:open-cerea":
+		case "galopin:info":
+		case "galopin:signin":
 		case "app:state":
 			return none();
 		case "app:login": {
@@ -218,7 +225,7 @@ export function validate<C extends Channel>(channel: C, raw: unknown): Calls[C] 
 			return out(p);
 		}
 		case "browser:layout": {
-			const o = obj(["x", "y", "width", "height", "visible", "sideWidth"]);
+			const o = obj(["x", "y", "width", "height", "visible"]);
 			const n = (v: unknown, w: string) => {
 				if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 20000)
 					throw new IpcError(`bad ${w}`);
@@ -230,7 +237,30 @@ export function validate<C extends Channel>(channel: C, raw: unknown): Calls[C] 
 				width: n(o.width, "width"),
 				height: n(o.height, "height"),
 				visible: bool(o.visible, "visible"),
-				sideWidth: n(o.sideWidth, "sideWidth"),
+			});
+		}
+		case "app:copy": {
+			const o = obj(["text"]);
+			return out({ text: str(o.text, "text", 200_000) });
+		}
+		case "panel:set": {
+			const o = obj(["open", "pane", "width"]);
+			let width: number | undefined;
+			if (o.width !== undefined) {
+				if (
+					typeof o.width !== "number" ||
+					!Number.isFinite(o.width) ||
+					o.width < 0 ||
+					o.width > 20000
+				) {
+					throw new IpcError("bad width");
+				}
+				width = Math.round(o.width);
+			}
+			return out({
+				...(o.open === undefined ? {} : { open: bool(o.open, "open") }),
+				...(o.pane === undefined ? {} : { pane: oneOf(o.pane, PANES, "pane") }),
+				...(width === undefined ? {} : { width }),
 			});
 		}
 		case "browser:open": {
@@ -276,6 +306,10 @@ export const CHANNELS: Channel[] = [
 	"galopin:edit-connectors",
 	"galopin:logs",
 	"browser:layout",
+	"panel:set",
+	"galopin:info",
+	"galopin:signin",
+	"app:copy",
 	"browser:open",
 	"browser:tab",
 	"browser:nav",
@@ -304,6 +338,25 @@ export interface ServerInfo {
 	name: string;
 	icon?: string;
 }
+export interface GalopinInfo {
+	version: string;
+	pairing: "none" | "ok" | "other";
+	otherAddress: string;
+	/** galopin said the sign-in expired or was revoked. */
+	signIn: "ok" | "expired";
+	/** This profile owns galopin's default directory: the shims `setup` writes follow its pairing. */
+	ownsDefault: boolean;
+	defaultOwner: string;
+	running: boolean;
+	profileName: string;
+	serverName: string;
+	tools: { tool: Tool; label: string; installed: boolean; byDefault: boolean }[];
+	shimDir: string;
+	service: { installed: boolean };
+	browser: { configured: boolean };
+	connectors: number;
+}
+
 export interface ProfileSummary {
 	id: string;
 	name: string;
@@ -318,6 +371,8 @@ export interface AppState {
 	browser: BrowserState;
 	platform: string;
 	startAtLogin: boolean;
+	/** The tool panel at the right: closed at every start; the browser opens it when a task begins. */
+	panel: { open: boolean; pane: Pane; width: number; working: boolean };
 	version: string;
 	packaged: boolean;
 }

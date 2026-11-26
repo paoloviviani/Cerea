@@ -22,6 +22,7 @@ import {
 import { dirname, join } from "node:path";
 import type { ServerInfo } from "../shared/ipc.ts";
 import { safeIcon, safeIdp } from "./config.ts";
+import { pairingFor, type Creds } from "./pairing.ts";
 import { normalizeAddress } from "./server.ts";
 
 export interface Profile {
@@ -30,6 +31,8 @@ export interface Profile {
 	server: ServerInfo;
 	/** True for the profile that uses galopin's default configuration directory. */
 	defaultGalopin: boolean;
+	/** The tool panel's width the user dragged to, remembered per profile (whether it is open is not). */
+	panelWidth?: number;
 }
 
 export interface Store {
@@ -146,6 +149,7 @@ export function readStore(userData: string): { store: Store; migrated: boolean }
 				name?: unknown;
 				server?: Partial<ServerInfo>;
 				defaultGalopin?: unknown;
+				panelWidth?: unknown;
 			};
 			const server = serverOf(q.server);
 			if (!isProfileId(q.id) || !server || profiles.some((x) => x.id === q.id)) continue;
@@ -154,6 +158,9 @@ export function readStore(userData: string): { store: Store; migrated: boolean }
 				name: cleanName(q.name, server.name),
 				server,
 				defaultGalopin: q.defaultGalopin === true,
+				...(typeof q.panelWidth === "number" && Number.isFinite(q.panelWidth)
+					? { panelWidth: Math.min(4000, Math.max(0, Math.round(q.panelWidth))) }
+					: {}),
 			});
 		}
 		// At most one profile owns galopin's default directory: the first that says so.
@@ -201,6 +208,39 @@ export function addProfile(
 		defaultGalopin: s.profiles.length === 0,
 	};
 	return { store: { active: s.active ?? profile.id, profiles: [...s.profiles, profile] }, profile };
+}
+
+/** Remembers the tool panel's width for a profile (clamped when used, against the window). */
+export function setPanelWidth(s: Store, id: string, width: number): Store {
+	return {
+		...s,
+		profiles: s.profiles.map((p) => (p.id === id ? { ...p, panelWidth: Math.round(width) } : p)),
+	};
+}
+
+/**
+ * A profile that owns galopin's default directory must really own it: when that directory holds a
+ * pairing for another server (made by the CLI, or for another profile), the profile gives the
+ * default directory up and gets one of its own, so the other pairing is neither used nor overwritten.
+ */
+export function reconcileDefault(s: Store, defaultCreds: Creds | undefined): Store {
+	if (!defaultCreds) return s;
+	let changed = false;
+	let profiles = s.profiles.map((p) => {
+		if (!p.defaultGalopin) return p;
+		if (pairingFor(defaultCreds, p.server).state === "ok") return p;
+		changed = true;
+		return { ...p, defaultGalopin: false };
+	});
+	// A default directory nobody owns goes to the profile its pairing is for (the CLI enrolled it).
+	if (!profiles.some((p) => p.defaultGalopin)) {
+		const match = profiles.find((p) => pairingFor(defaultCreds, p.server).state === "ok");
+		if (match) {
+			profiles = profiles.map((p) => (p === match ? { ...p, defaultGalopin: true } : p));
+			changed = true;
+		}
+	}
+	return changed ? { ...s, profiles } : s;
 }
 
 export function renameProfile(s: Store, id: string, name: string): Store {

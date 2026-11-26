@@ -74,6 +74,8 @@ export function writeEndpointFile(file: string, text: string): void {
 
 export interface ModeSource {
 	current(): "agent" | "user";
+	/** The runtime's control stream connected: a sign that it is working (opens the panel). */
+	touch?(): void;
 	onChange(cb: () => void): () => void;
 }
 
@@ -146,6 +148,7 @@ export async function startBridgeServer(
 			res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store" });
 			res.write(modeEvent(opts.control!.current()));
 			streams.set(res, id);
+			opts.control!.touch?.();
 			res.on("close", () => streams.delete(res));
 			return;
 		}
@@ -190,6 +193,9 @@ export async function startBridgeServer(
 			ensurePrivateDir(dir, opts.uid);
 			const file = join(dir, "cdp-endpoint");
 			writeEndpointFile(file, `ws+unix://${sock}:/cdp/${secret}\n`);
+			// A profile that moves to another directory leaves nothing behind that carries its secret.
+			const prev = secrets.get(id);
+			if (prev && prev.file !== file) rmSync(prev.file, { force: true });
 			secrets.set(id, { secret, file });
 			return file;
 		},
