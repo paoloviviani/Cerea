@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -55,6 +56,9 @@ func (pr Protected) SecretValueLeak(r Request) *SecretLeak {
 		if !outbound(text) {
 			return nil
 		}
+		if l := pr.outboundFileLeak(r); l != nil {
+			return l
+		}
 	case "read", "glob", "grep", "list", "lsp", "skill", "edit", "external_directory", "task", "todowrite",
 		"todoread", "question", "plan_enter", "plan_exit", "doom_loop", "session_list", "session_read",
 		"session_send", "session_spawn", "schedule":
@@ -77,6 +81,91 @@ func (pr Protected) SecretValueLeak(r Request) *SecretLeak {
 	}
 	return nil
 }
+
+// outboundFileLeak is the other half of the guard, for a line that sends
+// something off the machine: if it also names a .env-ish file anywhere (a word, a
+// curl `@file` argument, a redirect, the left side of a pipe, a symlink to one, a
+// glob that can match one), or contains a word the analysis could not follow that
+// could be one, it is a card in every mode, like a secret's value in its text. A
+// credential store's path is already a card in every mode (SecretHit). The names
+// are never values. It cannot see a program that reads the file and sends it
+// itself (a script, `npm publish` of a folder holding a .env).
+func (pr Protected) outboundFileLeak(r Request) *SecretLeak {
+	a := pr.analysis(r)
+	named := func(w string) string {
+		if strings.Contains(w, "://") { // a URL's path is not a local file
+			return ""
+		}
+		for _, c := range []string{w, afterAny(w, ":"), afterAny(w, "=")} {
+			if c != "" && isSensitive(c) {
+				return c
+			}
+		}
+		return ""
+	}
+	show := func(c string) string {
+		return filepath.Base(strings.TrimPrefix(c, "@"))
+	}
+	for _, w := range a.words {
+		if c := named(w); c != "" {
+			return &SecretLeak{Key: fileLeakKey, File: show(c)}
+		}
+	}
+	var urlTails []string // `//host/path` of each URL word: what a path candidate of it looks like
+	for _, w := range a.words {
+		if strings.Contains(w, "://") {
+			urlTails = append(urlTails, filepath.Clean(afterAny(w, ":")))
+		}
+	}
+	isURL := func(p string) bool {
+		if urlPath.MatchString(p) {
+			return true
+		}
+		for _, t := range urlTails {
+			if strings.HasSuffix(p, t) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, p := range a.paths {
+		if isURL(p) { // a URL joined to a directory
+			continue
+		}
+		if isSensitive(p) { // also a symlink to an env file
+			return &SecretLeak{Key: fileLeakKey, File: show(p)}
+		}
+	}
+	for _, g := range a.globs {
+		g = filepath.Join(filepath.Dir(g), strings.TrimPrefix(filepath.Base(g), "@")) // curl's `@file`
+		if isSensitive(g) || strings.Contains(strings.ToLower(path.Base(g)), "env") && globMatches(g, ".env") {
+			return &SecretLeak{Key: fileLeakKey, File: show(g)}
+		}
+	}
+	for _, u := range a.unknown {
+		if c := named(u); c != "" {
+			return &SecretLeak{Key: fileLeakKey, File: show(c)}
+		}
+		if strings.HasPrefix(u, "@") || strings.HasPrefix(u, "<") { // `@$f`, `<$f`: a file reference built at run time
+			return &SecretLeak{Key: blindLeakKey, File: ""}
+		}
+	}
+	if a.blind { // a word it cannot read at all (`"$f"`, `"$(…)"`) could be a file
+		return &SecretLeak{Key: blindLeakKey, File: ""}
+	}
+	return nil
+}
+
+// urlPath finds a scheme in a path: `https:/host/x` is what a URL word becomes
+// when it is joined to a directory and cleaned.
+var urlPath = regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*:/`)
+
+// The key a file leak's card names (the card says "the value of <key> from
+// <file>").
+const (
+	fileLeakKey  = "the file itself"
+	blindLeakKey = "a word galopin cannot read"
+)
 
 // outboundRe finds what sends text off the machine: a network client, a remote
 // shell or copy, a package publish, and any http(s) URL or scp-style remote
@@ -146,7 +235,7 @@ func workspaceEnvFiles(ws string) []string {
 		ents, _ := os.ReadDir(dir)
 		for _, e := range ents {
 			n := e.Name()
-			if e.Type().IsRegular() && (n == ".env" || strings.HasPrefix(n, ".env.")) && !placeholderEnv(n) {
+			if ln := strings.ToLower(n); e.Type().IsRegular() && (ln == ".env" || strings.HasPrefix(ln, ".env.")) && !placeholderEnv(n) {
 				out = append(out, filepath.Join(dir, n))
 			}
 		}
@@ -166,7 +255,7 @@ func workspaceEnvFiles(ws string) []string {
 
 func placeholderEnv(name string) bool {
 	for _, s := range []string{".example", ".sample", ".template", ".dist", ".defaults"} {
-		if strings.HasSuffix(name, s) {
+		if strings.HasSuffix(strings.ToLower(name), s) {
 			return true
 		}
 	}

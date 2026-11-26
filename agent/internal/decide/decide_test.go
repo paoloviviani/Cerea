@@ -13,7 +13,7 @@ func pol(deny ...Class) Policy {
 	for _, c := range deny {
 		d[c] = true
 	}
-	return Policy{Deny: d, SafeDirs: []string{"/tmp"}}
+	return Policy{Deny: d, SafeDirs: []string{"/tmp"}, Protected: NewProtected("/home/u", "/home/u/.config/galopin")}
 }
 
 // one request per class, the shape opencode raises it in.
@@ -22,7 +22,8 @@ var classRequests = map[Class]Request{
 	ClassCommand: {Key: "bash", Patterns: []string{"ls"}, Workspace: ws},
 	ClassWeb:     {Key: "websearch", Patterns: []string{"q"}, Workspace: ws},
 	ClassOutside: {Key: "external_directory", Patterns: []string{"/etc/*"}, Workspace: ws},
-	ClassSecrets: {Key: "read", Patterns: []string{ws + "/.env"}, Workspace: ws},
+	// a credential store (a .env file's name alone is not a credential on Allow)
+	ClassSecrets: {Key: "read", Patterns: []string{"/home/u/.ssh/id_rsa"}, Workspace: ws},
 	ClassAgents:  {Key: "task", Patterns: []string{"general"}, Workspace: ws},
 	ClassTools:   {Key: "srv_tool", Patterns: []string{"*"}, Workspace: ws},
 	ClassLoop:    {Key: "doom_loop", Patterns: []string{"bash"}, Workspace: ws},
@@ -151,7 +152,7 @@ func TestAutoRunsOnlyTheClassesItsMapSays(t *testing.T) {
 		t.Errorf("auto own state: %+v", got)
 	}
 	// A request in several classes runs only when all of them run.
-	multi := Request{Key: "read", Patterns: []string{"/srv/x/.env"}, Workspace: ws}
+	multi := Request{Key: "read", Patterns: []string{"/home/u/.ssh/id_rsa"}, Workspace: ws}
 	if got := Decide(pol(), State{Mode: permrules.Ask, Auto: true, AutoRun: AutoRunSet(map[string]string{"outside": "run"})}, multi); got.Verdict != Card {
 		t.Errorf("outside+secrets: %+v", got)
 	}
@@ -190,10 +191,15 @@ func TestSecretsAndLoopAreCardsEvenOnAllow(t *testing.T) {
 	if got.Verdict != Card || got.Class != ClassSecrets {
 		t.Errorf("a command touching a credential store: %+v", got)
 	}
-	// .env wins the label over outside.
+	// On Ask a .env read outside the project is a secrets card (the name wins the label
+	// over outside); on Allow it is an ordinary outside read.
+	got = Decide(pol(), State{Mode: permrules.Ask}, Request{Key: "read", Patterns: []string{"/srv/other/.env"}, Workspace: ws})
+	if got.Verdict != Card || got.Class != ClassSecrets {
+		t.Errorf("an .env read outside the project on Ask: %+v", got)
+	}
 	got = Decide(pol(), State{Mode: permrules.Allow}, Request{Key: "read", Patterns: []string{"/srv/other/.env"}, Workspace: ws})
-	if got.Class != ClassSecrets {
-		t.Errorf("an .env read outside the project is labelled %q", got.Class)
+	if got.Verdict != Once || got.Class != ClassOutside {
+		t.Errorf("an .env read outside the project on Allow: %+v", got)
 	}
 }
 
@@ -232,12 +238,12 @@ func TestExceptions(t *testing.T) {
 	}
 	// A credential ask only stands on a human's (OverAsk) exception; plan and
 	// loop never.
-	env := Request{Key: "read", Patterns: []string{ws + "/.env"}, Workspace: ws}
+	env := Request{Key: "read", Patterns: []string{"/home/u/.ssh/id_rsa"}, Workspace: ws}
 	plain := []permrules.Exception{{ID: "e", Permission: "read", Patterns: []string{"*"}}}
 	if got := Decide(pol(), State{Mode: permrules.Allow, Exceptions: plain}, env); got.Verdict != Card {
 		t.Errorf(".env with a plain exception: %+v", got)
 	}
-	over := []permrules.Exception{{ID: "e", Permission: "read", Patterns: []string{ws + "/.env"}, OverAsk: true}}
+	over := []permrules.Exception{{ID: "e", Permission: "read", Patterns: []string{"/home/u/.ssh/id_rsa"}, OverAsk: true}}
 	if got := Decide(pol(), State{Exceptions: over}, env); got.Verdict != Once || got.Step != "exception-ask" {
 		t.Errorf(".env with a human's exception: %+v", got)
 	}

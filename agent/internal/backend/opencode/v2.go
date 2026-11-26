@@ -871,8 +871,8 @@ func (st *asmState) seenDirs() []string {
 
 // addAskMetadata gives a 1.x-shaped permission payload the facts 1.x put in its
 // metadata and 2.x leaves to the tool call: a shell ask's whole command line
-// (its resources are the split subcommands) and a file ask's path. in is the
-// call's arguments.
+// (its resources are the split subcommands), its working directory and a file
+// ask's path. in is the call's arguments.
 func addAskMetadata(p map[string]any, in map[string]any) {
 	if in == nil {
 		return
@@ -886,6 +886,13 @@ func addAskMetadata(p map[string]any, in map[string]any) {
 	}
 	if path := getStr(in, "path", "filePath"); path != "" && getStr(md, "filepath") == "" {
 		md["filepath"] = path
+	}
+	// the shell tool's working directory: opencode takes it from the tool input,
+	// not from the ask, and galopin reads a command's relative words from it
+	for _, k := range []string{"workdir", "cwd"} {
+		if dir := getStr(in, k); dir != "" && getStr(md, k) == "" {
+			md[k] = dir
+		}
 	}
 	p["metadata"] = md
 }

@@ -95,6 +95,7 @@ func (mc *machine) askRequest(dir string, req backend.PermissionRequest) decide.
 	dr := decide.Request{Key: key, Patterns: patterns, Workspace: dir}
 	if key == "bash" {
 		dr.Command = askCommand(req.Metadata)
+		dr.Workdir = askWorkdir(req.Metadata)
 	} else if len(req.Metadata) > 0 {
 		dr.Args = metadataText(req.Metadata)
 	}
@@ -110,6 +111,21 @@ func askCommand(meta map[string]any) string {
 	if m, _ := meta["acp"].(map[string]any); m != nil {
 		if c, _ := m["command"].(string); c != "" {
 			return c
+		}
+	}
+	return ""
+}
+
+// askWorkdir is the directory a bash call asked to run in, "" when it named none.
+func askWorkdir(meta map[string]any) string {
+	for _, k := range []string{"workdir", "cwd", "workingDirectory"} {
+		if s, _ := meta[k].(string); s != "" {
+			return s
+		}
+	}
+	if m, _ := meta["acp"].(map[string]any); m != nil {
+		if s, _ := m["workdir"].(string); s != "" {
+			return s
 		}
 	}
 	return ""

@@ -199,5 +199,35 @@ record is tracked with no directory (only the asking session is known to live in
 A held ask is registered with `Materializer.HoldAsk`. If the backend's reply for it arrives while it is held (a session
 aborted) or `WithdrawPending` runs (opencode restarted), the id is marked, and `ReleaseAsk` then shows no card for it,
 decided under the materializer's own lock so the reply cannot slip between the check and the card; an ask answered by
-galopin ends its hold with `DropHeld`. Nothing here changes what a word allows: Plan, the machine's deny list, the floor and the exceptions are
+galopin ends its hold with `DropHeld` Nothing here changes what a word allows: Plan, the machine's deny list, the floor and the exceptions are
 read by `decideAsk` exactly as before. Tests: `agent/subagent_first_ask_test.go`.
+
+## A .env is read freely on Allow; what leaves the machine asks (galopin)
+
+Owner decision (galopin's trust model): reading a `.env` is not the problem, secrets going out are.
+
+- **Local access.** `decide.Decide`: when the request is `sensitive` only because of a `.env`-ish name (`Classify`'s read
+  card, `bashSensitive`; `isSensitive` is case-insensitive), has no `SecretHit` (credential store, `/proc/*/environ`,
+  overflow, `CDPATH`) and no leak, and the session is on Allow or Auto, the secrets class is dropped for the mode
+  answer and the label (`without`) and `sensitive` is cleared, so the request is judged by its other classes: Allow
+  runs it, Auto runs it when their rows run, an in-project read is an ordinary read. The deny check still sees the
+  full class list (`--deny secrets` refuses a `.env` read), and Ask and Plan are untouched (card, refusal). The file
+  explorer's and `@file` lists (`policy.DefaultFileDeny`, `PromptSecretDeny`, `--file-deny`) are not asks and were not
+  touched. `AskAlwaysOK` and `exception-ask` are unchanged.
+- **Going out.** `SecretValueLeak` (C73) keeps its value search and gains `outboundFileLeak` for a bash line that
+  `outbound()` finds: any word (also the half after `=` or `:`, so `f=@.env`, `-d @.env`), symlink-resolved path or glob
+  that is `.env`-ish (URL words excluded: a URL's path is not a local file), or a word the analysis could not follow
+  that shows no text (`$f`, `"$(…)"`, `a.blind`) or whose literal starts with `@` or `<`, is a `SecretLeak` with key
+  "the file itself" (or "a word galopin cannot read") and the file's base name, never a value. `Decide` makes any leak
+  a `secret-value` card in every mode but Plan/deny/floor (which refuse first). The card's wording is the existing
+  "contains the value of {key} from {file}"; no UI change. A credential store in an outbound line is already a card
+  through `SecretHit`. Known gap, stated in the user docs: a program that reads the file and sends it itself.
+- **The analysis** reads redirect targets, here-strings, `for` lists and the call's own working directory
+  (`Request.Workdir`). opencode puts `workdir` in the shell tool's input, not on the ask, so `addAskMetadata`
+  (`internal/backend/opencode/v2.go`, also the REST listing path) copies `workdir`/`cwd` onto the ask metadata and the
+  ACP adapter's `askMetadata` does the same from `rawInput`; `askWorkdir` (`permissions.go`) reads them. Tests:
+  `internal/backend/opencode/v2_test.go` (through `handleSSEData`, the whole adapter), `internal/decide/bash_audit_test.go`,
+  `agent/env_allow_test.go` and `TestSelectorAllowReadsTheShellWorkdirAndGuardsWhatLeaves` (real opencode).
+
+For the user-facing wording of the three layers (galopin's word, the outgoing checks, the gateway's redaction and what it
+does not cover) see `docs/agent-machines-reference.md`, "A `.env` file is not a credential store".

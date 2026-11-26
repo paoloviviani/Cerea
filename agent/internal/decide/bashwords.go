@@ -53,6 +53,7 @@ type bashAnalysis struct {
 	unknown  []string // literal text of words with an expansion that could not be followed
 	globs    []string // absolute glob patterns (word x cwd)
 	paths    []string // absolute paths the words can name, and their symlink-resolved forms
+	blind    bool     // a word it could not follow shows no text at all (`$f`, `"$(…)"`)
 	cdpath   bool     // the line sets CDPATH: cd targets are unknown
 	overflow bool     // the line is too large to check
 }
@@ -74,7 +75,7 @@ const analysisTTL = 3 * time.Second
 // the parsing and the symlink resolution are done once per request; the short
 // lifetime keeps a changed symlink from being trusted for long.
 func (pr Protected) analysis(r Request) *bashAnalysis {
-	key := strings.Join(append([]string{pr.Home, r.Workspace, r.Command}, r.Patterns...), "\x00")
+	key := strings.Join(append([]string{pr.Home, r.Workspace, r.Workdir, r.Command}, r.Patterns...), "\x00")
 	now := time.Now()
 	analysisMu.Lock()
 	if c, ok := analysisCache[key]; ok && now.Sub(c.when) < analysisTTL {
@@ -107,6 +108,11 @@ func (pr Protected) analyze(r Request) *bashAnalysis {
 		}
 	}
 	addCwd(r.Workspace)
+	// a call that names a working directory runs there: its relative words are
+	// read from it as well
+	if r.Workdir != "" {
+		addCwd(filepath.Clean(r.Workdir))
+	}
 	var globWords []string
 	for _, text := range r.commandTexts() {
 		f, err := syntax.NewParser(syntax.Variant(syntax.LangBash)).Parse(strings.NewReader(text), "")
@@ -134,8 +140,55 @@ func (pr Protected) analyze(r Request) *bashAnalysis {
 				}
 			}
 		}
+		// addWord is one word of a command, braces split and expanded as far as
+		// they can be: the words and globs it names are recorded, and the words it
+		// cannot follow are kept as the literal text they show; it returns the
+		// expanded words
+		addWord := func(w *syntax.Word, scope map[string]string) []string {
+			var out []string
+			if bracesTooBig(w) {
+				a.overflow = true
+				return nil
+			}
+			// split braces on a copy: the walk must not see the rewritten tree
+			cp := &syntax.Word{Parts: append([]syntax.WordPart(nil), w.Parts...)}
+			syntax.SplitBraces(cp)
+			for _, bw := range expand.Braces(cp) {
+				s, ex := pr.expandWord(bw, scope)
+				switch {
+				case !ex.ok():
+					if lit := ex.lit; lit != "" {
+						unknown[lit] = true
+					} else {
+						a.blind = true
+					}
+				case ex.glob:
+					globWords = append(globWords, s)
+					out = append(out, s)
+				default:
+					words[s] = true
+					out = append(out, s)
+				}
+			}
+			return out
+		}
 		syntax.Walk(f, func(n syntax.Node) bool {
 			switch x := n.(type) {
+			case *syntax.Redirect:
+				// `< .env`, `> .env`, `<<< .env`: the target is a path (or, for a
+				// here-string, text that is judged like one)
+				if x.Word != nil && x.Op != syntax.Hdoc && x.Op != syntax.DashHdoc {
+					addWord(x.Word, vars)
+				}
+				return true
+			case *syntax.ForClause:
+				// `for f in .env; do cat $f; done`: the list's words are paths too
+				if wi, ok := x.Loop.(*syntax.WordIter); ok {
+					for _, it := range wi.Items {
+						addWord(it, vars)
+					}
+				}
+				return true
 			case *syntax.DeclClause:
 				assign(x.Args)
 				return true
@@ -165,28 +218,7 @@ func (pr Protected) analyze(r Request) *bashAnalysis {
 				}
 				var args []string
 				for _, w := range x.Args {
-					if bracesTooBig(w) {
-						a.overflow = true
-						continue
-					}
-					// split braces on a copy: the walk must not see the rewritten tree
-					cp := &syntax.Word{Parts: append([]syntax.WordPart(nil), w.Parts...)}
-					syntax.SplitBraces(cp)
-					for _, bw := range expand.Braces(cp) {
-						s, ex := pr.expandWord(bw, scope)
-						switch {
-						case !ex.ok():
-							if lit := ex.lit; lit != "" {
-								unknown[lit] = true
-							}
-						case ex.glob:
-							globWords = append(globWords, s)
-							args = append(args, s)
-						default:
-							words[s] = true
-							args = append(args, s)
-						}
-					}
+					args = append(args, addWord(w, scope)...)
 				}
 				if len(args) >= 1 && (args[0] == "cd" || args[0] == "pushd") {
 					target := pr.Home
@@ -454,8 +486,17 @@ func (pr Protected) bashSensitive(r Request) bool {
 		}
 	}
 	for _, g := range a.globs {
-		if isSensitive(g) || strings.Contains(path.Base(g), "env") && globMatches(g, ".env") {
+		if isSensitive(g) || strings.Contains(strings.ToLower(path.Base(g)), "env") && globMatches(g, ".env") {
 			return true
+		}
+	}
+	// A word the analysis cannot follow (`$(echo T)/.env`, a loop variable's
+	// `$d/.env`) whose literal text ends in an env file's name may be any env file.
+	for _, u := range a.unknown {
+		for _, c := range []string{u, afterAny(u, ":"), afterAny(u, "=")} {
+			if c != "" && isSensitive(c) {
+				return true
+			}
 		}
 	}
 	return false
@@ -470,7 +511,7 @@ func afterAny(s, sep string) string {
 
 // globMatches reports whether the last element of a glob pattern matches name.
 func globMatches(pattern, name string) bool {
-	ok, _ := path.Match(path.Base(pattern), name)
+	ok, _ := path.Match(strings.ToLower(path.Base(pattern)), name)
 	return ok
 }
 

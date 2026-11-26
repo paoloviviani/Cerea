@@ -70,6 +70,9 @@ type Request struct {
 	Command string
 	// Workspace is the root directory of the session's workspace.
 	Workspace string
+	// Workdir is the directory the agent's bash call asked to run in (opencode's
+	// tool input workdir), when it named one. "" means the session's own.
+	Workdir string
 	// Args is the text of a tool call's arguments (a connector or MCP tool, a
 	// web fetch), for the secret-value guard to search. Never shown or logged.
 	Args string
@@ -201,7 +204,8 @@ func Known(key string) bool {
 }
 
 func isSensitive(path string) bool {
-	base := filepath.Base(path)
+	// case-insensitive: `.ENV` is the same file on macOS
+	base := strings.ToLower(filepath.Base(path))
 	if strings.HasSuffix(base, ".env.example") {
 		return false
 	}
@@ -421,6 +425,16 @@ func Decide(p Policy, s State, r Request) Result {
 			return Result{Verdict: Reject, Step: "deny", Category: cat, Class: class, Reason: denyReason(c)}
 		}
 	}
+	// On Allow and on Auto, reading or editing a .env file is an ordinary action:
+	// what makes a request a credential one there is a credential store, or a
+	// secret leaving the machine (leak), not the file's name. Ask and Plan still
+	// read the name (a card, a refusal), and a local --deny of the class above
+	// still refuses it.
+	if _, hit := p.Protected.SecretHit(r); sensitive && !hit && leak == nil && (s.Mode == permrules.Allow || s.Auto) {
+		sensitive = false
+		classes = without(classes, ClassSecrets)
+		class = primary(classes)
+	}
 	loop, secret := false, false
 	for _, c := range classes {
 		loop = loop || c == ClassLoop
@@ -448,6 +462,16 @@ func Decide(p Policy, s State, r Request) Result {
 		res.Verdict, res.Step = Card, "secrets"
 	}
 	return res
+}
+
+func without(cs []Class, drop Class) []Class {
+	out := make([]Class, 0, len(cs))
+	for _, c := range cs {
+		if c != drop {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 func modeAnswer(p Policy, s State, r Request, cat Category, sensitive bool, classes []Class, askOnly, loop bool) Result {
