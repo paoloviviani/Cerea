@@ -148,6 +148,12 @@ export const TOOLS = [
 		},
 	},
 	{
+		name: "control",
+		description:
+			"Who is driving the browser: {state: 'agent' | 'user'}. 'user' means the person took the browser over in the desktop app and every other tool waits until they hand it back. wait: true returns when it is the agent's again, or after at most 25 seconds with the state as it is.",
+		inputSchema: { type: "object", properties: { wait: { type: "boolean" } } },
+	},
+	{
 		name: "resume",
 		description:
 			"Make the page kept by an earlier task (end_task with keep) the active page again, with the token end_task gave. No approval is needed with the token. The result says if the page is not where it was left.",
@@ -200,6 +206,19 @@ export function createToolHandler(session: BrowserSession) {
 
 	async function run(name: string, rawArgs: unknown): Promise<ToolResult> {
 		try {
+			if (name === "control") {
+				await session.watchDriver();
+				if (asObject(rawArgs).wait === true) await session.waitForAgent(session.controlWaitMs);
+				return json({ state: session.userDriving ? "user" : "agent" });
+			}
+			// While the user drives, every other call is held, not failed: it runs when they hand
+			// back. A call held for longer than the wait limit says so, and Cerea asks `control`.
+			await session.watchDriver();
+			if (!(await session.waitForAgent(session.controlWaitMs))) {
+				return failure(
+					"The user is driving the browser. Call control with wait to wait for them to hand it back."
+				);
+			}
 			switch (name) {
 				case "snapshot":
 					return json(boundSnapshot(await serial(() => session.snapshot()), wire));

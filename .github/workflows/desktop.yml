@@ -1,0 +1,126 @@
+# The Cerea desktop app (Electron, desktop/). Builds a Linux AppImage and deb and an unsigned
+# macOS zip (arm64 and x64) on pushes and pull requests that touch the app. It publishes nothing:
+# the artifacts are attached to the run only. See docs/dev/desktop-app.md.
+name: desktop
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "desktop/**"
+      - "browser-runtime/**"
+      - "agent/*.go"
+      - "agent/internal/**"
+      - ".github/workflows/desktop.yml"
+  push:
+    branches: [main, feat/desktop-app]
+    paths:
+      - "desktop/**"
+      - "browser-runtime/**"
+      - "agent/*.go"
+      - "agent/internal/**"
+      - ".github/workflows/desktop.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            desktop/package-lock.json
+            browser-runtime/package-lock.json
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+      - run: npm ci
+      - run: npm ci
+        working-directory: browser-runtime
+      - name: Format and types
+        run: npm run lint
+      - name: Unit tests
+        run: npm test
+      - name: Build galopin for this runner
+        run: npm run galopin:build
+      - name: Build the app
+        run: npm run build
+      - name: Smoke test under Xvfb (three parts load; the runtime drives the panel; idle CPU)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb libgtk-3-0t64 libnss3 libasound2t64 libgbm1 >/dev/null
+          SMOKE_IDLE_SECONDS=20 xvfb-run -a node scripts/smoke.mjs
+
+  linux:
+    needs: check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+      - run: npm ci
+      - run: npm run galopin:build
+      - run: node scripts/fetch-node.mjs linux x64
+      - run: npm run build
+      - run: npx electron-builder --linux AppImage deb --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cerea-desktop-linux
+          path: |
+            desktop/release/*.AppImage
+            desktop/release/*.deb
+
+  macos:
+    needs: check
+    runs-on: macos-latest # Apple Silicon; the x64 zip is built on it too
+    strategy:
+      matrix:
+        arch: [arm64, x64]
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+      - run: npm ci
+      - name: Build galopin for the target architecture
+        run: |
+          (cd ../agent && GOARCH=${{ matrix.arch == 'x64' && 'amd64' || 'arm64' }} GOOS=darwin CGO_ENABLED=0 \
+            go build -o ../desktop/resources/galopin/galopin .)
+      - run: node scripts/fetch-node.mjs darwin ${{ matrix.arch }}
+      - run: npm run build
+      # Unsigned and not notarised, like the Cerea connector app: no Apple account yet.
+      - run: npx electron-builder --mac zip --${{ matrix.arch }} --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cerea-desktop-macos-${{ matrix.arch }}
+          path: desktop/release/*.zip

@@ -1,0 +1,6 @@
+node_modules
+dist
+out
+release
+resources/galopin/
+resources/node/

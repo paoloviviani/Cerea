@@ -75,6 +75,11 @@ describe("result size", () => {
 		const big = "x".repeat(8_000_000);
 		const fake = {
 			serial: <T>(w: () => Promise<T>) => w(),
+			// a browser nobody can take over: the driver is always the agent
+			watchDriver: async () => {},
+			waitForAgent: async () => true,
+			userDriving: false,
+			controlWaitMs: 25_000,
 			download: async () => ({ files: [{ name: "a", size: 1, base64: big }] }),
 		};
 		const handler = createToolHandler(fake as never);
@@ -183,6 +188,11 @@ describe("result size", () => {
 		}));
 		const fake = {
 			serial: <T>(w: () => Promise<T>) => w(),
+			// a browser nobody can take over: the driver is always the agent
+			watchDriver: async () => {},
+			waitForAgent: async () => true,
+			userDriving: false,
+			controlWaitMs: 25_000,
 			diff: async () => ({
 				url: "http://x/",
 				title: "t",
@@ -245,6 +255,11 @@ describe("result size", () => {
 	it("an oversize download-shaped result gets an error that does not say to scroll", async () => {
 		const fake = {
 			serial: <T>(w: () => Promise<T>) => w(),
+			// a browser nobody can take over: the driver is always the agent
+			watchDriver: async () => {},
+			waitForAgent: async () => true,
+			userDriving: false,
+			controlWaitMs: 25_000,
 			download: async () => ({ files: [{ name: "a", size: 1, base64: "x".repeat(8_000_000) }] }),
 		};
 		const res = await createToolHandler(fake as never)("download", {});

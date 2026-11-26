@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<title>Cerea</title>
+		<meta
+			http-equiv="Content-Security-Policy"
+			content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+		/>
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<link rel="stylesheet" href="style.css" />
+	</head>
+	<body>
+		<header id="bar">
+			<img id="logo" alt="" hidden />
+			<strong id="server-name">Cerea</strong>
+			<select id="profile-select" title="Switch profile" aria-label="Profile" hidden></select>
+			<span class="spacer"></span>
+			<button id="tab-browser" data-pane="browser">Browser</button>
+			<button id="tab-galopin" data-pane="galopin">galopin</button>
+			<button id="tab-server" data-pane="server">Profiles</button>
+			<button id="open-cerea" title="Open this Cerea in your web browser">Open in browser</button>
+		</header>
+
+		<main id="setup" hidden>
+			<h1>Choose your Cerea</h1>
+			<p>
+				Type the address of the site where you use Cerea, such as chat.example.org. The app finds
+				the rest and shows you what it found. You sign in the usual way.
+			</p>
+			<form id="setup-form">
+				<input
+					id="setup-address"
+					type="text"
+					placeholder="chat.example.org"
+					autocomplete="off"
+					spellcheck="false"
+				/>
+				<button type="submit">Check</button>
+			</form>
+			<p id="setup-error" class="error" role="alert"></p>
+			<div id="setup-card" class="card" hidden>
+				<img id="setup-icon" alt="" hidden />
+				<div>
+					<strong id="setup-name"></strong>
+					<div id="setup-url" class="muted"></div>
+				</div>
+				<button id="setup-use">Use this server</button>
+			</div>
+		</main>
+
+		<aside id="side" hidden>
+			<section id="pane-browser" hidden>
+				<div class="row">
+					<button id="nav-back" title="Back">&larr;</button>
+					<button id="nav-forward" title="Forward">&rarr;</button>
+					<button id="nav-reload" title="Reload">&#8635;</button>
+					<form id="browser-form" class="grow">
+						<input
+							id="browser-address"
+							type="text"
+							placeholder="Open a page"
+							autocomplete="off"
+							spellcheck="false"
+						/>
+					</form>
+				</div>
+				<div id="tabs" class="row tabs"></div>
+				<div id="control" class="row control">
+					<span id="control-text" class="grow"></span>
+					<button id="control-button"></button>
+				</div>
+				<div id="browser-rect"></div>
+			</section>
+
+			<section id="pane-galopin" hidden>
+				<h2>This computer</h2>
+				<p id="g-status" class="muted"></p>
+				<div class="row wrap">
+					<button id="g-start">Start</button>
+					<button id="g-stop">Stop</button>
+					<button id="g-status-btn">Status</button>
+					<button id="g-upgrade">Upgrade galopin...</button>
+				</div>
+				<details id="g-pair">
+					<summary>Pair this computer</summary>
+					<label
+						><input type="checkbox" id="p-agent" /> Also let Cerea use coding agents here</label
+					>
+					<div id="p-agent-opts" hidden>
+						<label
+							>Engine
+							<select id="p-engine">
+								<option>opencode</option>
+								<option>goose</option>
+								<option>vibe</option>
+							</select>
+						</label>
+						<label
+							>Sign-in
+							<select id="p-flow">
+								<option value="auto">Automatic</option>
+								<option value="loopback">Browser on this computer</option>
+								<option value="device">Code to type elsewhere</option>
+							</select>
+						</label>
+						<label><input type="checkbox" id="p-default-group" /> Bill to my default group</label>
+						<label><input type="checkbox" id="p-no-terminal" /> No terminals</label>
+						<label><input type="checkbox" id="p-no-files" /> No file access</label>
+						<label><input type="checkbox" id="p-file-write" /> Allow file writes</label>
+						<label
+							><input type="checkbox" id="p-project-config" /> Use a project's own opencode
+							setup</label
+						>
+						<label>Workspace roots (one per line)<textarea id="p-roots" rows="2"></textarea></label>
+					</div>
+					<button id="p-go">Pair</button>
+				</details>
+				<h3>Run a tool through galopin</h3>
+				<div class="row wrap" id="g-tools"></div>
+				<h3>Make a tool go through galopin</h3>
+				<div class="row wrap" id="g-setup"></div>
+				<h3>Browser and connectors</h3>
+				<div class="row wrap">
+					<button id="g-browser">Set up browser</button>
+					<button id="g-connectors">Edit connectors...</button>
+				</div>
+				<h3>Keep it running</h3>
+				<p class="muted">
+					The app keeps galopin running while it is open. A service keeps it running when the app is
+					closed.
+				</p>
+				<div class="row wrap">
+					<button id="g-svc-install">Install service...</button>
+					<button id="g-svc-uninstall">Remove service...</button>
+					<button id="g-svc-status">Service status</button>
+				</div>
+				<h3>Output</h3>
+				<pre id="g-out"></pre>
+			</section>
+
+			<section id="pane-server" hidden>
+				<h2>Profiles</h2>
+				<p class="muted">
+					A profile is a server, such as a work one and a home one, with its own sign-in, browser
+					panel and computer pairing. Only the active profile's galopin runs. Switch with the box at
+					the top, or Ctrl or Cmd with Shift and 1 to 9.
+				</p>
+				<ul id="profile-list" class="plist"></ul>
+				<h3>Add a profile</h3>
+				<form id="switch-form">
+					<input
+						id="switch-address"
+						type="text"
+						placeholder="chat.example.org"
+						autocomplete="off"
+						spellcheck="false"
+					/>
+					<button type="submit">Check</button>
+				</form>
+				<p id="switch-error" class="error" role="alert"></p>
+				<div id="switch-card" class="card" hidden>
+					<div>
+						<strong id="switch-name"></strong>
+						<div id="switch-url" class="muted"></div>
+					</div>
+					<button id="switch-go">Add profile</button>
+				</div>
+				<h3>Settings</h3>
+				<label><input type="checkbox" id="s-login" /> Start Cerea when I log in</label>
+				<p class="muted">
+					Off by default. It opens the app, which then keeps galopin running if this computer is
+					paired.
+				</p>
+				<h3>About</h3>
+				<p id="s-about" class="muted"></p>
+			</section>
+		</aside>
+		<script src="ui.js"></script>
+	</body>
+</html>

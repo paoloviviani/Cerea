@@ -30,6 +30,9 @@ import {
 	endTaskResultSchema,
 	resumeResultSchema,
 	openResultSchema,
+	controlResultSchema,
+	type ControlRequest,
+	type ControlResult,
 	type OpenRequest,
 	type OpenResult,
 	tabsResultSchema,
@@ -188,6 +191,10 @@ export class McpBrowserRuntime implements BrowserRuntime {
 
 	resume(token: string, signal?: AbortSignal): Promise<ResumeResult> {
 		return this.invoke("resume", { token }, resumeResultSchema, signal);
+	}
+
+	control(request?: ControlRequest, signal?: AbortSignal): Promise<ControlResult> {
+		return this.invoke("control", request?.wait ? { wait: true } : {}, controlResultSchema, signal);
 	}
 
 	open(request?: OpenRequest, signal?: AbortSignal): Promise<OpenResult> {

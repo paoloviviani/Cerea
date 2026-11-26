@@ -67,7 +67,7 @@
 	const label = $derived(
 		{
 			working: m["chat.browse.phase.working"](),
-			waiting: m["chat.browse.phase.waiting"](),
+			waiting: update.driving ? m["chat.browse.phase.driving"]() : m["chat.browse.phase.waiting"](),
 			done: m["chat.browse.phase.done"](),
 			failed: m["chat.browse.phase.failed"](),
 			stopped: m["chat.browse.phase.stopped"](),
@@ -146,7 +146,16 @@
 		/>
 	</button>
 
-	{#if phase === "waiting" && update.waitingOn}
+	{#if phase === "waiting" && update.driving}
+		<div class="px-2.5 pb-2">
+			<p
+				class="text-xs break-words text-amber-700 dark:text-amber-300"
+				data-testid="browse-driving"
+			>
+				{m["chat.browse.driving"]()}
+			</p>
+		</div>
+	{:else if phase === "waiting" && update.waitingOn}
 		<div class="px-2.5 pb-2">
 			<p
 				class="text-xs break-words text-amber-700 dark:text-amber-300"

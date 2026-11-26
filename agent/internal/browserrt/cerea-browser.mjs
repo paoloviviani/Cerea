@@ -1,4 +1,4 @@
-// cerea-browser runtime 0.1.0; source-hash: c030b82bbe226893ba7f56a8f8bef8d56ec539bb8a37a1d23de8ad8579d0fc10
+// cerea-browser runtime 0.1.0; source-hash: 7b2d98a264ebb1cd2fef857a111a0c3895a10d36311cd1f65784b2fb3fadc5a8
 // inlined: @hono/node-server@2.1.8 @modelcontextprotocol/sdk@1.32.2 ajv@8.20.0 ajv-formats@3.0.1 content-type@1.0.5 fast-deep-equal@3.1.3 fast-uri@3.1.9 hono@4.13.18 json-schema-traverse@1.0.0 tldts@7.4.26 zod@3.25.76 zod-to-json-schema@3.25.2
 import { createRequire as __cr } from "node:module";
 const require = __cr(import.meta.url);
@@ -3767,7 +3767,7 @@ var require_schemes = __commonJS({
       urnComponent.nss = (uuidComponent.uuid || "").toLowerCase();
       return urnComponent;
     }
-    var http2 = (
+    var http3 = (
       /** @type {SchemeHandler} */
       {
         scheme: "http",
@@ -3780,7 +3780,7 @@ var require_schemes = __commonJS({
       /** @type {SchemeHandler} */
       {
         scheme: "https",
-        domainHost: http2.domainHost,
+        domainHost: http3.domainHost,
         parse: httpParse,
         serialize: httpSerialize
       }
@@ -3824,7 +3824,7 @@ var require_schemes = __commonJS({
     var SCHEMES = (
       /** @type {Record<SchemeName, SchemeHandler>} */
       {
-        http: http2,
+        http: http3,
         https,
         ws,
         wss,
@@ -21852,6 +21852,10 @@ var openResultSchema = external_exports.object({
   title: external_exports.string().max(500),
   url: external_exports.string().max(4096)
 });
+var controlRequestSchema = external_exports.object({ wait: external_exports.boolean().optional() });
+var controlResultSchema = external_exports.object({
+  state: external_exports.enum(["agent", "user"])
+});
 var downloadResultSchema = external_exports.object({
   files: external_exports.array(
     external_exports.object({
@@ -22102,6 +22106,11 @@ var TOOLS = [
     }
   },
   {
+    name: "control",
+    description: "Who is driving the browser: {state: 'agent' | 'user'}. 'user' means the person took the browser over in the desktop app and every other tool waits until they hand it back. wait: true returns when it is the agent's again, or after at most 25 seconds with the state as it is.",
+    inputSchema: { type: "object", properties: { wait: { type: "boolean" } } }
+  },
+  {
     name: "resume",
     description: "Make the page kept by an earlier task (end_task with keep) the active page again, with the token end_task gave. No approval is needed with the token. The result says if the page is not where it was left.",
     inputSchema: {
@@ -22134,6 +22143,17 @@ function createToolHandler(session2) {
   };
   async function run(name, rawArgs) {
     try {
+      if (name === "control") {
+        await session2.watchDriver();
+        if (asObject(rawArgs).wait === true) await session2.waitForAgent(session2.controlWaitMs);
+        return json2({ state: session2.userDriving ? "user" : "agent" });
+      }
+      await session2.watchDriver();
+      if (!await session2.waitForAgent(session2.controlWaitMs)) {
+        return failure(
+          "The user is driving the browser. Call control with wait to wait for them to hand it back."
+        );
+      }
       switch (name) {
         case "snapshot":
           return json2(boundSnapshot(await serial(() => session2.snapshot()), wire));
@@ -22450,6 +22470,69 @@ import { pipeline } from "node:stream/promises";
 import {
   chromium
 } from "playwright-core";
+
+// src/controlWatch.ts
+import http2 from "node:http";
+function parseEndpoint(endpoint) {
+  const m = /^ws\+unix:\/\/(.+):\/cdp\/([A-Za-z0-9_-]+)$/.exec(endpoint.trim());
+  return m ? { socketPath: m[1], secret: m[2] } : void 0;
+}
+function watchControl(endpoint, onMode, retryMs = 1e3) {
+  const target = parseEndpoint(endpoint);
+  if (!target) return void 0;
+  let closed = false;
+  let req;
+  let timer;
+  const connect = () => {
+    if (closed) return;
+    req = http2.request(
+      { socketPath: target.socketPath, path: `/ctl/${target.secret}`, method: "GET" },
+      (res) => {
+        if (res.statusCode !== 200) {
+          res.resume();
+          return;
+        }
+        res.setEncoding("utf8");
+        let buf = "";
+        res.on("data", (chunk) => {
+          buf += chunk;
+          for (; ; ) {
+            const end = buf.indexOf("\n\n");
+            if (end < 0) break;
+            const block = buf.slice(0, end);
+            buf = buf.slice(end + 2);
+            const line = block.split("\n").find((l) => l.startsWith("data: "));
+            if (!line) continue;
+            try {
+              const mode = JSON.parse(line.slice(6)).mode;
+              if (mode === "agent" || mode === "user") onMode(mode);
+            } catch {
+            }
+          }
+        });
+        res.on("end", lost);
+        res.on("error", lost);
+      }
+    );
+    req.on("error", lost);
+    req.end();
+  };
+  const lost = () => {
+    if (closed) return;
+    onMode("agent");
+    clearTimeout(timer);
+    timer = setTimeout(connect, retryMs);
+    timer.unref();
+  };
+  connect();
+  return {
+    close() {
+      closed = true;
+      clearTimeout(timer);
+      req?.destroy();
+    }
+  };
+}
 
 // src/siteRules.ts
 var import_tldts = __toESM(require_cjs(), 1);
@@ -23688,6 +23771,8 @@ function launchOptions(options) {
 var BrowserSession = class {
   options;
   context;
+  /** Set only in connect mode: the connection to the browser that something else owns. */
+  cdpBrowser;
   active;
   /** The pages this runtime opened for the task. Tabs it did not open are never used or touched. */
   taskPages = /* @__PURE__ */ new Set();
@@ -24026,22 +24111,121 @@ var BrowserSession = class {
     const host = hostOf(url);
     return !!host && this.tabDeny.some((entry) => hostMatches(host, entry));
   }
+  // ---- who is driving ----------------------------------------------------------------------
+  driving = false;
+  drivingWaiters = /* @__PURE__ */ new Set();
+  controlWatch;
+  controlHeard;
+  get controlWaitMs() {
+    return this.options.controlWaitMs ?? 25e3;
+  }
+  /** True while the user has taken the browser over (the desktop app's Take over). */
+  get userDriving() {
+    return this.driving;
+  }
+  setDriving(on) {
+    if (on === this.driving) return;
+    this.driving = on;
+    if (!on) for (const w of [...this.drivingWaiters]) w();
+  }
+  /**
+   * Starts listening to the desktop app (connect mode only; anything else is never taken over)
+   * and returns once the first state is known, or after 1.5 s.
+   */
+  async watchDriver() {
+    if (!this.options.connect && !this.options.connectFile) return;
+    if (!this.controlWatch) {
+      let endpoint;
+      try {
+        endpoint = await this.connectEndpoint();
+      } catch {
+        return;
+      }
+      if (!endpoint) return;
+      let first;
+      this.controlHeard = new Promise((r) => first = r);
+      this.controlWatch = watchControl(endpoint, (mode) => {
+        this.setDriving(mode === "user");
+        first();
+      });
+      if (!this.controlWatch) return;
+    }
+    await Promise.race([this.controlHeard, sleep(1500)]);
+  }
+  /**
+   * Holds a call while the user drives, for at most `ms` (inside the caller's own timeout). True
+   * when the browser is the agent's again; false when the user still has it.
+   */
+  async waitForAgent(ms) {
+    if (!this.driving) return true;
+    await new Promise((resolve) => {
+      const finish = () => {
+        clearTimeout(timer);
+        this.drivingWaiters.delete(finish);
+        resolve();
+      };
+      const timer = setTimeout(finish, ms);
+      this.drivingWaiters.add(finish);
+    });
+    return !this.driving;
+  }
+  async connectEndpoint() {
+    const { connect, connectFile } = this.options;
+    if (connect) return connect;
+    if (!connectFile) return void 0;
+    try {
+      return (await readFile2(connectFile, "utf8")).trim();
+    } catch {
+      throw new ToolError(
+        "The Cerea desktop app is not running, so its browser panel is not reachable. Open the app, then try again."
+      );
+    }
+  }
   async launch() {
     const { headless, profileDir: profileDir2 } = this.options;
-    if (!headless && process.platform === "linux" && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
+    const connect = await this.connectEndpoint();
+    if (!connect && !headless && process.platform === "linux" && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
       throw new ToolError(
         "The browser is set to show a window, but this computer has no display. Start the runtime with --headless."
       );
     }
-    await removeStaleDirs();
-    await chmod(profileDir2, 448).catch(() => {
-    });
-    if (this.options.branding !== false) await applyCereaProfile(profileDir2);
+    if (!connect) {
+      await removeStaleDirs();
+      await chmod(profileDir2, 448).catch(() => {
+      });
+      if (this.options.branding !== false) await applyCereaProfile(profileDir2);
+    }
     this.downloadDir ??= await mkdtemp(join2(tmpdir(), `cerea-browser-${process.pid}-`));
     let context;
     try {
-      context = await chromium.launchPersistentContext(profileDir2, launchOptions(this.options));
+      if (connect) {
+        const browser = await chromium.connectOverCDP(connect, { timeout: 1e4 });
+        const first = browser.contexts()[0];
+        if (!first) {
+          await browser.close().catch(() => {
+          });
+          throw new Error("the desktop app's browser offered no context");
+        }
+        this.cdpBrowser = browser;
+        context = first;
+        browser.on("disconnected", () => {
+          if (this.cdpBrowser === browser) this.cdpBrowser = void 0;
+          if (this.context === context) {
+            this.context = void 0;
+            this.active = void 0;
+            this.baseline = void 0;
+            this.taskPages.clear();
+          }
+        });
+      } else {
+        context = await chromium.launchPersistentContext(profileDir2, launchOptions(this.options));
+      }
     } catch (err) {
+      if (connect) {
+        throw new ToolError(
+          "The browser panel of the Cerea desktop app is not reachable. Open the app and its Browser panel, then try again."
+        );
+      }
       const message = firstLine(err, 600);
       if (/ProcessSingleton|profile.*in use|SingletonLock|user data directory is already in use/i.test(
         message
@@ -24283,11 +24467,18 @@ var BrowserSession = class {
   }
   async close() {
     clearTimeout(this.idleTimer);
+    this.controlWatch?.close();
+    this.controlWatch = void 0;
+    this.setDriving(false);
     this.taskPages.clear();
     const context = this.context;
+    const cdp = this.cdpBrowser;
     this.context = void 0;
+    this.cdpBrowser = void 0;
     this.active = void 0;
-    if (context) await Promise.race([context.close().catch(() => {
+    if (cdp) await Promise.race([cdp.close().catch(() => {
+    }), sleep(5e3)]);
+    else if (context) await Promise.race([context.close().catch(() => {
     }), sleep(5e3)]);
     if (this.downloadDir)
       await rm(this.downloadDir, { recursive: true, force: true }).catch(() => {
@@ -25150,6 +25341,9 @@ Usage: cerea-browser --profile DIR [options]
   --max-snapshot-chars N   Size budget of one snapshot (default ${DEFAULT_MAX_SNAPSHOT_CHARS}).
   --idle-minutes N     Close the task's pages after N minutes without a call (default 10).
   --viewport WxH       Viewport of a headless browser (default 1280x800).
+  --connect URL        Drive a browser something else owns (the Cerea desktop app) over CDP:
+                       ws://\u2026 or ws+unix://SOCKET:/PATH. Nothing is launched; no profile is used.
+  --connect-file PATH  Like --connect, with the endpoint read from this file (0600) at each use.
   --self-test          Start Chromium once and report: {"ok":true,"sandbox":true|false,"version":"..."}.
   -h, --help           This text.
 `;
@@ -25177,6 +25371,8 @@ var { values } = (() => {
         executable: { type: "string" },
         "max-snapshot-chars": { type: "string" },
         viewport: { type: "string" },
+        connect: { type: "string" },
+        "connect-file": { type: "string" },
         "self-test": { type: "boolean" },
         help: { type: "boolean", short: "h" }
       },
@@ -25195,9 +25391,14 @@ if (values["self-test"]) {
   process.exit(await selfTest(values.executable, values.channel));
 }
 var profileDir = values.profile ?? process.env.CEREA_BROWSER_PROFILE;
-if (!profileDir) fail("--profile DIR is required.");
-mkdirSync2(profileDir, { recursive: true, mode: 448 });
-chmodSync2(profileDir, 448);
+if (!profileDir && !values.connect && !values["connect-file"]) fail("--profile DIR is required.");
+if ((values.connect || values["connect-file"]) && !profileDir && !values["state-dir"]) {
+  fail("--connect without --profile needs --state-dir (where spent approvals are remembered).");
+}
+if (profileDir) {
+  mkdirSync2(profileDir, { recursive: true, mode: 448 });
+  chmodSync2(profileDir, 448);
+}
 var maxChars = values["max-snapshot-chars"] ? Number(values["max-snapshot-chars"]) : void 0;
 if (maxChars !== void 0 && !(maxChars >= 1e3 && maxChars <= 2e5)) {
   fail("--max-snapshot-chars must be between 1000 and 200000.");
@@ -25221,7 +25422,7 @@ function parsePace(text) {
 }
 var pace = parsePace(values.pace);
 var session = new BrowserSession({
-  profileDir,
+  profileDir: profileDir ?? tmpdir2(),
   headless: !values.headed,
   noSandbox: values["no-sandbox"] === true,
   executablePath: values.executable,
@@ -25231,7 +25432,9 @@ var session = new BrowserSession({
   stateDir: values["state-dir"],
   ...values["idle-minutes"] ? { idleMs: Number(values["idle-minutes"]) * 6e4 } : {},
   maxSnapshotChars: maxChars,
-  viewport
+  viewport,
+  connect: values.connect,
+  connectFile: values["connect-file"]
 });
 if (values.http !== void 0) {
   const port = Number(values.http);

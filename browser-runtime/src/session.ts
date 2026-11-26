@@ -16,11 +16,13 @@ import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import {
 	chromium,
+	type Browser,
 	type BrowserContext,
 	type Download,
 	type Locator,
 	type Page,
 } from "playwright-core";
+import { watchControl, type Watch } from "./controlWatch.ts";
 import {
 	actionDigest,
 	classifyAction,
@@ -95,6 +97,19 @@ export interface SessionOptions {
 	computerName?: string;
 	/** Make the profile recognisable (theme colour, name, start page). Default true. */
 	branding?: boolean;
+	/**
+	 * Drive a browser that something else owns (the Cerea desktop app) over CDP instead of
+	 * launching Chromium: a `ws://` or `ws+unix://` endpoint. The profile, branding, sandbox and
+	 * display options then do nothing; the owner decides which pages this runtime can see.
+	 */
+	connect?: string;
+	/**
+	 * Like `connect`, but the endpoint is read from this file each time the browser is reached (the
+	 * desktop app writes a fresh one, with a secret, at every start).
+	 */
+	connectFile?: string;
+	/** How long a call is held while the user drives (default 25 s, `CONTROL_WAIT_MS`). */
+	controlWaitMs?: number;
 }
 
 export const DEFAULT_MAX_SNAPSHOT_CHARS = 9_000;
@@ -478,6 +493,8 @@ export function launchOptions(options: SessionOptions) {
 export class BrowserSession {
 	private readonly options: SessionOptions;
 	private context?: BrowserContext;
+	/** Set only in connect mode: the connection to the browser that something else owns. */
+	private cdpBrowser?: Browser;
 	private active?: Page;
 	/** The pages this runtime opened for the task. Tabs it did not open are never used or touched. */
 	private readonly taskPages = new Set<Page>();
@@ -902,9 +919,89 @@ export class BrowserSession {
 		return !!host && this.tabDeny.some((entry) => hostMatches(host, entry));
 	}
 
+	// ---- who is driving ----------------------------------------------------------------------
+
+	private driving = false;
+	private readonly drivingWaiters = new Set<() => void>();
+	private controlWatch?: Watch;
+	private controlHeard?: Promise<void>;
+
+	get controlWaitMs(): number {
+		return this.options.controlWaitMs ?? 25_000;
+	}
+
+	/** True while the user has taken the browser over (the desktop app's Take over). */
+	get userDriving(): boolean {
+		return this.driving;
+	}
+
+	setDriving(on: boolean): void {
+		if (on === this.driving) return;
+		this.driving = on;
+		if (!on) for (const w of [...this.drivingWaiters]) w();
+	}
+
+	/**
+	 * Starts listening to the desktop app (connect mode only; anything else is never taken over)
+	 * and returns once the first state is known, or after 1.5 s.
+	 */
+	async watchDriver(): Promise<void> {
+		if (!this.options.connect && !this.options.connectFile) return;
+		if (!this.controlWatch) {
+			let endpoint: string | undefined;
+			try {
+				endpoint = await this.connectEndpoint();
+			} catch {
+				return;
+			}
+			if (!endpoint) return;
+			let first!: () => void;
+			this.controlHeard = new Promise<void>((r) => (first = r));
+			this.controlWatch = watchControl(endpoint, (mode) => {
+				this.setDriving(mode === "user");
+				first();
+			});
+			if (!this.controlWatch) return;
+		}
+		await Promise.race([this.controlHeard, sleep(1_500)]);
+	}
+
+	/**
+	 * Holds a call while the user drives, for at most `ms` (inside the caller's own timeout). True
+	 * when the browser is the agent's again; false when the user still has it.
+	 */
+	async waitForAgent(ms: number): Promise<boolean> {
+		if (!this.driving) return true;
+		await new Promise<void>((resolve) => {
+			const finish = () => {
+				clearTimeout(timer);
+				this.drivingWaiters.delete(finish);
+				resolve();
+			};
+			const timer = setTimeout(finish, ms);
+			this.drivingWaiters.add(finish);
+		});
+		return !this.driving;
+	}
+
+	private async connectEndpoint(): Promise<string | undefined> {
+		const { connect, connectFile } = this.options;
+		if (connect) return connect;
+		if (!connectFile) return undefined;
+		try {
+			return (await readFile(connectFile, "utf8")).trim();
+		} catch {
+			throw new ToolError(
+				"The Cerea desktop app is not running, so its browser panel is not reachable. Open the app, then try again."
+			);
+		}
+	}
+
 	private async launch(): Promise<void> {
 		const { headless, profileDir } = this.options;
+		const connect = await this.connectEndpoint();
 		if (
+			!connect &&
 			!headless &&
 			process.platform === "linux" &&
 			!process.env.DISPLAY &&
@@ -914,15 +1011,42 @@ export class BrowserSession {
 				"The browser is set to show a window, but this computer has no display. Start the runtime with --headless."
 			);
 		}
-		await removeStaleDirs();
-		await chmod(profileDir, 0o700).catch(() => {});
-		// Before Chrome starts, never while it runs (see profile.ts).
-		if (this.options.branding !== false) await applyCereaProfile(profileDir);
+		if (!connect) {
+			await removeStaleDirs();
+			await chmod(profileDir, 0o700).catch(() => {});
+			// Before Chrome starts, never while it runs (see profile.ts).
+			if (this.options.branding !== false) await applyCereaProfile(profileDir);
+		}
 		this.downloadDir ??= await mkdtemp(join(tmpdir(), `cerea-browser-${process.pid}-`));
 		let context: BrowserContext;
 		try {
-			context = await chromium.launchPersistentContext(profileDir, launchOptions(this.options));
+			if (connect) {
+				const browser = await chromium.connectOverCDP(connect, { timeout: 10_000 });
+				const first = browser.contexts()[0];
+				if (!first) {
+					await browser.close().catch(() => {});
+					throw new Error("the desktop app's browser offered no context");
+				}
+				this.cdpBrowser = browser;
+				context = first;
+				browser.on("disconnected", () => {
+					if (this.cdpBrowser === browser) this.cdpBrowser = undefined;
+					if (this.context === context) {
+						this.context = undefined;
+						this.active = undefined;
+						this.baseline = undefined;
+						this.taskPages.clear();
+					}
+				});
+			} else {
+				context = await chromium.launchPersistentContext(profileDir, launchOptions(this.options));
+			}
 		} catch (err) {
+			if (connect) {
+				throw new ToolError(
+					"The browser panel of the Cerea desktop app is not reachable. Open the app and its Browser panel, then try again."
+				);
+			}
 			const message = firstLine(err, 600);
 			if (
 				/ProcessSingleton|profile.*in use|SingletonLock|user data directory is already in use/i.test(
@@ -1184,11 +1308,18 @@ export class BrowserSession {
 
 	async close(): Promise<void> {
 		clearTimeout(this.idleTimer);
+		this.controlWatch?.close();
+		this.controlWatch = undefined;
+		this.setDriving(false);
 		this.taskPages.clear();
 		const context = this.context;
+		const cdp = this.cdpBrowser;
 		this.context = undefined;
+		this.cdpBrowser = undefined;
 		this.active = undefined;
-		if (context) await Promise.race([context.close().catch(() => {}), sleep(5_000)]);
+		// A browser that something else owns is only disconnected from, never closed.
+		if (cdp) await Promise.race([cdp.close().catch(() => {}), sleep(5_000)]);
+		else if (context) await Promise.race([context.close().catch(() => {}), sleep(5_000)]);
 		if (this.downloadDir)
 			await rm(this.downloadDir, { recursive: true, force: true }).catch(() => {});
 		this.downloadDir = undefined;

@@ -391,7 +391,7 @@ func TestBrowserStatusReportsEachStep(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := r.out.String()
-	for _, want := range []string{"installed, up to date", "Chromium 158.0.1 (bundled), sandboxed", "yes, with a window", "not fetched yet", "yes (cerea-browser 0.1.0, 10 tools)"} {
+	for _, want := range []string{"installed, up to date", "Chromium 158.0.1 (bundled), sandboxed", "yes, with a window", "not fetched yet", "yes (cerea-browser 0.1.0, 11 tools)"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("status lacks %q:\n%s", want, out)
 		}
@@ -794,5 +794,38 @@ func TestBrowserToolsCoverCereaRuntimeTools(t *testing.T) {
 		if !have[m[1]] {
 			t.Errorf("Cerea calls %q but galopin's browser ceiling lacks it", m[1])
 		}
+	}
+}
+
+func TestBrowserSetupAndEnableForTheDesktopAppInstallNoBrowserAndRegisterConnectMode(t *testing.T) {
+	r := newBrowserRig(t)
+	file := "/run/user/1000/cerea-desktop/cdp-endpoint"
+	if err := r.run(t, "setup", "--connect-file", "relative/path"); err == nil || !strings.Contains(err.Error(), "absolute") {
+		t.Fatalf("relative path: %v", err)
+	}
+	if err := r.run(t, "setup", "--connect-file", file); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range r.calls {
+		if contains(c.args, "--self-test") || contains(c.args, "install") {
+			t.Errorf("a browser was installed or tried: %v", c.args)
+		}
+	}
+	if err := r.run(t, "enable"); err != nil {
+		t.Fatal(err)
+	}
+	var e browserEntry
+	if err := json.Unmarshal(readServers(t, r.mcp)[browserConnectorName], &e); err != nil {
+		t.Fatal(err)
+	}
+	args := strings.Join(e.Args, " ")
+	if !strings.Contains(args, "--connect-file "+file) || strings.Contains(args, "--profile") || strings.Contains(args, "--headed") || strings.Contains(args, "--headless") {
+		t.Errorf("args %q", args)
+	}
+	if !strings.Contains(args, "--key-file") || !strings.Contains(args, "--state-dir") {
+		t.Errorf("the approval key and state dir must still be passed: %q", args)
+	}
+	if len(e.AllowedTools) != len(browserTools) {
+		t.Errorf("ceiling %v", e.AllowedTools)
 	}
 }

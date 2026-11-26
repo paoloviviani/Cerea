@@ -464,6 +464,8 @@ is an external built-in and not a sub-agent tool.
 
 Full reference: [docs/dev/browser-use.md](docs/dev/browser-use.md).
 
+**Desktop app (Electron):** `desktop/`. The embedded browser is driven by browser-runtime through a CDP bridge in the app's main process over a Unix socket, never a debugging port. Design, decision and security rules: [docs/dev/desktop-app.md](docs/dev/desktop-app.md).
+
 ### The plan tool and sub-agents
 
 `update_plan` persists `Conversation.plan`; `delegate` and `research` run
