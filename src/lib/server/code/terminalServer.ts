@@ -160,6 +160,9 @@ export async function handleTerminalUpgrade(
 	socket: Duplex,
 	head: Buffer
 ): Promise<void> {
+	// A client that resets the connection while the checks below are awaited must not become an
+	// unhandled 'error' event on the socket.
+	socket.on("error", () => socket.destroy());
 	const url = new URL(req.url ?? "/", "http://internal");
 	if (url.pathname !== `${base}${TERMINAL_PATH}`) {
 		socket.destroy();

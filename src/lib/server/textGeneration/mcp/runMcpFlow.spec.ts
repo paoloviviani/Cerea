@@ -474,6 +474,15 @@ describe("runMcpFlow and a desktop window that this process does not hold (ADR 0
 		expect(mocks.sentTools[0]).toContain("browse");
 	});
 
+	it("with browser use switched off there is nothing to refuse: no browse tool, no refusal", async () => {
+		mocks.browserEnabled = undefined;
+		mocks.replicas = "2";
+		scriptRounds([{ content: "ok" }]);
+		await runFlow(turn());
+		expect(browseParams()).toBeUndefined();
+		expect(mocks.sentTools[0]).not.toContain("browse");
+	});
+
 	it("with one replica the vanished window is not an error: no browse without a computer", async () => {
 		mocks.browserEnabled = "true";
 		mocks.replicas = "1";

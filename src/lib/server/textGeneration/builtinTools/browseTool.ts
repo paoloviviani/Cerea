@@ -21,6 +21,7 @@ import { mongoLeaseStore, type LeaseStore } from "$lib/server/browser/lease";
 import {
 	WINDOW_NAME,
 	windowCall,
+	windowKeepAlive,
 	windowLeaseStore,
 	type BrowserWindow,
 } from "$lib/server/browser/windowRegistry";
@@ -74,6 +75,8 @@ export interface BrowseToolParams {
 	 * default; a computer only when the user's own words name it (`windowTargetWins`).
 	 */
 	window?: BrowserWindow;
+	/** Test seam: how often the loop pings the runtime (and so keeps a window's lease alive). */
+	keepAliveMs?: number;
 	/** A turn that named a window which is linked to another server instance: refuse, do not fall back. */
 	refusal?: string;
 	settings: BrowserSettings;
@@ -435,7 +438,7 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 			const runtime =
 				params.runtimeFor?.(machine) ??
 				(inApp
-					? new McpBrowserRuntime(windowCall(inApp))
+					? new McpBrowserRuntime(windowCall(inApp), windowKeepAlive(inApp))
 					: new McpBrowserRuntime(
 							mcpRuntimeCall({ userId: params.userId?.toString() ?? "", deviceId: machine.id }),
 							mcpRuntimeKeepAlive({ userId: params.userId?.toString() ?? "", deviceId: machine.id })
@@ -538,6 +541,7 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 						rules: params.settings.rules,
 						rulesNow: params.rulesNow ?? (() => browserSettings().rules),
 						leaseHeld: () => lease.check(),
+						...(params.keepAliveMs ? { keepAliveMs: params.keepAliveMs } : {}),
 						singleUseGrants: Boolean(inApp),
 						ceiling: params.ceiling,
 						unattended: params.unattended,

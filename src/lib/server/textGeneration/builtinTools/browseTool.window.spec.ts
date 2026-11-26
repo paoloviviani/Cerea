@@ -4,7 +4,7 @@
  * a real registry entry whose "app" answers with the fake runtime, so the whole path (target
  * choice, the window's own lease, the grant key, the JSON-RPC relay) runs, with no socket.
  */
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ObjectId } from "mongodb";
 import { MessageUpdateType, type MessageUpdate } from "$lib/types/MessageUpdate";
 import { FakeBrowserRuntime, type FakePage } from "$lib/server/browser/fakeRuntime";
@@ -16,6 +16,7 @@ import {
 } from "$lib/server/browser/fakeModel";
 import { memoryChoiceStore } from "$lib/server/browser/machineChoice";
 import { memoryLeaseStore } from "$lib/server/browser/lease";
+import type { Approver } from "$lib/server/browser/approvals";
 import type { BrowserSettings } from "$lib/server/browser/settings";
 import {
 	_resetWindowsForTests,
@@ -106,6 +107,8 @@ function build(options: {
 	computerRuntime?: FakeBrowserRuntime;
 	rules?: BrowserSettings["rules"];
 	refusal?: string;
+	approver?: Approver;
+	keepAliveMs?: number;
 }) {
 	const model = scriptedModel(options.script);
 	const asks: string[] = [];
@@ -130,10 +133,13 @@ function build(options: {
 					leases: memoryLeaseStore(),
 					grantKeyFor: async () => Buffer.alloc(32, 7),
 				}),
-		approver: async (ask) => {
-			asks.push(ask.sentence);
-			return { verdict: "approved", id: "a1" };
-		},
+		...(options.keepAliveMs ? { keepAliveMs: options.keepAliveMs } : {}),
+		approver:
+			options.approver ??
+			(async (ask) => {
+				asks.push(ask.sentence);
+				return { verdict: "approved", id: "a1" };
+			}),
 		completeFor: () => model.complete,
 	});
 	tool.bind(turnDeps);
@@ -351,6 +357,46 @@ describe("browse: this window", () => {
 		const replay = await fake.asRuntimeCall()("act", { actions: [click], approvals: [grants[0]] });
 		expect(replay.text).toMatch(/already used/);
 		expect(fake.performed.filter((a) => a.type === "click")).toHaveLength(2);
+	});
+
+	it("an approval that waits a long time does not lose the window's lease to another task", async () => {
+		vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+		try {
+			const userId = new ObjectId();
+			const staying: FakePage[] = [
+				{
+					id: "p",
+					url: "https://shop.example.com/cart",
+					title: "Cart",
+					elements: [{ ref: "e1", role: "button", name: "Pay €120" }],
+				},
+			];
+			const { win } = linkedWindow(userId, { pages: staying });
+			let answer: (v: Awaited<ReturnType<Approver>>) => void = () => undefined;
+			let asked = false;
+			const t = build({
+				script: [callTurn("act", { actions: [{ type: "click", ref: "e1" }] }), answerTurn("paid")],
+				userId,
+				window: win,
+				keepAliveMs: 2 * 60_000,
+				approver: () => {
+					asked = true;
+					return new Promise((r) => (answer = r));
+				},
+			});
+			const run = t.tool.execute({ goal: "pay" }, t.ctx);
+			await vi.waitFor(() => expect(asked).toBe(true));
+			// the user takes eight minutes over the card: longer than the idle limit of a lease
+			await vi.advanceTimersByTimeAsync(8 * 60_000);
+			expect(await windowLeaseStore().acquire(WID, userId, "another task")).toBeNull();
+			answer({ verdict: "approved", id: "a1" });
+			const out = await run;
+			expect(JSON.parse((out as { resultText: string }).resultText)).toMatchObject({
+				result: "paid",
+			});
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("on a computer the site grant stays standing, as before", async () => {

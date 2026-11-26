@@ -16,8 +16,9 @@
  * the contract's own tools (`RUNTIME_TOOLS`).
  *
  * In memory means one replica holds the link, exactly like the machine link (`code/machines.ts`):
- * with `CHAT_REPLICAS` above 1 a turn that lands on another replica does not find the window and
- * browses on a computer as it always did (`windowFor` explains the miss in the log).
+ * with `CHAT_REPLICAS` above 1 a turn that lands on another replica does not find the window, and
+ * a turn that carried a window id then refuses instead of browsing on a computer (`windowRefusal`
+ * in `windowTarget.ts`; with one replica the window is simply gone and computers are used).
  */
 
 import { createHmac, randomUUID } from "node:crypto";
@@ -217,7 +218,7 @@ export function unregisterWindow(window: BrowserWindow, why = "the window was cl
 /**
  * The live window a turn came from, or undefined. It must be this user's, on this session, and
  * the link must be up here. With several replicas a miss may only mean the link is held by
- * another one; the caller then browses on a computer as before.
+ * another one: the caller then refuses (`windowRefusal`), it does not fall back to a computer.
  */
 export function windowFor(
 	userId: string,
@@ -276,11 +277,12 @@ export function handleWindowMessage(window: BrowserWindow, raw: string): boolean
 		}
 		return false;
 	};
-	if (raw.length > MAX_WINDOW_MESSAGE_BYTES) return offend();
+	const bytesOf = Buffer.byteLength(raw);
+	if (bytesOf > MAX_WINDOW_MESSAGE_BYTES) return offend();
 	// Inbound budget per window: messages per 10 s and bytes per minute. Past it the window is closed.
 	const now = Date.now();
 	entry.recent = entry.recent.filter(([t]) => now - t < 60_000);
-	entry.recent.push([now, raw.length]);
+	entry.recent.push([now, bytesOf]);
 	const inTen = entry.recent.filter(([t]) => now - t < 10_000).length;
 	const bytes = entry.recent.reduce((n, [, b]) => n + b, 0);
 	if (inTen > MAX_MESSAGES_PER_10S || bytes > MAX_BYTES_PER_MINUTE) {
@@ -304,6 +306,8 @@ export function handleWindowMessage(window: BrowserWindow, raw: string): boolean
 		return offend();
 	}
 	entry.lastActivity = now;
+	// An answer to a live call: the late-answer allowance starts over.
+	entry.lateAnswers = 0;
 	entry.pending.delete(parsed.data.id);
 	clearTimeout(pending.timer);
 	if (pending.signal && pending.onAbort)
@@ -407,6 +411,17 @@ export function windowCall(window: BrowserWindow): RuntimeCall {
 }
 
 /**
+ * What the loop's keep-alive does for a window: the task is alive (waiting for the user's approval
+ * can take an hour), so its lease does not lapse. The lease lapses only when the loop is gone.
+ */
+export function windowKeepAlive(window: BrowserWindow): () => Promise<void> {
+	const entry = window as Entry;
+	return async () => {
+		if (entry.open) entry.lastActivity = Date.now();
+	};
+}
+
+/**
  * One task per window, like the lease on a computer's row but in memory, because the window is:
  * held until released or until the window's link ends.
  */
@@ -428,7 +443,7 @@ export function windowLeaseStore(): LeaseStore {
 			return {
 				// The link going away is reported by the calls failing with a plain reason, not as a
 				// "someone else took the browser" lease loss: the lease is only about other tasks.
-				check: async () => true,
+				check: async () => entry.leasedBy === mine,
 				release: async () => {
 					if (!held && !entry.open) return;
 					held = false;

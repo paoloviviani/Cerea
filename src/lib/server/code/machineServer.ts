@@ -42,6 +42,9 @@ function writeHttpRejection(socket: Duplex, status: number, message: string): vo
 const wss = new WebSocketServer({ noServer: true });
 
 async function handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): Promise<void> {
+	// A client that resets the connection while the checks below are awaited must not become an
+	// unhandled 'error' event on the socket.
+	socket.on("error", () => socket.destroy());
 	const url = new URL(req.url ?? "/", "http://internal");
 	// The upgrade arrives below SvelteKit, so the app's base path is still on
 	// it: behind the Pystino stack (APP_BASE=/chat) the machine dials

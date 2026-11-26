@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ObjectId } from "mongodb";
 import {
+	MAX_WINDOW_MESSAGE_BYTES,
 	WINDOW_BUSY_MESSAGE,
 	WindowLimitError,
 	_resetWindowsForTests,
@@ -13,6 +14,7 @@ import {
 	windowFor,
 	windowForTurn,
 	windowGrantKey,
+	windowKeepAlive,
 	windowLeaseStore,
 } from "./windowRegistry";
 
@@ -252,6 +254,42 @@ describe("the window registry", () => {
 		expect(windowFor(user, session, WID)).toBeUndefined();
 	});
 
+	it("counts bytes, not characters, against the minute's budget", () => {
+		const { win, t } = register();
+		// 3 bytes a character: each message is 22 MB but about 7 M characters, so five of them pass
+		// the 96 MiB budget in bytes and stay far under it in characters
+		const wide = JSON.stringify({ pad: "€".repeat(7 * 1024 * 1024) });
+		expect(wide.length).toBeLessThan(MAX_WINDOW_MESSAGE_BYTES / 3);
+		for (let i = 0; i < 5; i++) handleWindowMessage(win, wide);
+		expect(t.closes.some((c) => c[0] === 4429)).toBe(true);
+	});
+
+	it("gives the late-answer allowance back after a live answer", async () => {
+		vi.useFakeTimers();
+		try {
+			const { win, t } = register();
+			const call = windowCall(win);
+			for (let round = 0; round < 3; round++) {
+				// eight timed-out calls answered late: the whole allowance, each round
+				const ids: string[] = [];
+				for (let i = 0; i < 8; i++) {
+					call("snapshot", {}).catch(() => undefined);
+					ids.push(lastCall(t).id);
+					await vi.advanceTimersByTimeAsync(61_000);
+				}
+				for (const id of ids)
+					expect(handleWindowMessage(win, answer(id, { content: [] }))).toBe(true);
+				// a live call answered in time starts the allowance over
+				const live = call("snapshot", {});
+				handleWindowMessage(win, answer(lastCall(t).id, { content: [] }));
+				await live;
+			}
+			expect(windowFor(user, session, WID)).toBeDefined();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("closes a window that sends more than its bytes budget in a minute", () => {
 		const { win, t } = register();
 		const big = JSON.stringify({ pad: "a".repeat(20 * 1024 * 1024) });
@@ -352,6 +390,47 @@ describe("the window lease", () => {
 			// the old holder's late release does not free the new holder's lease
 			await must(stuck).release();
 			expect(await leases.acquire(WID, owner, "third")).toBeNull();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("tells a holder whose lease lapsed that it lost the window, so it acts on nothing", async () => {
+		vi.useFakeTimers();
+		try {
+			register();
+			const leases = windowLeaseStore();
+			const first = must(await leases.acquire(WID, owner, "first"));
+			expect(await first.check()).toBe(true);
+			await vi.advanceTimersByTimeAsync(6 * 60_000);
+			const second = must(await leases.acquire(WID, owner, "second"));
+			// the first task wakes up from a long approval: its check says the window is not its own
+			expect(await first.check()).toBe(false);
+			expect(await second.check()).toBe(true);
+			// its late release does not free the second task's lease
+			await first.release();
+			expect(await second.check()).toBe(true);
+			expect(await leases.acquire(WID, owner, "third")).toBeNull();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("keeps a lease alive while its task pings (the loop's keep-alive during an approval)", async () => {
+		vi.useFakeTimers();
+		try {
+			const { win } = register();
+			const leases = windowLeaseStore();
+			must(await leases.acquire(WID, owner, "waiting"));
+			const ping = windowKeepAlive(win);
+			for (let i = 0; i < 4; i++) {
+				await vi.advanceTimersByTimeAsync(2 * 60_000);
+				await ping();
+			}
+			expect(await leases.acquire(WID, owner, "other")).toBeNull();
+			// without pings it lapses
+			await vi.advanceTimersByTimeAsync(6 * 60_000);
+			expect(await leases.acquire(WID, owner, "other")).not.toBeNull();
 		} finally {
 			vi.useRealTimers();
 		}

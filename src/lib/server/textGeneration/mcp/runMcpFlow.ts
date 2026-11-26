@@ -445,7 +445,7 @@ export async function* runMcpFlow({
 				// A window the turn names but this process does not hold: with several replicas another
 				// probably holds it, so refuse; with one it is simply gone (`windowRefusal`).
 				let refusal: string | undefined;
-				if (windowId && !window && !locals?.scheduledRun) {
+				if (windowId && !window && !locals?.scheduledRun && browserSettings().enabled) {
 					const { chatReplicas } = await import("$lib/server/code/relay/facts");
 					const { windowRefusal } = await import("$lib/server/browser/windowTarget");
 					const replicas = chatReplicas();
