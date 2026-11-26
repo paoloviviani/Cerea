@@ -70,7 +70,10 @@ function stubFetch(handler?: (url: string, init?: RequestInit) => Response | Pro
 const settle = async (check: () => boolean, ms = 4000) => {
 	const start = Date.now();
 	while (!check()) {
-		if (Date.now() - start > ms) throw new Error("timed out waiting for the page");
+		if (Date.now() - start > ms)
+			throw new Error(
+				"timed out waiting for the page: " + String(document.body.textContent).slice(0, 600)
+			);
 		await new Promise((r) => setTimeout(r, 20));
 	}
 };
@@ -311,40 +314,123 @@ describe("McpAppFrame", () => {
 		});
 	});
 
-	it("refuses a second call that needs approval while a card is already open", async () => {
-		stubFetch((url) =>
+	it("queues calls that need approval: one card at a time, each in its turn, and refuses past three waiting", async () => {
+		stubFetch((url, init) =>
 			url.endsWith("/mcp-app/call")
-				? new Response(
-						JSON.stringify({
-							ok: false,
-							code: "approval_required",
-							approval: { id: APPROVAL_ID },
-						}),
-						{ status: 409 }
-					)
+				? // A denial is answered as the server answers it; only the first ask needs approval.
+					JSON.parse(String(init?.body)).approval
+					? new Response(JSON.stringify({ ok: false, code: "denied", message: "denied" }), {
+							status: 403,
+						})
+					: new Response(
+							JSON.stringify({
+								ok: false,
+								code: "approval_required",
+								approval: { id: APPROVAL_ID },
+							}),
+							{ status: 409 }
+						)
 				: new Response(PAGE, { status: 200 })
 		);
 		const { view, iframe } = await mounted();
+		const card = () => view.baseElement.querySelector("[data-testid='mcp-app-approval']");
+		const call = (id: number, name: string) =>
+			pageSends(iframe, {
+				jsonrpc: "2.0",
+				id,
+				method: "tools/call",
+				params: { name, arguments: {} },
+			});
 
-		pageSends(iframe, {
-			jsonrpc: "2.0",
-			id: 20,
-			method: "tools/call",
-			params: { name: "a", arguments: {} },
-		});
-		await settle(() => view.baseElement.querySelector("[data-testid='mcp-app-approval']") !== null);
-		pageSends(iframe, {
-			jsonrpc: "2.0",
-			id: 21,
-			method: "tools/call",
-			params: { name: "b", arguments: {} },
-		});
-		await settle(() => probes.some((p) => p.id === 21 && "result" in p));
-
+		call(20, "a");
+		await settle(() => card() !== null);
+		call(21, "b");
+		call(22, "c");
+		await settle(() => (card()?.textContent ?? "").includes("+2"));
+		// A fourth call, with three already waiting, is refused at once.
+		call(23, "d");
+		await settle(() => probes.some((p) => p.id === 23 && "result" in p));
 		expect(
-			(probes.find((p) => p.id === 21) as { result: { isError?: boolean } }).result.isError
+			(probes.find((p) => p.id === 23) as { result: { isError?: boolean } }).result.isError
 		).toBe(true);
 		expect(view.baseElement.querySelectorAll("[data-testid='mcp-app-approval']")).toHaveLength(1);
+		expect(card()?.textContent).toContain("a");
+
+		// Denying the first brings up the next, and its call was not failed in the meantime.
+		const deny = () =>
+			[...(card()?.querySelectorAll("button") ?? [])].find((b) =>
+				/deny/i.test(b.textContent ?? "")
+			) as HTMLButtonElement;
+		deny().click();
+		await settle(() => (card()?.textContent ?? "").includes("+1"));
+		expect(probes.some((p) => p.id === 21 && "result" in p)).toBe(false);
+		deny().click();
+		await settle(() => card() !== null && !(card()?.textContent ?? "").includes("+"));
+	});
+
+	it("starts a card far below the screen only when it comes near, and keeps it running after", async () => {
+		const calls = stubFetch();
+		const spacer = document.createElement("div");
+		spacer.style.height = "6000px";
+		// Before the component's own container in the body, so the card renders far below the screen.
+		document.body.prepend(spacer);
+		try {
+			const view = render(McpAppFrame, props);
+			await new Promise((r) => setTimeout(r, 300));
+			// Far from the screen: no fetch of the page, no iframe, only the card.
+			expect(calls.filter((c) => c.url === "/stored-page")).toHaveLength(0);
+			expect(view.baseElement.querySelector("iframe")).toBeNull();
+			expect(view.baseElement.querySelector("[data-testid='mcp-app']")).not.toBeNull();
+
+			view.container.scrollIntoView();
+			await settle(() => view.baseElement.querySelector("iframe") !== null);
+			expect(calls.filter((c) => c.url === "/stored-page")).toHaveLength(1);
+			const iframe = view.baseElement.querySelector("iframe");
+
+			// Scrolled away again: still the same frame, not started over (that would reload the page).
+			window.scrollTo(0, 0);
+			await new Promise((r) => setTimeout(r, 300));
+			expect(view.baseElement.querySelector("iframe")).toBe(iframe);
+			expect(calls.filter((c) => c.url === "/stored-page")).toHaveLength(1);
+		} finally {
+			spacer.remove();
+		}
+	});
+
+	it("does not give the page its document until the card is laid out, and then tells it the size", async () => {
+		const calls = stubFetch();
+		const view = render(McpAppFrame, props);
+		// Hidden before the first layout, as a folded row is.
+		view.container.style.display = "none";
+		await new Promise((r) => setTimeout(r, 400));
+		expect(calls.filter((c) => c.url === "/stored-page")).toHaveLength(0);
+		expect(view.baseElement.querySelector("iframe")).toBeNull();
+		expect(probes).toHaveLength(0);
+
+		view.container.style.display = "";
+		await settle(() => probes.some((p) => p.method === "ui/notifications/tool-result"));
+		const init = probes.find((p) => p.id === 1) as {
+			result: { hostContext: { containerDimensions?: { width?: number } } };
+		};
+		expect(init.result.hostContext.containerDimensions?.width).toBeGreaterThan(0);
+		const iframe = view.baseElement.querySelector("iframe");
+		expect(iframe?.clientWidth).toBeGreaterThan(0);
+	});
+
+	it("tells the page its new width when the card is resized", async () => {
+		stubFetch();
+		const { view } = await mounted();
+		await settle(() => probes.some((p) => p.method === "ui/notifications/tool-result"));
+		const before = view.container.clientWidth;
+		view.container.style.width = `${Math.max(200, before - 120)}px`;
+		await settle(() =>
+			probes.some(
+				(p) =>
+					p.method === "ui/notifications/host-context-changed" &&
+					typeof (p.params as { containerDimensions?: { width?: number } })?.containerDimensions
+						?.width === "number"
+			)
+		);
 	});
 
 	it("closes the page and its bridge when the page navigates itself away", async () => {

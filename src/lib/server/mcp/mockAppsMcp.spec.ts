@@ -4,6 +4,7 @@ import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/cli
 import {
 	APP_MIME,
 	PROBES_MUST_FAIL,
+	BROKEN_URI,
 	PROBE_URI,
 	TIME_URI,
 	startMockAppsMcp,
@@ -51,7 +52,7 @@ describe("mock apps MCP server", () => {
 
 	it("lists the resources", async () => {
 		const { resources } = await client.listResources();
-		expect(resources.map((r) => r.uri).sort()).toEqual([PROBE_URI, TIME_URI].sort());
+		expect(resources.map((r) => r.uri).sort()).toEqual([BROKEN_URI, PROBE_URI, TIME_URI].sort());
 	});
 
 	it("records tool calls and counts escape pings", async () => {

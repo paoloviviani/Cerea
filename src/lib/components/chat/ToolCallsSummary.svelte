@@ -4,6 +4,7 @@
 	import CarbonChevronRight from "~icons/carbon/chevron-right";
 	import OpenReasoningResults from "./OpenReasoningResults.svelte";
 	import ToolUpdate from "./ToolUpdate.svelte";
+	import ToolAppView from "./ToolAppView.svelte";
 
 	type ProcessBlock =
 		| { type: "think"; content: string; closed: boolean }
@@ -53,9 +54,17 @@
 				{#if block.type === "think"}
 					<OpenReasoningResults content={block.content} loading={false} />
 				{:else}
-					<ToolUpdate tool={block.updates} loading={false} />
+					<ToolUpdate tool={block.updates} loading={false} showApp={false} />
 				{/if}
 			{/each}
 		</div>
 	{/if}
+
+	<!-- The app views stay put: they are the result, not call detail, and moving or unmounting an
+	     iframe would reload its page. Always mounted here, so the fold only hides the rows. -->
+	{#each blocks as block, i (block.type === "tool" ? `app-${block.uuid}-${i}` : `think-${i}`)}
+		{#if block.type === "tool"}
+			<ToolAppView tool={block.updates} />
+		{/if}
+	{/each}
 </div>

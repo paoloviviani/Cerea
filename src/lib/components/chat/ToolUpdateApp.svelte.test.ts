@@ -73,6 +73,8 @@ describe("ToolUpdate with an MCP App page", () => {
 			expect(view.baseElement.querySelector("[data-testid='mcp-app']")).not.toBeNull()
 		);
 
+		// The page is read once the card is near the screen and laid out, not at once.
+		await vi.waitFor(() => expect(fetched.length).toBeGreaterThan(0));
 		expect(fetched[0]).toContain("/conversation/conv1/mcp-app/" + "b".repeat(64));
 		await vi.waitFor(() => expect(view.baseElement.querySelector("iframe")).not.toBeNull());
 		expect(view.baseElement.querySelector("iframe")?.getAttribute("sandbox") ?? "").not.toContain(

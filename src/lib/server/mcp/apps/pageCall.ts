@@ -4,7 +4,7 @@ import { logger } from "$lib/server/logger";
 import { resolveToolApprovalPolicy } from "$lib/server/textGeneration/toolApprovalPolicy";
 import type { Conversation } from "$lib/types/Conversation";
 import type { Settings } from "$lib/types/Settings";
-import { visibleToApp } from "$lib/utils/mcpApp";
+import { visibleToApp, visibleToModel } from "$lib/utils/mcpApp";
 import { callMcpTool, getMcpToolTimeoutMs } from "../httpClient";
 import { getToolUiMeta } from "../tools";
 import { McpAppError, resolveAppServer } from "./resource";
@@ -67,8 +67,8 @@ const MAX_ARGS_BYTES = 256 * 1024;
  * A tool call started by an MCP App page, run on the server through the same gate as a model's call
  * (docs/dev/adr-mcp-apps.md, section 3): the connector is resolved for this user (never an address or a
  * credential from the browser), the tool must belong to it and be visible to apps, a call that needs
- * approval runs only with the user's click (sent by Cerea's own card, which a page cannot reach), and the
- * rate is limited. The call has no elicitation: there is no turn to park.
+ * approval runs only with the user's click (sent by Cerea's own card, which a page cannot reach; a
+ * page-only tool needs none), and the rate is limited. The call has no elicitation: there is no turn to park.
  */
 export async function callToolFromPage(input: PageCallInput): Promise<PageCallOutcome> {
 	const { conversation, settings, userId, connector, tool, args, approval, signal } = input;
@@ -110,6 +110,12 @@ export async function callToolFromPage(input: PageCallInput): Promise<PageCallOu
 		};
 	}
 
+	// A tool only the page may call (visibility lists "app" and not "model") is the app's private API: the
+	// model never sees it, it belongs to the page's own connector, and the page is rate limited. It
+	// runs without the approval gate under any policy (owner decision 2026-11-26). The visibility is
+	// read from the connector's own listing above, never from the page.
+	const pageOnly = !visibleToModel(ui);
+
 	// The model's gate (ADR 0075), with the page's own grants: under `manual` a call runs only when the
 	// conversation holds a grant for the page (never the model's grant: separate lists).
 	// Grants are keyed by the connector's key, not its name: two connectors may share a name.
@@ -117,7 +123,7 @@ export async function callToolFromPage(input: PageCallInput): Promise<PageCallOu
 	const qualified = `${server.name}:${tool}`;
 	const policy = resolveToolApprovalPolicy(conversation, settings);
 	const granted = (conversation.approvedAppTools ?? []).includes(grantKey);
-	if (policy === "manual" && !granted) {
+	if (policy === "manual" && !granted && !pageOnly) {
 		const hash = approvalHash({ userId, connector, tool, args });
 		if (!approval) {
 			// The 409 path costs something too: asking is rate limited like calling.
@@ -177,7 +183,14 @@ export async function callToolFromPage(input: PageCallInput): Promise<PageCallOu
 	}
 
 	logger.info(
-		{ connector: server.name, tool, source: "app", granted, approval: approval?.choice ?? null },
+		{
+			connector: server.name,
+			tool,
+			source: "app",
+			pageOnly,
+			granted,
+			approval: approval?.choice ?? null,
+		},
 		"[mcp-app] page-initiated tool call"
 	);
 	try {

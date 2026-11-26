@@ -158,14 +158,18 @@ What a page can and cannot do:
 
 - **It runs in a locked box.** The page cannot see your Cerea session, cookies or other chats, and it can load
   only from the web addresses its connector declared (the card lists them).
-- **Its tool calls ask you first.** When the page wants to call a tool of its connector, the card says "The view
+- **Its own tools run quietly.** Some tools exist only for the page (saving its work, refreshing a view); the
+  assistant never sees them. The page may call those without asking, as long as they belong to its own connector.
+- **Its other tool calls ask you first.** When the page wants to call a tool the assistant can also use, the card says "The view
   from _connector_ wants to call _tool_" with the arguments, and you choose **Allow once**, **Allow this tool for
   the rest of the conversation** or **Deny**, exactly as for the assistant's own calls. If you have set the
   conversation to allow tools without asking, the call runs. Only that connector's tools can be called.
 - **Its messages are drafts.** If the page proposes a message to the assistant, it lands in your message box
   for you to read and send. It is never sent for you.
 - **Links ask first.** A link the page opens shows its full address and waits for your yes.
-- **Full screen** is available from the card's header (Esc closes it).
+- **Full screen** is available from the card's header and covers the whole window, above the sidebar (Esc or the close button leaves it). The page follows: its own Edit and Done buttons change with it.
+- **It shows by itself.** The page is under the tool's row whether the row is open or not; opening the row only shows the call's details.
+- **When it does not show properly,** the card has a **Show details** link listing what went wrong (copy it for your administrator, who finds the same lines in the chat logs), and **Reload view** starts the page again.
 - **A reload keeps it.** The page is kept with the conversation (for as long as the conversation's files are
   kept), so it shows again without the connector being reachable. After that, the card shows the text result.
 

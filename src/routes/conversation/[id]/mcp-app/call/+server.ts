@@ -1,7 +1,7 @@
 import type { RequestHandler } from "./$types";
 import { authCondition } from "$lib/server/auth";
 import { collections } from "$lib/server/database";
-import { config } from "$lib/server/config";
+import { requireSameOriginJson } from "$lib/server/mcp/apps/sameOrigin";
 import { callToolFromPage } from "$lib/server/mcp/apps/pageCall";
 import { MCP_APP_FILE_TOOL } from "$lib/server/execution/deliverables";
 import { error, json } from "@sveltejs/kit";
@@ -29,23 +29,7 @@ const bodySchema = z.object({
  */
 export const POST: RequestHandler = async ({ params, locals, request, url }) => {
 	if (!locals.user && !locals.sessionId) error(401, "Unauthorized");
-	if (!(request.headers.get("content-type") ?? "").toLowerCase().startsWith("application/json")) {
-		error(415, "Expected application/json");
-	}
-	// The origins the app itself answers on, as the CSRF check in the request hook reads them.
-	const origin = request.headers.get("origin");
-	const validHosts = [
-		new URL(request.url).host,
-		url.host,
-		...(config.PUBLIC_ORIGIN ? [new URL(config.PUBLIC_ORIGIN).host] : []),
-	];
-	let originHost: string | undefined;
-	try {
-		originHost = origin ? new URL(origin).host : undefined;
-	} catch {
-		originHost = undefined;
-	}
-	if (!originHost || !validHosts.includes(originHost)) error(403, "Cross-origin request");
+	requireSameOriginJson(request, url);
 	if (!ObjectId.isValid(params.id)) error(404, "Conversation not found");
 	const conversationId = new ObjectId(params.id);
 

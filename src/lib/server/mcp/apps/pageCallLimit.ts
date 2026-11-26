@@ -1,9 +1,10 @@
 /**
  * Rate limit for the tool calls an MCP App page starts (docs/dev/adr-mcp-apps.md, section 3): a page is
  * untrusted code and a loop in it must not hammer a connector with the user's credential. In process and
- * per conversation and user, which is the unit a page belongs to.
+ * per conversation and user, which is the unit a page belongs to. 60 a minute leaves room for an app that
+ * saves its work every few seconds through a page-only tool.
  */
-export const PAGE_CALLS_PER_MINUTE = 20;
+export const PAGE_CALLS_PER_MINUTE = 60;
 /** At most this many calls started within one second: a page that fires them all at once is looping. */
 export const PAGE_CALLS_BURST = 5;
 
