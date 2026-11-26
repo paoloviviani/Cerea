@@ -224,6 +224,7 @@ func (mc *machine) installPermissions() {
 		// itself and read Ask: the ask is held while its record is read, then
 		// decided by the root's word (permissions_tree.go).
 		if !mc.mat.TreeKnown(req.SessionID) {
+			mc.mat.HoldAsk(req.ID)
 			go mc.decideHeldAsk(dir, req)
 			return true
 		}

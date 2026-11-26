@@ -239,6 +239,12 @@ type Materializer struct {
 	// onAskLeak marks an ask whose call carries a local secret's value (names only).
 	onAskLeak func(workspaceDir string, req backend.PermissionRequest) (key, file string)
 
+	// held is the ids of asks the machine consumed to hold while it learns their
+	// session's place in the tree (HoldAsk): false until the ask is answered or
+	// withdrawn meanwhile, then true, so ReleaseAsk does not bring a card back
+	// for an ask that no longer exists. Guarded by mu.
+	held map[string]bool
+
 	outCh chan Envelope
 }
 
@@ -627,9 +633,30 @@ func (m *Materializer) ApplyBackendEvent(ctx context.Context, be backend.Backend
 	m.applyBackendEvent(ctx, be, true)
 }
 
+// HoldAsk records that the ask id was consumed by the pre-filter to be decided
+// later, so that a reply or a withdrawal that comes first is remembered. The
+// holder ends it with ReleaseAsk or DropHeld.
+func (m *Materializer) HoldAsk(id string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.held == nil {
+		m.held = map[string]bool{}
+	}
+	m.held[id] = false
+}
+
+// DropHeld ends a hold whose ask was decided without a card (answered).
+func (m *Materializer) DropHeld(id string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.held, id)
+}
+
 // ReleaseAsk materialises a permission ask the pre-filter consumed to hold
 // while it learned the ask's session tree, and that turned out to be a card:
-// the same path as a live ask, without the filter (it already decided).
+// the same path as a live ask, without the filter (it already decided). An ask
+// answered or withdrawn while it was held (the backend's reply event, or
+// WithdrawPending) shows no card.
 func (m *Materializer) ReleaseAsk(ctx context.Context, workspaceDir string, req backend.PermissionRequest) {
 	m.applyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: workspaceDir, SessionID: req.SessionID,
 		Event: backend.Event{Kind: backend.EventPermissionAsked, Request: &req}}, false)
@@ -702,6 +729,20 @@ func (m *Materializer) applyBackendEvent(ctx context.Context, be backend.Backend
 	if be.Event.Kind == backend.EventSession && be.Event.Session != nil {
 		m.setParentLocked(be.SessionID, be.Event.Session.ParentID)
 		st.recordSeen = true
+	}
+	switch {
+	case be.Event.Kind == backend.EventPermissionReplied:
+		// answered while held: its release must not bring a card back
+		if _, ok := m.held[be.Event.RequestID]; ok {
+			m.held[be.Event.RequestID] = true
+		}
+	case !filter && be.Event.Kind == backend.EventPermissionAsked && be.Event.Request != nil:
+		gone, ok := m.held[be.Event.Request.ID]
+		delete(m.held, be.Event.Request.ID)
+		if ok && gone {
+			m.mu.Unlock()
+			return
+		}
 	}
 	events := m.translateLocked(st, be.Event)
 	envs := make([]Envelope, 0, len(events))
@@ -1576,6 +1617,9 @@ func (m *Materializer) LatestUserMessage(sessionID string) (backend.Message, boo
 // for one would answer into nothing.
 func (m *Materializer) WithdrawPending() {
 	m.mu.Lock()
+	for id := range m.held {
+		m.held[id] = true // an ask held for its tree is gone with the process too
+	}
 	var envs []Envelope
 	for _, st := range m.sessions {
 		for _, id := range append([]string(nil), st.permissionOrder...) {
