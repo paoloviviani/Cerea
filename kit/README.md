@@ -430,6 +430,8 @@ Among them, what identity configuration turns up:
 - the `team` preset without SMTP — users cannot reset their own password;
 - `pystino idp check --discovery-only`, run in the gateway container against the configured issuer;
 - with an external IdP, any configured scope the issuer's `scopes_supported` does not list (`--offline` skips the lookup).
+- with an external IdP and coding agents on, whether the issuer accepts galopin's client id (`OIDC_MACHINE_CLIENT_ID`): it starts a device authorization at the issuer's device endpoint (GitLab's `<issuer>/oauth/authorize_device` when none is advertised), the first step of `galopin enroll`, and approves nothing. A refusal (`invalid_client`) is an error that names `./configure --machine-client-id <id>`; an issuer it cannot reach is only a warning (`--offline` skips it);
+- a `.env` line docker compose cannot read, such as a quoted value ending in a backslash. Messages about a bad `.env` give the line number and the key, never the value.
 
 It changes nothing, so it is safe on a running install.
 
@@ -945,6 +947,25 @@ have the default `opencode-enrollment`). Its tokens cannot be introspected,
 since the application has no secret, so the gateway checks them at GitLab's
 `/oauth/token/info` with the token itself; see
 [Agent machines](https://paoloviviani.github.io/Cerea/docs/agent-machines/#with-gitlab-as-the-identity-provider).
+
+Interactive `./configure` asks for galopin's client id (**galopin client id**)
+whenever coding agents are on, and `--machine-client-id` sets it. If the old
+id was the same as the console or chat client id this run replaces, the
+default follows the new chat client id and `./configure` says so; otherwise
+the default is the id already in `.env`. When the console or chat client id
+changes and galopin's does not, `./configure` notes that computers enrolled
+with the old application must re-enroll if it is gone, and a changed galopin
+client id always carries that note: the tokens of paired computers name the
+old one. `./configure --check` tests the id against the issuer (see
+[Checking an install](#checking-an-install)).
+
+Values typed at a prompt are trimmed. A client id or secret may hold letters,
+digits and `. _ ~ + / = : -`; a space, a quote or a trailing backslash is
+refused with "paste it again" (the prompt asks again), because a stray
+backslash inside the quoted line of `.env` makes every `docker compose`
+command fail with "unterminated quoted value". After writing `.env`,
+`./configure` runs `docker compose config -q`; if docker cannot read the file
+the previous `.env` is put back and nothing is changed.
 
 ### Groups from the identity provider
 
