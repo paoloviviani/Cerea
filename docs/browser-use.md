@@ -193,7 +193,11 @@ starts, and everything else works as for a computer: you are asked before anythi
 - **If the window closes or you switch to another server in the app**, a running task stops and
   says so. Start it again from the window.
 - **One thing at a time on the panel.** If galopin is also driving the same panel (a task on this
-  computer from another chat or an agent), the two interrupt each other.
+  computer from another chat or an agent), the one that started first keeps it and the other stops
+  with "Another task is using this browser."
+- **Several server instances.** The link to the app is held by one Cerea process. When the
+  deployment runs more than one chat server (`CHAT_REPLICAS` above 1) and a message from the app
+  lands on another, the chat says so and does not use a computer instead; try again.
 - It needs the app's browser to be ready: the panel is there and the app has its browser runtime
   (every packaged app does). Without them the chat uses your computers.
 

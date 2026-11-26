@@ -321,23 +321,35 @@ endpoint file> --key-file <userData>/winbrowser/<id>/approval-key --state-dir ..
   task on one panel interrupt each other.
 - **The page's API** (`src/preload/cerea.ts`): the Cerea view's only preload, exposing
   `window.cereaDesktop.browser = { available, send, onMessage }` to the main frame of a document
-  whose origin is the profile's (`--cerea-origin=` in `additionalArguments`); any other document the
-  view shows and every subframe get nothing. Two IPC channels, `winbrowser:available` (sync) and
+  whose origin is the profile's and whose path is under its base path (`--cerea-origin=` and
+  `--cerea-base=` in `additionalArguments`); any other document the view shows and every subframe get
+  nothing. Two IPC channels, `winbrowser:available` (sync) and
   `winbrowser:send`, are checked in main on **every** message by `fromCereaPage`: the sender is the
-  active profile's Cerea view, the frame is its main frame, its URL origin matches, the profile is
-  active. Replies go to that main frame only, and only while it shows the server's origin.
+  active profile's Cerea view, the frame is its main frame, its URL origin matches and its path is
+  under the base path, the profile is active. Replies go to that main frame only, and only while it shows the server's origin.
 - **What is relayed**: `parsePageMessage` accepts `tools/call` for the runtime's tool names
   (`RUNTIME_TOOLS`, a test compares it to `browser-runtime/src/contract.ts`) and the page's
-  `cerea/window {windowId, cookie}`; the app then derives the window's grant key from the session
-  cookie's value (read from the Cerea view's cookie jar: HttpOnly, so the page cannot) with the
-  same function the server uses, and writes it 0600 to the key file. Caps: 256 KiB per request, 40
-  calls per 10 s, 8 in flight, 20 MiB per answer, and only `content`, `structuredContent` and
-  `isError` cross back.
+  `cerea/window {windowId}`, five a minute. **The page never names the cookie.** Its name is the
+  server's own word (`sessionCookie` in `enroll.json`, kept with the profile); the app reads that
+  cookie from the Cerea view's cookie jar at the profile's base-path URL and uses it only when there
+  is exactly one, it is `HttpOnly` and, on https, `Secure` (a cookie script on the page could set is
+  none of these). Otherwise no key is written, an old one is removed, and the runtime accepts no
+  approval. The key is derived with the same function the server uses and written 0600 to the key
+  file. Caps: 256 KiB per request, 40 calls per 10 s, 8 in flight, 20 MiB per answer, and only
+  `content`, `structuredContent` and `isError` cross back. The runtime child gets a minimal
+  environment (`runtimeEnv`: PATH, HOME, locale and temp variables; no inherited secrets, no
+  `NODE_OPTIONS`), and an output buffer overflow kills it and fails the waiting calls.
+- **A second driver is refused, not let in.** The bridge keeps one runtime connection; a newcomer
+  replaces an idle one, but while the current one has sent a command in the last 30 s the newcomer
+  is closed (`BUSY_MESSAGE`, "Another task is using this browser."). The window browser's own
+  `touch()` does not count as a command, or its own runtime would be refused. When its runtime
+  failed right after a refusal, the page gets that message and the card says it (`busy` stop).
 - **The panel opens when a task starts**: the first call of a task is `control.touch()`, the same
   sign of life a galopin runtime task gives, so the panel opens on the Browser tab and "Browser
   working" shows (#377). The runtime uses the same bridge, so the focus rules apply to it too.
 - **Tests**: `windowBrowser.test.ts` (parsing, sender checks, runtime lookup, a fake runtime over
-  pipes: one per profile, stopped on dispose, key file, rate limit, crash loop),
+  pipes: one per profile, stopped on dispose, key file and its HttpOnly/Secure/single-cookie rules,
+  rate limits, crash loop, environment, buffer overflow),
   `preloadCerea.test.ts` (exposure on the matching origin and main frame only), and smoke step 2b:
   the real app, a fake Cerea page that relays between a fake server and the bridge, `open`,
   `resume`, `navigate` and `snapshot` on the real panel, the app-derived key equal to the server's,
