@@ -171,6 +171,12 @@ release. Version: patch for fixes, minor for features.
    real opencode: when `agent/` changed, watch that run yourself
    (`gh run list --workflow opencode.yml`) before or while releasing, and do not
    announce the release as proven until it is green.
+   After the release is published, `release.sh` attaches the desktop app's preview builds
+   (`scripts/release/desktop-assets.sh vX.Y.Z`: the `desktop` workflow's artifacts, renamed
+   `Cerea-Desktop-PREVIEW-…`, with a SHA256SUMS file and a "Cerea Desktop: preview" section in the
+   notes) and prints `desktop preview: attached`. If it prints `NOT attached`, the Cerea release
+   is fine; run the named command to retry. Artifacts are kept 90 days; with none left (or a desktop
+   change newer than the last build) the script runs the `desktop` workflow on the tag and waits.
 3. Tell the owner: the version, what changed in a few lines, the upgrade
    commands, and whether machines need the galopin update.
 

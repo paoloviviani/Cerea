@@ -5,6 +5,9 @@
 # failure; `stable` moves only after the fresh-kit test printed E2E_OK. See
 # AGENTS.md "Releasing".
 #
+# After the release, step 7 attaches the desktop preview builds (scripts/release/desktop-assets.sh);
+# its failure is a warning only.
+#
 # Needs: gh (authenticated, with workflow and contents write), git, docker.
 set -uo pipefail
 V=${1:?usage: release.sh X.Y.Z}
@@ -119,3 +122,13 @@ git show "$SHA:kit/CHANGELOG.md" | awk -v t="## $T " 'index($0,t)==1{f=1;next} /
 gh release create -R "$REPO" "$T" --title "$T" --notes-file "$notes" --verify-tag || stop "GitHub release"
 rm -f "$notes"
 echo "released $T"
+
+# 7. The desktop app's preview builds. The release is already published, so a failure here is a
+# warning, never a failed release: rerun the script alone.
+if scripts/release/desktop-assets.sh "$T"; then
+	echo "desktop preview: attached"
+else
+	echo "!!!!!! WARNING: the Cerea release $T is published, but the desktop preview builds were NOT attached."
+	echo "!!!!!! Fix the cause above, then run: scripts/release/desktop-assets.sh $T"
+	echo "desktop preview: NOT attached (rerun scripts/release/desktop-assets.sh $T)"
+fi

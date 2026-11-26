@@ -386,6 +386,17 @@ same visibility path; there is no real GPU, display link or battery here, so num
 will differ and should be re-measured; the 30 s freeze grace is longer than the measurement's
 settle time, so the figure shows the window-hidden cost without the freeze.
 
+## How builds are published
+
+Every Cerea release carries the desktop builds as **preview** assets: `release.sh` runs
+`scripts/release/desktop-assets.sh vX.Y.Z` after creating the GitHub release. It takes the
+`desktop` workflow's artifacts (kept 90 days) for the tag's commit, or the last earlier build when
+nothing it reads changed since (and runs the workflow on the tag when there is none), renames them
+`Cerea-Desktop-PREVIEW-<version>-…` with a SHA256SUMS file, and adds a "Cerea Desktop: preview"
+section to the notes (template: `scripts/release/desktop-notes.md.tmpl`). The builds are
+unsigned and not notarised, and have no auto-update: users download each new build by hand. A
+failure there never fails the Cerea release; rerun the script.
+
 ## Not in v1
 
 - **Embedded terminal** (xterm.js with `node-pty`): `launch <tool>` opens the system terminal
