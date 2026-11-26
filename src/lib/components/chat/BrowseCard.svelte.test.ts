@@ -199,6 +199,51 @@ describe("the browse card", () => {
 		expect(q(waiting.baseElement, "browse-waiting")).toBeNull();
 	});
 
+	it("says where it runs: this app's browser, or a computer", () => {
+		const inApp = render(BrowseCard, {
+			update: state({ where: { kind: "window" } }),
+			loading: true,
+		});
+		expect(q(inApp.container as HTMLElement, "browse-where")?.textContent).toContain(
+			"in this app's browser"
+		);
+		const onComputer = render(BrowseCard, {
+			update: state({ where: { kind: "computer", name: "Work laptop" } }),
+			loading: true,
+		});
+		expect(q(onComputer.container as HTMLElement, "browse-where")?.textContent).toContain(
+			"on Work laptop"
+		);
+		const unknown = render(BrowseCard, { update: state(), loading: true });
+		expect(q(unknown.container as HTMLElement, "browse-where")).toBeNull();
+	});
+
+	it("a window that went away ends with its own plain note", async () => {
+		const { baseElement } = render(BrowseCard, {
+			update: state({
+				status: "failed",
+				stoppedReason: "runtime_error",
+				where: { kind: "window" },
+			}),
+			loading: false,
+		});
+		click(baseElement.querySelector("button[aria-expanded]"));
+		await new Promise((r) => setTimeout(r, 30));
+		expect(q(baseElement, "browse-stop-note")?.textContent).toContain("browser in this app");
+	});
+
+	it("a second driver that was refused says another task is using the browser", async () => {
+		const { baseElement } = render(BrowseCard, {
+			update: state({ status: "stopped", stoppedReason: "busy", where: { kind: "window" } }),
+			loading: false,
+		});
+		click(baseElement.querySelector("button[aria-expanded]"));
+		await new Promise((r) => setTimeout(r, 30));
+		expect(q(baseElement, "browse-stop-note")?.textContent).toContain(
+			"Another task is using this browser."
+		);
+	});
+
 	it("does not overflow a phone-width column", async () => {
 		const { container } = render(BrowseCard, {
 			update: state({

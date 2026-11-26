@@ -26,6 +26,8 @@ export const TAKEN_OVER_MESSAGE =
 export class Control implements Gate {
 	mode: Mode = "agent";
 	private lastActivity = Number.NEGATIVE_INFINITY;
+	private lastCommand = Number.NEGATIVE_INFINITY;
+	private lastRefused = Number.NEGATIVE_INFINITY;
 	private listeners = new Set<() => void>();
 
 	constructor(private readonly now: () => number = Date.now) {}
@@ -62,6 +64,28 @@ export class Control implements Gate {
 		return this.recentlyActive(Control.WORKING_MS);
 	}
 
+	/**
+	 * Gate: a task is running, so a second runtime is refused (`CdpBridge.connect`). Only commands
+	 * that came over the bridge count: the window browser's own `touch()` (it opens the panel before
+	 * its runtime has even connected) must not make that runtime a newcomer to refuse.
+	 */
+	taskActive(): boolean {
+		return this.now() - this.lastCommand < Control.WORKING_MS;
+	}
+
+	/**
+	 * Gate: a newcomer was refused just now. Only the app's own window runtime's refusal is kept (the
+	 * window browser words its failure with it); a refused galopin runtime is not its business.
+	 */
+	refused(windowRuntime: boolean): void {
+		if (windowRuntime) this.lastRefused = this.now();
+	}
+
+	/** A runtime was refused within `ms`. */
+	recentlyRefused(ms: number): boolean {
+		return this.now() - this.lastRefused < ms;
+	}
+
 	private taskListeners = new Set<() => void>();
 	private workingTimer?: NodeJS.Timeout;
 
@@ -73,10 +97,16 @@ export class Control implements Gate {
 
 	/** A sign of life that is not a command (the control stream connecting). */
 	touch(): void {
-		this.activity();
+		this.signal();
 	}
 
+	/** The runtime sent a command over the bridge. */
 	activity(): void {
+		this.lastCommand = this.now();
+		this.signal();
+	}
+
+	private signal(): void {
 		const was = this.agentBusy;
 		const wasWorking = this.working;
 		this.lastActivity = this.now();

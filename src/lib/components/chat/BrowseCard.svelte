@@ -83,10 +83,14 @@
 			max_tokens: m["chat.browse.stopped.max_tokens"](),
 			max_time: m["chat.browse.stopped.max_time"](),
 			aborted: m["chat.browse.stopped.aborted"](),
-			runtime_error: m["chat.browse.stopped.runtime_error"](),
+			runtime_error:
+				update.where?.kind === "window"
+					? m["chat.browse.stopped.window_gone"]()
+					: m["chat.browse.stopped.runtime_error"](),
 			model_error: m["chat.browse.stopped.model_error"](),
 			denied: m["chat.browse.stopped.denied"](),
 			lease_lost: m["chat.browse.stopped.lease_lost"](),
+			busy: m["chat.browse.stopped.busy"](),
 			verification: m["chat.browse.stopped.verification"](),
 		};
 		return notes[reason];
@@ -185,6 +189,13 @@
 
 	{#if open}
 		<div class="flex flex-col gap-2 border-t border-gray-200 px-2.5 py-2 dark:border-gray-700">
+			{#if update.where}
+				<span class="text-xs text-gray-500 dark:text-gray-400" data-testid="browse-where">
+					{update.where.kind === "window"
+						? m["chat.browse.where_window"]()
+						: m["chat.browse.where_computer"]({ computer: update.where.name })}
+				</span>
+			{/if}
 			{#if stepCount > 0}
 				<div class="flex flex-col gap-1">
 					<span class="text-xs text-gray-500 dark:text-gray-400" data-testid="browse-step-count">

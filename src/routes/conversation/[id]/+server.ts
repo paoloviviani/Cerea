@@ -138,6 +138,7 @@ export async function POST({ request, locals, params, getClientAddress }) {
 		generationId,
 		timezone,
 		location,
+		windowId,
 	} = z
 		.object({
 			id: z.string().uuid().refine(isMessageId).optional(), // parent message id to append to for a normal message, or the message id for a retry/continue
@@ -160,6 +161,11 @@ export async function POST({ request, locals, params, getClientAddress }) {
 			userMessageId: z.optional(z.string()),
 			assistantMessageId: z.optional(z.string()),
 			timezone: z.optional(z.string()),
+			/**
+			 * The desktop window this turn is sent from (ADR 0122): a hint that `browse` may use that
+			 * window's own browser. Checked against the live window registry, never trusted.
+			 */
+			windowId: z.optional(z.string().regex(/^[A-Za-z0-9_-]{16,64}$/)),
 			/** Device coordinates, rounded; ignored unless the person's setting is "device". */
 			location: deviceLocationSchema,
 			files: z.optional(
@@ -315,6 +321,10 @@ export async function POST({ request, locals, params, getClientAddress }) {
 
 	if (location) {
 		locals.location = location;
+	}
+
+	if (windowId) {
+		locals.browserWindowId = windowId;
 	}
 
 	// The files of one message together stay under the request body limit.

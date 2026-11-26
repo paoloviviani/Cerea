@@ -15,8 +15,15 @@ declare module "ws" {
 	import type { EventEmitter } from "node:events";
 
 	export class WebSocket extends EventEmitter {
-		constructor(address: string, options?: { headers?: Record<string, string> });
+		constructor(
+			address: string,
+			protocolsOrOptions?: string | string[] | { headers?: Record<string, string> },
+			options?: { headers?: Record<string, string> }
+		);
+		/** The subprotocol the server chose ("" when none). */
+		readonly protocol: string;
 		readonly readyState: number;
+		static readonly OPEN: number;
 		readonly CONNECTING: number;
 		readonly OPEN: number;
 		readonly CLOSING: number;
@@ -43,7 +50,12 @@ declare module "ws" {
 	}
 
 	export class WebSocketServer extends EventEmitter {
-		constructor(options: { noServer: true; maxPayload?: number });
+		constructor(options: {
+			noServer: true;
+			maxPayload?: number;
+			/** Picks the subprotocol to answer with from the client's list, or `false` for none. */
+			handleProtocols?: (protocols: Set<string>) => string | false;
+		});
 		close(callback?: (err?: Error) => void): void;
 		handleUpgrade(
 			request: IncomingMessage,

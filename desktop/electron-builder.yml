@@ -16,6 +16,9 @@ extraResources:
   # Node.js (pinned, checksum-verified at build time), so browser use needs nothing installed.
   - from: resources/node
     to: node
+  # The browser runtime the app runs itself for the chat in its window (ADR 0122).
+  - from: resources/browser-runtime
+    to: browser-runtime
 asar: true
 mac:
   category: public.app-category.productivity

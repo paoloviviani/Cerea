@@ -48,3 +48,23 @@ exactly `true`; user docs in `docs/browser-use.md`. What is not obvious:
   for 8 s, never for a stale ref (that made later steps start "from about:blank").
 - `browse` is in `EXTERNAL_BUILTIN_TOOLS` and not in `SUBAGENT_BUILTIN_TOOLS`. Its card is a
   `MessageBrowseUpdate`, replaced by `uuid` like a sub-agent's.
+- **A desktop window is a second kind of target (ADR 0122, `windowRegistry.ts`, `windowChannel.ts`,
+  `windowTarget.ts`).** The app runs the runtime itself and the chat page relays between it and the server over
+  `/api/v2/browser/window` (a WebSocket below SvelteKit, dispatched from `registerMachineUpgrade`, authenticated by a
+  one-shot ticket from `POST /api/v2/browser/window/ticket`, sent in `Sec-WebSocket-Protocol` and never in the URL, plus
+  the `Origin` check against `PUBLIC_ORIGIN`, which must be set: unset, nothing connects). A turn sends `windowId` in its data
+  only while the link is up; `windowForTurn` resolves it to this user's live window on this session, and `browse` uses it
+  by default (a computer only when the `machine` hint is a ready computer's exact name and the user's words name it). The
+  window is a `RuntimeCall` like a computer's (`windowCall`), so the loop, approvals and the contract schemas are
+  untouched. Differences: the **grant key** is `windowGrantKey(session secret, windowId)`, derived by the server from the
+  session cookie at ticket time and by the app from the HttpOnly cookie (never sent; one shared test vector in both
+  repos' specs); the page never names the cookie and is told no cookie name (the app takes it from `enroll.json`), and
+  a cookie that is not `HttpOnly` gives no key; **every grant is single use** (a site rule's grant becomes
+  `siteonce:<host>:<uuid>`, because grants cross the page); the **lease** and **kept page** are in memory with the link
+  and the lease lapses after 5 minutes without a call or answer (the loop's keep-alive ping holds a live task's);
+  the card's `where` says window or computer. **Limits on the socket**: unknown-id answers are offences (five close
+  it), 50 messages per 10 s and 96 MiB per minute per window (closes 4429), 4 live windows per user, 10 tickets per
+  minute per user, the session re-checked every minute (three failed checks in a row close it), images only
+  png, jpeg, webp and gif. **In-process, single replica** like the machine link: with `CHAT_REPLICAS` above 1 a turn
+  that carries a `windowId` this process does not hold refuses (`windowRefusal`) instead of using a computer. A window
+  that goes mid-task ends it with the `window_gone` detail; a second driver on the panel ends it with the `busy` stop.

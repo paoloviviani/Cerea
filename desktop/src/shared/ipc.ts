@@ -339,6 +339,8 @@ export interface ServerInfo {
 	address: string;
 	name: string;
 	icon?: string;
+	/** The server's session cookie name (public), for the window browser's key; see `main/server.ts`. */
+	sessionCookie?: string;
 }
 export interface GalopinInfo {
 	version: string;

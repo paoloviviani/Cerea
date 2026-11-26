@@ -303,6 +303,65 @@ a stray click cannot disturb it, and the UI says "Cerea is browsing. Watch, or t
 user's own browsing in the panel is never blocked when no task runs. Live view in the chat
 (screencast) is not needed by the desktop app: the user sees the real panel.
 
+## The chat drives the panel directly: the window browser (ADR 0122)
+
+The galopin path above needs a paired computer and galopin running. Since ADR 0122 the chat in the
+app's own window does not: the app runs the runtime itself and the chat page relays.
+
+- `src/main/windowBrowser.ts` (no Electron imports, unit tested): one `WindowBrowser` per profile,
+  made in `loadActive` after the bridge and the endpoint file exist, disposed on a switch (in
+  `detachRuntime` and at the top of `loadActive`), a removal and quit. It spawns the shipped Node
+  with the shipped runtime (`resources/browser-runtime/cerea-browser.mjs`, staged by
+  `scripts/stage-runtime.mjs` from the bundle galopin embeds, with `playwright-core`; a development
+  run uses `browser-runtime/src/main.ts` and `node` on PATH) as `--connect-file <the profile's
+endpoint file> --key-file <userData>/winbrowser/<id>/approval-key --state-dir ...`, and speaks
+  MCP over stdio (a few lines of newline-delimited JSON-RPC; no SDK in the app). It reuses the
+  bridge's endpoint and secret, so the bridge, its policy and `Control` are unchanged. The bridge
+  keeps one runtime connection at a time (a newer replaces an older): a galopin task and a window
+  task on one panel interrupt each other.
+- **The page's API** (`src/preload/cerea.ts`): the Cerea view's only preload, exposing
+  `window.cereaDesktop.browser = { available, send, onMessage }` to the main frame of a document
+  whose origin is the profile's and whose path is under its base path (`--cerea-origin=` and
+  `--cerea-base=` in `additionalArguments`); any other document the view shows and every subframe get
+  nothing. Two IPC channels, `winbrowser:available` (sync) and
+  `winbrowser:send`, are checked in main on **every** message by `fromCereaPage`: the sender is the
+  active profile's Cerea view, the frame is its main frame, its URL origin matches and its path is
+  under the base path, the profile is active. Replies go to that main frame only, and only while it shows the server's origin.
+- **What is relayed**: `parsePageMessage` accepts `tools/call` for the runtime's tool names
+  (`RUNTIME_TOOLS`, a test compares it to `browser-runtime/src/contract.ts`) and the page's
+  `cerea/window {windowId}`, five a minute. **The page never names the cookie.** Its name is the
+  server's own word (`sessionCookie` in `enroll.json`, kept with the profile); the app reads that
+  cookie from the Cerea view's cookie jar at the profile's base-path URL and uses it only when there
+  is exactly one, it is `HttpOnly`, on https `Secure`, host-only with the server's host as its domain,
+  and at path `/` (a cookie script on the page could set, or a sibling host with `Domain=`, is none of
+  these; the deployment should use a `__Host-` cookie name). Otherwise no key is written, an old one is removed, and the runtime accepts no
+  approval. The key is derived with the same function the server uses and written 0600 to the key
+  file. Caps: 256 KiB per request, 40 calls per 10 s, 8 in flight, 20 MiB per answer, and only
+  `content`, `structuredContent` and `isError` cross back. The runtime child gets a minimal
+  environment (`runtimeEnv`: PATH, HOME, locale and temp variables; no inherited secrets, no
+  `NODE_OPTIONS`), and an output buffer overflow kills it and fails the waiting calls.
+- **A second driver is refused, not let in.** The bridge keeps one runtime connection; a newcomer
+  replaces an idle one, but while the current one has sent a command in the last 30 s the newcomer
+  is closed (`BUSY_MESSAGE`, "Another task is using this browser."). The window browser's own
+  `touch()` does not count as a command, or its own runtime would be refused. The window runtime connects
+  with its own secret on the same bridge (`cdp-endpoint-window`, `windowEndpointFile`), so only a refusal of
+  that runtime is worded as "Another task is using this browser."; a refused galopin runtime is not. When its runtime
+  failed right after a refusal, the page gets that message and the card says it (`busy` stop).
+- **The panel opens when a task starts**: the first call of a task is `control.touch()`, the same
+  sign of life a galopin runtime task gives, so the panel opens on the Browser tab and "Browser
+  working" shows (#377). The runtime uses the same bridge, so the focus rules apply to it too.
+- **Tests**: `windowBrowser.test.ts` (parsing, sender checks, runtime lookup, a fake runtime over
+  pipes: one per profile, stopped on dispose, key file and its HttpOnly/Secure/single-cookie rules,
+  rate limits, crash loop, environment, buffer overflow),
+  `preloadCerea.test.ts` (exposure on the matching origin and main frame only), and smoke step 2b:
+  the real app, a fake Cerea page that relays between a fake server and the bridge, `open`,
+  `resume`, `navigate` and `snapshot` on the real panel, the app-derived key equal to the server's,
+  a tool outside the contract refused, the same page loaded in the panel getting no bridge, the panel
+  opening and "working" showing, `Page.bringToFront` refused while the panel is hidden, and an
+  HttpOnly cookie set in the Cerea partition being readable by main (Electron's own `session`, which a
+  node unit test cannot load; not tested against a real IdP login).
+  The smoke test runs in CI; locally it needs Electron's libraries (the Playwright image has them).
+
 ## galopin as a bundled sidecar
 
 - **Per-platform binary** at `resources/galopin/galopin` inside the app (electron-builder
@@ -362,9 +421,11 @@ user's own browsing in the panel is never blocked when no task runs. Live view i
 
 - `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`, `webSecurity: true` on
   every web contents; no `<webview>` (attaching one is refused).
-- **Only the local UI has a preload**, exposing `window.cerea.call(channel, arg)` for the 25
-  channels in `shared/ipc.ts` and `window.cerea.on` for three events. The Cerea window and the
-  browser panel's pages have no preload and no Node: they are web pages.
+- **The local UI has a preload** exposing `window.cerea.call(channel, arg)` for the 25 channels in
+  `shared/ipc.ts` and `window.cerea.on` for three events. **The Cerea view has one narrow preload**
+  (ADR 0122): `window.cereaDesktop.browser = { available, send, onMessage }`, only in the main
+  frame on the profile's origin, checked again in main on every message. The browser panel's pages
+  have no preload and no Node: they are web pages.
 - **Every IPC argument is validated again in the main process** (`validate()`: closed object
   shapes, enums, no leading dash in anything that becomes a galopin argument, absolute paths, no
   NUL, size limits) and the sender is checked to be the UI's main frame. Replies are plain strings:
@@ -497,6 +558,11 @@ A hidden browser page must not keep or take the keyboard: hiding the panel while
 focus to the chat, a hidden page calling `window.focus()` gives it straight back, and `Page.bringToFront`
 is refused while the panel is not showing. The header's Browser button shows "Browser working" while a
 task runs, whether or not the panel is open.
+
+## Decisions taken (owner, 2026-11-26): direct browser, no galopin
+
+Option B: the app's window drives its own embedded browser directly (ADR 0122, above); the galopin
+path stays unchanged for agents and other computers.
 
 ## Decisions taken (owner, 2026-11-25)
 

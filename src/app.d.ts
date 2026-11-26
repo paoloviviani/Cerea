@@ -30,6 +30,11 @@ declare global {
 			 * nobody is watching, so no browser sandbox, no approval cards, no questions.
 			 */
 			scheduledRun?: { permissionMode: "ask" | "allow" };
+			/**
+			 * The id of the desktop window the turn was sent from (ADR 0122), when its page has the
+			 * browser link up. Only a hint: `windowFor` checks it is this user's live window.
+			 */
+			browserWindowId?: string;
 			/** The MCP servers this turn runs with (`mcpLocalsFor`). */
 			mcp?: McpLocals;
 			/** The language this request is rendered in (`$lib/i18n/resolve`); set for page requests. */

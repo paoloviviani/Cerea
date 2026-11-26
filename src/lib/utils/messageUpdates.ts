@@ -59,6 +59,8 @@ type MessageUpdateRequestOptions = {
 	// Rounded device coordinates; the server uses them only if the setting is "device"
 	location?: { lat: number; lon: number; accuracy?: number };
 	streamingMode?: StreamingMode;
+	/** The desktop window's id when its browser link is up (`desktopBrowser.ts`). */
+	windowId?: string;
 };
 
 type ChunkDetector = (buffer: string) => string | null;
@@ -96,6 +98,8 @@ export async function fetchMessageUpdates(
 		generationId: opts.generationId,
 		timezone: opts.timezone,
 		...(opts.location ? { location: opts.location } : {}),
+		// The desktop app's window, when its browser link is up (ADR 0122): `browse` may use it.
+		...(opts.windowId ? { windowId: opts.windowId } : {}),
 	});
 
 	opts.files?.forEach((file) => {

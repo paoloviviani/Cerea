@@ -53,6 +53,7 @@
 	import { useAPIClient, handleResponse } from "$lib/APIClient";
 	import { trackAttachmentSource } from "$lib/utils/execution/attachmentMounts.svelte";
 	import { prunedVersions } from "$lib/stores/prunedVersions.svelte";
+	import { currentWindowId } from "$lib/utils/desktopBrowser";
 
 	let { data } = $props();
 
@@ -456,6 +457,8 @@
 					// Only while the person chose "From this device"; never otherwise.
 					location: $settings.locationMode === "device" ? currentDeviceLocation() : undefined,
 					streamingMode,
+					// The desktop app's window, when its browser link is up (ADR 0122).
+					windowId: currentWindowId(),
 				},
 				messageUpdatesAbortController.signal
 			).catch((err) => {

@@ -62,6 +62,23 @@ describe("probeServer", () => {
 		});
 	});
 
+	it("reads the session cookie's name from the server's own enroll.json, and only a plain name", async () => {
+		const ok = await probeServer(
+			base,
+			fakeFetch({
+				[`${base}/galopin/enroll.json`]: { body: { ...facts, sessionCookie: "hf-chat" } },
+			})
+		);
+		expect(ok.sessionCookie).toBe("hf-chat");
+		for (const bad of ["a b", "x;y", "", 5, "../c"]) {
+			const info = await probeServer(
+				base,
+				fakeFetch({ [`${base}/galopin/enroll.json`]: { body: { ...facts, sessionCookie: bad } } })
+			);
+			expect(info.sessionCookie).toBeUndefined();
+		}
+	});
+
 	it("never shows an icon from another origin, and falls back to the host name", async () => {
 		const info = await probeServer(
 			base,

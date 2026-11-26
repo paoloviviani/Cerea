@@ -176,6 +176,31 @@ Opening is refused while a browsing task is using that computer's browser ("busy
 it finishes), for a site on the deny list, and for any address that is not http or https. The
 assistant can also open the browser for you when you only ask to open it.
 
+### In the desktop app
+
+In the Cerea desktop app the chat can use **the app's own browser panel directly**, with no galopin
+and no paired computer: galopin can be stopped or not set up at all. The app runs the browser
+runtime itself and the chat in that window talks to it. The Browsing card then says **Runs in this
+app's browser** (on a computer it says **Runs on <computer>**), the browser panel opens when a task
+starts, and everything else works as for a computer: you are asked before anything that commits,
+**Take over** makes the card say "You are driving", and one task runs at a time.
+
+- **It is the default in the app.** A chat sent from the app's window uses the app's browser
+  rather than one of your computers, even when one is ready. To use a computer instead, name it in
+  your message ("do it on my Work laptop").
+- **Only the window you are typing in.** Another browser tab, the phone, a scheduled run and an
+  agent do not use it; they use your computers as before.
+- **If the window closes or you switch to another server in the app**, a running task stops and
+  says so. Start it again from the window.
+- **One thing at a time on the panel.** If galopin is also driving the same panel (a task on this
+  computer from another chat or an agent), the one that started first keeps it and the other stops
+  with "Another task is using this browser."
+- **Several server instances.** The link to the app is held by one Cerea process. When the
+  deployment runs more than one chat server (`CHAT_REPLICAS` above 1) and a message from the app
+  lands on another, the chat says so and does not use a computer instead; try again.
+- It needs the app's browser to be ready: the panel is there and the app has its browser runtime
+  (every packaged app does). Without them the chat uses your computers.
+
 ### Which computer
 
 Several of your computers can have a browser. Cerea decides which one by these rules, in order; the

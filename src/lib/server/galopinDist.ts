@@ -221,14 +221,23 @@ main "$@"
 `;
 }
 
-/** The body of `enroll.json`: the three public values `galopin enroll` needs. Nothing else is
- * ever added here; null when the deployment has no issuer to give. */
+/** The body of `enroll.json`: the three public values `galopin enroll` needs, and the NAME of the
+ * session cookie (a public setting, never its value) that the desktop app reads from its own cookie
+ * jar to derive the window browser's grant key (ADR 0122), so the page never names it. Nothing else
+ * is ever added here; null when the deployment has no issuer to give. */
 export function enrollFacts(input: {
 	issuer?: string;
 	gateway?: string;
 	clientId?: string;
 	flow?: string;
-}): { issuer: string; gateway: string; clientId: string; flow?: "device" | "loopback" } | null {
+	sessionCookie?: string;
+}): {
+	issuer: string;
+	gateway: string;
+	clientId: string;
+	flow?: "device" | "loopback";
+	sessionCookie?: string;
+} | null {
 	const issuer = input.issuer?.trim() ?? "";
 	if (!issuer) return null;
 	return {
@@ -237,6 +246,9 @@ export function enrollFacts(input: {
 		clientId: input.clientId?.trim() ?? "",
 		// Only when the deployment fixes it: `auto` leaves the choice to the machine.
 		...(input.flow === "device" || input.flow === "loopback" ? { flow: input.flow } : {}),
+		...(input.sessionCookie && /^[A-Za-z0-9_.-]{1,64}$/.test(input.sessionCookie)
+			? { sessionCookie: input.sessionCookie }
+			: {}),
 	};
 }
 
@@ -266,6 +278,7 @@ export async function serveGalopinFile(
 		clientId,
 		gateway,
 		flow,
+		sessionCookie,
 	}: {
 		origin: string;
 		ifNoneMatch?: string | null;
@@ -273,6 +286,7 @@ export async function serveGalopinFile(
 		clientId?: string;
 		gateway?: string;
 		flow?: string;
+		sessionCookie?: string;
 	}
 ): Promise<DistResponse> {
 	if (!GALOPIN_PUBLIC_NAMES.has(name)) return notFound("Not found.");
@@ -280,7 +294,7 @@ export async function serveGalopinFile(
 	if (name === "enroll.json") {
 		// Public facts only: what `galopin enroll --cerea` would otherwise prompt for. No secret,
 		// no session, no per-user value.
-		const facts = enrollFacts({ issuer, gateway, clientId, flow });
+		const facts = enrollFacts({ issuer, gateway, clientId, flow, sessionCookie });
 		if (!facts) return notFound("Not found.");
 		return {
 			status: 200,

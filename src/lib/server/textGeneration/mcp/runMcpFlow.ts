@@ -437,9 +437,31 @@ export async function* runMcpFlow({
 				const { browserSettings } = await import("$lib/server/browser/settings");
 				const { ceilingOf } = await import("$lib/server/browser/policy");
 				const machines = await browseMachinesFor(locals);
-				if (machines.length === 0) return undefined;
+				// A desktop window with its link up is a browser too (ADR 0122): the turn names it by id,
+				// and it must be this user's, on this session, and linked to this process.
+				const { windowForTurn } = await import("$lib/server/browser/windowRegistry");
+				const windowId = locals?.browserWindowId;
+				const window = browserSettings().enabled ? windowForTurn(locals) : undefined;
+				// A window the turn names but this process does not hold: with several replicas another
+				// probably holds it, so refuse; with one it is simply gone (`windowRefusal`).
+				let refusal: string | undefined;
+				if (windowId && !window && !locals?.scheduledRun && browserSettings().enabled) {
+					const { chatReplicas } = await import("$lib/server/code/relay/facts");
+					const { windowRefusal } = await import("$lib/server/browser/windowTarget");
+					const replicas = chatReplicas();
+					logger.info({ replicas }, "[browse] the turn's window is not linked here");
+					refusal = windowRefusal({
+						windowId,
+						hasWindow: false,
+						scheduledRun: false,
+						replicas,
+					});
+				}
+				if (machines.length === 0 && !window && !refusal) return undefined;
 				return {
 					machines,
+					...(refusal ? { refusal } : {}),
+					...(window ? { window } : {}),
 					settings: browserSettings(),
 					ceiling: ceilingOf(toolApprovalPolicy),
 					unattended: Boolean(locals?.scheduledRun),

@@ -17,7 +17,8 @@
 		"start": "npm run build && electron . --no-sandbox",
 		"lint": "prettier --check . && tsc --noEmit",
 		"format": "prettier --write .",
-		"dist": "npm run build && electron-builder",
+		"runtime:stage": "node scripts/stage-runtime.mjs",
+		"dist": "npm run build && npm run runtime:stage && electron-builder",
 		"galopin:build": "cd ../agent && go build -o ../desktop/resources/galopin/galopin ."
 	},
 	"dependencies": {},

@@ -1109,6 +1109,7 @@ describe("plain stop reasons", () => {
 			"model_error",
 			"denied",
 			"lease_lost",
+			"busy",
 			"verification",
 		] as const;
 		expect(Object.keys(PLAIN_STOP_REASONS).sort()).toEqual([...reasons].sort());

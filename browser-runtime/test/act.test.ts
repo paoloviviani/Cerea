@@ -131,6 +131,18 @@ describe("act", () => {
 		);
 	});
 
+	it("spends a one-use site grant (`siteonce:` ids, what the desktop window gets) like a user's approval", async () => {
+		const id = "siteonce:127.0.0.1:0b9d3c1e-1111-4222-8333-444455556666";
+		const first = await r.goto("/form");
+		const action = { type: "click" as const, ref: r.ref(first, "button", "Save") };
+		assert.equal((await r.act([action], [r.grant(first, action, 0, id)])).results[0].ok, true);
+		const again = await r.goto("/form");
+		const action2 = { type: "click" as const, ref: r.ref(again, "button", "Save") };
+		const replay = await r.act([action2], [r.grant(again, action2, 0, id)]);
+		assert.equal(replay.results[0].refused, "approval_mismatch");
+		assert.match(replay.results[0].error ?? "", /already used/);
+	});
+
 	it("does not need an approval for a GET search, a same-site link or plain input", async () => {
 		const search = await r.goto("/search");
 		await r.act([{ type: "fill", ref: r.ref(search, "searchbox", "Query"), text: "kiwi" }]);

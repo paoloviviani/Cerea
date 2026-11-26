@@ -25,6 +25,7 @@ import { startBridgeServer, type BridgeServer } from "./bridgeServer.ts";
 import { BrowserPanel } from "./browserPanel.ts";
 import { Control } from "./control.ts";
 import { ensureNode } from "./nodeRuntime.ts";
+import { findRuntime, fromCereaPage, WindowBrowser } from "./windowBrowser.ts";
 import { linuxLogin, linuxLoginEnabled } from "./login.ts";
 import { findGalopin, Galopin } from "./galopin.ts";
 import {
@@ -87,6 +88,8 @@ let ceraeView: WebContentsView | undefined;
 let panel: BrowserPanel | undefined;
 let galopin: Galopin;
 let bridgeServer: BridgeServer | undefined;
+/** The chat's own link to this profile's browser panel (ADR 0122); none while no profile is shown. */
+let windowBrowser: WindowBrowser | undefined;
 let store: Store = { active: null, profiles: [] };
 const router = new BridgeRouter();
 /** Profile operations (switch, add, remove) run one at a time, in order. */
@@ -271,8 +274,14 @@ function toggleBrowser(): void {
 
 function makeCereaView(profile: Profile): WebContentsView {
 	const view = new WebContentsView({
-		// The deployment's own page: no preload, no Node, sandboxed, its own storage.
+		// The deployment's own page: no Node, sandboxed, its own storage. Its one preload exposes
+		// the narrow browser bridge, and only to the main frame on this profile's origin (ADR 0122).
 		webPreferences: {
+			preload: join(__dirname, "..", "preload", "cerea.js"),
+			additionalArguments: [
+				`--cerea-origin=${profile.server.origin}`,
+				`--cerea-base=${basePathOf(profile)}`,
+			],
 			partition: ceraePartition(profile.id),
 			sandbox: true,
 			contextIsolation: true,
@@ -338,6 +347,7 @@ const cur = (): Profile | undefined => activeProfile(store);
 function loadActive(): void {
 	const p = cur();
 	// The old panel goes on every path, including the last profile having been removed.
+	disposeWindowBrowser();
 	panel?.dispose();
 	panel = undefined;
 	bridgeServer?.setActive(p?.id ?? null);
@@ -371,6 +381,7 @@ function loadActive(): void {
 		control.panelShowing = () => panel?.showing ?? false;
 		router.set(new CdpBridge(panel, control, (m) => line(`[bridge] ${m}`)));
 		galopin = makeGalopin(p);
+		startWindowBrowser(p);
 	} else {
 		panel = undefined;
 		router.set(undefined);
@@ -388,6 +399,117 @@ function loadActive(): void {
 }
 
 let lastRect = { x: 0, y: 0, width: 0, height: 0, visible: false };
+
+// ---- the window browser: the chat drives this app's own panel, no galopin (ADR 0122) -----------
+
+function disposeWindowBrowser(): void {
+	void windowBrowser?.dispose();
+	windowBrowser = undefined;
+}
+
+/** One runtime per profile, started with its Cerea view, stopped when the view goes. */
+function startWindowBrowser(p: Profile): void {
+	// A profile saved before the server named its session cookie asks once; a key waits for the answer.
+	let cookieProbe: Promise<void> | undefined;
+	windowBrowser = new WindowBrowser({
+		dir: join(app.getPath("userData"), "winbrowser", p.id),
+		// Its own endpoint (a second secret on the same bridge): a refusal of this runtime is its own.
+		endpointFile: () => bridgeServer?.windowEndpointFile(p.id),
+		runtime: findRuntime({
+			resources: process.resourcesPath,
+			devRoot: join(__dirname, "..", ".."),
+			packaged: app.isPackaged,
+		}),
+		// The cookie's name is the server's own word (enroll.json, stored with the profile); the page
+		// never names it. The URL carries the base path so a cookie with `Path=/chat` is found.
+		cookieName: async () => {
+			await cookieProbe;
+			return (
+				store.profiles.find((q) => q.id === p.id)?.server.sessionCookie ?? p.server.sessionCookie
+			);
+		},
+		readCookies: async (name) =>
+			(
+				await session
+					.fromPartition(ceraePartition(p.id))
+					.cookies.get({ url: `${p.server.address}/`, name })
+			).map((c) => ({
+				value: c.value,
+				httpOnly: c.httpOnly === true,
+				secure: c.secure === true,
+				hostOnly: c.hostOnly === true,
+				domain: c.domain ?? "",
+				path: c.path ?? "",
+			})),
+		https: p.server.origin.startsWith("https:"),
+		host: new URL(p.server.origin).hostname,
+		postToPage: (json) => {
+			const frame = ceraeView?.webContents.mainFrame;
+			// Only to the Cerea page itself: not to another page the view may be showing.
+			if (frame && ceraeOrigin(frame.url) === p.server.origin)
+				frame.send("winbrowser:message", json);
+		},
+		// Same as a galopin runtime task (#377): a sign of life opens the panel on the Browser tab and
+		// drives "Browser working" (`control.onTaskStart`).
+		onTask: () => control.touch(),
+		busyRefused: () => control.recentlyRefused(20_000),
+		log: line,
+	});
+	windowBrowser.start();
+	if (!p.server.sessionCookie) {
+		cookieProbe = probe(p.server.address)
+			.then((info) => {
+				if (!info.sessionCookie) return;
+				store = {
+					...store,
+					profiles: store.profiles.map((q) =>
+						q.id === p.id ? { ...q, server: { ...q.server, sessionCookie: info.sessionCookie } } : q
+					),
+				};
+				saveStore(app.getPath("userData"), store);
+			})
+			.catch(() => undefined);
+	}
+}
+
+/** The profile's base path (`""` or `"/chat"`), with no trailing slash. */
+function basePathOf(p: Profile): string {
+	try {
+		return new URL(p.server.address).pathname.replace(/\/+$/, "");
+	} catch {
+		return "";
+	}
+}
+
+function ceraeOrigin(url: string): string {
+	try {
+		return new URL(url).origin;
+	} catch {
+		return "";
+	}
+}
+
+/** The two IPC channels of the Cerea view's preload; every message is checked as it arrives. */
+function registerWindowBrowserIpc(): void {
+	const allowed = (e: { sender: unknown; senderFrame?: { url: string } | null }) => {
+		const p = cur();
+		return (
+			!!p &&
+			fromCereaPage(e, {
+				view: ceraeView,
+				origin: p.server.origin,
+				basePath: basePathOf(p),
+				profileActive: store.active === p.id,
+			})
+		);
+	};
+	ipcMain.on("winbrowser:available", (e) => {
+		e.returnValue = allowed(e) && !!windowBrowser?.available;
+	});
+	ipcMain.on("winbrowser:send", (e, json: unknown) => {
+		if (allowed(e)) windowBrowser?.handleFromPage(json);
+	});
+}
 
 /** A galopin for a profile: the first uses galopin's default directory, the others their own (`--creds`). */
 function makeGalopin(p: Profile | undefined): Galopin {
@@ -817,6 +939,7 @@ async function doSwitch(id: string): Promise<void> {
 	store = await switchTo(store, id, {
 		stopGalopin: () => galopin.stop(),
 		detachRuntime: () => {
+			disposeWindowBrowser();
 			router.set(undefined);
 			control.set("agent");
 		},
@@ -943,6 +1066,30 @@ function testHooks(): void {
 			} else if (cmd === "hide") win?.hide();
 			else if (cmd === "show") win?.show();
 			else if (cmd === "state") process.stdout.write(`STATE ${JSON.stringify(appState())}\n`);
+			else if (cmd === "httponly") {
+				// An HttpOnly cookie set in the active Cerea partition, read back the way the window
+				// browser reads the session secret (ADR 0122), and what a page's document.cookie sees.
+				void (async () => {
+					const p = cur()!;
+					const ses = session.fromPartition(ceraePartition(p.id));
+					await ses.cookies.set({
+						url: `${p.server.origin}/`,
+						name: "smoke-httponly",
+						value: "secret-value",
+						httpOnly: true,
+					});
+					const read = (
+						await ses.cookies.get({ url: `${p.server.origin}/`, name: "smoke-httponly" })
+					)[0];
+					const seen = await ceraeView?.webContents.executeJavaScript("document.cookie");
+					process.stdout.write(
+						`HTTPONLY ${JSON.stringify({ value: read?.value, httpOnly: read?.httpOnly, page: seen })}\n`
+					);
+				})();
+			} else if (cmd === "winbrowser")
+				process.stdout.write(
+					`WINBROWSER ${JSON.stringify({ available: !!windowBrowser?.available, running: !!windowBrowser?.running })}\n`
+				);
 			else if (cmd === "targetids") {
 				// The real DevTools target ids of the local UI and the Cerea view, for the smoke test to aim at.
 				void (async () => {
@@ -1197,6 +1344,7 @@ else {
 			line(`Could not check this server's sign-in settings: ${String(e)}`)
 		);
 		registerIpc();
+		registerWindowBrowserIpc();
 		await createWindow();
 		// A paired computer keeps galopin going while the app is open (the Mac connector app's job).
 		if (galopin.paired() && !TEST) galopin.start();
@@ -1219,6 +1367,10 @@ else {
 		e.preventDefault();
 		quitting = true;
 		flushWidth();
-		void Promise.allSettled([galopin?.stop(), bridgeServer?.close()]).finally(() => app.quit());
+		void Promise.allSettled([
+			galopin?.stop(),
+			windowBrowser?.dispose(),
+			bridgeServer?.close(),
+		]).finally(() => app.quit());
 	});
 }

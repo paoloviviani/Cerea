@@ -487,3 +487,53 @@ describe("a profile switch mid-session", () => {
 		expect(a.host.pages[0].sent).toEqual([]);
 	});
 });
+
+describe("two runtimes on one panel", () => {
+	const fakeTransport = () => {
+		const closed: (string | undefined)[] = [];
+		const t: Transport = {
+			send: () => {},
+			onMessage: () => {},
+			onClose: () => {},
+			close: (reason) => void closed.push(reason),
+		};
+		return { t, closed };
+	};
+
+	it("a newcomer replaces an idle runtime, and is refused while a task is running", () => {
+		const control = new Control();
+		const bridge = new CdpBridge(new FakeHost(), control);
+		const first = fakeTransport();
+		bridge.connect(first.t);
+		// no task: replaced, as always
+		const second = fakeTransport();
+		bridge.connect(second.t);
+		expect(second.closed).toEqual([]);
+		// a task is running on the second
+		control.activity();
+		const third = fakeTransport();
+		bridge.connect(third.t);
+		expect(third.closed).toEqual(["Another task is using this browser."]);
+		expect(second.closed).toEqual([]);
+		// a refused galopin runtime is not noted: it is not the window browser's runtime
+		expect(control.recentlyRefused(1000)).toBe(false);
+		// the app's own window runtime, refused the same way, is noted so it can say why it got nothing
+		const own = fakeTransport();
+		bridge.connect(own.t, true);
+		expect(own.closed).toEqual(["Another task is using this browser."]);
+		expect(control.recentlyRefused(1000)).toBe(true);
+	});
+
+	it("the window browser's own touch does not make its runtime a newcomer to refuse", () => {
+		const control = new Control();
+		const bridge = new CdpBridge(new FakeHost(), control);
+		const galopin = fakeTransport();
+		bridge.connect(galopin.t);
+		// the app's first call of a task: a sign of life that opens the panel, before any command
+		control.touch();
+		const own = fakeTransport();
+		bridge.connect(own.t);
+		expect(own.closed).toEqual([]);
+		expect(control.recentlyRefused(1000)).toBe(false);
+	});
+});
