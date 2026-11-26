@@ -56,7 +56,7 @@
 	"code.command_confirm.title": "Run /{name}?",
 	"code.command_confirm.warning": "This command runs on your computer. Running a project command is running repository code.",
 	"code.common.cancel": "Cancel",
-	"code.composer.allow_title": "Allow: hands off. Everything runs without asking. Still asks: credential files, the computer's own settings, writes to .git and CI configuration, and an agent stuck repeating itself. New subagents follow it too.",
+	"code.composer.allow_title": "Allow: hands off. Nothing is ever asked: everything runs. Only the computer's own files and settings, and anything its owner refused there, are refused. New subagents follow it too.",
 	"code.composer.ask_title": "Edits, commands and fetches ask first. Reading is allowed. Your exceptions for this session run without asking.",
 	"code.composer.cannot_compact": "This backend cannot compact on request.",
 	"code.composer.command_changed": "This command changed on the computer; review it again.",

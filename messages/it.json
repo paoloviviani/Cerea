@@ -56,7 +56,7 @@
 	"code.command_confirm.title": "Eseguire /{name}?",
 	"code.command_confirm.warning": "Questo comando viene eseguito sul tuo computer. Eseguire il comando di un progetto significa eseguire il codice del repository.",
 	"code.common.cancel": "Annulla",
-	"code.composer.allow_title": "Consenti: nessun intervento. Tutto viene eseguito senza chiedere. Chiede ancora per: file di credenziali, impostazioni del computer, scritture in .git e nella configurazione CI, e un agente che si blocca in un ciclo. Anche i nuovi sotto-agenti la seguono.",
+	"code.composer.allow_title": "Consenti: nessun intervento. Non viene mai chiesto nulla: tutto viene eseguito. Vengono rifiutati solo i file e le impostazioni del computer stesso e ciò che il suo proprietario vi ha vietato. Anche i nuovi sotto-agenti la seguono.",
 	"code.composer.ask_title": "Modifiche, comandi e download chiedono prima. La lettura è consentita. Le tue eccezioni per questa sessione vengono eseguite senza chiedere.",
 	"code.composer.cannot_compact": "Questo backend non può compattare su richiesta.",
 	"code.composer.command_changed": "Questo comando è cambiato sul computer; controllalo di nuovo.",
