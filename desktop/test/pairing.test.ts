@@ -7,6 +7,12 @@ import { pairingFor, readCreds } from "../src/main/pairing.ts";
 import { loadStore, profileGalopinDir, reconcileDefault } from "../src/main/profiles.ts";
 
 const mine = { origin: "https://cerea.mine.example", idp: "https://auth.mine.example" };
+/** A server whose exact issuer and client id are known: what an older pairing is matched on. */
+const known = {
+	...mine,
+	issuer: "https://login.example.com/tenant-a/v2.0",
+	clientId: "opencode-enrollment",
+};
 const creds = (cerea: string, issuer?: string) => ({
 	cerea_origin: cerea,
 	...(issuer ? { issuer } : {}),
@@ -38,16 +44,62 @@ describe("which server a pairing belongs to", () => {
 				mine
 			).state
 		).toBe("other");
-		// an older enrolment with no recorded address: this server's only if its sign-in provider is
-		expect(pairingFor({ issuer: "https://auth.mine.example/authelia" }, mine)).toEqual({
-			state: "ok",
-		});
-		expect(pairingFor({ issuer: "https://auth.other.example" }, mine).state).toBe("other");
+		// an older enrolment with no recorded address: never on an issuer's origin alone
+		expect(pairingFor({ issuer: "https://auth.mine.example/authelia" }, mine).state).toBe("other");
 		expect(pairingFor({}, mine).state).toBe("other");
 		// a look-alike host
 		expect(pairingFor({ cerea: "https://cerea.mine.example.evil.example/chat" }, mine).state).toBe(
 			"other"
 		);
+	});
+});
+
+describe("an older pairing with no recorded Cerea address", () => {
+	const old = (issuer: string, clientId?: string) => ({
+		issuer,
+		...(clientId ? { clientId } : {}),
+	});
+	it("is this profile's only on the exact issuer and the same client id", () => {
+		expect(
+			pairingFor(old("https://login.example.com/tenant-a/v2.0", "opencode-enrollment"), known)
+		).toEqual({ state: "ok" });
+		// a trailing slash is not a difference
+		expect(
+			pairingFor(old("https://login.example.com/tenant-a/v2.0/", "opencode-enrollment"), known)
+				.state
+		).toBe("ok");
+	});
+
+	it("is refused when the issuer origin is the same but the tenant (path) is another", () => {
+		expect(
+			pairingFor(old("https://login.example.com/tenant-b/v2.0", "opencode-enrollment"), known).state
+		).toBe("other");
+		expect(pairingFor(old("https://login.example.com", "opencode-enrollment"), known).state).toBe(
+			"other"
+		);
+	});
+
+	it("is refused for a different client id, a missing one, or when the profile's own are not known yet", () => {
+		expect(
+			pairingFor(old("https://login.example.com/tenant-a/v2.0", "someone-elses-app"), known).state
+		).toBe("other");
+		expect(pairingFor(old("https://login.example.com/tenant-a/v2.0"), known).state).toBe("other");
+		expect(
+			pairingFor(old("https://login.example.com/tenant-a/v2.0", "opencode-enrollment"), mine).state
+		).toBe("other");
+		expect(
+			pairingFor(old("https://login.example.com/tenant-a/v2.0", "opencode-enrollment"), {
+				...known,
+				clientId: undefined,
+			}).state
+		).toBe("other");
+	});
+
+	it("reads the client id from the credential file", () => {
+		const d = mkdtempSync(join(tmpdir(), "cred-"));
+		const f = join(d, "credentials.json");
+		writeFileSync(f, JSON.stringify({ issuer: "https://i.example/x", client_id: "abc" }));
+		expect(readCreds(f)).toEqual({ issuer: "https://i.example/x", clientId: "abc" });
 	});
 });
 

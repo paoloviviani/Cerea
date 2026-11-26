@@ -17,6 +17,8 @@ import {
 	setPanelWidth,
 	renameProfile,
 	saveStore,
+	lacksIdentity,
+	withIdentity,
 	switchTo,
 	type Profile,
 	type Store,
@@ -440,5 +442,54 @@ describe("galopin actions go through the same queue as switches", () => {
 		]);
 		expect(log).not.toContain("start on a");
 		expect(log).toContain("status on a");
+	});
+});
+
+describe("the exact issuer and client id of a profile", () => {
+	it("are kept through a save and a load, and cleaned", () => {
+		const ud = mkdtempSync(join(tmpdir(), "prof-"));
+		const a = addProfile(empty, {
+			...srv("work.example.org"),
+			issuer: "https://login.example.com/t1",
+			clientId: "cid-1",
+		});
+		saveStore(ud, a.store);
+		expect(loadStore(ud).profiles[0].server).toMatchObject({
+			issuer: "https://login.example.com/t1",
+			clientId: "cid-1",
+		});
+		const f = join(ud, "config.json");
+		const raw = JSON.parse(readFileSync(f, "utf8"));
+		raw.profiles[0].server.issuer = "javascript:alert(1)";
+		raw.profiles[0].server.clientId = "a b; rm -rf";
+		writeFileSync(f, JSON.stringify(raw));
+		const cleaned = loadStore(ud).profiles[0].server;
+		expect(cleaned.issuer).toBeUndefined();
+		expect(cleaned.clientId).toBeUndefined();
+	});
+
+	it("are added by a re-probe only for the same server", () => {
+		const a = addProfile(empty, srv("work.example.org"));
+		const p = a.profile;
+		expect(lacksIdentity(p)).toBe(true);
+		const probed = {
+			...srv("work.example.org"),
+			issuer: "https://auth.work.example.org/x",
+			clientId: "cid",
+		};
+		const next = withIdentity(a.store, p.id, probed);
+		expect(next.profiles[0].server).toMatchObject({
+			issuer: "https://auth.work.example.org/x",
+			clientId: "cid",
+		});
+		expect(lacksIdentity(next.profiles[0])).toBe(false);
+		// another origin, or another provider, or a probe without them: nothing changes
+		expect(withIdentity(a.store, p.id, { ...probed, origin: "https://evil.example" })).toBe(
+			a.store
+		);
+		expect(withIdentity(a.store, p.id, { ...probed, idp: "https://other-idp.example" })).toBe(
+			a.store
+		);
+		expect(withIdentity(a.store, p.id, srv("work.example.org"))).toBe(a.store);
 	});
 });

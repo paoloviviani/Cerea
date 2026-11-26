@@ -8,6 +8,9 @@
 export interface ServerInfo {
 	/** The sign-in provider's origin (the issuer in enroll.json). */
 	idp: string;
+	/** The issuer exactly as enroll.json gives it, and the OAuth client id: what an older pairing is matched on. */
+	issuer?: string;
+	clientId?: string;
 	/** The address as stored: scheme, host and base path, no trailing slash. */
 	address: string;
 	origin: string;
@@ -102,11 +105,13 @@ export async function probeServer(
 		);
 	}
 	let idp: string;
+	let issuerExact: string | undefined;
 	try {
 		const iss = new URL(f.issuer);
 		if (iss.protocol !== "https:" && !(iss.protocol === "http:" && isLoopbackHost(iss.hostname)))
 			throw new Error("insecure");
 		idp = iss.origin;
+		issuerExact = f.issuer;
 	} catch {
 		throw new ServerError(
 			`${new URL(norm).host} gave a sign-in address that is not secure, so it cannot be used.`
@@ -131,7 +136,15 @@ export async function probeServer(
 	} catch {
 		// the name and logo are a courtesy: the host name stands in
 	}
-	return { address: norm, origin, idp, name, ...(icon ? { icon } : {}) };
+	return {
+		address: norm,
+		origin,
+		idp,
+		...(issuerExact ? { issuer: issuerExact.slice(0, 300) } : {}),
+		...(typeof f.clientId === "string" && f.clientId ? { clientId: f.clientId.slice(0, 200) } : {}),
+		name,
+		...(icon ? { icon } : {}),
+	};
 }
 
 /**

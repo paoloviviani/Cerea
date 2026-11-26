@@ -46,6 +46,8 @@ import { resolveUiFile, UI_ORIGIN } from "./uiProtocol.ts";
 import { cappedFetch, iconFetcher } from "./probeFetch.ts";
 import {
 	activeProfile,
+	lacksIdentity,
+	withIdentity,
 	addProfile,
 	ceraePartition,
 	panelPartition,
@@ -396,7 +398,14 @@ function makeGalopin(p: Profile | undefined): Galopin {
 		{ ...process.env, GALOPIN_INSTALL_DIR: shimDir() },
 		pushState,
 		dir ? join(dir, "credentials.json") : undefined,
-		p ? { origin: p.server.origin, idp: p.server.idp } : undefined
+		p
+			? {
+					origin: p.server.origin,
+					idp: p.server.idp,
+					issuer: p.server.issuer,
+					clientId: p.server.clientId,
+				}
+			: undefined
 	);
 	if (nodeBinDir) g.useNode(nodeBinDir);
 	return g;
@@ -680,6 +689,29 @@ function reconcile(): void {
 		readCreds(join(galopinConfigDir(process.env), "credentials.json"))
 	);
 	if (store !== before) saveStore(app.getPath("userData"), store);
+}
+
+/**
+ * A profile stored before the exact issuer and client id were kept is probed once, so an older
+ * pairing (one with no recorded Cerea address) can be matched on them; until then it is not this
+ * profile's. The probe is the same public request as when the server was chosen.
+ */
+async function ensureIdentity(): Promise<void> {
+	for (const p of store.profiles.filter(lacksIdentity)) {
+		try {
+			const probed = await probe(p.server.address);
+			const next = withIdentity(store, p.id, probed);
+			if (next !== store) {
+				store = next;
+				saveStore(app.getPath("userData"), store);
+			}
+		} catch {
+			// offline or changed: it stays unmatched, and the next start tries again
+		}
+	}
+	if (!galopin.running) galopin = makeGalopin(cur());
+	await refreshProfile(guardDeps()).catch(() => false);
+	pushState();
 }
 
 function guardDeps(): GuardDeps {
@@ -1159,6 +1191,7 @@ else {
 		session.defaultSession.setPermissionCheckHandler(() => false);
 		setMenu();
 		prepareGalopin();
+		void ensureIdentity();
 		store = loadStore(app.getPath("userData"));
 		reconcile();
 		galopin = makeGalopin(cur());

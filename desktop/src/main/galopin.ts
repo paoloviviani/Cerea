@@ -7,7 +7,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync, renameSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { galopinConfigDir, terminalCommand, withCreds } from "./galopinArgs.ts";
-import { pairingFor, readCreds, type Pairing } from "./pairing.ts";
+import { pairingFor, readCreds, type Pairing, type ServerIdentity } from "./pairing.ts";
 
 export function findGalopin(opts: {
 	resources?: string;
@@ -44,7 +44,7 @@ export class Galopin {
 		/** This profile's credentials file; absent for the profile that uses galopin's default directory. */
 		readonly credsPath?: string,
 		/** The profile's server: a pairing counts only if it is for this one. */
-		private readonly server?: { origin: string; idp: string }
+		private readonly server?: ServerIdentity
 	) {}
 
 	get available(): boolean {

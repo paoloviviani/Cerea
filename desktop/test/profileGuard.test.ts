@@ -178,6 +178,30 @@ describe("an unowned default directory goes to the profile its pairing is for", 
 			issuer: "https://auth.mine.example",
 		});
 		expect(next.profiles.map((p) => p.defaultGalopin)).toEqual([false, true]);
+		// an older pairing (no Cerea address) is handed over only on the exact issuer and client id
+		const withId = (srv: Store) => ({
+			...srv,
+			profiles: srv.profiles.map((p) =>
+				p.server.origin === "https://cerea.mine.example"
+					? {
+							...p,
+							server: { ...p.server, issuer: "https://login.example.com/t1", clientId: "cid" },
+						}
+					: p
+			),
+		});
+		expect(
+			reconcileDefault(withId(s), {
+				issuer: "https://login.example.com/t1",
+				clientId: "cid",
+			}).profiles.map((p) => p.defaultGalopin)
+		).toEqual([false, true]);
+		expect(
+			reconcileDefault(withId(s), { issuer: "https://login.example.com/t2", clientId: "cid" })
+		).toEqual(withId(s));
+		expect(
+			reconcileDefault(withId(s), { issuer: "https://login.example.com/t1", clientId: "other" })
+		).toEqual(withId(s));
 		// a pairing for neither server is nobody's
 		expect(reconcileDefault(s, { cerea: "https://nobody.example/chat" })).toBe(s);
 	});

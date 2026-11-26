@@ -55,6 +55,8 @@ describe("probeServer", () => {
 			address: base,
 			origin: "https://cerea.example.org",
 			idp: "https://idp.example.org",
+			issuer: "https://idp.example.org",
+			clientId: "opencode-enrollment",
 			name: "Acme Cerea",
 			icon: "data:image/png;base64,AAAA",
 		});
@@ -76,6 +78,22 @@ describe("probeServer", () => {
 			fakeFetch({ [`${base}/galopin/enroll.json`]: { body: facts } })
 		);
 		expect(bare.name).toBe("cerea.example.org");
+	});
+
+	it("keeps the exact issuer and the client id for matching an older pairing", async () => {
+		const info = await probeServer(
+			base,
+			fakeFetch({
+				[`${base}/galopin/enroll.json`]: {
+					body: { ...facts, issuer: "https://login.example.com/tenant-a/v2.0" },
+				},
+			})
+		);
+		expect(info).toMatchObject({
+			idp: "https://login.example.com",
+			issuer: "https://login.example.com/tenant-a/v2.0",
+			clientId: "opencode-enrollment",
+		});
 	});
 
 	it("refuses a server whose sign-in address is not secure", async () => {

@@ -333,6 +333,8 @@ export interface BrowserState {
 export interface ServerInfo {
 	/** The identity provider's origin, from the server's own sign-in settings: the one other origin the window may reach. */
 	idp: string;
+	issuer?: string;
+	clientId?: string;
 	origin: string;
 	address: string;
 	name: string;
