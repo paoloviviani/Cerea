@@ -204,14 +204,18 @@ describe("the browse card", () => {
 			update: state({ where: { kind: "window" } }),
 			loading: true,
 		});
-		expect(q(inApp.baseElement, "browse-where")?.textContent).toContain("in this app's browser");
+		expect(q(inApp.container as HTMLElement, "browse-where")?.textContent).toContain(
+			"in this app's browser"
+		);
 		const onComputer = render(BrowseCard, {
 			update: state({ where: { kind: "computer", name: "Work laptop" } }),
 			loading: true,
 		});
-		expect(q(onComputer.baseElement, "browse-where")?.textContent).toContain("on Work laptop");
+		expect(q(onComputer.container as HTMLElement, "browse-where")?.textContent).toContain(
+			"on Work laptop"
+		);
 		const unknown = render(BrowseCard, { update: state(), loading: true });
-		expect(q(unknown.baseElement, "browse-where")).toBeNull();
+		expect(q(unknown.container as HTMLElement, "browse-where")).toBeNull();
 	});
 
 	it("a window that went away ends with its own plain note", async () => {

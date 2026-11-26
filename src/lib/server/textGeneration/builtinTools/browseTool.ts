@@ -304,9 +304,7 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 			// The target's own stores: a window's lease and kept page live with its link, in memory.
 			const leases = inApp ? windowLeaseStore() : params.leases;
 			const keptStore = inApp ? inApp.kept : (params.keptStore ?? mongoKeptStore);
-			const where: MessageBrowseUpdate["where"] = inApp
-				? { kind: "window" }
-				: undefined; // the computer's name is filled in once it is chosen
+			const where: MessageBrowseUpdate["where"] = inApp ? { kind: "window" } : undefined; // the computer's name is filled in once it is chosen
 			let machine: BrowseMachine;
 			if (choice.kind === "error") return { error: choice.message };
 			if (choice.kind === "use") {
@@ -350,9 +348,7 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 				// The model replacing the chat's page with another site is leaving the site: the user
 				// is asked first (as for any commit), and nobody is there to ask in an unattended run.
 				const keptUrl = conversationKey
-					? await keptStore
-							.url(machine.id, params.userId, conversationKey)
-							.catch(() => undefined)
+					? await keptStore.url(machine.id, params.userId, conversationKey).catch(() => undefined)
 					: undefined;
 				const currentHost = keptUrl ? hostOf(keptUrl) : undefined;
 				const targetHost = parsed.url ? hostOf(parsed.url) : undefined;
