@@ -167,7 +167,7 @@ What a page can and cannot do:
 - **Its messages are drafts.** If the page proposes a message to the assistant, it lands in your message box
   for you to read and send. It is never sent for you.
 - **Links ask first.** A link the page opens shows its full address and waits for your yes.
-- **Full screen** is available from the card's header and covers the whole window, above the sidebar (Esc or the close button leaves it). The page follows: its own Edit and Done buttons change with it.
+- **Full screen** is available from the card's header and covers the whole window, above the sidebar (Esc or the close button leaves it; a page can only open it right after you act on its card). The page follows: its own Edit and Done buttons change with it.
 - **It shows by itself.** The page is under the tool's row whether the row is open or not; opening the row only shows the call's details.
 - **When it does not show properly,** the card has a **Show details** link listing what went wrong (copy it for your administrator, who finds the same lines in the chat logs), and **Reload view** starts the page again.
 - **A reload keeps it.** The page is kept with the conversation (for as long as the conversation's files are

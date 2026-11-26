@@ -222,7 +222,8 @@ test.describe("MCP Apps: rendering @needs-apps-render", () => {
 		await expect(inside.locator("#display-mode")).toHaveText("display:inline");
 
 		const expand = page.getByRole("button", { name: "Full screen" }).last();
-		await expand.click();
+		// The page asks (its "Edit"), after the user's click on it: honoured.
+		await inside.locator("#request-fullscreen").click();
 		const layer = page.locator('[data-testid="mcp-app"][data-display-mode="fullscreen"]');
 		await expect(layer).toBeVisible();
 		await expect(inside.locator("#display-mode")).toHaveText("display:fullscreen");
@@ -254,19 +255,33 @@ test.describe("MCP Apps: rendering @needs-apps-render", () => {
 		expect(frameBox.height).toBeGreaterThan(720);
 		await expect(page.getByRole("button", { name: "Close full screen" })).toBeVisible();
 
-		// Escape leaves, tells the page, and gives the focus back to the expand button.
+		// Tab stays inside the layer: header, frame, header...
+		for (let i = 0; i < 6; i += 1) {
+			await page.keyboard.press("Tab");
+			expect(
+				await page.evaluate(() =>
+					Boolean(
+						document
+							.querySelector('[data-testid="mcp-app"][data-display-mode="fullscreen"]')
+							?.contains(document.activeElement)
+					)
+				)
+			).toBe(true);
+		}
+
+		// Our close button leaves and tells the page.
+		await page.getByRole("button", { name: "Close full screen" }).click();
+		await expect(layer).toHaveCount(0);
+		await expect(inside.locator("#display-mode")).toHaveText("display:inline");
+
+		// The expand button always works; Escape leaves, tells the page and gives the focus back to it.
+		await expand.click();
+		await expect(layer).toBeVisible();
+		await expect(inside.locator("#display-mode")).toHaveText("display:fullscreen");
 		await page.keyboard.press("Escape");
 		await expect(layer).toHaveCount(0);
 		await expect(inside.locator("#display-mode")).toHaveText("display:inline");
 		await expect(expand).toBeFocused();
-
-		// The page asks (its "Edit"), our close button leaves.
-		await inside.locator("#request-fullscreen").click();
-		await expect(layer).toBeVisible();
-		await expect(inside.locator("#display-mode")).toHaveText("display:fullscreen");
-		await page.getByRole("button", { name: "Close full screen" }).click();
-		await expect(layer).toHaveCount(0);
-		await expect(inside.locator("#display-mode")).toHaveText("display:inline");
 
 		// The same document throughout: a reload would have drawn a new marker and closed the bridge.
 		await expect(inside.locator("#load-marker")).toHaveText(must(marker));
@@ -329,7 +344,9 @@ test.describe("MCP Apps: rendering @needs-apps-render", () => {
 		await expect(details).toContainText("connect-src");
 		await expect(details.getByRole("button", { name: "Copy" })).toBeVisible();
 		await expect.poll(() => reports.length, { timeout: 10_000 }).toBeGreaterThan(0);
-		expect(reports[0]).toContain("boom-on-load");
+		// Kinds and sources only: the message text stays in the card.
+		expect(reports[0]).toContain('"kind":"error"');
+		expect(reports[0]).not.toContain("boom-on-load");
 		expect(reports[0]).toContain("connector:");
 		// Reload view mounts the frame again: the same errors come back, and the panel starts closed.
 		await details.getByRole("button", { name: "Reload view" }).click();
