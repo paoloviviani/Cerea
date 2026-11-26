@@ -426,7 +426,9 @@ function startWindowBrowser(p: Profile): void {
 			if (frame && ceraeOrigin(frame.url) === p.server.origin)
 				frame.send("winbrowser:message", json);
 		},
-		onTask: () => push("agent-active", null),
+		// Same as a galopin runtime task (#377): a sign of life opens the panel on the Browser tab and
+		// drives "Browser working" (`control.onTaskStart`).
+		onTask: () => control.touch(),
 		log: line,
 	});
 	windowBrowser.start();
@@ -1016,7 +1018,27 @@ function testHooks(): void {
 			} else if (cmd === "hide") win?.hide();
 			else if (cmd === "show") win?.show();
 			else if (cmd === "state") process.stdout.write(`STATE ${JSON.stringify(appState())}\n`);
-			else if (cmd === "winbrowser")
+			else if (cmd === "httponly") {
+				// An HttpOnly cookie set in the active Cerea partition, read back the way the window
+				// browser reads the session secret (ADR 0122), and what a page's document.cookie sees.
+				void (async () => {
+					const p = cur()!;
+					const ses = session.fromPartition(ceraePartition(p.id));
+					await ses.cookies.set({
+						url: `${p.server.origin}/`,
+						name: "smoke-httponly",
+						value: "secret-value",
+						httpOnly: true,
+					});
+					const read = (
+						await ses.cookies.get({ url: `${p.server.origin}/`, name: "smoke-httponly" })
+					)[0];
+					const seen = await ceraeView?.webContents.executeJavaScript("document.cookie");
+					process.stdout.write(
+						`HTTPONLY ${JSON.stringify({ value: read?.value, httpOnly: read?.httpOnly, page: seen })}\n`
+					);
+				})();
+			} else if (cmd === "winbrowser")
 				process.stdout.write(
 					`WINBROWSER ${JSON.stringify({ available: !!windowBrowser?.available, running: !!windowBrowser?.running })}\n`
 				);

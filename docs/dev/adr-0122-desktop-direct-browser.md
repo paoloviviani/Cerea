@@ -99,9 +99,10 @@ profile's bridge endpoint file> --key-file <own key file> --state-dir <own dir>`
 
 ### 5. Lifecycle and UX
 
-- The panel opens when a task starts: the app pushes the (already declared, so far unused) `agent-active` event to its
-  UI at the first call of a task and the UI shows the browser pane. TODO: use the "panel opens as a tool" hook of
-  `fix/desktop-browser-panel` when it is merged.
+- The panel opens when a task starts, through the same hook a galopin runtime task uses (#377): the app's first call of
+  a task is a sign of life on `Control` (`control.touch()`), which opens the panel on the Browser tab and drives the
+  "Browser working" indicator. The runtime goes through the same bridge, so #377's focus rules (no focus for hidden
+  pages, `Page.bringToFront` refused while the panel is hidden) apply to it unchanged; the smoke test checks it.
 - A profile switch, a removed profile or a closed window drops the socket. The registry rejects every waiting call with
   a plain reason, the task ends ("the app's window was closed, or the app switched to another server, so its browser is
   gone") and the lease goes with the link.

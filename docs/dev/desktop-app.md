@@ -333,15 +333,18 @@ endpoint file> --key-file <userData>/winbrowser/<id>/approval-key --state-dir ..
   same function the server uses, and writes it 0600 to the key file. Caps: 256 KiB per request, 40
   calls per 10 s, 8 in flight, 20 MiB per answer, and only `content`, `structuredContent` and
   `isError` cross back.
-- **The panel opens when a task starts**: the first call of a task pushes the `agent-active` event
-  (declared in `shared/ipc.ts` and unused until now) and the local UI shows the browser pane.
-  TODO: use the "panel opens as a tool" hook of `fix/desktop-browser-panel` once it is merged.
+- **The panel opens when a task starts**: the first call of a task is `control.touch()`, the same
+  sign of life a galopin runtime task gives, so the panel opens on the Browser tab and "Browser
+  working" shows (#377). The runtime uses the same bridge, so the focus rules apply to it too.
 - **Tests**: `windowBrowser.test.ts` (parsing, sender checks, runtime lookup, a fake runtime over
   pipes: one per profile, stopped on dispose, key file, rate limit, crash loop),
   `preloadCerea.test.ts` (exposure on the matching origin and main frame only), and smoke step 2b:
   the real app, a fake Cerea page that relays between a fake server and the bridge, `open`,
   `resume`, `navigate` and `snapshot` on the real panel, the app-derived key equal to the server's,
-  a tool outside the contract refused, and the same page loaded in the panel getting no bridge.
+  a tool outside the contract refused, the same page loaded in the panel getting no bridge, the panel
+  opening and "working" showing, `Page.bringToFront` refused while the panel is hidden, and an
+  HttpOnly cookie set in the Cerea partition being readable by main (Electron's own `session`, which a
+  node unit test cannot load; not tested against a real IdP login).
   The smoke test runs in CI; locally it needs Electron's libraries (the Playwright image has them).
 
 ## galopin as a bundled sidecar

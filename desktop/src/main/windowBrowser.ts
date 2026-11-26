@@ -283,7 +283,7 @@ export interface WindowBrowserDeps {
 	readCookie: (name: string) => Promise<string | undefined>;
 	/** One JSON string to the page (the preload's `onMessage`). */
 	postToPage: (json: string) => void;
-	/** A task is using the browser: the app shows the panel (the `agent-active` event). */
+	/** A task is using the browser: the app shows the panel (`control.touch()`). */
 	onTask: () => void;
 	log: (line: string) => void;
 	spawnFn?: SpawnFn;

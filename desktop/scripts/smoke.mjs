@@ -199,8 +199,8 @@ async function hook(cmd, tag) {
 const own = (list) =>
 	list.map((x) => ({
 		...x,
-		cerea: x.cerea.filter((n) => n !== "hf-chat"),
-		panel: x.panel.filter((n) => n !== "hf-chat"),
+		cerea: x.cerea.filter((n) => n !== "hf-chat" && n !== "smoke-httponly"),
+		panel: x.panel.filter((n) => n !== "hf-chat" && n !== "smoke-httponly"),
 	}));
 const step = (s) => console.log(`ok  ${s}`);
 let failed;
@@ -301,6 +301,25 @@ try {
 		const refused = await serverCall("s5", "evaluate", { expression: "1" });
 		assert.match(refused.error.message, /tool not allowed/);
 		step("window browser: a tool outside the contract is refused by the app");
+		// the same hook a galopin task uses: the panel opened on the Browser tab, "working" shows
+		{
+			const pn = await hook("panel", "PANEL");
+			assert.equal(pn.open, true, "a window task opens the panel");
+			assert.equal(pn.pane, "browser");
+			assert.equal(pn.working, true);
+			assert.match((await hook("uimetrics", "UIMETRICS")).tabBrowser, /Browser working/);
+			step("window browser: a window task opens the panel on the Browser tab and shows 'working'");
+		}
+		// the session cookie is HttpOnly: main reads it, the page does not
+		{
+			const c = await hook("httponly", "HTTPONLY");
+			assert.equal(c.value, "secret-value");
+			assert.equal(c.httpOnly, true);
+			assert.ok(!String(c.page).includes("smoke-httponly"), "document.cookie does not show it");
+			step(
+				"an HttpOnly cookie in the Cerea partition is readable by main and hidden from the page"
+			);
+		}
 		await serverCall("s6", "end_task", {});
 		// the same Cerea page opened in the panel gets no bridge (only the Cerea view has the preload)
 		const nav2 = await serverCall("s7", "act", {
@@ -313,7 +332,47 @@ try {
 		assert.ok(inPanel, "the page loaded in the panel reported");
 		assert.equal(inPanel.exposed, false, "the panel's page, even on Cerea's origin, has no bridge");
 		await serverCall("s8", "end_task", {});
+		// #377's focus rule holds for the window runtime too (same bridge): with the panel hidden,
+		// Page.bringToFront is refused
+		await hook("uiclick side-close");
+		await new Promise((r) => setTimeout(r, 500));
+		assert.equal((await hook("panel", "PANEL")).open, false);
+		const via = await serverCall("s9", "open", { url: `${fx.base}/form` });
+		assert.ok(!via.error, JSON.stringify(via));
+		{
+			const { WebSocket } = await import("ws");
+			const ws = new WebSocket(readFileSync(endpointFile, "utf8").trim());
+			await new Promise((r, j) => (ws.once("open", r), ws.once("error", j)));
+			let session;
+			const pending = new Map();
+			let n = 0;
+			ws.on("message", (m) => {
+				const d = JSON.parse(m.toString());
+				if (d.method === "Target.attachedToTarget" && !session) session = d.params.sessionId;
+				if (d.id && pending.has(d.id)) pending.get(d.id)(d);
+			});
+			const send = (method, params = {}, sessionId) =>
+				new Promise((r) => {
+					const id = ++n;
+					pending.set(id, r);
+					ws.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
+				});
+			await send("Target.setAutoAttach", {
+				autoAttach: true,
+				waitForDebuggerOnStart: false,
+				flatten: true,
+			});
+			await new Promise((r) => setTimeout(r, 500));
+			assert.ok(session, "a session on a panel page");
+			const r = await send("Page.bringToFront", {}, session);
+			assert.match(r.error?.message ?? "", /not showing/, "bringToFront is refused while hidden");
+			ws.close();
+		}
+		step("window browser: Page.bringToFront is refused while the panel is hidden");
 		step("window browser: the panel's own page, on Cerea's origin, gets no bridge");
+		// "working" ends after 30 s without a sign of life: wait it out so the next part sees a fresh task
+		await new Promise((r) => setTimeout(r, 31_000));
+		await hook('panelset {"open":false}');
 	}
 
 	// 3. the browser panel, driven by browser-runtime over the bridge
