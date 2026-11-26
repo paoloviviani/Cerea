@@ -771,6 +771,9 @@ func runServe(args []string) error {
 		}
 		credsPath = path
 	}
+	if err := requirePaired(credsPath); err != nil {
+		return err
+	}
 	unlockInstance, err := lockInstanceFor(credsPath, "", instanceLockGrace)
 	if err != nil {
 		return err

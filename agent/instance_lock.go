@@ -3,6 +3,8 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"time"
 )
 
@@ -50,4 +52,13 @@ func lockInstanceFor(credsPath, what string, wait time.Duration) (func(), error)
 		}
 		return nil, err
 	}
+}
+
+// requirePaired says plainly that this machine was never enrolled, before run
+// or serve takes the instance lock beside a credential that is not there.
+func requirePaired(credsPath string) error {
+	if _, err := os.Stat(credsPath); errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("this computer is not paired yet (no credential at %s): pair it with 'galopin enroll <Cerea address>', then run this again", credsPath)
+	}
+	return nil
 }
