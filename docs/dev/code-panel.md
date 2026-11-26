@@ -193,5 +193,11 @@ it consumes the ask and a goroutine (`decideHeldAsk`, `permissions_tree.go`) rea
 parents', with `GetSession` (`askTreeWait`, 5 s; one reader per session), then decides it as any ask: reject and once
 are answered, a card is put back through `Materializer.ReleaseAsk` (no second filter pass). A record that cannot be
 read leaves the session marked as top-level (`MarkTreeKnown`, so its next asks are not held again), which fails toward
-a card. Nothing here changes what a word allows: Plan, the machine's deny list, the floor and the exceptions are
+a card. The same mark settles a chain deeper than the 8 records read for one session (`maxTreeDepth`). A parent learned from a
+record is tracked with no directory (only the asking session is known to live in the ask's directory).
+
+A held ask is registered with `Materializer.HoldAsk`. If the backend's reply for it arrives while it is held (a session
+aborted) or `WithdrawPending` runs (opencode restarted), the id is marked, and `ReleaseAsk` then shows no card for it,
+decided under the materializer's own lock so the reply cannot slip between the check and the card; an ask answered by
+galopin ends its hold with `DropHeld`. Nothing here changes what a word allows: Plan, the machine's deny list, the floor and the exceptions are
 read by `decideAsk` exactly as before. Tests: `agent/subagent_first_ask_test.go`.

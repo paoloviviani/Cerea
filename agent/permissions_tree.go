@@ -12,6 +12,9 @@ import (
 // not known is held while its record is read.
 const askTreeWait = 5 * time.Second
 
+// maxTreeDepth is how many records are read to place one session.
+const maxTreeDepth = 8
+
 // A subagent is decided by its root's word, and the root is only known once the
 // tree edge is. The edge normally arrives with the child's session event, ahead
 // of its first ask; when it has not (galopin restarted, the event stream was
@@ -36,6 +39,7 @@ func (mc *machine) decideHeldAsk(dir string, req backend.PermissionRequest) {
 		mc.mat.ReleaseAsk(context.Background(), dir, req)
 		return
 	}
+	mc.mat.DropHeld(req.ID)
 	mc.answerAsk(dir, req, res)
 }
 
@@ -65,13 +69,24 @@ func (mc *machine) learnTree(dir, id string) {
 		wait = askTreeWait
 	}
 	deadline := time.Now().Add(wait)
-	for depth := 0; depth < 8 && !mc.mat.TreeKnown(id); depth++ {
+	for depth := 0; depth < maxTreeDepth && !mc.mat.TreeKnown(id); depth++ {
 		top := mc.mat.RootOf(id)
-		if !mc.readRecord(dir, top, deadline) {
+		// only the asking session is known to live in dir: a parent's own events
+		// say where it lives
+		recDir := ""
+		if top == id {
+			recDir = dir
+		}
+		if !mc.readRecord(recDir, top, deadline) {
 			logf("permissions: could not place session %s in the session tree within %s; its asks are decided as a top-level session's", top, wait)
 			mc.mat.MarkTreeKnown(dir, id)
 			return
 		}
+	}
+	if !mc.mat.TreeKnown(id) {
+		// a chain deeper than the cap: settle it too, so the session's later asks are not held again
+		logf("permissions: session %s sits deeper in the session tree than %d levels; its asks are decided as a top-level session's", id, maxTreeDepth)
+		mc.mat.MarkTreeKnown(dir, id)
 	}
 }
 

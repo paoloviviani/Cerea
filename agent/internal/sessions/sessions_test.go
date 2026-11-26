@@ -957,3 +957,45 @@ func TestReleaseAskSkipsTheFilter(t *testing.T) {
 		t.Errorf("pending = %d, want the released ask", n)
 	}
 }
+
+// A held ask (consumed by the filter, decided later) that was answered or
+// withdrawn meanwhile is not brought back as a card by ReleaseAsk.
+func TestReleaseAskSkipsAnAskAnsweredOrWithdrawnWhileHeld(t *testing.T) {
+	ctx := context.Background()
+	ask := func(id string) backend.PermissionRequest {
+		return backend.PermissionRequest{ID: id, SessionID: "s1", Tool: "bash", Patterns: []string{"ls"}}
+	}
+	m := New(newFakeBackend(), policy.Default())
+	m.Track("/ws", backend.Session{ID: "s1"})
+	for _, id := range []string{"per_ok", "per_replied", "per_withdrawn", "per_dropped"} {
+		m.HoldAsk(id)
+	}
+	m.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/ws", SessionID: "s1", Event: backend.Event{
+		Kind: backend.EventPermissionReplied, RequestID: "per_replied", Decision: backend.DecisionReject}})
+	m.WithdrawPending()   // marks every ask held at that moment ...
+	m.HoldAsk("per_late") // ... and not one held after it
+	m.DropHeld("per_dropped")
+	for _, id := range []string{"per_ok", "per_replied", "per_withdrawn", "per_late", "per_dropped"} {
+		m.ReleaseAsk(ctx, "/ws", ask(id))
+	}
+	got := map[string]bool{}
+	for _, r := range m.PendingPermissionRequests("s1") {
+		got[r.ID] = true
+	}
+	if got["per_ok"] || got["per_replied"] || got["per_withdrawn"] {
+		t.Errorf("a held ask that was withdrawn or answered came back: %v", got)
+	}
+	if !got["per_late"] || !got["per_dropped"] {
+		t.Errorf("an ask nobody answered must show its card: %v", got)
+	}
+}
+
+// Without a hold, ReleaseAsk is the plain unfiltered path (as before).
+func TestReleaseAskOfAnAskNeverHeldMaterialises(t *testing.T) {
+	m := New(newFakeBackend(), policy.Default())
+	m.Track("/ws", backend.Session{ID: "s1"})
+	m.ReleaseAsk(context.Background(), "/ws", backend.PermissionRequest{ID: "per_1", SessionID: "s1", Tool: "bash", Patterns: []string{"ls"}})
+	if n := m.PendingPermissions("s1"); n != 1 {
+		t.Errorf("pending = %d, want 1", n)
+	}
+}
