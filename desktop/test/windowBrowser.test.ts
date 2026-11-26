@@ -13,7 +13,9 @@ import {
 	underBasePath,
 	RUNTIME_TOOLS,
 	WindowBrowser,
+	isServerSessionCookie,
 	windowGrantKey,
+	type SessionCookie,
 	type SpawnFn,
 } from "../src/main/windowBrowser.ts";
 
@@ -252,6 +254,18 @@ function fakeSpawn(
 	return { spawnFn, spawned };
 }
 
+const HOST = "cerea.example";
+/** The server's own session cookie as Electron reports it: host-only, root path, HttpOnly, Secure. */
+const sessionCookie = (over: Partial<SessionCookie> = {}): SessionCookie => ({
+	value: "session-secret-1",
+	httpOnly: true,
+	secure: true,
+	hostOnly: true,
+	domain: HOST,
+	path: "/",
+	...over,
+});
+
 function make(
 	over: Partial<ConstructorParameters<typeof WindowBrowser>[0]> = {},
 	fakeOpts: Parameters<typeof fakeSpawn>[0] = {}
@@ -265,9 +279,9 @@ function make(
 		endpointFile: () => "/run/endpoint",
 		runtime: { node: "/node", script: "/rt/cerea-browser.mjs" },
 		cookieName: () => "hf-chat",
-		readCookies: async (name) =>
-			name === "hf-chat" ? [{ value: "session-secret-1", httpOnly: true, secure: true }] : [],
+		readCookies: async (name) => (name === "hf-chat" ? [sessionCookie()] : []),
 		https: true,
+		host: HOST,
 		postToPage: (j) => sent.push(j),
 		onTask,
 		log: () => {},
@@ -344,6 +358,83 @@ describe("WindowBrowser", () => {
 		});
 		await wb.dispose();
 	});
+	it("takes only the server's own host-only cookie at the root path: not a parent-domain or a path cookie (a sibling host could have planted them)", async () => {
+		const planted: Partial<SessionCookie>[] = [
+			// Domain=example.com set from a sibling host: not host-only, and the domain is the parent's
+			{ value: "KNOWN", hostOnly: false, domain: ".example.com" },
+			{ value: "KNOWN", hostOnly: false, domain: HOST },
+			{ value: "KNOWN", domain: "example.com" },
+			// another path
+			{ value: "KNOWN", path: "/chat" },
+			{ value: "KNOWN", path: "" },
+		];
+		for (const over of planted) {
+			const { wb, dir, next } = make({ readCookies: async () => [sessionCookie(over)] });
+			wb.start();
+			wb.handleFromPage(announce());
+			wb.handleFromPage(call("c1", "snapshot"));
+			await next();
+			expect(existsSync(join(dir, "approval-key")), JSON.stringify(over)).toBe(false);
+			await wb.dispose();
+		}
+		// and the server's own cookie, with the leading dot some jars report, still counts
+		expect(isServerSessionCookie(sessionCookie(), HOST, true)).toBe(true);
+		expect(isServerSessionCookie(sessionCookie({ domain: `.${HOST}` }), HOST, true)).toBe(true);
+		expect(isServerSessionCookie(sessionCookie({ domain: "other.example" }), HOST, true)).toBe(
+			false
+		);
+	});
+	it("a key is never written after dispose, and dispose leaves no key behind", async () => {
+		let release: (c: SessionCookie[]) => void = () => {};
+		let asked = false;
+		const jar = new Promise<SessionCookie[]>((r) => (release = r));
+		const { wb, dir } = make({
+			readCookies: () => ((asked = true), jar),
+		});
+		wb.start();
+		wb.handleFromPage(announce());
+		await vi.waitFor(() => expect(asked).toBe(true));
+		const done = wb.dispose();
+		release([sessionCookie()]);
+		await done;
+		await new Promise((r) => setTimeout(r, 30));
+		expect(existsSync(join(dir, "approval-key"))).toBe(false);
+	});
+	it("only the latest window announcement writes the key, however the cookie reads finish", async () => {
+		const W1 = "1".repeat(32);
+		const W2 = "2".repeat(32);
+		const releases: ((c: SessionCookie[]) => void)[] = [];
+		const { wb, dir } = make({
+			readCookies: () => new Promise<SessionCookie[]>((r) => releases.push(r)),
+		});
+		wb.start();
+		wb.handleFromPage(announce(W1));
+		await vi.waitFor(() => expect(releases).toHaveLength(1));
+		wb.handleFromPage(announce(W2));
+		await vi.waitFor(() => expect(releases).toHaveLength(2));
+		// the newer read finishes first, the older one last
+		releases[1]([sessionCookie()]);
+		await vi.waitFor(() => expect(existsSync(join(dir, "approval-key"))).toBe(true));
+		releases[0]([sessionCookie()]);
+		await new Promise((r) => setTimeout(r, 30));
+		expect(readFileSync(join(dir, "approval-key"), "utf8").trim()).toBe(
+			windowGrantKey("session-secret-1", W2).toString("base64url")
+		);
+		await wb.dispose();
+	});
+	it("thins out the runtime's stderr: long lines are cut, a flood is limited", async () => {
+		const logged: string[] = [];
+		const { wb, fake } = make({ log: (l) => logged.push(l) });
+		wb.start();
+		await vi.waitFor(() => expect(fake.spawned).toHaveLength(1));
+		const err = fake.spawned[0].child.stderr;
+		err.write(`${"x".repeat(5000)}\n`);
+		for (let i = 0; i < 500; i++) err.write(`line ${i}\n`);
+		await new Promise((r) => setTimeout(r, 50));
+		expect(logged.every((l) => l.length < 700)).toBe(true);
+		expect(logged.length).toBeLessThan(80);
+		await wb.dispose();
+	});
 	it("never forwards a method or tool that is not allowed, and answers the id with an error", async () => {
 		const { wb, fake, next } = make();
 		wb.start();
@@ -386,7 +477,7 @@ describe("WindowBrowser", () => {
 	});
 	it("writes no key for a cookie that is not HttpOnly (one the page could have set), and removes an old key", async () => {
 		const { wb, dir, next } = make({
-			readCookies: async () => [{ value: "page-chosen", httpOnly: false, secure: true }],
+			readCookies: async () => [sessionCookie({ value: "page-chosen", httpOnly: false })],
 		});
 		mkdirSync(dir, { recursive: true, mode: 0o700 });
 		writeFileSync(join(dir, "approval-key"), "old");
@@ -398,7 +489,7 @@ describe("WindowBrowser", () => {
 		await wb.dispose();
 	});
 	it("writes no key for a non-Secure cookie on https, but accepts it on plain http", async () => {
-		const plain = [{ value: "v", httpOnly: true, secure: false }];
+		const plain = [sessionCookie({ value: "v", secure: false })];
 		const a = make({ readCookies: async () => plain });
 		a.wb.start();
 		a.wb.handleFromPage(announce());
@@ -415,8 +506,8 @@ describe("WindowBrowser", () => {
 	it("writes no key when a second cookie of that name exists (a page-set one beside the real one)", async () => {
 		const { wb, dir, next } = make({
 			readCookies: async () => [
-				{ value: "real", httpOnly: true, secure: true },
-				{ value: "page", httpOnly: false, secure: true },
+				sessionCookie({ value: "real" }),
+				sessionCookie({ value: "page", httpOnly: false }),
 			],
 		});
 		wb.start();
@@ -473,19 +564,17 @@ describe("WindowBrowser", () => {
 		}
 	});
 	it("limits how often a page may announce a window", async () => {
-		const { wb } = make();
-		let reads = 0;
+		let looked = 0;
 		const counted = make({
-			readCookies: async () => {
-				reads += 1;
-				return [];
+			cookieName: () => {
+				looked += 1;
+				return "hf-chat";
 			},
 		});
 		for (let i = 0; i < 20; i++) counted.wb.handleFromPage(announce());
 		await new Promise((r) => setTimeout(r, 50));
-		expect(reads).toBe(5);
+		expect(looked).toBe(5);
 		await counted.wb.dispose();
-		await wb.dispose();
 	});
 	it("removes a stale key when it starts", async () => {
 		const { wb, dir } = make();

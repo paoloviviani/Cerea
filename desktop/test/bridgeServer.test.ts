@@ -32,7 +32,15 @@ async function twoProfiles(
 	const dirA = mkdtempSync(join(tmpdir(), "galA-"));
 	const dirB = mkdtempSync(join(tmpdir(), "galB-"));
 	let connected = 0;
-	const bridge = { connect: (t: { close(): void }) => (connected++, t.close()), disconnect() {} };
+	const own: boolean[] = [];
+	const bridge = {
+		connect: (t: { close(): void }, isOwn?: boolean) => (
+			connected++,
+			own.push(isOwn === true),
+			t.close()
+		),
+		disconnect() {},
+	};
 	const server = await startBridgeServer(bridge as never, {
 		runDir,
 		uid: process.getuid?.() ?? 0,
@@ -41,7 +49,7 @@ async function twoProfiles(
 	});
 	const fileA = server.addProfile(A, dirA, "secretA");
 	const fileB = server.addProfile(B, dirB, "secretB");
-	return { server, fileA, fileB, dirA, dirB, connected: () => connected };
+	return { server, fileA, fileB, dirA, dirB, connected: () => connected, own };
 }
 
 describe("bridge socket", () => {
@@ -214,5 +222,29 @@ describe("the endpoint file", () => {
 		// a rewrite truncates
 		writeEndpointFile(file, "b");
 		expect(readFileSync(file, "utf8")).toBe("b");
+	});
+});
+
+describe("the window runtime's own secret", () => {
+	it("is a second secret on the same bridge, and a connection with it is marked as the window runtime's", async () => {
+		const { server, fileA, own } = await twoProfiles(() => A);
+		try {
+			const winFile = server.windowEndpointFile(A) ?? "";
+			expect(winFile).not.toBe(fileA);
+			expect(statSync(winFile).mode & 0o777).toBe(0o600);
+			const galopin = readFileSync(fileA, "utf8").trim();
+			const window = readFileSync(winFile, "utf8").trim();
+			expect(window).not.toBe(galopin);
+			for (const url of [galopin, window]) {
+				const ws = new WebSocket(url);
+				await new Promise<void>((r) => ws.once("close", () => r()));
+			}
+			expect(own).toEqual([false, true]);
+			// removing the profile removes both files
+			server.removeProfile(A);
+			expect(server.windowEndpointFile(A)).toBeUndefined();
+		} finally {
+			await server.close();
+		}
 	});
 });

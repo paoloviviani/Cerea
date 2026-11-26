@@ -73,9 +73,12 @@ export class Control implements Gate {
 		return this.now() - this.lastCommand < Control.WORKING_MS;
 	}
 
-	/** Gate: a newcomer was refused just now; the window browser words its failure with it. */
-	refused(): void {
-		this.lastRefused = this.now();
+	/**
+	 * Gate: a newcomer was refused just now. Only the app's own window runtime's refusal is kept (the
+	 * window browser words its failure with it); a refused galopin runtime is not its business.
+	 */
+	refused(windowRuntime: boolean): void {
+		if (windowRuntime) this.lastRefused = this.now();
 	}
 
 	/** A runtime was refused within `ms`. */

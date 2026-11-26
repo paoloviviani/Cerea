@@ -515,7 +515,12 @@ describe("two runtimes on one panel", () => {
 		bridge.connect(third.t);
 		expect(third.closed).toEqual(["Another task is using this browser."]);
 		expect(second.closed).toEqual([]);
-		// and the refusal is noted, so the window browser can say why its runtime got nothing
+		// a refused galopin runtime is not noted: it is not the window browser's runtime
+		expect(control.recentlyRefused(1000)).toBe(false);
+		// the app's own window runtime, refused the same way, is noted so it can say why it got nothing
+		const own = fakeTransport();
+		bridge.connect(own.t, true);
+		expect(own.closed).toEqual(["Another task is using this browser."]);
 		expect(control.recentlyRefused(1000)).toBe(true);
 	});
 

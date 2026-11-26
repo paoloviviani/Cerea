@@ -75,8 +75,8 @@ export interface Gate {
 	onChange(cb: () => void): () => void;
 	/** A task is running now (the runtime did something recently): a second runtime is refused, not let in. */
 	taskActive?(): boolean;
-	/** A newcomer runtime was refused (`taskActive`). */
-	refused?(): void;
+	/** A newcomer runtime was refused (`taskActive`); `windowRuntime` when it was the app's own. */
+	refused?(windowRuntime: boolean): void;
 }
 
 export interface Transport {
@@ -423,14 +423,14 @@ class Connection {
 export const BUSY_MESSAGE = "Another task is using this browser.";
 
 export class BridgeRouter {
-	private current?: { connect(t: Transport): void; disconnect(): void };
-	set(next: { connect(t: Transport): void; disconnect(): void } | undefined): void {
+	private current?: { connect(t: Transport, own?: boolean): void; disconnect(): void };
+	set(next: { connect(t: Transport, own?: boolean): void; disconnect(): void } | undefined): void {
 		this.current?.disconnect();
 		this.current = next;
 	}
-	connect(t: Transport): void {
+	connect(t: Transport, own?: boolean): void {
 		if (!this.current) return t.close();
-		this.current.connect(t);
+		this.current.connect(t, own);
 	}
 	disconnect(): void {
 		this.current?.disconnect();
@@ -451,10 +451,10 @@ export class CdpBridge {
 	 * While a task is running on the old one (a galopin runtime and the app's own window runtime
 	 * contend for this panel), the newcomer is refused instead, so a running task is never cut off.
 	 */
-	connect(transport: Transport): void {
+	connect(transport: Transport, windowRuntime = false): void {
 		if (this.current?.live && this.gate.taskActive?.()) {
 			this.log("another runtime was refused: a task is using this browser");
-			this.gate.refused?.();
+			this.gate.refused?.(windowRuntime);
 			return transport.close(BUSY_MESSAGE);
 		}
 		this.current?.dispose();

@@ -99,6 +99,11 @@ export interface BridgeServer {
 	/** The profile whose runtime is served now; streams of any other end. */
 	setActive(id: string | null): void;
 	endpointFile(id: string): string | undefined;
+	/**
+	 * The same bridge under a second secret, for the app's own window runtime only: a connection made
+	 * with it is known to be that runtime's (a refusal can then be told apart from a galopin's).
+	 */
+	windowEndpointFile(id: string): string | undefined;
 	close(): Promise<void>;
 }
 
@@ -110,7 +115,7 @@ export const OTHER_PROFILE = "This browser belongs to another profile.";
  * profile that is open. It is told so, and its connection is refused.
  */
 export async function startBridgeServer(
-	bridge: { connect(t: Transport): void; disconnect(): void },
+	bridge: { connect(t: Transport, own?: boolean): void; disconnect(): void },
 	opts: {
 		runDir: string;
 		uid: number;
@@ -122,11 +127,23 @@ export async function startBridgeServer(
 	const sock = socketPathFor(opts.runDir, opts.uid);
 	for (const dir of new Set([opts.runDir, join(sock, "..")])) ensurePrivateDir(dir, opts.uid);
 	if (existsSync(sock)) rmSync(sock);
-	const secrets = new Map<string, { secret: string; file: string }>();
-	/** Which profile a request path belongs to, comparing against every secret in constant time per secret. */
-	const owner = (url: string, kind: "cdp" | "ctl"): string | undefined => {
-		let found: string | undefined;
-		for (const [id, v] of secrets) if (safeEqual(url, `/${kind}/${v.secret}`)) found = id;
+	const secrets = new Map<
+		string,
+		{ secret: string; file: string; windowSecret: string; windowFile: string }
+	>();
+	/**
+	 * Which profile a request path belongs to, comparing against every secret in constant time per
+	 * secret, and whether it came in under the app's own window-runtime secret.
+	 */
+	const owner = (
+		url: string,
+		kind: "cdp" | "ctl"
+	): { id: string; windowRuntime: boolean } | undefined => {
+		let found: { id: string; windowRuntime: boolean } | undefined;
+		for (const [id, v] of secrets) {
+			if (safeEqual(url, `/${kind}/${v.secret}`)) found = { id, windowRuntime: false };
+			if (safeEqual(url, `/${kind}/${v.windowSecret}`)) found = { id, windowRuntime: true };
+		}
 		return found;
 	};
 	const streams = new Map<http.ServerResponse, string>();
@@ -138,7 +155,7 @@ export async function startBridgeServer(
 		// secret rules as the CDP socket (no Origin, exact path, the active profile's secret).
 		const id =
 			opts.control && req.method === "GET" && !req.headers.origin
-				? owner(req.url ?? "", "ctl")
+				? owner(req.url ?? "", "ctl")?.id
 				: undefined;
 		if (id !== undefined) {
 			if (id !== opts.active()) {
@@ -162,7 +179,8 @@ export async function startBridgeServer(
 	});
 	server.on("upgrade", (req, socket, head) => {
 		// A browser always sends Origin; the runtime never does.
-		const id = req.headers.origin ? undefined : owner(req.url ?? "", "cdp");
+		const who = req.headers.origin ? undefined : owner(req.url ?? "", "cdp");
+		const id = who?.id;
 		if (id === undefined) {
 			socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
 			socket.destroy();
@@ -175,7 +193,9 @@ export async function startBridgeServer(
 			socket.destroy();
 			return;
 		}
-		wss.handleUpgrade(req, socket, head, (ws) => bridge.connect(wsTransport(ws)));
+		wss.handleUpgrade(req, socket, head, (ws) =>
+			bridge.connect(wsTransport(ws), who?.windowRuntime === true)
+		);
 	});
 	const oldMask = process.umask(0o177);
 	try {
@@ -192,30 +212,36 @@ export async function startBridgeServer(
 		addProfile(id, dir, secret = randomBytes(32).toString("base64url")) {
 			ensurePrivateDir(dir, opts.uid);
 			const file = join(dir, "cdp-endpoint");
+			const windowFile = join(dir, "cdp-endpoint-window");
+			const windowSecret = randomBytes(32).toString("base64url");
 			writeEndpointFile(file, `ws+unix://${sock}:/cdp/${secret}\n`);
+			writeEndpointFile(windowFile, `ws+unix://${sock}:/cdp/${windowSecret}\n`);
 			// A profile that moves to another directory leaves nothing behind that carries its secret.
 			const prev = secrets.get(id);
 			if (prev && prev.file !== file) rmSync(prev.file, { force: true });
-			secrets.set(id, { secret, file });
+			if (prev && prev.windowFile !== windowFile) rmSync(prev.windowFile, { force: true });
+			secrets.set(id, { secret, file, windowSecret, windowFile });
 			return file;
 		},
 		removeProfile(id) {
 			const v = secrets.get(id);
 			secrets.delete(id);
-			if (v) rmSync(v.file, { force: true });
+			if (v) (rmSync(v.file, { force: true }), rmSync(v.windowFile, { force: true }));
 			for (const [res, owner] of streams) if (owner === id) (res.end(), streams.delete(res));
 		},
 		setActive(id) {
 			for (const [res, owner] of streams) if (owner !== id) (res.end(), streams.delete(res));
 		},
 		endpointFile: (id) => secrets.get(id)?.file,
+		windowEndpointFile: (id) => secrets.get(id)?.windowFile,
 		close: () =>
 			new Promise<void>((resolve) => {
 				unwatch?.();
 				for (const res of streams.keys()) res.end();
 				bridge.disconnect();
 				for (const c of wss.clients) c.terminate();
-				for (const v of secrets.values()) rmSync(v.file, { force: true });
+				for (const v of secrets.values())
+					(rmSync(v.file, { force: true }), rmSync(v.windowFile, { force: true }));
 				server.close(() => resolve());
 				server.closeAllConnections?.();
 			}),

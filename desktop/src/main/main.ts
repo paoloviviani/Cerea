@@ -413,7 +413,8 @@ function startWindowBrowser(p: Profile): void {
 	let cookieProbe: Promise<void> | undefined;
 	windowBrowser = new WindowBrowser({
 		dir: join(app.getPath("userData"), "winbrowser", p.id),
-		endpointFile: () => bridgeServer?.endpointFile(p.id),
+		// Its own endpoint (a second secret on the same bridge): a refusal of this runtime is its own.
+		endpointFile: () => bridgeServer?.windowEndpointFile(p.id),
 		runtime: findRuntime({
 			resources: process.resourcesPath,
 			devRoot: join(__dirname, "..", ".."),
@@ -432,8 +433,16 @@ function startWindowBrowser(p: Profile): void {
 				await session
 					.fromPartition(ceraePartition(p.id))
 					.cookies.get({ url: `${p.server.address}/`, name })
-			).map((c) => ({ value: c.value, httpOnly: c.httpOnly === true, secure: c.secure === true })),
+			).map((c) => ({
+				value: c.value,
+				httpOnly: c.httpOnly === true,
+				secure: c.secure === true,
+				hostOnly: c.hostOnly === true,
+				domain: c.domain ?? "",
+				path: c.path ?? "",
+			})),
 		https: p.server.origin.startsWith("https:"),
+		host: new URL(p.server.origin).hostname,
 		postToPage: (json) => {
 			const frame = ceraeView?.webContents.mainFrame;
 			// Only to the Cerea page itself: not to another page the view may be showing.

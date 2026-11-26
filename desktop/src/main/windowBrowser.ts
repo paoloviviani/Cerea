@@ -43,6 +43,9 @@ export const MAX_REQUEST_CHARS = 256 * 1024;
 export const MAX_RESPONSE_CHARS = 20 * 1024 * 1024;
 const MAX_IN_FLIGHT = 8;
 /** A task makes a call every second or two at the most. */
+const STDERR_LINE_CHARS = 500;
+const STDERR_LINES_PER_WINDOW = 50;
+const STDERR_WINDOW_MS = 10_000;
 const CALLS_PER_WINDOW = 40;
 const RATE_WINDOW_MS = 10_000;
 const CALL_TIMEOUT_MS = 200_000;
@@ -244,7 +247,7 @@ class McpStdio {
 		child.stdout?.on("data", (chunk: string) => this.onData(chunk));
 		child.stderr?.setEncoding("utf8");
 		child.stderr?.on("data", (chunk: string) => {
-			for (const l of chunk.split(/\r?\n/)) if (l) this.onStderr(l);
+			for (const l of chunk.split(/\r?\n/)) if (l) this.logLine(l);
 		});
 		const end = (why: string) => {
 			if (this.closed) return;
@@ -259,6 +262,28 @@ class McpStdio {
 		child.on("exit", (code) => end(`The browser runtime stopped (exit ${code}).`));
 		child.on("error", (err) => end(`The browser runtime could not start: ${err.message}`));
 		child.stdin?.on("error", () => end("The browser runtime closed its input."));
+	}
+
+	private stderrWindowStart = 0;
+	private stderrLines = 0;
+	private stderrDropped = 0;
+
+	/** The runtime's stderr goes to the app's log: each line cut short, and a flood of lines thinned out. */
+	private logLine(line: string): void {
+		const now = Date.now();
+		if (now - this.stderrWindowStart >= STDERR_WINDOW_MS) {
+			if (this.stderrDropped > 0)
+				this.onStderr(`(${this.stderrDropped} more lines from the runtime were not logged)`);
+			this.stderrWindowStart = now;
+			this.stderrLines = 0;
+			this.stderrDropped = 0;
+		}
+		if (this.stderrLines >= STDERR_LINES_PER_WINDOW) {
+			this.stderrDropped += 1;
+			return;
+		}
+		this.stderrLines += 1;
+		this.onStderr(line.length > STDERR_LINE_CHARS ? `${line.slice(0, STDERR_LINE_CHARS)}…` : line);
 	}
 
 	private onData(chunk: string): void {
@@ -316,6 +341,32 @@ class McpStdio {
 	}
 }
 
+/** A cookie of the jar, as Electron reports it (`hostOnly`, `domain` and `path` are what tell who set it). */
+export interface SessionCookie {
+	value: string;
+	httpOnly: boolean;
+	secure: boolean;
+	hostOnly: boolean;
+	domain: string;
+	path: string;
+}
+
+/**
+ * Whether a cookie can be the server's session cookie: set by the server itself for exactly its own
+ * host (no `Domain=` attribute, so a sibling host or a parent domain cannot have planted it) at the
+ * root path, HttpOnly, and Secure on https. Anything else is a cookie somebody else could have set.
+ */
+export function isServerSessionCookie(c: SessionCookie, host: string, https: boolean): boolean {
+	return (
+		!!c.value &&
+		c.httpOnly &&
+		(!https || c.secure) &&
+		c.hostOnly &&
+		c.domain.replace(/^\./, "").toLowerCase() === host.toLowerCase() &&
+		c.path === "/"
+	);
+}
+
 export interface WindowBrowserDeps {
 	/** Where this profile's key and spent approvals are kept (private, outside galopin's directory). */
 	dir: string;
@@ -325,10 +376,15 @@ export interface WindowBrowserDeps {
 	/** The NAME of the profile's session cookie, from the server's own enroll.json (never from the page). */
 	cookieName: () => string | undefined | Promise<string | undefined>;
 	/** The session cookies of that name visible at the profile's address (with its base path). */
-	readCookies: (name: string) => Promise<{ value: string; httpOnly: boolean; secure: boolean }[]>;
+	readCookies: (name: string) => Promise<SessionCookie[]>;
 	/** The profile's server is on https: its session cookie must then be Secure too. */
 	https: boolean;
-	/** The bridge refused a runtime a moment ago because another task has the panel (`BUSY_MESSAGE`). */
+	/** The server's own host name (`new URL(origin).hostname`): the only domain its cookie may be on. */
+	host: string;
+	/**
+	 * The bridge refused THIS app's own runtime a moment ago because another task has the panel
+	 * (`BUSY_MESSAGE`). A refused galopin runtime is not this one's business.
+	 */
 	busyRefused?: () => boolean;
 	/** One JSON string to the page (the preload's `onMessage`). */
 	postToPage: (json: string) => void;
@@ -353,6 +409,8 @@ export class WindowBrowser {
 	private failures: number[] = [];
 	/** The key being written for the page's window: calls wait for it. */
 	private keyReady: Promise<void> = Promise.resolve();
+	/** Which announcement is the latest: an older one still reading the cookie jar must not write. */
+	private keyGeneration = 0;
 	private lastTaskPush = Number.NEGATIVE_INFINITY;
 
 	constructor(private readonly deps: WindowBrowserDeps) {
@@ -454,7 +512,7 @@ export class WindowBrowser {
 		}
 		if (msg.kind === "window") {
 			if (!this.windowRate.take()) return;
-			this.keyReady = this.storeKey(msg.windowId);
+			this.keyReady = this.storeKey(msg.windowId, ++this.keyGeneration);
 			return;
 		}
 		if (!this.rate.take()) return this.reply(msg.id, undefined, "Too many requests; slow down.");
@@ -482,19 +540,24 @@ export class WindowBrowser {
 	 * there is exactly one: a cookie script on the page could have set is none of these. Otherwise
 	 * no key is written, an old one is removed, and the runtime accepts no approval.
 	 */
-	private async storeKey(windowId: string): Promise<void> {
+	private async storeKey(windowId: string, generation: number): Promise<void> {
+		// Only the latest announcement may write, and nothing after dispose: checked right before the write.
+		const stale = () => this.disposed || generation !== this.keyGeneration;
 		try {
 			rmSync(this.keyFile(), { force: true });
 			const wait = this.deps.keyWaitMs ?? 10_000;
 			const name = await bounded(this.deps.cookieName(), wait, "the cookie name");
-			if (!name || this.disposed) return;
+			if (!name || stale()) return;
 			const found = await bounded(this.deps.readCookies(name), wait, "the cookie jar");
 			const only = found.length === 1 ? found[0] : undefined;
-			if (!only || !only.value || !only.httpOnly || (this.deps.https && !only.secure)) {
+			if (!only || !isServerSessionCookie(only, this.deps.host, this.deps.https)) {
 				if (found.length > 0)
-					this.deps.log("[window browser] no key: the session cookie is not HttpOnly and Secure.");
+					this.deps.log(
+						"[window browser] no key: the session cookie is not the server's own HttpOnly, host-only, Secure cookie at the root path."
+					);
 				return;
 			}
+			if (stale()) return;
 			ensurePrivateDir(this.deps.dir, this.deps.uid ?? process.getuid?.() ?? 0);
 			writeEndpointFile(
 				this.keyFile(),
@@ -550,6 +613,8 @@ export class WindowBrowser {
 	async dispose(): Promise<void> {
 		if (this.disposed) return;
 		this.disposed = true;
+		// A key being written finishes (or sees `disposed` and does not), and only then is the file removed.
+		await this.keyReady.catch(() => undefined);
 		try {
 			rmSync(this.keyFile(), { force: true });
 		} catch {

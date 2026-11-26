@@ -74,7 +74,10 @@ describe("a second runtime on the panel", () => {
 		let t = 1_000_000;
 		const c = new Control(() => t);
 		expect(c.recentlyRefused(20_000)).toBe(false);
-		c.refused();
+		// a refused galopin runtime is none of the window browser's business
+		c.refused(false);
+		expect(c.recentlyRefused(20_000)).toBe(false);
+		c.refused(true);
 		expect(c.recentlyRefused(20_000)).toBe(true);
 		t += 21_000;
 		expect(c.recentlyRefused(20_000)).toBe(false);
