@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { logger } from "$lib/server/logger";
-import { sanitizeJsonSchema, getOpenAiToolsForMcp, resetMcpToolsCache } from "./tools";
+import {
+	sanitizeJsonSchema,
+	getOpenAiToolsForMcp,
+	getToolUiMeta,
+	resetMcpToolsCache,
+} from "./tools";
 import type { McpServerConfig } from "./httpClient";
 import { UNTRUSTED_DESCRIPTION_SUFFIX } from "$lib/server/textGeneration/untrusted";
 
@@ -438,5 +443,63 @@ describe("getOpenAiToolsForMcp tool annotations", () => {
 
 		expect(mcpMock.listToolsCalls).toEqual([SERVER_A.url]);
 		expect(cached.mapping.search.annotations).toEqual({ destructiveHint: true });
+	});
+});
+
+describe("tools that link to an MCP App page", () => {
+	beforeEach(() => {
+		resetMcpToolsCache();
+		mcpMock.listToolsCalls.length = 0;
+		mcpMock.responses.clear();
+	});
+
+	const mapTool = {
+		...searchTool,
+		name: "show_map",
+		_meta: { ui: { resourceUri: "ui://maps/view", visibility: ["model", "app"] } },
+	};
+	const appOnlyTool = {
+		...searchTool,
+		name: "refresh_map",
+		_meta: { ui: { resourceUri: "ui://maps/view", visibility: ["app"] } },
+	};
+
+	it("keeps the link on the mapping, for the call to find its page", async () => {
+		mcpMock.responses.set(SERVER_A.url, { tools: [mapTool] });
+
+		const { mapping } = await getOpenAiToolsForMcp([SERVER_A]);
+
+		expect(mapping.show_map.ui).toEqual({
+			resourceUri: "ui://maps/view",
+			visibility: ["model", "app"],
+		});
+	});
+
+	it("never offers the model a tool only the page may call", async () => {
+		mcpMock.responses.set(SERVER_A.url, { tools: [mapTool, appOnlyTool, searchTool] });
+
+		const { tools, mapping } = await getOpenAiToolsForMcp([SERVER_A]);
+
+		expect(tools.map((t) => t.function.name)).toEqual(["show_map", "search"]);
+		expect(mapping.refresh_map).toBeUndefined();
+	});
+
+	it("still finds the app-only tool for a page's call, from the same listing", async () => {
+		mcpMock.responses.set(SERVER_A.url, { tools: [mapTool, appOnlyTool] });
+
+		const found = await getToolUiMeta(SERVER_A, "refresh_map");
+		const missing = await getToolUiMeta(SERVER_A, "nothing");
+
+		expect(found).toEqual({
+			listed: true,
+			ui: { resourceUri: "ui://maps/view", visibility: ["app"] },
+		});
+		expect(missing).toEqual({ listed: false });
+	});
+
+	it("reads a tool with no declaration as listed, with no link", async () => {
+		mcpMock.responses.set(SERVER_A.url, { tools: [searchTool] });
+
+		expect(await getToolUiMeta(SERVER_A, "search")).toEqual({ listed: true });
 	});
 });

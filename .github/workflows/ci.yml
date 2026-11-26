@@ -486,11 +486,13 @@ jobs:
       - run: npx playwright test --project=chromium --grep @smoke
         env:
           E2E_SKIP_BUILD: "1"
+          E2E_APPS_RENDER: "1"
       # The same upload, download and delete flow with the files in a bucket.
       - name: Blob store on S3 (RustFS)
         run: npx playwright test --project=chromium --grep @blob-store
         env:
           E2E_SKIP_BUILD: "1"
+          E2E_APPS_RENDER: "1"
           CHAT_BLOB_STORE: s3
           CHAT_S3_ENDPOINT: http://rustfs:9000
           CHAT_S3_BUCKET: cerea-e2e
@@ -574,12 +576,14 @@ jobs:
       - run: npx playwright test --project=chromium --shard=${{ matrix.shard }}/4 --reporter=list,blob
         env:
           E2E_SKIP_BUILD: "1"
+          E2E_APPS_RENDER: "1"
       # The S3 run is the same specs against a bucket: once, on shard 1, not four times.
       - name: Blob store on S3 (RustFS)
         if: ${{ !cancelled() && matrix.shard == 1 }}
         run: npx playwright test --project=chromium --grep @blob-store --reporter=list
         env:
           E2E_SKIP_BUILD: "1"
+          E2E_APPS_RENDER: "1"
           CHAT_BLOB_STORE: s3
           CHAT_S3_ENDPOINT: http://rustfs:9000
           CHAT_S3_BUCKET: cerea-e2e

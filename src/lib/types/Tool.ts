@@ -1,3 +1,5 @@
+import type { McpAppSnapshot } from "$lib/utils/mcpApp";
+
 export enum ToolResultStatus {
 	Success = "success",
 	Error = "error",
@@ -16,6 +18,8 @@ export interface ToolResultSuccess {
 	display?: boolean;
 	/** The output is content from outside (a page, a document, a connector's data); set when the call ran. */
 	external?: boolean;
+	/** The MCP App page the tool linked to (ADR: mcp-apps): a reference to the stored HTML, rendered in the card. */
+	app?: McpAppSnapshot;
 }
 
 export interface ToolResultError {

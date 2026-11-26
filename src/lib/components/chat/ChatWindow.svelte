@@ -54,6 +54,8 @@
 	import { FileDrag } from "$lib/utils/fileDrag.svelte";
 	import { pastedAttachments } from "$lib/utils/composerFiles";
 	import { chatDraftKey } from "$lib/utils/composerDraft";
+	import { setAppMessageSink, createSuggestionGate } from "$lib/utils/appMessageDraft";
+	import AppSuggestionChip from "./AppSuggestionChip.svelte";
 	import { useSettingsStore } from "$lib/stores/settings";
 	import { error } from "$lib/stores/errors";
 	import ModelSwitch from "./ModelSwitch.svelte";
@@ -201,6 +203,24 @@
 	// conversation (`home` before one exists), kept on this device only.
 	// Switching conversations swaps the draft rather than carrying it over.
 	let draftKey = $derived(chatDraftKey(page.params.id));
+
+	// A message an MCP App page proposes is a suggestion above the composer (docs/dev/adr-mcp-apps.md): it
+	// never writes into the draft and never takes the focus. Insert is the user's click.
+	let appSuggestion = $state<{ text: string; from: string } | null>(null);
+	const suggestionAllowed = createSuggestionGate();
+	setAppMessageSink((text, from) => {
+		if (!suggestionAllowed()) return false;
+		appSuggestion = { text, from };
+		return true;
+	});
+	async function insertSuggestion() {
+		if (!appSuggestion) return;
+		const text = appSuggestion.text;
+		appSuggestion = null;
+		draft = draft.trim() ? `${draft.replace(/\s+$/, "")}\n\n${text}` : text;
+		await tick();
+		document.querySelector<HTMLTextAreaElement>("textarea[data-testid='chat-input']")?.focus();
+	}
 
 	/** The per-conversation model picker. Not the workspace's Models tab,
 	    which is the management surface and sets the default. */
@@ -943,6 +963,14 @@
 						{:else if drag.active && isFileUploadEnabled}
 							<FileDropzone bind:files bind:onDrag={drag.active} mimeTypes={activeMimeTypes} />
 						{:else}
+							{#if appSuggestion}
+								<AppSuggestionChip
+									from={appSuggestion.from}
+									text={appSuggestion.text}
+									oninsert={insertSuggestion}
+									ondismiss={() => (appSuggestion = null)}
+								/>
+							{/if}
 							<div
 								class="flex w-full flex-1 rounded-xl border-none bg-transparent"
 								class:paste-glow={pastedLongContent}

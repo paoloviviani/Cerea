@@ -32,6 +32,12 @@ export interface McpServerConfig {
 	headers?: Record<string, string>;
 	/** One sentence on what it is for; optional, in `MCP_SERVERS` entries. */
 	description?: string;
+	/**
+	 * The connector's key (`base:<name>`, `connector:<id>`, a local one) when the server came from
+	 * the connector resolver. Absent on a server built by hand. An MCP App page names its connector
+	 * by this key.
+	 */
+	key?: string;
 }
 
 const DEFAULT_TIMEOUT_MS = 120_000;

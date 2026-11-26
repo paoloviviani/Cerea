@@ -408,7 +408,9 @@ describe("the MCP panel's list and a turn's selection", () => {
 			["notes", "crm", "old"].map((s) => `local:${deviceId}:${s}`),
 			user.user._id
 		);
-		expect(locals.servers).toEqual([{ name: "notes · on laptop", url: urlOf(deviceId) }]);
+		expect(locals.servers).toEqual([
+			{ key: `local:${deviceId}:notes`, name: "notes · on laptop", url: urlOf(deviceId) },
+		]);
 		expect(locals.unavailable.map((u) => u.name).sort()).toEqual([
 			"crm · on laptop",
 			"old · on laptop",

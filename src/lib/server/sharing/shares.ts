@@ -145,6 +145,8 @@ async function snapshotOf(
 		conversationId,
 		sha256: target.sha256,
 		name: target.name,
+		// An MCP App's stored page is the card's, never something to share.
+		tool: { $ne: "mcp_app" },
 	});
 	if (!row) throw new ShareError(404, "No such artifact.");
 	return {

@@ -19,6 +19,7 @@ import {
 	type McpToolTextResponse,
 } from "$lib/server/mcp/httpClient";
 import { getClient } from "$lib/server/mcp/clientPool";
+import { appSnapshotFor } from "$lib/server/mcp/apps/snapshot";
 import type { BuiltinTool, BuiltinToolImage } from "../builtinTools/types";
 import {
 	fitBatchToBudget,
@@ -981,6 +982,15 @@ export async function* executeToolCalls({
 				{ server: mappingEntry.server, tool: mappingEntry.tool },
 				"[mcp] tool call completed"
 			);
+			// A tool linked to an MCP App page: read and kept for the card. Never fails the call.
+			const app = await appSnapshotFor({
+				server: serverCfg,
+				tool: mappingEntry.tool,
+				conversationId: elicitation?.conversationId,
+				userId: owner?.userId,
+				messageId: elicitation?.messageId,
+				signal: abortSignal,
+			});
 			results.push({
 				index,
 				output: annotated,
@@ -1005,6 +1015,7 @@ export async function* executeToolCalls({
 					],
 					display: true,
 					external: true,
+					...(app ? { app } : {}),
 				},
 			});
 			if (resultFiles?.refs.length) {

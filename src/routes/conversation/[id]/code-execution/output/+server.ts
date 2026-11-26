@@ -83,7 +83,8 @@ export const GET: RequestHandler = async ({ params, locals, url }) => {
 	// restore (`latestAt`) puts an older version back on top.
 	const files = await collections.codeExecutionOutputs
 		.aggregate<CodeExecutionOutput>([
-			{ $match: { conversationId } },
+			// An MCP App's stored page is kept in this store for reloads, but it is not the user's file.
+			{ $match: { conversationId, tool: { $ne: "mcp_app" } } },
 			{ $addFields: { liveAt: { $ifNull: ["$latestAt", "$createdAt"] } } },
 			{ $sort: { liveAt: -1, _id: -1 } },
 		])

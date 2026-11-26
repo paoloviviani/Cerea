@@ -49,6 +49,14 @@ async function seedAppsConnector(db: Db, sessionId: string, opts: { appsAllowed?
 	const userId = await seedUser(db, sessionId, `e2e-${randomUUID()}`);
 	// Ask: a call the page starts must raise the same card a model's call does.
 	await db.collection("settings").updateOne({ userId }, { $set: { toolApprovalPolicy: "manual" } });
+	// The database lives across the tests of a run, and tool names are shared across connectors: an
+	// earlier test's connector (with its own switch) would own the same tool names and be the one a
+	// call resolves to. A unique name does not help; the earlier rows have to go.
+	const stale = await db.collection("mcpConnectors").find({ name: "Apps" }).toArray();
+	await db.collection("mcpConnectors").deleteMany({ name: "Apps" });
+	await db.collection("connectorModes").deleteMany({
+		key: { $in: stale.map((row) => `connector:${row._id}`) },
+	});
 	const id = new ObjectId();
 	const tool = (name: string, description: string, ui?: Record<string, unknown>) => ({
 		name,
@@ -76,15 +84,20 @@ async function seedAppsConnector(db: Db, sessionId: string, opts: { appsAllowed?
 		createdAt: new Date(),
 		updatedAt: new Date(),
 	});
-	await db.collection("connectorModes").insertOne({
-		_id: new ObjectId(),
-		key: `connector:${id}`,
-		mode: "on",
-		alwaysLoaded: true,
-		...(opts.appsAllowed === false ? { appsAllowed: false } : {}),
-		createdAt: new Date(),
-		updatedAt: new Date(),
-	});
+	// Upsert and always explicit: a database kept between local runs may hold a row for this key.
+	await db.collection("connectorModes").updateOne(
+		{ key: `connector:${id}` },
+		{
+			$set: {
+				mode: "on",
+				alwaysLoaded: true,
+				appsAllowed: opts.appsAllowed !== false,
+				updatedAt: new Date(),
+			},
+			$setOnInsert: { _id: new ObjectId(), createdAt: new Date() },
+		},
+		{ upsert: true }
+	);
 	return { userId, connectorId: id };
 }
 
@@ -221,19 +234,33 @@ test.describe("MCP Apps: rendering @needs-apps-render", () => {
 		await APP.inside(page).locator("#call-tool").click();
 		await expect(page.getByText("echo_app").last()).toBeVisible({ timeout: 20_000 });
 		await page.getByRole("button", { name: "Deny" }).last().click();
-		await expect(APP.inside(page).locator("#call-result")).toContainText("error:", {
+		// A denial is a tool result with isError, not a protocol error: the page prints "result:".
+		await expect(APP.inside(page).locator("#call-result")).toContainText("result:The user denied", {
 			timeout: 20_000,
 		});
 		expect((await control.calls()).filter((c) => c.name === "echo_app")).toHaveLength(0);
 	});
 
-	test("a message from the page lands in the chat", async ({ page, db, session, mockOpenAI }) => {
+	test("a message from the page is a suggestion above the composer, inserted only by a click", async ({
+		page,
+		db,
+		session,
+		mockOpenAI,
+	}) => {
 		await seedAppsConnector(db, session.sessionId);
 		await runTool(page, mockOpenAI, "show_probe");
 		await allowModelCall(page);
 		await expect(APP.frame(page)).toBeVisible({ timeout: 45_000 });
 		await APP.inside(page).locator("#send-message").click();
-		await expect(page.getByText("hello from the app")).toBeVisible({ timeout: 20_000 });
+		const chip = page.locator('[data-testid="app-suggestion"]');
+		await expect(chip).toContainText("hello from the app", { timeout: 20_000 });
+		await expect(chip).toContainText("suggests a message");
+		// Nothing was written into the composer, and nothing was sent.
+		const composer = page.locator("textarea[data-testid='chat-input']");
+		await expect(composer).toHaveValue("");
+		await chip.getByRole("button", { name: "Insert" }).click();
+		await expect(composer).toHaveValue("hello from the app");
+		await expect(chip).toHaveCount(0);
 	});
 
 	test("sandbox escapes fail: cookie, origin, parent, top navigation, storage, undeclared domain, image and beacon", async ({
@@ -255,11 +282,18 @@ test.describe("MCP Apps: rendering @needs-apps-render", () => {
 			(await APP.inside(page).locator("#probe-results").textContent()) ?? "{}"
 		) as Record<string, { ok: boolean; detail: string }>;
 		for (const name of PROBES_MUST_FAIL) {
+			// `sendBeacon` answers true when it only queued the request; whether it left is the
+			// fixture's own count below, which is the proof.
+			if (name === "beacon") {
+				expect(results[name], "beacon was not probed").toBeDefined();
+				continue;
+			}
 			expect(results[name], `${name} was not probed`).toBeDefined();
 			expect(results[name].ok, `${name} succeeded: ${results[name].detail}`).toBe(false);
 		}
 		// The CSP stopped the request before it left: the fixture never saw it.
-		expect(await control.escapePings()).toBe(0);
+		await page.waitForTimeout(1000);
+		await expect.poll(() => control.escapePings(), { timeout: 2000 }).toBe(0);
 		// And the chat itself did not navigate away.
 		expect(page.url()).toMatch(/\/conversation\//);
 	});

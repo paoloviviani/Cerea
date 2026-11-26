@@ -128,6 +128,32 @@ nothing is sent. The approval card, the stored message and the logs show the ref
 never the content. **Deliberate decision (ADR 0113): file references are not redacted; withhold rules apply.** The file's raw bytes go to the connector you chose, as the file is yours; there is no redaction step, and a file a privacy rule withheld never resolves. If a call is still cut off by the output limit, the model is told the
 arguments were too large and to use a reference. Code: `textGeneration/mcp/fileReferences.ts`.
 
+## Apps from connectors
+
+Some connectors ship an interactive page with a tool: a map, a diagram editor, a PDF viewer (these are
+[MCP Apps](https://github.com/modelcontextprotocol/ext-apps)). When the assistant uses such a tool, the page appears
+inside the tool's card in the conversation, already showing what the tool returned. A connector that has no page, or
+a page Cerea cannot show, behaves as before: you see the tool's text result.
+
+What a page can and cannot do:
+
+- **It runs in a locked box.** The page cannot see your Cerea session, cookies or other chats, and it can load
+  only from the web addresses its connector declared (the card lists them).
+- **Its tool calls ask you first.** When the page wants to call a tool of its connector, the card says "The view
+  from _connector_ wants to call _tool_" with the arguments, and you choose **Allow once**, **Allow this tool for
+  the rest of the conversation** or **Deny**, exactly as for the assistant's own calls. If you have set the
+  conversation to allow tools without asking, the call runs. Only that connector's tools can be called.
+- **Its messages are drafts.** If the page proposes a message to the assistant, it lands in your message box
+  for you to read and send. It is never sent for you.
+- **Links ask first.** A link the page opens shows its full address and waits for your yes.
+- **Full screen** is available from the card's header (Esc closes it).
+- **A reload keeps it.** The page is kept with the conversation (for as long as the conversation's files are
+  kept), so it shows again without the connector being reachable. After that, the card shows the text result.
+
+Not supported yet: pages writing into the assistant's context, file downloads from a page, picture-in-picture,
+camera, microphone and location, pages that need browser storage, and pages in shared links (which show the text
+result).
+
 ## Connectors for everybody
 
 An administrator can provide connectors to the whole deployment (see

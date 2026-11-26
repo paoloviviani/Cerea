@@ -19,6 +19,7 @@
 	import BlockWrapper from "./BlockWrapper.svelte";
 	import { coordinationCall, getCodeSessionLinks } from "$lib/utils/codeSessionLinks";
 	import ImageLightbox from "./ImageLightbox.svelte";
+	import McpAppFrame from "./McpAppFrame.svelte";
 
 	interface Props {
 		tool: MessageToolUpdate[];
@@ -94,6 +95,49 @@
 	});
 
 	let toolFnName = $derived(tool.find(isMessageToolCallUpdate)?.call.name);
+
+	// An MCP App page the tool linked to (docs/dev/adr-mcp-apps.md): shown under the header, open or
+	// not, because it is the result. Only in a conversation (a shared link has no way to read the
+	// stored page and shows the text result).
+	const appView = $derived.by(() => {
+		const conversationId = page.params?.id;
+		const result = tool.find(isMessageToolResultUpdate)?.result;
+		if (!conversationId || !result || result.status !== ToolResultStatus.Success || !result.app) {
+			return null;
+		}
+		const output = (result.outputs[0] ?? {}) as Record<string, unknown>;
+		const text = typeof output["text"] === "string" ? output["text"] : "";
+		const structured = output["structured"];
+		const content = Array.isArray(output["content"]) ? output["content"] : [];
+		let input: Record<string, unknown> = {};
+		const raw = callUpdate?.argumentsRaw;
+		if (typeof raw === "string") {
+			try {
+				const parsed: unknown = JSON.parse(raw);
+				if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+					input = parsed as Record<string, unknown>;
+				}
+			} catch {
+				// The card's own parameters stand in.
+			}
+		}
+		if (Object.keys(input).length === 0 && inputParameters) {
+			input = Object.fromEntries(
+				Object.entries(inputParameters).map(([k, v]) => [k, expandJsonText(v)])
+			);
+		}
+		return {
+			app: result.app,
+			conversationId,
+			input,
+			result: {
+				content: content.length > 0 ? content : [{ type: "text", text }],
+				...(structured && typeof structured === "object" && !Array.isArray(structured)
+					? { structuredContent: structured as Record<string, unknown> }
+					: {}),
+			},
+		};
+	});
 
 	// `load_tools` (ADR 0104) is the assistant making a connector's tools available, not work
 	// the person asked for: one quiet line ("Loaded Maps") instead of a card to open.
@@ -479,6 +523,15 @@
 					</button>
 				{/if}
 			</div>
+		{/if}
+
+		{#if appView}
+			<McpAppFrame
+				app={appView.app}
+				conversationId={appView.conversationId}
+				toolInput={appView.input}
+				toolResult={appView.result}
+			/>
 		{/if}
 
 		<!-- Expandable content -->

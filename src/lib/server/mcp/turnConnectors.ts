@@ -134,6 +134,7 @@ export async function resolveConnectors(userId: ObjectId | undefined): Promise<R
 			host: hostOf(server.url),
 			open: async () => ({
 				server: {
+					key,
 					name: server.name,
 					url: server.url,
 					...(server.headers ? { headers: server.headers } : {}),
@@ -199,6 +200,7 @@ export async function resolveConnectors(userId: ObjectId | undefined): Promise<R
 				if (!headers) return { unavailable: "not signed in, or its token is missing" };
 				return {
 					server: {
+						key,
 						name: row.name,
 						url: row.url,
 						...(Object.keys(headers).length > 0 ? { headers } : {}),
@@ -231,7 +233,7 @@ export async function resolveConnectors(userId: ObjectId | undefined): Promise<R
 						const local = await resolveLocalSelection({ connectorIds: [view.id], userId });
 						const server = local.servers[0];
 						return server
-							? { server: { name: server.name, url: server.url } }
+							? { server: { key: view.id, name: server.name, url: server.url } }
 							: { unavailable: local.unavailable[0]?.reason ?? "it is not available" };
 					},
 				});
