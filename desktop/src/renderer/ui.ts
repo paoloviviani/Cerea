@@ -17,7 +17,6 @@ const msg = (e: unknown) =>
 		: String(e);
 
 let state: AppState | undefined;
-let pane: "browser" | "galopin" | "server" | null = "browser";
 let candidate: ServerInfo | undefined;
 let switchCandidate: ServerInfo | undefined;
 const TOOLS = ["opencode", "goose", "vibe", "claude"] as const;
@@ -30,18 +29,25 @@ function render() {
 	if (!state) return;
 	const s = state;
 	const first = !s.server;
+	const open = !first && s.panel.open;
+	const pane = s.panel.pane;
 	show($("setup"), first);
-	show($("side"), !first && pane !== null);
+	show($("side"), open);
+	document.documentElement.style.setProperty("--side-w", `${s.panel.width}px`);
 	for (const b of document.querySelectorAll<HTMLButtonElement>("#bar [data-pane]")) {
 		b.hidden = first;
-		b.setAttribute("aria-pressed", String(b.dataset.pane === pane));
+		b.setAttribute("aria-pressed", String(open && b.dataset.pane === pane));
 	}
+	const working = !first && s.panel.working;
+	$("tab-browser").classList.toggle("working", working);
+	$("tab-browser-label").textContent = working ? "Browser working\u2026" : "Browser";
 	$("open-cerea").hidden = first;
 	$("server-name").textContent = s.server?.name ?? "Cerea";
 	const logo = $<HTMLImageElement>("logo");
 	logo.hidden = !s.server?.icon;
 	if (s.server?.icon) logo.src = s.server.icon;
-	for (const p of ["browser", "galopin", "server"] as const) show($(`pane-${p}`), pane === p);
+	for (const p of ["browser", "galopin", "server"] as const)
+		show($(`pane-${p}`), open && pane === p);
 
 	// galopin
 	const g = s.galopin;
@@ -139,21 +145,14 @@ function renderProfiles(s: AppState) {
 }
 
 function reportLayout() {
-	if (!state) return;
-	const first = !state.server;
-	const sideOpen = !first && pane !== null;
+	if (!state || !state.panel.open) return;
 	const r = $("browser-rect").getBoundingClientRect();
 	void call("browser:layout", {
 		x: Math.round(r.x),
 		y: Math.round(r.y),
 		width: Math.round(r.width),
 		height: Math.round(r.height),
-		visible: sideOpen && pane === "browser" && r.width > 0,
-		sideWidth: first
-			? window.innerWidth
-			: sideOpen
-				? Math.round($("side").getBoundingClientRect().width)
-				: 0,
+		visible: state.panel.pane === "browser" && r.width > 0,
 	});
 }
 
@@ -186,8 +185,9 @@ function card(prefix: "setup" | "switch", info: ServerInfo | undefined) {
 function wire() {
 	for (const b of document.querySelectorAll<HTMLButtonElement>("#bar [data-pane]")) {
 		b.onclick = () => {
-			pane = pane === b.dataset.pane ? null : (b.dataset.pane as typeof pane);
-			render();
+			const want = b.dataset.pane as "browser" | "galopin" | "server";
+			const showing = !!state?.panel.open && state.panel.pane === want;
+			void call("panel:set", { open: !showing, pane: want });
 		};
 	}
 	$<HTMLInputElement>("s-login").onchange = (e) =>
@@ -242,9 +242,9 @@ function wire() {
 	const sel = $<HTMLSelectElement>("profile-select");
 	sel.onchange = () => {
 		if (sel.value === "__add") {
-			pane = "server";
-			render();
-			$<HTMLInputElement>("switch-address").focus();
+			void call("panel:set", { open: true, pane: "server" }).then(() =>
+				$<HTMLInputElement>("switch-address").focus()
+			);
 			return;
 		}
 		void call("profile:switch", { id: sel.value }).catch((err) => log(`switch: ${msg(err)}`));
@@ -312,6 +312,24 @@ function wire() {
 		setup.append(on, off);
 	}
 	window.addEventListener("resize", reportLayout);
+	$("side-close").onclick = () => void call("panel:set", { open: false });
+	// Drag the left edge to resize: the width is the window's right edge minus the pointer, clamped in main.
+	const handle = $("side-handle");
+	let dragging = false;
+	handle.onpointerdown = (e) => {
+		dragging = true;
+		handle.setPointerCapture(e.pointerId);
+		handle.classList.add("dragging");
+	};
+	handle.onpointermove = (e) => {
+		if (!dragging) return;
+		void call("panel:set", { width: window.innerWidth - e.clientX });
+	};
+	handle.onpointerup = handle.onpointercancel = (e) => {
+		dragging = false;
+		handle.releasePointerCapture(e.pointerId);
+		handle.classList.remove("dragging");
+	};
 	// Hidden: nothing animates, and nothing is asked for. Shown again: look once.
 	document.addEventListener("visibilitychange", () => {
 		document.body.classList.toggle("hidden", document.hidden);

@@ -66,10 +66,10 @@ describe("IPC validation", () => {
 
 	it("checks the browser layout numbers and control modes", () => {
 		expect(() =>
-			validate("browser:layout", { x: -1, y: 0, width: 1, height: 1, visible: true, sideWidth: 0 })
+			validate("browser:layout", { x: -1, y: 0, width: 1, height: 1, visible: true })
 		).toThrow(IpcError);
 		expect(() =>
-			validate("browser:layout", { x: NaN, y: 0, width: 1, height: 1, visible: true, sideWidth: 0 })
+			validate("browser:layout", { x: NaN, y: 0, width: 1, height: 1, visible: true })
 		).toThrow(IpcError);
 		expect(
 			validate("browser:layout", {
@@ -78,11 +78,30 @@ describe("IPC validation", () => {
 				width: 10,
 				height: 10,
 				visible: false,
-				sideWidth: 5,
 			}).x
 		).toBe(1);
 		expect(() => validate("browser:control", { mode: "root" })).toThrow(IpcError);
 		expect(validate("browser:control", { mode: "user" }).mode).toBe("user");
+	});
+
+	it("validates the panel changes", () => {
+		expect(validate("panel:set", { open: true, pane: "browser", width: 500.4 })).toEqual({
+			open: true,
+			pane: "browser",
+			width: 500,
+		});
+		expect(validate("panel:set", { open: false })).toEqual({ open: false });
+		for (const bad of [
+			{ open: "yes" },
+			{ pane: "terminal" },
+			{ width: -1 },
+			{ width: NaN },
+			{ width: 99999 },
+			{ width: "wide" },
+			{ extra: 1 },
+		]) {
+			expect(() => validate("panel:set", bad), JSON.stringify(bad)).toThrow(IpcError);
+		}
 	});
 
 	it("rejects NUL bytes and oversized strings", () => {

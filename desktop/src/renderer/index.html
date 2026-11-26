@@ -16,7 +16,31 @@
 			<strong id="server-name">Cerea</strong>
 			<select id="profile-select" title="Switch profile" aria-label="Profile" hidden></select>
 			<span class="spacer"></span>
-			<button id="tab-browser" data-pane="browser">Browser</button>
+			<button
+				id="tab-browser"
+				data-pane="browser"
+				title="Show or hide the browser (Ctrl or Cmd+Shift+B)"
+			>
+				<svg class="icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+					<circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.3" />
+					<ellipse
+						cx="8"
+						cy="8"
+						rx="2.6"
+						ry="6.2"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="1.3"
+					/>
+					<path
+						d="M1.8 8h12.4M2.6 5h10.8M2.6 11h10.8"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="1.2"
+					/>
+				</svg>
+				<span id="tab-browser-label">Browser</span>
+			</button>
 			<button id="tab-galopin" data-pane="galopin">galopin</button>
 			<button id="tab-server" data-pane="server">Profiles</button>
 			<button id="open-cerea" title="Open this Cerea in your web browser">Open in browser</button>
@@ -49,7 +73,21 @@
 			</div>
 		</main>
 
-		<aside id="side" hidden>
+		<aside id="side" hidden aria-label="Tools">
+			<div
+				id="side-handle"
+				role="separator"
+				aria-orientation="vertical"
+				aria-label="Resize the panel"
+				tabindex="0"
+			></div>
+			<button
+				id="side-close"
+				title="Close the panel (a running task keeps going)"
+				aria-label="Close the panel"
+			>
+				&times;
+			</button>
 			<section id="pane-browser" hidden>
 				<div class="row">
 					<button id="nav-back" title="Back">&larr;</button>

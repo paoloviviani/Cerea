@@ -30,6 +30,8 @@ export interface Profile {
 	server: ServerInfo;
 	/** True for the profile that uses galopin's default configuration directory. */
 	defaultGalopin: boolean;
+	/** The tool panel's width the user dragged to, remembered per profile (whether it is open is not). */
+	panelWidth?: number;
 }
 
 export interface Store {
@@ -146,6 +148,7 @@ export function readStore(userData: string): { store: Store; migrated: boolean }
 				name?: unknown;
 				server?: Partial<ServerInfo>;
 				defaultGalopin?: unknown;
+				panelWidth?: unknown;
 			};
 			const server = serverOf(q.server);
 			if (!isProfileId(q.id) || !server || profiles.some((x) => x.id === q.id)) continue;
@@ -154,6 +157,9 @@ export function readStore(userData: string): { store: Store; migrated: boolean }
 				name: cleanName(q.name, server.name),
 				server,
 				defaultGalopin: q.defaultGalopin === true,
+				...(typeof q.panelWidth === "number" && Number.isFinite(q.panelWidth)
+					? { panelWidth: Math.min(4000, Math.max(0, Math.round(q.panelWidth))) }
+					: {}),
 			});
 		}
 		// At most one profile owns galopin's default directory: the first that says so.
@@ -201,6 +207,14 @@ export function addProfile(
 		defaultGalopin: s.profiles.length === 0,
 	};
 	return { store: { active: s.active ?? profile.id, profiles: [...s.profiles, profile] }, profile };
+}
+
+/** Remembers the tool panel's width for a profile (clamped when used, against the window). */
+export function setPanelWidth(s: Store, id: string, width: number): Store {
+	return {
+		...s,
+		profiles: s.profiles.map((p) => (p.id === id ? { ...p, panelWidth: Math.round(width) } : p)),
+	};
 }
 
 export function renameProfile(s: Store, id: string, name: string): Store {

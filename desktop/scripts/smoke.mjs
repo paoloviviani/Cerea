@@ -92,11 +92,15 @@ const env = {
 	...(existsSync(galopinBin) ? { GALOPIN_BIN: galopinBin } : {}),
 };
 const electron = join(root, "node_modules", ".bin", "electron");
-const app = spawn(electron, [".", "--no-sandbox", "--disable-gpu"], {
-	cwd: root,
-	env,
-	stdio: ["pipe", "pipe", "pipe"],
-});
+const app = spawn(
+	electron,
+	[".", "--no-sandbox", "--disable-gpu", "--force-device-scale-factor=1"],
+	{
+		cwd: root,
+		env,
+		stdio: ["pipe", "pipe", "pipe"],
+	}
+);
 let out = "";
 let errOut = "";
 const waiters = [];
@@ -153,6 +157,23 @@ try {
 	assert.match(cerea.title, /Smoke Cerea page/);
 	step(`Cerea window loaded ${cerea.url}`);
 
+	// 1b. the browser panel is a tool: closed at start, the Cerea view has the whole window
+	const SHOTS = process.env.SMOKE_SHOTS ?? "/var/tmp/desktop2-tmp";
+	const shot = async (name) => hook(`screenshot ${join(SHOTS, name)}`, "SHOT");
+	mkdirSync(SHOTS, { recursive: true });
+	let pnl = await hook("panel", "PANEL");
+	assert.equal(pnl.open, false, "the panel is closed at start");
+	assert.equal(pnl.cereaVisible, true);
+	assert.equal(pnl.cerea.width, pnl.content.width, "the Cerea view spans the window");
+	assert.equal(pnl.cerea.x, 0);
+	assert.match(pnl.menu.accelerator, /Shift\+B/);
+	assert.match(pnl.menu.label, /Show Browser/);
+	let um = await hook("uimetrics", "UIMETRICS");
+	assert.equal(um.side.hidden, true, "the panel is not in the page");
+	assert.equal(um.dpr, 1, "device scale factor 1");
+	await shot("panel-closed.png");
+	step("panel closed at start; the Cerea view spans the window (screenshot panel-closed.png)");
+
 	// 2. galopin panel: the real binary, a temp HOME
 	const g = await hook("galopin", "GALOPIN");
 	if (g.available) {
@@ -187,6 +208,86 @@ try {
 	assert.ok(!snap.isError, JSON.stringify(snap.content));
 	assert.match(snap.structuredContent.text, /button "Save"/);
 	step("open + resume + snapshot through the bridge");
+
+	// 2b. the runtime starting on a task opened the panel, and the Cerea view made room
+	await new Promise((r) => setTimeout(r, 800));
+	pnl = await hook("panel", "PANEL");
+	assert.equal(pnl.open, true, "a task opens the panel");
+	assert.equal(pnl.pane, "browser");
+	assert.equal(pnl.cerea.width + pnl.panelRect.width, pnl.content.width, "window = chat + panel");
+	assert.ok(pnl.cerea.x + pnl.cerea.width <= pnl.panelRect.x, "no overlap");
+	assert.equal(pnl.working, true);
+	um = await hook("uimetrics", "UIMETRICS");
+	assert.equal(um.side.hidden, false);
+	assert.match(um.tabBrowser, /Browser working/);
+	assert.ok(
+		Math.abs(um.side.w - pnl.panelRect.width) <= 1 && Math.abs(um.side.x - pnl.panelRect.x) <= 1,
+		"the page's panel is where the layout says"
+	);
+	await shot("panel-open.png");
+	step(
+		"a runtime task opens the panel without overlap, and the toggle shows 'Browser working' (screenshot panel-open.png)"
+	);
+
+	// closing hides the panel and the task goes on
+	await hook("uiclick side-close");
+	await new Promise((r) => setTimeout(r, 500));
+	pnl = await hook("panel", "PANEL");
+	assert.equal(pnl.open, false, "the close button hides the panel");
+	assert.equal(pnl.cerea.width, pnl.content.width, "the Cerea view takes the room back");
+	const stillGoing = await call("snapshot");
+	assert.ok(!stillGoing.isError, "the task keeps going with the panel closed");
+	pnl = await hook("panel", "PANEL");
+	assert.equal(pnl.open, false, "more activity of the same task does not reopen it");
+	assert.equal(pnl.working, true);
+	step("the close button hides the panel; the task goes on and does not reopen it");
+
+	// the shortcut toggles it; a resize keeps the room, the width is clamped
+	await hook("key control+shift+b");
+	await new Promise((r) => setTimeout(r, 400));
+	pnl = await hook("panel", "PANEL");
+	if (!pnl.open) {
+		console.log(
+			"note: a synthetic key event did not reach the menu accelerator under Xvfb; using the menu item itself"
+		);
+		await hook("togglemenu");
+		await new Promise((r) => setTimeout(r, 300));
+		pnl = await hook("panel", "PANEL");
+	}
+	assert.equal(pnl.open, true, "Ctrl+Shift+B opens the panel");
+	assert.match(pnl.menu.label, /Hide Browser/);
+	await hook("togglemenu");
+	await new Promise((r) => setTimeout(r, 300));
+	pnl = await hook("panel", "PANEL");
+	assert.equal(pnl.open, false, "the same item closes it");
+	await hook("togglemenu");
+	await hook('panelset {"width":600}');
+	await new Promise((r) => setTimeout(r, 300));
+	pnl = await hook("panel", "PANEL");
+	assert.equal(pnl.panelRect.width, 600);
+	assert.equal(pnl.cerea.width, pnl.content.width - 600);
+	await hook('panelset {"width":50}');
+	pnl = await hook("panel", "PANEL");
+	assert.equal(pnl.panelRect.width, 360, "never narrower than 360 px");
+	await hook('panelset {"width":99999}');
+	pnl = await hook("panel", "PANEL");
+	assert.equal(pnl.panelRect.width, Math.floor(pnl.content.width * 0.7), "never wider than 70%");
+	await hook("size 900 560");
+	await new Promise((r) => setTimeout(r, 400));
+	pnl = await hook("panel", "PANEL");
+	assert.equal(
+		pnl.cerea.width + pnl.panelRect.width,
+		900,
+		"at the smallest size the chat and the panel still share the window"
+	);
+	assert.ok(pnl.cerea.width >= 270);
+	await hook('panelset {"width":440}');
+	await hook("size 1360 860");
+	await hook('panelset {"open":false}');
+	step(
+		"the shortcut and the menu item toggle it; the width is clamped; at 900x560 nothing overlaps"
+	);
+
 	const field = snap.structuredContent.elements.find((e) => e.name === "Full name");
 	const fill = await call("act", { actions: [{ type: "fill", ref: field.ref, text: "Ada" }] });
 	assert.equal(fill.structuredContent.results[0].ok, true, JSON.stringify(fill.structuredContent));

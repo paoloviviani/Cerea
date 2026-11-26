@@ -8,6 +8,8 @@ export const TOOLS = ["opencode", "goose", "vibe", "claude"] as const;
 export type Tool = (typeof TOOLS)[number];
 export const ENGINES = ["opencode", "goose", "vibe"] as const;
 export type Engine = (typeof ENGINES)[number];
+export const PANES = ["browser", "galopin", "server"] as const;
+export type Pane = (typeof PANES)[number];
 
 /** One-way calls the renderer may make, by channel; the value is the validated argument. */
 export interface Calls {
@@ -34,8 +36,8 @@ export interface Calls {
 		width: number;
 		height: number;
 		visible: boolean;
-		sideWidth: number;
 	};
+	"panel:set": { open?: boolean; pane?: Pane; width?: number };
 	"browser:open": { url: string };
 	"browser:tab": { action: "activate" | "close"; id: string };
 	"browser:nav": { action: "back" | "forward" | "reload" };
@@ -218,7 +220,7 @@ export function validate<C extends Channel>(channel: C, raw: unknown): Calls[C] 
 			return out(p);
 		}
 		case "browser:layout": {
-			const o = obj(["x", "y", "width", "height", "visible", "sideWidth"]);
+			const o = obj(["x", "y", "width", "height", "visible"]);
 			const n = (v: unknown, w: string) => {
 				if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 20000)
 					throw new IpcError(`bad ${w}`);
@@ -230,7 +232,26 @@ export function validate<C extends Channel>(channel: C, raw: unknown): Calls[C] 
 				width: n(o.width, "width"),
 				height: n(o.height, "height"),
 				visible: bool(o.visible, "visible"),
-				sideWidth: n(o.sideWidth, "sideWidth"),
+			});
+		}
+		case "panel:set": {
+			const o = obj(["open", "pane", "width"]);
+			let width: number | undefined;
+			if (o.width !== undefined) {
+				if (
+					typeof o.width !== "number" ||
+					!Number.isFinite(o.width) ||
+					o.width < 0 ||
+					o.width > 20000
+				) {
+					throw new IpcError("bad width");
+				}
+				width = Math.round(o.width);
+			}
+			return out({
+				...(o.open === undefined ? {} : { open: bool(o.open, "open") }),
+				...(o.pane === undefined ? {} : { pane: oneOf(o.pane, PANES, "pane") }),
+				...(width === undefined ? {} : { width }),
 			});
 		}
 		case "browser:open": {
@@ -276,6 +297,7 @@ export const CHANNELS: Channel[] = [
 	"galopin:edit-connectors",
 	"galopin:logs",
 	"browser:layout",
+	"panel:set",
 	"browser:open",
 	"browser:tab",
 	"browser:nav",
@@ -318,6 +340,8 @@ export interface AppState {
 	browser: BrowserState;
 	platform: string;
 	startAtLogin: boolean;
+	/** The tool panel at the right: closed at every start; the browser opens it when a task begins. */
+	panel: { open: boolean; pane: Pane; width: number; working: boolean };
 	version: string;
 	packaged: boolean;
 }

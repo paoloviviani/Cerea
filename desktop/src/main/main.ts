@@ -17,6 +17,7 @@ import {
 	type WebContents,
 } from "electron";
 import { Mutex, serialize } from "./mutex.ts";
+import { clampPanelWidth, computeLayout, PANEL_DEFAULT, type Layout } from "./layout.ts";
 import { BridgeRouter, CdpBridge } from "./cdpBridge.ts";
 import { startBridgeServer, type BridgeServer } from "./bridgeServer.ts";
 import { BrowserPanel } from "./browserPanel.ts";
@@ -44,6 +45,7 @@ import {
 	removeProfile,
 	renameProfile,
 	saveStore,
+	setPanelWidth,
 	switchTo,
 	loadStore,
 	type Profile,
@@ -57,9 +59,9 @@ import {
 	type AppState,
 	type Calls,
 	type Channel,
+	type Pane,
 } from "../shared/ipc.ts";
 
-const HEADER = 40;
 // Test hooks exist only in an unpackaged run: a packaged app ignores these variables.
 const TEST = !app.isPackaged && process.env.CEREA_DESKTOP_TEST === "1";
 
@@ -79,8 +81,12 @@ const ops = new Mutex();
 let nodeBinDir: string | undefined;
 const guard: GuardState = { origin: "" };
 const control = new Control();
+// The browser runtime starting on a task opens the panel (a user who closes it keeps the task going).
+control.onTaskStart(() => {
+	if (cur() && !(panelUi.open && panelUi.pane === "browser"))
+		setPanel({ open: true, pane: "browser" });
+});
 let bridgeConnected = false;
-let sideWidth = 0;
 let log: string[] = [];
 
 const uiDir = () => join(__dirname, "..", "renderer");
@@ -114,6 +120,12 @@ function appState(): AppState {
 			: { tabs: [], mode: control.mode, agentBusy: false, connected: false },
 		platform: process.platform,
 		startAtLogin: loginEnabled(),
+		panel: {
+			open: panelUi.open && !!cur(),
+			pane: panelUi.pane,
+			width: currentLayout().panelWidth,
+			working: control.working && !!cur(),
+		},
 		version: app.getVersion(),
 		packaged: app.isPackaged,
 	};
@@ -131,13 +143,65 @@ const pushState = () => push("state", appState());
 
 // ---- the Cerea window -----------------------------------------------------------------------
 
+// ---- the tool panel -------------------------------------------------------------------------
+
+/** The tool panel (browser, galopin, profiles) at the right: closed at every start. */
+let panelUi: { open: boolean; pane: Pane } = { open: false, pane: "browser" };
+/** Each profile keeps its own open state and pane for the session; a fresh start is closed again. */
+const panelMemory = new Map<string, { open: boolean; pane: Pane }>();
+
+function currentLayout(): Layout {
+	const b = win && !win.isDestroyed() ? win.getContentBounds() : { width: 1360, height: 860 };
+	return computeLayout({
+		width: b.width,
+		height: b.height,
+		hasServer: !!cur(),
+		open: panelUi.open,
+		panelWidth: cur()?.panelWidth ?? PANEL_DEFAULT,
+	});
+}
+
+/** One place decides where the Cerea view and the browser's pages go, so they cannot overlap. */
 function placeCerea(): void {
-	if (!win || !ceraeView) return;
-	const b = win.getContentBounds();
-	const show = !!cur() && sideWidth < b.width;
-	ceraeView.setVisible(show);
-	if (show)
-		ceraeView.setBounds({ x: 0, y: HEADER, width: b.width - sideWidth, height: b.height - HEADER });
+	const l = currentLayout();
+	if (ceraeView) {
+		ceraeView.setVisible(!!l.cerea);
+		if (l.cerea) ceraeView.setBounds(l.cerea);
+	}
+	// The panel's pages show only while the panel is open on its Browser pane (and only where the UI says).
+	panel?.setLayout({
+		...lastRect,
+		visible: !!l.panel && panelUi.pane === "browser" && lastRect.width > 0,
+	});
+}
+
+let widthTimer: NodeJS.Timeout | undefined;
+/** Dragging the handle changes the width many times a second; the file is written once, when it settles. */
+function saveWidthSoon(): void {
+	clearTimeout(widthTimer);
+	widthTimer = setTimeout(() => saveStore(app.getPath("userData"), store), 400);
+	widthTimer.unref();
+}
+
+function setPanel(change: { open?: boolean; pane?: Pane; width?: number }): void {
+	const p = cur();
+	if (!p) return;
+	if (change.pane !== undefined) panelUi.pane = change.pane;
+	if (change.open !== undefined) panelUi.open = change.open;
+	panelMemory.set(p.id, { ...panelUi });
+	if (change.width !== undefined) {
+		const b = win?.getContentBounds().width ?? 1360;
+		store = setPanelWidth(store, p.id, clampPanelWidth(change.width, b));
+		saveWidthSoon();
+	}
+	placeCerea();
+	setMenu();
+	pushState();
+}
+
+/** Ctrl or Cmd with Shift and B: the browser panel opens, or closes if it is the one showing. */
+function toggleBrowser(): void {
+	setPanel({ open: !(panelUi.open && panelUi.pane === "browser"), pane: "browser" });
 }
 
 function makeCereaView(profile: Profile): WebContentsView {
@@ -245,6 +309,11 @@ function loadActive(): void {
 		router.set(undefined);
 		galopin = makeGalopin(undefined);
 	}
+	// Closed unless this profile had it open this session, or a task is running right now.
+	panelUi = p
+		? { ...(panelMemory.get(p.id) ?? { open: false, pane: "browser" as Pane }) }
+		: { open: false, pane: "browser" };
+	if (p && control.working) panelUi = { open: true, pane: "browser" };
 	win?.setTitle(p ? `Cerea \u2014 ${p.name}` : "Cerea");
 	setMenu();
 	placeCerea();
@@ -450,12 +519,11 @@ const handlers: { [C in Channel]: Handler<C> } = {
 		return err || "Opened. Saved changes are picked up automatically.";
 	},
 	"galopin:logs": () => log.join("\n"),
-	"browser:layout": ({ sideWidth: w, ...rect }) => {
-		sideWidth = w;
+	"browser:layout": (rect) => {
 		lastRect = rect;
 		placeCerea();
-		panel?.setLayout(rect);
 	},
+	"panel:set": (change) => setPanel(change),
 	"browser:open": ({ url }) => panel?.openForUser(url),
 	"browser:tab": ({ action, id }) =>
 		action === "activate" ? panel?.activate(id) : panel?.close(id),
@@ -509,11 +577,30 @@ function setMenu(): void {
 			click: () => void switchProfile(p.id).catch((e) => line(`Switch failed: ${String(e)}`)),
 		})),
 	};
+	// The browser panel is in the Window menu (a packaged app has no View menu).
+	const windowMenu: Electron.MenuItemConstructorOptions = {
+		label: "Window",
+		submenu: [
+			{
+				id: "toggle-browser",
+				label: panelUi.open && panelUi.pane === "browser" ? "Hide Browser" : "Show Browser",
+				accelerator: "CmdOrCtrl+Shift+B",
+				enabled: !!cur(),
+				click: () => toggleBrowser(),
+			},
+			{ type: "separator" },
+			{ role: "minimize" },
+			...(process.platform === "darwin"
+				? [{ role: "zoom" as const }, { role: "front" as const }]
+				: []),
+			{ role: "close" },
+		],
+	};
 	const template: Electron.MenuItemConstructorOptions[] = [
 		...(process.platform === "darwin" ? [{ role: "appMenu" as const }] : []),
 		{ role: "editMenu" },
 		...(store.profiles.length > 1 ? [profiles] : []),
-		{ role: "windowMenu" },
+		windowMenu,
 		...(app.isPackaged ? [] : [{ role: "viewMenu" as const }]),
 	];
 	Menu.setApplicationMenu(Menu.buildFromTemplate(template));
@@ -691,6 +778,55 @@ function testHooks(): void {
 						if (!had) dbg.detach();
 					}
 				})();
+			} else if (cmd === "panel") {
+				const l = currentLayout();
+				const b = win!.getContentBounds();
+				process.stdout.write(
+					`PANEL ${JSON.stringify({
+						open: panelUi.open && !!cur(),
+						pane: panelUi.pane,
+						width: l.panelWidth,
+						content: { width: b.width, height: b.height },
+						cereaVisible: ceraeView?.getVisible() ?? false,
+						cerea: ceraeView?.getBounds() ?? null,
+						panelRect: l.panel,
+						working: control.working,
+						menu: (() => {
+							const it = Menu.getApplicationMenu()?.getMenuItemById("toggle-browser");
+							return it ? { label: it.label, accelerator: String(it.accelerator) } : null;
+						})(),
+					})}\n`
+				);
+			} else if (cmd.startsWith("panelset ")) {
+				handlers["panel:set"](JSON.parse(cmd.slice(9)));
+			} else if (cmd === "togglemenu") {
+				Menu.getApplicationMenu()?.getMenuItemById("toggle-browser")?.click();
+			} else if (cmd.startsWith("key ")) {
+				const mods = cmd.slice(4).split("+");
+				const key = mods.pop()!.toUpperCase();
+				for (const type of ["rawKeyDown", "char", "keyUp"] as const) {
+					win?.webContents.sendInputEvent({ type, keyCode: key, modifiers: mods as never });
+				}
+			} else if (cmd.startsWith("uiclick ")) {
+				void win?.webContents.executeJavaScript(
+					`document.getElementById(${JSON.stringify(cmd.slice(8))}).click()`
+				);
+			} else if (cmd.startsWith("size ")) {
+				const [w, h] = cmd.slice(5).split(" ").map(Number);
+				win?.setContentSize(w, h);
+			} else if (cmd.startsWith("screenshot ")) {
+				void win?.capturePage().then((img) => {
+					writeFileSync(cmd.slice(11), img.toPNG());
+					process.stdout.write(
+						`SHOT ${JSON.stringify({ size: img.getSize(), path: cmd.slice(11) })}\n`
+					);
+				});
+			} else if (cmd === "uimetrics") {
+				void win?.webContents
+					.executeJavaScript(
+						`JSON.stringify((() => { const r = (id) => { const e = document.getElementById(id); if (!e) return null; const b = e.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height, hidden: e.hidden }; }; const setup = document.getElementById('setup'); return { win: { w: innerWidth, h: innerHeight }, setup: r('setup'), setupScroll: { sw: setup.scrollWidth, cw: setup.clientWidth }, use: r('setup-use'), form: r('setup-form'), side: r('side'), handle: r('side-handle'), close: r('side-close'), bar: r('bar'), tabBrowser: document.getElementById('tab-browser-label').textContent, dpr: devicePixelRatio }; })())`
+					)
+					.then((r: string) => process.stdout.write(`UIMETRICS ${r}\n`));
 			} else if (cmd === "endpoints") {
 				process.stdout.write(
 					`ENDPOINTS ${JSON.stringify(store.profiles.map((p) => bridgeServer?.endpointFile(p.id) ?? null))}\n`
@@ -788,7 +924,10 @@ async function createWindow(): Promise<void> {
 	win.webContents.on("will-navigate", (e) => e.preventDefault());
 	win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 
-	win.on("resize", placeCerea);
+	win.on("resize", () => {
+		placeCerea();
+		pushState();
+	});
 
 	try {
 		bridgeServer = await startBridgeServer(router, {

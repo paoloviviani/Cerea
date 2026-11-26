@@ -56,10 +56,37 @@ export class Control implements Gate {
 		return this.now() - this.lastActivity < ms;
 	}
 
+	/** A task is running: the runtime did something within the last 30 s (between steps it is quiet). */
+	static readonly WORKING_MS = 30_000;
+	get working(): boolean {
+		return this.recentlyActive(Control.WORKING_MS);
+	}
+
+	private taskListeners = new Set<() => void>();
+	private workingTimer?: NodeJS.Timeout;
+
+	/** Called when the runtime starts on a task: its first sign after a quiet spell of 30 s or more. */
+	onTaskStart(cb: () => void): () => void {
+		this.taskListeners.add(cb);
+		return () => this.taskListeners.delete(cb);
+	}
+
+	/** A sign of life that is not a command (the control stream connecting). */
+	touch(): void {
+		this.activity();
+	}
+
 	activity(): void {
 		const was = this.agentBusy;
+		const wasWorking = this.working;
 		this.lastActivity = this.now();
-		if (!was) this.emit();
+		if (!wasWorking) for (const l of [...this.taskListeners]) l();
+		if (!was || !wasWorking) this.emit();
+		// One timer, moved on each sign of life: when it fires the task has been quiet for 30 s and the
+		// "working" indicator goes. No polling.
+		clearTimeout(this.workingTimer);
+		this.workingTimer = setTimeout(() => this.emit(), Control.WORKING_MS + 50);
+		this.workingTimer.unref();
 	}
 
 	async pass(method: string): Promise<void> {
