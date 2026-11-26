@@ -904,3 +904,56 @@ func TestSnapshotCarriesTheWaitingFollowUps(t *testing.T) {
 		t.Fatal("the snapshot still lists a follow-up that was sent")
 	}
 }
+
+// TreeKnown says whether a session's place in the tree is settled: an id the
+// materializer never saw a record for may be a child whose edge is late, so it
+// is not known; a recorded top-level session, a child whose chain reaches a
+// recorded top, and a session marked after its record could not be read are.
+func TestTreeKnownNeedsARecordedTop(t *testing.T) {
+	ctx := context.Background()
+	m := New(newFakeBackend(), policy.Default())
+	if m.TreeKnown("kid") {
+		t.Fatal("a session never seen is known")
+	}
+	m.Track("/ws", backend.Session{ID: "s1"})
+	if !m.TreeKnown("s1") {
+		t.Error("a tracked top-level session is not known")
+	}
+	// the edge alone, from the parent's task part, is enough once the parent is recorded
+	m.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/ws", SessionID: "kid", Event: backend.Event{
+		Kind: backend.EventSession, Session: &backend.Session{ID: "kid", ParentID: "s1"},
+	}})
+	if !m.TreeKnown("kid") {
+		t.Error("a child with a recorded parent chain is not known")
+	}
+	// a child whose parent was never recorded: the top of its chain is unseen
+	m.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/ws", SessionID: "kid2", Event: backend.Event{
+		Kind: backend.EventSession, Session: &backend.Session{ID: "kid2", ParentID: "ghost"},
+	}})
+	if m.TreeKnown("kid2") {
+		t.Error("a child under a parent never recorded is known")
+	}
+	m.MarkTreeKnown("/ws", "kid2")
+	if !m.TreeKnown("kid2") {
+		t.Error("a marked session is still unknown")
+	}
+	if got := m.RootOf("kid2"); got != "ghost" {
+		t.Errorf("root of kid2 = %q: marking must keep the edge", got)
+	}
+}
+
+// ReleaseAsk materialises a held ask without consulting the filter again.
+func TestReleaseAskSkipsTheFilter(t *testing.T) {
+	ctx := context.Background()
+	m := New(newFakeBackend(), policy.Default())
+	m.Track("/ws", backend.Session{ID: "s1"})
+	consulted := 0
+	m.OnAskFilter(func(string, backend.PermissionRequest) bool { consulted++; return true })
+	m.ReleaseAsk(ctx, "/ws", backend.PermissionRequest{ID: "per_1", SessionID: "s1", Tool: "bash", Patterns: []string{"ls"}})
+	if consulted != 0 {
+		t.Errorf("filter consulted %d times by ReleaseAsk, want 0", consulted)
+	}
+	if n := m.PendingPermissions("s1"); n != 1 {
+		t.Errorf("pending = %d, want the released ask", n)
+	}
+}

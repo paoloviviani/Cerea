@@ -180,3 +180,18 @@ through Cerea. The wire contract is `agent/PROTOCOL.md` section 11; this is the 
   the error and the start-up warning.
 - **Adding to the protocol** means the fixtures too (`agent/protocol-fixtures`, `calls/coord.*`, `ops/coord.*`),
   `COORD_ARG_SCHEMAS` in `machineCoord.ts`, and the galopin side's `callOps` list in `protocol_fixtures_test.go`.
+
+## A subagent's first ask (galopin)
+
+A subagent has no selector: every ask of it is decided by its root's word, found through the tree edge the
+materializer learns from the child's session event or its parent's task part. That edge normally arrives before
+the child's first ask. When it has not (galopin restarted, the SSE stream was cut, a late event), the child reads
+as a root on the default Ask: its first ask shows a card under an Allow root, and under a Plan root it asks
+instead of being refused. So the ask filter (`installPermissions`, which runs inside event application and
+must not do I/O) asks `Materializer.TreeKnown`: when the top of the session's chain has not had its own record seen,
+it consumes the ask and a goroutine (`decideHeldAsk`, `permissions_tree.go`) reads the session's record, and its
+parents', with `GetSession` (`askTreeWait`, 5 s; one reader per session), then decides it as any ask: reject and once
+are answered, a card is put back through `Materializer.ReleaseAsk` (no second filter pass). A record that cannot be
+read leaves the session marked as top-level (`MarkTreeKnown`, so its next asks are not held again), which fails toward
+a card. Nothing here changes what a word allows: Plan, the machine's deny list, the floor and the exceptions are
+read by `decideAsk` exactly as before. Tests: `agent/subagent_first_ask_test.go`.

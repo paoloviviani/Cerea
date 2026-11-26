@@ -65,6 +65,12 @@ type machine struct {
 	// layersFn replaces the live policy's layers for decisions (tests that
 	// change the machine's rules and ceiling while it runs); nil in production.
 	layersFn func() permrules.Layers
+	// treeMu guards treeBusy: the sessions whose place in the tree is being
+	// learned (permissions_tree.go); treeWait bounds that, zero meaning the
+	// default.
+	treeMu   sync.Mutex
+	treeBusy map[string]chan struct{}
+	treeWait time.Duration
 	// agentTools is the agent-coordination tools' state (agenttools.go); nil
 	// when the backend has none.
 	agentTools *agentTools

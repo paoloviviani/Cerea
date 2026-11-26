@@ -347,7 +347,7 @@ veto that only `enroll` can loosen:
   for that command in that session only, removable in the panel. Any other
   change applies from the session's next turn. A new subagent follows its
   root's word from its first turn (galopin answers its first asks `once` when
-  the word and exceptions allow, audited `by: "galopin"`). A session whose
+  the word and exceptions allow, audited `by: "galopin"`). Should that ask arrive before galopin has learned who the child's parent is (after a restart, or a late event), it is held for up to 5 s while the child's record is read, then decided by the root's word (`permissions_tree.go`); a record that cannot be read leaves a card. A session whose
   stored rules still carry an earlier Plan is flagged `staleDeny` /
   `stalePolicy` and the panel says to start a new session.
   **No limits, a fixed floor.** The session's word decides: Plan refuses
