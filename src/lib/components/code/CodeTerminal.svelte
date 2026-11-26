@@ -121,10 +121,31 @@
 	let isDark = $state(false);
 	$effect(() => subscribeToTheme((theme) => (isDark = theme.isDark)));
 
-	function xtermTheme(dark: boolean): { background: string; foreground: string; cursor: string } {
+	// xterm's default selection is translucent white: invisible on the light
+	// background, so a selection looked like nothing was selected and Copy
+	// seemed broken. The selection colors are opaque and set for both themes.
+	function xtermTheme(dark: boolean): {
+		background: string;
+		foreground: string;
+		cursor: string;
+		selectionBackground: string;
+		selectionInactiveBackground: string;
+	} {
 		return dark
-			? { background: "#111827", foreground: "#e5e7eb", cursor: "#e5e7eb" }
-			: { background: "#ffffff", foreground: "#111827", cursor: "#111827" };
+			? {
+					background: "#111827",
+					foreground: "#e5e7eb",
+					cursor: "#e5e7eb",
+					selectionBackground: "#1d4ed8",
+					selectionInactiveBackground: "#374151",
+				}
+			: {
+					background: "#ffffff",
+					foreground: "#111827",
+					cursor: "#111827",
+					selectionBackground: "#bfdbfe",
+					selectionInactiveBackground: "#d1d5db",
+				};
 	}
 
 	const ACK_THRESHOLD = 64 * 1024;
