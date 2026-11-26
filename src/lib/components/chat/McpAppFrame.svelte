@@ -46,7 +46,7 @@
 	const messageSink = getAppMessageSink();
 
 	/** Page-initiated calls the browser forwards: a lower ceiling than the server's, for kindness. */
-	const CALLS_PER_WINDOW = 10;
+	const CALLS_PER_WINDOW = 20;
 	const CALL_WINDOW_MS = 10_000;
 	const MIN_HEIGHT = 60;
 	const MAX_INLINE_HEIGHT = 720;
