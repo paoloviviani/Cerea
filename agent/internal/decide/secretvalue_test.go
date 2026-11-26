@@ -267,7 +267,8 @@ func TestSecretValueMoreOutboundTools(t *testing.T) {
 			t.Errorf("not caught: %s", c)
 		}
 	}
-	if l := p.Protected.SecretValueLeak(bashReq(ws, `gh pr view 12 `+testSecret)); l != nil {
-		t.Errorf("read-only gh pr view was checked")
+	// all of gh is outbound now (a body file, a comment, a view of someone else's issue can send text)
+	if l := p.Protected.SecretValueLeak(bashReq(ws, `gh pr view 12 `+testSecret)); l == nil {
+		t.Errorf("gh pr view was not checked")
 	}
 }

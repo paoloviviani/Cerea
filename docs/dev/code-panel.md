@@ -218,12 +218,19 @@ Owner decision (galopin's trust model): reading a `.env` is not the problem, sec
   `outbound()` finds: any word (also the half after `=` or `:`, so `f=@.env`, `-d @.env`), symlink-resolved path or glob
   that is `.env`-ish (URL words excluded: a URL's path is not a local file), or a word the analysis could not follow
   that shows no text (`$f`, `"$(…)"`, `a.blind`) or whose literal starts with `@` or `<`, is a `SecretLeak` with key
-  "the file itself" (or "a word galopin cannot read") and the file's base name, never a value. `Decide` makes any leak
+  "the file itself" (or "a word galopin cannot read") and the file's base name, never a value. Every word is also
+  tried as its parts after each `=` or `:`, with a leading short option (`-d@x`), `@` or `<` removed and cut at `;`
+  (`outVariants`: curl's `f=@.env;type=text/plain`, `-d@$F`, `--data-binary=@$F`), and an unfollowable word whose known text
+  has a part starting with `@` or `<` is blind (`blindFileRef`). A dotfile glob that can match `.env` (`.e*`, `.*`) counts.
+  On a line with `-exec`/`xargs`, `{}` is blind. A line with a tool that sends folders (`dirTools`: rsync, scp, tar, zip,
+  aws, gsutil, rclone, kubectl...) also searches every folder it names with `workspaceEnvFiles` (the folder and one level
+  down, placeholders skipped; `dirLeakKey`); git is deliberately not a dir tool. The outbound list (`outboundRe`) covers
+  every `gh`/`glab` command and the mail, sync and deploy tools; `python -c`/`node -e` text is not scanned (a documented limit). `Decide` makes any leak
   a `secret-value` card in every mode but Plan/deny/floor (which refuse first). The card's wording is the existing
   "contains the value of {key} from {file}"; no UI change. A credential store in an outbound line is already a card
   through `SecretHit`. Known gap, stated in the user docs: a program that reads the file and sends it itself.
 - **The analysis** reads redirect targets, here-strings, `for` lists and the call's own working directory
-  (`Request.Workdir`). opencode puts `workdir` in the shell tool's input, not on the ask, so `addAskMetadata`
+  (`Request.Workdir`, resolved by `workdirOf`: `~/x`, `$HOME/x`, `${HOME}/x` and a relative name). opencode puts `workdir` in the shell tool's input, not on the ask, so `addAskMetadata`
   (`internal/backend/opencode/v2.go`, also the REST listing path) copies `workdir`/`cwd` onto the ask metadata and the
   ACP adapter's `askMetadata` does the same from `rawInput`; `askWorkdir` (`permissions.go`) reads them. Tests:
   `internal/backend/opencode/v2_test.go` (through `handleSSEData`, the whole adapter), `internal/decide/bash_audit_test.go`,

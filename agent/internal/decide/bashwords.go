@@ -111,7 +111,7 @@ func (pr Protected) analyze(r Request) *bashAnalysis {
 	// a call that names a working directory runs there: its relative words are
 	// read from it as well
 	if r.Workdir != "" {
-		addCwd(filepath.Clean(r.Workdir))
+		addCwd(pr.workdirOf(r))
 	}
 	var globWords []string
 	for _, text := range r.commandTexts() {
@@ -341,6 +341,19 @@ func pathCandidates(w string) []string {
 		out = append(out, c)
 	}
 	return out
+}
+
+// workdirOf is the directory a call asked to run in, as an absolute path: `~/x`,
+// `$HOME/x`, `${HOME}/x` and a relative name (from the session's directory) are
+// understood.
+func (pr Protected) workdirOf(r Request) string {
+	d := r.Workdir
+	for _, h := range []string{"$HOME", "${HOME}"} {
+		if pr.Home != "" && (d == h || strings.HasPrefix(d, h+"/")) {
+			d = pr.Home + strings.TrimPrefix(d, h)
+		}
+	}
+	return pr.abs(d, r.Workspace)
 }
 
 func (pr Protected) joinCwd(cwd, p string) string {
