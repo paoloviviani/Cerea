@@ -23,6 +23,8 @@ vi.mock("$lib/server/mcp/registry", () => ({
 
 import { collections, ready } from "$lib/server/database";
 import type { McpConnector } from "$lib/types/McpConnector";
+import { baseKey, connectorKey, setPolicy } from "$lib/server/mcp/deploymentModes";
+import { mcpLocalsFor } from "$lib/server/mcp/selection";
 import { createTestUser, cleanupTestData, type TestUser } from "./testHelpers";
 import { POST as createRoute } from "../../../../routes/api/v2/mcp/connectors/+server";
 import { POST as actRoute } from "../../../../routes/api/v2/mcp/connectors/[id]/+server";
@@ -50,6 +52,7 @@ beforeEach(() => {
 	gate.admin = false;
 });
 afterEach(async () => {
+	await collections.connectorModes.deleteMany({});
 	await collections.mcpConnectors.deleteMany({ _id: { $in: seeded.splice(0) } });
 });
 
@@ -162,5 +165,22 @@ describe("an administrator and deployment connectors", () => {
 		gate.admin = true;
 		await seed(other, "Shared name");
 		expect((await add(me, "Shared name", "deployment")).status).toBe(201);
+	});
+});
+
+describe("connectors the administrator switched off", () => {
+	it("do not block a user's name, and once on, the deployment's wins and the user's is left out", async () => {
+		const hidden = await seed(other, "Hidden Wiki", "deployment");
+		await setPolicy(connectorKey(hidden.toString()), { mode: "off" });
+		await setPolicy(baseKey("Env Search"), { mode: "off" });
+		expect((await add(me, "hidden  wiki")).status).toBe(201);
+		expect((await add(me, "env search")).status).toBe(201);
+
+		await setPolicy(connectorKey(hidden.toString()), { mode: "on" });
+		const locals = await mcpLocalsFor({}, me.user._id);
+		expect(locals.connectors.map((c) => c.name)).toContain("Hidden Wiki");
+		expect(locals.blocked.filter((b) => b.reason === "same name").map((b) => b.name)).toContain(
+			"hidden  wiki"
+		);
 	});
 });
