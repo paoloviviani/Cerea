@@ -438,6 +438,90 @@ describe("McpAppFrame", () => {
 		await settle(() => probes.some((p) => p.id === 40 && "result" in p));
 	});
 
+	describe("diagnostics", () => {
+		const diag = (iframe: HTMLIFrameElement, kind: string, message: string, source = "") =>
+			pageSends(iframe, { cereaDiag: { kind, message, source, line: 3 } });
+		const link = (view: { baseElement: HTMLElement }) =>
+			[...view.baseElement.querySelectorAll("button")].find((b) =>
+				/show details/i.test(b.textContent ?? "")
+			);
+
+		it("does not show the link for a healthy page's ResizeObserver noise, in either spelling", async () => {
+			stubFetch();
+			const { view, iframe } = await mounted();
+			diag(iframe, "error", "ResizeObserver loop completed with undelivered notifications.");
+			diag(iframe, "error", "ResizeObserver loop limit exceeded");
+			await new Promise((r) => setTimeout(r, 400));
+			expect(link(view)).toBeUndefined();
+		});
+
+		it("shows the link for a real error only, and keeps warnings inside the opened panel", async () => {
+			stubFetch();
+			const { view, iframe } = await mounted();
+			pageSends(iframe, {
+				jsonrpc: "2.0",
+				method: "notifications/message",
+				params: { level: "warning", data: "slow layer" },
+			});
+			await new Promise((r) => setTimeout(r, 400));
+			expect(link(view)).toBeUndefined();
+
+			diag(iframe, "error", "boom");
+			await settle(() => link(view) !== undefined);
+			link(view)?.click();
+			await settle(
+				() => view.baseElement.querySelector("[data-testid='mcp-app-details']") !== null
+			);
+			const text = view.baseElement.querySelector("[data-testid='mcp-app-details']")?.textContent;
+			expect(text).toContain("boom");
+			expect(text).toContain("slow layer");
+		});
+
+		it("ignores a diagnostics message from any window but the card's own frame", async () => {
+			stubFetch();
+			const { view } = await mounted();
+			window.postMessage(
+				{ cereaDiag: { kind: "error", message: "forged", source: "", line: 1 } },
+				"*"
+			);
+			await new Promise((r) => setTimeout(r, 400));
+			expect(link(view)).toBeUndefined();
+		});
+
+		it("tells the server the kind and source of a failure, never its text", async () => {
+			const calls = stubFetch();
+			const { iframe } = await mounted();
+			diag(
+				iframe,
+				"csp",
+				"connect-src blocked https://x.example/p?secret=1",
+				"https://x.example/a.js?q=2"
+			);
+			await settle(() => calls.some((c) => c.url.endsWith("/mcp-app/diag")), 6000);
+			const body = calls.find((c) => c.url.endsWith("/mcp-app/diag"))?.body as {
+				connector: string;
+				uri: string;
+				errors: Array<Record<string, unknown>>;
+			};
+			expect(body.connector).toBe(app.connector);
+			expect(body.uri).toBe(app.uri);
+			expect(body.errors).toEqual([{ kind: "csp", source: "https://x.example/a.js?q=2" }]);
+			expect(JSON.stringify(body)).not.toContain("secret");
+		});
+
+		it("does not report the page's own logs to the server", async () => {
+			const calls = stubFetch();
+			const { iframe } = await mounted();
+			pageSends(iframe, {
+				jsonrpc: "2.0",
+				method: "notifications/message",
+				params: { level: "error", data: "private text" },
+			});
+			await new Promise((r) => setTimeout(r, 2200));
+			expect(calls.some((c) => c.url.endsWith("/mcp-app/diag"))).toBe(false);
+		});
+	});
+
 	it("tells the page its new width when the card is resized", async () => {
 		stubFetch();
 		const { view } = await mounted();

@@ -64,6 +64,10 @@
 		line: number;
 	}
 	const REPORTED_TO_SERVER = 5;
+	/** What browsers say about a healthy page's layout, in both spellings: not a problem to show. */
+	const BENIGN = /ResizeObserver loop (?:completed with undelivered notifications|limit exceeded)/i;
+	/** What the page's shim reports (and the server may be told about): the page's own logs are not. */
+	const SHIM_KINDS = ["error", "resource", "rejection", "csp", "closed"];
 
 	let diagnostics = $state<Diagnostic[]>([]);
 	let detailsOpen = $state(false);
@@ -470,6 +474,8 @@
 	// Diagnostics. The page's shim posts `{ cereaDiag }` to this window; only the frame's own window is
 	// believed, and a message is read as data (truncated, counted, never rendered as markup).
 	function addDiagnostic(entry: Diagnostic) {
+		// The page is gone (closed): what its remains say is not about the view any more.
+		if (dead) return;
 		const text = (value: unknown) => String(value ?? "").slice(0, MCP_APP_DIAG_MAX_CHARS);
 		const clean: Diagnostic = {
 			kind: text(entry.kind).slice(0, 20),
@@ -477,6 +483,7 @@
 			source: text(entry.source),
 			line: Number.isFinite(entry.line) ? Math.trunc(entry.line) : 0,
 		};
+		if (BENIGN.test(clean.message)) return;
 		if (diagnostics.length >= MCP_APP_DIAG_MAX_COUNT) return;
 		const same = (d: Diagnostic) =>
 			d.kind === clean.kind &&
@@ -485,30 +492,35 @@
 			d.line === clean.line;
 		if (diagnostics.some(same)) return;
 		diagnostics = [...diagnostics, clean];
-		scheduleReport();
+		if (SHIM_KINDS.includes(clean.kind)) scheduleReport();
 	}
 
-	/** The first few go to the server once, so an administrator tailing the logs can see them. */
+	/**
+	 * The first few go to the server once, so an administrator tailing the logs can see that a page failed.
+	 * Kinds and sources only: the message text stays in this card (the server logs no text, see the route).
+	 */
 	function scheduleReport() {
 		if (reportedToServer || reportTimer) return;
 		reportTimer = setTimeout(() => {
 			reportTimer = undefined;
 			reportedToServer = true;
+			const errors = $state
+				.snapshot(diagnostics)
+				.filter((d) => SHIM_KINDS.includes(d.kind))
+				.slice(0, REPORTED_TO_SERVER)
+				.map((d) => ({ kind: d.kind, ...(d.source ? { source: d.source } : {}) }));
+			if (errors.length === 0) return;
 			void fetch(`${base}/conversation/${conversationId}/mcp-app/diag`, {
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({
-					connector: app.connector,
-					uri: app.uri,
-					errors: $state.snapshot(diagnostics).slice(0, REPORTED_TO_SERVER),
-				}),
+				body: JSON.stringify({ connector: app.connector, uri: app.uri, errors }),
 			}).catch(() => undefined);
 		}, 1500);
 	}
 
 	$effect(() => {
 		const onMessage = (event: MessageEvent) => {
-			if (!iframeEl || event.source !== iframeEl.contentWindow) return;
+			if (dead || !iframeEl || event.source !== iframeEl.contentWindow) return;
 			const data = event.data as { cereaDiag?: unknown } | null;
 			const diag = data && typeof data === "object" ? data.cereaDiag : undefined;
 			if (!diag || typeof diag !== "object") return;
@@ -520,6 +532,9 @@
 			clearTimeout(reportTimer);
 		};
 	});
+
+	/** The link shows for real problems only: errors, rejections, policy violations, error logs, not warnings. */
+	const hasRealProblem = $derived(diagnostics.some((d) => d.kind !== "log warning"));
 
 	const diagnosticsText = $derived(
 		diagnostics
@@ -560,13 +575,13 @@
 
 	function kill() {
 		if (dead) return;
-		dead = true;
 		addDiagnostic({
 			kind: "closed",
 			message: "The page left its document, so the view was closed.",
 			source: "",
 			line: 0,
 		});
+		dead = true;
 		const instance = bridge;
 		bridge = undefined;
 		srcdoc = undefined;
@@ -803,7 +818,7 @@
 			{/key}
 		{/if}
 
-		{#if diagnostics.length > 0}
+		{#if hasRealProblem}
 			<div
 				data-testid="mcp-app-diagnostics"
 				class="shrink-0 border-t border-gray-100 px-3 py-1 text-xs text-gray-500 dark:border-gray-800 dark:text-gray-400"
