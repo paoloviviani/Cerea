@@ -220,9 +220,13 @@ func (mc *machine) installPermissions() {
 		if !ok {
 			return false
 		}
-		// A child whose parent edge is not known yet resolves to itself and
-		// reads Ask: its ask shows a card instead of running, which fails
-		// toward a person.
+		// A session whose place in the tree is not known yet would resolve to
+		// itself and read Ask: the ask is held while its record is read, then
+		// decided by the root's word (permissions_tree.go).
+		if !mc.mat.TreeKnown(req.SessionID) {
+			go mc.decideHeldAsk(dir, req)
+			return true
+		}
 		res := mc.decideAsk(rh, dir, req)
 		if res.Verdict == decide.Card {
 			return false

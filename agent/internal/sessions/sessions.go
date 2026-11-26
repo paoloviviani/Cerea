@@ -69,6 +69,10 @@ type sessionState struct {
 	// reconciles against could not list yet (the spawn race), and must not
 	// be pruned on the strength of one answer.
 	parentSince time.Time
+	// recordSeen: the session's own record (Track, or a session event) was
+	// seen, so a session with no parent is known to be top-level rather than
+	// a child whose edge has not arrived yet.
+	recordSeen bool
 
 	seq  int64
 	ring []Envelope
@@ -288,15 +292,17 @@ func (m *Materializer) Events() <-chan Envelope { return m.outCh }
 func (m *Materializer) Track(workspaceDir string, sess backend.Session) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, exists := m.sessions[sess.ID]; exists {
+	if st, exists := m.sessions[sess.ID]; exists {
 		// A startup listing naming an old child's parent is not news: the
 		// OnChild hook is for children a live event reveals.
 		seen := len(m.newChildren)
 		m.setParentLocked(sess.ID, sess.ParentID)
 		m.newChildren = m.newChildren[:seen]
+		st.recordSeen = true
 		return
 	}
 	st := newSessionState(workspaceDir, sess.ID)
+	st.recordSeen = true
 	st.status = sess.Status
 	st.parentID = sess.ParentID
 	if sess.ParentID != "" {
@@ -618,11 +624,51 @@ func (m *Materializer) Start(ctx context.Context) error {
 // publishing whatever should reach a client. Exported so tests can drive it
 // synchronously without a live goroutine or a real backend.
 func (m *Materializer) ApplyBackendEvent(ctx context.Context, be backend.BackendEvent) {
+	m.applyBackendEvent(ctx, be, true)
+}
+
+// ReleaseAsk materialises a permission ask the pre-filter consumed to hold
+// while it learned the ask's session tree, and that turned out to be a card:
+// the same path as a live ask, without the filter (it already decided).
+func (m *Materializer) ReleaseAsk(ctx context.Context, workspaceDir string, req backend.PermissionRequest) {
+	m.applyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: workspaceDir, SessionID: req.SessionID,
+		Event: backend.Event{Kind: backend.EventPermissionAsked, Request: &req}}, false)
+}
+
+// TreeKnown reports whether the materializer knows where a session sits in
+// the tree: the top of the chain it can walk has had its own record seen (Track
+// or a session event), so that top is a real top-level session. A session this
+// says no to may be a child whose edge has not arrived, so it must not be
+// taken for a root.
+func (m *Materializer) TreeKnown(sessionID string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	st, ok := m.sessions[m.rootLocked(sessionID)]
+	return ok && st.recordSeen
+}
+
+// MarkTreeKnown settles a session's place as far as it will be settled: its
+// record could not be read, so the top of the chain walked so far is treated as
+// top-level until an edge turns up (setParentLocked still takes one), and its
+// asks stop being held.
+func (m *Materializer) MarkTreeKnown(workspaceDir, sessionID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	root := m.rootLocked(sessionID)
+	st, ok := m.sessions[root]
+	if !ok {
+		st = newSessionState(workspaceDir, root)
+		m.sessions[root] = st
+	}
+	st.recordSeen = true
+}
+
+func (m *Materializer) applyBackendEvent(ctx context.Context, be backend.BackendEvent, filter bool) {
 	if be.Event.Kind == backend.EventResync {
 		go m.resync(ctx, be.WorkspaceDir, be.SessionID)
 		return
 	}
-	if be.Event.Kind == backend.EventPermissionAsked && be.Event.Request != nil && m.onAskFilter != nil {
+	if filter && be.Event.Kind == backend.EventPermissionAsked && be.Event.Request != nil && m.onAskFilter != nil {
 		// Consulted before translateLocked: a consumed ask is never
 		// materialised, so no permission.asked envelope reaches any client
 		// and no card flashes. Seeded history (Sync's mergeSeedLocked) does
@@ -655,6 +701,7 @@ func (m *Materializer) ApplyBackendEvent(ctx context.Context, be backend.Backend
 	// materializer can learn the tree edge for a child it never Tracked.
 	if be.Event.Kind == backend.EventSession && be.Event.Session != nil {
 		m.setParentLocked(be.SessionID, be.Event.Session.ParentID)
+		st.recordSeen = true
 	}
 	events := m.translateLocked(st, be.Event)
 	envs := make([]Envelope, 0, len(events))

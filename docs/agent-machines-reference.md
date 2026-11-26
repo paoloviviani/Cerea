@@ -727,6 +727,7 @@ decided by its main session's setting and exceptions, like
 any other call: on **Allow** it runs without a card, on **Ask** it asks, on
 **Plan** it is refused at its first call that would change something. The
 floor and a local deny hold for it as for any call.
+If galopin has not yet learned which session a subagent belongs to (right after galopin restarted, say), it waits up to five seconds to find out before deciding, so the first call still follows your setting. Only when it cannot find out does the call ask you.
 
 **The approval card.** When a tool call asks, the card offers **Allow once**,
 **Always allow (this session)** and **Deny**. The panel relays your answer
