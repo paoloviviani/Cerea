@@ -7,6 +7,10 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **MCP Apps: full screen is a real full-window layer.** It now covers the whole window, above the sidebar and the message box, with its own slim header and a close button (Esc also leaves it), and the page's Edit and Done buttons follow. The page does not reload when you switch. On a phone or an installed web app it respects the safe areas.
+- **MCP Apps show by default.** The interactive page appears under the tool's row without opening it, and stays visible when a run of tool calls is folded into "Called N tools". Pages start when they come near the screen.
+- **MCP Apps: the page's own tools run without a prompt.** A tool made only for the page (the assistant never sees it, for example an autosave) now runs under any approval setting, within the page's own connector and its rate limit. Tools the assistant can also use still ask. Several calls that need an answer now wait their turn on the card instead of failing. A page can only open full screen right after you act on its card.
+- **MCP Apps: when a page fails, the card says why.** A **Show details** link lists the page's errors (copyable), with **Reload view**; the first few are also written to the chat logs, with the connector and the page's address.
 - **Connector names are unique.** Adding or renaming a connector to a name already used by another of the user's own, or by one the deployment provides, is refused with a message next to the name field (an administrator's connector may not share a name with another of the deployment's). If two servers in `MCP_SERVERS` share a name, the first is kept and the log warns about the rest. A clash that already exists, or an administrator adds later, no longer sends a tool to the wrong connector: the deployment's connector wins over a user's, the older of two of a kind wins, and the other is left out and marked "Same name as another connector: rename it" until renamed (C169).
 
 ## v0.66.0 — 2026-11-26

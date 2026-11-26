@@ -475,3 +475,18 @@ body {
 	inherits: false;
 	initial-value: 0deg;
 }
+
+/* An MCP App in full screen (McpAppFrame) is a fixed layer over the window, and it stays inside the
+   chat column, because moving an iframe reloads it. Three things on the column would trap it: the
+   column's z-index of -1 makes it a stacking context below the sidebar; `@container` (container-type)
+   contains layout, so a fixed descendant is placed against the column rather than the window; and the
+   scroller's fade (mask-image) makes a stacking context too and clips the layer to the scroller's box.
+   While one is open, all three are lifted (the fade is behind the layer, so nothing is lost). */
+:root[data-app-fullscreen] .app-fs-lift {
+	z-index: auto;
+	container-type: normal;
+}
+:root[data-app-fullscreen] .chat-scroller {
+	-webkit-mask-image: none !important;
+	mask-image: none !important;
+}

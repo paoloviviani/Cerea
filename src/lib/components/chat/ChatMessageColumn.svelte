@@ -414,7 +414,10 @@
      hit-area would otherwise swallow every click meant for it. Children
      re-enable pointer events themselves. -->
 <div
-	class={["pointer-events-auto relative z-[-1] min-h-0 min-w-0 flex-1", top && "flex flex-col"]}
+	class={[
+		"app-fs-lift pointer-events-auto relative z-[-1] min-h-0 min-w-0 flex-1",
+		top && "flex flex-col",
+	]}
 	style="--scrollbar-gutter: {chatScroll.gutterHalfPx}px"
 >
 	{@render overlay?.()}
@@ -440,7 +443,7 @@
 		<!-- @container: descendants (e.g. the per-message router-metadata row) adapt
 		     to the actual column width, which shrinks when the artifact panel is open -->
 		<div
-			class="@container mx-auto flex h-full max-w-3xl flex-col gap-6 px-3 pt-6 sm:gap-8 sm:px-5 xl:max-w-4xl xl:pt-10"
+			class="app-fs-lift @container mx-auto flex h-full max-w-3xl flex-col gap-6 px-3 pt-6 sm:gap-8 sm:px-5 xl:max-w-4xl xl:pt-10"
 		>
 			{@render head?.()}
 			{#if historyPending}

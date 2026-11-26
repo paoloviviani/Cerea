@@ -204,6 +204,17 @@ export function buildMcpAppCsp(declared?: McpAppCsp | null, options: DomainOptio
 	].join("; ");
 }
 
+/** Longest diagnostic text sent to the card, and how many a page may send. */
+export const MCP_APP_DIAG_MAX_CHARS = 300;
+export const MCP_APP_DIAG_MAX_COUNT = 20;
+
+/**
+ * The first script in the page's document: it reports what goes wrong to the card, which has no console
+ * the user can reach (an installed web app has none). Listeners only, no globals, and a message of its own
+ * (`{ cereaDiag }`) that the bridge never sees as a request. Inline, which the page's `script-src` allows.
+ */
+const DIAG_SHIM = `(function(){var n=0,seen={},MAX=${MCP_APP_DIAG_MAX_CHARS},CAP=${MCP_APP_DIAG_MAX_COUNT};function t(v){try{v=String(v==null?"":v)}catch(e){v=""}return v.slice(0,MAX)}function send(kind,message,source,line){try{message=t(message);source=t(source);line=typeof line==="number"?line:0;var key=kind+"|"+message+"|"+source+"|"+line;if(n>=CAP||seen[key])return;seen[key]=1;n++;window.parent.postMessage({cereaDiag:{kind:kind,message:message,source:source,line:line}},"*")}catch(e){}}window.addEventListener("error",function(e){try{var el=e.target;if(el&&el!==window&&el.tagName){send("resource","Failed to load <"+String(el.tagName).toLowerCase()+">",el.currentSrc||el.src||el.href||"",0)}else{send("error",e.message||(e.error&&e.error.message)||"Error",e.filename,e.lineno)}}catch(x){}},true);window.addEventListener("unhandledrejection",function(e){try{var r=e.reason;send("rejection",r&&r.message?r.message:r,"",0)}catch(x){}});window.addEventListener("securitypolicyviolation",function(e){try{send("csp",e.violatedDirective+" blocked "+e.blockedURI,e.sourceFile||"",e.lineNumber||0)}catch(x){}})})();`;
+
 function escapeAttribute(value: string): string {
 	return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 }
@@ -211,7 +222,7 @@ function escapeAttribute(value: string): string {
 /**
  * The page's document for the sandboxed iframe: the policy comes first, and the page's own markup is
  * concatenated after it, so nothing in the page can run before the policy applies (its `<!doctype>` and
- * repeated `<html>`/`<head>` tags are ignored or merged by the parser).
+ * repeated `<html>`/`<head>` tags are ignored or merged by the parser). The diagnostics shim is next.
  */
 export function buildMcpAppSrcdoc(
 	html: string,
@@ -221,6 +232,7 @@ export function buildMcpAppSrcdoc(
 	return (
 		"<!doctype html><html><head>" +
 		`<meta http-equiv="Content-Security-Policy" content="${escapeAttribute(buildMcpAppCsp(declared, options))}">` +
+		`<script>${DIAG_SHIM}</script>` +
 		html
 	);
 }

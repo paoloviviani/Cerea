@@ -166,6 +166,25 @@ describe("the page's document and sandbox", () => {
 		expect(doc).toContain("connect-src https://api.example.com;");
 	});
 
+	it("runs the diagnostics shim right after the policy and before the page's markup", () => {
+		const doc = buildMcpAppSrcdoc("<!doctype html><html><head><script>1</script></head></html>");
+		const shim = doc.indexOf("cereaDiag");
+		expect(doc.indexOf("Content-Security-Policy")).toBeLessThan(shim);
+		expect(shim).toBeLessThan(doc.indexOf("<script>1</script>"));
+		// It listens for all three, and reports with its own namespaced message, not a bridge request.
+		for (const word of [
+			"error",
+			"unhandledrejection",
+			"securitypolicyviolation",
+			"violatedDirective",
+		]) {
+			expect(doc).toContain(word);
+		}
+		expect(doc).not.toContain("jsonrpc");
+		// Inline scripts are allowed by the policy it is sent with.
+		expect(doc).toContain("script-src 'unsafe-inline'");
+	});
+
 	it("never lets the policy's own attribute be closed by its content", () => {
 		const doc = buildMcpAppSrcdoc("<p>x</p>");
 		const meta = doc.match(/<meta[^>]*>/)?.[0] ?? "";

@@ -41,6 +41,7 @@ export const MOCK_APPS_MCP_PORT = Number(process.env.MOCK_APPS_MCP_PORT ?? 8793)
 export const APP_MIME = "text/html;profile=mcp-app";
 export const TIME_URI = "ui://mock-apps/time.html";
 export const PROBE_URI = "ui://mock-apps/probe.html";
+export const BROKEN_URI = "ui://mock-apps/broken.html";
 
 /** Probe names the page reports as `{ ok: false }` when the host's sandbox holds. */
 export const PROBES_MUST_FAIL = [
@@ -159,7 +160,13 @@ function probeHtml(origin: string): string {
   <h1 id="title">Probe app</h1>
   <p id="input">waiting for tool input</p>
   <button id="call-tool">Call echo_app</button>
+  <button id="call-shared">Call echo_shared</button>
   <button id="send-message">Post message</button>
+  <button id="request-fullscreen">Edit</button>
+  <button id="request-inline">Done</button>
+  <p id="display-mode">display:inline</p>
+  <p id="load-marker"></p>
+  <p id="container-dims"></p>
   <p id="call-result"></p>
   <pre id="probe-results">{}</pre>
   <script>
@@ -180,8 +187,25 @@ document.getElementById("call-tool").onclick = async () => {
 		el.textContent = "result:" + ((r.content && r.content[0] && r.content[0].text) || "");
 	} catch (e) { el.textContent = "error:" + e.message; }
 };
+document.getElementById("call-shared").onclick = async () => {
+	const el = document.getElementById("call-result");
+	try {
+		const r = await request("tools/call", { name: "echo_shared", arguments: { text: "from-app" } });
+		el.textContent = "result:" + ((r.content && r.content[0] && r.content[0].text) || "");
+	} catch (e) { el.textContent = "error:" + e.message; }
+};
 document.getElementById("send-message").onclick = () =>
 	request("ui/message", { role: "user", content: [{ type: "text", text: "hello from the app" }] }).catch(() => {});
+// Display modes: the page asks, and follows whatever the host reports. The marker proves the
+// document was not reloaded across a switch (a reload would write a new one).
+ready.then((r) => { document.getElementById("container-dims").textContent = "dims:" + JSON.stringify(r && r.hostContext && r.hostContext.containerDimensions); });
+listeners["ui/notifications/host-context-changed"] = (p) => { if (p && p.displayMode) showMode(p.displayMode); if (p && p.containerDimensions) document.getElementById("container-dims").textContent = "dims:" + JSON.stringify(p.containerDimensions); };
+document.getElementById("load-marker").textContent = "marker:" + Math.random().toString(36).slice(2);
+const showMode = (mode) => { document.getElementById("display-mode").textContent = "display:" + mode; };
+document.getElementById("request-fullscreen").onclick = () =>
+	request("ui/request-display-mode", { mode: "fullscreen" }).then((r) => showMode(r.mode), () => {});
+document.getElementById("request-inline").onclick = () =>
+	request("ui/request-display-mode", { mode: "inline" }).then((r) => showMode(r.mode), () => {});
 
 async function probes() {
 	try { const c = document.cookie; record("cookie", true, "read:" + c.length); } catch (e) { record("cookie", false, e.name); }
@@ -205,6 +229,21 @@ async function probes() {
 	document.body.dataset.done = "1";
 }
 ready.then(probes, probes);
+  </script>
+</body>
+</html>`;
+}
+
+/** A page that fails: it throws on load, and tries a fetch its policy forbids. */
+function brokenHtml(origin: string): string {
+	return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Broken app</title></head>
+<body>
+  <p id="state">broken page</p>
+  <script>
+fetch(${JSON.stringify(origin)} + "/__control/escape-ping?via=broken").catch(() => {});
+setTimeout(() => { throw new Error("boom-on-load"); }, 50);
   </script>
 </body>
 </html>`;
@@ -268,6 +307,36 @@ function buildServer(
 		}
 	);
 
+	server.registerTool(
+		"echo_shared",
+		{
+			description: "Echoes text; the model can call it too, so a page's call asks first.",
+			inputSchema: fromJsonSchema<{ text: string }>({
+				type: "object",
+				properties: { text: { type: "string" } },
+				required: ["text"],
+			}),
+			_meta: { ui: { resourceUri: PROBE_URI } },
+		},
+		({ text }) => {
+			record({ name: "echo_shared", args: { text }, at: Date.now() });
+			return { content: [{ type: "text" as const, text: `app-echo:${text}` }] };
+		}
+	);
+
+	server.registerTool(
+		"show_broken",
+		{
+			description: "Shows a page that throws on load.",
+			inputSchema: none,
+			_meta: { ui: { resourceUri: BROKEN_URI } },
+		},
+		() => {
+			record({ name: "show_broken", args: {}, at: Date.now() });
+			return { content: [{ type: "text" as const, text: "broken shown" }] };
+		}
+	);
+
 	server.registerTool("plain", { description: "A tool with no app.", inputSchema: none }, () => {
 		record({ name: "plain", args: {}, at: Date.now() });
 		return { content: [{ type: "text" as const, text: "plain result" }] };
@@ -291,6 +360,20 @@ function buildServer(
 					mimeType: APP_MIME,
 					text: probeHtml(origin),
 					// No connectDomains: the fetch to this server's own origin is undeclared.
+					_meta: { ui: { csp: { connectDomains: [], resourceDomains: [] } } },
+				},
+			],
+		};
+	});
+
+	server.registerResource("broken", BROKEN_URI, { mimeType: APP_MIME }, () => {
+		noteRead(BROKEN_URI);
+		return {
+			contents: [
+				{
+					uri: BROKEN_URI,
+					mimeType: APP_MIME,
+					text: brokenHtml(origin),
 					_meta: { ui: { csp: { connectDomains: [], resourceDomains: [] } } },
 				},
 			],

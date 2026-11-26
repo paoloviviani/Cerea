@@ -1,5 +1,33 @@
+<script module lang="ts">
+	/**
+	 * Full screen belongs to one card at a time, and the window lock it takes (no background scroll, the
+	 * stacking lift in main.css) is shared: taken when the first card enters, given back when the last
+	 * leaves, so a card replacing another never leaves the lock off or the original overflow lost.
+	 */
+	let fullscreenOwner: (() => void) | null = null;
+	let lockHolders = 0;
+	let savedOverflow = "";
+
+	function acquireWindowLock() {
+		if (lockHolders === 0) {
+			savedOverflow = document.body.style.overflow;
+			document.body.style.overflow = "hidden";
+			document.documentElement.dataset.appFullscreen = "";
+		}
+		lockHolders += 1;
+	}
+
+	function releaseWindowLock() {
+		lockHolders = Math.max(0, lockHolders - 1);
+		if (lockHolders === 0) {
+			document.body.style.overflow = savedOverflow;
+			delete document.documentElement.dataset.appFullscreen;
+		}
+	}
+</script>
+
 <script lang="ts">
-	import { untrack } from "svelte";
+	import { tick, untrack } from "svelte";
 	import { base } from "$app/paths";
 	import { m } from "$lib/paraglide/messages";
 	import { AppBridge, PostMessageTransport } from "@modelcontextprotocol/ext-apps/app-bridge";
@@ -17,7 +45,8 @@
 	import { subscribeToTheme } from "$lib/switchTheme";
 	import ExternalLinkModal from "$lib/components/ExternalLinkModal.svelte";
 	import CarbonMaximize from "~icons/carbon/maximize";
-	import CarbonMinimize from "~icons/carbon/minimize";
+	import { MCP_APP_DIAG_MAX_CHARS, MCP_APP_DIAG_MAX_COUNT } from "$lib/utils/mcpApp";
+	import CarbonClose from "~icons/carbon/close";
 
 	/**
 	 * An MCP App page in the tool card (docs/dev/adr-mcp-apps.md): the HTML the server stored when the
@@ -45,32 +74,89 @@
 	const messageSink = getAppMessageSink();
 
 	/** Page-initiated calls the browser forwards: a lower ceiling than the server's, for kindness. */
-	const CALLS_PER_WINDOW = 10;
+	const CALLS_PER_WINDOW = 20;
 	const CALL_WINDOW_MS = 10_000;
 	const MIN_HEIGHT = 60;
 	const MAX_INLINE_HEIGHT = 720;
 	const INITIAL_HEIGHT = 240;
 
+	/** Cards in a long conversation start their iframe and bridge when they come near the screen, and keep running after. */
+	const NEAR_MARGIN = "600px";
+	const MAX_WAITING_APPROVALS = 3;
+
+	/** What went wrong in the page, as its own shim and its logs told the card (see "Diagnostics" below). */
+	interface Diagnostic {
+		kind: string;
+		message: string;
+		source: string;
+		line: number;
+	}
+	const REPORTED_TO_SERVER = 5;
+	/** What browsers say about a healthy page's layout, in both spellings: not a problem to show. */
+	const BENIGN = /ResizeObserver loop (?:completed with undelivered notifications|limit exceeded)/i;
+	/** What the page's shim reports (and the server may be told about): the page's own logs are not. */
+	const SHIM_KINDS = ["error", "resource", "rejection", "csp", "closed"];
+
+	let diagnostics = $state<Diagnostic[]>([]);
+	let detailsOpen = $state(false);
+	let copied = $state(false);
+	/** Bumped to mount a fresh frame. */
+	let frameKey = $state(0);
+	let reportedToServer = false;
+	let reportTimer: ReturnType<typeof setTimeout> | undefined;
+
+	/** A page may enter full screen only soon after the user acted on this card, and not right after leaving it. */
+	const GESTURE_WINDOW_MS = 3000;
+	const PAGE_BLOCK_AFTER_EXIT_MS = 10_000;
+	let lastInput = 0;
+	let hovered = false;
+	let pageBlockedUntil = 0;
+	const noteInput = () => (lastInput = Date.now());
+
+	let cardEl = $state<HTMLElement>();
+	let toggleEl = $state<HTMLButtonElement>();
+	let near = $state(false);
+	/**
+	 * The card has a real size: a page given its document while hidden (a folded row, `display: none`) or
+	 * before layout draws at zero or default size and may never draw again. Nothing starts before this.
+	 */
+	let sized = $state(false);
+	/**
+	 * Latched: the card has been laid out at least once. A card that later drops to 0x0 (an ancestor goes
+	 * `display: none`) is paused, not torn down: its page stays, its bridge stays, nothing is fetched again.
+	 */
+	let everSized = $state(false);
+	/** The card's width as the page is told it (the frame is as wide). */
+	let cardWidth = $state(0);
+	let sizedWaiters: Array<() => void> = [];
+	let contextTimer: ReturnType<typeof setTimeout> | undefined;
 	let html = $state<string | null>(null);
 	let unavailable = $state(false);
 	let iframeEl = $state<HTMLIFrameElement>();
 	let srcdoc = $state<string>();
 	let frameHeight = $state(INITIAL_HEIGHT);
 	let fullscreen = $state(false);
+	/** The frame's size in full screen, as the page is told it. */
+	let frameSize = $state<{ width: number; height: number } | null>(null);
 	let isDark = $state(false);
 	let note = $state<string | null>(null);
 	/** The page left its document (self-navigation): the bridge is closed and the frame is gone. */
 	let dead = $state(false);
 	/** The anti-clickjacking delay: the approval's buttons do nothing for a moment after it appears. */
 	let approvalReady = $state(false);
+	let nextApprovalId = 0;
 	let linkUrl = $state<URL | null>(null);
 	let linkAnswer: ((opened: boolean) => void) | null = null;
 	type PendingApproval = {
+		/** Not the object: the list is reactive, and what it holds is a proxy of what was added. */
+		id: number;
 		tool: string;
 		args: Record<string, unknown>;
 		answer: (choice: "once" | "conversation" | "deny") => void;
 	};
-	let approval = $state<PendingApproval | null>(null);
+	/** Calls waiting for the user's answer, in the order they asked: the first one is shown. */
+	let approvals = $state<PendingApproval[]>([]);
+	const approval = $derived(approvals[0] ?? null);
 
 	let bridge: AppBridge | undefined;
 	let started = false;
@@ -98,7 +184,62 @@
 	// The stored page: fetched once per card. Anything wrong (gone, blocked, too large) leaves the
 	// card as it was before apps, with the tool's text result.
 	$effect(() => {
+		const el = cardEl;
+		if (!el || typeof ResizeObserver === "undefined") {
+			if (el) {
+				sized = el.clientWidth > 0 && el.clientHeight > 0;
+				cardWidth = el.clientWidth;
+				if (sized) everSized = true;
+			}
+			return;
+		}
+		const observer = new ResizeObserver(() => {
+			sized = el.clientWidth > 0 && el.clientHeight > 0;
+			// Hidden again: nothing to report until it is back (a zero size would only mislead the page).
+			if (!sized) return;
+			everSized = true;
+			cardWidth = el.clientWidth;
+			const waiting = sizedWaiters;
+			sizedWaiters = [];
+			for (const resolve of waiting) resolve();
+			if (fullscreen) measureFrame();
+			// The page sizes itself from the host context: it hears about a new size, once resizing settles.
+			clearTimeout(contextTimer);
+			contextTimer = setTimeout(pushContext, 150);
+		});
+		observer.observe(el);
+		return () => {
+			observer.disconnect();
+			clearTimeout(contextTimer);
+		};
+	});
+
+	const whenSized = () =>
+		sized ? Promise.resolve() : new Promise<void>((resolve) => sizedWaiters.push(resolve));
+
+	$effect(() => {
+		if (near || !cardEl) return;
+		if (typeof IntersectionObserver === "undefined") {
+			near = true;
+			return;
+		}
+		const observer = new IntersectionObserver(
+			(entries) => {
+				if (entries.some((entry) => entry.isIntersecting)) {
+					near = true;
+					observer.disconnect();
+				}
+			},
+			{ rootMargin: NEAR_MARGIN }
+		);
+		observer.observe(cardEl);
+		return () => observer.disconnect();
+	});
+
+	$effect(() => {
 		const source = url;
+		// Near the screen, and laid out: a hidden or not yet sized card does not start its page.
+		if (!near || !everSized) return;
 		let cancelled = false;
 		html = null;
 		unavailable = false;
@@ -126,7 +267,13 @@
 			styles: { variables: MCP_APP_STYLE_VARIABLES as never },
 			displayMode: fullscreen ? "fullscreen" : "inline",
 			availableDisplayModes: ["inline", "fullscreen"],
-			containerDimensions: { maxHeight: MAX_INLINE_HEIGHT },
+			// Inline the page is told its height limit; in full screen, the size it actually has.
+			containerDimensions:
+				fullscreen && frameSize
+					? { width: frameSize.width, height: frameSize.height }
+					: cardWidth > 0
+						? { width: cardWidth, maxHeight: MAX_INLINE_HEIGHT }
+						: { maxHeight: MAX_INLINE_HEIGHT },
 			locale: typeof navigator === "undefined" ? undefined : navigator.language,
 			timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
 			userAgent: "Cerea",
@@ -139,32 +286,58 @@
 		return { isError: true as const, content: [{ type: "text" as const, text }] };
 	}
 
-	/** One card at a time: a second call that needs approval while one waits is refused. */
+	/** Calls that need approval queue up and wait their turn; past a few waiting, one is refused. */
 	function askApproval(
 		tool: string,
 		args: Record<string, unknown>
 	): Promise<"once" | "conversation" | "deny"> | null {
-		if (approval) return null;
+		if (approvals.length >= MAX_WAITING_APPROVALS) return null;
 		return new Promise<"once" | "conversation" | "deny">((resolve) => {
-			approvalReady = false;
-			setTimeout(() => (approvalReady = true), APPROVAL_DELAY_MS);
-			approval = {
+			const id = (nextApprovalId += 1);
+			const entry: PendingApproval = {
+				id,
 				tool,
 				args,
 				answer: (choice) => {
 					if (!approvalReady && choice !== "deny") return;
-					approval = null;
+					if (!approvals.some((other) => other.id === id)) return;
+					approvals = approvals.filter((other) => other.id !== id);
 					resolve(choice);
 				},
 			};
+			approvals = [...approvals, entry];
 		});
 	}
+
+	/** Calls the server turned away because another card holds its one waiting slot: they retry when it is free. */
+	let busyWaiters = 0;
+	let slotFreed: Array<() => void> = [];
+	const waitForFreeSlot = () => new Promise<void>((resolve) => slotFreed.push(resolve));
+	$effect(() => {
+		if (approvals.length > 0) return;
+		const waiting = slotFreed;
+		slotFreed = [];
+		for (const resolve of waiting) resolve();
+	});
+
+	// The anti-clickjacking delay restarts for every card that comes to the front.
+	$effect(() => {
+		if (!approval) return;
+		approvalReady = false;
+		const timer = setTimeout(() => (approvalReady = true), APPROVAL_DELAY_MS);
+		return () => clearTimeout(timer);
+	});
 
 	async function forwardCall(
 		name: string,
 		args: Record<string, unknown>,
-		approvalAnswer?: { id: string; choice: "once" | "conversation" | "deny" }
-	) {
+		approvalAnswer?: { id: string; choice: "once" | "conversation" | "deny" },
+		busyRetries = 0
+	): Promise<{
+		content: unknown[];
+		structuredContent?: Record<string, unknown>;
+		isError?: boolean;
+	}> {
 		const response = await fetch(`${base}/conversation/${conversationId}/mcp-app/call`, {
 			method: "POST",
 			headers: { "content-type": "application/json" },
@@ -187,11 +360,27 @@
 			approval?: { id?: string };
 		} | null;
 		if (response.ok && body?.ok && body.result) return body.result;
+		// The server holds one waiting card per conversation: a second call waits for its turn here.
+		if (response.status === 429 && body?.code === "approval_busy" && !approvalAnswer) {
+			if (
+				busyRetries >= MAX_WAITING_APPROVALS ||
+				approvals.length + busyWaiters >= MAX_WAITING_APPROVALS
+			) {
+				return failure("Too many calls are waiting for the user's answer."); // i18n: server text
+			}
+			busyWaiters += 1;
+			try {
+				await (approvals.length > 0 ? waitForFreeSlot() : new Promise((r) => setTimeout(r, 400)));
+			} finally {
+				busyWaiters -= 1;
+			}
+			return forwardCall(name, args, undefined, busyRetries + 1);
+		}
 		if (response.status === 409 && body?.code === "approval_required" && body.approval?.id) {
 			const id = body.approval.id;
 			const asked = askApproval(name, args);
 			// Texts below go to the page, not to the user: they are not interface copy.
-			if (!asked) return failure("Another call is waiting for the user's answer."); // i18n: server text
+			if (!asked) return failure("Too many calls are waiting for the user's answer."); // i18n: server text
 			const answer = await asked;
 			if (answer === "deny") {
 				// Frees the server's one waiting slot; what the page sees does not depend on it.
@@ -245,9 +434,11 @@
 			initializations += 1;
 			if (initializations > 1) return kill();
 			initialized = true;
-			void instance
+			void whenSized()
+				// The size it was given at the handshake may be stale if the card was hidden then.
+				.then(() => pushContext())
 				// Snapshots: a reactive proxy cannot be posted to another window.
-				.sendToolInput({ arguments: $state.snapshot(toolInput) })
+				.then(() => instance.sendToolInput({ arguments: $state.snapshot(toolInput) }))
 				.then(() => instance.sendToolResult($state.snapshot(toolResult) as never))
 				.catch((err) => console.debug("[mcp-app] could not send the tool data", err));
 		};
@@ -280,11 +471,24 @@
 			return (await confirmLink(target)) ? {} : { isError: true };
 		};
 		instance.onrequestdisplaymode = async ({ mode }) => {
-			if (mode === "fullscreen" || mode === "inline") setFullscreen(mode === "fullscreen");
+			if (mode === "inline") setFullscreen(false);
+			else if (mode === "fullscreen") {
+				// A page cannot take the whole window by itself: only within moments of the user's own input
+				// on this card, and not again right after the user left it.
+				const now = Date.now();
+				if (now - lastInput <= GESTURE_WINDOW_MS && now >= pageBlockedUntil) setFullscreen(true);
+			}
 			return { mode: fullscreen ? "fullscreen" : "inline" };
 		};
+		// The page's diagnostics shim shares the window with the bridge: a message that is not JSON-RPC is
+		// not a failure of the bridge.
+		instance.onerror = (err) => console.debug("[mcp-app] ignored a message", err.message);
 		instance.onloggingmessage = (params) => {
 			console.debug("[mcp-app]", app.server, params);
+			if (params.level === "error" || params.level === "warning") {
+				const data = typeof params.data === "string" ? params.data : JSON.stringify(params.data);
+				addDiagnostic({ kind: `log ${params.level}`, message: data ?? "", source: "", line: 0 });
+			}
 		};
 		await instance.connect(new PostMessageTransport(win, win));
 		// Only now does the page get its document: the bridge is listening before its first message.
@@ -309,8 +513,116 @@
 		if (pageLoads > 1) kill();
 	}
 
+	// Diagnostics. The page's shim posts `{ cereaDiag }` to this window; only the frame's own window is
+	// believed, and a message is read as data (truncated, counted, never rendered as markup).
+	function addDiagnostic(entry: Diagnostic) {
+		// The page is gone (closed): what its remains say is not about the view any more.
+		if (dead) return;
+		const text = (value: unknown) => String(value ?? "").slice(0, MCP_APP_DIAG_MAX_CHARS);
+		const clean: Diagnostic = {
+			kind: text(entry.kind).slice(0, 20),
+			message: text(entry.message),
+			source: text(entry.source),
+			line: Number.isFinite(entry.line) ? Math.trunc(entry.line) : 0,
+		};
+		if (BENIGN.test(clean.message)) return;
+		if (diagnostics.length >= MCP_APP_DIAG_MAX_COUNT) return;
+		const same = (d: Diagnostic) =>
+			d.kind === clean.kind &&
+			d.message === clean.message &&
+			d.source === clean.source &&
+			d.line === clean.line;
+		if (diagnostics.some(same)) return;
+		diagnostics = [...diagnostics, clean];
+		if (SHIM_KINDS.includes(clean.kind)) scheduleReport();
+	}
+
+	/**
+	 * The first few go to the server once, so an administrator tailing the logs can see that a page failed.
+	 * Kinds and sources only: the message text stays in this card (the server logs no text, see the route).
+	 */
+	function scheduleReport() {
+		if (reportedToServer || reportTimer) return;
+		reportTimer = setTimeout(() => {
+			reportTimer = undefined;
+			reportedToServer = true;
+			const errors = $state
+				.snapshot(diagnostics)
+				.filter((d) => SHIM_KINDS.includes(d.kind))
+				.slice(0, REPORTED_TO_SERVER)
+				.map((d) => ({ kind: d.kind, ...(d.source ? { source: d.source } : {}) }));
+			if (errors.length === 0) return;
+			void fetch(`${base}/conversation/${conversationId}/mcp-app/diag`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ connector: app.connector, uri: app.uri, errors }),
+			}).catch(() => undefined);
+		}, 1500);
+	}
+
+	$effect(() => {
+		const onMessage = (event: MessageEvent) => {
+			if (dead || !iframeEl || event.source !== iframeEl.contentWindow) return;
+			const data = event.data as { cereaDiag?: unknown } | null;
+			const diag = data && typeof data === "object" ? data.cereaDiag : undefined;
+			if (!diag || typeof diag !== "object") return;
+			addDiagnostic(diag as Diagnostic);
+		};
+		window.addEventListener("message", onMessage);
+		return () => {
+			window.removeEventListener("message", onMessage);
+			clearTimeout(reportTimer);
+		};
+	});
+
+	/** The link shows for real problems only: errors, rejections, policy violations, error logs, not warnings. */
+	const hasRealProblem = $derived(diagnostics.some((d) => d.kind !== "log warning"));
+
+	const diagnosticsText = $derived(
+		diagnostics
+			.map(
+				(d) =>
+					`[${d.kind}] ${d.message}${d.source ? ` (${d.source}${d.line ? `:${d.line}` : ""})` : ""}`
+			)
+			.join("\n")
+	);
+
+	async function copyDiagnostics() {
+		try {
+			await navigator.clipboard.writeText(diagnosticsText);
+			copied = true;
+			setTimeout(() => (copied = false), 1500);
+		} catch {
+			// No clipboard here: the text is selectable in the panel.
+		}
+	}
+
+	/** Mounts the frame again, with a fresh bridge: what the page was doing is lost, as with any reload. */
+	function reloadView() {
+		const instance = bridge;
+		bridge = undefined;
+		void instance?.close().catch(() => undefined);
+		started = false;
+		armed = false;
+		initialized = false;
+		pageLoads = 0;
+		initializations = 0;
+		srcdoc = undefined;
+		dead = false;
+		diagnostics = [];
+		reportedToServer = false;
+		detailsOpen = false;
+		frameKey += 1;
+	}
+
 	function kill() {
 		if (dead) return;
+		addDiagnostic({
+			kind: "closed",
+			message: "The page left its document, so the view was closed.",
+			source: "",
+			line: 0,
+		});
 		dead = true;
 		const instance = bridge;
 		bridge = undefined;
@@ -322,44 +634,112 @@
 	$effect(() => {
 		const win = iframeEl?.contentWindow;
 		const page = html;
-		if (started || !win || page === null) return;
+		if (started || !win || page === null || !everSized) return;
 		started = true;
 		untrack(() => void start(win, page));
 	});
 
 	// Theme changes reach the page as a context update, after it has said it is ready.
 	$effect(() => {
-		const theme = isDark ? "dark" : "light";
-		if (!bridge || !initialized) return;
-		void bridge.sendHostContextChange({ theme });
+		void isDark;
+		pushContext();
 	});
 
-	function setFullscreen(on: boolean) {
+	/** Switches the display mode. The card stays where it is in the DOM (its iframe must not reload): in full
+	 * screen only its styles change, to a fixed layer over the whole window (see the lift rule in main.css). */
+	function setFullscreen(on: boolean, byUser = false) {
 		if (fullscreen === on) return;
+		if (on) {
+			// One at a time: the card that had the window gives it up.
+			if (fullscreenOwner && fullscreenOwner !== closeMine) fullscreenOwner();
+			fullscreenOwner = closeMine;
+		} else {
+			if (fullscreenOwner === closeMine) fullscreenOwner = null;
+			if (byUser) pageBlockedUntil = Date.now() + PAGE_BLOCK_AFTER_EXIT_MS;
+		}
 		fullscreen = on;
-		if (bridge && initialized) {
-			void bridge.sendHostContextChange({
-				displayMode: on ? "fullscreen" : "inline",
-				containerDimensions: on ? undefined : { maxHeight: MAX_INLINE_HEIGHT },
-			});
+		if (!on) frameSize = null;
+		// After the layout has settled, so the size told to the page is the one it has.
+		void tick().then(() => {
+			if (fullscreen !== on) return;
+			measureFrame();
+			pushContext();
+		});
+	}
+
+	function closeMine() {
+		setFullscreen(false);
+	}
+
+	function measureFrame() {
+		if (fullscreen && iframeEl) {
+			frameSize = { width: iframeEl.clientWidth, height: iframeEl.clientHeight };
+		}
+	}
+
+	/** The whole context goes to the bridge, which sends the page only what changed. */
+	function pushContext() {
+		if (!bridge || !initialized) return;
+		try {
+			bridge.setHostContext(hostContext());
+		} catch (err) {
+			console.debug("[mcp-app] could not send the host context", err);
 		}
 	}
 
 	$effect(() => {
 		if (!fullscreen) return;
 		const onKey = (event: KeyboardEvent) => {
-			if (event.key === "Escape") setFullscreen(false);
+			if (event.key === "Escape") {
+				// A dialog above the layer (the link confirmation) takes its own Escape first.
+				if (event.defaultPrevented) return;
+				setFullscreen(false, true);
+			}
 		};
 		window.addEventListener("keydown", onKey);
-		return () => window.removeEventListener("keydown", onKey);
+		const onResize = () => {
+			measureFrame();
+			pushContext();
+		};
+		window.addEventListener("resize", onResize);
+		// The window behind the layer does not scroll, and the shell's stacking is lifted so the layer
+		// can sit above the sidebar and the composer.
+		acquireWindowLock();
+		toggleEl?.focus();
+		return () => {
+			window.removeEventListener("keydown", onKey);
+			window.removeEventListener("resize", onResize);
+			releaseWindowLock();
+			// Back on the card's button, unless another card took the window meanwhile (it has the focus).
+			if (!fullscreenOwner) toggleEl?.focus();
+		};
 	});
+
+	// The window loses focus when the user clicks into the frame (a click inside an iframe is not seen by
+	// this document): over the card, or with the frame focused, that is the user acting on it.
+	$effect(() => {
+		const onBlur = () => {
+			if (hovered || (iframeEl && document.activeElement === iframeEl)) noteInput();
+		};
+		window.addEventListener("blur", onBlur);
+		return () => window.removeEventListener("blur", onBlur);
+	});
+
+	/** Tab cycles between the header and the frame while the layer is open (see the sentinels below). */
+	function focusEdge(edge: "first" | "last") {
+		const items = [
+			...(cardEl?.querySelectorAll<HTMLElement>("button:not(:disabled), iframe") ?? []),
+		];
+		(edge === "first" ? items[0] : items[items.length - 1])?.focus();
+	}
 
 	$effect(() => {
 		return () => {
+			if (fullscreenOwner === closeMine) fullscreenOwner = null;
 			const instance = bridge;
 			bridge = undefined;
 			linkAnswer?.(false);
-			approval?.answer("deny");
+			for (const entry of approvals) entry.answer("deny");
 			if (!instance) return;
 			// Best effort: the page is told it is going, and is not waited for.
 			void instance
@@ -371,33 +751,72 @@
 </script>
 
 {#if !unavailable}
+	<!-- Full screen is this same element restyled as a fixed layer over the window, never moved: moving an
+	     iframe in the DOM reloads it, and a second load closes the bridge. What could trap it, the chat
+	     column's own stacking context and its container query, is lifted while it is open (main.css). -->
 	<div
+		bind:this={cardEl}
+		onpointerdowncapture={noteInput}
+		onkeydowncapture={noteInput}
+		onpointerenter={() => (hovered = true)}
+		onpointerleave={() => (hovered = false)}
 		data-testid="mcp-app"
+		data-display-mode={fullscreen ? "fullscreen" : "inline"}
+		role={fullscreen ? "dialog" : undefined}
+		aria-modal={fullscreen ? "true" : undefined}
+		aria-label={fullscreen ? m["chat.mcp_app.title"]({ server: app.server }) : undefined}
 		class={fullscreen
-			? "fixed inset-0 z-50 flex flex-col bg-white dark:bg-gray-900"
-			: "relative my-2 flex flex-col overflow-hidden rounded-xl bg-white dark:bg-gray-900 " +
+			? "fixed inset-0 z-50 flex flex-col bg-white pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] dark:bg-gray-900"
+			: "relative my-2 flex w-full flex-col overflow-hidden rounded-xl bg-white dark:bg-gray-900 " +
 				(app.prefersBorder === false ? "" : "border border-gray-200 dark:border-gray-700")}
 	>
+		{#if fullscreen}
+			<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+			<span
+				class="sr-only"
+				tabindex="0"
+				aria-hidden="true"
+				data-testid="mcp-app-trap"
+				onfocus={() => focusEdge("last")}
+			></span>
+		{/if}
 		<div
-			class="flex items-center justify-between gap-2 border-b border-gray-100 px-3 py-1.5 text-xs text-gray-500 dark:border-gray-800 dark:text-gray-400"
+			class="flex shrink-0 items-center justify-between gap-2 border-b border-gray-100 px-3 text-xs text-gray-500 dark:border-gray-800 dark:text-gray-400 {fullscreen
+				? 'py-1'
+				: 'py-1.5'}"
 		>
-			<span class="min-w-0 truncate">{m["chat.mcp_app.title"]({ server: app.server })}</span>
+			<div class="min-w-0">
+				<div class="truncate">{m["chat.mcp_app.title"]({ server: app.server })}</div>
+				{#if fullscreen && declaredDomains.length > 0}
+					<div
+						data-testid="mcp-app-domains"
+						class="truncate text-xxs text-gray-400 dark:text-gray-500"
+						title={declaredDomains.join(", ")}
+					>
+						{m["chat.mcp_app.domains"]({ domains: declaredDomains.join(", ") })}
+					</div>
+				{/if}
+			</div>
 			<button
+				bind:this={toggleEl}
 				type="button"
-				class="shrink-0 rounded-md p-1 hover:bg-gray-100 dark:hover:bg-gray-800"
+				class="shrink-0 rounded-md p-1 hover:bg-gray-100 dark:hover:bg-gray-800 {fullscreen
+					? 'p-2'
+					: ''}"
 				aria-label={fullscreen
 					? m["chat.mcp_app.exit_fullscreen"]()
 					: m["chat.mcp_app.fullscreen"]()}
 				title={fullscreen ? m["chat.mcp_app.exit_fullscreen"]() : m["chat.mcp_app.fullscreen"]()}
-				onclick={() => setFullscreen(!fullscreen)}
+				onclick={() => {
+					noteInput();
+					setFullscreen(!fullscreen, true);
+				}}
 			>
-				{#if fullscreen}<CarbonMinimize class="size-4" />{:else}<CarbonMaximize
-						class="size-4"
-					/>{/if}
+				{#if fullscreen}<CarbonClose class="size-5" />{:else}<CarbonMaximize class="size-4" />{/if}
 			</button>
 		</div>
 
-		{#if declaredDomains.length > 0}
+		{#if !fullscreen && declaredDomains.length > 0}
 			<p
 				data-testid="mcp-app-domains"
 				class="truncate border-b border-gray-100 px-3 py-1 text-xxs text-gray-400 dark:border-gray-800 dark:text-gray-500"
@@ -408,11 +827,20 @@
 		{/if}
 
 		{#if approval}
+			<!-- In the flow, above the frame (an iframe paints over what it overlaps, and the full-screen
+			     header must stay reachable), so a page with a modal of its own cannot hide it. -->
 			<div
 				data-testid="mcp-app-approval"
-				class="absolute inset-x-0 top-0 z-10 space-y-2 border-b border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-100"
+				role="alertdialog"
+				aria-label={m["chat.mcp_app.approval.title"]({ server: app.server, tool: approval.tool })}
+				class="max-h-[60%] shrink-0 space-y-2 overflow-auto border-b border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-100"
 			>
-				<p>{m["chat.mcp_app.approval.title"]({ server: app.server, tool: approval.tool })}</p>
+				<p>
+					{m["chat.mcp_app.approval.title"]({ server: app.server, tool: approval.tool })}
+					{#if approvals.length > 1}
+						<span class="text-xs opacity-70">+{approvals.length - 1}</span>
+					{/if}
+				</p>
 				<div class="text-xxs font-semibold uppercase">{m["chat.mcp_app.approval.args"]()}</div>
 				<pre
 					class="scrollbar-custom max-h-32 overflow-auto rounded-lg bg-white/70 p-2 font-mono text-xs break-all whitespace-pre-wrap dark:bg-black/20">{JSON.stringify(
@@ -463,16 +891,67 @@
 		{:else}
 			<!-- No allow-same-origin: the page's origin is opaque, so it cannot reach this app's cookies,
 			     storage or DOM. Its CSP is the first thing in its document. -->
-			<iframe
-				bind:this={iframeEl}
-				title={m["chat.mcp_app.frame_title"]({ server: app.server })}
-				class="w-full border-0 bg-white dark:bg-gray-900 {fullscreen ? 'min-h-0 flex-1' : ''}"
-				style={fullscreen ? undefined : `height: ${frameHeight}px`}
-				sandbox={MCP_APP_SANDBOX}
-				onload={onFrameLoad}
-				referrerpolicy="no-referrer"
-				{srcdoc}
-			></iframe>
+			{#key frameKey}
+				<iframe
+					bind:this={iframeEl}
+					title={m["chat.mcp_app.frame_title"]({ server: app.server })}
+					class="w-full border-0 bg-white dark:bg-gray-900 {fullscreen ? 'min-h-0 flex-1' : ''}"
+					style={fullscreen ? undefined : `height: ${frameHeight}px`}
+					sandbox={MCP_APP_SANDBOX}
+					onload={onFrameLoad}
+					referrerpolicy="no-referrer"
+					{srcdoc}
+				></iframe>
+			{/key}
+		{/if}
+
+		{#if hasRealProblem}
+			<div
+				data-testid="mcp-app-diagnostics"
+				class="shrink-0 border-t border-gray-100 px-3 py-1 text-xs text-gray-500 dark:border-gray-800 dark:text-gray-400"
+			>
+				<button
+					type="button"
+					class="underline decoration-dotted underline-offset-2 hover:text-gray-700 dark:hover:text-gray-200"
+					aria-expanded={detailsOpen}
+					onclick={() => (detailsOpen = !detailsOpen)}
+				>
+					{detailsOpen ? m["chat.mcp_app.details_hide"]() : m["chat.mcp_app.details_show"]()}
+				</button>
+				{#if detailsOpen}
+					<div class="mt-1 space-y-1" data-testid="mcp-app-details">
+						<p>{m["chat.mcp_app.details_intro"]()}</p>
+						<pre
+							class="scrollbar-custom max-h-40 overflow-auto rounded-lg bg-gray-100 p-2 font-mono text-xxs break-all whitespace-pre-wrap text-gray-700 select-text dark:bg-gray-800/70 dark:text-gray-300">{diagnosticsText}</pre>
+						<div class="flex gap-2">
+							<button
+								type="button"
+								class="rounded-md border border-gray-200 px-2 py-0.5 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
+								onclick={copyDiagnostics}
+							>
+								{copied ? m["chat.mcp_app.details_copied"]() : m["chat.mcp_app.details_copy"]()}
+							</button>
+							<button
+								type="button"
+								class="rounded-md border border-gray-200 px-2 py-0.5 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
+								onclick={reloadView}
+							>
+								{m["chat.mcp_app.reload"]()}
+							</button>
+						</div>
+					</div>
+				{/if}
+			</div>
+		{/if}
+		{#if fullscreen}
+			<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+			<span
+				class="sr-only"
+				tabindex="0"
+				aria-hidden="true"
+				data-testid="mcp-app-trap"
+				onfocus={() => focusEdge("first")}
+			></span>
 		{/if}
 	</div>
 {/if}

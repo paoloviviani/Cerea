@@ -249,9 +249,44 @@ describe("a tool call started by a page", () => {
 		expect(fake.callMcpTool).not.toHaveBeenCalled();
 	});
 
-	it("allows an app-only tool", async () => {
+	it("runs a page-only tool with no approval, under Ask and with no grant", async () => {
 		fake.toolMeta.mockResolvedValue({ listed: true, ui: { visibility: ["app"] } });
-		expect((await callToolFromPage(base({ approval: once }))).ok).toBe(true);
+		const outcome = await callToolFromPage(base());
+		expect(outcome.ok).toBe(true);
+		expect(fake.issue).not.toHaveBeenCalled();
+		expect(fake.callMcpTool).toHaveBeenCalledTimes(1);
+	});
+
+	it("still asks for a tool the model can also see, whether or not its visibility is declared", async () => {
+		for (const ui of [undefined, { visibility: ["app", "model"] }]) {
+			fake.toolMeta.mockResolvedValue({ listed: true, ui });
+			expect(await callToolFromPage(base())).toMatchObject({
+				ok: false,
+				status: 409,
+				code: "approval_required",
+			});
+		}
+		expect(fake.callMcpTool).not.toHaveBeenCalled();
+	});
+
+	it("keeps the rate limit on page-only calls", async () => {
+		fake.toolMeta.mockResolvedValue({ listed: true, ui: { visibility: ["app"] } });
+		const conv = conversation();
+		const userId = new ObjectId();
+		for (let i = 0; i < PAGE_CALLS_BURST; i += 1) {
+			expect((await callToolFromPage(base({ conversation: conv, userId }))).ok).toBe(true);
+		}
+		expect(await callToolFromPage(base({ conversation: conv, userId }))).toMatchObject({
+			ok: false,
+			status: 429,
+			code: "rate_limited",
+		});
+	});
+
+	it("takes the page-only status from the connector's listing, not from the call", async () => {
+		fake.toolMeta.mockResolvedValue({ listed: true, ui: { visibility: ["model"] } });
+		const outcome = await callToolFromPage(base({ approval: once }));
+		expect(outcome).toMatchObject({ ok: false, code: "unknown_tool" });
 	});
 
 	it("refuses when the connector is gone or apps are blocked for it", async () => {

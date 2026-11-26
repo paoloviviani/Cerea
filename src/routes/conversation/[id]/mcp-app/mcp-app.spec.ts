@@ -7,6 +7,7 @@ const fake = vi.hoisted(() => ({
 	row: true,
 	allowed: vi.fn(async () => true),
 	callToolFromPage: vi.fn(),
+	logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
 vi.mock("$lib/server/config", () => ({
@@ -43,11 +44,13 @@ vi.mock("$lib/server/execution/deliverables", async () => {
 		),
 	};
 });
+vi.mock("$lib/server/logger", () => ({ logger: fake.logger }));
 vi.mock("$lib/server/mcp/appsPolicy", () => ({ appsAllowedFor: fake.allowed }));
 vi.mock("$lib/server/mcp/apps/pageCall", () => ({ callToolFromPage: fake.callToolFromPage }));
 
 const page = await import("./[sha256]/+server");
 const call = await import("./call/+server");
+const diag = await import("./diag/+server");
 
 const id = new ObjectId().toHexString();
 const locals = { user: { _id: new ObjectId() }, sessionId: "s" };
@@ -213,5 +216,60 @@ describe("the page tool-call route", () => {
 		fake.conversation = false;
 		await expect(postCall({ connector: "c", tool: "t" })).rejects.toMatchObject({ status: 404 });
 		expect(fake.callToolFromPage).not.toHaveBeenCalled();
+	});
+});
+
+const postDiag = (body: unknown) =>
+	diag.POST({
+		params: { id },
+		locals: { user: { _id: new ObjectId() }, sessionId: "s2" },
+		url: new URL("http://x/conversation/c/mcp-app/diag"),
+		request: new Request("http://x/diag", {
+			method: "POST",
+			body: JSON.stringify(body),
+			headers: { "content-type": "application/json", origin: "http://x" },
+		}),
+	} as never) as Promise<Response>;
+
+describe("the page diagnostics route", () => {
+	beforeEach(() => fake.logger.warn.mockClear());
+
+	it("logs metadata only: kinds and sources reduced to scheme, host and path, never message text", async () => {
+		const res = await postDiag({
+			connector: "connector:1",
+			uri: "ui://mock/page.html",
+			errors: [
+				{ kind: "csp", source: "https://cdn.example.com/x.js?secret=1#h", message: "do not log" },
+				{ kind: "error" },
+			],
+		});
+
+		expect(res.status).toBe(204);
+		const [fields] = fake.logger.warn.mock.calls[0];
+		expect(fields).toEqual({
+			connector: "connector:1",
+			uri: "ui://mock/page.html",
+			count: 2,
+			errors: [{ kind: "csp", source: "https://cdn.example.com/x.js" }, { kind: "error" }],
+		});
+		expect(JSON.stringify(fields)).not.toContain("secret");
+		expect(JSON.stringify(fields)).not.toContain("do not log");
+	});
+
+	it("refuses a kind outside the list, and an address that is not ui://", async () => {
+		await expect(
+			postDiag({ connector: "connector:1", uri: "ui://a", errors: [{ kind: "log warning" }] })
+		).rejects.toMatchObject({ status: 400 });
+		await expect(
+			postDiag({ connector: "connector:1", uri: "https://a", errors: [{ kind: "error" }] })
+		).rejects.toMatchObject({ status: 400 });
+	});
+
+	it("refuses a connector and address the conversation holds no stored page of", async () => {
+		fake.row = false;
+		await expect(
+			postDiag({ connector: "connector:9", uri: "ui://a", errors: [{ kind: "error" }] })
+		).rejects.toMatchObject({ status: 403 });
+		expect(fake.logger.warn).not.toHaveBeenCalled();
 	});
 });

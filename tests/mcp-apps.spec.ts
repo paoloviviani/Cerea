@@ -43,6 +43,12 @@ const APP = {
  */
 const RENDERED = process.env.E2E_APPS_RENDER === "1";
 
+/** A value the test needs: fails with a clear message rather than a non-null assertion. */
+function must<T>(value: T | null | undefined): T {
+	if (value === null || value === undefined) throw new Error("expected a value");
+	return value;
+}
+
 const lastAssistant = (page: Page) => page.locator('[data-message-role="assistant"]').last();
 
 async function seedAppsConnector(db: Db, sessionId: string, opts: { appsAllowed?: boolean } = {}) {
@@ -74,6 +80,13 @@ async function seedAppsConnector(db: Db, sessionId: string, opts: { appsAllowed?
 		tools: [
 			tool("show_probe", "Shows the probe app.", { resourceUri: "ui://mock-apps/probe.html" }),
 			tool("show_time", "Shows the time app.", { resourceUri: "ui://mock-apps/time.html" }),
+			// Model-visible too: a page's call to it asks first.
+			tool("echo_shared", "Echoes text; the model can call it too.", {
+				resourceUri: "ui://mock-apps/probe.html",
+			}),
+			tool("show_broken", "Shows a page that throws on load.", {
+				resourceUri: "ui://mock-apps/broken.html",
+			}),
 			tool("plain", "A tool with no app."),
 			// Only the page may call it: the model is never offered it.
 			tool("echo_app", "Echoes text; only the app page calls it.", {
@@ -190,7 +203,241 @@ test.describe("MCP Apps: rendering @needs-apps-render", () => {
 		expect(offered.join("")).not.toContain("echo_app");
 	});
 
-	test("a tool call from the page asks for approval like a model's call", async ({
+	test("full screen is a real full-window layer above the app, and the page does not reload", async ({
+		page,
+		db,
+		session,
+		mockOpenAI,
+	}) => {
+		await seedAppsConnector(db, session.sessionId);
+		await page.setViewportSize({ width: 1280, height: 1000 });
+		await runTool(page, mockOpenAI, "show_probe");
+		await allowModelCall(page);
+		await expect(APP.frame(page)).toBeVisible({ timeout: 45_000 });
+		const inside = APP.inside(page);
+		await expect(inside.locator("#load-marker")).toContainText("marker:");
+		const marker = await inside.locator("#load-marker").textContent();
+		const sidebar = page.locator("nav.app-sidebar:not(.fixed)");
+		await expect(sidebar).toBeVisible();
+		await expect(inside.locator("#display-mode")).toHaveText("display:inline");
+
+		const expand = page.getByRole("button", { name: "Full screen" }).last();
+		// The page asks (its "Edit"), after the user's click on it: honoured.
+		await inside.locator("#request-fullscreen").click();
+		const layer = page.locator('[data-testid="mcp-app"][data-display-mode="fullscreen"]');
+		await expect(layer).toBeVisible();
+		await expect(inside.locator("#display-mode")).toHaveText("display:fullscreen");
+		const viewport = must(page.viewportSize());
+		const box = must(await layer.boundingBox());
+		expect(box).toMatchObject({ x: 0, y: 0, width: viewport.width, height: viewport.height });
+		// A point over the sidebar, and one over the composer: both belong to the layer.
+		const probes = await page.evaluate(() => {
+			const layerEl = document.querySelector(
+				'[data-testid="mcp-app"][data-display-mode="fullscreen"]'
+			);
+			const nav = document.querySelector("nav.app-sidebar:not(.fixed)")?.getBoundingClientRect();
+			if (!layerEl || !nav) return [false];
+			const hit = (x: number, y: number) => layerEl.contains(document.elementFromPoint(x, y));
+			return [
+				hit(nav.left + 20, nav.top + 20),
+				hit(nav.left + 20, nav.top + nav.height / 2),
+				hit(window.innerWidth / 2, window.innerHeight - 20),
+			];
+		});
+		expect(probes).toEqual([true, true, true]);
+		// The frame fills the layer below the header bar.
+		const frameBox = must(await APP.frame(page).boundingBox());
+		expect(frameBox.width).toBe(viewport.width);
+		// Not the inline limit: the frame is as tall as the layer allows, below the header bar (and the
+		// probe page's own diagnostics row, which its refused fetches raise).
+		expect(frameBox.y).toBeGreaterThan(20);
+		expect(frameBox.y + frameBox.height).toBeLessThanOrEqual(viewport.height);
+		expect(frameBox.height).toBeGreaterThan(720);
+		await expect(page.getByRole("button", { name: "Close full screen" })).toBeVisible();
+
+		// Tab stays inside the layer: header, frame, header...
+		for (let i = 0; i < 6; i += 1) {
+			await page.keyboard.press("Tab");
+			expect(
+				await page.evaluate(() =>
+					Boolean(
+						document
+							.querySelector('[data-testid="mcp-app"][data-display-mode="fullscreen"]')
+							?.contains(document.activeElement)
+					)
+				)
+			).toBe(true);
+		}
+
+		// Our close button leaves and tells the page.
+		await page.getByRole("button", { name: "Close full screen" }).click();
+		await expect(layer).toHaveCount(0);
+		await expect(inside.locator("#display-mode")).toHaveText("display:inline");
+
+		// The expand button always works; Escape leaves, tells the page and gives the focus back to it.
+		await expand.click();
+		await expect(layer).toBeVisible();
+		await expect(inside.locator("#display-mode")).toHaveText("display:fullscreen");
+		await page.keyboard.press("Escape");
+		await expect(layer).toHaveCount(0);
+		await expect(inside.locator("#display-mode")).toHaveText("display:inline");
+		await expect(expand).toBeFocused();
+
+		// The same document throughout: a reload would have drawn a new marker and closed the bridge.
+		await expect(inside.locator("#load-marker")).toHaveText(must(marker));
+		await expect(page.locator('[data-testid="mcp-app-closed"]')).toHaveCount(0);
+	});
+
+	test("full screen covers a phone screen and its close button is reachable", async ({
+		page,
+		db,
+		session,
+		mockOpenAI,
+	}) => {
+		await seedAppsConnector(db, session.sessionId);
+		await page.setViewportSize({ width: 390, height: 844 });
+		await runTool(page, mockOpenAI, "show_probe");
+		await allowModelCall(page);
+		await expect(APP.frame(page)).toBeVisible({ timeout: 45_000 });
+		await page.getByRole("button", { name: "Full screen" }).last().click();
+		const layer = page.locator('[data-testid="mcp-app"][data-display-mode="fullscreen"]');
+		await expect(layer).toBeVisible();
+		const box = must(await layer.boundingBox());
+		expect(box).toMatchObject({ x: 0, y: 0, width: 390, height: 844 });
+		const close = page.getByRole("button", { name: "Close full screen" });
+		const closeBox = must(await close.boundingBox());
+		expect(closeBox.x + closeBox.width).toBeLessThanOrEqual(390);
+		expect(closeBox.y).toBeGreaterThanOrEqual(0);
+		const hit = await page.evaluate(
+			([x, y]) => {
+				const el = document.elementFromPoint(x, y);
+				return Boolean(el?.closest('button[aria-label="Close full screen"]'));
+			},
+			[closeBox.x + closeBox.width / 2, closeBox.y + closeBox.height / 2]
+		);
+		expect(hit).toBe(true);
+		await close.click();
+		await expect(layer).toHaveCount(0);
+	});
+
+	test("a page that fails shows its errors behind a Show details link, and the report reaches the server", async ({
+		page,
+		db,
+		session,
+		mockOpenAI,
+	}) => {
+		await seedAppsConnector(db, session.sessionId);
+		const reports: string[] = [];
+		page.on("request", (req) => {
+			if (req.url().endsWith("/mcp-app/diag")) reports.push(req.postData() ?? "");
+		});
+		await runTool(page, mockOpenAI, "show_broken");
+		await allowModelCall(page);
+		await expect(APP.frame(page)).toBeVisible({ timeout: 45_000 });
+		const link = page.getByRole("button", { name: "Show details" }).last();
+		await expect(link).toBeVisible({ timeout: 20_000 });
+		await link.click();
+		const details = page.locator('[data-testid="mcp-app-details"]').last();
+		await expect(details).toContainText("boom-on-load");
+		// The refused fetch is a policy violation, recorded as such.
+		await expect(details).toContainText("[csp]");
+		await expect(details).toContainText("connect-src");
+		await expect(details.getByRole("button", { name: "Copy" })).toBeVisible();
+		await expect.poll(() => reports.length, { timeout: 10_000 }).toBeGreaterThan(0);
+		// Kinds and sources only: the message text stays in the card.
+		expect(reports[0]).toContain('"kind":"error"');
+		expect(reports[0]).not.toContain("boom-on-load");
+		expect(reports[0]).toContain("connector:");
+		// Reload view mounts the frame again: the same errors come back, and the panel starts closed.
+		await details.getByRole("button", { name: "Reload view" }).click();
+		await expect(page.locator('[data-testid="mcp-app-details"]')).toHaveCount(0);
+		await expect(page.getByRole("button", { name: "Show details" }).last()).toBeVisible({
+			timeout: 20_000,
+		});
+	});
+
+	test("a message from another window is not taken for the page's diagnostics", async ({
+		page,
+		db,
+		session,
+		mockOpenAI,
+	}) => {
+		await seedAppsConnector(db, session.sessionId);
+		await runTool(page, mockOpenAI, "show_time");
+		await allowModelCall(page);
+		await expect(APP.frame(page)).toBeVisible({ timeout: 45_000 });
+		await expect(APP.inside(page).locator("#get-time-btn")).toBeVisible({ timeout: 20_000 });
+		await page.evaluate(() => {
+			window.postMessage(
+				{ cereaDiag: { kind: "error", message: "forged", source: "", line: 1 } },
+				"*"
+			);
+		});
+		await page.waitForTimeout(500);
+		await expect(page.getByRole("button", { name: "Show details" })).toHaveCount(0);
+	});
+
+	test("the app view shows with its run folded into a summary, and folding never reloads it", async ({
+		page,
+		db,
+		session,
+		mockOpenAI,
+	}) => {
+		await seedAppsConnector(db, session.sessionId);
+		await mockOpenAI.setDefaultScenario({
+			toolCalls: [
+				{ id: "call_plain", name: "plain", arguments: "{}" },
+				{ id: "call_probe", name: "show_probe", arguments: "{}" },
+			],
+			content: ["Done ", "showing."],
+			chunkDelayMs: 10,
+			finishReason: "stop",
+		});
+		await page.goto(`${E2E_APP_BASE}/`);
+		await waitForHydration(page);
+		await page.getByPlaceholder("Ask anything").fill("run both");
+		await page.getByRole("button", { name: "Send message" }).click();
+		await page.waitForURL(/\/conversation\/[a-f0-9]{24}/);
+		for (let i = 0; i < 2; i += 1) {
+			await page.getByRole("button", { name: "Allow once" }).first().click({ timeout: 45_000 });
+		}
+		// No click on any row: the view is there.
+		await expect(APP.frame(page)).toBeVisible({ timeout: 45_000 });
+		const inside = APP.inside(page);
+		await expect(inside.locator("#load-marker")).toContainText("marker:");
+		const marker = await inside.locator("#load-marker").textContent();
+		const summaryToggle = (name: "Expand" | "Collapse") =>
+			lastAssistant(page).getByRole("button", { name, exact: true }).first();
+		await summaryToggle("Expand").click();
+		await expect(APP.frame(page)).toHaveCount(1);
+		await summaryToggle("Collapse").click();
+		await expect(APP.frame(page)).toBeVisible();
+		await expect(inside.locator("#load-marker")).toHaveText(must(marker));
+		await expect(page.locator('[data-testid="mcp-app-closed"]')).toHaveCount(0);
+	});
+
+	test("a page-only tool runs from the page with no approval card, under Ask", async ({
+		page,
+		db,
+		session,
+		mockOpenAI,
+		request,
+	}) => {
+		await seedAppsConnector(db, session.sessionId);
+		const control = mockAppsMcpControl(request);
+		await runTool(page, mockOpenAI, "show_probe");
+		await allowModelCall(page);
+		await expect(APP.frame(page)).toBeVisible({ timeout: 45_000 });
+		await APP.inside(page).locator("#call-tool").click();
+		await expect(APP.inside(page).locator("#call-result")).toContainText(
+			"result:app-echo:from-app",
+			{ timeout: 20_000 }
+		);
+		await expect(page.locator('[data-testid="mcp-app-approval"]')).toHaveCount(0);
+		expect((await control.calls()).filter((c) => c.name === "echo_app")).toHaveLength(1);
+	});
+
+	test("a call from the page to a tool the model can also use asks for approval like a model's call", async ({
 		page,
 		db,
 		session,
@@ -203,11 +450,11 @@ test.describe("MCP Apps: rendering @needs-apps-render", () => {
 		await allowModelCall(page);
 		await expect(APP.frame(page)).toBeVisible({ timeout: 45_000 });
 
-		await APP.inside(page).locator("#call-tool").click();
+		await APP.inside(page).locator("#call-shared").click();
 		// The card names the tool the page wants, and nothing ran before the answer.
-		const card = page.getByText("echo_app").last();
+		const card = page.getByText("echo_shared").last();
 		await expect(card).toBeVisible({ timeout: 20_000 });
-		expect((await control.calls()).filter((c) => c.name === "echo_app")).toHaveLength(0);
+		expect((await control.calls()).filter((c) => c.name === "echo_shared")).toHaveLength(0);
 
 		await page.getByRole("button", { name: "Allow once" }).last().click();
 		await expect(APP.inside(page).locator("#call-result")).toContainText(
@@ -216,7 +463,7 @@ test.describe("MCP Apps: rendering @needs-apps-render", () => {
 				timeout: 20_000,
 			}
 		);
-		expect((await control.calls()).filter((c) => c.name === "echo_app")).toHaveLength(1);
+		expect((await control.calls()).filter((c) => c.name === "echo_shared")).toHaveLength(1);
 	});
 
 	test("denying a call from the page returns an error to the page and runs nothing", async ({
@@ -231,14 +478,14 @@ test.describe("MCP Apps: rendering @needs-apps-render", () => {
 		await runTool(page, mockOpenAI, "show_probe");
 		await allowModelCall(page);
 		await expect(APP.frame(page)).toBeVisible({ timeout: 45_000 });
-		await APP.inside(page).locator("#call-tool").click();
-		await expect(page.getByText("echo_app").last()).toBeVisible({ timeout: 20_000 });
+		await APP.inside(page).locator("#call-shared").click();
+		await expect(page.getByText("echo_shared").last()).toBeVisible({ timeout: 20_000 });
 		await page.getByRole("button", { name: "Deny" }).last().click();
 		// A denial is a tool result with isError, not a protocol error: the page prints "result:".
 		await expect(APP.inside(page).locator("#call-result")).toContainText("result:The user denied", {
 			timeout: 20_000,
 		});
-		expect((await control.calls()).filter((c) => c.name === "echo_app")).toHaveLength(0);
+		expect((await control.calls()).filter((c) => c.name === "echo_shared")).toHaveLength(0);
 	});
 
 	test("a message from the page is a suggestion above the composer, inserted only by a click", async ({
