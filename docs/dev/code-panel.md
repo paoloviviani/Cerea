@@ -199,7 +199,7 @@ record is tracked with no directory (only the asking session is known to live in
 A held ask is registered with `Materializer.HoldAsk`. If the backend's reply for it arrives while it is held (a session
 aborted) or `WithdrawPending` runs (opencode restarted), the id is marked, and `ReleaseAsk` then shows no card for it,
 decided under the materializer's own lock so the reply cannot slip between the check and the card; an ask answered by
-galopin ends its hold with `DropHeld` Nothing here changes what a word allows: Plan, the machine's deny list, the floor and the exceptions are
+galopin ends its hold with `DropHeld` Holds are counted per id and the mark is kept, so the same ask passing the filter twice (a re-delivered event, the sync sweep) does not forget that it was answered. `MarkTreeKnown` gives a top the asking session's directory only when the top is that session; a top known only from a link gets none. Nothing here changes what a word allows: Plan, the machine's deny list, the floor and the exceptions are
 read by `decideAsk` exactly as before. Tests: `agent/subagent_first_ask_test.go`.
 
 ## A .env is read freely on Allow; what leaves the machine asks (galopin)

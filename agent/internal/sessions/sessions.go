@@ -51,6 +51,12 @@ type SyncResult struct {
 	Snapshot *backend.Transcript
 }
 
+// heldAsk is one held ask id's bookkeeping.
+type heldAsk struct {
+	holds int
+	gone  bool
+}
+
 // sessionState is the materializer's per-session working state: the
 // reconstructed transcript (messages, parts, permissions, status, usage,
 // todos) plus the ring buffer and seq counter events are assigned from.
@@ -239,11 +245,12 @@ type Materializer struct {
 	// onAskLeak marks an ask whose call carries a local secret's value (names only).
 	onAskLeak func(workspaceDir string, req backend.PermissionRequest) (key, file string)
 
-	// held is the ids of asks the machine consumed to hold while it learns their
-	// session's place in the tree (HoldAsk): false until the ask is answered or
-	// withdrawn meanwhile, then true, so ReleaseAsk does not bring a card back
-	// for an ask that no longer exists. Guarded by mu.
-	held map[string]bool
+	// held is the asks the machine consumed to hold while it learns their
+	// session's place in the tree (HoldAsk), by id: how many holds are open (the
+	// same ask can pass the filter twice: a re-delivered event, the sync sweep) and
+	// whether it was answered or withdrawn meanwhile, so ReleaseAsk does not bring
+	// back a card for an ask that no longer exists. Guarded by mu.
+	held map[string]*heldAsk
 
 	outCh chan Envelope
 }
@@ -634,22 +641,43 @@ func (m *Materializer) ApplyBackendEvent(ctx context.Context, be backend.Backend
 }
 
 // HoldAsk records that the ask id was consumed by the pre-filter to be decided
-// later, so that a reply or a withdrawal that comes first is remembered. The
-// holder ends it with ReleaseAsk or DropHeld.
+// later, so that a reply or a withdrawal that comes first is remembered. Holds
+// are counted per id and a mark already made is kept: the same ask passing the
+// filter twice must not forget that it was answered. The holder ends each hold
+// with ReleaseAsk or DropHeld.
 func (m *Materializer) HoldAsk(id string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.held == nil {
-		m.held = map[string]bool{}
+		m.held = map[string]*heldAsk{}
 	}
-	m.held[id] = false
+	h := m.held[id]
+	if h == nil {
+		h = &heldAsk{}
+		m.held[id] = h
+	}
+	h.holds++
 }
 
 // DropHeld ends a hold whose ask was decided without a card (answered).
 func (m *Materializer) DropHeld(id string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	delete(m.held, id)
+	m.endHoldLocked(id)
+}
+
+// endHoldLocked closes one hold of id and reports whether the ask was answered
+// or withdrawn meanwhile (false for an id that is not held).
+func (m *Materializer) endHoldLocked(id string) (gone bool) {
+	h := m.held[id]
+	if h == nil {
+		return false
+	}
+	gone = h.gone
+	if h.holds--; h.holds <= 0 {
+		delete(m.held, id)
+	}
+	return gone
 }
 
 // ReleaseAsk materialises a permission ask the pre-filter consumed to hold
@@ -684,7 +712,13 @@ func (m *Materializer) MarkTreeKnown(workspaceDir, sessionID string) {
 	root := m.rootLocked(sessionID)
 	st, ok := m.sessions[root]
 	if !ok {
-		st = newSessionState(workspaceDir, root)
+		// only sessionID itself is known to live in workspaceDir: a top known only
+		// from a link is left to say where it lives itself
+		dir := workspaceDir
+		if root != sessionID {
+			dir = ""
+		}
+		st = newSessionState(dir, root)
 		m.sessions[root] = st
 	}
 	st.recordSeen = true
@@ -733,13 +767,11 @@ func (m *Materializer) applyBackendEvent(ctx context.Context, be backend.Backend
 	switch {
 	case be.Event.Kind == backend.EventPermissionReplied:
 		// answered while held: its release must not bring a card back
-		if _, ok := m.held[be.Event.RequestID]; ok {
-			m.held[be.Event.RequestID] = true
+		if h := m.held[be.Event.RequestID]; h != nil {
+			h.gone = true
 		}
 	case !filter && be.Event.Kind == backend.EventPermissionAsked && be.Event.Request != nil:
-		gone, ok := m.held[be.Event.Request.ID]
-		delete(m.held, be.Event.Request.ID)
-		if ok && gone {
+		if m.endHoldLocked(be.Event.Request.ID) {
 			m.mu.Unlock()
 			return
 		}
@@ -1617,8 +1649,8 @@ func (m *Materializer) LatestUserMessage(sessionID string) (backend.Message, boo
 // for one would answer into nothing.
 func (m *Materializer) WithdrawPending() {
 	m.mu.Lock()
-	for id := range m.held {
-		m.held[id] = true // an ask held for its tree is gone with the process too
+	for _, h := range m.held {
+		h.gone = true // an ask held for its tree is gone with the process too
 	}
 	var envs []Envelope
 	for _, st := range m.sessions {
