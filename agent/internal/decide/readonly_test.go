@@ -194,7 +194,7 @@ func TestWritesIntoDotGitAreAlwaysACard(t *testing.T) {
 		w + "/.git/config", w + "/.git/worktrees/x/config.worktree"}
 	free := []string{".gitignore", ".github/CODEOWNERS", ".husky/pre-commit", ".gitattributes", ".pre-commit-config.yaml",
 		"src/dot.git/x", "src/a.go", "/tmp/.git/config"}
-	for _, mode := range []permrules.Action{permrules.Allow, permrules.Ask} {
+	for _, mode := range []permrules.Action{permrules.Ask} {
 		for _, f := range cards {
 			r := Request{Key: "edit", Patterns: []string{f}, Workspace: w}
 			got := Decide(pl, State{Mode: mode, Exceptions: []permrules.Exception{{Permission: "edit", Patterns: []string{"*"}}}}, r)
@@ -205,7 +205,7 @@ func TestWritesIntoDotGitAreAlwaysACard(t *testing.T) {
 	}
 	for _, f := range free {
 		r := Request{Key: "edit", Patterns: []string{f}, Workspace: w}
-		if got := Decide(Policy{Protected: pr, SafeDirs: []string{"/tmp"}}, State{Mode: permrules.Allow}, r); got.Verdict != Once {
+		if got := Decide(Policy{Protected: pr, SafeDirs: []string{"/tmp"}}, autoAll(), r); got.Verdict != Once {
 			t.Errorf("%q: %v, want once", f, got.Verdict)
 		}
 	}
@@ -215,7 +215,7 @@ func TestWritesIntoDotGitAreAlwaysACard(t *testing.T) {
 		t.Errorf("plan: %v", got.Verdict)
 	}
 	pn := Policy{Protected: pr, Deny: map[Class]bool{ClassEdit: true}}
-	if got := Decide(pn, State{Mode: permrules.Allow}, r); got.Verdict != Reject {
+	if got := Decide(pn, autoAll(), r); got.Verdict != Reject {
 		t.Errorf("never: %v", got.Verdict)
 	}
 }

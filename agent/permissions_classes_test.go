@@ -89,13 +89,13 @@ func TestGalopinsOwnConfigIsRefusedInEveryWord(t *testing.T) {
 	}
 }
 
-// ADR 0109: a loop alert is a card even on Allow, never a stop and never a run.
-func TestALoopAlertIsACardEvenOnAllow(t *testing.T) {
+// ADR 0109: a loop alert is a card on Ask and Auto (Allow never asks), never a stop and never a run.
+func TestALoopAlertIsACardOnAskAndNotOnAllow(t *testing.T) {
 	mc, rb, _ := classMachine(t, nil)
-	_ = rb.SetPermissionMode(context.Background(), "", "s1", permrules.Allow)
+	_ = rb.SetPermissionMode(context.Background(), "", "s1", permrules.Ask)
 	askFor(mc, "per_1", "doom_loop")
 	if got, held := pendingClass(mc, "per_1"); !held || got != "loop" {
-		t.Errorf("loop alert on Allow: held=%v class=%q, want a loop card", held, got)
+		t.Errorf("loop alert on Ask: held=%v class=%q, want a loop card", held, got)
 	}
 	rb.mu.Lock()
 	defer rb.mu.Unlock()

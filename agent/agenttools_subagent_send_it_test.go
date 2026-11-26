@@ -24,7 +24,7 @@ import (
 // machine's books), and a second prompt makes it send to the bystander.
 //
 // GALOPIN_OPENCODE_IT=1 (spawns real opencode + a mock LLM).
-func TestSubagentSendToAnotherSessionGetsACardIntegration(t *testing.T) {
+func TestSubagentSendToAnotherSessionRunsUnderAllowIntegration(t *testing.T) {
 	r := newPermRig(t, permRigOpts{tools: true, background: true})
 
 	parent := r.session("it-send-parent", "")
@@ -128,50 +128,21 @@ func TestSubagentSendToAnotherSessionGetsACardIntegration(t *testing.T) {
 		t.Fatalf("prompting the child: %v", err)
 	}
 
-	// The child's session_send raises a galopin card: a task subagent never
-	// auto-sends, whatever its root's Allow word says.
-	env := r.hub.wait(t, mark, 120*time.Second, "the session_send card", func(e sessions.Envelope) bool {
-		return e.Event.Kind == backend.EventPermissionAsked && e.Event.Request != nil &&
-			e.Event.Request.Tool == "session_send" && strings.HasPrefix(e.Event.Request.ID, "gp_")
-	})
-	req := *env.Event.Request
-	if req.SessionID != childID {
-		t.Fatalf("the card names session %q, want the task subagent's %q", req.SessionID, childID)
-	}
-	if req.Metadata["fromSubagent"] != true {
-		t.Errorf("card metadata fromSubagent = %v, want true", req.Metadata["fromSubagent"])
-	}
-	parentNow, err := r.oc.GetSession(r.ctx, r.work, parent.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, _ := req.Metadata["parentTitle"].(string); got != parentNow.Title || got == "" {
-		t.Errorf("card metadata parentTitle = %q, want the parent's title %q", got, parentNow.Title)
-	}
-
-	// Nothing is delivered until the card is answered: the bystander's
-	// transcript stays empty while the ask pends.
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		tr, err := r.oc.Transcript(r.ctx, r.work, bystander.ID)
-		if err != nil {
-			t.Fatalf("bystander transcript: %v", err)
-		}
-		if len(tr.Messages) != 0 {
-			t.Fatalf("the subagent's message was delivered with the card still pending: %+v", tr.Messages)
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-
-	// Answering the card delivers the message, marked as sent by the child.
-	r.reply(backend.Session{ID: childID}, req.ID, "once")
+	// Allow never asks: the child's session_send raises galopin's own ask, which the
+	// machine answers once for a root on Allow, so no card reaches anyone and the
+	// message is delivered.
 	r.hub.wait(t, mark, 60*time.Second, "the message to reach the bystander", func(e sessions.Envelope) bool {
 		m := e.Event.Message
 		return e.SessionID == bystander.ID && e.Event.Kind == backend.EventMessage &&
 			m != nil && m.Role == "user" && m.SentBy != nil && m.SentBy.SessionID == childID
 	})
+	for _, e := range r.hub.since(mark) {
+		if e.Event.Kind == backend.EventPermissionAsked && e.Event.Request != nil && e.Event.Request.Tool == "session_send" {
+			t.Errorf("a card was raised for the subagent's send under Allow: %+v", e.Event.Request)
+		}
+	}
 	part := r.hub.toolDone(t, mark, childID, "session_send")
 	if out := strings.TrimSpace(part.Output); out != "{}" {
-		t.Errorf("the subagent's session_send output = %q, want {} (card-approved, not autoApproved)", out)
+		t.Errorf("the subagent's session_send output = %q, want {}", out)
 	}
 }

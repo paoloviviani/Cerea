@@ -351,8 +351,9 @@ veto that only `enroll` can loosen:
   stored rules still carry an earlier Plan is flagged `staleDeny` /
   `stalePolicy` and the panel says to start a new session.
   **No limits, a fixed floor.** The session's word decides: Plan refuses
-  everything that would change something, Ask raises a card, Allow runs
-  everything, and Auto runs the classes of action the user chose to run (Cerea
+  everything that would change something, Ask raises a card, **Allow never
+  asks** (everything runs; only galopin's own files and the machine's own
+  `--deny` are refused), and Auto runs the classes of action the user chose to run (Cerea
   sends the per-class map `autoClasses {class: "run"|"ask"}` with the word,
   see [PROTOCOL.md](PROTOCOL.md) §6) and raises a card for the others, which
   Cerea routes to the reviewer or to the user. The classes are labels for that
@@ -360,11 +361,11 @@ veto that only `enroll` can loosen:
   `agents`, `tools`, `loop`. The floor is in code and not configurable:
   galopin's **own state and configuration** (the state directory,
   `policy.json`, the credentials, the opencode config it owns) are refused
-  always; a write into `.git` or a CI configuration file, a credential store
-  and a repeating agent are a card even on Allow and Auto, as is an outbound
-  command that carries a secret's value or names a `.env` or credential file; a
-  `.env` file's name alone is not one (Allow runs it, Ask asks, Plan refuses);
-  read-only commands always run. `policy.json` limits and the flags `--limit`,
+  always; on Ask and Auto (never on Allow) a write into `.git` or a CI
+  configuration file, a credential store and a repeating agent are a card, as is
+  an outbound command that carries a secret's value or names a `.env` or
+  credential file; a `.env` file's name alone is not one on Auto (Ask asks, Plan
+  refuses); read-only commands always run. `policy.json` limits and the flags `--limit`,
   `--permission-max` and `--permission-rule` are **retired**: for one more
   release they are accepted and ignored with a warning, and `policy show` says
   so.

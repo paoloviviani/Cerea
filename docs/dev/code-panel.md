@@ -202,15 +202,25 @@ decided under the materializer's own lock so the reply cannot slip between the c
 galopin ends its hold with `DropHeld` Holds are counted per id and the mark is kept, so the same ask passing the filter twice (a re-delivered event, the sync sweep) does not forget that it was answered. `MarkTreeKnown` gives a top the asking session's directory only when the top is that session; a top known only from a link gets none. Nothing here changes what a word allows: Plan, the machine's deny list, the floor and the exceptions are
 read by `decideAsk` exactly as before. Tests: `agent/subagent_first_ask_test.go`.
 
-## A .env is read freely on Allow; what leaves the machine asks (galopin)
+## Allow never asks (galopin)
 
-Owner decision (galopin's trust model): reading a `.env` is not the problem, secrets going out are.
+Owner decision (galopin's trust model): "Allow is allow, full stop". `decide.Decide`, right after the two refusals
+(`OwnHit` → `floor`, the machine's `--deny` classes → `deny`), returns `Once` (step `allow`) for a session on Allow
+that is not Auto; every lift to a card after that point (credential stores, a secret leaving the machine, git
+internals and CI configuration, loop alerts, the secrets class) now applies only to Ask and Auto, and Plan refuses as
+before. In `permissions.go` `decideAsk` answers galopin's own `gp_` asks `once` on Allow too, except a relayed call to
+another computer (`metadata.relay`): Cerea mints the ticket that proves a person approved it only from the reply to its
+card (ADR 0121), so an automatic answer would only make the call fail. The question tool (`OwnAskUser`) is untouched. A
+schedule's Allow runs as Auto (Cerea maps it), so unattended runs keep their cards. The text below describes what Ask
+and Auto still do.
+
+On Ask and Auto, reading a `.env` is not the problem, secrets going out are.
 
 - **Local access.** `decide.Decide`: when the request is `sensitive` only because of a `.env`-ish name (`Classify`'s read
   card, `bashSensitive`; `isSensitive` is case-insensitive), has no `SecretHit` (credential store, `/proc/*/environ`,
-  overflow, `CDPATH`) and no leak, and the session is on Allow or Auto, the secrets class is dropped for the mode
-  answer and the label (`without`) and `sensitive` is cleared, so the request is judged by its other classes: Allow
-  runs it, Auto runs it when their rows run, an in-project read is an ordinary read. The deny check still sees the
+  overflow, `CDPATH`) and no leak, and the session is on Auto, the secrets class is dropped for the mode
+  answer and the label (`without`) and `sensitive` is cleared, so the request is judged by its other classes: Auto
+  runs it when their rows run, an in-project read is an ordinary read. The deny check still sees the
   full class list (`--deny secrets` refuses a `.env` read), and Ask and Plan are untouched (card, refusal). The file
   explorer's and `@file` lists (`policy.DefaultFileDeny`, `PromptSecretDeny`, `--file-deny`) are not asks and were not
   touched. `AskAlwaysOK` and `exception-ask` are unchanged.
@@ -234,7 +244,7 @@ Owner decision (galopin's trust model): reading a `.env` is not the problem, sec
   (`internal/backend/opencode/v2.go`, also the REST listing path) copies `workdir`/`cwd` onto the ask metadata and the
   ACP adapter's `askMetadata` does the same from `rawInput`; `askWorkdir` (`permissions.go`) reads them. Tests:
   `internal/backend/opencode/v2_test.go` (through `handleSSEData`, the whole adapter), `internal/decide/bash_audit_test.go`,
-  `agent/env_allow_test.go` and `TestSelectorAllowReadsTheShellWorkdirAndGuardsWhatLeaves` (real opencode).
+  `agent/env_allow_test.go` and `TestSelectorAllowNeverAsksAndAskReadsTheShellWorkdir` (real opencode), `internal/decide/allow_test.go`.
 
 For the user-facing wording of the three layers (galopin's word, the outgoing checks, the gateway's redaction and what it
 does not cover) see `docs/agent-machines-reference.md`, "A `.env` file is not a credential store".

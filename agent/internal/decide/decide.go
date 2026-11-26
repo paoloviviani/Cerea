@@ -409,8 +409,9 @@ func primary(cs []Class) Class {
 // Decide answers one request from a session whose ROOT is in state s (ADR
 // 0109): galopin's own state is refused outright; a class the owner denied
 // locally is refused; otherwise the session's word decides (Plan refuses, Ask
-// is a card, Allow runs, Auto runs the classes its map says run). The floor
-// then lifts a run to a card: credential paths, a write into .git or CI
+// is a card, Allow runs, Auto runs the classes its map says run). On Allow
+// nothing else is ever a card. On Ask and Auto the floor lifts a run to a card:
+// credential paths, a secret leaving the machine, a write into .git or CI
 // config, and a repeating agent.
 func Decide(p Policy, s State, r Request) Result {
 	cat, sensitive := Classify(p, r)
@@ -425,12 +426,18 @@ func Decide(p Policy, s State, r Request) Result {
 			return Result{Verdict: Reject, Step: "deny", Category: cat, Class: class, Reason: denyReason(c)}
 		}
 	}
-	// On Allow and on Auto, reading or editing a .env file is an ordinary action:
-	// what makes a request a credential one there is a credential store, or a
-	// secret leaving the machine (leak), not the file's name. Ask and Plan still
-	// read the name (a card, a refusal), and a local --deny of the class above
-	// still refuses it.
-	if _, hit := p.Protected.SecretHit(r); sensitive && !hit && leak == nil && (s.Mode == permrules.Allow || s.Auto) {
+	// Allow never asks: past the two refusals above (galopin's own files and the
+	// machine owner's --deny) everything runs, credential stores, a secret leaving
+	// the machine, git internals, CI configuration and a looping agent included.
+	// Those lifts to a card belong to Ask and Auto.
+	if s.Mode == permrules.Allow && !s.Auto {
+		return Result{Verdict: Once, Step: "allow", Category: cat, Class: class}
+	}
+	// On Auto, reading or editing a .env file is an ordinary action: what makes a
+	// request a credential one there is a credential store, or a secret leaving the
+	// machine (leak), not the file's name. Ask and Plan still read the name (a
+	// card, a refusal), and a local --deny of the class above still refuses it.
+	if _, hit := p.Protected.SecretHit(r); sensitive && !hit && leak == nil && s.Auto {
 		sensitive = false
 		classes = without(classes, ClassSecrets)
 		class = primary(classes)
