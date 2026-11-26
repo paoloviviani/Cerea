@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -23,6 +24,12 @@ import (
 // again, which is how a deployment's rate limit gets exhausted.
 func lockInstance(credsPath string) (unlock func(), err error) {
 	lockPath := credsPath + ".running"
+	// On a machine never enrolled the state dir does not exist yet: enroll
+	// takes this lock before it writes the first credential (0700, as the
+	// credential's own directory is created).
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
+		return nil, fmt.Errorf("creating %s: %w", filepath.Dir(lockPath), err)
+	}
 	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("opening lock file %s: %w", lockPath, err)
