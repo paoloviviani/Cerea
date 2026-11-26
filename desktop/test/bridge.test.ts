@@ -487,3 +487,33 @@ describe("a profile switch mid-session", () => {
 		expect(a.host.pages[0].sent).toEqual([]);
 	});
 });
+
+describe("two runtimes on one panel", () => {
+	const fakeTransport = () => {
+		const closed: (string | undefined)[] = [];
+		const t: Transport = {
+			send: () => {},
+			onMessage: () => {},
+			onClose: () => {},
+			close: (reason) => void closed.push(reason),
+		};
+		return { t, closed };
+	};
+
+	it("a newcomer replaces an idle runtime, and is refused while a task is running", () => {
+		const control = new Control();
+		const bridge = new CdpBridge(new FakeHost(), control);
+		const first = fakeTransport();
+		bridge.connect(first.t);
+		// no task: replaced, as always
+		const second = fakeTransport();
+		bridge.connect(second.t);
+		expect(second.closed).toEqual([]);
+		// a task is running on the second
+		control.activity();
+		const third = fakeTransport();
+		bridge.connect(third.t);
+		expect(third.closed).toEqual(["Another task is using this browser."]);
+		expect(second.closed).toEqual([]);
+	});
+});

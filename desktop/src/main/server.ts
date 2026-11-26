@@ -17,7 +17,14 @@ export interface ServerInfo {
 	name: string;
 	/** An absolute https (or loopback http) URL of the server's icon, shown beside the name. */
 	icon?: string;
+	/**
+	 * The NAME of the server's session cookie, as its enroll.json says (ADR 0122). The app reads that
+	 * cookie from its own jar to derive the window browser's grant key; the page never names it.
+	 */
+	sessionCookie?: string;
 }
+
+export const COOKIE_NAME_PATTERN = /^[A-Za-z0-9_.-]{1,64}$/;
 
 export class ServerError extends Error {}
 
@@ -136,6 +143,10 @@ export async function probeServer(
 	} catch {
 		// the name and logo are a courtesy: the host name stands in
 	}
+	const sessionCookie =
+		typeof f.sessionCookie === "string" && COOKIE_NAME_PATTERN.test(f.sessionCookie)
+			? f.sessionCookie
+			: undefined;
 	return {
 		address: norm,
 		origin,
@@ -144,6 +155,7 @@ export async function probeServer(
 		...(typeof f.clientId === "string" && f.clientId ? { clientId: f.clientId.slice(0, 200) } : {}),
 		name,
 		...(icon ? { icon } : {}),
+		...(sessionCookie ? { sessionCookie } : {}),
 	};
 }
 

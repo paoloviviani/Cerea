@@ -73,13 +73,15 @@ export interface Gate {
 	/** Who drives now. While the user does, the runtime has no session on any page. */
 	current(): "agent" | "user";
 	onChange(cb: () => void): () => void;
+	/** A task is running now (the runtime did something recently): a second runtime is refused, not let in. */
+	taskActive?(): boolean;
 }
 
 export interface Transport {
 	send(data: string): void;
 	onMessage(cb: (data: string) => void): void;
 	onClose(cb: () => void): void;
-	close(): void;
+	close(reason?: string): void;
 }
 
 export const BRIDGE_PRODUCT = "Chrome/Cerea-desktop-panel";
@@ -102,6 +104,9 @@ class Connection {
 	/** Pages made by `Target.createTarget`: their first navigation starts when the client says go. */
 	private readonly pendingInitial = new Map<string, string>();
 	private closed = false;
+	get live(): boolean {
+		return !this.closed;
+	}
 
 	constructor(
 		private readonly host: TargetHost,
@@ -413,6 +418,8 @@ class Connection {
  * disconnects the old bridge and, until the new profile's panel exists, closes every connection at
  * once, so a command aimed at a page of the profile that was left has nowhere to land.
  */
+export const BUSY_MESSAGE = "Another task is using this browser.";
+
 export class BridgeRouter {
 	private current?: { connect(t: Transport): void; disconnect(): void };
 	set(next: { connect(t: Transport): void; disconnect(): void } | undefined): void {
@@ -437,8 +444,16 @@ export class CdpBridge {
 		private readonly log: (m: string) => void = () => {}
 	) {}
 
-	/** A new runtime connection replaces the old one (one task at a time on a machine). */
+	/**
+	 * A new runtime connection replaces an old one that is idle (one task at a time on a machine).
+	 * While a task is running on the old one (a galopin runtime and the app's own window runtime
+	 * contend for this panel), the newcomer is refused instead, so a running task is never cut off.
+	 */
 	connect(transport: Transport): void {
+		if (this.current?.live && this.gate.taskActive?.()) {
+			this.log("another runtime was refused: a task is using this browser");
+			return transport.close(BUSY_MESSAGE);
+		}
 		this.current?.dispose();
 		this.current = new Connection(this.host, this.gate, transport, this.log);
 	}

@@ -62,6 +62,11 @@ export class Control implements Gate {
 		return this.recentlyActive(Control.WORKING_MS);
 	}
 
+	/** Gate: a task is running, so a second runtime is refused (`CdpBridge.connect`). */
+	taskActive(): boolean {
+		return this.working;
+	}
+
 	private taskListeners = new Set<() => void>();
 	private workingTimer?: NodeJS.Timeout;
 

@@ -6,6 +6,8 @@ async function runPreload(opts: {
 	arg?: string;
 	top?: boolean;
 	available?: boolean;
+	base?: string;
+	path?: string;
 }) {
 	vi.resetModules();
 	const exposed: Record<string, unknown> = {};
@@ -23,9 +25,13 @@ async function runPreload(opts: {
 	const win: Record<string, unknown> = {};
 	win.top = opts.top === false ? {} : win;
 	vi.stubGlobal("window", win);
-	vi.stubGlobal("location", { origin: opts.origin });
+	vi.stubGlobal("location", { origin: opts.origin, pathname: opts.path ?? "/" });
 	const argv = process.argv;
-	process.argv = [...argv, ...(opts.arg ? [opts.arg] : [])];
+	process.argv = [
+		...argv,
+		...(opts.arg ? [opts.arg] : []),
+		...(opts.base !== undefined ? [`--cerea-base=${opts.base}`] : []),
+	];
 	try {
 		await import("../src/preload/cerea.ts");
 	} finally {
@@ -83,6 +89,16 @@ describe("the Cerea view's preload", () => {
 			{ origin: "null", arg: `--cerea-origin=${ORIGIN}` },
 		]) {
 			expect((await runPreload(o)).exposed).toEqual({});
+		}
+	});
+
+	it("also requires the page to be under the profile's base path", async () => {
+		const arg = `--cerea-origin=${ORIGIN}`;
+		expect(
+			(await runPreload({ origin: ORIGIN, arg, base: "/chat", path: "/chat/c/1" })).exposed
+		).toHaveProperty("cereaDesktop");
+		for (const path of ["/other", "/chatty", "/"]) {
+			expect((await runPreload({ origin: ORIGIN, arg, base: "/chat", path })).exposed).toEqual({});
 		}
 	});
 });

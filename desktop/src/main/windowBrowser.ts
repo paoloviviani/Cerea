@@ -46,12 +46,11 @@ const CALLS_PER_WINDOW = 40;
 const RATE_WINDOW_MS = 10_000;
 const CALL_TIMEOUT_MS = 200_000;
 const WINDOW_ID_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
-const COOKIE_NAME_PATTERN = /^[A-Za-z0-9_.-]{1,64}$/;
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
 export type PageMessage =
 	| { kind: "call"; id: string; name: string; args: Record<string, unknown> }
-	| { kind: "window"; windowId: string; cookie: string };
+	| { kind: "window"; windowId: string };
 export type PageParse = PageMessage | { kind: "bad"; id?: string; why: string };
 
 /** What a page may ask for. Anything else is "bad" and never reaches the runtime. */
@@ -71,15 +70,12 @@ export function parsePageMessage(raw: unknown): PageParse {
 	const id = typeof m.id === "string" && ID_PATTERN.test(m.id) ? m.id : undefined;
 	const params = m.params;
 	if (m.method === "cerea/window") {
-		const { windowId, cookie } = (params ?? {}) as { windowId?: unknown; cookie?: unknown };
-		if (
-			typeof windowId !== "string" ||
-			!WINDOW_ID_PATTERN.test(windowId) ||
-			typeof cookie !== "string" ||
-			!COOKIE_NAME_PATTERN.test(cookie)
-		)
+		// Only the window id: which cookie holds the session secret is the app's own knowledge
+		// (the server's enroll.json, stored with the profile), never the page's to name.
+		const { windowId } = (params ?? {}) as { windowId?: unknown };
+		if (typeof windowId !== "string" || !WINDOW_ID_PATTERN.test(windowId))
 			return { kind: "bad", why: "bad window" };
-		return { kind: "window", windowId, cookie };
+		return { kind: "window", windowId };
 	}
 	if (m.method !== "tools/call") return { kind: "bad", id, why: "method not allowed" };
 	if (!id) return { kind: "bad", why: "a call needs an id" };
@@ -114,13 +110,15 @@ export function windowGrantKey(sessionSecret: string, windowId: string): Buffer 
 /**
  * Whether an IPC message comes from the page that may drive the browser: the Cerea view of the
  * active profile, its main frame (not a subframe, not the panel, not the local UI), and the page's
- * address on that profile's server origin. Checked on every message, not once.
+ * address on that profile's server origin and under its base path. Checked on every message.
  */
 export function fromCereaPage(
 	e: { sender: unknown; senderFrame?: { url: string } | null },
 	ctx: {
 		view?: { webContents: { mainFrame: unknown } };
 		origin: string;
+		/** The profile's base path (`""` or `"/chat"`): the page must be under it. */
+		basePath?: string;
 		profileActive: boolean;
 	}
 ): boolean {
@@ -130,8 +128,36 @@ export function fromCereaPage(
 		e.sender === wc &&
 		!!e.senderFrame &&
 		e.senderFrame === wc.mainFrame &&
-		originOf(e.senderFrame.url) === ctx.origin
+		originOf(e.senderFrame.url) === ctx.origin &&
+		underBasePath(e.senderFrame.url, ctx.basePath ?? "")
 	);
+}
+
+/** Whether the URL's path is the base path or below it (`/chat`, `/chat/c/1`; not `/chatty`). */
+export function underBasePath(url: string, basePath: string): boolean {
+	if (!basePath) return true;
+	try {
+		const path = new URL(url).pathname;
+		return path === basePath || path.startsWith(`${basePath}/`);
+	} catch {
+		return false;
+	}
+}
+
+/** The only variables the runtime child gets: no NODE_OPTIONS, no proxy or loader variables. */
+export function runtimeEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+	const out: NodeJS.ProcessEnv = {};
+	for (const [k, v] of Object.entries(env)) {
+		if (v === undefined) continue;
+		if (
+			["PATH", "HOME", "USER", "LANG", "LANGUAGE", "TMPDIR", "TMP", "TEMP", "SYSTEMROOT"].includes(
+				k
+			) ||
+			k.startsWith("LC_")
+		)
+			out[k] = v;
+	}
+	return out;
 }
 
 /** Where the runtime and the Node that runs it are, or undefined when this build has none. */
@@ -182,7 +208,7 @@ function findOnPath(
 export type SpawnFn = (command: string, args: string[]) => ChildProcess;
 
 const defaultSpawn: SpawnFn = (command, args) =>
-	spawn(command, args, { stdio: ["pipe", "pipe", "pipe"], env: { ...process.env } });
+	spawn(command, args, { stdio: ["pipe", "pipe", "pipe"], env: runtimeEnv() });
 
 interface Waiting {
 	resolve(v: unknown): void;
@@ -196,9 +222,10 @@ class McpStdio {
 	private buffer = "";
 	private waiting = new Map<number, Waiting>();
 	closed = false;
+	private endAll: (why: string) => void = () => {};
 
 	constructor(
-		private readonly child: ChildProcess,
+		readonly child: ChildProcess,
 		private readonly onStderr: (line: string) => void
 	) {
 		child.stdout?.setEncoding("utf8");
@@ -216,6 +243,7 @@ class McpStdio {
 			}
 			this.waiting.clear();
 		};
+		this.endAll = end;
 		child.on("exit", (code) => end(`The browser runtime stopped (exit ${code}).`));
 		child.on("error", (err) => end(`The browser runtime could not start: ${err.message}`));
 		child.stdin?.on("error", () => end("The browser runtime closed its input."));
@@ -224,8 +252,11 @@ class McpStdio {
 	private onData(chunk: string): void {
 		this.buffer += chunk;
 		// A runtime that never ends a line must not grow the buffer without bound.
+		// Overflow ends the runtime, and every waiting call fails now, not at its timeout.
 		if (this.buffer.length > MAX_RESPONSE_CHARS + 1024 * 1024) {
 			this.buffer = "";
+			this.endAll("The browser runtime sent more than the app accepts and was stopped.");
+			this.child.kill("SIGKILL");
 			return;
 		}
 		for (;;) {
@@ -279,8 +310,12 @@ export interface WindowBrowserDeps {
 	/** This profile's CDP endpoint file (`bridgeServer.endpointFile`), when its bridge is up. */
 	endpointFile: () => string | undefined;
 	runtime: RuntimeLocation | undefined;
-	/** The value of the profile's session cookie `name` on the server's origin (HttpOnly: main can read it). */
-	readCookie: (name: string) => Promise<string | undefined>;
+	/** The NAME of the profile's session cookie, from the server's own enroll.json (never from the page). */
+	cookieName: () => string | undefined;
+	/** The session cookies of that name visible at the profile's address (with its base path). */
+	readCookies: (name: string) => Promise<{ value: string; httpOnly: boolean; secure: boolean }[]>;
+	/** The profile's server is on https: its session cookie must then be Secure too. */
+	https: boolean;
 	/** One JSON string to the page (the preload's `onMessage`). */
 	postToPage: (json: string) => void;
 	/** A task is using the browser: the app shows the panel (`control.touch()`). */
@@ -298,6 +333,7 @@ export class WindowBrowser {
 	private disposed = false;
 	private inFlight = 0;
 	private readonly rate: RateLimit;
+	private readonly windowRate: RateLimit;
 	private failures: number[] = [];
 	/** The key being written for the page's window: calls wait for it. */
 	private keyReady: Promise<void> = Promise.resolve();
@@ -305,6 +341,7 @@ export class WindowBrowser {
 
 	constructor(private readonly deps: WindowBrowserDeps) {
 		this.rate = new RateLimit(CALLS_PER_WINDOW, RATE_WINDOW_MS, deps.now);
+		this.windowRate = new RateLimit(5, 60_000, deps.now);
 	}
 
 	private keyFile(): string {
@@ -400,7 +437,8 @@ export class WindowBrowser {
 			return;
 		}
 		if (msg.kind === "window") {
-			this.keyReady = this.storeKey(msg.windowId, msg.cookie);
+			if (!this.windowRate.take()) return;
+			this.keyReady = this.storeKey(msg.windowId);
 			return;
 		}
 		if (!this.rate.take()) return this.reply(msg.id, undefined, "Too many requests; slow down.");
@@ -423,17 +461,27 @@ export class WindowBrowser {
 
 	/**
 	 * Derives this window's grant key from the session cookie and writes it where the runtime reads
-	 * it. Without a cookie no key is written, and the runtime accepts no approval.
+	 * it. The cookie is the one the SERVER named (stored with the profile); it counts only if every
+	 * cookie of that name visible at the profile's address is HttpOnly (and Secure on https), and
+	 * there is exactly one: a cookie script on the page could have set is none of these. Otherwise
+	 * no key is written, an old one is removed, and the runtime accepts no approval.
 	 */
-	private async storeKey(windowId: string, cookie: string): Promise<void> {
+	private async storeKey(windowId: string): Promise<void> {
 		try {
 			rmSync(this.keyFile(), { force: true });
-			const secret = await this.deps.readCookie(cookie);
-			if (!secret || this.disposed) return;
+			const name = this.deps.cookieName();
+			if (!name || this.disposed) return;
+			const found = await this.deps.readCookies(name);
+			const only = found.length === 1 ? found[0] : undefined;
+			if (!only || !only.value || !only.httpOnly || (this.deps.https && !only.secure)) {
+				if (found.length > 0)
+					this.deps.log("[window browser] no key: the session cookie is not HttpOnly and Secure.");
+				return;
+			}
 			ensurePrivateDir(this.deps.dir, this.deps.uid ?? process.getuid?.() ?? 0);
 			writeEndpointFile(
 				this.keyFile(),
-				`${windowGrantKey(secret, windowId).toString("base64url")}\n`
+				`${windowGrantKey(only.value, windowId).toString("base64url")}\n`
 			);
 		} catch (err) {
 			this.deps.log(`[window browser] the key was not stored: ${String(err)}`);

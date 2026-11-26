@@ -315,3 +315,21 @@ describe("install.sh", () => {
 		env.PUBLIC_ORIGIN = "";
 	});
 });
+
+describe("enroll.json and the session cookie's name", () => {
+	it("carries the cookie's name (never a value) so the desktop app need not ask the page", async () => {
+		const res = await serveGalopinFile("enroll.json", {
+			origin: "https://s.example",
+			issuer: "https://idp.example",
+			clientId: "c",
+			sessionCookie: "hf-chat",
+		});
+		expect(JSON.parse(String(res.body))).toMatchObject({ sessionCookie: "hf-chat" });
+		const odd = await serveGalopinFile("enroll.json", {
+			origin: "https://s.example",
+			issuer: "https://idp.example",
+			sessionCookie: "bad name; x",
+		});
+		expect(JSON.parse(String(odd.body))).not.toHaveProperty("sessionCookie");
+	});
+});

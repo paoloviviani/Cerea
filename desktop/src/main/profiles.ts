@@ -23,7 +23,7 @@ import { dirname, join } from "node:path";
 import type { ServerInfo } from "../shared/ipc.ts";
 import { safeIcon, safeIdp } from "./config.ts";
 import { pairingFor, type Creds } from "./pairing.ts";
-import { normalizeAddress } from "./server.ts";
+import { COOKIE_NAME_PATTERN, normalizeAddress } from "./server.ts";
 
 export interface Profile {
 	id: string;
@@ -93,6 +93,9 @@ function serverOf(s: Partial<ServerInfo> | undefined): ServerInfo | undefined {
 				: {}),
 			name: cleanName(s.name, new URL(address).host),
 			...(typeof s.icon === "string" && safeIcon(s.icon) ? { icon: s.icon } : {}),
+			...(typeof s.sessionCookie === "string" && COOKIE_NAME_PATTERN.test(s.sessionCookie)
+				? { sessionCookie: s.sessionCookie }
+				: {}),
 		};
 	} catch {
 		return undefined;

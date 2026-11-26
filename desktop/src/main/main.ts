@@ -278,7 +278,10 @@ function makeCereaView(profile: Profile): WebContentsView {
 		// the narrow browser bridge, and only to the main frame on this profile's origin (ADR 0122).
 		webPreferences: {
 			preload: join(__dirname, "..", "preload", "cerea.js"),
-			additionalArguments: [`--cerea-origin=${profile.server.origin}`],
+			additionalArguments: [
+				`--cerea-origin=${profile.server.origin}`,
+				`--cerea-base=${basePathOf(profile)}`,
+			],
 			partition: ceraePartition(profile.id),
 			sandbox: true,
 			contextIsolation: true,
@@ -414,12 +417,16 @@ function startWindowBrowser(p: Profile): void {
 			devRoot: join(__dirname, "..", ".."),
 			packaged: app.isPackaged,
 		}),
-		readCookie: async (name) =>
+		// The cookie's name is the server's own word (enroll.json, stored with the profile); the page
+		// never names it. The URL carries the base path so a cookie with `Path=/chat` is found.
+		cookieName: () => p.server.sessionCookie,
+		readCookies: async (name) =>
 			(
 				await session
 					.fromPartition(ceraePartition(p.id))
-					.cookies.get({ url: `${p.server.origin}/`, name })
-			)[0]?.value,
+					.cookies.get({ url: `${p.server.address}/`, name })
+			).map((c) => ({ value: c.value, httpOnly: c.httpOnly === true, secure: c.secure === true })),
+		https: p.server.origin.startsWith("https:"),
 		postToPage: (json) => {
 			const frame = ceraeView?.webContents.mainFrame;
 			// Only to the Cerea page itself: not to another page the view may be showing.
@@ -432,6 +439,30 @@ function startWindowBrowser(p: Profile): void {
 		log: line,
 	});
 	windowBrowser.start();
+	// A profile saved before the server named its session cookie: ask once, keep the answer.
+	if (!p.server.sessionCookie) {
+		void probe(p.server.address)
+			.then((info) => {
+				if (!info.sessionCookie) return;
+				store = {
+					...store,
+					profiles: store.profiles.map((q) =>
+						q.id === p.id ? { ...q, server: { ...q.server, sessionCookie: info.sessionCookie } } : q
+					),
+				};
+				saveStore(app.getPath("userData"), store);
+			})
+			.catch(() => undefined);
+	}
+}
+
+/** The profile's base path (`""` or `"/chat"`), with no trailing slash. */
+function basePathOf(p: Profile): string {
+	try {
+		return new URL(p.server.address).pathname.replace(/\/+$/, "");
+	} catch {
+		return "";
+	}
 }
 
 function ceraeOrigin(url: string): string {
@@ -451,6 +482,7 @@ function registerWindowBrowserIpc(): void {
 			fromCereaPage(e, {
 				view: ceraeView,
 				origin: p.server.origin,
+				basePath: basePathOf(p),
 				profileActive: store.active === p.id,
 			})
 		);

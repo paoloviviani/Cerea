@@ -15,6 +15,7 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 		issuer: OIDConfig.PROVIDER_URL,
 		clientId: machineClientId(),
 		flow: machineFlow(),
+		sessionCookie: config.COOKIE_NAME,
 		// The same fallback the Pair dialog uses: the chat's own origin serves the gateway.
 		gateway: config.CODE_GATEWAY_ORIGIN?.trim() || galopinOrigin(url.origin, ""),
 		ifNoneMatch: request.headers.get("if-none-match"),

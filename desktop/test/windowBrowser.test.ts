@@ -8,6 +8,8 @@ import {
 	findRuntime,
 	fromCereaPage,
 	parsePageMessage,
+	runtimeEnv,
+	underBasePath,
 	RUNTIME_TOOLS,
 	WindowBrowser,
 	windowGrantKey,
@@ -15,8 +17,8 @@ import {
 } from "../src/main/windowBrowser.ts";
 
 const WID = "w".repeat(32);
-const announce = (cookie = "hf-chat", windowId = WID) =>
-	JSON.stringify({ jsonrpc: "2.0", method: "cerea/window", params: { windowId, cookie } });
+const announce = (windowId = WID, extra: Record<string, unknown> = {}) =>
+	JSON.stringify({ jsonrpc: "2.0", method: "cerea/window", params: { windowId, ...extra } });
 const call = (id: string, name: string, args: unknown = {}) =>
 	JSON.stringify({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
 
@@ -58,16 +60,15 @@ describe("parsePageMessage", () => {
 		const huge = call("a1", "act", { pad: "x".repeat(300 * 1024) });
 		expect(parsePageMessage(huge)).toMatchObject({ kind: "bad", why: "too large" });
 	});
-	it("takes the window announcement only in its exact form", () => {
-		expect(parsePageMessage(announce())).toEqual({
+	it("takes the window announcement only in its exact form, and never a cookie name from the page", () => {
+		expect(parsePageMessage(announce())).toEqual({ kind: "window", windowId: WID });
+		// a cookie name the page adds is not part of the result: the page cannot name a cookie at all
+		expect(parsePageMessage(announce(WID, { cookie: "x" }))).toEqual({
 			kind: "window",
 			windowId: WID,
-			cookie: "hf-chat",
 		});
-		expect(parsePageMessage(announce("bad name")).kind).toBe("bad");
-		expect(parsePageMessage(announce("../x")).kind).toBe("bad");
-		expect(parsePageMessage(announce("hf-chat", "short")).kind).toBe("bad");
-		expect(parsePageMessage(announce("hf-chat", "a/b".repeat(10))).kind).toBe("bad");
+		expect(parsePageMessage(announce("short")).kind).toBe("bad");
+		expect(parsePageMessage(announce("a/b".repeat(10))).kind).toBe("bad");
 		expect(
 			parsePageMessage(
 				JSON.stringify({ jsonrpc: "2.0", method: "cerea/key", params: { key: "x" } })
@@ -123,6 +124,33 @@ describe("fromCereaPage", () => {
 	});
 });
 
+describe("base path and child environment", () => {
+	const frame = { url: "https://cerea.example/chat/c/1" };
+	const view = { webContents: { mainFrame: frame } };
+	const e = { sender: view.webContents, senderFrame: frame };
+	const ctx = { view, origin: "https://cerea.example", profileActive: true };
+	it("requires the page to be under the profile's base path", () => {
+		expect(fromCereaPage(e, { ...ctx, basePath: "/chat" })).toBe(true);
+		expect(fromCereaPage(e, { ...ctx, basePath: "/other" })).toBe(false);
+		expect(fromCereaPage(e, { ...ctx, basePath: "/cha" })).toBe(false);
+		expect(underBasePath("https://x/chat", "/chat")).toBe(true);
+		expect(underBasePath("https://x/chatty", "/chat")).toBe(false);
+		expect(underBasePath("https://x/anything", "")).toBe(true);
+	});
+	it("gives the runtime child only a minimal environment", () => {
+		const env = runtimeEnv({
+			PATH: "/bin",
+			HOME: "/h",
+			LC_ALL: "C",
+			NODE_OPTIONS: "--require /evil.js",
+			HTTPS_PROXY: "http://evil",
+			LD_PRELOAD: "/evil.so",
+			ELECTRON_RUN_AS_NODE: "1",
+		});
+		expect(env).toEqual({ PATH: "/bin", HOME: "/h", LC_ALL: "C" });
+	});
+});
+
 describe("findRuntime", () => {
 	const res = mkdtempSync(join(tmpdir(), "wb-res-"));
 	it("a packaged app runs only what it ships", () => {
@@ -155,7 +183,9 @@ describe("findRuntime", () => {
 });
 
 /** A fake runtime: answers MCP over its pipes, like browser-runtime does. */
-function fakeSpawn(opts: { onCall?: (name: string, args: unknown) => unknown } = {}) {
+function fakeSpawn(
+	opts: { onCall?: (name: string, args: unknown) => unknown; hang?: boolean } = {}
+) {
 	const spawned: { command: string; args: string[]; child: FakeChild }[] = [];
 	class FakeChild extends EventEmitter {
 		stdin = new PassThrough();
@@ -174,6 +204,7 @@ function fakeSpawn(opts: { onCall?: (name: string, args: unknown) => unknown } =
 					const msg = JSON.parse(buf.slice(0, at));
 					buf = buf.slice(at + 1);
 					if (msg.id === undefined) continue;
+					if (opts.hang && msg.method === "tools/call") continue;
 					const result =
 						msg.method === "initialize"
 							? { protocolVersion: "2025-06-18", capabilities: {}, serverInfo: { name: "fake" } }
@@ -203,16 +234,22 @@ function fakeSpawn(opts: { onCall?: (name: string, args: unknown) => unknown } =
 	return { spawnFn, spawned };
 }
 
-function make(over: Partial<ConstructorParameters<typeof WindowBrowser>[0]> = {}) {
+function make(
+	over: Partial<ConstructorParameters<typeof WindowBrowser>[0]> = {},
+	fakeOpts: Parameters<typeof fakeSpawn>[0] = {}
+) {
 	const dir = join(mkdtempSync(join(tmpdir(), "wb-dir-")), "p1");
 	const sent: string[] = [];
-	const fake = fakeSpawn();
+	const fake = fakeSpawn(fakeOpts);
 	const onTask = vi.fn();
 	const wb = new WindowBrowser({
 		dir,
 		endpointFile: () => "/run/endpoint",
 		runtime: { node: "/node", script: "/rt/cerea-browser.mjs" },
-		readCookie: async (name) => (name === "hf-chat" ? "session-secret-1" : undefined),
+		cookieName: () => "hf-chat",
+		readCookies: async (name) =>
+			name === "hf-chat" ? [{ value: "session-secret-1", httpOnly: true, secure: true }] : [],
+		https: true,
 		postToPage: (j) => sent.push(j),
 		onTask,
 		log: () => {},
@@ -297,12 +334,89 @@ describe("WindowBrowser", () => {
 		expect(existsSync(file)).toBe(false);
 	});
 	it("writes no key when the cookie is not there: nothing commit-class could be approved", async () => {
-		const { wb, dir, next } = make();
+		const { wb, dir, next } = make({ readCookies: async () => [] });
 		wb.start();
-		wb.handleFromPage(announce("other-cookie"));
+		wb.handleFromPage(announce());
 		wb.handleFromPage(call("c9", "snapshot"));
 		await next();
 		expect(existsSync(join(dir, "approval-key"))).toBe(false);
+		await wb.dispose();
+	});
+	it("writes no key for a cookie that is not HttpOnly (one the page could have set), and removes an old key", async () => {
+		const { wb, dir, next } = make({
+			readCookies: async () => [{ value: "page-chosen", httpOnly: false, secure: true }],
+		});
+		mkdirSync(dir, { recursive: true, mode: 0o700 });
+		writeFileSync(join(dir, "approval-key"), "old");
+		wb.start();
+		wb.handleFromPage(announce());
+		wb.handleFromPage(call("c9", "snapshot"));
+		await next();
+		expect(existsSync(join(dir, "approval-key"))).toBe(false);
+		await wb.dispose();
+	});
+	it("writes no key for a non-Secure cookie on https, but accepts it on plain http", async () => {
+		const plain = [{ value: "v", httpOnly: true, secure: false }];
+		const a = make({ readCookies: async () => plain });
+		a.wb.start();
+		a.wb.handleFromPage(announce());
+		a.wb.handleFromPage(call("c1", "snapshot"));
+		await a.next();
+		expect(existsSync(join(a.dir, "approval-key"))).toBe(false);
+		await a.wb.dispose();
+		const b = make({ readCookies: async () => plain, https: false });
+		b.wb.start();
+		b.wb.handleFromPage(announce());
+		await vi.waitFor(() => expect(existsSync(join(b.dir, "approval-key"))).toBe(true));
+		await b.wb.dispose();
+	});
+	it("writes no key when a second cookie of that name exists (a page-set one beside the real one)", async () => {
+		const { wb, dir, next } = make({
+			readCookies: async () => [
+				{ value: "real", httpOnly: true, secure: true },
+				{ value: "page", httpOnly: false, secure: true },
+			],
+		});
+		wb.start();
+		wb.handleFromPage(announce());
+		wb.handleFromPage(call("c9", "snapshot"));
+		await next();
+		expect(existsSync(join(dir, "approval-key"))).toBe(false);
+		await wb.dispose();
+	});
+	it("reads the cookie the profile named, never one the page names; none named means no key", async () => {
+		const asked: string[] = [];
+		const { wb, dir } = make({
+			cookieName: () => "server-named",
+			readCookies: async (n) => {
+				asked.push(n);
+				return [];
+			},
+		});
+		wb.start();
+		wb.handleFromPage(announce(WID, { cookie: "page-named" }));
+		await vi.waitFor(() => expect(asked).toEqual(["server-named"]));
+		await wb.dispose();
+		const none = make({ cookieName: () => undefined });
+		none.wb.start();
+		none.wb.handleFromPage(announce());
+		await new Promise((r) => setTimeout(r, 30));
+		expect(existsSync(join(none.dir, "approval-key"))).toBe(false);
+		await none.wb.dispose();
+	});
+	it("limits how often a page may announce a window", async () => {
+		const { wb } = make();
+		let reads = 0;
+		const counted = make({
+			readCookies: async () => {
+				reads += 1;
+				return [];
+			},
+		});
+		for (let i = 0; i < 20; i++) counted.wb.handleFromPage(announce());
+		await new Promise((r) => setTimeout(r, 50));
+		expect(reads).toBe(5);
+		await counted.wb.dispose();
 		await wb.dispose();
 	});
 	it("removes a stale key when it starts", async () => {
@@ -311,6 +425,19 @@ describe("WindowBrowser", () => {
 		writeFileSync(join(dir, "approval-key"), "old");
 		wb.start();
 		expect(existsSync(join(dir, "approval-key"))).toBe(false);
+		await wb.dispose();
+	});
+	it("a runtime output overflow fails the waiting calls at once and kills the child", async () => {
+		const { wb, fake, next } = make({}, { hang: true });
+		wb.start();
+		await vi.waitFor(() => expect(wb.running).toBe(true));
+		const answer = next();
+		wb.handleFromPage(call("o1", "snapshot"));
+		await new Promise((r) => setTimeout(r, 30));
+		fake.spawned[0].child.stdout.write("x".repeat(22 * 1024 * 1024));
+		const msg = await answer;
+		expect(msg.error.message).toMatch(/more than the app accepts/);
+		expect(fake.spawned[0].child.killed).toContain("SIGKILL");
 		await wb.dispose();
 	});
 	it("limits how fast a page may call", async () => {

@@ -227,6 +227,6 @@ function wsTransport(ws: WebSocket): Transport {
 		send: (d) => ws.send(d),
 		onMessage: (cb) => ws.on("message", (m) => cb(m.toString())),
 		onClose: (cb) => ws.on("close", cb),
-		close: () => ws.close(),
+		close: (reason) => (reason ? ws.close(1013, reason.slice(0, 120)) : ws.close()),
 	};
 }
