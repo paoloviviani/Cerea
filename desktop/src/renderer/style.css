@@ -227,17 +227,27 @@ body.hidden *::after {
 
 #side-handle {
 	position: absolute;
-	left: -3px;
+	left: 0;
 	top: 0;
 	bottom: 0;
-	width: 7px;
+	width: 8px;
 	cursor: col-resize;
 	z-index: 3;
+	touch-action: none;
 }
-#side-handle:hover,
-#side-handle.dragging {
+#side-handle::after {
+	content: "";
+	position: absolute;
+	left: 0;
+	top: 0;
+	bottom: 0;
+	width: 2px;
+	background: transparent;
+}
+#side-handle:hover::after,
+#side-handle:focus-visible::after,
+#side-handle.dragging::after {
 	background: var(--accent);
-	opacity: 0.35;
 }
 #side-close {
 	position: absolute;

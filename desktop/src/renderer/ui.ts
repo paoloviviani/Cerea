@@ -313,17 +313,32 @@ function wire() {
 	}
 	window.addEventListener("resize", reportLayout);
 	$("side-close").onclick = () => void call("panel:set", { open: false });
-	// Drag the left edge to resize: the width is the window's right edge minus the pointer, clamped in main.
+	// The divider between the chat and the side area: drag to resize, double-click for the default
+	// width, arrow keys when it is focused. The HTML panel follows the pointer at once; main moves the
+	// native views to the same width right after.
 	const handle = $("side-handle");
 	let dragging = false;
+	const setWidth = (w: number) => {
+		document.documentElement.style.setProperty("--side-w", `${Math.round(w)}px`);
+		void call("panel:set", { width: w });
+	};
 	handle.onpointerdown = (e) => {
 		dragging = true;
+		// Captured: the moves keep coming here even over the native views beside it.
 		handle.setPointerCapture(e.pointerId);
 		handle.classList.add("dragging");
+		e.preventDefault();
 	};
 	handle.onpointermove = (e) => {
-		if (!dragging) return;
-		void call("panel:set", { width: window.innerWidth - e.clientX });
+		if (dragging) setWidth(window.innerWidth - e.clientX);
+	};
+	handle.ondblclick = () => void call("panel:set", { width: 0 });
+	handle.onkeydown = (e) => {
+		const w = state?.panel.width ?? 440;
+		const step = e.shiftKey ? 80 : 20;
+		if (e.key === "ArrowLeft") (e.preventDefault(), setWidth(w + step));
+		else if (e.key === "ArrowRight") (e.preventDefault(), setWidth(w - step));
+		else if (e.key === "Home") (e.preventDefault(), void call("panel:set", { width: 0 }));
 	};
 	handle.onpointerup = handle.onpointercancel = (e) => {
 		dragging = false;

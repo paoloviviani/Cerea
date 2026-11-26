@@ -22,6 +22,7 @@ import {
 import { dirname, join } from "node:path";
 import type { ServerInfo } from "../shared/ipc.ts";
 import { safeIcon, safeIdp } from "./config.ts";
+import { pairingFor, type Creds } from "./pairing.ts";
 import { normalizeAddress } from "./server.ts";
 
 export interface Profile {
@@ -215,6 +216,23 @@ export function setPanelWidth(s: Store, id: string, width: number): Store {
 		...s,
 		profiles: s.profiles.map((p) => (p.id === id ? { ...p, panelWidth: Math.round(width) } : p)),
 	};
+}
+
+/**
+ * A profile that owns galopin's default directory must really own it: when that directory holds a
+ * pairing for another server (made by the CLI, or for another profile), the profile gives the
+ * default directory up and gets one of its own, so the other pairing is neither used nor overwritten.
+ */
+export function reconcileDefault(s: Store, defaultCreds: Creds | undefined): Store {
+	if (!defaultCreds) return s;
+	let changed = false;
+	const profiles = s.profiles.map((p) => {
+		if (!p.defaultGalopin) return p;
+		if (pairingFor(defaultCreds, p.server).state === "ok") return p;
+		changed = true;
+		return { ...p, defaultGalopin: false };
+	});
+	return changed ? { ...s, profiles } : s;
 }
 
 export function renameProfile(s: Store, id: string, name: string): Store {

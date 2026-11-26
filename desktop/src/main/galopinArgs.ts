@@ -50,7 +50,7 @@ export function withCreds(args: string[], creds: string | undefined): string[] {
 	}
 	if (cmd === "setup" && !args.includes("--desktop")) return args;
 	if (cmd === "version" || cmd === "licenses") return args;
-	const at = cmd === "browser" || cmd === "launch" || cmd === "setup" ? 2 : 1;
+	const at = cmd === "browser" || cmd === "launch" || cmd === "setup" || cmd === "auth" ? 2 : 1;
 	return [...args.slice(0, at), "--creds", creds, ...args.slice(at)];
 }
 

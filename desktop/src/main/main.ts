@@ -27,12 +27,14 @@ import { linuxLogin, linuxLoginEnabled } from "./login.ts";
 import { findGalopin, Galopin } from "./galopin.ts";
 import {
 	enrollArgs,
+	galopinConfigDir,
 	launchArgs,
 	serviceArgs,
 	setupArgs,
 	upgradeArgs,
 	withCreds,
 } from "./galopinArgs.ts";
+import { readCreds } from "./pairing.ts";
 import { guardCerea, mayOpenExternally, UI_CSP, type GuardState } from "./navGuard.ts";
 import { resolveUiFile, UI_ORIGIN } from "./uiProtocol.ts";
 import { cappedFetch, iconFetcher } from "./probeFetch.ts";
@@ -43,6 +45,7 @@ import {
 	panelPartition,
 	profileGalopinDir,
 	removeProfile,
+	reconcileDefault,
 	renameProfile,
 	saveStore,
 	setPanelWidth,
@@ -177,6 +180,14 @@ function placeCerea(): void {
 
 let widthTimer: NodeJS.Timeout | undefined;
 /** Dragging the handle changes the width many times a second; the file is written once, when it settles. */
+/** Writes a pending width now (at quit, so a drag just before closing is not lost). */
+function flushWidth(): void {
+	if (!widthTimer) return;
+	clearTimeout(widthTimer);
+	widthTimer = undefined;
+	saveStore(app.getPath("userData"), store);
+}
+
 function saveWidthSoon(): void {
 	clearTimeout(widthTimer);
 	widthTimer = setTimeout(() => saveStore(app.getPath("userData"), store), 400);
@@ -191,7 +202,11 @@ function setPanel(change: { open?: boolean; pane?: Pane; width?: number }): void
 	panelMemory.set(p.id, { ...panelUi });
 	if (change.width !== undefined) {
 		const b = win?.getContentBounds().width ?? 1360;
-		store = setPanelWidth(store, p.id, clampPanelWidth(change.width, b));
+		store = setPanelWidth(
+			store,
+			p.id,
+			clampPanelWidth(change.width === 0 ? PANEL_DEFAULT : change.width, b)
+		);
 		saveWidthSoon();
 	}
 	placeCerea();
@@ -335,7 +350,8 @@ function makeGalopin(p: Profile | undefined): Galopin {
 		line,
 		process.env,
 		pushState,
-		dir ? join(dir, "credentials.json") : undefined
+		dir ? join(dir, "credentials.json") : undefined,
+		p ? { origin: p.server.origin, idp: p.server.idp } : undefined
 	);
 	if (nodeBinDir) g.useNode(nodeBinDir);
 	return g;
@@ -383,8 +399,9 @@ const handlers: { [C in Channel]: Handler<C> } = {
 			const { store: next, profile } = addProfile(store, server, name);
 			const first = store.profiles.length === 0;
 			store = next;
+			reconcile();
 			saveStore(app.getPath("userData"), store);
-			registerEndpoint(profile);
+			registerEndpoint(store.profiles.find((x) => x.id === profile.id) ?? profile);
 			if (first) loadActive();
 			else await doSwitch(profile.id);
 			setMenu();
@@ -549,6 +566,16 @@ serialize(ops, handlers, [
 	"galopin:service",
 	"galopin:browser-setup",
 ] as const);
+
+/** A profile only keeps galopin's default directory if the pairing in it is for its own server. */
+function reconcile(): void {
+	const before = store;
+	store = reconcileDefault(
+		store,
+		readCreds(join(galopinConfigDir(process.env), "credentials.json"))
+	);
+	if (store !== before) saveStore(app.getPath("userData"), store);
+}
 
 function registerIpc(): void {
 	for (const channel of CHANNELS) {
@@ -790,6 +817,7 @@ function testHooks(): void {
 						cereaVisible: ceraeView?.getVisible() ?? false,
 						cerea: ceraeView?.getBounds() ?? null,
 						panelRect: l.panel,
+						views: panel?.debugViews() ?? [],
 						working: control.working,
 						menu: (() => {
 							const it = Menu.getApplicationMenu()?.getMenuItemById("toggle-browser");
@@ -973,6 +1001,7 @@ else {
 		session.defaultSession.setPermissionCheckHandler(() => false);
 		setMenu();
 		store = loadStore(app.getPath("userData"));
+		reconcile();
 		galopin = makeGalopin(cur());
 		registerIpc();
 		await createWindow();
@@ -996,6 +1025,7 @@ else {
 		// Let go of the socket and the child before the process ends, not after.
 		e.preventDefault();
 		quitting = true;
+		flushWidth();
 		void Promise.allSettled([galopin?.stop(), bridgeServer?.close()]).finally(() => app.quit());
 	});
 }

@@ -7,6 +7,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync, renameSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { galopinConfigDir, terminalCommand, withCreds } from "./galopinArgs.ts";
+import { pairingFor, readCreds, type Pairing } from "./pairing.ts";
 
 export function findGalopin(opts: {
 	resources?: string;
@@ -41,7 +42,9 @@ export class Galopin {
 		private env: NodeJS.ProcessEnv = process.env,
 		private readonly onChange: () => void = () => {},
 		/** This profile's credentials file; absent for the profile that uses galopin's default directory. */
-		readonly credsPath?: string
+		readonly credsPath?: string,
+		/** The profile's server: a pairing counts only if it is for this one. */
+		private readonly server?: { origin: string; idp: string }
 	) {}
 
 	get available(): boolean {
@@ -60,22 +63,29 @@ export class Galopin {
 	credentialsFile(): string {
 		return join(this.configDir(), "credentials.json");
 	}
+	/** Whether this profile's directory holds a pairing for THIS profile's server. */
+	pairing(): Pairing {
+		const creds = existsSync(this.credentialsFile())
+			? readCreds(this.credentialsFile())
+			: undefined;
+		if (!creds && existsSync(this.credentialsFile()))
+			return { state: "other", address: "another server" };
+		return this.server
+			? pairingFor(creds, this.server)
+			: creds
+				? { state: "ok" }
+				: { state: "none" };
+	}
 	paired(): boolean {
-		return existsSync(this.credentialsFile());
+		return this.pairing().state === "ok";
 	}
 	/** The address this computer is paired with, as galopin recorded it (empty when unknown). */
 	pairedAddress(): string {
-		try {
-			const c = JSON.parse(readFileSync(this.credentialsFile(), "utf8")) as {
-				cerea_origin?: unknown;
-			};
-			return typeof c.cerea_origin === "string" ? c.cerea_origin : "";
-		} catch {
-			return "";
-		}
+		return readCreds(this.credentialsFile())?.cerea ?? "";
 	}
 	/** Forget the pairing on this computer: the credentials are kept aside, not deleted. */
 	unpairLocal(): string | undefined {
+		// Only a pairing that is this profile's is set aside: another server's is not ours to touch.
 		if (!this.paired()) return undefined;
 		const to = `${this.credentialsFile()}.unpaired-${Date.now()}`;
 		renameSync(this.credentialsFile(), to);
@@ -110,6 +120,14 @@ export class Galopin {
 	/** Keep `galopin run` going: restarted when it stops, unless it fails at once three times. */
 	start(): void {
 		if (!this.bin || this.running) return;
+		// Never run galopin for a profile with another server's pairing.
+		const p = this.pairing();
+		if (p.state === "other") {
+			this.onLine(
+				`Not starting galopin: this computer is paired with ${p.address}, not this profile's server.`
+			);
+			return;
+		}
 		this.wantRunning = true;
 		this.strikes = 0;
 		this.spawnRun();

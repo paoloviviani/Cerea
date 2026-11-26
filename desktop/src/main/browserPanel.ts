@@ -224,6 +224,19 @@ export class BrowserPanel implements TargetHost {
 		this.emit(this.state());
 	}
 
+	/** What the tests look at: every page's view, whether it shows and where. */
+	debugViews(): {
+		id: string;
+		visible: boolean;
+		bounds: { x: number; y: number; width: number; height: number };
+	}[] {
+		return [...this.tabs.values()].map((t) => ({
+			id: t.page.id,
+			visible: t.view.getVisible(),
+			bounds: t.view.getBounds(),
+		}));
+	}
+
 	setLayout(r: { x: number; y: number; width: number; height: number; visible: boolean }): void {
 		this.rect = r;
 		this.layout();
@@ -233,7 +246,9 @@ export class BrowserPanel implements TargetHost {
 		for (const t of this.tabs.values()) {
 			const show = this.rect.visible && t.page.id === this.activeId;
 			t.view.setVisible(show);
-			if (show) t.view.setBounds(this.rect);
+			// A native view is above the page's own HTML: when the side area shows another tab it must
+			// be neither visible nor take any room, whatever it was last asked to cover.
+			t.view.setBounds(show ? this.rect : { x: 0, y: 0, width: 0, height: 0 });
 		}
 		const shield = this.rect.visible && this.control.mode === "agent" && this.control.agentBusy;
 		if (shield) {
