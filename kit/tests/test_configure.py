@@ -1979,30 +1979,79 @@ class TestEnvSafety(Deploy):
             with self.assertRaises(cfg.ConfigError, msg=bad):
                 build(**dict(self.EXT, oidc_chat_client_secret=bad))
 
-    def test_a_secret_may_hold_punctuation_a_client_id_may_not(self):
+    def test_a_secret_and_a_client_id_may_hold_punctuation(self):
         v = build(**dict(self.EXT, oidc_chat_client_secret="p@ss!w%rd?[x]$#&(1)*;<>")).values
         self.assertEqual(v["OIDC_CHAT_CLIENT_SECRET"], "p@ss!w%rd?[x]$#&(1)*;<>")
+        for ident in ("a:b@c", "1234@project", "0b8d1f3e-aaaa-4bbb-8ccc-123456789abc", "app.v2_x~y+z=/"):
+            v = build(**dict(self.EXT, oidc_chat_client_id=ident, machine_client_id=ident)).values
+            self.assertEqual((v["OIDC_CHAT_CLIENT_ID"], v["OIDC_MACHINE_CLIENT_ID"]), (ident, ident))
+        for bad in ("app home", "app'home", 'app"home', "app\\home", "x" * (cfg.CREDENTIAL_MAX + 1)):
+            with self.assertRaises(cfg.ConfigError, msg=bad):
+                build(**dict(self.EXT, oidc_chat_client_id=bad))
+
+    ODD = {"OIDC_CHAT_CLIENT_SECRET": 'has"dq\\mid', "OIDC_CHAT_CLIENT_ID": "1234@proj",
+           "OIDC_CONSOLE_CLIENT_SECRET": 'co"nsole secret', "OIDC_MACHINE_CLIENT_ID": "9@machine app"}
+
+    def test_a_value_already_in_the_env_is_not_judged_by_build(self):
+        existing = dict(build(**dict(self.EXT)).values, **self.ODD)
+        r = cfg.build(answers(**dict(self.EXT, oidc_chat_client_secret=self.ODD["OIDC_CHAT_CLIENT_SECRET"],
+                                     oidc_chat_client_id=self.ODD["OIDC_CHAT_CLIENT_ID"],
+                                     oidc_console_client_secret=self.ODD["OIDC_CONSOLE_CLIENT_SECRET"],
+                                     machine_client_id=self.ODD["OIDC_MACHINE_CLIENT_ID"])),
+                      existing, TEMPLATE)
+        for key, value in self.ODD.items():
+            self.assertEqual(r.values[key], value, key)
         with self.assertRaises(cfg.ConfigError):
-            build(**dict(self.EXT, oidc_chat_client_id="app@home"))
+            cfg.build(answers(**dict(self.EXT, oidc_chat_client_secret='other"dq')), existing, TEMPLATE)
+
+    def test_keeping_every_default_at_the_prompts_keeps_an_odd_working_env(self):
+        existing = dict(build(**dict(self.EXT, agents=True)).values, **self.ODD)
+        asked = []
+
+        def fake_input(prompt):
+            asked.append(prompt)
+            if len(asked) > 40:
+                raise AssertionError(f"the interview loops on {prompt!r}")
+            return ""
+
+        given = {"share_mode", "origin", "admin_email", "preset", "tls", "idp", "oidc_issuer",
+                 "office", "rustfs", "agents", "upstream_base_url", "group_import", "join_mode"}
+        a = answers(**dict(self.EXT, agents=True, oidc_console_client_secret=None,
+                           oidc_chat_client_secret=None))
+        with mock.patch("builtins.input", side_effect=fake_input), \
+                mock.patch("getpass.getpass", side_effect=lambda p: ""), \
+                mock.patch("builtins.print"):
+            a = cfg.interview(a, given, existing)
+        self.assertEqual(a.oidc_chat_client_secret, self.ODD["OIDC_CHAT_CLIENT_SECRET"])
+        self.assertTrue(any("galopin client id" in p for p in asked), asked)
+        r = cfg.build(a, existing, TEMPLATE)
+        for key, value in self.ODD.items():
+            self.assertEqual(r.values[key], value, key)
+
+    def test_typing_out_the_current_value_is_the_same_as_keeping_it(self):
+        odd = 'has"dq\\mid'
+        with mock.patch("getpass.getpass", side_effect=[odd]):
+            got = cfg.ask("  client secret", odd, secret=True,
+                          validate=cfg.credential_validator("client secret"))
+        self.assertEqual(got, odd)
 
     def test_the_charset_error_never_shows_the_characters(self):
-        for secret in (True, False):
-            problem = cfg.credential_problem("chat client secret", "SECRETVALUE x'\"", secret)
+        for _ in (0,):
+            problem = cfg.credential_problem("chat client secret", "SECRETVALUE x'\"")
             self.assertIn("contains a character that is not allowed", problem)
             self.assertNotIn("SECRETVALUE", problem)
-            self.assertNotIn("'", problem.split("allowed:")[0])
 
     def test_a_kept_default_is_not_judged_again(self):
         odd = "p@ss!w%rd\\"
         with mock.patch("getpass.getpass", side_effect=[""]):
             got = cfg.ask("  client secret", odd, secret=True,
-                          validate=cfg.credential_validator("client secret", True))
+                          validate=cfg.credential_validator("client secret"))
         self.assertEqual(got, odd)
 
     def test_a_new_secret_with_punctuation_is_taken_at_the_prompt(self):
         with mock.patch("getpass.getpass", side_effect=["  p@ss!w%rd?[x]  "]):
             got = cfg.ask("  client secret", "old", secret=True,
-                          validate=cfg.credential_validator("client secret", True))
+                          validate=cfg.credential_validator("client secret"))
         self.assertEqual(got, "p@ss!w%rd?[x]")
 
     def test_every_prompt_asks_again_on_an_unsafe_paste(self):
@@ -2030,7 +2079,7 @@ class TestEnvSafety(Deploy):
         printed = []
         with mock.patch("getpass.getpass", side_effect=lambda p: next(replies)), \
                 mock.patch("builtins.print", side_effect=lambda *x, **k: printed.append(" ".join(map(str, x)))):
-            got = cfg.ask("  client secret", "", secret=True, validate=cfg.credential_validator("client secret", True))
+            got = cfg.ask("  client secret", "", secret=True, validate=cfg.credential_validator("client secret"))
         self.assertEqual(got, "gloas-abc")
         self.assertTrue(any("ends with a backslash" in p and "paste it again" in p for p in printed), printed)
 
@@ -2154,11 +2203,22 @@ class TestEnvSafety(Deploy):
         self.assertEqual((self.dir / ".env").read_text(), before)
         self.assertEqual(self.files(), [".env"])
 
-    def test_replacing_the_env_keeps_its_mode(self):
+    def test_replacing_the_env_keeps_owner_and_group_access(self):
         self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
         os.chmod(self.dir / ".env", 0o640)
-        self.assertEqual(self.run_cli("--set", "CHAT_TITLE=Other")[0], 0)
+        code, _, err = self.run_cli("--set", "CHAT_TITLE=Other")
+        self.assertEqual(code, 0)
         self.assertEqual(stat.S_IMODE((self.dir / ".env").stat().st_mode), 0o640)
+        self.assertEqual(err, "")
+
+    def test_a_world_readable_env_is_narrowed_with_a_warning(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        for wide, now in ((0o644, 0o640), (0o666, 0o660), (0o777, 0o660)):
+            os.chmod(self.dir / ".env", wide)
+            code, _, err = self.run_cli("--set", f"CHAT_TITLE=T{wide}")
+            self.assertEqual(code, 0)
+            self.assertEqual(stat.S_IMODE((self.dir / ".env").stat().st_mode), now, oct(wide))
+            self.assertIn(f"was mode {wide:04o}", err)
 
     def test_a_first_write_docker_cannot_read_leaves_no_env(self):
         with self.real_check(), self.docker_fails():
@@ -2169,7 +2229,7 @@ class TestEnvSafety(Deploy):
     def test_set_applies_the_same_charset_as_the_prompt(self):
         self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
         before = (self.dir / ".env").read_text()
-        for item in ("OIDC_CHAT_CLIENT_SECRET=a b", "OIDC_CHAT_CLIENT_SECRET=ab\\", "OIDC_CHAT_CLIENT_ID=a@b",
+        for item in ("OIDC_CHAT_CLIENT_SECRET=a b", "OIDC_CHAT_CLIENT_SECRET=ab\\", "OIDC_CHAT_CLIENT_ID=a b",
                      "OIDC_MACHINE_CLIENT_ID=it's"):
             code, _, err = self.run_cli("--set", item)
             self.assertEqual(code, 2, item)
@@ -2178,11 +2238,73 @@ class TestEnvSafety(Deploy):
         self.assertEqual((self.dir / ".env").read_text(), before)
         self.assertEqual(self.run_cli("--set", "OIDC_CHAT_CLIENT_SECRET=  p@ss!%?[x]  ")[0], 0)
         self.assertEqual(self.env()["OIDC_CHAT_CLIENT_SECRET"], "p@ss!%?[x]")
+        self.assertEqual(self.run_cli("--set", "OIDC_CHAT_CLIENT_ID=1234@proj")[0], 0)
+        self.assertEqual(self.env()["OIDC_CHAT_CLIENT_ID"], "1234@proj")
+
+    def test_set_does_not_judge_a_value_the_env_already_holds(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        path = self.dir / ".env"
+        path.write_text(path.read_text() + "OIDC_CHAT_CLIENT_SECRET='has\"dq\\mid'\n")
+        before = path.read_text()
+        code, out, err = self.run_cli("--set", 'OIDC_CHAT_CLIENT_SECRET=has"dq\\mid')
+        self.assertEqual((code, err), (0, ""), out)
+        self.assertEqual(path.read_text(), before)
+        self.assertEqual(self.run_cli("--set", 'OIDC_CHAT_CLIENT_SECRET=other"dq')[0], 2)
 
     def test_a_value_survives_the_round_trip_through_a_quoted_line(self):
         for value in ('a"b', "a\\b", "a$b", "a #b", 'say "hi" \\n', "p@ss!%?[x]"):
             self.assertEqual(cfg.parse_env(cfg.quote("X", value)), {"X": value}, value)
         self.assertEqual(cfg.parse_env('X="a\\"b"'), {"X": 'a"b'})
+
+    def test_the_problem_is_the_line_that_names_the_syntax_not_a_warning_before_it(self):
+        err = ('time="x" level=warning msg="The \\"FOO\\" variable is not set"\n'
+               "failed to read /x/.env.new-ab: line 5: key cannot contain a space\n")
+        fake = subprocess.CompletedProcess([], 1, "", err)
+        with mock.patch.object(cfg, "_run", return_value=fake):
+            problem = REAL_COMPOSE_ENV_PROBLEM(self.dir, self.dir / ".env.new-ab")
+        self.assertEqual(problem, "failed to read /x/.env.new-ab: line 5: key cannot contain a space")
+
+    def test_check_warns_about_a_left_over_candidate(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        (self.dir / ".env.new-abc123").write_text("X='y'\n")
+        report = cfg.check(self.dir, network=False, probe_host=False)
+        self.assertTrue(any(".env.new-abc123" in w for w in report.warnings), report.warnings)
+        (self.dir / ".env.new-abc123").unlink()
+        report = cfg.check(self.dir, network=False, probe_host=False)
+        self.assertFalse(any(".env.new-" in w for w in report.warnings), report.warnings)
+
+    def test_the_kit_gitignore_covers_the_candidate(self):
+        self.assertIn(".env.new-*", (ROOT / ".gitignore").read_text().splitlines())
+
+    def test_a_malformed_set_item_does_not_echo_the_value(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        for item in ("bad key=gloas-SECRETVALUE", "TOKEN:gloas-SECRETVALUE", "1X=gloas-SECRETVALUE"):
+            code, _, err = self.run_cli("--set", item)
+            self.assertEqual(code, 2, item)
+            self.assertNotIn("SECRETVALUE", err)
+
+    def test_a_symlinked_env_is_replaced_at_its_target(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        elsewhere = Path(tempfile.mkdtemp(prefix="configure-target-"))
+        self.addCleanup(shutil.rmtree, elsewhere, True)
+        shutil.move(str(self.dir / ".env"), str(elsewhere / "real.env"))
+        (self.dir / ".env").symlink_to(elsewhere / "real.env")
+        self.assertEqual(self.run_cli("--set", "CHAT_TITLE=Other")[0], 0)
+        self.assertTrue((self.dir / ".env").is_symlink())
+        self.assertIn("CHAT_TITLE='Other'", (elsewhere / "real.env").read_text())
+        self.assertEqual(sorted(p.name for p in elsewhere.iterdir()), ["real.env"])
+
+    def test_a_disk_error_is_one_line_and_changes_nothing(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        before = (self.dir / ".env").read_text()
+        for argv in (("--set", "CHAT_TITLE=Other"), (*self.ARGV, "--link-by-email")):
+            with mock.patch.object(os, "replace", side_effect=PermissionError(13, "Permission denied")):
+                code, _, err = self.run_cli(*argv)
+            self.assertEqual(code, 1, argv)
+            self.assertEqual(len(err.strip().splitlines()), 1, err)
+            self.assertIn("Permission denied", err)
+            self.assertEqual((self.dir / ".env").read_text(), before)
+            self.assertEqual([f for f in self.files() if "new-" in f], [])
 
     def test_a_failure_that_is_not_the_env_syntax_does_not_roll_back(self):
         fake = subprocess.CompletedProcess([], 1, "", "required variable FOO is missing a value")

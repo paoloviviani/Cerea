@@ -529,47 +529,45 @@ def quote(key: str, value: str) -> str:
     return f"{key}='{value}'"
 
 
-#: What a client id may hold. Every OAuth issuer this kit knows hands out ids
-#: in this set; anything else is a paste accident.
-CREDENTIAL_CHARS = re.compile(r"^[A-Za-z0-9._~+/=:-]+$")
-#: A secret may hold any printable ASCII except what a single-quoted .env line
-#: cannot carry: quotes and backslashes (and so spaces and control characters).
-SECRET_CHARS = re.compile(r"^[\x21\x23-\x26\x28-\x5b\x5d-\x7e]+$")
+#: The longest client id or secret taken from a prompt or a flag.
+CREDENTIAL_MAX = 1024
 
 #: The .env keys that hold a client id or secret, with how to name them.
 CREDENTIAL_KEYS = {
-    "OIDC_CONSOLE_CLIENT_ID": ("console client id", False),
-    "OIDC_CONSOLE_CLIENT_SECRET": ("console client secret", True),
-    "OIDC_CHAT_CLIENT_ID": ("chat client id", False),
-    "OIDC_CHAT_CLIENT_SECRET": ("chat client secret", True),
-    "OIDC_MACHINE_CLIENT_ID": ("galopin client id", False),
+    "OIDC_CONSOLE_CLIENT_ID": "console client id",
+    "OIDC_CONSOLE_CLIENT_SECRET": "console client secret",
+    "OIDC_CHAT_CLIENT_ID": "chat client id",
+    "OIDC_CHAT_CLIENT_SECRET": "chat client secret",
+    "OIDC_MACHINE_CLIENT_ID": "galopin client id",
 }
 
 
-def credential_problem(label: str, value: str, secret: bool = False) -> str | None:
-    """Why a pasted client id or secret cannot be right, or None.
+def credential_problem(label: str, value: str) -> str | None:
+    """Why a newly typed client id or secret cannot be written, or None.
 
-    Surrounding whitespace is stripped before this is called, so whitespace
-    here is inside the value. The message never shows the characters: a
-    secret must not be echoed.
+    Only what a single-quoted .env line cannot carry is refused: quotes,
+    backslashes, whitespace and control characters (a pasted value's usual
+    accidents), and an absurd length. Ids come as `1234@project` and as UUIDs,
+    secrets with any punctuation. Surrounding whitespace is stripped before
+    this is called, so whitespace here is inside the value. The message never
+    shows the characters: a secret must not be echoed. A value already in the
+    .env is not judged: it is what the deployment runs on.
     """
     if value.endswith("\\"):
         return f"The {label} ends with a backslash; paste it again without it"
-    if (SECRET_CHARS if secret else CREDENTIAL_CHARS).match(value):
-        return None
-    allowed = (
-        "printable characters other than quotes, backslashes and spaces"
-        if secret else "letters, digits and . _ ~ + / = : -"
-    )
-    return (
-        f"The {label} contains a character that is not allowed; paste it again "
-        f"(allowed: {allowed})"
-    )
+    if len(value) > CREDENTIAL_MAX:
+        return f"The {label} is longer than {CREDENTIAL_MAX} characters; paste it again"
+    if any(c in "'\"\\" or c.isspace() or not c.isprintable() for c in value):
+        return (
+            f"The {label} contains a character that is not allowed; paste it again "
+            "(no quotes, backslashes, spaces or control characters)"
+        )
+    return None
 
 
-def credential_validator(label: str, secret: bool = False):
+def credential_validator(label: str):
     def validate(value: str) -> None:
-        problem = credential_problem(label, value, secret)
+        problem = credential_problem(label, value)
         if problem:
             raise ConfigError(problem)
     return validate
@@ -1872,8 +1870,10 @@ def build(answers: Answers, existing: dict, template: str, discovery: dict | Non
             if given_value is not None:
                 given_value = given_value.strip()
                 setattr(answers, attr, given_value)
-                label, is_secret = CREDENTIAL_KEYS[key]
-                problem = credential_problem(label, given_value, is_secret) if given_value else None
+                # A value that is already in .env is not judged: it is what runs.
+                problem = None
+                if given_value and given_value != existing.get(key):
+                    problem = credential_problem(CREDENTIAL_KEYS[key], given_value)
                 if problem:
                     raise ConfigError(problem)
 
@@ -2794,6 +2794,12 @@ def check(root: Path, *, network: bool = True, probe_host: bool = True) -> Repor
         report.warnings.append(f".env is mode {oct(mode)}; it holds every secret: chmod 600 .env")
     if (root / FIRST_SIGN_IN).exists():
         report.warnings.append(f"{FIRST_SIGN_IN} still exists: sign in once, then delete it")
+    stale = sorted(p.name for p in root.glob(".env.new-*"))
+    if stale:
+        report.warnings.append(
+            f"{', '.join(stale)}: left behind by an interrupted ./configure; it may hold secrets, "
+            "so delete it (rm .env.new-*)"
+        )
     if not (root / "proxy.d").is_dir():
         report.errors.append("proxy.d/ is missing (the proxy mounts it); restore it with git checkout proxy.d")
     if not (root / "providers.d").is_dir():
@@ -2828,9 +2834,10 @@ def ask(prompt: str, default: str = "", *, secret: bool = False, validate=None, 
             if empty_hint:
                 print(empty_hint)
             continue
-        if not typed:
+        if not typed or typed == default:
             # A kept default is what the .env already says: never judged
-            # again, so a working secret with an odd character stays.
+            # again, so a working secret with an odd character stays, and
+            # typing it out again is the same as keeping it.
             return value
         problem = paste_problem(typed)
         if problem:
@@ -2975,7 +2982,7 @@ def interview(answers: Answers, given: set, existing: dict) -> Answers:
                 validate=credential_validator("client id"))
             answers.oidc_console_client_secret = ask(
                 "  client secret", existing.get("OIDC_CONSOLE_CLIENT_SECRET", ""), secret=True,
-                validate=credential_validator("client secret", True)
+                validate=credential_validator("client secret")
             )
         if "oidc_chat_client_secret" not in given:
             print(f"  Chat client: redirect URI {origin}/chat/login/callback")
@@ -2984,7 +2991,7 @@ def interview(answers: Answers, given: set, existing: dict) -> Answers:
                 validate=credential_validator("client id"))
             answers.oidc_chat_client_secret = ask(
                 "  client secret", existing.get("OIDC_CHAT_CLIENT_SECRET", ""), secret=True,
-                validate=credential_validator("client secret", True)
+                validate=credential_validator("client secret")
             )
         ask_machine = "machine_client_id" not in given
         if "group_import" not in given:
@@ -3128,10 +3135,12 @@ def compose_env_problem(root: Path, env_file: Path | None = None) -> str | None:
     proc = _run(cmd, timeout=60, cwd=root)
     if proc is None or proc.returncode == 0:
         return None
-    err = (proc.stderr or "").strip()
-    if not re.search(r"\.env\b.*\bline \d+|unterminated quoted value|key cannot contain", err):
+    syntax = re.compile(r"\.env\b.*\bline \d+|unterminated quoted value|key cannot contain")
+    # docker may print a warning before the line that names the file.
+    first = next((line for line in (proc.stderr or "").splitlines() if syntax.search(line)), None)
+    if first is None:
         return None
-    return redact_env_error(err.splitlines()[0] if err else "?", env_secrets(env_file or root / ".env"))
+    return redact_env_error(first.strip(), env_secrets(env_file or root / ".env"))
 
 
 def write_env_verified(env_path: Path, text: str, root: Path, *, keep_backup: bool = False) -> tuple:
@@ -3139,11 +3148,14 @@ def write_env_verified(env_path: Path, text: str, root: Path, *, keep_backup: bo
 
     The candidate is written next to .env (private from its first byte), checked
     with `docker compose --env-file`, and only then moved into place, keeping
-    the existing file's mode. A problem leaves .env as it was, with no
-    backup and no temp file; `problem` says why, without any value in it.
+    the existing file's mode without anything beyond owner and group (a wider
+    one is narrowed, with a warning). A problem leaves .env as it was, with no
+    backup and no temp file; `problem` says why, without any value in it. A
+    symlinked .env is replaced at its target. Raises OSError when the disk says no.
     `keep_backup` saves the old .env as `.env.bak-<time>` once the new one is
     accepted (the interactive ./configure does; --set does not).
     """
+    env_path = Path(os.path.realpath(env_path))
     fd, tmp_name = tempfile.mkstemp(prefix=f"{env_path.name}.new-", dir=str(env_path.parent))
     tmp = Path(tmp_name)
     replaced = False
@@ -3156,7 +3168,10 @@ def write_env_verified(env_path: Path, text: str, root: Path, *, keep_backup: bo
         if problem:
             return None, problem
         saved = backup(env_path) if keep_backup else None
-        os.chmod(tmp, mode)
+        if mode & ~0o660:
+            print(f"configure: {env_path} was mode {mode:04o}, which lets others read every secret; "
+                  f"it is now {mode & 0o660:04o}", file=sys.stderr)
+        os.chmod(tmp, mode & 0o660)
         os.replace(tmp, env_path)
         replaced = True
         return saved, None
@@ -3303,7 +3318,12 @@ def cmd_configure(args, root: Path) -> int:
     if existing and parse_env(text) == existing:
         print(f"{env_path} is already up to date; nothing written")
     else:
-        saved, problem = write_env_verified(env_path, text, root, keep_backup=True)
+        try:
+            saved, problem = write_env_verified(env_path, text, root, keep_backup=True)
+        except OSError as exc:
+            print(f"configure: could not write {env_path}: {exc.strerror or type(exc).__name__}; "
+                  "the .env is unchanged", file=sys.stderr)
+            return 1
         if problem:
             print(f"configure: docker compose cannot read the .env this would write ({problem}); "
                   "nothing was changed", file=sys.stderr)
@@ -3453,12 +3473,14 @@ def cmd_set(args, root: Path) -> int:
     for item in args.set or []:
         key, sep, value = item.partition("=")
         if not sep or not KEY.match(key):
-            print(f"configure: --set expects KEY=VALUE, got {item!r}", file=sys.stderr)
+            shown = re.split(r"[=:]", item, maxsplit=1)[0]
+            print(f"configure: --set expects KEY=VALUE; the item starting {shown!r} is not that "
+                  "(the rest is not shown)", file=sys.stderr)
             return 2
         if key in CREDENTIAL_KEYS:
             value = value.strip()
-            label, is_secret = CREDENTIAL_KEYS[key]
-            problem = credential_problem(label, value, is_secret) if value else None
+            # A value already in .env is not judged: it is what runs.
+            problem = credential_problem(CREDENTIAL_KEYS[key], value) if value and value != before.get(key) else None
             if problem:
                 print(f"configure: {key}: {problem}; nothing written", file=sys.stderr)
                 return 2
@@ -3491,7 +3513,12 @@ def cmd_set(args, root: Path) -> int:
     except ConfigError as exc:
         print(f"configure: {exc}", file=sys.stderr)
         return 2
-    _, problem = write_env_verified(env_path, text, root)
+    try:
+        _, problem = write_env_verified(env_path, text, root)
+    except OSError as exc:
+        print(f"configure: could not write {env_path}: {exc.strerror or type(exc).__name__}; "
+              "the .env is unchanged", file=sys.stderr)
+        return 1
     if problem:
         print(f"configure: docker compose cannot read the .env this would write ({problem}); "
               "nothing was changed", file=sys.stderr)
