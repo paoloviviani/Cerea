@@ -284,6 +284,8 @@ export interface McpConnectorView {
 	appsAllowed?: boolean;
 	/** Whether this person's turns use it: its mode and their own switch together. */
 	enabled: boolean;
+	/** Another connector has this name and wins it, so this one is not offered to the assistant (C169). */
+	nameClash?: boolean;
 	/** Whether *this* person has a usable credential for it. */
 	connected: boolean;
 	/** For an OAuth connector, whether it can be signed in to at all. */

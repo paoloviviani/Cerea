@@ -15,6 +15,7 @@
 	saying how it went.
 -->
 <script lang="ts">
+	import { ConnectorNameTakenError } from "$lib/utils/connectorName";
 	import { delayedLoading } from "$lib/utils/delayedLoading.svelte";
 	import SkeletonBusy from "$lib/components/skeleton/SkeletonBusy.svelte";
 	import SkeletonCard from "$lib/components/skeleton/SkeletonCard.svelte";
@@ -100,6 +101,8 @@
 	const onMachines = $derived($connectors.filter((c) => c.local));
 
 	let name = $state("");
+	/** The name the server refused as taken (C169), shown next to the name field. */
+	let nameError = $state<string | null>(null);
 	let url = $state("");
 	let token = $state("");
 	let tokenHeader = $state("");
@@ -145,6 +148,7 @@
 		init?: { method?: string; headers?: Record<string, string>; body?: string }
 	): Promise<T> {
 		const response = await fetch(`${base}/api/v2/mcp${path}`, init);
+		if (response.status === 409) throw new ConnectorNameTakenError();
 		if (!response.ok) {
 			const parsed = (await response.json().catch(() => null)) as { message?: string } | null;
 			throw new Error(
@@ -185,6 +189,7 @@
 		if (!name.trim() || !url.trim()) return;
 		busy = true;
 		failure = null;
+		nameError = null;
 		try {
 			await api<McpConnectorView>(
 				"/connectors",
@@ -227,7 +232,11 @@
 			adding = false;
 			await load();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : m["mcp.connectors.error.add"]();
+			if (err instanceof ConnectorNameTakenError) {
+				nameError = m["mcp.connectors.error.name_taken"]({ name: name.trim() });
+			} else {
+				failure = err instanceof Error ? err.message : m["mcp.connectors.error.add"]();
+			}
 		} finally {
 			busy = false;
 		}
@@ -301,6 +310,7 @@
 		editAppsAllowed = connector.appsAllowed !== false;
 		clearEditToken = false;
 		failure = null;
+		nameError = null;
 	}
 
 	function cancelEdit() {
@@ -314,6 +324,7 @@
 		if (!editing || !editName.trim() || !editUrl.trim()) return;
 		busy = true;
 		failure = null;
+		nameError = null;
 		try {
 			await api(
 				`/connectors/${editing.id}`,
@@ -348,7 +359,11 @@
 			cancelEdit();
 			await load();
 		} catch (err) {
-			failure = err instanceof Error ? err.message : m["mcp.connectors.error.save"]();
+			if (err instanceof ConnectorNameTakenError) {
+				nameError = m["mcp.connectors.error.name_taken"]({ name: editName.trim() });
+			} else {
+				failure = err instanceof Error ? err.message : m["mcp.connectors.error.save"]();
+			}
 		} finally {
 			busy = false;
 		}
@@ -455,7 +470,15 @@
 						bind:value={name}
 						required
 						disabled={busy}
+						aria-invalid={nameError ? "true" : undefined}
 					/>
+					{#if nameError}
+						<span
+							class="text-xs text-red-600 dark:text-red-400"
+							role="alert"
+							data-testid="name-error">{nameError}</span
+						>
+					{/if}
 				</label>
 				<label class="flex flex-2 flex-col gap-1" style="flex-grow:2">
 					<span class="text-xs font-medium text-gray-700 dark:text-gray-300"
@@ -635,6 +658,12 @@
 					<span class="{s.PILL} {s.PILL_TONES.neutral}">
 						<IconWarning class="size-3" />
 						{m["mcp.connectors.not_signed_in"]()}
+					</span>
+				{/if}
+				{#if connector.nameClash}
+					<span class="{s.PILL} {s.PILL_TONES.bad}" data-testid="name-clash">
+						<IconWarning class="size-3" />
+						{m["mcp.connectors.same_name"]()}
 					</span>
 				{/if}
 				<span class="text-xs text-gray-600 dark:text-gray-400">
@@ -903,7 +932,15 @@
 							bind:value={editName}
 							required
 							disabled={busy}
+							aria-invalid={nameError ? "true" : undefined}
 						/>
+						{#if nameError}
+							<span
+								class="text-xs text-red-600 dark:text-red-400"
+								role="alert"
+								data-testid="name-error">{nameError}</span
+							>
+						{/if}
 					</label>
 					<label class="flex flex-col gap-1">
 						<span class="text-xs font-medium text-gray-700 dark:text-gray-300"

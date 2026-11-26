@@ -56,6 +56,9 @@ export function keyHeader(connector: McpConnector, secret: string): Record<strin
 	return { [header]: `${prefix}${secret}` };
 }
 
+/** Why a connector that shares a name with another is not offered. */
+export const SAME_NAME_REASON = "Same name as another connector: rename it";
+
 /** The `locals.mcp` a turn runs with (read by `runMcpFlow`). */
 export interface McpLocals {
 	/** Loaded connectors that could not be opened this turn, with why. */
@@ -121,5 +124,9 @@ export async function mcpLocalsFor(
 			logger.info({ connector: name }, "mcp_connector_not_opened: left out");
 		}
 	});
+	// A connector left out because another has its name: said once, with the way out.
+	for (const b of blocked) {
+		if (b.reason === "same name") unavailable.push({ name: b.name, reason: SAME_NAME_REASON });
+	}
 	return { unavailable, connectors, blocked, loadedKeys, servers };
 }

@@ -33,6 +33,8 @@ import {
 import { localConnectorsEnabled } from "$lib/server/codeEnabled";
 import { connectorBlurb } from "./connectorBlurb";
 import { resolveLocalSelection, localConnectorViews } from "./local";
+import { nameClashLosers, type NameCandidate } from "./nameClashes";
+import { connectorNameKey } from "$lib/utils/connectorName";
 
 import type { ResolvedServer } from "./selection";
 
@@ -62,7 +64,7 @@ export interface TurnConnector {
 export interface BlockedConnector {
 	key: string;
 	name: string;
-	reason: "switched off" | "needs sign-in";
+	reason: "switched off" | "needs sign-in" | "same name";
 }
 
 export interface ResolvedConnectors {
@@ -113,8 +115,47 @@ export async function resolveConnectors(userId: ObjectId | undefined): Promise<R
 	const connectors: TurnConnector[] = [];
 	const blocked: BlockedConnector[] = [];
 
+	// One name, one connector (C169): which of the connectors on for this user keep their name
+	// is decided from everything that is on, usable or not, so signing in never changes the winner.
+	const candidates: NameCandidate[] = [];
+	const envServers = policies ? (getMcpServers() as McpServerConfig[]) : [];
+	for (const server of envServers) {
+		const key = baseKey(server.name);
+		const policy = policyIn(policies ?? new Map(), key);
+		if (policy.mode !== "off" && isEnabled(key, policy, switches)) {
+			candidates.push({ key, name: server.name, deployment: true });
+		}
+	}
+	const rows = userId
+		? await collections.mcpConnectors
+				.find({ $or: [{ userId }, { scope: "deployment" }] })
+				.sort({ name: 1 })
+				.limit(200)
+				.toArray()
+		: [];
+	for (const row of rows) {
+		const key = connectorKey(row._id.toString());
+		const deployment = (row.scope ?? "user") === "deployment";
+		if (deployment && !policies) continue;
+		const policy = deployment && policies ? policyIn(policies, key) : undefined;
+		if (policy?.mode === "off" || !isEnabled(key, policy, switches)) continue;
+		candidates.push({
+			key,
+			name: row.name,
+			deployment,
+			...(row.createdAt ? { createdAt: new Date(row.createdAt).getTime() } : {}),
+		});
+	}
+	const losers = nameClashLosers(candidates);
+	const leftOut = (key: string, name: string): boolean => {
+		if (!losers.has(key)) return false;
+		blocked.push({ key, name, reason: "same name" });
+		logger.warn({ key, name, keptName: losers.get(key) }, "mcp_connector_same_name_left_out");
+		return true;
+	};
+
 	// The `.env` servers: no row, no credential lookup, so no cost.
-	for (const server of policies ? (getMcpServers() as McpServerConfig[]) : []) {
+	for (const server of envServers) {
 		const key = baseKey(server.name);
 		const policy = policyIn(policies ?? new Map(), key);
 		if (policy.mode === "off") continue;
@@ -122,6 +163,7 @@ export async function resolveConnectors(userId: ObjectId | undefined): Promise<R
 			blocked.push({ key, name: server.name, reason: "switched off" });
 			continue;
 		}
+		if (leftOut(key, server.name)) continue;
 		const tools = knownTools(server.url) ?? [];
 		connectors.push({
 			key,
@@ -146,11 +188,6 @@ export async function resolveConnectors(userId: ObjectId | undefined): Promise<R
 	if (!userId) return { connectors, blocked };
 
 	// The administrator's and the person's own connectors.
-	const rows = await collections.mcpConnectors
-		.find({ $or: [{ userId }, { scope: "deployment" }] })
-		.sort({ name: 1 })
-		.limit(200)
-		.toArray();
 	const oauthIds = rows
 		.filter((r) => r.auth === "oauth" || r.auth === "user-key")
 		.map((r) => r._id);
@@ -177,6 +214,7 @@ export async function resolveConnectors(userId: ObjectId | undefined): Promise<R
 			blocked.push({ key, name: row.name, reason: "switched off" });
 			continue;
 		}
+		if (leftOut(key, row.name)) continue;
 		const usable =
 			row.auth === "none" ||
 			(row.auth === "token" && Boolean(row.tokenSealed)) ||
@@ -218,8 +256,17 @@ export async function resolveConnectors(userId: ObjectId | undefined): Promise<R
 				logger.warn({ err: String(err) }, "mcp_local_listing_failed");
 				return [];
 			});
-			for (const view of views) {
+			// A computer's server named like another connector, or like another computer's, loses.
+			const taken = new Set(connectors.map((c) => connectorNameKey(c.name)));
+			for (const view of [...views].sort((a, b) => (a.id < b.id ? -1 : 1))) {
 				if (!wanted.includes(view.id)) continue;
+				const nameKey = connectorNameKey(view.name);
+				if (taken.has(nameKey)) {
+					blocked.push({ key: view.id, name: view.name, reason: "same name" });
+					logger.warn({ key: view.id, name: view.name }, "mcp_connector_same_name_left_out");
+					continue;
+				}
+				taken.add(nameKey);
 				const tools = (view.tools ?? []) as CatalogTool[];
 				connectors.push({
 					key: view.id,

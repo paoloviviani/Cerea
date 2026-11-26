@@ -2,6 +2,7 @@ import { config } from "$lib/server/config";
 import { logger } from "$lib/server/logger";
 import type { McpServerConfig } from "./httpClient";
 import { resetMcpToolsCache } from "./tools";
+import { connectorNameKey } from "$lib/utils/connectorName";
 
 let cachedRaw: string | null = null;
 let cachedServers: McpServerConfig[] = [];
@@ -47,8 +48,28 @@ function parseServers(raw: string): McpServerConfig[] {
 	}
 }
 
+/** Keeps the first of servers sharing a name (C169) and warns about the rest; never throws. */
+export function dropDuplicateNames(servers: McpServerConfig[]): McpServerConfig[] {
+	const seen = new Map<string, string>();
+	const kept: McpServerConfig[] = [];
+	for (const server of servers) {
+		const key = connectorNameKey(server.name);
+		const first = seen.get(key);
+		if (first !== undefined) {
+			logger.warn(
+				{ kept: first, dropped: server.name },
+				`[mcp] MCP_SERVERS has two servers named "${first}" and "${server.name}"; the first is kept and the later one is dropped. Rename it to use it.`
+			);
+			continue;
+		}
+		seen.set(key, server.name);
+		kept.push(server);
+	}
+	return kept;
+}
+
 function setServers(raw: string) {
-	cachedServers = parseServers(raw);
+	cachedServers = dropDuplicateNames(parseServers(raw));
 	cachedRaw = raw;
 	resetMcpToolsCache();
 	logger.debug({ count: cachedServers.length }, "[mcp] loaded server configuration");

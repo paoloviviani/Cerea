@@ -12,6 +12,8 @@ export type LoadReport =
 	| { name: string; status: "ambiguous"; candidates: string[] }
 	| { name: string; status: "switched off" }
 	| { name: string; status: "needs sign-in" }
+	/** Another connector has this name and was kept; this one is left out until renamed. */
+	| { name: string; status: "same name" }
 	| { name: string; status: "unavailable"; reason: string };
 
 /**
@@ -65,6 +67,8 @@ function describe(report: LoadReport): string {
 			return `${report.name}: the person has switched it off. Tell them they can turn it on under Workspace, Connectors.`;
 		case "needs sign-in":
 			return `${report.name}: the person needs to sign in to it first, under Workspace, Connectors.`;
+		case "same name":
+			return `${report.name}: not available, another connector has the same name. Tell the person to rename it under Workspace, Connectors.`;
 		case "unavailable":
 			return `${report.name}: could not be loaded (${report.reason}).`;
 	}

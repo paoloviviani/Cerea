@@ -29,6 +29,25 @@ it authenticates, so you never declare that yourself. There are three outcomes:
 
 Only connect to servers you trust.
 
+### Names are unique
+
+Every connector a user can see has its own name. Two names are the same when
+they match after trimming, collapsing spaces and ignoring capital letters
+("Notion", " notion" and "NOTION" clash). Adding or renaming a connector to a
+name that is already taken is refused with "A connector named "X" already exists.
+Choose another name." A user's own connector may not share a name with another
+of theirs or with one the deployment provides; an administrator's connector may
+not share one with another of the deployment's. In `MCP_SERVERS`, if two servers
+share a name the first is kept, the later ones are dropped, and the server log
+names them.
+
+A clash can still arise: an administrator can add a connector named like a
+user's own, and older data may already hold two. The assistant never sees two
+connectors with one name, so one is left out: the deployment's connector wins
+over a user's, a user's over one on their computer, and of two of a kind the
+older one stays. The one left out is marked "Same name as another connector:
+rename it" in the connectors list, and it works again once it is renamed.
+
 ## Coding agents
 
 Your connectors can also reach a coding agent on one of your computers, off by

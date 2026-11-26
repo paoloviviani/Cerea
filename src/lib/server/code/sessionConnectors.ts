@@ -45,7 +45,7 @@ export interface AgentConnectorOption {
 	/** Secondary text after the name: a computer's own server id, when the title is its proper name. */
 	detail?: string;
 	/** Why it cannot be used now, for the switch list ("needs sign-in", "switched off"). */
-	unavailable?: "switched off" | "needs sign-in";
+	unavailable?: "switched off" | "needs sign-in" | "same name";
 	/** Offered by the administrator as always on. Still an opt-in for an agent. */
 	locked?: boolean;
 }

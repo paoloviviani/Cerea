@@ -17,6 +17,7 @@
  *   cached briefly; a machine that does not answer reads as its last known state.
  */
 
+import { connectorNameKey } from "$lib/utils/connectorName";
 import { ObjectId } from "mongodb";
 import { collections } from "$lib/server/database";
 import { logger } from "$lib/server/logger";
@@ -244,6 +245,7 @@ export async function resolveLocalSelection(options: {
 		})
 	);
 
+	const claimed = new Set<string>();
 	for (const { deviceId, server } of wanted) {
 		const device = byId.get(deviceId);
 		// Not this person's, or not paired any more: nothing to say about it.
@@ -251,6 +253,11 @@ export async function resolveLocalSelection(options: {
 		// The browser runtime is reached by `browse` only; no chat connector can name it.
 		if (isBrowserRuntimeServer(server)) continue;
 		const name = localDisplayName(server, device.name);
+		// The same server name on two machines with the same label: the first listed wins (C169).
+		if (claimed.has(connectorNameKey(name))) {
+			unavailable.push({ name, reason: "Same name as another connector: rename it" });
+			continue;
+		}
 		if (!isMachineOnline(deviceId)) {
 			unavailable.push({ name, reason: `${device.name} is offline` });
 			continue;
@@ -264,6 +271,7 @@ export async function resolveLocalSelection(options: {
 			unavailable.push({ name, reason: reasonFor(entry) });
 			continue;
 		}
+		claimed.add(connectorNameKey(name));
 		servers.push({ name, url: localServerUrl(userId.toString(), deviceId, server) });
 	}
 	return { servers, unavailable };

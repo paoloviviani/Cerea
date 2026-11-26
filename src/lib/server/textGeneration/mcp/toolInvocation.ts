@@ -236,9 +236,14 @@ export function isValidJsonObject(raw: string): boolean {
 const serverMap = (servers: McpServerConfig[]): Map<string, McpServerConfig> => {
 	const map = new Map<string, McpServerConfig>();
 	for (const server of servers) {
-		if (server?.name) {
-			map.set(server.name, server);
+		if (!server?.name) continue;
+		// `resolveConnectors` never offers two connectors with one name (C169); if one gets
+		// here anyway, the first stays and the tool is never sent to the other.
+		if (map.has(server.name)) {
+			logger.warn({ server: server.name }, "[mcp] two servers share a name: the first is used");
+			continue;
 		}
+		map.set(server.name, server);
 	}
 	return map;
 };

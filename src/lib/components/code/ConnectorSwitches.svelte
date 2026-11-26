@@ -30,6 +30,7 @@
 
 	function why(option: AgentConnectorOption): string {
 		if (option.unavailable === "needs sign-in") return m["code.connectors.needs_signin"]();
+		if (option.unavailable === "same name") return m["code.connectors.same_name"]();
 		if (option.unavailable === "switched off") return m["code.connectors.switched_off"]();
 		if (option.kind === "local") return m["code.connectors.on_machine"]();
 		return "";
