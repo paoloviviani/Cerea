@@ -344,6 +344,9 @@ export interface GalopinInfo {
 	otherAddress: string;
 	/** galopin said the sign-in expired or was revoked. */
 	signIn: "ok" | "expired";
+	/** This profile owns galopin's default directory: the shims `setup` writes follow its pairing. */
+	ownsDefault: boolean;
+	defaultOwner: string;
 	running: boolean;
 	profileName: string;
 	serverName: string;

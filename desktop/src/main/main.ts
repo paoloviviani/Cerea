@@ -37,6 +37,7 @@ import {
 	withCreds,
 } from "./galopinArgs.ts";
 import { ensureStableGalopin, migrateGalopinPaths, stableDir } from "./stableGalopin.ts";
+import { APP_LOG, ProfileLogs } from "./profileLogs.ts";
 import { mcpSummary, signInState, toolsInfo } from "./galopinInfo.ts";
 import { readCreds } from "./pairing.ts";
 import { notPairedMessage, refreshProfile, type GuardDeps } from "./profileGuard.ts";
@@ -96,7 +97,9 @@ control.onTaskStart(() => {
 		setPanel({ open: true, pane: "browser" });
 });
 let bridgeConnected = false;
-let log: string[] = [];
+/** galopin's output, kept per profile: one profile's sign-in problem is never read from another's lines. */
+const logs = new ProfileLogs();
+const logOf = (id: string | undefined): string[] => logs.get(id);
 
 const uiDir = () => join(__dirname, "..", "renderer");
 
@@ -136,9 +139,13 @@ function prepareGalopin(): void {
 /** Where `galopin setup` keeps its commands and shims: the app's own, stable (the app's galopin may live in a mount that moves). */
 const shimDir = () => stableDir(app.getPath("userData"));
 
+function lineFor(profileId: string | undefined, l: string): void {
+	logs.add(profileId, l);
+	if ((profileId ?? APP_LOG) === (cur()?.id ?? APP_LOG)) push("output", l);
+}
+/** App-level lines (and the active profile's, for bridge and switch messages). */
 function line(l: string): void {
-	log = [...log.slice(-499), l];
-	push("output", l);
+	lineFor(cur()?.id, l);
 }
 
 function appState(): AppState {
@@ -385,7 +392,7 @@ function makeGalopin(p: Profile | undefined): Galopin {
 	mkdirSync(shimDir(), { recursive: true, mode: 0o700 });
 	const g = new Galopin(
 		galopinBin,
-		line,
+		(l) => lineFor(p?.id, l),
 		{ ...process.env, GALOPIN_INSTALL_DIR: shimDir() },
 		pushState,
 		dir ? join(dir, "credentials.json") : undefined,
@@ -573,7 +580,7 @@ const handlers: { [C in Channel]: Handler<C> } = {
 		const err = await shell.openPath(file);
 		return err || "Opened. Saved changes are picked up automatically.";
 	},
-	"galopin:logs": () => log.join("\n"),
+	"galopin:logs": () => logOf(cur()?.id).join("\n"),
 	"galopin:info": async () => {
 		const g = galopin;
 		const p = cur();
@@ -587,7 +594,9 @@ const handlers: { [C in Channel]: Handler<C> } = {
 			version: galopinVersion,
 			pairing: pairing.state,
 			otherAddress: pairing.state === "other" ? pairing.address : "",
-			signIn: signInState(log),
+			signIn: signInState(logOf(p?.id)),
+			ownsDefault: !!p?.defaultGalopin,
+			defaultOwner: store.profiles.find((x) => x.defaultGalopin)?.name ?? "",
 			running: g.running,
 			profileName: p?.name ?? "",
 			serverName: p?.server.name ?? "",
@@ -830,6 +839,7 @@ async function doRemove(id: string): Promise<boolean> {
 	store = removeProfile(store, id);
 	saveStore(app.getPath("userData"), store);
 	bridgeServer?.removeProfile(id);
+	logs.drop(id);
 	// Its views are closed first (the last profile's are closed here), and only then its storage is cleared.
 	if (!store.active) loadActive();
 	if (dir) rmSync(join(dir, ".."), { recursive: true, force: true });

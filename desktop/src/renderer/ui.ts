@@ -25,9 +25,19 @@ function show(el: HTMLElement, on: boolean) {
 	el.hidden = !on;
 }
 
+let logProfile = "";
 function render() {
 	if (!state) return;
 	const s = state;
+	// Each profile has its own log: another profile's lines are not shown or read for its sign-in.
+	const activeId = s.profiles.find((p) => p.active)?.id ?? "";
+	if (activeId !== logProfile) {
+		logProfile = activeId;
+		void call("galopin:logs").then((t) => {
+			logLines = String(t).split("\n").filter(Boolean);
+			if (logShown) renderLog();
+		});
+	}
 	const first = !s.server;
 	const open = !first && s.panel.open;
 	const pane = s.panel.pane;
@@ -261,6 +271,7 @@ function renderGalopin() {
 				launch.textContent = "Launch";
 				launch.onclick = () => void run("launch", call("galopin:launch", { tool: t.tool }));
 				const label = document.createElement("label");
+				label.hidden = !i.ownsDefault; // the shims follow the default pairing: only its owner switches them
 				const sw = document.createElement("input");
 				sw.type = "checkbox";
 				sw.checked = t.byDefault;
@@ -272,7 +283,7 @@ function renderGalopin() {
 				label.append(sw, " Use galopin by default");
 				right.append(launch, label);
 				li.append(right);
-				if (t.byDefault) {
+				if (t.byDefault && i.ownsDefault) {
 					const note = document.createElement("span");
 					note.className = "muted note";
 					note.textContent = `To use it, put ${i.shimDir} first on your PATH.`;
@@ -283,6 +294,13 @@ function renderGalopin() {
 		})
 	);
 
+	const note = $("g-tools-note");
+	note.hidden = i.ownsDefault;
+	note.textContent = i.ownsDefault
+		? ""
+		: i.defaultOwner
+			? `Coding tools started by default use the pairing of ${i.defaultOwner}, not this profile's.`
+			: "Coding tools started by default use galopin's own pairing, not this profile's.";
 	$("g-browser-status").textContent = i.browser.configured
 		? "The browser is set up: Cerea can use it."
 		: "Not set up. Lets Cerea use a browser on this computer.";
