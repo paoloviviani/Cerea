@@ -244,6 +244,15 @@ try {
 			}
 			m = await app.hook("uimetrics", "UIMETRICS");
 			assert.equal(m.side.hidden, false);
+			if (pane === "galopin") {
+				await wait(800);
+				const t = await app.hook(
+					"uieval return { upgrade: !!document.getElementById('g-upgrade'), version: document.getElementById('g-version').textContent }",
+					"UIEVAL"
+				);
+				assert.equal(t.upgrade, false, "there is no Upgrade button: galopin updates with the app");
+				assert.match(t.version, /galopin updates with the app \(/);
+			}
 			await app.hook(`screenshot ${join(SHOTS, `tab-${pane}-open.png`)}`, "SHOT");
 		}
 		await app.hook("panelset " + JSON.stringify({ open: false }));

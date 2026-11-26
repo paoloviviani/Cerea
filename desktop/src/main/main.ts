@@ -40,7 +40,7 @@ import { ensureStableGalopin, migrateGalopinPaths, stableDir } from "./stableGal
 import { APP_LOG, ProfileLogs } from "./profileLogs.ts";
 import { mcpSummary, signInState, toolsInfo } from "./galopinInfo.ts";
 import { readCreds } from "./pairing.ts";
-import { notPairedMessage, refreshProfile, type GuardDeps } from "./profileGuard.ts";
+import { notPairedMessage, refreshProfile, setupRefusal, type GuardDeps } from "./profileGuard.ts";
 import { guardCerea, mayOpenExternally, UI_CSP, type GuardState } from "./navGuard.ts";
 import { resolveUiFile, UI_ORIGIN } from "./uiProtocol.ts";
 import { cappedFetch, iconFetcher } from "./probeFetch.ts";
@@ -527,16 +527,10 @@ const handlers: { [C in Channel]: Handler<C> } = {
 		return (await galopin.exec(setupArgs(tool, remove, makeDefault))).output;
 	},
 	"galopin:upgrade": async ({ show }) => {
-		if (
-			!show &&
-			!(await confirm(
-				"Upgrade galopin?",
-				"Runs galopin upgrade: it stops galopin, installs the version your Cerea serves and restarts it. Enrollment is kept.",
-				"Upgrade"
-			))
-		)
-			return "Cancelled.";
-		return (await galopin.exec(upgradeArgs(show))).output;
+		// galopin is updated with the app: `galopin upgrade` would replace the copy the app keeps, and the
+		// next start would put the app's own back. `--show` only says what an upgrade would do.
+		if (!show) throw new IpcError("galopin updates with the app.");
+		return (await galopin.exec(upgradeArgs(true))).output;
 	},
 	"galopin:service": async ({ action }) => {
 		if (
@@ -664,18 +658,23 @@ serialize(
 		"galopin:launch",
 		"galopin:setup",
 		"galopin:upgrade",
+		"galopin:edit-connectors",
 	] as const,
 	async (key, arg) => {
 		// Every time, not only at start: galopin's default directory can change while the app runs.
 		await refreshProfile(guardDeps());
+		if (key === "galopin:setup") {
+			// The shims follow galopin's default pairing: only the profile that owns it may change them.
+			const why = setupRefusal(store, cur());
+			if (why) throw new IpcError(why);
+		}
 		const needsPairing =
 			key === "galopin:start" ||
 			key === "galopin:signin" ||
 			key === "galopin:browser-setup" ||
 			key === "galopin:launch" ||
 			key === "galopin:setup" ||
-			(key === "galopin:service" && (arg as { action: string }).action === "install") ||
-			(key === "galopin:upgrade" && !(arg as { show: boolean }).show);
+			(key === "galopin:service" && (arg as { action: string }).action === "install");
 		if (!needsPairing) return;
 		const msg = notPairedMessage(galopin.pairing(), cur()?.server.name ?? "this server");
 		if (msg) throw new IpcError(msg);

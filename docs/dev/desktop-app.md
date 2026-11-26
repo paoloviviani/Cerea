@@ -156,8 +156,12 @@ quits and can be recreated by another local user, so a shim or a login service w
 they plant there, as the victim. `GALOPIN_INSTALL_DIR` is `<userData>/bin`, so shims and units name the
 stable copy. At every start, shims and the service unit that name a mount or resources path (written
 by an earlier version) are re-pointed (a changed unit is followed by `systemctl --user daemon-reload`;
-a changed macOS plist takes effect when it is next loaded). `galopin upgrade` would replace this copy,
-and the next start puts the app's own back: the app's update is galopin's update.
+a changed macOS plist takes effect when it is next loaded). The path is quoted the way each format
+needs (shell single quotes with an apostrophe escaped, systemd `ExecStart` quotes with `%` and `$` doubled,
+XML for the plist), the systemd user directory follows `XDG_CONFIG_HOME`, and leftover `.galopin-*`
+temporary copies are removed at start. **There is no Upgrade action in the app**: `galopin upgrade` would
+replace this copy and the next start would put the app's own back, so the galopin tab says "galopin updates
+with the app (version X)" and `galopin upgrade --show` stays as information only.
 
 ### A profile uses only a pairing for its own server
 
@@ -477,8 +481,12 @@ The check runs **before every galopin action** (start, pair, sign in, service, b
 setup, upgrade), not only at start, because the default directory can change while the app runs; the
 action refuses with a message when there is no pairing for this profile, and the profile's endpoint
 file moves with its directory (the old one is removed). A credential with no recorded Cerea address (an
-older enrolment) counts if its identity provider is the profile's, and a default directory nobody owns
-goes to the profile its pairing is for. **The base path (`/chat`) is not compared**, only the origin and
+older enrolment) counts only on the **exact issuer** (a trailing slash aside) **and** the profile's OAuth
+client id, both from `enroll.json` and stored with the profile (an issuer's origin alone is shared by Entra
+tenants, Google and Keycloak realms); a profile stored before they were kept is probed once at start, and
+until then such a pairing is not its own. A default directory nobody owns goes to the profile its pairing
+is for. `galopin setup` (the default-shim switches) is refused unless the profile owns that directory, and
+editing connectors goes through the same recheck as every other galopin action. **The base path (`/chat`) is not compared**, only the origin and
 the identity provider: two deployments on one origin under different paths would look the same.
 Accepted for now. The shims `galopin setup` writes follow galopin's default pairing, so only the
 profile that owns that directory shows the "Use galopin by default" switches; the others say whose

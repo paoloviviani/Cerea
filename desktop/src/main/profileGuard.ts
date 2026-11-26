@@ -6,7 +6,7 @@
  * pairing is not read, used or written.
  */
 import type { Creds, Pairing } from "./pairing.ts";
-import { reconcileDefault, type Store } from "./profiles.ts";
+import { reconcileDefault, type Profile, type Store } from "./profiles.ts";
 
 export interface GuardDeps {
 	getStore(): Store;
@@ -27,6 +27,17 @@ export async function refreshProfile(d: GuardDeps): Promise<boolean> {
 	d.setStore(next);
 	d.rebuild();
 	return true;
+}
+
+/**
+ * `galopin setup TOOL --default` writes shims that follow galopin's default directory, so only the
+ * profile that owns that directory may change them (the UI shows the switches only there).
+ */
+export function setupRefusal(s: Store, p: Profile | undefined): string | undefined {
+	if (!p) return "Choose a server first.";
+	if (p.defaultGalopin) return undefined;
+	const owner = s.profiles.find((x) => x.defaultGalopin)?.name;
+	return `Coding tools started by default use the pairing of ${owner ?? "galopin's own setup"}, not ${p.name}'s. Switch to that profile to change them.`;
 }
 
 /** What a galopin action says when the profile is not paired for its own server. */
