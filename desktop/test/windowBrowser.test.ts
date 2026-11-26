@@ -446,6 +446,18 @@ describe("WindowBrowser", () => {
 		expect(existsSync(join(none.dir, "approval-key"))).toBe(false);
 		await none.wb.dispose();
 	});
+	it("waits for a cookie name that is still being learned, then writes the key", async () => {
+		let learned: (name: string) => void = () => {};
+		const name = new Promise<string>((r) => (learned = r));
+		const { wb, dir } = make({ cookieName: () => name });
+		wb.start();
+		wb.handleFromPage(announce());
+		await new Promise((r) => setTimeout(r, 30));
+		expect(existsSync(join(dir, "approval-key"))).toBe(false);
+		learned("hf-chat");
+		await vi.waitFor(() => expect(existsSync(join(dir, "approval-key"))).toBe(true));
+		await wb.dispose();
+	});
 	it("limits how often a page may announce a window", async () => {
 		const { wb } = make();
 		let reads = 0;

@@ -312,7 +312,7 @@ export interface WindowBrowserDeps {
 	endpointFile: () => string | undefined;
 	runtime: RuntimeLocation | undefined;
 	/** The NAME of the profile's session cookie, from the server's own enroll.json (never from the page). */
-	cookieName: () => string | undefined;
+	cookieName: () => string | undefined | Promise<string | undefined>;
 	/** The session cookies of that name visible at the profile's address (with its base path). */
 	readCookies: (name: string) => Promise<{ value: string; httpOnly: boolean; secure: boolean }[]>;
 	/** The profile's server is on https: its session cookie must then be Secure too. */
@@ -472,7 +472,7 @@ export class WindowBrowser {
 	private async storeKey(windowId: string): Promise<void> {
 		try {
 			rmSync(this.keyFile(), { force: true });
-			const name = this.deps.cookieName();
+			const name = await this.deps.cookieName();
 			if (!name || this.disposed) return;
 			const found = await this.deps.readCookies(name);
 			const only = found.length === 1 ? found[0] : undefined;

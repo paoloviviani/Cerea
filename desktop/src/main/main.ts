@@ -409,6 +409,8 @@ function disposeWindowBrowser(): void {
 
 /** One runtime per profile, started with its Cerea view, stopped when the view goes. */
 function startWindowBrowser(p: Profile): void {
+	// A profile saved before the server named its session cookie asks once; a key waits for the answer.
+	let cookieProbe: Promise<void> | undefined;
 	windowBrowser = new WindowBrowser({
 		dir: join(app.getPath("userData"), "winbrowser", p.id),
 		endpointFile: () => bridgeServer?.endpointFile(p.id),
@@ -419,8 +421,12 @@ function startWindowBrowser(p: Profile): void {
 		}),
 		// The cookie's name is the server's own word (enroll.json, stored with the profile); the page
 		// never names it. The URL carries the base path so a cookie with `Path=/chat` is found.
-		cookieName: () =>
-			store.profiles.find((q) => q.id === p.id)?.server.sessionCookie ?? p.server.sessionCookie,
+		cookieName: async () => {
+			await cookieProbe;
+			return (
+				store.profiles.find((q) => q.id === p.id)?.server.sessionCookie ?? p.server.sessionCookie
+			);
+		},
 		readCookies: async (name) =>
 			(
 				await session
@@ -441,9 +447,8 @@ function startWindowBrowser(p: Profile): void {
 		log: line,
 	});
 	windowBrowser.start();
-	// A profile saved before the server named its session cookie: ask once, keep the answer.
 	if (!p.server.sessionCookie) {
-		void probe(p.server.address)
+		cookieProbe = probe(p.server.address)
 			.then((info) => {
 				if (!info.sessionCookie) return;
 				store = {

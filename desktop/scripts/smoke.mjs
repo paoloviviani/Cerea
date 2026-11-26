@@ -46,6 +46,8 @@ const fake = http.createServer((req, res) => {
 				issuer: "https://idp.example.org",
 				gateway: "https://llm.example.org",
 				clientId: "opencode-enrollment",
+				// the server names its session cookie; the page never does
+				sessionCookie: "hf-chat",
 			})
 		);
 	else if (req.url === "/manifest.webmanifest")
@@ -83,7 +85,7 @@ const fake = http.createServer((req, res) => {
   await fetch('/smoke/state', { method: 'POST', body: JSON.stringify({ path: location.pathname, exposed: !!b, available: !!(b && b.available), keys: b ? Object.keys(b).sort() : [] }) });
   if (!b || !b.available) return;
   b.onMessage((m) => fetch('/smoke/up', { method: 'POST', body: m }));
-  b.send(JSON.stringify({ jsonrpc: '2.0', method: 'cerea/window', params: { windowId: '${SMOKE_WINDOW}', cookie: 'hf-chat' } }));
+  b.send(JSON.stringify({ jsonrpc: '2.0', method: 'cerea/window', params: { windowId: '${SMOKE_WINDOW}' } }));
   for (;;) { const t = await (await fetch('/smoke/down')).text(); if (t) b.send(t); }
 })();
 </script>`
