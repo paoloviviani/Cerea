@@ -417,6 +417,27 @@ describe("McpAppFrame", () => {
 		expect(iframe?.clientWidth).toBeGreaterThan(0);
 	});
 
+	it("keeps a started card alive when it is hidden and shown again: no new fetch, frame or data", async () => {
+		const calls = stubFetch();
+		const { view, iframe } = await mounted();
+		await settle(() => probes.some((p) => p.method === "ui/notifications/tool-result"));
+		const sent = () => probes.filter((p) => p.method === "ui/notifications/tool-input").length;
+		const before = sent();
+
+		view.container.style.display = "none";
+		await new Promise((r) => setTimeout(r, 400));
+		view.container.style.display = "";
+		await new Promise((r) => setTimeout(r, 600));
+
+		expect(view.baseElement.querySelector("iframe")).toBe(iframe);
+		expect(calls.filter((c) => c.url === "/stored-page")).toHaveLength(1);
+		expect(sent()).toBe(before);
+		expect(view.baseElement.querySelector("[data-testid='mcp-app-closed']")).toBeNull();
+		// Still talking: the page answers a request after the round trip.
+		pageSends(iframe, { jsonrpc: "2.0", id: 40, method: "ping" });
+		await settle(() => probes.some((p) => p.id === 40 && "result" in p));
+	});
+
 	it("tells the page its new width when the card is resized", async () => {
 		stubFetch();
 		const { view } = await mounted();

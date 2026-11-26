@@ -81,6 +81,11 @@
 	 * before layout draws at zero or default size and may never draw again. Nothing starts before this.
 	 */
 	let sized = $state(false);
+	/**
+	 * Latched: the card has been laid out at least once. A card that later drops to 0x0 (an ancestor goes
+	 * `display: none`) is paused, not torn down: its page stays, its bridge stays, nothing is fetched again.
+	 */
+	let everSized = $state(false);
 	/** The card's width as the page is told it (the frame is as wide). */
 	let cardWidth = $state(0);
 	let sizedWaiters: Array<() => void> = [];
@@ -144,17 +149,19 @@
 			if (el) {
 				sized = el.clientWidth > 0 && el.clientHeight > 0;
 				cardWidth = el.clientWidth;
-			} else sized = false;
+				if (sized) everSized = true;
+			}
 			return;
 		}
 		const observer = new ResizeObserver(() => {
 			sized = el.clientWidth > 0 && el.clientHeight > 0;
-			if (sized) {
-				cardWidth = el.clientWidth;
-				const waiting = sizedWaiters;
-				sizedWaiters = [];
-				for (const resolve of waiting) resolve();
-			}
+			// Hidden again: nothing to report until it is back (a zero size would only mislead the page).
+			if (!sized) return;
+			everSized = true;
+			cardWidth = el.clientWidth;
+			const waiting = sizedWaiters;
+			sizedWaiters = [];
+			for (const resolve of waiting) resolve();
 			if (fullscreen) measureFrame();
 			// The page sizes itself from the host context: it hears about a new size, once resizing settles.
 			clearTimeout(contextTimer);
@@ -192,7 +199,7 @@
 	$effect(() => {
 		const source = url;
 		// Near the screen, and laid out: a hidden or not yet sized card does not start its page.
-		if (!near || !sized) return;
+		if (!near || !everSized) return;
 		let cancelled = false;
 		html = null;
 		unavailable = false;
@@ -570,7 +577,7 @@
 	$effect(() => {
 		const win = iframeEl?.contentWindow;
 		const page = html;
-		if (started || !win || page === null || !sized) return;
+		if (started || !win || page === null || !everSized) return;
 		started = true;
 		untrack(() => void start(win, page));
 	});
