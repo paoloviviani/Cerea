@@ -430,6 +430,8 @@ Among them, what identity configuration turns up:
 - the `team` preset without SMTP — users cannot reset their own password;
 - `pystino idp check --discovery-only`, run in the gateway container against the configured issuer;
 - with an external IdP, any configured scope the issuer's `scopes_supported` does not list (`--offline` skips the lookup).
+- with an external IdP and coding agents on, whether the issuer accepts galopin's client id (`OIDC_MACHINE_CLIENT_ID`): it starts a device authorization at the issuer's device endpoint (GitLab's `<issuer>/oauth/authorize_device` when none is advertised), the first step of `galopin enroll`, and approves nothing. A refusal (`invalid_client`) is an error that names `./configure --machine-client-id <id>`; an issuer it cannot reach, a device endpoint that is not `https://`, or an answer it cannot read is only a warning (`--offline` skips it). Redirects are not followed;
+- a `.env` line docker compose cannot read, such as a quoted value ending in a backslash. Messages about a bad `.env` give the line number and the key, never the value.
 
 It changes nothing, so it is safe on a running install.
 
@@ -945,6 +947,44 @@ have the default `opencode-enrollment`). Its tokens cannot be introspected,
 since the application has no secret, so the gateway checks them at GitLab's
 `/oauth/token/info` with the token itself; see
 [Agent machines](https://paoloviviani.github.io/Cerea/docs/agent-machines/#with-gitlab-as-the-identity-provider).
+
+Interactive `./configure` asks for galopin's client id (**galopin client id**)
+whenever coding agents are on, and `--machine-client-id` sets it. If the old
+id was the same as the console or chat client id this run replaces, the
+default follows the new chat client id and `./configure` says so; otherwise
+the default is the id already in `.env`. Exactly: it follows only when the chat
+client id changes and the old galopin id equals the old chat id, or equals the
+old console id with the console id changing too. A console client id that
+changes alone does not move it (the chat client is another application), and
+neither does a chat client id that stays. When the console or chat client id
+changes and galopin's does not, `./configure` notes that computers enrolled
+with the old application must re-enroll if it is gone, and a changed galopin
+client id always carries that note: the tokens of paired computers name the
+old one. `./configure --check` tests the id against the issuer (see
+[Checking an install](#checking-an-install)).
+
+Values typed at a prompt are trimmed, and a value `.env` cannot keep (a quote,
+a control character, a trailing backslash) is refused with "paste it again" and
+the prompt asks again. A client id or secret may hold any
+character except quotes, backslashes, spaces and control characters (so
+`1234@project` and a secret with punctuation both work), up to 1024
+characters. The message never shows the characters. A value already in `.env`
+is never judged: Enter at a prompt that offers it, typing it out again, and the
+same value with `--set` all keep it, so an install that works can always be
+re-configured. `--set` applies the same
+rules to the client ids and secrets. A stray backslash inside the quoted line of
+`.env` makes every `docker compose` command fail with "unterminated quoted
+value", which is why.
+
+`./configure` writes the new `.env` next to the old one and runs
+`docker compose --env-file <the new file> config -q` before it replaces
+anything: if docker cannot read it, the old `.env` stays as it was (same mode,
+no backup, no leftover file; a symlinked `.env` is replaced at its target) and the error names the line and the key, never
+the value. The interactive `./configure` keeps the previous file as
+`.env.bak-<time>` once the new one is accepted; `--set` keeps none. The new
+file keeps the old one's owner and group access; anything wider (world access)
+is removed, with a warning. A `.env.new-*` file is left only by an interrupted
+run: `./configure --check` warns about it, and it is safe to delete.
 
 ### Groups from the identity provider
 
