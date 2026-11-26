@@ -6,7 +6,12 @@ import { startBridgeServer } from "../src/main/bridgeServer.ts";
 import { Galopin } from "../src/main/galopin.ts";
 import { Mutex, serialize } from "../src/main/mutex.ts";
 import { readCreds } from "../src/main/pairing.ts";
-import { notPairedMessage, refreshProfile, type GuardDeps } from "../src/main/profileGuard.ts";
+import {
+	notPairedMessage,
+	refreshProfile,
+	setupRefusal,
+	type GuardDeps,
+} from "../src/main/profileGuard.ts";
 import {
 	addProfile,
 	profileGalopinDir,
@@ -75,11 +80,13 @@ describe("the pairing is checked again before every galopin action", () => {
 			"galopin:launch",
 			"galopin:setup",
 			"galopin:upgrade",
+			"galopin:edit-connectors",
 		]) {
 			handlers[k] = () => void ran.push(`${k} in ${galopin.configDir()}`);
 		}
 		const needs = (k: string, arg: unknown) =>
 			k !== "galopin:pair" &&
+			k !== "galopin:edit-connectors" &&
 			!(k === "galopin:service" && (arg as { action: string }).action !== "install");
 		serialize(new Mutex(), handlers, Object.keys(handlers), async (key, arg) => {
 			await refreshProfile(deps);
@@ -108,7 +115,7 @@ describe("the pairing is checked again before every galopin action", () => {
 		const r = rig();
 		for (const k of Object.keys(r.handlers))
 			await r.handlers[k]({ action: "install", show: false } as never);
-		expect(r.ran).toHaveLength(8);
+		expect(r.ran).toHaveLength(9);
 		expect(r.store.profiles[0].defaultGalopin).toBe(true);
 		expect(r.registered).toEqual([]);
 	});
@@ -130,8 +137,12 @@ describe("the pairing is checked again before every galopin action", () => {
 		]) {
 			await expect(r.handlers[k](arg), k).rejects.toThrow(/not paired with Mine\. Pair it first/);
 		}
-		// removing a service and showing the upgrade need no pairing; pair is allowed and lands in the profile's own directory
+		// removing a service and editing connectors need no pairing, but they too act on the profile's own directory
 		await r.handlers["galopin:service"]({ action: "uninstall" } as never);
+		await r.handlers["galopin:edit-connectors"](undefined as never);
+		expect(r.ran.some((x) => x.startsWith("galopin:edit-connectors in ") && x.endsWith(own))).toBe(
+			true
+		);
 		await r.handlers["galopin:pair"](arg);
 		expect(r.ran.every((x) => x.endsWith(own))).toBe(true);
 		expect(r.ran.some((x) => x.includes(r.defDir))).toBe(false);
@@ -178,6 +189,30 @@ describe("an unowned default directory goes to the profile its pairing is for", 
 			issuer: "https://auth.mine.example",
 		});
 		expect(next.profiles.map((p) => p.defaultGalopin)).toEqual([false, true]);
+		// an older pairing (no Cerea address) is handed over only on the exact issuer and client id
+		const withId = (srv: Store) => ({
+			...srv,
+			profiles: srv.profiles.map((p) =>
+				p.server.origin === "https://cerea.mine.example"
+					? {
+							...p,
+							server: { ...p.server, issuer: "https://login.example.com/t1", clientId: "cid" },
+						}
+					: p
+			),
+		});
+		expect(
+			reconcileDefault(withId(s), {
+				issuer: "https://login.example.com/t1",
+				clientId: "cid",
+			}).profiles.map((p) => p.defaultGalopin)
+		).toEqual([false, true]);
+		expect(
+			reconcileDefault(withId(s), { issuer: "https://login.example.com/t2", clientId: "cid" })
+		).toEqual(withId(s));
+		expect(
+			reconcileDefault(withId(s), { issuer: "https://login.example.com/t1", clientId: "other" })
+		).toEqual(withId(s));
 		// a pairing for neither server is nobody's
 		expect(reconcileDefault(s, { cerea: "https://nobody.example/chat" })).toBe(s);
 	});
@@ -201,5 +236,29 @@ describe("the bridge endpoint of a profile that moves directory", () => {
 		} finally {
 			await s.close();
 		}
+	});
+});
+
+describe("coding tools started by default follow galopin's default pairing", () => {
+	it("may be changed only by the profile that owns that directory", () => {
+		let s: Store = addProfile(
+			{ active: null, profiles: [] },
+			{
+				...server,
+				address: "https://a.example/chat",
+				origin: "https://a.example",
+				idp: "https://auth.a.example",
+				name: "Work",
+			}
+		).store;
+		s = addProfile(s, server).store;
+		const [work, home] = s.profiles;
+		expect(work.defaultGalopin).toBe(true);
+		expect(setupRefusal(s, work)).toBeUndefined();
+		expect(setupRefusal(s, home)).toMatch(/pairing of Work, not Mine's\. Switch to that profile/);
+		expect(setupRefusal(s, undefined)).toMatch(/Choose a server/);
+		// nobody owns it: another wording, still a refusal
+		const none = { ...s, profiles: s.profiles.map((p) => ({ ...p, defaultGalopin: false })) };
+		expect(setupRefusal(none, none.profiles[1])).toMatch(/galopin's own setup/);
 	});
 });

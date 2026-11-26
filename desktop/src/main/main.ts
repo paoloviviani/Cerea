@@ -40,12 +40,15 @@ import { ensureStableGalopin, migrateGalopinPaths, stableDir } from "./stableGal
 import { APP_LOG, ProfileLogs } from "./profileLogs.ts";
 import { mcpSummary, signInState, toolsInfo } from "./galopinInfo.ts";
 import { readCreds } from "./pairing.ts";
-import { notPairedMessage, refreshProfile, type GuardDeps } from "./profileGuard.ts";
+import { notPairedMessage, refreshProfile, setupRefusal, type GuardDeps } from "./profileGuard.ts";
 import { guardCerea, mayOpenExternally, UI_CSP, type GuardState } from "./navGuard.ts";
 import { resolveUiFile, UI_ORIGIN } from "./uiProtocol.ts";
 import { cappedFetch, iconFetcher } from "./probeFetch.ts";
 import {
 	activeProfile,
+	lacksIdentity,
+	probeMissingIdentity,
+	withIdentity,
 	addProfile,
 	ceraePartition,
 	panelPartition,
@@ -126,6 +129,7 @@ function prepareGalopin(): void {
 			resourcesGalopin: bundled,
 			installDirs: [join(userData, "shims"), stableDir(userData)],
 			home: homedir(),
+			xdgConfigHome: process.env.XDG_CONFIG_HOME,
 		});
 		if (changed.some((f) => f.endsWith(".service"))) {
 			spawn("systemctl", ["--user", "daemon-reload"], { stdio: "ignore" }).on("error", () => {});
@@ -396,7 +400,14 @@ function makeGalopin(p: Profile | undefined): Galopin {
 		{ ...process.env, GALOPIN_INSTALL_DIR: shimDir() },
 		pushState,
 		dir ? join(dir, "credentials.json") : undefined,
-		p ? { origin: p.server.origin, idp: p.server.idp } : undefined
+		p
+			? {
+					origin: p.server.origin,
+					idp: p.server.idp,
+					issuer: p.server.issuer,
+					clientId: p.server.clientId,
+				}
+			: undefined
 	);
 	if (nodeBinDir) g.useNode(nodeBinDir);
 	return g;
@@ -517,16 +528,10 @@ const handlers: { [C in Channel]: Handler<C> } = {
 		return (await galopin.exec(setupArgs(tool, remove, makeDefault))).output;
 	},
 	"galopin:upgrade": async ({ show }) => {
-		if (
-			!show &&
-			!(await confirm(
-				"Upgrade galopin?",
-				"Runs galopin upgrade: it stops galopin, installs the version your Cerea serves and restarts it. Enrollment is kept.",
-				"Upgrade"
-			))
-		)
-			return "Cancelled.";
-		return (await galopin.exec(upgradeArgs(show))).output;
+		// galopin is updated with the app: `galopin upgrade` would replace the copy the app keeps, and the
+		// next start would put the app's own back. `--show` only says what an upgrade would do.
+		if (!show) throw new IpcError("galopin updates with the app.");
+		return (await galopin.exec(upgradeArgs(true))).output;
 	},
 	"galopin:service": async ({ action }) => {
 		if (
@@ -654,18 +659,23 @@ serialize(
 		"galopin:launch",
 		"galopin:setup",
 		"galopin:upgrade",
+		"galopin:edit-connectors",
 	] as const,
 	async (key, arg) => {
 		// Every time, not only at start: galopin's default directory can change while the app runs.
 		await refreshProfile(guardDeps());
+		if (key === "galopin:setup") {
+			// The shims follow galopin's default pairing: only the profile that owns it may change them.
+			const why = setupRefusal(store, cur());
+			if (why) throw new IpcError(why);
+		}
 		const needsPairing =
 			key === "galopin:start" ||
 			key === "galopin:signin" ||
 			key === "galopin:browser-setup" ||
 			key === "galopin:launch" ||
 			key === "galopin:setup" ||
-			(key === "galopin:service" && (arg as { action: string }).action === "install") ||
-			(key === "galopin:upgrade" && !(arg as { show: boolean }).show);
+			(key === "galopin:service" && (arg as { action: string }).action === "install");
 		if (!needsPairing) return;
 		const msg = notPairedMessage(galopin.pairing(), cur()?.server.name ?? "this server");
 		if (msg) throw new IpcError(msg);
@@ -680,6 +690,26 @@ function reconcile(): void {
 		readCreds(join(galopinConfigDir(process.env), "credentials.json"))
 	);
 	if (store !== before) saveStore(app.getPath("userData"), store);
+}
+
+/**
+ * A profile stored before the exact issuer and client id were kept is probed once, so an older
+ * pairing (one with no recorded Cerea address) can be matched on them; until then it is not this
+ * profile's. The probe is the same public request as when the server was chosen.
+ */
+async function ensureIdentity(): Promise<void> {
+	// Probed outside the queue (the network can take seconds); applied and rechecked inside it, so it
+	// cannot overlap a profile switch or another galopin action.
+	const found = await probeMissingIdentity(store, probe);
+	if (found.length === 0) return;
+	await ops.run(async () => {
+		const before = store;
+		for (const { id, info } of found) store = withIdentity(store, id, info);
+		if (store !== before) saveStore(app.getPath("userData"), store);
+		if (!galopin.running) galopin = makeGalopin(cur());
+		await refreshProfile(guardDeps());
+		pushState();
+	});
 }
 
 function guardDeps(): GuardDeps {
@@ -1162,6 +1192,10 @@ else {
 		store = loadStore(app.getPath("userData"));
 		reconcile();
 		galopin = makeGalopin(cur());
+		// Older profiles lack the exact issuer and client id: probed now that the store and galopin exist.
+		void ensureIdentity().catch((e) =>
+			line(`Could not check this server's sign-in settings: ${String(e)}`)
+		);
 		registerIpc();
 		await createWindow();
 		// A paired computer keeps galopin going while the app is open (the Mac connector app's job).

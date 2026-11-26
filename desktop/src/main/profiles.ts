@@ -83,6 +83,14 @@ function serverOf(s: Partial<ServerInfo> | undefined): ServerInfo | undefined {
 			address,
 			origin,
 			idp: safeIdp(s.idp) ?? origin,
+			...(typeof s.issuer === "string" &&
+			s.issuer.length <= 300 &&
+			/^https?:\/\/\S+$/.test(s.issuer)
+				? { issuer: s.issuer }
+				: {}),
+			...(typeof s.clientId === "string" && /^[\w.:@-]{1,200}$/.test(s.clientId)
+				? { clientId: s.clientId }
+				: {}),
 			name: cleanName(s.name, new URL(address).host),
 			...(typeof s.icon === "string" && safeIcon(s.icon) ? { icon: s.icon } : {}),
 		};
@@ -240,6 +248,37 @@ export function reconcileDefault(s: Store, defaultCreds: Creds | undefined): Sto
 			changed = true;
 		}
 	}
+	return changed ? { ...s, profiles } : s;
+}
+
+/** Profiles stored before the exact issuer and client id were kept: they are re-probed once. */
+export const lacksIdentity = (p: Profile): boolean => !p.server.issuer || !p.server.clientId;
+
+/** Probes each profile that lacks them. A server that does not answer is skipped (the next start tries again). */
+export async function probeMissingIdentity(
+	s: Store,
+	probe: (address: string) => Promise<ServerInfo>
+): Promise<{ id: string; info: ServerInfo }[]> {
+	const out: { id: string; info: ServerInfo }[] = [];
+	for (const p of s.profiles.filter(lacksIdentity)) {
+		try {
+			out.push({ id: p.id, info: await probe(p.server.address) });
+		} catch {
+			// offline or changed
+		}
+	}
+	return out;
+}
+
+/** Adds the issuer and client id a fresh probe found, if it is the same server (same origin and provider). */
+export function withIdentity(s: Store, id: string, probed: ServerInfo): Store {
+	let changed = false;
+	const profiles = s.profiles.map((p) => {
+		if (p.id !== id || p.server.origin !== probed.origin || p.server.idp !== probed.idp) return p;
+		if (!probed.issuer || !probed.clientId) return p;
+		changed = true;
+		return { ...p, server: { ...p.server, issuer: probed.issuer, clientId: probed.clientId } };
+	});
 	return changed ? { ...s, profiles } : s;
 }
 

@@ -313,7 +313,7 @@ function renderGalopin() {
 	$("g-service-status").textContent = i.service.installed
 		? "galopin starts when you log in and keeps running after the app is closed."
 		: "galopin runs only while the app is open.";
-	$("g-version").textContent = i.version || "galopin";
+	$("g-version").textContent = `galopin updates with the app (${i.version || "version unknown"}).`;
 }
 
 function pair() {
@@ -428,7 +428,6 @@ function wire() {
 		if (input.value.trim()) void call("browser:open", { url: input.value });
 		input.value = "";
 	};
-	$("g-upgrade").onclick = () => void run("upgrade", call("galopin:upgrade", { show: false }));
 	$("g-browser").onclick = () => void run("browser", call("galopin:browser-setup"));
 	$("g-connectors").onclick = () => void run("connectors", call("galopin:edit-connectors"));
 	const service = $<HTMLInputElement>("g-service");

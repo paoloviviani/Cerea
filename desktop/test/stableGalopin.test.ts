@@ -18,6 +18,7 @@ import { describe, expect, it } from "vitest";
 import {
 	ensureStableGalopin,
 	migrateGalopinPaths,
+	quotePath,
 	repointGalopin,
 } from "../src/main/stableGalopin.ts";
 
@@ -94,11 +95,13 @@ describe("re-pointing what an AppImage run wrote", () => {
 		const shim = `#!/bin/sh\n# galopin-setup claude\nexec '${mount}' launch claude -- "$@"\n`;
 		expect(repointGalopin(shim, stable)).toBe(shim.replace(mount, stable));
 		const unit = `[Service]\nExecStart=${mount} run --creds /x/credentials.json\n`;
-		expect(repointGalopin(unit, stable)).toBe(unit.replace(mount, stable));
+		expect(repointGalopin(unit, stable, undefined, "systemd")).toBe(unit.replace(mount, stable));
 		const res = "/opt/Cerea/resources/galopin/galopin";
-		expect(repointGalopin(`ExecStart=${res} run`, stable, res)).toBe(`ExecStart=${stable} run`);
+		expect(repointGalopin(`ExecStart=${res} run`, stable, res, "systemd")).toBe(
+			`ExecStart=${stable} run`
+		);
 		const plist = `<string>${mount}</string>`;
-		expect(repointGalopin(plist, stable)).toBe(`<string>${stable}</string>`);
+		expect(repointGalopin(plist, stable, undefined, "plist")).toBe(`<string>${stable}</string>`);
 		// already stable, or someone else's galopin: untouched
 		expect(repointGalopin(`ExecStart=${stable} run`, stable)).toBeUndefined();
 		expect(repointGalopin(`ExecStart=/usr/local/bin/galopin run`, stable)).toBeUndefined();
@@ -134,6 +137,78 @@ describe("re-pointing what an AppImage run wrote", () => {
 		expect(readFileSync(unit, "utf8")).not.toContain(".mount_");
 		expect(statSync(join(install, "claude-galopin")).mode & 0o111).not.toBe(0); // still executable
 		expect(migrateGalopinPaths({ stable, installDirs: [install], home })).toEqual([]); // nothing left to do
+	});
+});
+
+describe("quoting the stable path where it is written", () => {
+	const mount = "/tmp/.mount_Cerea4kzQ1x/resources/galopin/galopin";
+	// a home with a space, a percent sign, an apostrophe, a dollar sign and an ampersand
+	const odd = "/tmp/ho me %x 'q $v & co/.config/Cerea/bin/galopin";
+
+	it("shell: the shim still runs, with the path as one word", () => {
+		const root = mkdtempSync(join(tmpdir(), "quote-"));
+		const home = join(root, "ho me %x 'q $v & co");
+		mkdirSync(join(home, ".config", "Cerea", "bin"), { recursive: true });
+		const stable = join(home, ".config", "Cerea", "bin", "galopin");
+		writeFileSync(stable, '#!/bin/sh\necho "ran: $*"\n', { mode: 0o755 });
+		const shim = `#!/bin/sh\n# galopin-setup claude\nexec '${mount}' launch claude -- "$@"\n`;
+		const next = repointGalopin(shim, stable, undefined, "shell")!;
+		expect(next).toContain(quotePath(stable, "shell", false));
+		const f = join(root, "claude-shim");
+		writeFileSync(f, next, { mode: 0o755 });
+		expect(execFileSync("sh", [f, "hello world"], { encoding: "utf8" }).trim()).toBe(
+			"ran: launch claude -- hello world"
+		);
+	});
+
+	it("systemd: quoted when it needs it, with % and $ doubled, and left alone inside quotes already there", () => {
+		const unit = `[Service]\nExecStart=${mount} run --creds /x\n`;
+		expect(repointGalopin(unit, odd, undefined, "systemd")).toBe(
+			`[Service]\nExecStart="/tmp/ho me %%x 'q $$v & co/.config/Cerea/bin/galopin" run --creds /x\n`
+		);
+		const quoted = `ExecStart="${mount}" run\n`;
+		expect(repointGalopin(quoted, odd, undefined, "systemd")).toBe(
+			`ExecStart="/tmp/ho me %%x 'q $$v & co/.config/Cerea/bin/galopin" run\n`
+		);
+		// a plain path is not quoted
+		expect(repointGalopin(unit, "/home/u/bin/galopin", undefined, "systemd")).toBe(
+			unit.replace(mount, "/home/u/bin/galopin")
+		);
+		expect(quotePath('/a/"b"\\c', "systemd", false)).toBe('"/a/\\"b\\"\\\\c"');
+	});
+
+	it("plist: XML-escaped", () => {
+		expect(
+			repointGalopin(`<string>${mount}</string>`, "/tmp/a&b <c>/galopin", undefined, "plist")
+		).toBe("<string>/tmp/a&amp;b &lt;c&gt;/galopin</string>");
+	});
+
+	it("honours XDG_CONFIG_HOME for the systemd user directory", () => {
+		const home = mkdtempSync(join(tmpdir(), "home-"));
+		const xdg = mkdtempSync(join(tmpdir(), "xdg-"));
+		mkdirSync(join(xdg, "systemd", "user"), { recursive: true });
+		const unit = join(xdg, "systemd", "user", "galopin.service");
+		writeFileSync(unit, `[Service]\nExecStart=${mount} run\n`);
+		const stable = "/home/u/.config/Cerea/bin/galopin";
+		expect(migrateGalopinPaths({ stable, installDirs: [], home, xdgConfigHome: xdg })).toEqual([
+			unit,
+		]);
+		expect(readFileSync(unit, "utf8")).toContain(`ExecStart=${stable} run`);
+		// without it, the default under home is looked in (and nothing is there)
+		expect(migrateGalopinPaths({ stable, installDirs: [], home })).toEqual([]);
+	});
+});
+
+describe("leftover temporary copies", () => {
+	it("are removed at the next start", () => {
+		const ud = mkdtempSync(join(tmpdir(), "ud-"));
+		const bundled = fakeBundled("#!/bin/sh\necho one\n");
+		ensureStableGalopin({ bundled, userData: ud });
+		writeFileSync(join(ud, "bin", ".galopin-123-456"), "half a copy");
+		writeFileSync(join(ud, "bin", ".galopin-999-1"), "another");
+		writeFileSync(join(ud, "bin", "keep-me"), "not ours to remove");
+		ensureStableGalopin({ bundled, userData: ud });
+		expect(readdirSync(join(ud, "bin")).sort()).toEqual(["galopin", "keep-me"]);
 	});
 });
 
