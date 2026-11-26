@@ -199,6 +199,35 @@ describe("the browse card", () => {
 		expect(q(waiting.baseElement, "browse-waiting")).toBeNull();
 	});
 
+	it("says where it runs: this app's browser, or a computer", () => {
+		const inApp = render(BrowseCard, {
+			update: state({ where: { kind: "window" } }),
+			loading: true,
+		});
+		expect(q(inApp.baseElement, "browse-where")?.textContent).toContain("in this app's browser");
+		const onComputer = render(BrowseCard, {
+			update: state({ where: { kind: "computer", name: "Work laptop" } }),
+			loading: true,
+		});
+		expect(q(onComputer.baseElement, "browse-where")?.textContent).toContain("on Work laptop");
+		const unknown = render(BrowseCard, { update: state(), loading: true });
+		expect(q(unknown.baseElement, "browse-where")).toBeNull();
+	});
+
+	it("a window that went away ends with its own plain note", async () => {
+		const { baseElement } = render(BrowseCard, {
+			update: state({
+				status: "failed",
+				stoppedReason: "runtime_error",
+				where: { kind: "window" },
+			}),
+			loading: false,
+		});
+		click(baseElement.querySelector("button[aria-expanded]"));
+		await new Promise((r) => setTimeout(r, 30));
+		expect(q(baseElement, "browse-stop-note")?.textContent).toContain("browser in this app");
+	});
+
 	it("does not overflow a phone-width column", async () => {
 		const { container } = render(BrowseCard, {
 			update: state({

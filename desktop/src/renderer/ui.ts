@@ -505,6 +505,14 @@ function wire() {
 		render();
 	});
 	window.cerea.on("output", (l) => log(String(l)));
+	// A task from the chat in this window started (ADR 0122): show the browser panel.
+	// TODO: use the "panel opens as a tool" hook of fix/desktop-browser-panel once it is merged.
+	window.cerea.on("agent-active", () => {
+		if (pane === "browser" || !state?.server) return;
+		pane = "browser";
+		render();
+		reportLayout();
+	});
 }
 
 wire();

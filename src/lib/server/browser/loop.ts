@@ -87,7 +87,8 @@ export type StopDetail =
 	| "blocked"
 	| "declined"
 	| "no_answer"
-	| "page_changed";
+	| "page_changed"
+	| "window_gone";
 
 /**
  * The reason a task stopped, in words a user can read (the chat model is told to pass it on
@@ -114,6 +115,8 @@ const PLAIN_STOP_DETAILS: Record<StopDetail, string> = {
 	declined: "the user declined the approval",
 	no_answer: "the approval was not answered in time",
 	page_changed: "the page changed while the approval was pending, so nothing was done",
+	window_gone:
+		"the app's window was closed, or the app switched to another server, so its browser is gone",
 };
 
 export function plainStopReason(reason: StoppedReason, detail?: StopDetail): string {
@@ -123,6 +126,8 @@ export function plainStopReason(reason: StoppedReason, detail?: StopDetail): str
 /** The plain-words detail of a runtime failure, from what the error says. */
 export function stopDetailOf(err: BrowserRuntimeError): StopDetail {
 	if (/too large|too big|too long|exceeds|size limit/i.test(err.message)) return "too_large";
+	// The window browser's own wording (`windowRegistry.ts`): the link ended mid-task (ADR 0122).
+	if (/browser in this app is (gone|not connected)/i.test(err.message)) return "window_gone";
 	return err.kind === "protocol" ? "incompatible" : "unreachable";
 }
 

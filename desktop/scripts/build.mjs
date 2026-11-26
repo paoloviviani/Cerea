@@ -29,6 +29,14 @@ await build({
 });
 await build({
 	...common,
+	entryPoints: ["src/preload/cerea.ts"],
+	outfile: "dist/preload/cerea.js",
+	platform: "node",
+	format: "cjs",
+	external: ["electron"],
+});
+await build({
+	...common,
 	entryPoints: ["src/renderer/ui.ts"],
 	outfile: "dist/renderer/ui.js",
 	platform: "browser",

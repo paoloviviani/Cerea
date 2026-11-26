@@ -437,9 +437,22 @@ export async function* runMcpFlow({
 				const { browserSettings } = await import("$lib/server/browser/settings");
 				const { ceilingOf } = await import("$lib/server/browser/policy");
 				const machines = await browseMachinesFor(locals);
-				if (machines.length === 0) return undefined;
+				// A desktop window with its link up is a browser too (ADR 0122): the turn names it by id,
+				// and it must be this user's, on this session, and linked to this process.
+				const { windowForTurn } = await import("$lib/server/browser/windowRegistry");
+				const windowId = locals?.browserWindowId;
+				const window = browserSettings().enabled ? windowForTurn(locals) : undefined;
+				if (windowId && !window) {
+					const { chatReplicas } = await import("$lib/server/code/relay/facts");
+					logger.info(
+						{ replicas: chatReplicas() },
+						"[browse] the turn's window is not linked here; using a computer"
+					);
+				}
+				if (machines.length === 0 && !window) return undefined;
 				return {
 					machines,
+					...(window ? { window } : {}),
 					settings: browserSettings(),
 					ceiling: ceilingOf(toolApprovalPolicy),
 					unattended: Boolean(locals?.scheduledRun),

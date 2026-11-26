@@ -446,6 +446,8 @@ export interface MessageBrowseUpdate {
 	/** The model the sub-agent runs on. */
 	model: string;
 	status: BrowseStatus;
+	/** Where the browser is: this desktop app's own (ADR 0122), or one of the user's computers. */
+	where?: { kind: "window" } | { kind: "computer"; name: string };
 	activity?: string;
 	/** Set while the loop waits for the user: the sentence they are asked about. */
 	waitingOn?: string;

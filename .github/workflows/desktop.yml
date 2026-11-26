@@ -83,6 +83,7 @@ jobs:
       - run: npm run galopin:build
       - run: node scripts/fetch-node.mjs linux x64
       - run: npm run build
+      - run: npm run runtime:stage
       - run: npx electron-builder --linux AppImage deb --publish never
       - uses: actions/upload-artifact@v4
         with:
@@ -119,6 +120,7 @@ jobs:
             go build -o ../desktop/resources/galopin/galopin .)
       - run: node scripts/fetch-node.mjs darwin ${{ matrix.arch }}
       - run: npm run build
+      - run: npm run runtime:stage
       # Unsigned and not notarised, like the Cerea connector app: no Apple account yet.
       - run: npx electron-builder --mac zip --${{ matrix.arch }} --publish never
         env:

@@ -48,3 +48,15 @@ exactly `true`; user docs in `docs/browser-use.md`. What is not obvious:
   for 8 s, never for a stale ref (that made later steps start "from about:blank").
 - `browse` is in `EXTERNAL_BUILTIN_TOOLS` and not in `SUBAGENT_BUILTIN_TOOLS`. Its card is a
   `MessageBrowseUpdate`, replaced by `uuid` like a sub-agent's.
+- **A desktop window is a second kind of target (ADR 0122, `windowRegistry.ts`, `windowChannel.ts`,
+  `windowTarget.ts`).** The app runs the runtime itself and the chat page relays between it and the server over
+  `/api/v2/browser/window` (a WebSocket below SvelteKit, dispatched from `registerMachineUpgrade`, authenticated by a
+  one-shot ticket from `POST /api/v2/browser/window/ticket` plus the `Origin` check). A turn sends `windowId` in its data
+  only while the link is up; `windowForTurn` resolves it to this user's live window on this session, and `browse` uses it
+  by default (a computer only when the `machine` hint is a ready computer's exact name and the user's words name it). The
+  window is a `RuntimeCall` like a computer's (`windowCall`), so the loop, approvals and the contract schemas are
+  untouched. Differences: the **grant key** is `windowGrantKey(session secret, windowId)`, derived by the server from the
+  session cookie at ticket time and by the app from the HttpOnly cookie (never sent; one shared test vector in both
+  repos' specs); the **lease** and **kept page** are in memory with the link; the card's `where` says
+  window or computer. **In-process, single replica** like the machine link: with `CHAT_REPLICAS` above 1 a turn that
+  lands elsewhere logs it and uses a computer. A window that goes mid-task ends it with the `window_gone` detail.

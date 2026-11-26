@@ -12,6 +12,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 
+const SMOKE_WINDOW = "smokewindow".padEnd(32, "0");
+const smokeStates = [];
+const upWaiters = new Map();
+const downWaiters = [];
+const downQueue = [];
 const here = import.meta.dirname;
 const root = join(here, "..");
 const rtDir = join(root, "..", "browser-runtime");
@@ -45,13 +50,63 @@ const fake = http.createServer((req, res) => {
 		);
 	else if (req.url === "/manifest.webmanifest")
 		send("application/manifest+json", JSON.stringify({ name: "Smoke Cerea", icons: [] }));
-	else
-		send(
-			"text/html",
-			"<!doctype html><title>Smoke Cerea page</title><h1>Hello from the fake Cerea</h1>"
+	else if (req.url === "/smoke/state" && req.method === "POST") {
+		let body = "";
+		req.on("data", (c) => (body += c));
+		req.on("end", () => (smokeStates.push(JSON.parse(body)), res.end("ok")));
+	} else if (req.url === "/smoke/up" && req.method === "POST") {
+		// What the app sent to the page (answers), as the page relays them to the server.
+		let body = "";
+		req.on("data", (c) => (body += c));
+		req.on("end", () => {
+			const msg = JSON.parse(body);
+			(upWaiters.get(msg.id) ?? (() => {}))(msg);
+			res.end("ok");
+		});
+	} else if (req.url === "/smoke/down") {
+		// What the server sends to the page: held until there is something to send.
+		const give = (m) => res.end(m);
+		if (downQueue.length) give(downQueue.shift());
+		else downWaiters.push(give);
+		res.on("close", () =>
+			downWaiters.splice(0, downWaiters.length, ...downWaiters.filter((w) => w !== give))
 		);
+	} else
+		(res.setHeader("set-cookie", "hf-chat=smoke-session-secret; HttpOnly; Path=/"),
+			send(
+				"text/html",
+				`<!doctype html><title>Smoke Cerea page</title><h1>Hello from the fake Cerea</h1>
+<script>
+// The part of Cerea's page that relays between the server and the app (src/lib/utils/desktopBrowser.ts).
+(async () => {
+  const b = window.cereaDesktop && window.cereaDesktop.browser;
+  await fetch('/smoke/state', { method: 'POST', body: JSON.stringify({ path: location.pathname, exposed: !!b, available: !!(b && b.available), keys: b ? Object.keys(b).sort() : [] }) });
+  if (!b || !b.available) return;
+  b.onMessage((m) => fetch('/smoke/up', { method: 'POST', body: m }));
+  b.send(JSON.stringify({ jsonrpc: '2.0', method: 'cerea/window', params: { windowId: '${SMOKE_WINDOW}', cookie: 'hf-chat' } }));
+  for (;;) { const t = await (await fetch('/smoke/down')).text(); if (t) b.send(t); }
+})();
+</script>`
+			));
 });
 await new Promise((r) => fake.listen(0, "127.0.0.1", r));
+// The fake server's side of the window browser link: messages down to the page, answers up.
+function serverCall(id, name, args = {}) {
+	const reply = new Promise((resolve, reject) => {
+		upWaiters.set(id, resolve);
+		setTimeout(() => reject(new Error(`no answer to ${name}`)), 60000);
+	});
+	const text = JSON.stringify({
+		jsonrpc: "2.0",
+		id,
+		method: "tools/call",
+		params: { name, arguments: args },
+	});
+	const w = downWaiters.shift();
+	if (w) w(text);
+	else downQueue.push(text);
+	return reply;
+}
 const address = `http://127.0.0.1:${fake.address().port}`;
 writeFileSync(
 	join(userData, "config.json"),
@@ -139,6 +194,14 @@ async function hook(cmd, tag) {
 		await new Promise((r) => setTimeout(r, 100));
 	}
 }
+// The fake Cerea sets the session cookie (HttpOnly) the window browser derives its key from; the
+// isolation checks below are about the cookies the test sets itself.
+const own = (list) =>
+	list.map((x) => ({
+		...x,
+		cerea: x.cerea.filter((n) => n !== "hf-chat"),
+		panel: x.panel.filter((n) => n !== "hf-chat"),
+	}));
 const step = (s) => console.log(`ok  ${s}`);
 let failed;
 let rt;
@@ -181,6 +244,77 @@ try {
 		step(`galopin status ran (${JSON.stringify(g.output.slice(0, 80))})`);
 	} else
 		console.log("skip galopin status: no resources/galopin/galopin (run `npm run galopin:build`)");
+
+	// 2b. the chat in this window drives the panel directly (ADR 0122): the Cerea page gets the
+	// bridge, the page relays the server's messages, the app's own runtime answers on the real panel
+	{
+		const states = () => smokeStates.filter((x) => x.path === "/");
+		for (let i = 0; i < 50 && states().length === 0; i++)
+			await new Promise((r) => setTimeout(r, 200));
+		const st = states()[0];
+		assert.ok(st, "the Cerea page reported what it sees");
+		assert.deepEqual(
+			st.keys,
+			["available", "onMessage", "send"],
+			"the page gets exactly the bridge"
+		);
+		assert.equal(st.available, true, "the app can run a browser for the page");
+		const wb = await hook("winbrowser", "WINBROWSER");
+		assert.equal(wb.available, true);
+		// the app derived this window's grant key from the session cookie (HttpOnly, so not from the page)
+		const { createHmac } = await import("node:crypto");
+		const { readFileSync } = await import("node:fs");
+		const profileId = (await hook("state", "STATE")).profiles[0].id;
+		const keyFile = join(userData, "winbrowser", profileId, "approval-key");
+		for (let i = 0; i < 50 && !existsSync(keyFile); i++)
+			await new Promise((r) => setTimeout(r, 200));
+		assert.equal(
+			readFileSync(keyFile, "utf8").trim(),
+			createHmac("sha256", "smoke-session-secret")
+				.update(`cerea-window-grant-key|${SMOKE_WINDOW}`)
+				.digest("base64url"),
+			"the grant key is the one the server derives"
+		);
+		step("window browser: the app derived the window's grant key from the session cookie");
+		const got = await serverCall("s1", "open", { url: `${fx.base}/form` });
+		assert.ok(!got.error, JSON.stringify(got));
+		assert.ok(!got.result.isError, JSON.stringify(got.result));
+		const token = got.result.structuredContent.token;
+		assert.ok((await serverCall("s2", "resume", { token })).result, "resume");
+		const nav = await serverCall("s3", "act", {
+			actions: [{ type: "navigate", url: `${fx.base}/form` }],
+		});
+		assert.ok(
+			!nav.error && nav.result.structuredContent.results[0].ok === true,
+			JSON.stringify(nav)
+		);
+		const snap = await serverCall("s4", "snapshot");
+		assert.ok(!snap.error && !snap.result.isError, JSON.stringify(snap));
+		assert.match(snap.result.structuredContent.text, /button "Save"/);
+		const tabsNow = await hook("tabs", "TABS");
+		assert.ok(
+			tabsNow.some((t) => t.url.startsWith(fx.base)),
+			"the page is a tab of the panel"
+		);
+		step("window browser: key, open, resume, navigate and snapshot on the real panel, no galopin");
+		// not allowed: a tool the runtime does not have, and a method that is not a call
+		const refused = await serverCall("s5", "evaluate", { expression: "1" });
+		assert.match(refused.error.message, /tool not allowed/);
+		step("window browser: a tool outside the contract is refused by the app");
+		await serverCall("s6", "end_task", {});
+		// the same Cerea page opened in the panel gets no bridge (only the Cerea view has the preload)
+		const nav2 = await serverCall("s7", "act", {
+			actions: [{ type: "navigate", url: `${address}/in-the-panel` }],
+		});
+		assert.ok(!nav2.error, JSON.stringify(nav2));
+		for (let i = 0; i < 50 && !smokeStates.some((x) => x.path === "/in-the-panel"); i++)
+			await new Promise((r) => setTimeout(r, 200));
+		const inPanel = smokeStates.find((x) => x.path === "/in-the-panel");
+		assert.ok(inPanel, "the page loaded in the panel reported");
+		assert.equal(inPanel.exposed, false, "the panel's page, even on Cerea's origin, has no bridge");
+		await serverCall("s8", "end_task", {});
+		step("window browser: the panel's own page, on Cerea's origin, gets no bridge");
+	}
 
 	// 3. the browser panel, driven by browser-runtime over the bridge
 	rt = new Client({ name: "smoke", version: "1" });
@@ -456,12 +590,12 @@ try {
 		step("add profile: switched to the second server, the first panel's connection was cut");
 
 		// isolation: a cookie set in the first profile is not in the second, and the panels are separate too
-		let cookies = await hook("cookie -", "COOKIES");
+		let cookies = own(await hook("cookie -", "COOKIES"));
 		assert.deepEqual(cookies[0].cerea, ["work"]);
 		assert.deepEqual(cookies[0].panel, ["work-panel"]);
 		assert.deepEqual(cookies[1].cerea, []);
 		assert.deepEqual(cookies[1].panel, []);
-		cookies = await hook("cookie home", "COOKIES");
+		cookies = own(await hook("cookie home", "COOKIES"));
 		assert.deepEqual(cookies[1].cerea, ["home"]);
 		assert.deepEqual(cookies[0].cerea, ["work"], "the first profile's cookies are untouched");
 		step(
@@ -522,7 +656,7 @@ try {
 		await new Promise((r) => setTimeout(r, 2000));
 		const first = await hook("cerea", "CEREA");
 		assert.equal(first.url, `${address}/`);
-		cookies = await hook("cookie -", "COOKIES");
+		cookies = own(await hook("cookie -", "COOKIES"));
 		assert.deepEqual(cookies[0].cerea, ["work"], "signed-in state survives a round trip");
 		// and the runtime reaches the first profile's (new, empty) panel again
 		rt = new Client({ name: "smoke2", version: "1" });

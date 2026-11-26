@@ -23,6 +23,7 @@ import { MACHINE_PATH, MACHINE_PROTOCOL, TERMINAL_PATH } from "$lib/types/machin
 import { authenticateMachineRequest } from "$lib/server/code/machineAuth";
 import { acceptMachineConnection } from "$lib/server/code/machines";
 import { handleTerminalUpgrade } from "$lib/server/code/terminalServer";
+import { handleWindowUpgrade, WINDOW_PATH } from "$lib/server/browser/windowChannel";
 import { logger } from "$lib/server/logger";
 
 const MACHINE_UPGRADE_SYMBOL = Symbol.for("cerea.machineUpgrade");
@@ -76,8 +77,9 @@ async function handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer)
  * `server.js`/the dev plugin forward every upgrade on the raw `http.Server`
  * to whatever single function is registered here — there is one seam, not
  * one per endpoint — so this dispatches by pathname between the machine
- * link (`MACHINE_PATH`) and the browser terminal socket (`TERMINAL_PATH`,
- * `terminalServer.ts`) rather than either module registering its own.
+ * link (`MACHINE_PATH`), the browser terminal socket (`TERMINAL_PATH`,
+ * `terminalServer.ts`) and the desktop window's browser socket (`WINDOW_PATH`,
+ * `browser/windowChannel.ts`) rather than either module registering its own.
  */
 export function registerMachineUpgrade(): void {
 	(globalThis as Record<symbol, unknown>)[MACHINE_UPGRADE_SYMBOL] = (
@@ -88,6 +90,10 @@ export function registerMachineUpgrade(): void {
 		const url = new URL(req.url ?? "/", "http://internal");
 		if (url.pathname === `${base}${TERMINAL_PATH}`) {
 			void handleTerminalUpgrade(req, socket, head);
+			return;
+		}
+		if (url.pathname === `${base}${WINDOW_PATH}`) {
+			void handleWindowUpgrade(req, socket, head);
 			return;
 		}
 		void handleUpgrade(req, socket, head);

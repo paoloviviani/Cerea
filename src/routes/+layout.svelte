@@ -21,6 +21,7 @@
 	import Toast from "$lib/components/Toast.svelte";
 	import NotificationToasts from "$lib/components/NotificationToasts.svelte";
 	import GenerationLiveWatcher from "$lib/components/GenerationLiveWatcher.svelte";
+	import DesktopBrowserLink from "$lib/components/DesktopBrowserLink.svelte";
 	import UpdateBanner from "$lib/components/UpdateBanner.svelte";
 	import { watchChunkErrors } from "$lib/utils/appReload";
 	import { onAppResume } from "$lib/utils/appResume";
@@ -382,6 +383,9 @@
 		<Toast message={currentError} />
 	{/if}
 	<GenerationLiveWatcher />
+	{#if data.user}
+		<DesktopBrowserLink />
+	{/if}
 	<NotificationToasts />
 	<UpdateBanner show={updated.current} />
 	<!-- The main column: the app-wide Needs-you bar (nothing, until an agent

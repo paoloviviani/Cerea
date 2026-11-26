@@ -18,6 +18,13 @@ import { createElicitationApprover, type Approver } from "$lib/server/browser/ap
 import { saveBrowserDownloads } from "$lib/server/browser/downloads";
 import { deviceBrowserKey } from "$lib/server/browser/grants";
 import { mongoLeaseStore, type LeaseStore } from "$lib/server/browser/lease";
+import {
+	WINDOW_NAME,
+	windowCall,
+	windowLeaseStore,
+	type BrowserWindow,
+} from "$lib/server/browser/windowRegistry";
+import { windowTargetWins } from "$lib/server/browser/windowTarget";
 import { mongoKeptStore, type KeptStore } from "$lib/server/browser/kept";
 import {
 	chooseMachine,
@@ -60,7 +67,13 @@ const MAX_STEPS_SHOWN = 40;
 const MODEL_CALL_TIMEOUT_MS = 120_000;
 
 export interface BrowseToolParams {
+	/** The user's computers with a ready browser (may be none when a window is the target). */
 	machines: BrowseMachine[];
+	/**
+	 * The desktop window this turn came from, with its link up (ADR 0122). It is the browser by
+	 * default; a computer only when the user's own words name it (`windowTargetWins`).
+	 */
+	window?: BrowserWindow;
 	settings: BrowserSettings;
 	/** The tool-approval ceiling this turn runs under. */
 	ceiling: Ceiling;
@@ -268,16 +281,32 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 			if (!params.userId) return { error: "Browsing needs a signed-in user." };
 			const conversationKey = ctx.conversationId?.toString();
 
-			// ---- which computer: rules, never the model (browser/machineChoice.ts) -----------
-			const choice = await chooseMachine({
-				userId: params.userId,
-				ready: params.machines,
-				conversationId: conversationKey,
-				hint: typeof args.machine === "string" ? args.machine : undefined,
-				// An unattended run has nobody whose words could name a computer: no hint at all.
-				userText: params.unattended ? undefined : params.latestUserText?.(),
-				store: params.choiceStore,
-			});
+			// ---- which browser: rules, never the model (browser/windowTarget.ts, machineChoice.ts) ----
+			const hint = typeof args.machine === "string" ? args.machine : undefined;
+			// An unattended run has nobody whose words could name a computer: no hint at all.
+			const userText = params.unattended ? undefined : params.latestUserText?.();
+			const inApp =
+				params.window &&
+				!params.unattended &&
+				windowTargetWins({ ready: params.machines, hint, userText })
+					? params.window
+					: undefined;
+			const choice = inApp
+				? ({ kind: "use", machine: { id: inApp.windowId, name: WINDOW_NAME } } as const)
+				: await chooseMachine({
+						userId: params.userId,
+						ready: params.machines,
+						conversationId: conversationKey,
+						hint,
+						userText,
+						store: params.choiceStore,
+					});
+			// The target's own stores: a window's lease and kept page live with its link, in memory.
+			const leases = inApp ? windowLeaseStore() : params.leases;
+			const keptStore = inApp ? inApp.kept : (params.keptStore ?? mongoKeptStore);
+			const where: MessageBrowseUpdate["where"] = inApp
+				? { kind: "window" }
+				: undefined; // the computer's name is filled in once it is chosen
 			let machine: BrowseMachine;
 			if (choice.kind === "error") return { error: choice.message };
 			if (choice.kind === "use") {
@@ -307,7 +336,7 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 					);
 				}
 			}
-			if (conversationKey) {
+			if (conversationKey && !inApp) {
 				await (params.remember ?? rememberConversationDevice)(
 					params.userId,
 					conversationKey,
@@ -321,7 +350,7 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 				// The model replacing the chat's page with another site is leaving the site: the user
 				// is asked first (as for any commit), and nobody is there to ask in an unattended run.
 				const keptUrl = conversationKey
-					? await (params.keptStore ?? mongoKeptStore)
+					? await keptStore
 							.url(machine.id, params.userId, conversationKey)
 							.catch(() => undefined)
 					: undefined;
@@ -342,7 +371,7 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 					const answer = approve
 						? await approve(
 								{
-									sentence: `Open ${targetHost ?? "a blank page"} in the browser on ${machine.name}, leaving ${currentHost}`,
+									sentence: `Open ${targetHost ?? "a blank page"} in the browser ${inApp ? "in this app" : `on ${machine.name}`}, leaving ${currentHost}`,
 									site: targetHost ?? currentHost,
 									reason: "new-domain",
 								},
@@ -363,11 +392,13 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 					conversationId: conversationKey,
 					deps: {
 						rules: params.settings.rules,
-						leases: params.leases,
-						keptStore: params.keptStore,
+						leases,
+						keptStore: inApp ? inApp.kept : params.keptStore,
 						choiceStore: params.choiceStore,
-						runtimeFor: params.runtimeFor,
-						remember: params.remember,
+						runtimeFor:
+							params.runtimeFor ??
+							(inApp ? () => new McpBrowserRuntime(windowCall(inApp)) : undefined),
+						remember: inApp ? async () => undefined : params.remember,
 						...params.openDeps,
 					},
 				});
@@ -387,12 +418,12 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 			if (!turnDeps && !params.completeFor)
 				return { error: "Browsing is not available in this turn." };
 			if (ctx.abortSignal?.aborted) return { error: "Aborted by user" };
-			const lease = await (params.leases ?? mongoLeaseStore)
+			const lease = await (leases ?? mongoLeaseStore)
 				.acquire(machine.id, params.userId, `${ctx.uuid}:${randomUUID()}`)
 				.catch(() => null);
 			if (!lease) {
 				return {
-					error: `The browser on ${machine.name} is already in use by another task. Wait for it to finish, then call browse again.`,
+					error: `The browser ${inApp ? "in this app" : `on ${machine.name}`} is already in use by another task. Wait for it to finish, then call browse again.`,
 				};
 			}
 
@@ -404,10 +435,12 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 				: openAiComplete(turnDeps as NestedAgentDeps, model, sameModel);
 			const runtime =
 				params.runtimeFor?.(machine) ??
-				new McpBrowserRuntime(
-					mcpRuntimeCall({ userId: params.userId?.toString() ?? "", deviceId: machine.id }),
-					mcpRuntimeKeepAlive({ userId: params.userId?.toString() ?? "", deviceId: machine.id })
-				);
+				(inApp
+					? new McpBrowserRuntime(windowCall(inApp))
+					: new McpBrowserRuntime(
+							mcpRuntimeCall({ userId: params.userId?.toString() ?? "", deviceId: machine.id }),
+							mcpRuntimeKeepAlive({ userId: params.userId?.toString() ?? "", deviceId: machine.id })
+						));
 
 			const sink = ctx.elicitationSink;
 			const approve: Approver =
@@ -434,6 +467,7 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 					uuid: ctx.uuid,
 					goal: singleLine(goal, 200),
 					model,
+					where: where ?? { kind: "computer", name: machine.name },
 					status: waitingOn || driving ? "waiting" : status,
 					...(status === "running" && !waitingOn && !driving && activity ? { activity } : {}),
 					...(driving ? { driving: true } : {}),
@@ -471,7 +505,6 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 					ending.leftOpen = info.title;
 				},
 			};
-			const keptStore = params.keptStore ?? mongoKeptStore;
 			const keptEntry = conversationKey
 				? await keptStore.get(machine.id, params.userId, conversationKey).catch(() => undefined)
 				: undefined;
@@ -493,7 +526,9 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 			try {
 				const grantKey = await (params.grantKeyFor
 					? params.grantKeyFor(machine)
-					: deviceBrowserKey(machine.id, params.userId as ObjectId));
+					: inApp
+						? Promise.resolve(inApp.key)
+						: deviceBrowserKey(machine.id, params.userId as ObjectId));
 				result = await runBrowseLoop(
 					{ goal, startUrl, outputSchema, language: params.language, resumeToken },
 					{
