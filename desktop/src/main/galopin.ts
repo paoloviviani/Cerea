@@ -93,18 +93,18 @@ export class Galopin {
 	}
 
 	/** Run a command to the end, streaming its lines. */
-	exec(rawArgs: string[]): Promise<RunResult> {
+	exec(rawArgs: string[], opts: { quiet?: boolean } = {}): Promise<RunResult> {
 		const args = withCreds(rawArgs, this.credsPath);
 		return new Promise((resolve) => {
 			if (!this.bin)
 				return resolve({ code: null, output: "galopin is not installed with this app." });
-			this.onLine(`$ galopin ${args.join(" ")}`);
+			if (!opts.quiet) this.onLine(`$ galopin ${args.join(" ")}`);
 			const child = spawn(this.bin, args, { env: this.env, stdio: ["ignore", "pipe", "pipe"] });
 			let output = "";
 			const feed = (b: Buffer) => {
 				const text = b.toString();
 				output += text;
-				for (const l of text.split(/\r?\n/)) if (l) this.onLine(l);
+				if (!opts.quiet) for (const l of text.split(/\r?\n/)) if (l) this.onLine(l);
 			};
 			child.stdout.on("data", feed);
 			child.stderr.on("data", feed);

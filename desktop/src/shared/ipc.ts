@@ -44,6 +44,9 @@ export interface Calls {
 	"browser:control": { mode: "agent" | "user" };
 	"app:open-cerea": undefined;
 	"app:state": undefined;
+	"galopin:info": undefined;
+	"galopin:signin": undefined;
+	"app:copy": { text: string };
 	"app:login": { enabled: boolean };
 }
 export type Channel = keyof Calls;
@@ -129,6 +132,8 @@ export function validate<C extends Channel>(channel: C, raw: unknown): Calls[C] 
 		case "galopin:edit-connectors":
 		case "galopin:logs":
 		case "app:open-cerea":
+		case "galopin:info":
+		case "galopin:signin":
 		case "app:state":
 			return none();
 		case "app:login": {
@@ -234,6 +239,10 @@ export function validate<C extends Channel>(channel: C, raw: unknown): Calls[C] 
 				visible: bool(o.visible, "visible"),
 			});
 		}
+		case "app:copy": {
+			const o = obj(["text"]);
+			return out({ text: str(o.text, "text", 200_000) });
+		}
 		case "panel:set": {
 			const o = obj(["open", "pane", "width"]);
 			let width: number | undefined;
@@ -298,6 +307,9 @@ export const CHANNELS: Channel[] = [
 	"galopin:logs",
 	"browser:layout",
 	"panel:set",
+	"galopin:info",
+	"galopin:signin",
+	"app:copy",
 	"browser:open",
 	"browser:tab",
 	"browser:nav",
@@ -326,6 +338,22 @@ export interface ServerInfo {
 	name: string;
 	icon?: string;
 }
+export interface GalopinInfo {
+	version: string;
+	pairing: "none" | "ok" | "other";
+	otherAddress: string;
+	/** galopin said the sign-in expired or was revoked. */
+	signIn: "ok" | "expired";
+	running: boolean;
+	profileName: string;
+	serverName: string;
+	tools: { tool: Tool; label: string; installed: boolean; byDefault: boolean }[];
+	shimDir: string;
+	service: { installed: boolean };
+	browser: { configured: boolean };
+	connectors: number;
+}
+
 export interface ProfileSummary {
 	id: string;
 	name: string;

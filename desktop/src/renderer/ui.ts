@@ -1,4 +1,5 @@
-import type { AppState, Calls, ServerInfo } from "../shared/ipc.ts";
+import { dedupeLog } from "../shared/dedupe.ts";
+import type { AppState, Calls, GalopinInfo, ServerInfo } from "../shared/ipc.ts";
 
 declare global {
 	interface Window {
@@ -19,7 +20,6 @@ const msg = (e: unknown) =>
 let state: AppState | undefined;
 let candidate: ServerInfo | undefined;
 let switchCandidate: ServerInfo | undefined;
-const TOOLS = ["opencode", "goose", "vibe", "claude"] as const;
 
 function show(el: HTMLElement, on: boolean) {
 	el.hidden = !on;
@@ -49,13 +49,8 @@ function render() {
 	for (const p of ["browser", "galopin", "server"] as const)
 		show($(`pane-${p}`), open && pane === p);
 
-	// galopin
-	const g = s.galopin;
-	$("g-status").textContent = !g.available
-		? "galopin is not installed with this app."
-		: `${g.paired ? `Paired with ${g.pairedAddress || "your Cerea"}` : "Not paired"}. galopin is ${g.running ? "running" : "stopped"}.`;
-	$<HTMLButtonElement>("g-start").disabled = !g.available || g.running || !g.paired;
-	$<HTMLButtonElement>("g-stop").disabled = !g.running;
+	// galopin: the card is drawn from `galopin:info`, fetched when this tab is showing
+	if (open && pane === "galopin") scheduleInfo();
 	$<HTMLInputElement>("s-login").checked = s.startAtLogin;
 	$("s-about").textContent =
 		`Cerea desktop ${s.version}${s.packaged ? "" : " (development build)"}. ${
@@ -156,18 +151,175 @@ function reportLayout() {
 	});
 }
 
+/** galopin's output, kept whole; shown de-duplicated (a repeated line once, with a count). */
+let logLines: string[] = [];
+let logShown = false;
+let busy: string | null = null;
 function log(line: string) {
+	logLines = [...logLines.slice(-499), line];
+	// While pairing or signing in, galopin's own words (a link to open, a code to type) are the news.
+	if ((busy === "pair" || busy === "sign in") && !line.startsWith("$"))
+		$("g-detail").textContent = line;
+	if (logShown) renderLog();
+	scheduleInfo();
+}
+function renderLog() {
 	const out = $("g-out");
-	out.textContent += (out.textContent ? "\n" : "") + line;
+	out.textContent = dedupeLog(logLines)
+		.map((l) => (l.count > 1 ? `${l.text}  (x${l.count})` : l.text))
+		.join("\n");
 	out.scrollTop = out.scrollHeight;
 }
 async function run(label: string, p: Promise<unknown>) {
+	busy = label;
 	try {
 		const r = await p;
 		if (typeof r === "string" && r) log(r);
 	} catch (e) {
 		log(`${label}: ${msg(e)}`);
+	} finally {
+		busy = null;
 	}
+	scheduleInfo();
+}
+
+let info: GalopinInfo | undefined;
+let infoTimer: ReturnType<typeof setTimeout> | undefined;
+/** One fetch for any burst of changes, and only while the galopin tab is showing. */
+function scheduleInfo() {
+	if (!state?.panel.open || state.panel.pane !== "galopin") return;
+	clearTimeout(infoTimer);
+	infoTimer = setTimeout(async () => {
+		try {
+			info = (await call("galopin:info")) as GalopinInfo;
+			renderGalopin();
+		} catch {
+			// the tab shows what it had
+		}
+	}, 250);
+}
+
+function renderGalopin() {
+	const i = info;
+	if (!i || !state) return;
+	const available = state.galopin.available;
+	const headline = $("g-headline");
+	const detail = $("g-detail");
+	const primary = $<HTMLButtonElement>("g-primary");
+	const options = $("g-pair-options");
+	let action: (() => void) | undefined;
+	options.hidden = true;
+	primary.hidden = false;
+	primary.disabled = false;
+	if (!available) {
+		headline.textContent = "galopin is not installed with this app.";
+		detail.textContent = "";
+		primary.hidden = true;
+	} else if (i.pairing === "other") {
+		headline.textContent = "Paired with another server";
+		detail.textContent = `This computer is paired with ${i.otherAddress}, not this profile's server (${i.serverName}). That pairing is left as it is.`;
+		primary.textContent = "Pair for this profile";
+		options.hidden = false;
+		action = pair;
+	} else if (i.pairing === "none") {
+		headline.textContent = `Not paired with ${i.serverName}`;
+		detail.textContent =
+			"Pairing lets this server use files, connectors and a browser on this computer.";
+		primary.textContent = "Pair this computer";
+		options.hidden = false;
+		action = pair;
+	} else if (i.signIn === "expired") {
+		headline.textContent = "Sign-in expired";
+		detail.textContent = `This computer's sign-in to ${i.serverName} ended. Sign in again to carry on; nothing else changes.`;
+		primary.textContent = "Sign in again";
+		action = () => void run("sign in", call("galopin:signin"));
+	} else if (i.running) {
+		headline.textContent = `Paired with ${i.serverName}. Running`;
+		detail.textContent = "Cerea can reach this computer while the app is open.";
+		primary.textContent = "Stop";
+		action = () => void run("stop", call("galopin:stop"));
+	} else {
+		headline.textContent = `Paired with ${i.serverName}. Stopped`;
+		detail.textContent = "Cerea cannot reach this computer until galopin starts.";
+		primary.textContent = "Start";
+		action = () => void run("start", call("galopin:start"));
+	}
+	primary.onclick = () => action?.();
+
+	const list = $("g-tools-list");
+	list.replaceChildren(
+		...i.tools.map((t) => {
+			const li = document.createElement("li");
+			li.className = t.installed ? "" : "absent";
+			const name = document.createElement("span");
+			name.textContent = t.installed ? t.label : `${t.label} (not installed)`;
+			li.append(name);
+			if (t.installed) {
+				const right = document.createElement("span");
+				right.className = "row";
+				const launch = document.createElement("button");
+				launch.textContent = "Launch";
+				launch.onclick = () => void run("launch", call("galopin:launch", { tool: t.tool }));
+				const label = document.createElement("label");
+				const sw = document.createElement("input");
+				sw.type = "checkbox";
+				sw.checked = t.byDefault;
+				sw.onchange = () =>
+					void run(
+						"setup",
+						call("galopin:setup", { tool: t.tool, remove: !sw.checked, makeDefault: sw.checked })
+					);
+				label.append(sw, " Use galopin by default");
+				right.append(launch, label);
+				li.append(right);
+				if (t.byDefault) {
+					const note = document.createElement("span");
+					note.className = "muted note";
+					note.textContent = `To use it, put ${i.shimDir} first on your PATH.`;
+					li.append(note);
+				}
+			}
+			return li;
+		})
+	);
+
+	$("g-browser-status").textContent = i.browser.configured
+		? "The browser is set up: Cerea can use it."
+		: "Not set up. Lets Cerea use a browser on this computer.";
+	$("g-browser").textContent = i.browser.configured ? "Set up again" : "Set up browser";
+	$("g-conn-status").textContent =
+		i.connectors === 0
+			? "No connectors yet. They give Cerea your own tools and files."
+			: `${i.connectors} connector${i.connectors === 1 ? "" : "s"}.`;
+	$<HTMLInputElement>("g-service").checked = i.service.installed;
+	$("g-service-status").textContent = i.service.installed
+		? "galopin starts when you log in and keeps running after the app is closed."
+		: "galopin runs only while the app is open.";
+	$("g-version").textContent = i.version || "galopin";
+}
+
+function pair() {
+	const agent = $<HTMLInputElement>("p-agent");
+	const checked = (id: string) => $<HTMLInputElement>(id).checked || undefined;
+	const roots = $<HTMLTextAreaElement>("p-roots")
+		.value.split("\n")
+		.map((l) => l.trim())
+		.filter(Boolean);
+	const flow = $<HTMLSelectElement>("p-flow").value as "auto" | "device" | "loopback";
+	const arg = agent.checked
+		? {
+				agent: true,
+				engine: $<HTMLSelectElement>("p-engine").value as "opencode" | "goose" | "vibe",
+				flow,
+				defaultGroup: checked("p-default-group"),
+				noTerminal: checked("p-no-terminal"),
+				noFiles: checked("p-no-files"),
+				allowFileWrite: checked("p-file-write"),
+				allowProjectConfig: checked("p-project-config"),
+				...(roots.length ? { workspaceRoots: roots } : {}),
+			}
+		: { agent: false, flow };
+	void run("pair", call("galopin:pair", JSON.parse(JSON.stringify(arg))));
 }
 
 function card(prefix: "setup" | "switch", info: ServerInfo | undefined) {
@@ -258,59 +410,31 @@ function wire() {
 		if (input.value.trim()) void call("browser:open", { url: input.value });
 		input.value = "";
 	};
-	$("g-start").onclick = () => void call("galopin:start");
-	$("g-stop").onclick = () => void call("galopin:stop");
-	$("g-status-btn").onclick = () => void run("status", call("galopin:status"));
 	$("g-upgrade").onclick = () => void run("upgrade", call("galopin:upgrade", { show: false }));
 	$("g-browser").onclick = () => void run("browser", call("galopin:browser-setup"));
 	$("g-connectors").onclick = () => void run("connectors", call("galopin:edit-connectors"));
-	$("g-svc-install").onclick = () =>
-		void run("service", call("galopin:service", { action: "install" }));
-	$("g-svc-uninstall").onclick = () =>
-		void run("service", call("galopin:service", { action: "uninstall" }));
-	$("g-svc-status").onclick = () =>
-		void run("service", call("galopin:service", { action: "status" }));
+	const service = $<HTMLInputElement>("g-service");
+	service.onchange = () =>
+		void run(
+			"service",
+			call("galopin:service", { action: service.checked ? "install" : "uninstall" })
+		).then(() => scheduleInfo());
 	const agent = $<HTMLInputElement>("p-agent");
 	agent.onchange = () => show($("p-agent-opts"), agent.checked);
-	const checked = (id: string) => $<HTMLInputElement>(id).checked || undefined;
-	$("p-go").onclick = () => {
-		const roots = $<HTMLTextAreaElement>("p-roots")
-			.value.split("\n")
-			.map((l) => l.trim())
-			.filter(Boolean);
-		const flow = $<HTMLSelectElement>("p-flow").value as "auto" | "device" | "loopback";
-		const arg = agent.checked
-			? {
-					agent: true,
-					engine: $<HTMLSelectElement>("p-engine").value as "opencode" | "goose" | "vibe",
-					flow,
-					defaultGroup: checked("p-default-group"),
-					noTerminal: checked("p-no-terminal"),
-					noFiles: checked("p-no-files"),
-					allowFileWrite: checked("p-file-write"),
-					allowProjectConfig: checked("p-project-config"),
-					...(roots.length ? { workspaceRoots: roots } : {}),
-				}
-			: { agent: false, flow };
-		void run("pair", call("galopin:pair", JSON.parse(JSON.stringify(arg))));
+	$("g-showlog").onclick = () => {
+		logShown = !logShown;
+		$("g-showlog").textContent = logShown ? "Hide log" : "Show log";
+		$("g-showlog").setAttribute("aria-expanded", String(logShown));
+		show($("g-out"), logShown);
+		show($("g-copylog"), logShown);
+		if (logShown) renderLog();
 	};
-	const tools = $("g-tools");
-	const setup = $("g-setup");
-	for (const t of TOOLS) {
-		const l = document.createElement("button");
-		l.textContent = `launch ${t}`;
-		l.onclick = () => void run("launch", call("galopin:launch", { tool: t }));
-		tools.append(l);
-		const on = document.createElement("button");
-		on.textContent = `setup ${t}`;
-		on.onclick = () =>
-			void run("setup", call("galopin:setup", { tool: t, remove: false, makeDefault: false }));
-		const off = document.createElement("button");
-		off.textContent = `remove ${t}`;
-		off.onclick = () =>
-			void run("setup", call("galopin:setup", { tool: t, remove: true, makeDefault: false }));
-		setup.append(on, off);
-	}
+	$("g-copylog").onclick = () =>
+		void call("app:copy", {
+			text: dedupeLog(logLines)
+				.map((l) => (l.count > 1 ? `${l.text}  (x${l.count})` : l.text))
+				.join("\n"),
+		});
 	window.addEventListener("resize", reportLayout);
 	$("side-close").onclick = () => void call("panel:set", { open: false });
 	// The divider between the chat and the side area: drag to resize, double-click for the default
@@ -318,19 +442,23 @@ function wire() {
 	// native views to the same width right after.
 	const handle = $("side-handle");
 	let dragging = false;
+	let startX = 0;
+	let startWidth = 0;
 	const setWidth = (w: number) => {
 		document.documentElement.style.setProperty("--side-w", `${Math.round(w)}px`);
 		void call("panel:set", { width: w });
 	};
 	handle.onpointerdown = (e) => {
 		dragging = true;
+		startX = e.clientX;
+		startWidth = state?.panel.width ?? 440;
 		// Captured: the moves keep coming here even over the native views beside it.
 		handle.setPointerCapture(e.pointerId);
 		handle.classList.add("dragging");
 		e.preventDefault();
 	};
 	handle.onpointermove = (e) => {
-		if (dragging) setWidth(window.innerWidth - e.clientX);
+		if (dragging) setWidth(startWidth + (startX - e.clientX));
 	};
 	handle.ondblclick = () => void call("panel:set", { width: 0 });
 	handle.onkeydown = (e) => {

@@ -22,6 +22,10 @@
 * {
 	box-sizing: border-box;
 }
+/* The hidden attribute must win over any display set below (a flex panel stayed on screen without it). */
+[hidden] {
+	display: none !important;
+}
 html,
 body {
 	margin: 0;
@@ -279,4 +283,50 @@ body.hidden *::after {
 	50% {
 		opacity: 0.25;
 	}
+}
+
+.status-card {
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	background: var(--card);
+	padding: 12px;
+	margin: 8px 0;
+}
+.headline {
+	font-size: 15px;
+	font-weight: 600;
+	margin: 0 0 4px;
+}
+button.primary {
+	background: var(--accent);
+	color: var(--bg);
+	border-color: var(--accent);
+}
+.tools {
+	list-style: none;
+	padding: 0;
+	margin: 4px 0;
+}
+.tools li {
+	display: grid;
+	grid-template-columns: 1fr auto;
+	gap: 2px 8px;
+	align-items: center;
+	padding: 8px 0;
+	border-bottom: 1px solid var(--line);
+}
+.tools li.absent {
+	opacity: 0.55;
+}
+.tools li .note {
+	grid-column: 1 / -1;
+	font-size: 12px;
+	word-break: break-all;
+}
+.line {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	justify-content: space-between;
+	margin: 6px 0;
 }

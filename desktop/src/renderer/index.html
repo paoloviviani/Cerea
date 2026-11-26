@@ -112,69 +112,82 @@
 			</section>
 
 			<section id="pane-galopin" hidden>
-				<h2>This computer</h2>
-				<p id="g-status" class="muted"></p>
-				<div class="row wrap">
-					<button id="g-start">Start</button>
-					<button id="g-stop">Stop</button>
-					<button id="g-status-btn">Status</button>
-					<button id="g-upgrade">Upgrade galopin...</button>
-				</div>
-				<details id="g-pair">
-					<summary>Pair this computer</summary>
-					<label
-						><input type="checkbox" id="p-agent" /> Also let Cerea use coding agents here</label
-					>
-					<div id="p-agent-opts" hidden>
-						<label
-							>Engine
-							<select id="p-engine">
-								<option>opencode</option>
-								<option>goose</option>
-								<option>vibe</option>
-							</select>
-						</label>
-						<label
-							>Sign-in
-							<select id="p-flow">
-								<option value="auto">Automatic</option>
-								<option value="loopback">Browser on this computer</option>
-								<option value="device">Code to type elsewhere</option>
-							</select>
-						</label>
-						<label><input type="checkbox" id="p-default-group" /> Bill to my default group</label>
-						<label><input type="checkbox" id="p-no-terminal" /> No terminals</label>
-						<label><input type="checkbox" id="p-no-files" /> No file access</label>
-						<label><input type="checkbox" id="p-file-write" /> Allow file writes</label>
-						<label
-							><input type="checkbox" id="p-project-config" /> Use a project's own opencode
-							setup</label
-						>
-						<label>Workspace roots (one per line)<textarea id="p-roots" rows="2"></textarea></label>
+				<div id="g-card" class="status-card">
+					<p id="g-headline" class="headline"></p>
+					<p id="g-detail" class="muted"></p>
+					<div class="row">
+						<button id="g-primary" class="primary"></button>
 					</div>
-					<button id="p-go">Pair</button>
-				</details>
-				<h3>Run a tool through galopin</h3>
-				<div class="row wrap" id="g-tools"></div>
-				<h3>Make a tool go through galopin</h3>
-				<div class="row wrap" id="g-setup"></div>
+					<details id="g-pair-options" hidden>
+						<summary>Pairing options</summary>
+						<label
+							><input type="checkbox" id="p-agent" /> Also let Cerea use coding agents here</label
+						>
+						<div id="p-agent-opts" hidden>
+							<label
+								>Engine
+								<select id="p-engine">
+									<option>opencode</option>
+									<option>goose</option>
+									<option>vibe</option>
+								</select>
+							</label>
+							<label
+								>Sign-in
+								<select id="p-flow">
+									<option value="auto">Automatic</option>
+									<option value="loopback">Browser on this computer</option>
+									<option value="device">Code to type elsewhere</option>
+								</select>
+							</label>
+							<label><input type="checkbox" id="p-default-group" /> Bill to my default group</label>
+							<label><input type="checkbox" id="p-no-terminal" /> No terminals</label>
+							<label><input type="checkbox" id="p-no-files" /> No file access</label>
+							<label><input type="checkbox" id="p-file-write" /> Allow file writes</label>
+							<label
+								><input type="checkbox" id="p-project-config" /> Use a project's own opencode
+								setup</label
+							>
+							<label
+								>Workspace roots (one per line)<textarea id="p-roots" rows="2"></textarea>
+							</label>
+						</div>
+					</details>
+				</div>
+
+				<h3>Coding tools</h3>
+				<ul id="g-tools-list" class="tools"></ul>
+
 				<h3>Browser and connectors</h3>
-				<div class="row wrap">
+				<div class="line">
+					<span id="g-browser-status" class="muted"></span>
 					<button id="g-browser">Set up browser</button>
-					<button id="g-connectors">Edit connectors...</button>
 				</div>
-				<h3>Keep it running</h3>
-				<p class="muted">
-					The app keeps galopin running while it is open. A service keeps it running when the app is
-					closed.
-				</p>
-				<div class="row wrap">
-					<button id="g-svc-install">Install service...</button>
-					<button id="g-svc-uninstall">Remove service...</button>
-					<button id="g-svc-status">Service status</button>
+				<div class="line">
+					<span id="g-conn-status" class="muted"></span>
+					<button id="g-connectors">Connectors...</button>
 				</div>
-				<h3>Output</h3>
-				<pre id="g-out"></pre>
+
+				<h3>Keep running when the app is closed</h3>
+				<div class="line">
+					<label
+						><input type="checkbox" id="g-service" /> Keep galopin running in the background</label
+					>
+				</div>
+				<p id="g-service-status" class="muted"></p>
+
+				<details id="g-advanced">
+					<summary>Advanced</summary>
+					<div class="line">
+						<span id="g-version" class="muted"></span>
+						<button id="g-upgrade">Upgrade galopin...</button>
+					</div>
+					<div class="line">
+						<button id="g-showlog" aria-expanded="false">Show log</button>
+						<button id="g-copylog" hidden>Copy log</button>
+					</div>
+					<pre id="g-out" hidden></pre>
+				</details>
 			</section>
 
 			<section id="pane-server" hidden>

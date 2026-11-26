@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import {
 	app,
+	clipboard,
 	BrowserWindow,
 	dialog,
 	ipcMain,
@@ -34,6 +35,7 @@ import {
 	upgradeArgs,
 	withCreds,
 } from "./galopinArgs.ts";
+import { mcpSummary, signInState, toolsInfo } from "./galopinInfo.ts";
 import { readCreds } from "./pairing.ts";
 import { guardCerea, mayOpenExternally, UI_CSP, type GuardState } from "./navGuard.ts";
 import { resolveUiFile, UI_ORIGIN } from "./uiProtocol.ts";
@@ -62,6 +64,7 @@ import {
 	type AppState,
 	type Calls,
 	type Channel,
+	type GalopinInfo,
 	type Pane,
 } from "../shared/ipc.ts";
 
@@ -97,6 +100,10 @@ const uiDir = () => join(__dirname, "..", "renderer");
 function push(event: string, data: unknown): void {
 	if (win && !win.isDestroyed()) win.webContents.send(`ev:${event}`, data);
 }
+let galopinVersion = "";
+/** Where `galopin setup` keeps its commands and shims: the app's own, stable (the app's galopin may live in a mount that moves). */
+const shimDir = () => join(app.getPath("userData"), "shims");
+
 function line(l: string): void {
 	log = [...log.slice(-499), l];
 	push("output", l);
@@ -341,6 +348,7 @@ let lastRect = { x: 0, y: 0, width: 0, height: 0, visible: false };
 function makeGalopin(p: Profile | undefined): Galopin {
 	const dir = p ? profileGalopinDir(app.getPath("userData"), p) : undefined;
 	if (dir) mkdirSync(dir, { recursive: true, mode: 0o700 });
+	mkdirSync(shimDir(), { recursive: true, mode: 0o700 });
 	const g = new Galopin(
 		findGalopin({
 			resources: process.resourcesPath,
@@ -348,7 +356,7 @@ function makeGalopin(p: Profile | undefined): Galopin {
 			packaged: app.isPackaged,
 		}),
 		line,
-		process.env,
+		{ ...process.env, GALOPIN_INSTALL_DIR: shimDir() },
 		pushState,
 		dir ? join(dir, "credentials.json") : undefined,
 		p ? { origin: p.server.origin, idp: p.server.idp } : undefined
@@ -536,6 +544,41 @@ const handlers: { [C in Channel]: Handler<C> } = {
 		return err || "Opened. Saved changes are picked up automatically.";
 	},
 	"galopin:logs": () => log.join("\n"),
+	"galopin:info": async () => {
+		const g = galopin;
+		const p = cur();
+		const pairing = g.pairing();
+		const mcp = mcpSummary(join(g.configDir(), "mcp.json"));
+		if (!galopinVersion && g.available) {
+			galopinVersion =
+				(await g.exec(["version"], { quiet: true })).output.trim().split("\n")[0] ?? "";
+		}
+		const info: GalopinInfo = {
+			version: galopinVersion,
+			pairing: pairing.state,
+			otherAddress: pairing.state === "other" ? pairing.address : "",
+			signIn: signInState(log),
+			running: g.running,
+			profileName: p?.name ?? "",
+			serverName: p?.server.name ?? "",
+			tools: toolsInfo({ path: process.env.PATH ?? "", home: homedir(), installDir: shimDir() }),
+			shimDir: join(shimDir(), "galopin-shims"),
+			service: { installed: g.serviceInstalled() },
+			browser: { configured: mcp.browser },
+			connectors: mcp.connectors,
+		};
+		return info;
+	},
+	"galopin:signin": async () => {
+		const r = await galopin.exec(["auth", "login"]);
+		if (r.code === 0) {
+			line("Signed in again.");
+			if (galopin.paired() && !TEST) galopin.start();
+		}
+		pushState();
+		return r.code === 0 ? "Signed in." : `Sign-in failed (exit ${r.code}).`;
+	},
+	"app:copy": ({ text }) => clipboard.writeText(text),
 	"browser:layout": (rect) => {
 		lastRect = rect;
 		placeCerea();
@@ -565,6 +608,7 @@ serialize(ops, handlers, [
 	"galopin:pair",
 	"galopin:service",
 	"galopin:browser-setup",
+	"galopin:signin",
 ] as const);
 
 /** A profile only keeps galopin's default directory if the pairing in it is for its own server. */
@@ -827,6 +871,31 @@ function testHooks(): void {
 				);
 			} else if (cmd.startsWith("panelset ")) {
 				handlers["panel:set"](JSON.parse(cmd.slice(9)));
+			} else if (cmd.startsWith("uieval ")) {
+				void win?.webContents
+					.executeJavaScript(
+						`(async () => JSON.stringify(await (async () => { ${cmd.slice(7)} })()))()`
+					)
+					.then((r: string) => process.stdout.write(`UIEVAL ${r ?? "null"}\n`))
+					.catch((e: unknown) =>
+						process.stdout.write(`UIEVAL ${JSON.stringify({ error: String(e) })}\n`)
+					);
+			} else if (cmd === "galopininfo") {
+				void Promise.resolve(handlers["galopin:info"](undefined as never)).then((i) =>
+					process.stdout.write(`GINFO ${JSON.stringify(i)}\n`)
+				);
+			} else if (cmd.startsWith("mouse ")) {
+				const [type, x, y, clicks] = cmd.slice(6).split(" ");
+				win?.webContents.sendInputEvent({
+					type: type as "mouseDown" | "mouseMove" | "mouseUp",
+					x: Number(x),
+					y: Number(y),
+					button: "left",
+					clickCount: Number(clicks ?? 1),
+				});
+			} else if (cmd.startsWith("keydown ")) {
+				win?.webContents.sendInputEvent({ type: "keyDown", keyCode: cmd.slice(8) });
+				win?.webContents.sendInputEvent({ type: "keyUp", keyCode: cmd.slice(8) });
 			} else if (cmd === "togglemenu") {
 				Menu.getApplicationMenu()?.getMenuItemById("toggle-browser")?.click();
 			} else if (cmd.startsWith("key ")) {
@@ -852,7 +921,7 @@ function testHooks(): void {
 			} else if (cmd === "uimetrics") {
 				void win?.webContents
 					.executeJavaScript(
-						`JSON.stringify((() => { const r = (id) => { const e = document.getElementById(id); if (!e) return null; const b = e.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height, hidden: e.hidden }; }; const setup = document.getElementById('setup'); return { win: { w: innerWidth, h: innerHeight }, setup: r('setup'), setupScroll: { sw: setup.scrollWidth, cw: setup.clientWidth }, use: r('setup-use'), form: r('setup-form'), side: r('side'), handle: r('side-handle'), close: r('side-close'), bar: r('bar'), tabBrowser: document.getElementById('tab-browser-label').textContent, dpr: devicePixelRatio }; })())`
+						`JSON.stringify((() => { const r = (id) => { const e = document.getElementById(id); if (!e) return null; const b = e.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height, hidden: e.getClientRects().length === 0 }; }; const setup = document.getElementById('setup'); return { win: { w: innerWidth, h: innerHeight }, setup: r('setup'), setupScroll: { sw: setup.scrollWidth, cw: setup.clientWidth }, use: r('setup-use'), form: r('setup-form'), side: r('side'), handle: r('side-handle'), close: r('side-close'), bar: r('bar'), tabBrowser: document.getElementById('tab-browser-label').textContent, dpr: devicePixelRatio }; })())`
 					)
 					.then((r: string) => process.stdout.write(`UIMETRICS ${r}\n`));
 			} else if (cmd === "endpoints") {

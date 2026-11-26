@@ -13,7 +13,7 @@
 		"build": "node scripts/build.mjs",
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run",
-		"smoke": "xvfb-run -a node scripts/smoke.mjs",
+		"smoke": "xvfb-run -a node scripts/smoke.mjs && xvfb-run -a node scripts/smoke2.mjs",
 		"start": "npm run build && electron . --no-sandbox",
 		"lint": "prettier --check . && tsc --noEmit",
 		"format": "prettier --write .",
