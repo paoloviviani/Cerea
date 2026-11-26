@@ -353,9 +353,11 @@ function loadActive(): void {
 			control,
 			(st) => push("state", { ...appState(), browser: st }),
 			() => bridgeConnected,
-			panelPartition(p.id)
+			panelPartition(p.id),
+			() => ceraeView?.webContents.focus()
 		);
 		panel.setLayout(lastRect);
+		control.panelShowing = () => panel?.showing ?? false;
 		router.set(new CdpBridge(panel, control, (m) => line(`[bridge] ${m}`)));
 		galopin = makeGalopin(p);
 	} else {
@@ -931,6 +933,10 @@ function testHooks(): void {
 						cerea: ceraeView?.getBounds() ?? null,
 						panelRect: l.panel,
 						views: panel?.debugViews() ?? [],
+						focus: {
+							cerea: ceraeView?.webContents.isFocused() ?? false,
+							pages: panel?.focusedPages() ?? [],
+						},
 						working: control.working,
 						menu: (() => {
 							const it = Menu.getApplicationMenu()?.getMenuItemById("toggle-browser");
@@ -938,6 +944,10 @@ function testHooks(): void {
 						})(),
 					})}\n`
 				);
+			} else if (cmd === "focuspage") {
+				panel?.focusFirstPage();
+			} else if (cmd === "pagefocusjs") {
+				panel?.runInFirstPage("window.focus()");
 			} else if (cmd.startsWith("panelset ")) {
 				handlers["panel:set"](JSON.parse(cmd.slice(9)));
 			} else if (cmd.startsWith("uieval ")) {

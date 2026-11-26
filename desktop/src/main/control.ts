@@ -89,7 +89,15 @@ export class Control implements Gate {
 		this.workingTimer.unref();
 	}
 
+	/** Whether the browser panel is on screen: set by the app. Only then may a page bring itself to the front. */
+	panelShowing: () => boolean = () => true;
+
 	async pass(method: string): Promise<void> {
+		if (method === "Page.bringToFront" && !this.panelShowing()) {
+			throw new Error(
+				"The browser panel is not showing, so a page cannot be brought to the front."
+			);
+		}
 		if (this.mode === "user" && !ALWAYS.has(method)) throw new Error(TAKEN_OVER_MESSAGE);
 	}
 

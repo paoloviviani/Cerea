@@ -133,7 +133,8 @@ try {
 	);
 	let draggedTo;
 	{
-		const app = launch(ud);
+		// shown, so that the window can hold keyboard focus (a hidden window has none)
+		const app = launch(ud, { CEREA_DESKTOP_SHOW: "1" });
 		await app.ready;
 		await wait(2000);
 		let p = await app.hook("panel", "PANEL");
@@ -208,6 +209,30 @@ try {
 			"inside the panel"
 		);
 		await app.hook(`screenshot ${join(SHOTS, "tab-browser-open.png")}`, "SHOT");
+
+		// a hidden page must not keep the keyboard: focus in a page, hide the panel, focus is the chat's
+		await app.hook("focuspage");
+		await wait(300);
+		p = await app.hook("panel", "PANEL");
+		assert.ok(
+			p.focus.pages.length >= 1,
+			"a page of the browser holds focus while the panel shows it"
+		);
+		await app.hook("panelset " + JSON.stringify({ open: false }));
+		await wait(500);
+		p = await app.hook("panel", "PANEL");
+		assert.deepEqual(p.focus.pages, [], "hiding the panel took the keyboard from the page");
+		assert.equal(p.focus.cerea, true, "and gave it to the chat");
+		await app.hook("pagefocusjs"); // a hidden page calling window.focus()
+		await wait(500);
+		p = await app.hook("panel", "PANEL");
+		assert.deepEqual(p.focus.pages, [], "a hidden page cannot take focus back");
+		assert.equal(p.focus.cerea, true);
+		await app.hook("panelset " + JSON.stringify({ open: true, pane: "browser" }));
+		await wait(400);
+		step(
+			"hiding the panel moves keyboard focus to the chat, and a hidden page cannot take it back"
+		);
 		for (const pane of ["galopin", "server"]) {
 			await app.hook("panelset " + JSON.stringify({ open: true, pane }));
 			await wait(600);
