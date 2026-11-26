@@ -196,26 +196,104 @@ describe("McpAppFrame", () => {
 		await settle(() => iframe.style.height === "720px");
 	});
 
-	it("goes full screen on the page's request, and back", async () => {
-		stubFetch();
-		const { view, iframe } = await mounted();
-		const card = view.baseElement.querySelector("[data-testid='mcp-app']") as HTMLElement;
+	describe("full screen", () => {
+		const request = (iframe: HTMLIFrameElement, id: number, mode: string) =>
+			pageSends(iframe, {
+				jsonrpc: "2.0",
+				id,
+				method: "ui/request-display-mode",
+				params: { mode },
+			});
+		const modeAnswer = (id: number) =>
+			(probes.find((p) => p.id === id)?.result as { mode?: string } | undefined)?.mode;
 
-		pageSends(iframe, {
-			jsonrpc: "2.0",
-			id: 7,
-			method: "ui/request-display-mode",
-			params: { mode: "fullscreen" },
+		it("goes full screen on the page's request only after the user's own input, and back", async () => {
+			stubFetch();
+			const { view, iframe } = await mounted();
+			const card = view.baseElement.querySelector("[data-testid='mcp-app']") as HTMLElement;
+
+			// No input on the card: refused, and the answer says the mode it is still in.
+			request(iframe, 7, "fullscreen");
+			await settle(() => modeAnswer(7) !== undefined);
+			expect(modeAnswer(7)).toBe("inline");
+			expect(card.className).not.toContain("fixed");
+
+			// The user pressed on the card a moment ago: allowed.
+			card.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+			request(iframe, 8, "fullscreen");
+			await settle(() => modeAnswer(8) === "fullscreen");
+			await settle(() => card.className.includes("fixed"));
+
+			// Leaving with the close button is the user's own: the page cannot come straight back.
+			(
+				view.baseElement.querySelector("button[aria-label='Close full screen']") as HTMLElement
+			).click();
+			await settle(() => !card.className.includes("fixed"));
+			card.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+			request(iframe, 9, "fullscreen");
+			await settle(() => modeAnswer(9) !== undefined);
+			expect(modeAnswer(9)).toBe("inline");
+			expect(card.className).not.toContain("fixed");
+
+			// The card's own expand button always works.
+			(view.baseElement.querySelector("button[aria-label='Full screen']") as HTMLElement).click();
+			await settle(() => card.className.includes("fixed"));
 		});
-		await settle(() => card.className.includes("fixed"));
-		await settle(() =>
-			probes.some((p) => p.id === 7 && (p.result as { mode?: string })?.mode === "fullscreen")
-		);
 
-		(
-			view.baseElement.querySelector("button[aria-label='Close full screen']") as HTMLElement
-		).click();
-		await settle(() => !card.className.includes("fixed"));
+		it("gives the window to one card at a time and keeps the lock right through the hand-over", async () => {
+			stubFetch();
+			document.body.style.overflow = "scroll";
+			try {
+				const a = render(McpAppFrame, props);
+				const b = render(McpAppFrame, props);
+				const cardOf = (v: { baseElement: HTMLElement; container: HTMLElement }) =>
+					v.container.querySelector("[data-testid='mcp-app']") as HTMLElement;
+				const expand = (v: { container: HTMLElement }) =>
+					v.container.querySelector("button[aria-label='Full screen']") as HTMLElement;
+				const locked = () =>
+					document.documentElement.hasAttribute("data-app-fullscreen") &&
+					document.body.style.overflow === "hidden";
+
+				expand(a).click();
+				await settle(() => cardOf(a).className.includes("fixed"));
+				expect(locked()).toBe(true);
+
+				expand(b).click();
+				await settle(() => cardOf(b).className.includes("fixed"));
+				await settle(() => !cardOf(a).className.includes("fixed"));
+				expect(locked()).toBe(true);
+
+				(
+					b.container.querySelector("button[aria-label='Close full screen']") as HTMLElement
+				).click();
+				await settle(() => !cardOf(b).className.includes("fixed"));
+				await settle(() => !document.documentElement.hasAttribute("data-app-fullscreen"));
+				expect(document.body.style.overflow).toBe("scroll");
+			} finally {
+				document.body.style.overflow = "";
+			}
+		});
+
+		it("keeps Tab inside the layer: the header and the frame, round and round", async () => {
+			stubFetch();
+			const { view, iframe } = await mounted();
+			(view.baseElement.querySelector("button[aria-label='Full screen']") as HTMLElement).click();
+			const close = await vi.waitFor(() => {
+				const el = view.baseElement.querySelector("button[aria-label='Close full screen']");
+				if (!el) throw new Error("not open");
+				return el as HTMLElement;
+			});
+			await settle(() => document.activeElement === close);
+			const traps = view.baseElement.querySelectorAll<HTMLElement>("[data-testid='mcp-app-trap']");
+			expect(traps).toHaveLength(2);
+			// Tabbing on from the frame lands on the end sentinel, which hands the focus to the header...
+			traps[1].focus();
+			expect(document.activeElement).toBe(close);
+			// ... and Shift+Tab back from the header lands on the start sentinel, which hands it to the frame.
+			traps[0].focus();
+			expect(document.activeElement).toBe(iframe);
+			expect(view.baseElement.querySelector("[role='dialog'][aria-modal='true']")).not.toBeNull();
+		});
 	});
 
 	it("asks the user before a page's tool call runs, and says it is the page asking", async () => {

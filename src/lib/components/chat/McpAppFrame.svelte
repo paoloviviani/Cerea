@@ -1,3 +1,31 @@
+<script module lang="ts">
+	/**
+	 * Full screen belongs to one card at a time, and the window lock it takes (no background scroll, the
+	 * stacking lift in main.css) is shared: taken when the first card enters, given back when the last
+	 * leaves, so a card replacing another never leaves the lock off or the original overflow lost.
+	 */
+	let fullscreenOwner: (() => void) | null = null;
+	let lockHolders = 0;
+	let savedOverflow = "";
+
+	function acquireWindowLock() {
+		if (lockHolders === 0) {
+			savedOverflow = document.body.style.overflow;
+			document.body.style.overflow = "hidden";
+			document.documentElement.dataset.appFullscreen = "";
+		}
+		lockHolders += 1;
+	}
+
+	function releaseWindowLock() {
+		lockHolders = Math.max(0, lockHolders - 1);
+		if (lockHolders === 0) {
+			document.body.style.overflow = savedOverflow;
+			delete document.documentElement.dataset.appFullscreen;
+		}
+	}
+</script>
+
 <script lang="ts">
 	import { tick, untrack } from "svelte";
 	import { base } from "$app/paths";
@@ -76,6 +104,14 @@
 	let frameKey = $state(0);
 	let reportedToServer = false;
 	let reportTimer: ReturnType<typeof setTimeout> | undefined;
+
+	/** A page may enter full screen only soon after the user acted on this card, and not right after leaving it. */
+	const GESTURE_WINDOW_MS = 3000;
+	const PAGE_BLOCK_AFTER_EXIT_MS = 10_000;
+	let lastInput = 0;
+	let hovered = false;
+	let pageBlockedUntil = 0;
+	const noteInput = () => (lastInput = Date.now());
 
 	let cardEl = $state<HTMLElement>();
 	let toggleEl = $state<HTMLButtonElement>();
@@ -435,7 +471,13 @@
 			return (await confirmLink(target)) ? {} : { isError: true };
 		};
 		instance.onrequestdisplaymode = async ({ mode }) => {
-			if (mode === "fullscreen" || mode === "inline") setFullscreen(mode === "fullscreen");
+			if (mode === "inline") setFullscreen(false);
+			else if (mode === "fullscreen") {
+				// A page cannot take the whole window by itself: only within moments of the user's own input
+				// on this card, and not again right after the user left it.
+				const now = Date.now();
+				if (now - lastInput <= GESTURE_WINDOW_MS && now >= pageBlockedUntil) setFullscreen(true);
+			}
 			return { mode: fullscreen ? "fullscreen" : "inline" };
 		};
 		// The page's diagnostics shim shares the window with the bridge: a message that is not JSON-RPC is
@@ -605,8 +647,16 @@
 
 	/** Switches the display mode. The card stays where it is in the DOM (its iframe must not reload): in full
 	 * screen only its styles change, to a fixed layer over the whole window (see the lift rule in main.css). */
-	function setFullscreen(on: boolean) {
+	function setFullscreen(on: boolean, byUser = false) {
 		if (fullscreen === on) return;
+		if (on) {
+			// One at a time: the card that had the window gives it up.
+			if (fullscreenOwner && fullscreenOwner !== closeMine) fullscreenOwner();
+			fullscreenOwner = closeMine;
+		} else {
+			if (fullscreenOwner === closeMine) fullscreenOwner = null;
+			if (byUser) pageBlockedUntil = Date.now() + PAGE_BLOCK_AFTER_EXIT_MS;
+		}
 		fullscreen = on;
 		if (!on) frameSize = null;
 		// After the layout has settled, so the size told to the page is the one it has.
@@ -615,6 +665,10 @@
 			measureFrame();
 			pushContext();
 		});
+	}
+
+	function closeMine() {
+		setFullscreen(false);
 	}
 
 	function measureFrame() {
@@ -639,7 +693,7 @@
 			if (event.key === "Escape") {
 				// A dialog above the layer (the link confirmation) takes its own Escape first.
 				if (event.defaultPrevented) return;
-				setFullscreen(false);
+				setFullscreen(false, true);
 			}
 		};
 		window.addEventListener("keydown", onKey);
@@ -650,22 +704,38 @@
 		window.addEventListener("resize", onResize);
 		// The window behind the layer does not scroll, and the shell's stacking is lifted so the layer
 		// can sit above the sidebar and the composer.
-		const root = document.documentElement;
-		const overflow = document.body.style.overflow;
-		document.body.style.overflow = "hidden";
-		root.dataset.appFullscreen = "";
+		acquireWindowLock();
 		toggleEl?.focus();
 		return () => {
 			window.removeEventListener("keydown", onKey);
 			window.removeEventListener("resize", onResize);
-			document.body.style.overflow = overflow;
-			delete root.dataset.appFullscreen;
-			toggleEl?.focus();
+			releaseWindowLock();
+			// Back on the card's button, unless another card took the window meanwhile (it has the focus).
+			if (!fullscreenOwner) toggleEl?.focus();
 		};
 	});
 
+	// The window loses focus when the user clicks into the frame (a click inside an iframe is not seen by
+	// this document): over the card, or with the frame focused, that is the user acting on it.
+	$effect(() => {
+		const onBlur = () => {
+			if (hovered || (iframeEl && document.activeElement === iframeEl)) noteInput();
+		};
+		window.addEventListener("blur", onBlur);
+		return () => window.removeEventListener("blur", onBlur);
+	});
+
+	/** Tab cycles between the header and the frame while the layer is open (see the sentinels below). */
+	function focusEdge(edge: "first" | "last") {
+		const items = [
+			...(cardEl?.querySelectorAll<HTMLElement>("button:not(:disabled), iframe") ?? []),
+		];
+		(edge === "first" ? items[0] : items[items.length - 1])?.focus();
+	}
+
 	$effect(() => {
 		return () => {
+			if (fullscreenOwner === closeMine) fullscreenOwner = null;
 			const instance = bridge;
 			bridge = undefined;
 			linkAnswer?.(false);
@@ -686,6 +756,10 @@
 	     column's own stacking context and its container query, is lifted while it is open (main.css). -->
 	<div
 		bind:this={cardEl}
+		onpointerdowncapture={noteInput}
+		onkeydowncapture={noteInput}
+		onpointerenter={() => (hovered = true)}
+		onpointerleave={() => (hovered = false)}
 		data-testid="mcp-app"
 		data-display-mode={fullscreen ? "fullscreen" : "inline"}
 		role={fullscreen ? "dialog" : undefined}
@@ -696,6 +770,16 @@
 			: "relative my-2 flex w-full flex-col overflow-hidden rounded-xl bg-white dark:bg-gray-900 " +
 				(app.prefersBorder === false ? "" : "border border-gray-200 dark:border-gray-700")}
 	>
+		{#if fullscreen}
+			<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+			<span
+				class="sr-only"
+				tabindex="0"
+				aria-hidden="true"
+				data-testid="mcp-app-trap"
+				onfocus={() => focusEdge("last")}
+			></span>
+		{/if}
 		<div
 			class="flex shrink-0 items-center justify-between gap-2 border-b border-gray-100 px-3 text-xs text-gray-500 dark:border-gray-800 dark:text-gray-400 {fullscreen
 				? 'py-1'
@@ -723,7 +807,10 @@
 					? m["chat.mcp_app.exit_fullscreen"]()
 					: m["chat.mcp_app.fullscreen"]()}
 				title={fullscreen ? m["chat.mcp_app.exit_fullscreen"]() : m["chat.mcp_app.fullscreen"]()}
-				onclick={() => setFullscreen(!fullscreen)}
+				onclick={() => {
+					noteInput();
+					setFullscreen(!fullscreen, true);
+				}}
 			>
 				{#if fullscreen}<CarbonClose class="size-5" />{:else}<CarbonMaximize class="size-4" />{/if}
 			</button>
@@ -855,6 +942,16 @@
 					</div>
 				{/if}
 			</div>
+		{/if}
+		{#if fullscreen}
+			<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+			<span
+				class="sr-only"
+				tabindex="0"
+				aria-hidden="true"
+				data-testid="mcp-app-trap"
+				onfocus={() => focusEdge("first")}
+			></span>
 		{/if}
 	</div>
 {/if}
