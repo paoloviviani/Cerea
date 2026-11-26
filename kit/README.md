@@ -964,14 +964,15 @@ old one. `./configure --check` tests the id against the issuer (see
 [Checking an install](#checking-an-install)).
 
 Values typed at a prompt are trimmed, and a value `.env` cannot keep (a quote,
-a control character, a trailing backslash) is refused with "paste it again" and
+a control or line-break character, a trailing backslash) is refused with "paste it again" and
 the prompt asks again. A client id or secret may hold any
 character except quotes, backslashes, spaces and control characters (so
 `1234@project` and a secret with punctuation both work), up to 1024
 characters. The message never shows the characters. A value already in `.env`
 is never judged: Enter at a prompt that offers it, typing it out again, and the
-same value with `--set` all keep it, so an install that works can always be
-re-configured. `--set` applies the same
+same value with `--set` all keep it, so a working install can be re-configured
+unless a value holds a single quote or ends with a backslash (`.env` cannot
+carry those in a quoted line: change that value with `--set` or by hand). `--set` applies the same
 rules to the client ids and secrets. A stray backslash inside the quoted line of
 `.env` makes every `docker compose` command fail with "unterminated quoted
 value", which is why.
@@ -981,10 +982,21 @@ value", which is why.
 anything: if docker cannot read it, the old `.env` stays as it was (same mode,
 no backup, no leftover file; a symlinked `.env` is replaced at its target) and the error names the line and the key, never
 the value. The interactive `./configure` keeps the previous file as
-`.env.bak-<time>` once the new one is accepted; `--set` keeps none. The new
-file keeps the old one's owner and group access; anything wider (world access)
-is removed, with a warning. A `.env.new-*` file is left only by an interrupted
-run: `./configure --check` warns about it, and it is safe to delete.
+`.env.bak-<time>` (its full path is printed) once the new one is accepted, and
+removes it again if the final move fails; `--set` keeps none. The candidate is
+also read back by `./configure` itself, so a value that configure could not
+parse again (a line separator such as U+2028, say) is refused before anything
+is written. The new file keeps the old one's owner and group access; world
+access is removed, with a warning, and special bits quietly. A `.env.new-*` file
+is left only by an interrupted run: `./configure --check` warns about it (also
+beside a symlinked `.env`'s target), and it is safe to delete. `--check` also
+names a line holding a line-separator character (U+2028 and the like) by line
+and key, and says when `.env` is not UTF-8. A Ctrl-C leaves
+`.env` as it was (not so with `--break-glass`, below). `--break-glass` does not use this path: it writes `.env` itself
+(at the symlink's target when `.env` is a link, keeping owner and group access
+like the other writes), keeps a UTC-stamped backup, and docker compose reads
+the result when it brings the stack up. A Ctrl-C after that rewrite says so and
+names the backup that holds the previous file; before it, `.env` is unchanged.
 
 ### Groups from the identity provider
 

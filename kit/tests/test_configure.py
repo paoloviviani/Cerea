@@ -2036,10 +2036,11 @@ class TestEnvSafety(Deploy):
         self.assertEqual(got, odd)
 
     def test_the_charset_error_never_shows_the_characters(self):
-        for _ in (0,):
-            problem = cfg.credential_problem("chat client secret", "SECRETVALUE x'\"")
-            self.assertIn("contains a character that is not allowed", problem)
-            self.assertNotIn("SECRETVALUE", problem)
+        problem = cfg.credential_problem("chat client secret", "SECRETVALUE x'\"\\y")
+        self.assertIn("contains a character that is not allowed", problem)
+        self.assertNotIn("SECRETVALUE", problem)
+        for char in ("'", '"', "\\"):
+            self.assertNotIn(char, problem)
 
     def test_a_kept_default_is_not_judged_again(self):
         odd = "p@ss!w%rd\\"
@@ -2198,8 +2199,10 @@ class TestEnvSafety(Deploy):
         self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
         before = (self.dir / ".env").read_text()
         with self.real_check(), mock.patch.object(cfg, "_run", side_effect=KeyboardInterrupt):
-            with self.assertRaises(KeyboardInterrupt):
-                self.run_cli("--set", "CHAT_TITLE=Other")
+            code, _, err = self.run_cli("--set", "CHAT_TITLE=Other")
+        self.assertEqual(code, 130)
+        self.assertIn("interrupted; .env unchanged", err)
+        self.assertNotIn("Traceback", err)
         self.assertEqual((self.dir / ".env").read_text(), before)
         self.assertEqual(self.files(), [".env"])
 
@@ -2219,6 +2222,8 @@ class TestEnvSafety(Deploy):
             self.assertEqual(code, 0)
             self.assertEqual(stat.S_IMODE((self.dir / ".env").stat().st_mode), now, oct(wide))
             self.assertIn(f"was mode {wide:04o}", err)
+            self.assertIn("other users had access", err)
+            self.assertNotIn("read", err)
 
     def test_a_first_write_docker_cannot_read_leaves_no_env(self):
         with self.real_check(), self.docker_fails():
@@ -2297,14 +2302,218 @@ class TestEnvSafety(Deploy):
     def test_a_disk_error_is_one_line_and_changes_nothing(self):
         self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
         before = (self.dir / ".env").read_text()
+        real_replace = os.replace
+
+        def final_replace_fails(src, dst, *a, **k):
+            # Only the move into place fails: the backup is written with os.replace too.
+            if Path(dst).name == ".env":
+                raise PermissionError(13, "Permission denied")
+            return real_replace(src, dst, *a, **k)
+
         for argv in (("--set", "CHAT_TITLE=Other"), (*self.ARGV, "--link-by-email")):
-            with mock.patch.object(os, "replace", side_effect=PermissionError(13, "Permission denied")):
+            with mock.patch.object(os, "replace", side_effect=final_replace_fails):
                 code, _, err = self.run_cli(*argv)
             self.assertEqual(code, 1, argv)
             self.assertEqual(len(err.strip().splitlines()), 1, err)
             self.assertIn("Permission denied", err)
             self.assertEqual((self.dir / ".env").read_text(), before)
-            self.assertEqual([f for f in self.files() if "new-" in f], [])
+            self.assertEqual([f for f in self.files() if "new-" in f or ".bak-" in f], [], argv)
+
+    @property
+    def good_env(self):
+        return "".join(
+            line + "\n" for line in (self.dir / ".env").read_text().splitlines()
+            if "CHAT_TITLE" not in line
+        )
+
+    LINE_BREAKS = ("\v", "\f", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029")
+
+    def test_a_value_with_a_line_break_character_is_never_written(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        before = (self.dir / ".env").read_text()
+        for char in self.LINE_BREAKS:
+            with self.assertRaises(cfg.ConfigError, msg=repr(char)):
+                cfg.quote("CHAT_TITLE", "a" + char + "b")
+            code, _, err = self.run_cli("--set", f"CHAT_TITLE=a{char}b")
+            self.assertEqual(code, 2, repr(char))
+            self.assertNotIn("Traceback", err)
+            self.assertEqual((self.dir / ".env").read_text(), before)
+        self.assertEqual(cfg.quote("X", ""), "X=''")
+
+    def test_the_prompt_refuses_the_unicode_line_breaks_too(self):
+        for char in ("\x85", "\u2028", "\u2029", "\x0b", "\x1c"):
+            self.assertIsNotNone(cfg.paste_problem("a" + char + "b"), repr(char))
+        self.assertIsNone(cfg.paste_problem("a b \u00e9 \u4e2d"))
+
+    def test_a_candidate_that_does_not_read_back_is_not_written(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        before = (self.dir / ".env").read_text()
+        saved, problem = cfg.write_env_verified(self.dir / ".env", "CHAT_TITLE='a\u2028b'\n", self.dir)
+        self.assertIn("cannot read it back", problem)
+        self.assertIsNone(saved)
+        self.assertEqual((self.dir / ".env").read_text(), before)
+        self.assertEqual(self.files(), [".env"])
+
+    def test_an_env_configure_cannot_read_is_one_clear_line(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        path = self.dir / ".env"
+        path.write_text(path.read_text() + "CHAT_TITLE='a\u2028b'\n")
+        for argv in (("--set", "CHAT_TITLE=x"), self.ARGV, ("--break-glass", "--admin-email", "ops@example.org")):
+            code, _, err = self.run_cli(*argv)
+            self.assertEqual(code, 2, argv)
+            self.assertIn(".env does not parse", err)
+            self.assertEqual(len(err.strip().splitlines()), 1, err)
+        code, out, _ = self.run_cli("--check", "--offline")
+        self.assertEqual(code, 1)
+        self.assertIn("U+2028", out)
+
+    def test_main_prints_a_config_error_instead_of_a_traceback(self):
+        with mock.patch.object(cfg, "cmd_set", side_effect=cfg.ConfigError("boom")):
+            code, _, err = self.run_cli("--set", "A=b")
+        self.assertEqual((code, err), (2, "configure: boom\n"))
+
+    def test_a_malformed_set_item_shows_only_a_key_shaped_prefix(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        for item, shown in (("bad key=gloas-SECRETVALUE", None), ("gloas-SECRETVALUE", None),
+                            ("chat_erasure_token:gloas-SECRETVALUE", "chat_erasure_token"),
+                            ("TOKEN:gloas-SECRETVALUE", None), ("1X=gloas-SECRETVALUE", None),
+                            ("x" * 80 + "=gloas-SECRETVALUE", None)):
+            code, _, err = self.run_cli("--set", item)
+            self.assertEqual(code, 2, item)
+            self.assertNotIn("SECRETVALUE", err)
+            self.assertNotIn("bad", err)
+            self.assertEqual(f"starting '{shown}'" in err, shown is not None, err)
+
+    def test_a_bad_unset_argument_is_not_echoed(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        code, _, err = self.run_cli("--unset", "not a key gloas-SECRETVALUE")
+        self.assertEqual(code, 2)
+        self.assertNotIn("SECRETVALUE", err)
+
+    def test_only_world_access_is_warned_about_and_special_bits_go_quietly(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        os.chmod(self.dir / ".env", 0o2640)
+        code, _, err = self.run_cli("--set", "CHAT_TITLE=Other")
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(stat.S_IMODE((self.dir / ".env").stat().st_mode), 0o640)
+
+    def test_the_wide_mode_warning_waits_for_the_replace(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        os.chmod(self.dir / ".env", 0o644)
+        with mock.patch.object(os, "replace", side_effect=PermissionError(13, "Permission denied")):
+            code, _, err = self.run_cli("--set", "CHAT_TITLE=Other")
+        self.assertEqual(code, 1)
+        self.assertNotIn("was mode", err)
+
+    def test_the_backup_is_named_in_full(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        code, out, _ = self.run_cli(*self.ARGV, "--link-by-email")
+        self.assertEqual(code, 0)
+        backup = next(p for p in self.dir.glob(".env.bak-*"))
+        self.assertIn(f"the previous one is {backup}", out)
+
+    def test_check_finds_a_leftover_next_to_a_symlinked_target(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        elsewhere = Path(tempfile.mkdtemp(prefix="configure-target-"))
+        self.addCleanup(shutil.rmtree, elsewhere, True)
+        shutil.move(str(self.dir / ".env"), str(elsewhere / "real.env"))
+        (self.dir / ".env").symlink_to(elsewhere / "real.env")
+        (elsewhere / "real.env.new-abc").write_text("X='y'\n")
+        report = cfg.check(self.dir, network=False, probe_host=False)
+        self.assertTrue(any(str(elsewhere / "real.env.new-abc") in w for w in report.warnings), report.warnings)
+
+    def test_a_break_glass_interrupted_after_the_rewrite_says_so(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        with mock.patch.object(cfg, "_run", side_effect=KeyboardInterrupt):
+            code, out, err = self.run_cli("--break-glass", "--admin-email", "ops@example.org")
+        self.assertEqual(code, 130)
+        backup = next(self.dir.glob(".env.bak-*"))
+        self.assertIn(f"interrupted after .env was rewritten; {backup} holds the previous one", err)
+        self.assertNotIn("unchanged", err)
+
+    def test_a_break_glass_interrupted_before_the_rewrite_says_unchanged(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        before = (self.dir / ".env").read_text()
+        with mock.patch.object(cfg, "_utc_backup", side_effect=KeyboardInterrupt):
+            code, _, err = self.run_cli("--break-glass", "--admin-email", "ops@example.org")
+        self.assertEqual(code, 130)
+        self.assertIn("interrupted; .env unchanged", err)
+        self.assertEqual((self.dir / ".env").read_text(), before)
+
+    def test_break_glass_rewrites_a_symlinked_env_at_its_target_and_keeps_group_access(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        elsewhere = Path(tempfile.mkdtemp(prefix="configure-target-"))
+        self.addCleanup(shutil.rmtree, elsewhere, True)
+        shutil.move(str(self.dir / ".env"), str(elsewhere / "real.env"))
+        os.chmod(elsewhere / "real.env", 0o640)
+        (self.dir / ".env").symlink_to(elsewhere / "real.env")
+        fake = subprocess.CompletedProcess([], 1, "", "boom")
+        with mock.patch.object(cfg, "_run", return_value=fake):
+            self.run_cli("--break-glass", "--admin-email", "ops@example.org")
+        self.assertTrue((self.dir / ".env").is_symlink())
+        self.assertEqual(stat.S_IMODE((elsewhere / "real.env").stat().st_mode), 0o640)
+        self.assertEqual(len(list(elsewhere.glob("real.env.bak-*"))), 1)
+        self.assertEqual(cfg.parse_env((elsewhere / "real.env").read_text())["OIDC_KIND"], "authelia")
+
+    def test_an_undecodable_double_quoted_escape_is_one_line_without_the_value(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        path = self.dir / ".env"
+        path.write_text(path.read_text() + 'ZZZ="gloas-SECRETVALUE\\xQ"\n')
+        with self.assertRaises(cfg.ConfigError) as caught:
+            cfg.parse_env(path.read_text())
+        self.assertIn("ZZZ: a backslash escape in double quotes does not decode", str(caught.exception))
+        for argv in (("--set", "CHAT_TITLE=x"), self.ARGV, ("--break-glass", "--admin-email", "ops@example.org"),
+                     ("--check", "--offline")):
+            code, out, err = self.run_cli(*argv)
+            self.assertNotEqual(code, 0, argv)
+            self.assertNotIn("Traceback", out + err)
+            self.assertNotIn("SECRETVALUE", out + err)
+            self.assertIn("does not decode", out + err)
+
+    def test_a_env_that_is_not_utf8_is_one_line_without_the_content(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        path = self.dir / ".env"
+        path.write_bytes(path.read_bytes() + b"CHAT_TITLE='gloas-SECRETVALUE \xff\xfe'\n")
+        for argv in (("--set", "CHAT_TITLE=x"), self.ARGV, ("--break-glass", "--admin-email", "ops@example.org"),
+                     ("--check", "--offline")):
+            code, out, err = self.run_cli(*argv)
+            self.assertNotEqual(code, 0, argv)
+            self.assertNotIn("Traceback", out + err)
+            self.assertNotIn("SECRETVALUE", out + err)
+            self.assertIn(".env is not UTF-8", out + err)
+
+    def test_a_malformed_set_item_shows_a_start_only_when_it_is_a_known_key(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        for item, shown in (("chat_erasure_token:x", "chat_erasure_token"), ("CHAT_ERASURE_TOKEN:x", "CHAT_ERASURE_TOKEN"),
+                            ("gloas-SECRETVALUE=", None), ("dGVzdHNlY3JldA==", None),
+                            ("token:SECRETVALUE", None), ("ghp_SECRETVALUE:x", None)):
+            code, _, err = self.run_cli("--set", item)
+            self.assertEqual(code, 2, item)
+            self.assertNotIn("SECRETVALUE", err)
+            self.assertNotIn("dGVzdHNlY3JldA", err)
+            self.assertEqual(f"starting '{shown}'" in err, shown is not None, (item, err))
+
+    def test_check_names_a_line_separator_with_its_line_and_key_not_its_value(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        path = self.dir / ".env"
+        for char in self.LINE_BREAKS:
+            path.write_text(self.good_env + f"CHAT_TITLE='gloas-SECRETVALUE{char}x'\n#{char}comment\n")
+            report = cfg.check(self.dir, network=False, probe_host=False)
+            joined = " ".join(report.errors)
+            self.assertIn(f"U+{ord(char):04X}", joined, repr(char))
+            self.assertIn("(CHAT_TITLE)", joined)
+            self.assertNotIn("SECRETVALUE", joined)
+            self.assertNotIn("does not parse", joined)
+
+    def test_the_parse_error_message_is_not_mangled_by_the_sanitiser(self):
+        self.assertEqual(self.run_cli(*self.ARGV)[0], 0)
+        path = self.dir / ".env"
+        path.write_text(path.read_text() + "not a line gloas-SECRETVALUE\n")
+        report = cfg.check(self.dir, network=False, probe_host=False)
+        joined = " ".join(report.errors)
+        self.assertIn("expected a name followed by an equals sign", joined)
+        self.assertNotIn("SECRETVALUE", joined)
+        self.assertNotIn("KEY=…", joined)
 
     def test_a_failure_that_is_not_the_env_syntax_does_not_roll_back(self):
         fake = subprocess.CompletedProcess([], 1, "", "required variable FOO is missing a value")
