@@ -515,5 +515,20 @@ describe("two runtimes on one panel", () => {
 		bridge.connect(third.t);
 		expect(third.closed).toEqual(["Another task is using this browser."]);
 		expect(second.closed).toEqual([]);
+		// and the refusal is noted, so the window browser can say why its runtime got nothing
+		expect(control.recentlyRefused(1000)).toBe(true);
+	});
+
+	it("the window browser's own touch does not make its runtime a newcomer to refuse", () => {
+		const control = new Control();
+		const bridge = new CdpBridge(new FakeHost(), control);
+		const galopin = fakeTransport();
+		bridge.connect(galopin.t);
+		// the app's first call of a task: a sign of life that opens the panel, before any command
+		control.touch();
+		const own = fakeTransport();
+		bridge.connect(own.t);
+		expect(own.closed).toEqual([]);
+		expect(control.recentlyRefused(1000)).toBe(false);
 	});
 });

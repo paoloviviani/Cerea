@@ -18,6 +18,7 @@ import { createHmac } from "node:crypto";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { ensurePrivateDir, writeEndpointFile } from "./bridgeServer.ts";
+import { BUSY_MESSAGE } from "./cdpBridge.ts";
 import { bundledNode } from "./nodeRuntime.ts";
 import { RateLimit } from "./rateLimit.ts";
 
@@ -207,7 +208,7 @@ function findOnPath(
 
 export type SpawnFn = (command: string, args: string[]) => ChildProcess;
 
-const defaultSpawn: SpawnFn = (command, args) =>
+export const defaultSpawn: SpawnFn = (command, args) =>
 	spawn(command, args, { stdio: ["pipe", "pipe", "pipe"], env: runtimeEnv() });
 
 interface Waiting {
@@ -316,6 +317,8 @@ export interface WindowBrowserDeps {
 	readCookies: (name: string) => Promise<{ value: string; httpOnly: boolean; secure: boolean }[]>;
 	/** The profile's server is on https: its session cookie must then be Secure too. */
 	https: boolean;
+	/** The bridge refused a runtime a moment ago because another task has the panel (`BUSY_MESSAGE`). */
+	busyRefused?: () => boolean;
 	/** One JSON string to the page (the preload's `onMessage`). */
 	postToPage: (json: string) => void;
 	/** A task is using the browser: the app shows the panel (`control.touch()`). */
@@ -502,6 +505,10 @@ export class WindowBrowser {
 			structuredContent?: unknown;
 			isError?: unknown;
 		};
+		// Our runtime could not get the panel because another task has it: the runtime's own message
+		// ("not reachable, open the app") would mislead, so the chat is told what is true.
+		if (r.isError === true && this.deps.busyRefused?.())
+			return this.reply(id, undefined, BUSY_MESSAGE);
 		// Only these fields cross, whatever else the runtime put in the message.
 		const body = {
 			jsonrpc: "2.0",

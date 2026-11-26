@@ -54,3 +54,29 @@ describe("take over and hand back", () => {
 		expect(changes).toBeGreaterThan(0);
 	});
 });
+
+describe("a second runtime on the panel", () => {
+	it("a task is active only from the runtime's own commands, not from the window browser's touch", () => {
+		let t = 1_000_000;
+		const c = new Control(() => t);
+		expect(c.taskActive()).toBe(false);
+		// the window browser opens the panel before its runtime has connected
+		c.touch();
+		expect(c.working).toBe(true);
+		expect(c.taskActive()).toBe(false);
+		c.activity();
+		expect(c.taskActive()).toBe(true);
+		t += 31_000;
+		expect(c.taskActive()).toBe(false);
+	});
+
+	it("remembers a refusal for a moment, for the window browser's wording", () => {
+		let t = 1_000_000;
+		const c = new Control(() => t);
+		expect(c.recentlyRefused(20_000)).toBe(false);
+		c.refused();
+		expect(c.recentlyRefused(20_000)).toBe(true);
+		t += 21_000;
+		expect(c.recentlyRefused(20_000)).toBe(false);
+	});
+});

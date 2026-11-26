@@ -419,7 +419,8 @@ function startWindowBrowser(p: Profile): void {
 		}),
 		// The cookie's name is the server's own word (enroll.json, stored with the profile); the page
 		// never names it. The URL carries the base path so a cookie with `Path=/chat` is found.
-		cookieName: () => p.server.sessionCookie,
+		cookieName: () =>
+			store.profiles.find((q) => q.id === p.id)?.server.sessionCookie ?? p.server.sessionCookie,
 		readCookies: async (name) =>
 			(
 				await session
@@ -436,6 +437,7 @@ function startWindowBrowser(p: Profile): void {
 		// Same as a galopin runtime task (#377): a sign of life opens the panel on the Browser tab and
 		// drives "Browser working" (`control.onTaskStart`).
 		onTask: () => control.touch(),
+		busyRefused: () => control.recentlyRefused(20_000),
 		log: line,
 	});
 	windowBrowser.start();

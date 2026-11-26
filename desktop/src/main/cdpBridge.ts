@@ -75,6 +75,8 @@ export interface Gate {
 	onChange(cb: () => void): () => void;
 	/** A task is running now (the runtime did something recently): a second runtime is refused, not let in. */
 	taskActive?(): boolean;
+	/** A newcomer runtime was refused (`taskActive`). */
+	refused?(): void;
 }
 
 export interface Transport {
@@ -452,6 +454,7 @@ export class CdpBridge {
 	connect(transport: Transport): void {
 		if (this.current?.live && this.gate.taskActive?.()) {
 			this.log("another runtime was refused: a task is using this browser");
+			this.gate.refused?.();
 			return transport.close(BUSY_MESSAGE);
 		}
 		this.current?.dispose();

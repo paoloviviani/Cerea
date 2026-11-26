@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import {
+	defaultSpawn,
 	findRuntime,
 	fromCereaPage,
 	parsePageMessage,
@@ -148,6 +149,23 @@ describe("base path and child environment", () => {
 			ELECTRON_RUN_AS_NODE: "1",
 		});
 		expect(env).toEqual({ PATH: "/bin", HOME: "/h", LC_ALL: "C" });
+	});
+	it("spawns the runtime with that environment, so no inherited secret reaches it", async () => {
+		process.env.WB_TEST_SECRET = "hunter2";
+		try {
+			const child = defaultSpawn(process.execPath, [
+				"-e",
+				"process.stdout.write(JSON.stringify(Object.keys(process.env)))",
+			]);
+			let out = "";
+			child.stdout?.on("data", (d: Buffer) => (out += d.toString()));
+			await new Promise((r) => child.on("close", r));
+			const keys = JSON.parse(out) as string[];
+			expect(keys).not.toContain("WB_TEST_SECRET");
+			expect(keys).toContain("PATH");
+		} finally {
+			delete process.env.WB_TEST_SECRET;
+		}
 	});
 });
 
@@ -300,6 +318,30 @@ describe("WindowBrowser", () => {
 			},
 		});
 		expect(onTask).toHaveBeenCalledTimes(1);
+		await wb.dispose();
+	});
+	it("says another task is using the browser when its runtime was refused the panel", async () => {
+		const failing = {
+			onCall: () => ({
+				content: [
+					{ type: "text", text: "The browser panel of the Cerea desktop app is not reachable." },
+				],
+				isError: true,
+			}),
+		};
+		let busy = false;
+		const { wb, next } = make({ busyRefused: () => busy }, failing);
+		wb.start();
+		// not refused: the runtime's own error crosses as a result, as always
+		wb.handleFromPage(call("c1", "snapshot"));
+		expect((await next()).result.isError).toBe(true);
+		busy = true;
+		wb.handleFromPage(call("c2", "snapshot"));
+		expect(await next()).toEqual({
+			jsonrpc: "2.0",
+			id: "c2",
+			error: { code: -32000, message: "Another task is using this browser." },
+		});
 		await wb.dispose();
 	});
 	it("never forwards a method or tool that is not allowed, and answers the id with an error", async () => {
