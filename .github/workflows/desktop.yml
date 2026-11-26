@@ -48,10 +48,10 @@ jobs:
         working-directory: browser-runtime
       - name: Format and types
         run: npm run lint
-      - name: Unit tests
-        run: npm test
       - name: Build galopin for this runner
         run: npm run galopin:build
+      - name: Unit tests
+        run: npm test
       - name: Build the app
         run: npm run build
       - name: Smoke test under Xvfb (three parts load; the runtime drives the panel; idle CPU)

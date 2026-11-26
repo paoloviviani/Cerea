@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -35,6 +36,7 @@ import {
 	upgradeArgs,
 	withCreds,
 } from "./galopinArgs.ts";
+import { ensureStableGalopin, migrateGalopinPaths, stableDir } from "./stableGalopin.ts";
 import { mcpSummary, signInState, toolsInfo } from "./galopinInfo.ts";
 import { readCreds } from "./pairing.ts";
 import { guardCerea, mayOpenExternally, UI_CSP, type GuardState } from "./navGuard.ts";
@@ -101,8 +103,37 @@ function push(event: string, data: unknown): void {
 	if (win && !win.isDestroyed()) win.webContents.send(`ev:${event}`, data);
 }
 let galopinVersion = "";
+/** galopin as run by the app: the stable copy in the app's data directory (see stableGalopin.ts). */
+let galopinBin: string | undefined;
+
+/** Makes the stable copy and re-points what an AppImage run wrote (shims, the service unit). */
+function prepareGalopin(): void {
+	const bundled = findGalopin({
+		resources: process.resourcesPath,
+		devRoot: join(__dirname, "..", ".."),
+		packaged: app.isPackaged,
+	});
+	if (!bundled) return;
+	try {
+		const userData = app.getPath("userData");
+		galopinBin = ensureStableGalopin({ bundled, userData });
+		const changed = migrateGalopinPaths({
+			stable: galopinBin,
+			resourcesGalopin: bundled,
+			installDirs: [join(userData, "shims"), stableDir(userData)],
+			home: homedir(),
+		});
+		if (changed.some((f) => f.endsWith(".service"))) {
+			spawn("systemctl", ["--user", "daemon-reload"], { stdio: "ignore" }).on("error", () => {});
+		}
+		if (changed.length > 0)
+			line(`Re-pointed ${changed.length} galopin file(s) to the app's own copy.`);
+	} catch (err) {
+		line(`galopin is off: ${err instanceof Error ? err.message : String(err)}`);
+	}
+}
 /** Where `galopin setup` keeps its commands and shims: the app's own, stable (the app's galopin may live in a mount that moves). */
-const shimDir = () => join(app.getPath("userData"), "shims");
+const shimDir = () => stableDir(app.getPath("userData"));
 
 function line(l: string): void {
 	log = [...log.slice(-499), l];
@@ -350,11 +381,7 @@ function makeGalopin(p: Profile | undefined): Galopin {
 	if (dir) mkdirSync(dir, { recursive: true, mode: 0o700 });
 	mkdirSync(shimDir(), { recursive: true, mode: 0o700 });
 	const g = new Galopin(
-		findGalopin({
-			resources: process.resourcesPath,
-			devRoot: join(__dirname, "..", ".."),
-			packaged: app.isPackaged,
-		}),
+		galopinBin,
 		line,
 		{ ...process.env, GALOPIN_INSTALL_DIR: shimDir() },
 		pushState,
@@ -1069,6 +1096,7 @@ else {
 		session.defaultSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
 		session.defaultSession.setPermissionCheckHandler(() => false);
 		setMenu();
+		prepareGalopin();
 		store = loadStore(app.getPath("userData"));
 		reconcile();
 		galopin = makeGalopin(cur());
