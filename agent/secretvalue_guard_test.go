@@ -79,9 +79,9 @@ func TestSecretValueCardOnAutoNamesKeyAndFileNotValue(t *testing.T) {
 	}
 }
 
-// A connector call whose arguments carry the value is a card on Allow, naming
+// A connector call whose arguments carry the value is raised as an ask, even on Allow, naming
 // the key and file.
-func TestConnectorCallWithASecretValueIsACardOnAllow(t *testing.T) {
+func TestConnectorCallWithASecretValueIsRaisedAsAnAsk(t *testing.T) {
 	r, _ := connectorRig(t, permrules.Allow, nil)
 	dir, _, _ := r.mc.resolveSession("caller")
 	home := t.TempDir()

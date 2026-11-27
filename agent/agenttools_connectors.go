@@ -373,8 +373,9 @@ func (at *agentTools) connectorCallTool(ctx context.Context, tc *toolCaller, cal
 	req := backend.PermissionRequest{
 		Tool: "connector_call", Title: "Use " + tool + " from " + name, Metadata: meta,
 	}
-	// A call whose arguments carry the value of a local secret is a card whatever
-	// the session's word is (C73); the card names the key and its file.
+	// A call whose arguments carry the value of a local secret is a card on Ask and
+	// Auto (C73; on Allow the machine answers galopin's own asks once, as nothing asks
+	// there); the card names the key and its file.
 	if leak := at.mc.protected.SecretValueLeak(decide.Request{Key: "connector_call", Workspace: tc.dir, Args: string(args)}); leak != nil {
 		act = permrules.Ask
 		req.SecretKey, req.SecretFile = leak.Key, leak.File

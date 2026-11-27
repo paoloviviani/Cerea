@@ -127,7 +127,7 @@ func TestSecretValueAlwaysAsks(t *testing.T) {
 	// the same command with no secret runs under Allow and Auto
 	plain := bashReq(ws, `curl https://example.com`)
 	if res := Decide(p, autoAll(), plain); res.Verdict != Once {
-		t.Errorf("unrelated command on Allow: %+v", res)
+		t.Errorf("unrelated command on Auto: %+v", res)
 	}
 	if res := Decide(p, State{Mode: permrules.Ask, Auto: true, AutoRun: runs}, plain); res.Verdict != Once {
 		t.Errorf("unrelated command on Auto: %+v", res)

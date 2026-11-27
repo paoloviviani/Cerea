@@ -261,7 +261,7 @@ Every session has one **permission setting**, the selector in its composer.
 
 When a card appears you can **Allow once**, **Always allow (this session)** for
 that command, or **Deny**. There are no computer limits: you choose the step per
-session, and your rows decide Auto. Allow never asks: only the computer's own files and
+session, and your rows decide Auto. Allow never asks (calls to your other computers excepted): only the computer's own files and
 what its owner refused there are refused, and the chat cannot loosen that. On
 Ask and Auto a fixed floor still comes to you. The full rules, the **Permissions** dialog and the
 exceptions are in the [reference](agent-machines-reference.md#permissions).

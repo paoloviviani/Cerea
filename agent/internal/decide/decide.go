@@ -669,8 +669,8 @@ func contains(l []string, k string) bool {
 }
 
 // AskAlwaysOK reports whether a human's "always allow" on this request is an
-// over-ask one: the request is in the credential class (which is a card even on
-// Allow), so only a human's exception stands there. The loop class and
+// over-ask one: the request is in the credential class (which is a card on Ask and
+// Auto), so only a human's exception stands there. The loop class and
 // galopin's own paths never get one.
 func AskAlwaysOK(p Policy, r Request) bool {
 	cat, sensitive := Classify(p, r)
