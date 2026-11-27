@@ -25,10 +25,29 @@ import { join } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { Transport } from "./cdpBridge.ts";
 
-export function socketPathFor(runDir: string, uid: number): string {
-	const p = join(runDir, "cdp.sock");
-	// sun_path is 104 bytes on macOS, 108 on Linux.
-	return Buffer.byteLength(p) < 96 ? p : join(tmpdir(), `cerea-desktop-${uid}`, "cdp.sock");
+/**
+ * Whether a socket path survives the trip through a `ws+unix://SOCKET:/PATH` URL: the runtime's
+ * WebSocket client parses that URL and percent-encodes what a URL path may not hold, without
+ * decoding it again, so a socket under "Application Support" (every Mac) was dialled as
+ * "Application%20Support" and never found.
+ */
+export function urlSafeSocketPath(p: string): boolean {
+	return /^[A-Za-z0-9._/-]+$/.test(p);
+}
+
+/**
+ * Where the bridge socket goes: in the app's run directory when the path is short enough for a
+ * Unix socket (sun_path is 104 bytes on macOS, 108 on Linux) and survives a `ws+unix://` URL;
+ * otherwise in a private directory under the system's temporary directory, or under /tmp.
+ */
+export function socketPathFor(runDir: string, uid: number, tmp: string = tmpdir()): string {
+	const fits = (p: string) => Buffer.byteLength(p) < 96 && urlSafeSocketPath(p);
+	const candidates = [
+		join(runDir, "cdp.sock"),
+		join(tmp, `cerea-desktop-${uid}`, "cdp.sock"),
+		join("/tmp", `cerea-desktop-${uid}`, "cdp.sock"),
+	];
+	return candidates.find(fits) ?? candidates[1];
 }
 
 /**

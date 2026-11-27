@@ -214,6 +214,12 @@ Cerea (server) -- galopin run -- mcp.json "cerea-browser" -- node cerea-browser.
                                                                 -> webContents.debugger  (no other webContents is ever attached)
 ```
 
+`<run>` is the app's `run` directory when the socket path is shorter than 96 bytes and holds
+only `A-Z a-z 0-9 . _ / -`; otherwise a private `cerea-desktop-<uid>` directory under the
+temporary directory (or `/tmp`). The runtime's WebSocket client percent-encodes a `ws+unix://`
+path and does not decode it, so a socket under macOS's "Application Support" was dialled as
+`Application%20Support` and never found (fixed in v0.67.3; `socketPathFor`).
+
 Why this meets the requirement:
 
 - **No TCP port at all.** The socket is mode 0600 in a 0700 directory (`<userData>/run`, or a
