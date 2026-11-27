@@ -6,7 +6,7 @@
  * file to know the secret. The endpoint is written to a file the runtime reads each time it
  * connects (`--connect-file`), so it survives app restarts without any configuration change.
  */
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import {
 	chmodSync,
 	closeSync,
@@ -38,14 +38,16 @@ export function urlSafeSocketPath(p: string): boolean {
 /**
  * Where the bridge socket goes: in the app's run directory when the path is short enough for a
  * Unix socket (sun_path is 104 bytes on macOS, 108 on Linux) and survives a `ws+unix://` URL;
- * otherwise in a private directory under the system's temporary directory, or under /tmp.
+ * otherwise in a private directory under the system's temporary directory, or under /tmp, named
+ * after the user and the run directory (two app instances with their own data never share one).
  */
 export function socketPathFor(runDir: string, uid: number, tmp: string = tmpdir()): string {
 	const fits = (p: string) => Buffer.byteLength(p) < 96 && urlSafeSocketPath(p);
+	const dir = `cerea-desktop-${uid}-${createHash("sha256").update(runDir).digest("hex").slice(0, 8)}`;
 	const candidates = [
 		join(runDir, "cdp.sock"),
-		join(tmp, `cerea-desktop-${uid}`, "cdp.sock"),
-		join("/tmp", `cerea-desktop-${uid}`, "cdp.sock"),
+		join(tmp, dir, "cdp.sock"),
+		join("/tmp", dir, "cdp.sock"),
 	];
 	return candidates.find(fits) ?? candidates[1];
 }
