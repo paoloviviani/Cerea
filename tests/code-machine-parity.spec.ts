@@ -146,7 +146,7 @@ test.describe("owned machine agent: parity", () => {
 		);
 		await expect(page.getByRole("button", { name: /auto.?accept/i })).toHaveCount(0);
 		await choose(page, "Allow");
-		// Allow is hands off (ADR 0109): the sheet says so, and names the floor.
+		// Allow is hands off (ADR 0109): the sheet says so, and that nothing is asked.
 		await expect(page.getByTestId("permission-mode-note")).toHaveCount(0);
 		await page.getByTestId("permission-details").click();
 		await expect(page.getByTestId("permission-step")).toContainText("hands off");

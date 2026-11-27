@@ -202,6 +202,10 @@ func askMetadata(toolCall map[string]any) map[string]any {
 		if c := getStr(raw, "command"); c != "" {
 			meta["command"] = c
 		}
+		// where the call asked to run: its relative words are read from there
+		if d := getStr(raw, "workdir", "cwd", "workingDirectory"); d != "" {
+			meta["workdir"] = d
+		}
 		if p := getStr(raw, "path", "file_path", "filePath"); p != "" {
 			paths = append(paths, p)
 		}

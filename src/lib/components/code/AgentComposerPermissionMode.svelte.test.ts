@@ -175,11 +175,11 @@ describe("the permission selector", () => {
 		expect(title).not.toContain("first turn");
 	});
 
-	it("tells Allow's surviving asks (the fixed floor) on its tooltip, so nobody reads it as 'anything'", async () => {
+	it("says on Allow's tooltip that nothing is ever asked, and what is refused", async () => {
 		const screen = mount(session());
 		const title = segment(screen, "allow").element().getAttribute("title") ?? "";
-		expect(title).toContain("credential files");
-		expect(title).toContain("stuck");
+		expect(title).toContain("Nothing is ever asked");
+		expect(title).toContain("refused");
 		expect(segment(screen, "ask").element().getAttribute("title")).toContain("Reading is allowed");
 	});
 

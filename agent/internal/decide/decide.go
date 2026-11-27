@@ -70,6 +70,9 @@ type Request struct {
 	Command string
 	// Workspace is the root directory of the session's workspace.
 	Workspace string
+	// Workdir is the directory the agent's bash call asked to run in (opencode's
+	// tool input workdir), when it named one. "" means the session's own.
+	Workdir string
 	// Args is the text of a tool call's arguments (a connector or MCP tool, a
 	// web fetch), for the secret-value guard to search. Never shown or logged.
 	Args string
@@ -201,7 +204,8 @@ func Known(key string) bool {
 }
 
 func isSensitive(path string) bool {
-	base := filepath.Base(path)
+	// case-insensitive: `.ENV` is the same file on macOS
+	base := strings.ToLower(filepath.Base(path))
 	if strings.HasSuffix(base, ".env.example") {
 		return false
 	}
@@ -405,8 +409,9 @@ func primary(cs []Class) Class {
 // Decide answers one request from a session whose ROOT is in state s (ADR
 // 0109): galopin's own state is refused outright; a class the owner denied
 // locally is refused; otherwise the session's word decides (Plan refuses, Ask
-// is a card, Allow runs, Auto runs the classes its map says run). The floor
-// then lifts a run to a card: credential paths, a write into .git or CI
+// is a card, Allow runs, Auto runs the classes its map says run). On Allow
+// nothing else is ever a card. On Ask and Auto the floor lifts a run to a card:
+// credential paths, a secret leaving the machine, a write into .git or CI
 // config, and a repeating agent.
 func Decide(p Policy, s State, r Request) Result {
 	cat, sensitive := Classify(p, r)
@@ -420,6 +425,22 @@ func Decide(p Policy, s State, r Request) Result {
 		if p.Deny[c] {
 			return Result{Verdict: Reject, Step: "deny", Category: cat, Class: class, Reason: denyReason(c)}
 		}
+	}
+	// Allow never asks: past the two refusals above (galopin's own files and the
+	// machine owner's --deny) everything runs, credential stores, a secret leaving
+	// the machine, git internals, CI configuration and a looping agent included.
+	// Those lifts to a card belong to Ask and Auto.
+	if s.Mode == permrules.Allow && !s.Auto {
+		return Result{Verdict: Once, Step: "allow", Category: cat, Class: class}
+	}
+	// On Auto, reading or editing a .env file is an ordinary action: what makes a
+	// request a credential one there is a credential store, or a secret leaving the
+	// machine (leak), not the file's name. Ask and Plan still read the name (a
+	// card, a refusal), and a local --deny of the class above still refuses it.
+	if _, hit := p.Protected.SecretHit(r); sensitive && !hit && leak == nil && s.Auto {
+		sensitive = false
+		classes = without(classes, ClassSecrets)
+		class = primary(classes)
 	}
 	loop, secret := false, false
 	for _, c := range classes {
@@ -448,6 +469,16 @@ func Decide(p Policy, s State, r Request) Result {
 		res.Verdict, res.Step = Card, "secrets"
 	}
 	return res
+}
+
+func without(cs []Class, drop Class) []Class {
+	out := make([]Class, 0, len(cs))
+	for _, c := range cs {
+		if c != drop {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 func modeAnswer(p Policy, s State, r Request, cat Category, sensitive bool, classes []Class, askOnly, loop bool) Result {
@@ -638,8 +669,8 @@ func contains(l []string, k string) bool {
 }
 
 // AskAlwaysOK reports whether a human's "always allow" on this request is an
-// over-ask one: the request is in the credential class (which is a card even on
-// Allow), so only a human's exception stands there. The loop class and
+// over-ask one: the request is in the credential class (which is a card on Ask and
+// Auto), so only a human's exception stands there. The loop class and
 // galopin's own paths never get one.
 func AskAlwaysOK(p Policy, r Request) bool {
 	cat, sensitive := Classify(p, r)

@@ -288,6 +288,16 @@ func TestScheduleToolsIntegration(t *testing.T) {
 		}
 		return s
 	}
+	// newAutoSession is a session on Auto whose agents row asks: what a schedule's Allow runs as
+	// (Cerea maps it), so an unattended run keeps its cards. Allow itself never asks.
+	newAutoSession := func(title string) backend.Session {
+		t.Helper()
+		s := newSession(title, permrules.Ask)
+		if err := oc.SetAuto(ctx, ws1.Path, s.ID, map[string]string{"agents": "ask"}); err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
 	// run prompts the session with trigger and returns the finished tool part.
 	run := func(s backend.Session, trigger, tool string) (backend.Part, int, int) {
 		t.Helper()
@@ -384,9 +394,9 @@ func TestScheduleToolsIntegration(t *testing.T) {
 		}
 	})
 
-	t.Run("create from a scheduled run asks even under Allow", func(t *testing.T) {
+	t.Run("create from a scheduled run asks (a schedule's Allow runs as Auto)", func(t *testing.T) {
 		hub.setApprove(rejectAll)
-		s := newSession("it-sched-run", permrules.Allow)
+		s := newAutoSession("it-sched-run")
 		cerea.mu.Lock()
 		cerea.runOf[s.ID] = "sched-self"
 		cerea.mu.Unlock()
@@ -444,9 +454,9 @@ func TestScheduleToolsIntegration(t *testing.T) {
 		}
 	})
 
-	t.Run("deleting a schedule that is not its own asks, even under Allow", func(t *testing.T) {
+	t.Run("deleting a schedule that is not its own asks on Auto, and not on Allow", func(t *testing.T) {
 		hub.setApprove(approveAll)
-		s := newSession("it-sched-del-other", permrules.Allow)
+		s := newAutoSession("it-sched-del-other")
 		route("trigger-sched-del-other", "schedule_delete", map[string]any{"id": "sched-other"})
 		part, mark, cmark := run(s, "trigger-sched-del-other", "schedule_delete")
 		if part.ToolStatus != backend.ToolCompleted {
@@ -461,6 +471,19 @@ func TestScheduleToolsIntegration(t *testing.T) {
 		}
 		if ops := cerea.opsFrom(cmark, s.ID); strings.Join(ops, ",") != "schedule.list,schedule.delete" {
 			t.Fatalf("ops = %v", ops)
+		}
+	})
+
+	t.Run("on Allow nothing asks, not even a schedule created or deleted", func(t *testing.T) {
+		hub.setApprove(rejectAll)
+		s := newSession("it-sched-allow", permrules.Allow)
+		route("trigger-sched-allow-del", "schedule_delete", map[string]any{"id": "sched-other"})
+		part, mark, _ := run(s, "trigger-sched-allow-del", "schedule_delete")
+		if part.ToolStatus != backend.ToolCompleted {
+			t.Fatalf("schedule_delete on Allow = %s / %q / %q", part.ToolStatus, part.Output, part.ToolError)
+		}
+		if n := len(hub.asks(mark, s.ID)); n != 0 {
+			t.Fatalf("Allow raised %d cards", n)
 		}
 	})
 

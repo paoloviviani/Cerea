@@ -254,7 +254,7 @@ test.describe("/code composer: no note beside the shield on mobile", () => {
 		await expect(page.getByTestId("permission-mode-note")).toBeHidden();
 		await expect(selector.getByRole("radio", { name: "Allow" })).toHaveAttribute(
 			"title",
-			/credential files/
+			/Nothing is ever asked/
 		);
 		const attach = page.getByRole("button", { name: "Add attachment" });
 		const send = page.getByRole("button", { name: "Send message" });

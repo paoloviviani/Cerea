@@ -1,6 +1,7 @@
 package opencode
 
 import (
+	"encoding/json"
 	"testing"
 
 	"galopin/internal/backend"
@@ -130,5 +131,33 @@ func TestOnlyATrailingReminderBlockIsNotThePersonsText(t *testing.T) {
 	mid := userParts("m", "s", "see <system-reminder>x</system-reminder> in the docs, then do it", nil, nil)
 	if len(mid) != 1 || mid[0].(map[string]any)["synthetic"] == true {
 		t.Errorf("a literal tag in the middle of the person's text was split off: %v", mid)
+	}
+}
+
+// The shell tool's workdir is in the tool input, not in the ask: the adapter must
+// carry it onto the ask galopin decides (a relative word is read from it).
+func TestAShellAsksWorkdirComesFromTheToolInput(t *testing.T) {
+	b := New(Config{})
+	out := make(chan backend.BackendEvent, 8)
+	frame := func(typ string, data map[string]any) {
+		raw, _ := json.Marshal(map[string]any{"id": "evt", "created": 1, "type": typ, "location": map[string]any{"directory": "/ws"}, "data": data})
+		b.handleSSEData(string(raw), out)
+	}
+	frame("session.tool.input.started", map[string]any{"sessionID": "s", "assistantMessageID": "m", "id": "c", "name": "shell"})
+	frame("session.tool.called", map[string]any{"sessionID": "s", "assistantMessageID": "m", "id": "c",
+		"input": map[string]any{"command": "cat id_rsa", "workdir": "/elsewhere"}})
+	frame("permission.asked", map[string]any{"id": "per", "sessionID": "s", "action": "shell", "resources": []any{"cat id_rsa"},
+		"source": map[string]any{"messageID": "m", "id": "c"}})
+	var req *backend.PermissionRequest
+	for len(out) > 0 {
+		if ev := <-out; ev.Event.Kind == backend.EventPermissionAsked {
+			req = ev.Event.Request
+		}
+	}
+	if req == nil {
+		t.Fatal("no permission.asked came out of the adapter")
+	}
+	if req.Metadata["command"] != "cat id_rsa" || req.Metadata["workdir"] != "/elsewhere" {
+		t.Errorf("metadata = %v, want the command and the workdir of the tool input", req.Metadata)
 	}
 }

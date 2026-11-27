@@ -166,3 +166,13 @@ func TestAcpKindIsOnlyAHint(t *testing.T) {
 		}
 	}
 }
+
+// A tool call that asks to run in another directory carries that on the ask, for
+// the decision to read its relative words from there.
+func TestAnAcpShellAsksWorkdirIsCarried(t *testing.T) {
+	md := askMetadata(map[string]any{"kind": "execute", "rawInput": map[string]any{"command": "cat id_rsa", "workdir": "/elsewhere"}})
+	acp, _ := md["acp"].(map[string]any)
+	if acp["workdir"] != "/elsewhere" {
+		t.Errorf("metadata = %v, want the workdir carried", md)
+	}
+}

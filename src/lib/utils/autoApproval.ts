@@ -3,7 +3,7 @@
  * session on Auto, each class either runs (the user's row says `runs`, or the fixed floor lets it),
  * is reviewed, or comes to the user. Three things decide, the most cautious wins: the session's
  * word, the user's rows (Workspace -> Agents) and the fixed floor (secrets and loops are always a
- * card). Allow is hands off apart from that floor.
+ * card). Allow never asks: that floor belongs to Ask and Auto.
  */
 import { m } from "$lib/paraglide/messages";
 import type { ReviewAnswerer } from "$lib/types/AgentReview";

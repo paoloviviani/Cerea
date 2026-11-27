@@ -63,12 +63,18 @@ func (mc *machine) rootState(rh backend.RuleHost, sessionID string) decide.State
 
 // decideAsk is the one decision for an ask the backend raised (ADR 0097).
 // galopin's own gp_ asks were already decided before they were raised, so
-// they are a card unless the root is on Plan.
+// they are a card unless the root is on Plan, or on Allow, which never asks. The
+// one exception is a relayed call to another computer (metadata.relay): Cerea
+// mints the ticket that proves a person approved it only from a reply to its card
+// (ADR 0121), so an automatic answer would only make the call fail.
 func (mc *machine) decideAsk(rh backend.RuleHost, dir string, req backend.PermissionRequest) decide.Result {
 	st := mc.rootState(rh, req.SessionID)
 	if strings.HasPrefix(req.ID, "gp_") {
 		if st.Mode == permrules.Deny {
 			return decide.Result{Verdict: decide.Reject, Step: "plan", Reason: decide.PlanReason}
+		}
+		if _, relayed := req.Metadata["relay"]; st.Mode == permrules.Allow && !st.Auto && !relayed {
+			return decide.Result{Verdict: decide.Once, Step: "allow"}
 		}
 		return decide.Result{Verdict: decide.Card, Step: "gp"}
 	}
@@ -95,6 +101,7 @@ func (mc *machine) askRequest(dir string, req backend.PermissionRequest) decide.
 	dr := decide.Request{Key: key, Patterns: patterns, Workspace: dir}
 	if key == "bash" {
 		dr.Command = askCommand(req.Metadata)
+		dr.Workdir = askWorkdir(req.Metadata)
 	} else if len(req.Metadata) > 0 {
 		dr.Args = metadataText(req.Metadata)
 	}
@@ -110,6 +117,21 @@ func askCommand(meta map[string]any) string {
 	if m, _ := meta["acp"].(map[string]any); m != nil {
 		if c, _ := m["command"].(string); c != "" {
 			return c
+		}
+	}
+	return ""
+}
+
+// askWorkdir is the directory a bash call asked to run in, "" when it named none.
+func askWorkdir(meta map[string]any) string {
+	for _, k := range []string{"workdir", "cwd", "workingDirectory"} {
+		if s, _ := meta[k].(string); s != "" {
+			return s
+		}
+	}
+	if m, _ := meta["acp"].(map[string]any); m != nil {
+		if s, _ := m["workdir"].(string); s != "" {
+			return s
 		}
 	}
 	return ""

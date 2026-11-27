@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -55,6 +56,9 @@ func (pr Protected) SecretValueLeak(r Request) *SecretLeak {
 		if !outbound(text) {
 			return nil
 		}
+		if l := pr.outboundFileLeak(r); l != nil {
+			return l
+		}
 	case "read", "glob", "grep", "list", "lsp", "skill", "edit", "external_directory", "task", "todowrite",
 		"todoread", "question", "plan_enter", "plan_exit", "doom_loop", "session_list", "session_read",
 		"session_send", "session_spawn", "schedule":
@@ -78,12 +82,218 @@ func (pr Protected) SecretValueLeak(r Request) *SecretLeak {
 	return nil
 }
 
+// outboundFileLeak is the other half of the guard, for a line that sends
+// something off the machine: if it also names a .env-ish file anywhere (a word, a
+// curl `@file` argument, a redirect, the left side of a pipe, a symlink to one, a
+// glob that can match one), or contains a word the analysis could not follow that
+// could be one, it is a card in every mode, like a secret's value in its text. A
+// credential store's path is already a card in every mode (SecretHit). The names
+// are never values. It cannot see a program that reads the file and sends it
+// itself (a script, `npm publish` of a folder holding a .env).
+func (pr Protected) outboundFileLeak(r Request) *SecretLeak {
+	a := pr.analysis(r)
+	file := func(c string) *SecretLeak {
+		return &SecretLeak{Key: fileLeakKey, File: filepath.Base(c)}
+	}
+	for _, w := range a.words {
+		if c := namedIn(w); c != "" {
+			return file(c)
+		}
+	}
+	var urlTails []string // `//host/path` of each URL word: what a path candidate of it looks like
+	for _, w := range a.words {
+		if strings.Contains(w, "://") {
+			urlTails = append(urlTails, filepath.Clean(afterAny(w, ":")))
+		}
+	}
+	isURL := func(p string) bool {
+		if urlPath.MatchString(p) {
+			return true
+		}
+		for _, t := range urlTails {
+			if strings.HasSuffix(p, t) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, p := range a.paths {
+		if isURL(p) { // a URL joined to a directory
+			continue
+		}
+		if isSensitive(p) { // also a symlink to an env file
+			return file(p)
+		}
+	}
+	for _, g := range a.globs {
+		base := path.Base(g)
+		for _, c := range outVariants(base) {
+			// a dotfile pattern that can match an env file (`.e*`, `.*`); a shell's `*` leaves dotfiles alone
+			if isSensitive(c) || strings.HasPrefix(c, ".") && (globMatches(c, ".env") || globMatches(c, ".env.local")) {
+				return file(c)
+			}
+		}
+	}
+	// a word it cannot follow: its literal text may name an env file, or end in a
+	// `@` / `<` that makes the rest a file reference built at run time
+	for _, u := range a.unknown {
+		if c := namedIn(u); c != "" {
+			return file(c)
+		}
+		if blindFileRef(u) {
+			return &SecretLeak{Key: blindLeakKey, File: ""}
+		}
+	}
+	if a.blind { // a word it cannot read at all (`"$f"`, `"$(…)"`) could be a file
+		return &SecretLeak{Key: blindLeakKey, File: ""}
+	}
+	// find -exec and xargs hand each file to the command as `{}`
+	runner := false
+	for _, w := range a.words {
+		runner = runner || w == "-exec" || w == "-execdir" || w == "xargs"
+	}
+	if runner {
+		for _, w := range a.words {
+			if strings.Contains(w, "{}") {
+				return &SecretLeak{Key: blindLeakKey, File: ""}
+			}
+		}
+	}
+	return pr.folderLeak(r, a)
+}
+
+// outVariants is what a word may name once an option or a curl form is peeled
+// off: the word itself and the part after each `=` or `:`, each with a leading
+// short option (`-d@x`, `-Fx`), `@` or `<` removed and cut at the first `;` (curl's
+// `f=@.env;type=text/plain`).
+func outVariants(w string) []string {
+	parts := []string{w}
+	for i := 0; i < len(w); i++ {
+		if w[i] == '=' || w[i] == ':' {
+			parts = append(parts, w[i+1:])
+		}
+	}
+	var out []string
+	for _, p := range parts {
+		p, _, _ = strings.Cut(p, ";")
+		p = shortOptTail(p)
+		p = strings.TrimLeft(p, "@<")
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// shortOptTail strips a short option letter off the front (`-d@x` is `@x`).
+func shortOptTail(p string) string {
+	if len(p) >= 2 && p[0] == '-' && p[1] != '-' {
+		return p[2:]
+	}
+	return p
+}
+
+// namedIn is the env file a word names, "" when it names none. A URL word names no
+// local file.
+func namedIn(w string) string {
+	if strings.Contains(w, "://") {
+		return ""
+	}
+	for _, c := range outVariants(w) {
+		if isSensitive(c) {
+			return c
+		}
+	}
+	return ""
+}
+
+// blindFileRef reports a word whose known text makes what follows a file
+// reference: any `=`/`:` part, short option removed, that starts with `@` or `<`.
+func blindFileRef(u string) bool {
+	parts := []string{u}
+	for i := 0; i < len(u); i++ {
+		if u[i] == '=' || u[i] == ':' {
+			parts = append(parts, u[i+1:])
+		}
+	}
+	for _, p := range parts {
+		p = shortOptTail(p)
+		if strings.HasPrefix(p, "@") || strings.HasPrefix(p, "<") {
+			return true
+		}
+	}
+	return false
+}
+
+// dirTools are the commands that send a whole folder: when one is on an outbound
+// line, every folder the line names is searched for a .env (one level down, as
+// workspaceEnvFiles does). git is not among them: it honours .gitignore, a card on
+// every push would be noise, and a .env a repository committed is the limit the
+// docs state.
+var dirTools = map[string]bool{
+	"rsync": true, "scp": true, "sftp": true, "tar": true, "zip": true, "7z": true, "7za": true, "cpio": true, "pax": true,
+	"aws": true, "gcloud": true, "gsutil": true, "az": true, "azcopy": true, "rclone": true, "s3cmd": true,
+	"lftp": true, "smbclient": true, "kubectl": true,
+}
+
+func (pr Protected) folderLeak(r Request, a *bashAnalysis) *SecretLeak {
+	tool := false
+	for _, w := range a.words {
+		tool = tool || dirTools[w]
+	}
+	if !tool {
+		return nil
+	}
+	base := r.Workspace
+	if r.Workdir != "" {
+		base = pr.workdirOf(r)
+	}
+	if base == "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	for _, w := range a.words {
+		if w == "" || strings.HasPrefix(w, "-") {
+			continue
+		}
+		for _, c := range []string{w, afterAny(w, "="), afterAny(w, ":")} {
+			if c == "" {
+				continue
+			}
+			dir := pr.abs(c, base)
+			if seen[dir] {
+				continue
+			}
+			seen[dir] = true
+			if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+				continue
+			}
+			if envs := workspaceEnvFiles(dir); len(envs) > 0 {
+				return &SecretLeak{Key: dirLeakKey, File: filepath.Base(envs[0])}
+			}
+		}
+	}
+	return nil
+}
+
+// urlPath finds a scheme in a path: `https:/host/x` is what a URL word becomes
+// when it is joined to a directory and cleaned.
+var urlPath = regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*:/`)
+
+// The key a file leak's card names (the card says "the value of <key> from
+// <file>").
+const (
+	fileLeakKey  = "the file itself"
+	blindLeakKey = "a word galopin cannot read"
+	dirLeakKey   = "a folder that holds a secret file"
+)
+
 // outboundRe finds what sends text off the machine: a network client, a remote
 // shell or copy, a package publish, and any http(s) URL or scp-style remote
 // (which is also how a `git push` to a remote not yet configured is spelled).
-var outboundRe = regexp.MustCompile(`(?i)(^|[\s;&|(` + "`" + `'"=<>$])(curl|wget|nc|ncat|netcat|socat|telnet|ftp|sftp|ssh|scp|rsync|http|https|xh|httpie|aria2c)(\s|$)` +
+var outboundRe = regexp.MustCompile(`(?i)(^|[\s;&|(` + "`" + `'"=<>$])(curl|wget|nc|ncat|netcat|socat|telnet|ftp|sftp|ssh|scp|rsync|http|https|xh|httpie|aria2c|rclone|gsutil|s3cmd|lftp|smbclient|mail|mailx|sendmail|mutt|croc|wormhole|fly|flyctl|vercel|netlify|heroku|glab|gh)(\s|$)` +
 	`|(^|[\s;&|(` + "`" + `])(npm|pnpm|yarn|bun)\s+(\S+\s+)*publish\b` +
-	`|(^|[\s;&|(` + "`" + `])(twine\s+upload|cargo\s+publish|gem\s+push|poetry\s+publish|uv\s+publish|docker\s+push|git\s+push|mvn\s+(\S+\s+)*deploy|gh\s+(release|issue|gist|repo|secret|variable|workflow|api|auth)|aws|gcloud|az|kubectl|psql|flutter\s+pub\s+publish|dotnet\s+nuget\s+push)\b` +
+	`|(^|[\s;&|(` + "`" + `])(twine\s+upload|cargo\s+publish|gem\s+push|poetry\s+publish|uv\s+publish|docker\s+push|git\s+push|mvn\s+(\S+\s+)*deploy|aws|gcloud|az|kubectl|psql|flutter\s+pub\s+publish|dotnet\s+nuget\s+push)\b` +
 	`|https?://|\b[\w.-]+@[\w.-]+:[\w./~-]`)
 
 func outbound(text string) bool { return outboundRe.MatchString(text) }
@@ -146,7 +356,7 @@ func workspaceEnvFiles(ws string) []string {
 		ents, _ := os.ReadDir(dir)
 		for _, e := range ents {
 			n := e.Name()
-			if e.Type().IsRegular() && (n == ".env" || strings.HasPrefix(n, ".env.")) && !placeholderEnv(n) {
+			if ln := strings.ToLower(n); e.Type().IsRegular() && (ln == ".env" || strings.HasPrefix(ln, ".env.")) && !placeholderEnv(n) {
 				out = append(out, filepath.Join(dir, n))
 			}
 		}
@@ -166,7 +376,7 @@ func workspaceEnvFiles(ws string) []string {
 
 func placeholderEnv(name string) bool {
 	for _, s := range []string{".example", ".sample", ".template", ".dist", ".defaults"} {
-		if strings.HasSuffix(name, s) {
+		if strings.HasSuffix(strings.ToLower(name), s) {
 			return true
 		}
 	}

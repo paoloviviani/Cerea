@@ -999,3 +999,49 @@ func TestReleaseAskOfAnAskNeverHeldMaterialises(t *testing.T) {
 		t.Errorf("pending = %d, want 1", n)
 	}
 }
+
+// The same ask passing the filter twice (a re-delivered event, the sync sweep) is
+// held twice: an answer that came between the holds is not forgotten by the second,
+// and neither release brings back a card.
+func TestAnAskHeldTwiceAndAnsweredShowsNoCardOnEitherRelease(t *testing.T) {
+	ctx := context.Background()
+	m := New(newFakeBackend(), policy.Default())
+	m.Track("/ws", backend.Session{ID: "s1"})
+	req := backend.PermissionRequest{ID: "per_dup", SessionID: "s1", Tool: "bash", Patterns: []string{"ls"}}
+	m.HoldAsk(req.ID)
+	m.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/ws", SessionID: "s1", Event: backend.Event{
+		Kind: backend.EventPermissionReplied, RequestID: req.ID, Decision: backend.DecisionReject}})
+	m.HoldAsk(req.ID) // the re-delivery
+	m.ReleaseAsk(ctx, "/ws", req)
+	m.ReleaseAsk(ctx, "/ws", req)
+	if n := m.PendingPermissions("s1"); n != 0 {
+		t.Errorf("pending = %d, want the answered ask to stay gone", n)
+	}
+	// once both holds are over the id is forgotten: a fresh ask with it shows its card
+	m.HoldAsk(req.ID)
+	m.ReleaseAsk(ctx, "/ws", req)
+	if n := m.PendingPermissions("s1"); n != 1 {
+		t.Errorf("pending = %d after a fresh hold and release, want its card", n)
+	}
+}
+
+// A top known only from a link (its own record never read) is not given the
+// asking child's directory.
+func TestMarkTreeKnownDoesNotGiveALinkedTopTheChildsDirectory(t *testing.T) {
+	ctx := context.Background()
+	m := New(newFakeBackend(), policy.Default())
+	m.ApplyBackendEvent(ctx, backend.BackendEvent{WorkspaceDir: "/ws", SessionID: "kid", Event: backend.Event{
+		Kind: backend.EventSession, Session: &backend.Session{ID: "kid", ParentID: "ghost"}}})
+	m.MarkTreeKnown("/ws", "kid")
+	if dir, ok := m.WorkspaceDir("ghost"); !ok || dir != "" {
+		t.Errorf("the linked top's directory = %q (known %v), want it left empty", dir, ok)
+	}
+	if !m.TreeKnown("kid") {
+		t.Error("the chain is not settled")
+	}
+	// the session itself, when it is the top, does get its directory
+	m.MarkTreeKnown("/ws", "solo")
+	if dir, _ := m.WorkspaceDir("solo"); dir != "/ws" {
+		t.Errorf("a top that is the asking session has directory %q, want /ws", dir)
+	}
+}
