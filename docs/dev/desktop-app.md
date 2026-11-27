@@ -424,8 +424,13 @@ endpoint file> --key-file <userData>/winbrowser/<id>/approval-key --state-dir ..
   on, `onlyLoadAppFromAsar`.
 - **Signing**: macOS **unsigned and not notarised for now, like the connector app** (no Apple
   developer account yet, owner 2026-11-25), and **no macOS auto-update** (an unsigned app cannot
-  take one). The app's **About** (Server tab) says both, and that a new version is a new download. The same first-open steps apply (docs/agent-machines.md); an install script that
-  clears quarantine can follow the connector's. Linux needs none.
+  take one). The app's **About** (Server tab) says both, and that a new version is a new download. The same first-open steps apply (docs/agent-machines.md), or
+  `desktop/scripts/install-macos.sh`, attached to every release as
+  `Cerea-Desktop-PREVIEW-install-macos.sh` (`scripts/release/desktop-assets.sh` copies it from the
+  tagged commit, unversioned, so `releases/latest/download/…` always works): it downloads the
+  build for the Mac's chip, checks it against the release's SHA256SUMS, replaces
+  `/Applications/Cerea.app` and clears `com.apple.quarantine`. Documented for users in
+  docs/browser-use.md ("In the desktop app"). Linux needs none.
 - **Auto-update**: later (electron-updater against GitHub releases once the app is signed; an
   unsigned macOS app cannot auto-update).
 - **CI**: `.github/workflows/desktop.yml`: lint, unit tests, build, the Xvfb smoke (with a 20 s

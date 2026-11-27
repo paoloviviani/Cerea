@@ -116,6 +116,10 @@ cp "$(one cerea-desktop-macos-arm64 "Cerea-$V-arm64-mac.zip")" "$tmp/out/$P-maco
 cp "$(one cerea-desktop-macos-x64 "Cerea-$V-mac.zip")" "$tmp/out/$P-macos-intel.zip" || stop "copy"
 cp "$(one cerea-desktop-linux "Cerea-$V.AppImage")" "$tmp/out/$P-linux-x86_64.AppImage" || stop "copy"
 cp "$(one cerea-desktop-linux "cerea-desktop_${V}_amd64.deb")" "$tmp/out/cerea-desktop-preview_${V}_amd64.deb" || stop "copy"
+# The macOS installer (no Gatekeeper prompt), from the tagged commit; unversioned, so the latest
+# release's download link stays the same.
+git show "$SHA:desktop/scripts/install-macos.sh" >"$tmp/out/Cerea-Desktop-PREVIEW-install-macos.sh" ||
+	stop "no desktop/scripts/install-macos.sh at $T"
 (cd "$tmp/out" && sha256sum -- * >"$tmp/SHA256SUMS.txt") || stop "sha256sum"
 mv "$tmp/SHA256SUMS.txt" "$tmp/out/$P-SHA256SUMS.txt"
 ls -l "$tmp/out"

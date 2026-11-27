@@ -178,6 +178,21 @@ assistant can also open the browser for you when you only ask to open it.
 
 ### In the desktop app
 
+**Installing the app (preview).** Each Cerea release carries the desktop app's builds: zips for
+Macs with Apple chips and Intel Macs, an AppImage and a `.deb` for Linux. On a Mac, this command
+installs or updates it in one step: it downloads the build for the Mac's chip from the release,
+checks its checksum, replaces `/Applications/Cerea.app` (profiles and pairings are kept), clears
+the quarantine flag so macOS does not ask before the first start (the preview is not signed by
+Apple yet), and opens the app:
+
+```sh
+curl -fsSL https://github.com/paoloviviani/Cerea/releases/latest/download/Cerea-Desktop-PREVIEW-install-macos.sh | sh
+```
+
+Add a release tag to install that one instead of the latest, for example `| sh -s -- v0.67.1`. To
+install by hand instead: unzip, move `Cerea.app` to Applications, open it once, then allow it in
+**System Settings → Privacy & Security → Open Anyway**.
+
 In the Cerea desktop app the chat can use **the app's own browser panel directly**, with no galopin
 and no paired computer: galopin can be stopped or not set up at all. The app runs the browser
 runtime itself and the chat in that window talks to it. The Browsing card then says **Runs in this

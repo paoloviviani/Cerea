@@ -7,6 +7,8 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 ## Unreleased
 
+- **Desktop app: a one-line installer for Macs.** Every release now carries `Cerea-Desktop-PREVIEW-install-macos.sh`: `curl -fsSL https://github.com/paoloviviani/Cerea/releases/latest/download/Cerea-Desktop-PREVIEW-install-macos.sh | sh` downloads the build for the Mac's chip, checks its checksum, installs it in Applications (profiles and pairings kept) and clears the quarantine flag, so macOS does not ask before the first start. Run it again to update.
+
 ## v0.67.1 — 2026-11-27
 
 Pins: Cerea `0.67.1` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.34.1`, opencode `2.4.1`.
