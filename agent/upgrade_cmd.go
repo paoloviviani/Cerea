@@ -104,6 +104,10 @@ func runUpgrade(args []string) error {
 	if fs.NArg() > 0 {
 		return fmt.Errorf("upgrade: unexpected arguments: %v", fs.Args())
 	}
+	env := realUpgradeEnv()
+	if err := refuseDesktopApp(env); err != nil {
+		return err
+	}
 	if credsPath == "" {
 		p, err := defaultCredsPath()
 		if err != nil {
@@ -115,7 +119,7 @@ func runUpgrade(args []string) error {
 	if err != nil {
 		return fmt.Errorf("nothing to upgrade, run the normal install: %w", err)
 	}
-	return upgradeFrom(context.Background(), realUpgradeEnv(), creds.CereaOrigin, *yes, *stop, *show, credsPath)
+	return upgradeFrom(context.Background(), env, creds.CereaOrigin, *yes, *stop, *show, credsPath)
 }
 
 // upgradeOrigin checks the enrolled Cerea origin is one the installer may be
@@ -138,7 +142,24 @@ func upgradeOrigin(origin string) (string, error) {
 	return origin, nil
 }
 
+// refuseDesktopApp: the Cerea desktop app ships this galopin, whether it ran it (the env var) or
+// started it as a service (the marker beside the executable); the installer would put a second
+// galopin beside it.
+func refuseDesktopApp(env *upgradeEnv) error {
+	exe, err := env.exe()
+	if err != nil {
+		return nil
+	}
+	if desktopAppDetect(os.Getenv(desktopAppEnv), exe) {
+		return fmt.Errorf("this galopin comes with the Cerea desktop app; install a new app build instead")
+	}
+	return nil
+}
+
 func upgradeFrom(ctx context.Context, env *upgradeEnv, origin string, yes, stop, show bool, credsPath string) error {
+	if err := refuseDesktopApp(env); err != nil {
+		return err
+	}
 	origin, err := upgradeOrigin(origin)
 	if err != nil {
 		return err

@@ -75,6 +75,7 @@ describe("DeviceUpgrade", () => {
 	it.each([
 		["offline", device({ online: false, agentUpgrade: { inPlace: true, reason: "systemd" } })],
 		["mac app", device({ agentUpgrade: { inPlace: false, reason: "mac_app" } })],
+		["desktop app", device({ agentUpgrade: { inPlace: false, reason: "desktop_app" } })],
 		["docker", device({ agentUpgrade: { inPlace: false, reason: "docker" } })],
 		["a container with no capability", device({ agentContainer: true })],
 		["launchd", device({ agentUpgrade: { inPlace: false, reason: "launchd" } })],
@@ -102,6 +103,11 @@ describe("DeviceUpgrade", () => {
 		expect(mac.how).toBe("mac_app");
 		expect(mac.text).toContain("connector app");
 		expect(mac.text).not.toContain("curl");
+		const desk = await how(device({ agentUpgrade: { inPlace: false, reason: "desktop_app" } }));
+		expect(desk.how).toBe("desktop_app");
+		expect(desk.text).toContain("galopin updates with the Cerea desktop app");
+		expect(desk.text).not.toContain("curl");
+		expect(desk.text).not.toContain("install.sh");
 		const docker = await how(device({ agentUpgrade: { inPlace: false, reason: "docker" } }));
 		expect(docker.how).toBe("docker");
 		expect(docker.text).toContain(`docker pull ${GALOPIN_IMAGE}:${APP_VERSION}`);
@@ -117,6 +123,18 @@ describe("DeviceUpgrade", () => {
 		expect(off.text).toContain(CURL);
 		const old = await how(device());
 		expect(old.text).toContain(CURL);
+	});
+
+	it("links the desktop app's galopin to the release page, with no command", async () => {
+		await browserPage.viewport(1000, 900);
+		const screen = mount(device({ agentUpgrade: { inPlace: false, reason: "desktop_app" } }));
+		const link = screen.getByTestId("device-upgrade-desktop-releases");
+		await expect.element(link).toBeVisible();
+		await expect.element(link).toHaveTextContent("release page");
+		await expect
+			.element(link)
+			.toHaveAttribute("href", "https://github.com/paoloviviani/Cerea/releases");
+		expect(screen.getByTestId("device-upgrade").element().querySelector("pre")).toBeNull();
 	});
 
 	it("shows an upgrade in progress, done and not completed", async () => {

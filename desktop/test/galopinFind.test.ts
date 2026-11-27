@@ -1,8 +1,8 @@
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { findGalopin, Galopin } from "../src/main/galopin.ts";
+import { findGalopin, Galopin, galopinEnv } from "../src/main/galopin.ts";
 
 describe("which galopin runs", () => {
 	const dir = mkdtempSync(join(tmpdir(), "gal-"));
@@ -37,5 +37,21 @@ describe("which galopin runs", () => {
 		mkdirSync(join(xdg, "systemd", "user"), { recursive: true });
 		writeFileSync(join(xdg, "systemd", "user", "galopin.service"), "");
 		expect(g.serviceInstalled(h2, xdg)).toBe(true);
+	});
+
+	it("marks every galopin it runs as the desktop app's (CEREA_DESKTOP_APP=1)", async () => {
+		const env = galopinEnv({ PATH: "/usr/bin:/bin", HOME: "/h" }, "/shims");
+		expect(env).toMatchObject({
+			CEREA_DESKTOP_APP: "1",
+			GALOPIN_INSTALL_DIR: "/shims",
+			HOME: "/h",
+		});
+		// A fake galopin that prints what galopin's detectUpgrade reads.
+		const bin = join(dir, "fake-galopin");
+		writeFileSync(bin, '#!/bin/sh\necho "desktop=$CEREA_DESKTOP_APP"\n');
+		chmodSync(bin, 0o755);
+		const g = new Galopin(bin, () => {}, env);
+		const res = await g.exec(["version"], { quiet: true });
+		expect(res.output.trim()).toBe("desktop=1");
 	});
 });

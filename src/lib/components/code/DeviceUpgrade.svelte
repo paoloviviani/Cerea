@@ -5,7 +5,8 @@
 	- the outdated notice, with the way to upgrade that fits it. The **Upgrade** button appears
 	  only when the computer is online and reported `agent.upgrade.inPlace: true` (galopin runs
 	  as its systemd user unit and the owner has not opted out); every other case keeps the
-	  instructions that fit it (`upgradeInstructions`, galopinUpgrade.ts);
+	  instructions that fit it (`upgradeInstructions`, galopinUpgrade.ts); the desktop app's galopin
+	  gets a link to the app's releases and no command, as the installer would add a second galopin;
 	- the state of an upgrade started from here: Upgrading, Updated to vX, or did not complete.
 
 	Cerea lists only a user's own computers, so whoever sees the button is the owner; the
@@ -15,12 +16,14 @@
 	import { m } from "$lib/paraglide/messages";
 	import CopyToClipBoardBtn from "$lib/components/CopyToClipBoardBtn.svelte";
 	import Modal from "$lib/components/Modal.svelte";
+	import Rich from "$lib/i18n/Rich.svelte";
 	import * as s from "$lib/components/overlay/styles";
 	import { startUpgrade } from "$lib/codeApi";
 	import { refreshCodeDevices } from "$lib/stores/codeDeviceList.svelte";
 	import type { CodeDeviceView } from "$lib/server/codeDevices";
 	import { GALOPIN_IMAGE } from "$lib/codeEnrollCommand";
 	import {
+		DESKTOP_RELEASES_URL,
 		UPGRADE_LOG_HINT,
 		buildUpgradeCommand,
 		galopinNeedsUpgrade,
@@ -65,6 +68,14 @@
 		}
 	}
 </script>
+
+{#snippet releasesLink(text: string)}<a
+		class="text-accent hover:underline"
+		href={DESKTOP_RELEASES_URL}
+		target="_blank"
+		rel="noopener noreferrer"
+		data-testid="device-upgrade-desktop-releases">{text}</a
+	>{/snippet}
 
 {#if run}
 	<div
@@ -116,7 +127,11 @@
 				{m["code.nav.upgrade_button"]()}
 			</button>
 		{:else}
-			{#if how === "mac_app"}
+			{#if how === "desktop_app"}
+				<p class="mb-1.5" data-testid="device-upgrade-desktop-app">
+					<Rich parts={m["code.nav.upgrade_desktop_app"].parts()} tags={{ link: releasesLink }} />
+				</p>
+			{:else if how === "mac_app"}
 				<p class="mb-1.5" data-testid="device-upgrade-mac-app">
 					{m["code.nav.upgrade_mac_app"]()}
 				</p>
@@ -142,7 +157,7 @@
 						value={dockerPull}
 					/>
 				</div>
-			{:else if how !== "mac_app"}
+			{:else if how !== "mac_app" && how !== "desktop_app"}
 				<div class="flex items-center gap-2 rounded-md border border-line bg-surface p-2">
 					<pre
 						class="min-w-0 flex-1 overflow-x-auto font-mono text-[.65rem] whitespace-pre text-ink">{upgradeCommand}</pre>

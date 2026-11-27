@@ -16,15 +16,18 @@ T=${1:?usage: desktop-assets.sh vX.Y.Z}
 cd "$(git rev-parse --show-toplevel)" || exit 1
 REPO=${CEREA_REPO:-$(gh repo view --json nameWithOwner -q .nameWithOwner)}
 stop() { echo "desktop-assets: $*" >&2; exit 1; }
-# Everything the build reads (the paths of .github/workflows/desktop.yml).
-PATHS=(desktop browser-runtime agent/internal .github/workflows/desktop.yml)
+# Everything the build reads (the paths of .github/workflows/desktop.yml). package.json: the build is
+# stamped with its version, so a build from before a version bump is not reused.
+PATHS=(desktop browser-runtime agent/internal package.json .github/workflows/desktop.yml)
 
 git fetch -q origin "refs/tags/$T:refs/tags/$T" 2>/dev/null || git rev-parse -q --verify "refs/tags/$T" >/dev/null || stop "no tag $T (fetch failed)"
 git fetch -q origin main || stop "fetch main"
 SHA=$(git rev-parse "$T^{commit}") || stop "cannot resolve $T"
 gh release view -R "$REPO" "$T" >/dev/null 2>&1 || stop "no GitHub release $T on $REPO: create it first"
-V=$(git show "$SHA:desktop/package.json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])') ||
-	stop "cannot read desktop/package.json at $T"
+# The app is built with the Cerea version (desktop/scripts/package.mjs), so its files are named with it.
+V=$(git show "$SHA:package.json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])') ||
+	stop "cannot read package.json at $T"
+[ "v$V" = "$T" ] || stop "package.json at $T says $V, not ${T#v}"
 
 # unchanged RUNSHA: the build inputs are the same at RUNSHA and at the tag. agent/*.go is checked by glob.
 unchanged() {
@@ -58,6 +61,19 @@ find_run() {
 	return 2
 }
 
+# The release commit changes package.json, so its push started a desktop build: wait for it rather
+# than dispatching a second one.
+inflight=$(gh run list -R "$REPO" --workflow desktop.yml --commit "$SHA" --limit 20 --json databaseId,status \
+	-q '[.[]|select(.status!="completed")][0].databaseId // empty' 2>/dev/null) || inflight=""
+if [ -n "$inflight" ]; then
+	echo "desktop: waiting for the desktop build already running on ${SHA:0:8} (run $inflight)" >&2
+	deadline=$(( $(date +%s) + 90*60 ))
+	until s=$(gh run view -R "$REPO" "$inflight" --json status -q .status 2>/dev/null) && [ "$s" = completed ]; do
+		[ "$(date +%s)" -ge "$deadline" ] && stop "the desktop build already running on ${SHA:0:8} (run $inflight) did not finish in 90 minutes"
+		sleep 30
+	done
+fi
+
 run=$(find_run); rc=$?
 if [ $rc -ne 0 ] || [ -z "$run" ]; then
 	echo "desktop: no usable desktop build for $T; running the desktop workflow on $T and waiting (about 15 minutes)" >&2
@@ -72,7 +88,11 @@ if [ $rc -ne 0 ] || [ -z "$run" ]; then
 		[ -n "$run" ] && break
 	done
 	[ -n "$run" ] || stop "the dispatched desktop run did not appear"
-	until s=$(gh run view -R "$REPO" "$run" --json status,conclusion -q '.status+" "+.conclusion' 2>/dev/null) && [[ $s == completed* ]]; do sleep 30; done
+	deadline=$(( $(date +%s) + 90*60 ))
+	until s=$(gh run view -R "$REPO" "$run" --json status,conclusion -q '.status+" "+.conclusion' 2>/dev/null) && [[ $s == completed* ]]; do
+		[ "$(date +%s)" -ge "$deadline" ] && stop "the dispatched desktop run (run $run) did not finish in 90 minutes"
+		sleep 30
+	done
 	[[ $s == *success ]] || stop "desktop build failed: gh run view -R $REPO $run --log-failed"
 fi
 echo "desktop: using run $run (desktop app $V)"

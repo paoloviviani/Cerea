@@ -25,6 +25,16 @@ export function findGalopin(opts: {
 	return candidates.find((p) => existsSync(p));
 }
 
+/** Set to "1" on every galopin the app runs, so galopin reports its upgrade as the app's
+ * (`hello.agent.upgrade.reason` "desktop_app", agent/PROTOCOL.md) and Cerea never offers the
+ * install command, which would put a second galopin beside the app's. */
+export const DESKTOP_APP_ENV = "CEREA_DESKTOP_APP";
+
+/** The environment of the app's galopin: the app's own, its shim directory, and the desktop mark. */
+export function galopinEnv(base: NodeJS.ProcessEnv, shimDir: string): NodeJS.ProcessEnv {
+	return { ...base, GALOPIN_INSTALL_DIR: shimDir, [DESKTOP_APP_ENV]: "1" };
+}
+
 export interface RunResult {
 	code: number | null;
 	output: string;

@@ -49,8 +49,8 @@ export function buildUpgradeCommand(origin: string): string {
 // Cerea asks (`machine.upgrade`, PROTOCOL.md §6). Cerea offers the Upgrade button only for
 // `inPlace: true`; every other case keeps showing the instructions that fit it.
 
-/** `hello.agent.upgrade`. `reason`: "systemd" (inPlace), or "docker", "mac_app", "foreground",
- * "disabled". An unknown reason from a newer galopin reads as the generic curl instructions. */
+/** `hello.agent.upgrade`. `reason`: "systemd" (inPlace), or "docker", "desktop_app", "mac_app",
+ * "launchd", "foreground", "disabled". An unknown reason from a newer galopin reads as the generic curl instructions. */
 export interface GalopinUpgradeCapability {
 	inPlace: boolean;
 	reason: string;
@@ -78,6 +78,7 @@ export interface UpgradeRun {
 /** What the Agents panel shows for a computer's upgrade. */
 export type UpgradeInstructions =
 	| "button" // Upgrade button
+	| "desktop_app" // a new build of the Cerea desktop app, which ships its galopin
 	| "mac_app" // through the Cerea connector app's installer
 	| "docker" // docker pull and recreate
 	| "launchd" // macOS `galopin service install`: uninstall, upgrade, install
@@ -95,6 +96,7 @@ export function upgradeInstructions(device: {
 	const cap = device.agentUpgrade;
 	if (!cap) return "curl";
 	if (cap.inPlace) return device.online ? "button" : "curl";
+	if (cap.reason === "desktop_app") return "desktop_app";
 	if (cap.reason === "mac_app") return "mac_app";
 	if (cap.reason === "launchd") return "launchd";
 	if (cap.reason === "foreground") return "foreground";
@@ -157,6 +159,9 @@ export function upgradeRunView(
 	if (finishedLongAgo(shown, now)) return null;
 	return shown;
 }
+
+/** Where a new build of the Cerea desktop app is published. */
+export const DESKTOP_RELEASES_URL = "https://github.com/paoloviviani/Cerea/releases";
 
 /** Where the installer's log of an upgrade is, on the computer. */
 export const UPGRADE_LOG_HINT = "~/.config/galopin/backups/upgrade-<date>.log";

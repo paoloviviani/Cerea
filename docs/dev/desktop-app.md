@@ -149,7 +149,9 @@ profile's `--creds`. galopin cannot tell expired from revoked in that message, s
 
 The bundled galopin is copied to `<userData>/bin/galopin` (a 0700 directory and file, checked against
 the bundled binary's hash and made again when they differ: a new app version, or a copy that was
-changed) and **every** galopin command the app runs goes through that copy, on every platform. Why:
+changed) and **every** galopin command the app runs goes through that copy, on every platform. Beside
+the copy, the app writes a marker file (`.cerea-desktop-app`) that galopin reads to know it comes with
+the app, so one it installed as a service (which the app did not start) is recognized too. Why:
 `galopin setup` and `galopin service install` record the path of the galopin that wrote them
 (`os.Executable()`), and an AppImage runs from `/tmp/.mount_<random>`, which is gone when the app
 quits and can be recreated by another local user, so a shim or a login service would run whatever
@@ -368,6 +370,20 @@ endpoint file> --key-file <userData>/winbrowser/<id>/approval-key --state-dir ..
   `extraResources`), built from `agent/` at the **same commit** as the app (`npm run galopin:build`;
   CI builds one per target). The app version pins the galopin version; there is no separate
   install. `GALOPIN_BIN` overrides it for development.
+- **Versions.** Both carry the Cerea version, the root `package.json`'s (`scripts/cerea-version.mjs`):
+  `galopin:build` (`scripts/build-galopin.mjs`) sets `-X main.agentVersion` with the flags of
+  `agent/packaging/build-dist.sh`, so Cerea does not list the computer as outdated, and
+  `npm run package` (`scripts/package.mjs`) runs electron-builder with `extraMetadata.version`, so
+  `app.getVersion()` and the file names (`Cerea-0.67.1-arm64-mac.zip`) say which release a build is.
+  `desktop/package.json` keeps `0.0.0`; nothing has to be bumped by hand.
+- **galopin knows it is the app's.** The app sets `CEREA_DESKTOP_APP=1` on every galopin it runs
+  (`galopinEnv`), and galopin then reports `hello.agent.upgrade.reason` `"desktop_app"` (PROTOCOL.md):
+  Cerea shows "galopin updates with the Cerea desktop app" with a link to the releases and no install
+  command, which would put a second galopin beside the app's. A `galopin service` the app installed runs
+  without the env var (launchd or systemd starts that one); the app instead writes a marker file next
+  to the stable copy (`<userData>/bin/.cerea-desktop-app`, written every start), and galopin reads the
+  marker beside the executable, so the service-installed galopin reports `desktop_app` and refuses the
+  installer too ("this galopin comes with the Cerea desktop app; install a new app build instead").
 - **Same state as the CLI.** It uses galopin's normal config directory (`~/.config/galopin`,
   `~/Library/Application Support/galopin`), so a user with the CLI keeps one pairing. Tests set
   `HOME` and `XDG_CONFIG_HOME` to a temp directory.
@@ -394,9 +410,8 @@ endpoint file> --key-file <userData>/winbrowser/<id>/approval-key --state-dir ..
   dialog's options (connectors-only unless "Also let Cerea use coding agents here"); galopin's own
   sign-in opens the system browser or prints the code, shown in the output log. The app never
   passes `--yes`: galopin's confirmations (an issuer on another domain) stay.
-- **Updates**: the app's update is galopin's update. `galopin upgrade` (which fetches the
-  installer from the paired Cerea) is offered with its own confirmation; with a bundled sidecar the
-  right answer later is the app's auto-update, and upgrade hidden.
+- **Updates**: the app's update is galopin's update (above: no Upgrade action in the app, and
+  Cerea offers no install command for the app's galopin). Auto-update comes later.
 
 ## Platforms and packaging
 
@@ -415,7 +430,17 @@ endpoint file> --key-file <userData>/winbrowser/<id>/approval-key --state-dir ..
   unsigned macOS app cannot auto-update).
 - **CI**: `.github/workflows/desktop.yml`: lint, unit tests, build, the Xvfb smoke (with a 20 s
   idle measurement), then Linux and macOS packages as run artifacts. Nothing is published and no
-  release is touched.
+  release is touched. The smoke tests run the app unpackaged, so every packaging job then runs
+  `scripts/check-packaged.mjs` on electron-builder's output (`release/linux-unpacked/resources`,
+  `release/mac-arm64/Cerea.app/Contents/Resources`, `release/mac/…` for x64): the runtime and
+  `node_modules/playwright-core` are there, the **packaged** Node runs `cerea-browser.mjs --help`
+  and imports `playwright-core` from a copy outside the source tree (so `desktop/node_modules` cannot
+  stand in for a missing one), and galopin and the app report the Cerea version; the deb, AppImage
+  and zip are listed too. **The trap it guards:** electron-builder (app-builder-lib 26,
+  `util/filter.js`) always drops a `node_modules` directly under an `extraResources` entry's `from`,
+  whatever its `filter`, so v0.67.0 shipped `browser-runtime/` without `playwright-core`
+  (`ERR_MODULE_NOT_FOUND` at the first browse). The entry copies from `resources` with the filter
+  `browser-runtime/**/*` instead, where that `node_modules` is no longer at the root.
 
 ## Security
 
@@ -522,7 +547,8 @@ Every Cerea release carries the desktop builds as **preview** assets: `release.s
 `scripts/release/desktop-assets.sh vX.Y.Z` after creating the GitHub release. It takes the
 `desktop` workflow's artifacts (kept 90 days) for the tag's commit, or the last earlier build when
 nothing it reads changed since (and runs the workflow on the tag when there is none), renames them
-`Cerea-Desktop-PREVIEW-<version>-…` with a SHA256SUMS file, and adds a "Cerea Desktop: preview"
+`Cerea-Desktop-PREVIEW-<version>-…` (the Cerea version the build is stamped with, so a build
+from before the release commit's version bump is never reused) with a SHA256SUMS file, and adds a "Cerea Desktop: preview"
 section to the notes (template: `scripts/release/desktop-notes.md.tmpl`). The builds are
 unsigned and not notarised, and have no auto-update: users download each new build by hand. A
 failure there never fails the Cerea release; rerun the script.

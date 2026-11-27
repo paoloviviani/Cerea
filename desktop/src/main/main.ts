@@ -27,7 +27,7 @@ import { Control } from "./control.ts";
 import { ensureNode } from "./nodeRuntime.ts";
 import { findRuntime, fromCereaPage, WindowBrowser } from "./windowBrowser.ts";
 import { linuxLogin, linuxLoginEnabled } from "./login.ts";
-import { findGalopin, Galopin } from "./galopin.ts";
+import { findGalopin, Galopin, galopinEnv } from "./galopin.ts";
 import {
 	enrollArgs,
 	galopinConfigDir,
@@ -519,7 +519,7 @@ function makeGalopin(p: Profile | undefined): Galopin {
 	const g = new Galopin(
 		galopinBin,
 		(l) => lineFor(p?.id, l),
-		{ ...process.env, GALOPIN_INSTALL_DIR: shimDir() },
+		galopinEnv(process.env, shimDir()),
 		pushState,
 		dir ? join(dir, "credentials.json") : undefined,
 		p
