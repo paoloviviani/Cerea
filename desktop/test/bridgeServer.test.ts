@@ -5,7 +5,7 @@ import { WebSocket } from "ws";
 import { afterAll, describe, expect, it } from "vitest";
 import { CdpBridge } from "../src/main/cdpBridge.ts";
 import { Control } from "../src/main/control.ts";
-import { safeEqual, startBridgeServer } from "../src/main/bridgeServer.ts";
+import { safeEqual, socketPathFor, startBridgeServer } from "../src/main/bridgeServer.ts";
 
 const host = {
 	targets: () => [],
@@ -245,6 +245,50 @@ describe("the window runtime's own secret", () => {
 			expect(server.windowEndpointFile(A)).toBeUndefined();
 		} finally {
 			await server.close();
+		}
+	});
+});
+
+describe("where the bridge socket goes", () => {
+	it("stays in the run directory when the path is short and plain", () => {
+		expect(socketPathFor("/home/u/.config/cerea-desktop/run", 501)).toBe(
+			"/home/u/.config/cerea-desktop/run/cdp.sock"
+		);
+	});
+	it("leaves a run directory with a space (macOS Application Support), which a ws+unix URL cannot carry", () => {
+		const p = socketPathFor(
+			"/Users/paolo/Library/Application Support/cerea-desktop/run",
+			501,
+			"/var/folders/xy/T"
+		);
+		expect(p).toBe("/var/folders/xy/T/cerea-desktop-501/cdp.sock");
+		expect(p).not.toContain(" ");
+	});
+	it("falls back to /tmp when the temporary directory is not URL-safe either", () => {
+		expect(socketPathFor("/a b/run", 7, "/c d/T")).toBe("/tmp/cerea-desktop-7/cdp.sock");
+	});
+	it("leaves a run directory too long for a Unix socket", () => {
+		expect(socketPathFor(`/${"x".repeat(100)}/run`, 7, "/t")).toBe("/t/cerea-desktop-7/cdp.sock");
+	});
+	it("a socket in a directory with a space is reached through the endpoint it advertises", async () => {
+		const base = mkdtempSync(join(tmpdir(), "with space-"));
+		const srv = await startBridgeServer(
+			{ connect: (t: { close(): void }) => t.close(), disconnect() {} },
+			{ runDir: join(base, "run"), uid: process.getuid?.() ?? 0, active: () => A }
+		);
+		try {
+			expect(srv.socket).not.toContain(" ");
+			const dir = mkdtempSync(join(tmpdir(), "galS-"));
+			const file = srv.addProfile(A, dir);
+			const endpoint = readFileSync(file, "utf8").trim();
+			const opened = await new Promise<boolean>((resolve) => {
+				const ws = new WebSocket(endpoint);
+				ws.on("open", () => (ws.close(), resolve(true)));
+				ws.on("error", () => resolve(false));
+			});
+			expect(opened).toBe(true);
+		} finally {
+			await srv.close();
 		}
 	});
 });
