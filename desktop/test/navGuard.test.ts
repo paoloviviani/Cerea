@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { guardCerea, guardPanel, mayOpenExternally } from "../src/main/navGuard.ts";
+import {
+	guardCerea,
+	guardPanel,
+	mayOpenExternally,
+	NavChain,
+	type GuardState,
+} from "../src/main/navGuard.ts";
 
 const origin = "https://cerea.example.org";
 const state = { origin, idp: "https://idp.example.org" };
@@ -86,6 +92,83 @@ describe("Cerea window navigation guard", () => {
 		expect(mayOpenExternally("mailto:a@b.example")).toBe(true);
 		expect(mayOpenExternally("file:///etc/passwd")).toBe(false);
 		expect(mayOpenExternally("smb://x")).toBe(false);
+	});
+});
+
+describe("navigation chain source (NavChain)", () => {
+	const idp = "https://idp.example.org";
+	const serverAddress = "https://cerea.example.org/chat/";
+	const stateOf = (): GuardState => ({ origin: "https://cerea.example.org", idp });
+
+	it("follows the first-load chain: server → /login → the identity provider", () => {
+		const guard = stateOf();
+		// The view keeps the excursion the way the main process does.
+		const apply = (r: ReturnType<typeof chain.handle>) => {
+			if (r.excursion !== undefined) guard.excursion = r.excursion ?? undefined;
+		};
+		// The initial load: the URL the view was loaded at, with nothing committed yet.
+		const chain = new NavChain(serverAddress);
+		const r1 = chain.handle(guard, "redirect", "https://cerea.example.org/chat/login");
+		apply(r1);
+		expect(r1.decision).toBe("allow");
+		expect(chain.source()).toBe("https://cerea.example.org/chat/login");
+		// Nothing is loaded yet, so the view's own URL cannot be used for this hop.
+		const r2 = chain.handle(guard, "redirect", "https://idp.example.org/authorize?client=x");
+		apply(r2);
+		expect(r2.decision).toBe("allow");
+		expect(r2.excursion?.origin).toBe(idp);
+		const r3 = chain.handle(guard, "redirect", "https://idp.example.org/consent");
+		apply(r3);
+		expect(r3.decision).toBe("allow");
+		expect(chain.source()).toBe("https://idp.example.org/consent");
+	});
+
+	it("follows a chain that starts from a committed navigation", () => {
+		const guard = stateOf();
+		const chain = new NavChain(serverAddress);
+		const apply = (r: ReturnType<typeof chain.handle>) => {
+			if (r.excursion !== undefined) guard.excursion = r.excursion ?? undefined;
+		};
+		// The first load commits, then a later navigation to a page that redirects.
+		const nav = chain.handle(guard, "navigate", serverAddress);
+		apply(nav);
+		expect(nav.decision).toBe("allow");
+		const r = chain.handle(guard, "navigate", "https://cerea.example.org/chat/login");
+		apply(r);
+		expect(r.decision).toBe("allow");
+		const red = chain.handle(guard, "redirect", "https://idp.example.org/authorize?client=x");
+		apply(red);
+		expect(red.decision).toBe("allow");
+		expect(red.excursion?.origin).toBe(idp);
+	});
+
+	it("keeps a chain that starts elsewhere external", () => {
+		const guard = stateOf();
+		// A chain starting somewhere that is not the server (or an excursion it reached).
+		const chain = new NavChain("https://evil.example/");
+		expect(
+			chain.handle(guard, "redirect", "https://idp.example.org/authorize?client=x").decision
+		).toBe("external");
+	});
+
+	it("keeps a redirect to a third site external, and leaves the chain where it was", () => {
+		const guard = stateOf();
+		const chain = new NavChain(serverAddress);
+		expect(chain.handle(guard, "navigate", "https://cerea.example.org/chat/login").decision).toBe(
+			"allow"
+		);
+		const r = chain.handle(guard, "redirect", "https://evil.example/");
+		expect(r.decision).toBe("external");
+		expect(chain.source()).toBe("https://cerea.example.org/chat/login");
+	});
+
+	it("keeps a plain navigate to the identity provider external", () => {
+		const guard = stateOf();
+		const chain = new NavChain(serverAddress);
+		expect(chain.handle(guard, "navigate", "https://idp.example.org/login").decision).toBe(
+			"external"
+		);
+		expect(chain.source()).toBe(serverAddress);
 	});
 });
 

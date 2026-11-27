@@ -138,6 +138,44 @@ const fake2 = http.createServer((req, res) => {
 await new Promise((r) => fake2.listen(0, "127.0.0.1", r));
 const address2 = `http://127.0.0.1:${fake2.address().port}`;
 
+// A fake identity provider and a stand-in Cerea whose first load 302s straight to it: the
+// app must stay in its own window through the whole chain (the sign-in regression).
+const fakeIdp = http.createServer((req, res) => {
+	const send = (type, body) => (res.setHeader("content-type", type), res.end(body));
+	if (req.url?.startsWith("/authorize"))
+		send(
+			"text/html",
+			"<!doctype html><title>Fake IdP page</title><h1>Sign in at the fake IdP</h1>"
+		);
+	else send("text/html", "<!doctype html><title>Fake IdP</title>");
+});
+await new Promise((r) => fakeIdp.listen(0, "127.0.0.1", r));
+const idpAddress = `http://127.0.0.1:${fakeIdp.address().port}`;
+const fakeRedirect = http.createServer((req, res) => {
+	const send = (type, body) => (res.setHeader("content-type", type), res.end(body));
+	if (req.url === "/galopin/enroll.json")
+		send(
+			"application/json",
+			JSON.stringify({
+				issuer: `${idpAddress}/`,
+				gateway: "https://llm3.example.org",
+				clientId: "opencode-enrollment",
+				sessionCookie: "hf-chat",
+			})
+		);
+	else if (req.url === "/manifest.webmanifest")
+		send("application/manifest+json", JSON.stringify({ name: "Redirect Cerea", icons: [] }));
+	else if (req.url === "/") {
+		res.writeHead(302, { location: "/login" });
+		res.end();
+	} else if (req.url === "/login") {
+		res.writeHead(302, { location: `${idpAddress}/authorize?client=smoke` });
+		res.end();
+	} else send("text/html", "<!doctype html><title>Redirect Cerea</title>");
+});
+await new Promise((r) => fakeRedirect.listen(0, "127.0.0.1", r));
+const address3 = `http://127.0.0.1:${fakeRedirect.address().port}`;
+
 const fx = await startFixtures();
 const galopinBin = join(root, "resources", "galopin", "galopin");
 const env = {
@@ -782,6 +820,34 @@ try {
 		step(
 			"switch back: the first server and its sessions are as they were, and the runtime drives its panel again"
 		);
+
+		// 3b. the first sign-in: a profile whose server 302s straight to its identity provider stays
+		// in the app window through the whole chain (the regression: the window used to stay blank
+		// and the system browser took the sign-in).
+		const added3 = await hook(`addprofile ${address3}`, "PROFILES");
+		assert.equal(added3.length, 3, JSON.stringify(added3));
+		assert.equal(added3[2].name, "Redirect Cerea");
+		assert.equal(added3[2].active, true, "adding the profile switches to it");
+		let excursion;
+		for (let i = 0; i < 60; i++) {
+			const c = await hook("cerea", "CEREA");
+			if (String(c.url ?? "").startsWith(idpAddress)) {
+				excursion = c;
+				break;
+			}
+			await new Promise((r) => setTimeout(r, 250));
+		}
+		assert.ok(
+			excursion,
+			`the Cerea view reached the identity provider: ${JSON.stringify(excursion)}`
+		);
+		assert.match(excursion.title, /Fake IdP/);
+		const back3 = await hook("switchprofile 0", "PROFILES");
+		assert.equal(back3[0].active, true);
+		await new Promise((r) => setTimeout(r, 2000));
+		const backCereA = await hook("cerea", "CEREA");
+		assert.equal(backCereA.url, `${address}/`);
+		step("first sign-in: a first load that 302s to the identity provider stays in the app window");
 	}
 
 	// 4. idle energy: the runtime goes away, then CPU is measured visible and hidden
@@ -816,5 +882,7 @@ try {
 	await fx.close?.();
 	fake.close();
 	fake2.close();
+	fakeRedirect.close();
+	fakeIdp.close();
 }
 process.exit(failed ? 1 : 0);

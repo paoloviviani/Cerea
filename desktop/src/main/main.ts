@@ -42,7 +42,7 @@ import { APP_LOG, ProfileLogs } from "./profileLogs.ts";
 import { mcpSummary, signInState, toolsInfo } from "./galopinInfo.ts";
 import { readCreds } from "./pairing.ts";
 import { notPairedMessage, refreshProfile, setupRefusal, type GuardDeps } from "./profileGuard.ts";
-import { guardCerea, mayOpenExternally, UI_CSP, type GuardState } from "./navGuard.ts";
+import { guardCerea, mayOpenExternally, NavChain, UI_CSP, type GuardState } from "./navGuard.ts";
 import { resolveUiFile, UI_ORIGIN } from "./uiProtocol.ts";
 import { cappedFetch, iconFetcher } from "./probeFetch.ts";
 import {
@@ -292,11 +292,16 @@ function makeCereaView(profile: Profile): WebContentsView {
 		},
 	});
 	const wc = view.webContents;
+	// Where each navigation chain started, and where its hops go: the URL the view is loaded at
+	// (the initial `loadURL`, which fires no `will-navigate`), then each allowed hop. The view's own
+	// URL cannot be used here: while the first load's redirects are still running nothing is
+	// committed, so it would read the empty page instead of the last page the chain started from.
+	const chain = new NavChain(profile.server.address + "/");
 	const apply = (r: ReturnType<typeof guardCerea>) => {
 		if (r.excursion !== undefined) guard.excursion = r.excursion ?? undefined;
 	};
 	wc.on("will-navigate", (e, url) => {
-		const r = guardCerea(guard, "navigate", url, wc.getURL());
+		const r = chain.handle(guard, "navigate", url);
 		apply(r);
 		if (r.decision !== "allow") {
 			e.preventDefault();
@@ -304,7 +309,7 @@ function makeCereaView(profile: Profile): WebContentsView {
 		}
 	});
 	wc.on("will-redirect", (e, url) => {
-		const r = guardCerea(guard, "redirect", url, wc.getURL());
+		const r = chain.handle(guard, "redirect", url);
 		apply(r);
 		if (r.decision !== "allow") {
 			e.preventDefault();
@@ -312,7 +317,7 @@ function makeCereaView(profile: Profile): WebContentsView {
 		}
 	});
 	wc.setWindowOpenHandler(({ url }) => {
-		const r = guardCerea(guard, "window-open", url, wc.getURL());
+		const r = chain.handle(guard, "window-open", url);
 		if (r.decision === "allow") void wc.loadURL(url);
 		else if (r.decision === "external" && mayOpenExternally(url)) void shell.openExternal(url);
 		return { action: "deny" };

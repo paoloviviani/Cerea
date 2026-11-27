@@ -36,6 +36,41 @@ function secureOrLoopback(u: URL): boolean {
 
 export type NavKind = "navigate" | "redirect" | "window-open";
 
+/**
+ * The source of the navigation chain a view is running, tracked per view. A redirect can start
+ * from a page that has not committed yet (the first `loadURL` of a profile: nothing is loaded, so
+ * `wc.getURL()` is empty), and the chain needs the exact URL it started from and every hop of it
+ * — never the view's current URL. This remembers it: the URL the view was loaded at, then the
+ * URL of every allowed navigation or redirect.
+ */
+export class NavChain {
+	/** The URL the current chain started at, or the last allowed hop of it. */
+	private from: string;
+
+	constructor(initialUrl: string) {
+		this.from = initialUrl;
+	}
+
+	/** The URL the next navigation or redirect of this chain started from. */
+	source(): string {
+		return this.from;
+	}
+
+	/** The guard decision for a navigation to `url`, and the chain's new source when allowed. */
+	handle(
+		state: GuardState,
+		kind: NavKind,
+		url: string,
+		now = Date.now()
+	): ReturnType<typeof guardCerea> {
+		const r = guardCerea(state, kind, url, this.from, now);
+		// An allowed navigation commits the page: the next hop starts from it. A refused one
+		// follows nothing, so the chain stays where it is.
+		if (r.decision === "allow") this.from = url;
+		return r;
+	}
+}
+
 /** The Cerea window: what to do with a navigation to `url`, started from `from`. */
 export function guardCerea(
 	state: GuardState,
