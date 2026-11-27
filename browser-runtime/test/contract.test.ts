@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
+import { writeFile } from "node:fs/promises";
 import { signGrant } from "../src/grants.ts";
 import { parseKey } from "../src/keys.ts";
 import { TEST_KEY, rig, type Rig } from "./helpers.ts";
@@ -51,7 +52,9 @@ describe("signed grants", () => {
 		const grant = r.grant(snap, action);
 		const keyless = await rig();
 		try {
-			await keyless.session.close();
+			(
+				keyless.session as unknown as { options: { keyFileWaitMs?: number } }
+			).options.keyFileWaitMs = 0;
 			(keyless.session as unknown as { options: { keyFile?: string } }).options.keyFile =
 				"/nonexistent/key";
 			const snap2 = await keyless.goto("/form");
@@ -63,6 +66,66 @@ describe("signed grants", () => {
 			await keyless.close();
 		}
 		assert.ok(grant.sig);
+	});
+
+	it("says what is missing for the path that owns the browser, and never asks for a command", async () => {
+		// The app path: the desktop app runs the runtime over CDP with its own key-file. The
+		// browser is launched as usual first, then the session is put where the app would be.
+		const app = await rig();
+		try {
+			await app.goto("/form");
+			(app.session as unknown as { options: { keyFileWaitMs?: number } }).options.keyFileWaitMs = 0;
+			(app.session as unknown as { options: { keyFile?: string } }).options.keyFile =
+				"/nonexistent/key";
+			(app.session as unknown as { options: { connectFile?: string } }).options.connectFile =
+				"/nonexistent/app-key";
+			const snap = await app.snapshot();
+			const act = { type: "click" as const, ref: app.ref(snap, "button", "Save") };
+			const res = await app.act([act], [app.grant(snap, act)]);
+			assert.equal(res.results[0].refused, "approval_required");
+			assert.match(res.results[0].error ?? "", /The app could not set up approvals/);
+			assert.doesNotMatch(res.results[0].error ?? "", /galopin browser enable/);
+		} finally {
+			await app.close();
+		}
+		// The computer path: galopin owns the browser and the key file.
+		const computer = await rig();
+		try {
+			await computer.goto("/form");
+			(
+				computer.session as unknown as { options: { keyFileWaitMs?: number } }
+			).options.keyFileWaitMs = 0;
+			(computer.session as unknown as { options: { keyFile?: string } }).options.keyFile =
+				"/nonexistent/key";
+			const snap = await computer.snapshot();
+			const act = { type: "click" as const, ref: computer.ref(snap, "button", "Save") };
+			const res = await computer.act([act], [computer.grant(snap, act)]);
+			assert.equal(res.results[0].refused, "approval_required");
+			assert.match(res.results[0].error ?? "", /no approval key yet/);
+			assert.doesNotMatch(res.results[0].error ?? "", /The app could not set up approvals/);
+		} finally {
+			await computer.close();
+		}
+	});
+
+	it("waits a short time for the app's key file to appear, then accepts the grant", async () => {
+		const keyless = await rig();
+		try {
+			const snap2 = await keyless.goto("/form");
+			// The app path, so the wait applies: the file appears 300 ms after the action starts.
+			const lateKey = `${keyless.profile}/approval-key`;
+			(keyless.session as unknown as { options: { keyFile?: string } }).options.keyFile = lateKey;
+			(keyless.session as unknown as { options: { connectFile?: string } }).options.connectFile =
+				"/nonexistent/app-key";
+			const act2 = { type: "click" as const, ref: keyless.ref(snap2, "button", "Save") };
+			setTimeout(() => {
+				void writeFile(lateKey, TEST_KEY.toString("base64url"), { mode: 0o600 });
+			}, 300);
+			const res = await keyless.act([act2], [keyless.grant(snap2, act2)]);
+			assert.equal(res.results[0].ok, true);
+		} finally {
+			await keyless.close();
+		}
 	});
 });
 

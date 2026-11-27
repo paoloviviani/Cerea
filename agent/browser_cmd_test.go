@@ -829,3 +829,95 @@ func TestBrowserSetupAndEnableForTheDesktopAppInstallNoBrowserAndRegisterConnect
 		t.Errorf("ceiling %v", e.AllowedTools)
 	}
 }
+
+func TestKeyFileReady(t *testing.T) {
+	dir := t.TempDir()
+	good := filepath.Join(dir, "key")
+	if keyFileReady(good) {
+		t.Error("a missing file is ready")
+	}
+	if err := os.WriteFile(good, []byte("not-base64"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if keyFileReady(good) {
+		t.Error("an undecodable file is ready")
+	}
+	if err := os.WriteFile(good, []byte("short"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if keyFileReady(good) {
+		t.Error("a too-short key is ready")
+	}
+	key := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{9}, 32))
+	if err := os.WriteFile(good, []byte(key), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !keyFileReady(good) {
+		t.Error("a good key file is not ready")
+	}
+}
+
+func TestEnsureBrowserKeyFetchesWithOneRetry(t *testing.T) {
+	key := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
+	res := json.RawMessage(`{"key":"` + key + `","alg":"HMAC-SHA256"}`)
+	path := filepath.Join(t.TempDir(), "key")
+	// The key is already there: no fetch at all.
+	if err := fetchBrowserKey(context.Background(), &fakeCaller{supports: true, res: res}, path); err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeCaller{supports: true, res: res}
+	if oerr := ensureBrowserKey(context.Background(), f, path); oerr != nil {
+		t.Errorf("a ready key fetched anyway: %v", oerr)
+	}
+	if len(f.ops) != 0 {
+		t.Errorf("a ready key was fetched: %v", f.ops)
+	}
+	// A missing key fetches, writes the file, and succeeds.
+	path = filepath.Join(t.TempDir(), "key")
+	f = &fakeCaller{supports: true, res: res}
+	if oerr := ensureBrowserKey(context.Background(), f, path); oerr != nil {
+		t.Fatalf("%v", oerr)
+	}
+	if len(f.ops) != 1 || f.ops[0] != "browser.key" {
+		t.Errorf("ops %v", f.ops)
+	}
+	if b, _ := os.ReadFile(path); strings.TrimSpace(string(b)) != key {
+		t.Error("the key was not written")
+	}
+	// A failing link is tried again, once, and then the error is returned: the call goes on.
+	path = filepath.Join(t.TempDir(), "key")
+	f = &fakeCaller{supports: true, err: &link.OpError{Code: "unavailable", Message: "off"}}
+	if oerr := ensureBrowserKey(context.Background(), f, path); oerr == nil {
+		t.Error("a failing link answered")
+	}
+	if len(f.ops) != 2 { // the fetch and its one retry
+		t.Errorf("ops %v: one retry then stop", f.ops)
+	}
+	// A key that is not readable is fetched again: the file is not treated as ready.
+	path = filepath.Join(t.TempDir(), "key")
+	if err := os.WriteFile(path, []byte("short"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f = &fakeCaller{supports: true, res: res}
+	if oerr := ensureBrowserKey(context.Background(), f, path); oerr != nil {
+		t.Errorf("%v", oerr)
+	}
+	if len(f.ops) != 1 {
+		t.Errorf("ops %v", f.ops)
+	}
+}
+
+func TestBrowserKeyReadyOnlyActsOnTheBrowserConnectorActions(t *testing.T) {
+	mc := &machine{}
+	hook := mc.browserKeyReady(t.TempDir())
+	if oerr := hook(context.Background(), &mcpconn.Entry{Name: "notes"}, "act"); oerr != nil {
+		t.Errorf("another connector was held up: %+v", oerr)
+	}
+	if oerr := hook(context.Background(), &mcpconn.Entry{Name: browserConnectorName}, "snapshot"); oerr != nil {
+		t.Errorf("a read-only tool was held up: %+v", oerr)
+	}
+	// With no link there is nothing to fetch from: the action goes on and the runtime refuses it.
+	if oerr := hook(context.Background(), &mcpconn.Entry{Name: browserConnectorName}, "act"); oerr == nil || !strings.Contains(oerr.Message, "not reachable") {
+		t.Errorf("%+v", oerr)
+	}
+}

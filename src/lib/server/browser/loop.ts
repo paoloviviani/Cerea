@@ -57,7 +57,8 @@ export type StoppedReason =
 	| "denied"
 	| "lease_lost"
 	| "busy"
-	| "verification";
+	| "verification"
+	| "approval_refused";
 
 export interface BrowseFile {
 	name: string;
@@ -76,6 +77,12 @@ export interface BrowseResult {
 	stopped_reason?: StoppedReason;
 	/** What went wrong with the runtime, when that is known: only refines the plain reason. */
 	stop_detail?: StopDetail;
+	/**
+	 * The runtime's own words for why the approval was refused, verbatim, when that is known. The
+	 * card shows it instead of the plain reason, because it is the one thing that can say what went
+	 * wrong in a way a user can act on.
+	 */
+	stop_note?: string;
 	/** A plain sentence for the chat model to pass on to the user (for example: the tab is not visible). */
 	hint?: string;
 }
@@ -107,6 +114,8 @@ export const PLAIN_STOP_REASONS: Record<StoppedReason, string> = {
 	lease_lost: "another task took over the browser",
 	busy: "another task is using the browser at the moment",
 	verification: "a check on the page (such as a captcha or a sign-in) was not completed",
+	// The runtime refused a commit that was approved; the card shows the runtime's own words.
+	approval_refused: "the approval could not be applied by the browser",
 };
 
 const PLAIN_STOP_DETAILS: Record<StopDetail, string> = {
@@ -128,6 +137,33 @@ export function plainStopReason(reason: StoppedReason, detail?: StopDetail): str
 /** The runtime could not use the app's browser because another task has it (the window's own wording). */
 const isBusy = (err: BrowserRuntimeError): boolean =>
 	/another task is using this browser/i.test(err.message);
+
+/**
+ * What a refused commit means, from the runtime's own words. A lapsed approval or a page that moved
+ * since the approval was given is recoverable by ONE fresh ask; everything else (no key, a bad
+ * signature, an id already spent, an expiry that is out of this computer's clock) is not: the task
+ * stops at once. Anything that is not an approval refusal is not this function's business.
+ */
+function approvalRefusal(
+	r: { refused?: string; error?: string } | undefined
+): "fresh_ask" | "stop" | null {
+	if (!r || !r.refused) return null;
+	if (
+		r.refused !== "approval_required" &&
+		r.refused !== "approval_mismatch" &&
+		r.refused !== "approval_expired"
+	)
+		return null;
+	const text = r.error ?? "";
+	if (/no approval key|could not set up approvals/i.test(text)) return "stop";
+	if (/signature is not valid/i.test(text)) return "stop";
+	if (/already used/i.test(text)) return "stop";
+	if (/expiry is too far/i.test(text)) return "stop";
+	if (r.refused === "approval_expired") return "fresh_ask";
+	if (/does not match this action as the page is now/i.test(text)) return "fresh_ask";
+	// A commit the runtime refused for any other approval reason: do not ask again either.
+	return "stop";
+}
 
 /** How a runtime failure ends the task: `busy` when another task holds the panel, else `runtime_error`. */
 function runtimeStop(err: BrowserRuntimeError): Stop {
@@ -504,7 +540,9 @@ const short = (text: string, max: number) =>
 class Stop extends Error {
 	constructor(
 		readonly reason: StoppedReason,
-		readonly detail?: StopDetail
+		readonly detail?: StopDetail,
+		/** A sentence for the card (the runtime's own words), shown instead of the plain reason. */
+		readonly note?: string
 	) {
 		super(reason);
 	}
@@ -602,6 +640,7 @@ async function runInner(
 	const elements = new Map<string, SnapshotElement>();
 	let stopped: StoppedReason | undefined;
 	let stopDetail: StopDetail | undefined;
+	let stopNote: string | undefined;
 	/** Grant ids this task issued: a download counts only when an approved action made it. */
 	const issued = new Set<string>();
 
@@ -1146,9 +1185,11 @@ async function runInner(
 			}
 
 			// The task's own first move: the runtime cannot know it is the first, so it gets a
-			// grant, bound to the action as the runtime classifies it (a new site).
+			// grant, bound to the action as the runtime classifies it (a new site). The id is a
+			// fresh one per use: the runtime spends every non-`site:` id, so an id that is
+			// the same for every task would be refused on the second one.
 			if (!approvedBy && first && action.type === "navigate") {
-				approvedBy = `start:${classification.targetHost ?? "start"}`;
+				approvedBy = `start:${classification.targetHost ?? "start"}:${randomUUID()}`;
 			}
 			if (approvedBy) {
 				issued.add(approvedBy);
@@ -1207,6 +1248,142 @@ async function runInner(
 				index += 1;
 				pendingPage = await refresh();
 			} else {
+				// A commit that was approved but refused by the runtime is never asked again by
+				// mistake: the runtime said what is wrong, and the right move is decided by that,
+				// not by the model.
+				const approvalRefusalNow = approvalRefusal(r);
+				if (approvalRefusalNow !== null) {
+					const text = short(sanitizeText(r?.error ?? "failed"), 200);
+					if (approvalRefusalNow === "stop") {
+						// No key, a bad signature, an id already spent, an expiry out of this computer's
+						// clock: nothing the user can do by approving again, so the task stops.
+						fail("refused", short(text, 80));
+						note(lines.length + 1, sentence, `FAILED (${fenceInline(text)})`);
+						throw new Stop("approval_refused", undefined, text);
+					}
+					// At most one fresh ask: the approval may have lapsed, or the page may have moved
+					// since it was given (the runtime's digest no longer matches). Look again, then ask
+					// once, on what is there now.
+					await assertLease();
+					if (action.type === "use_tab") await relistTabs();
+					else pendingPage = await refresh();
+					const staleRef = wantedRef !== undefined && !elements.has(wantedRef);
+					const fresh = staleRef ? undefined : evaluate(action);
+					if (staleRef || !fresh || fresh.decision.verdict === "deny") {
+						// The page moved too much: there is nothing to ask about. The model is told,
+						// and the batch stops.
+						const why =
+							staleRef || !fresh ? "the page changed while you were asked" : fresh.decision.reason;
+						fail("denied", staleRef ? "page changed" : "not allowed");
+						note(
+							lines.length + 1,
+							sentence,
+							`REFUSED (${why}). Nothing was run; the page is shown below. Look again and choose, or stop.`
+						);
+						skippedLine();
+						denied = true;
+						deniedDetail = staleRef ? "page_changed" : "blocked";
+						halted = true;
+						break;
+					}
+					const freshSentence = short(describeAction(action, fresh.ctx), 120);
+					const allowanceFresh =
+						fresh.decision.verdict === "ask" && scopes
+							? scopeAllowanceKey(action, fresh.classification, finalUrl, fresh.ctx.element)
+							: undefined;
+					const refNow = "ref" in action ? action.ref : undefined;
+					const screenshot = refNow
+						? await runtime.screenshot(refNow, deps.signal).catch(() => undefined)
+						: undefined;
+					const askedAt = now();
+					observer?.waiting?.(freshSentence);
+					const answer = await deps.approve(
+						{
+							sentence: freshSentence,
+							site: fresh.classification.targetHost ?? hostOf(finalUrl) ?? finalUrl,
+							url: urlWithoutFragment(
+								action.type === "use_tab" ? (fresh.ctx.tab?.url ?? finalUrl) : finalUrl
+							),
+							reason: fresh.classification.reason,
+							action,
+							...(allowanceFresh ? { siteScope: true } : {}),
+							...(screenshot ? { screenshot } : {}),
+						},
+						deps.signal
+					);
+					waitedMs += now() - askedAt;
+					observer?.waiting?.(null);
+					if (answer.verdict === "aborted") throw new Stop("aborted");
+					if (answer.verdict !== "approved") {
+						const why =
+							answer.verdict === "expired" ? "nobody answered in time" : "the user refused it";
+						fail("denied", answer.verdict === "expired" ? "no answer" : "refused by you");
+						note(
+							lines.length + 1,
+							freshSentence,
+							`REFUSED (${why}). The action did not happen. Do not retry it or get the same result another way; choose a different path, or stop and explain.`
+						);
+						skippedLine();
+						denied = true;
+						deniedDetail = answer.verdict === "expired" ? "no_answer" : "declined";
+						halted = true;
+						break;
+					}
+					if (answer.scope === "site" && allowanceFresh) {
+						await deps.scopes?.add(allowanceFresh).catch(() => undefined);
+					}
+					// A fresh grant for the fresh approval, bound to the action as the page is now.
+					const freshId = answer.id;
+					issued.add(freshId);
+					const outcome2 = await guarded(() =>
+						runtime.act(
+							[action],
+							[
+								makeGrant(
+									deps.grantKey,
+									{
+										index: 0,
+										id: freshId,
+										digest: actionDigest(action, { ...fresh.ctx, firstNavigation: false }),
+									},
+									now()
+								),
+							],
+							deps.signal
+						)
+					);
+					finalUrl = outcome2.url;
+					currentTitle = outcome2.title;
+					assertSite();
+					const r2 = outcome2.results[0];
+					if (r2?.ok) {
+						if (action.type === "use_tab") {
+							shared.adopted.add(action.tab);
+							const tabHost = fresh.ctx.tab ? hostOf(fresh.ctx.tab.url) : undefined;
+							if (tabHost) adoptedSites.add(siteOf(tabHost));
+						}
+						fail("ok", short(sanitizeText(r2.outcome ?? "done"), 80));
+						note(
+							lines.length + 1,
+							freshSentence,
+							`${fenceInline(r2.outcome ?? "ok")} (approved by the user once more)`
+						);
+						if (outcome2.downloads?.length) {
+							lines.push(
+								`The page offered ${outcome2.downloads.map((d) => fenceInline(d.name)).join(", ")} for download; call download to collect it.`
+							);
+						}
+						index += 1;
+						pendingPage = await refresh();
+					} else {
+						// Refused again: the approval is not retried further, the task stops.
+						const text2 = short(sanitizeText(r2?.error ?? "failed"), 200);
+						fail("refused", short(text2, 80));
+						note(lines.length + 1, freshSentence, `FAILED (${fenceInline(text2)})`);
+						throw new Stop("approval_refused", undefined, text2);
+					}
+					continue;
+				}
 				fail(r?.refused ? "refused" : "error", short(sanitizeText(r?.error ?? "failed"), 80));
 				note(lines.length + 1, sentence, `FAILED (${fenceInline(r?.error ?? "failed")})`);
 				skippedLine();
@@ -1569,6 +1746,7 @@ async function runInner(
 		if (err instanceof Stop) {
 			stopped = err.reason;
 			stopDetail = err.detail;
+			stopNote = err.note;
 		} else if (err instanceof ModelFailure) {
 			stopped = "model_error";
 			observer?.activity?.(short(err.message, 80));
@@ -1624,6 +1802,7 @@ async function runInner(
 		steps: rounds,
 		...(stopped ? { stopped_reason: stopped } : {}),
 		...(stopDetail ? { stop_detail: stopDetail } : {}),
+		...(stopNote ? { stop_note: stopNote } : {}),
 		...(tabsListed && !userTabFound && refersToUserTab(request.goal)
 			? { hint: tabNotVisibleHint(deps.machineName, browserStarted) }
 			: {}),

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"galopin/internal/link"
@@ -86,5 +87,51 @@ func (mc *machine) browserBeforeStart(stateDir string) func(context.Context, *mc
 			calls = mc.lnk
 		}
 		return fetchBrowserKey(ctx, calls, pathsFor(stateDir).key)
+	}
+}
+
+// keyFileReady reports whether the key file holds a key the runtime would accept: a file at least
+// this long, decodable as base64url, like the runtime's own key read.
+func keyFileReady(path string) bool {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(string(b)))
+	return err == nil && len(raw) >= 16
+}
+
+// ensureBrowserKey makes sure the runtime has its key before an action runs under one: the key
+// file is read first, and a missing or unusable one is fetched with a single retry. On failure the
+// error is returned (and logged by the caller), never fatal to the call: the action goes on, and
+// the runtime refuses what it cannot do, with its own words.
+func ensureBrowserKey(ctx context.Context, calls machineCaller, path string) *mcpconn.OpenError {
+	if keyFileReady(path) {
+		return nil
+	}
+	if err := fetchBrowserKey(ctx, calls, path); err == nil {
+		return nil
+	}
+	return fetchBrowserKey(ctx, calls, path)
+}
+
+// browserKeyReady is the hub hook: the first approved action of a task must run with the key in
+// place, so the key is refreshed just before the call leaves the hub (only the one tool that
+// runs an action under a grant: the runtime refuses a commit-class action with none).
+func (mc *machine) browserKeyReady(stateDir string) func(context.Context, *mcpconn.Entry, string) *mcpconn.OpenError {
+	return func(ctx context.Context, e *mcpconn.Entry, tool string) *mcpconn.OpenError {
+		if e.Name != browserConnectorName || tool != "act" {
+			return nil
+		}
+		var calls machineCaller
+		if mc.lnk != nil {
+			calls = mc.lnk
+		}
+		// Fetching with a slow link must not stall the message loop for too long: the
+		// deadline bounds the fetch and its one retry, so a missing key costs a bounded
+		// wait, never an unbounded one.
+		ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		defer cancel()
+		return ensureBrowserKey(ctx, calls, pathsFor(stateDir).key)
 	}
 }

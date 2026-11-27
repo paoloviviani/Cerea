@@ -93,6 +93,12 @@ export interface SessionOptions {
 	lentMaxMs?: number;
 	/** How long a page may stay silent after a failed action before it is dropped (default 8 s). */
 	probeMs?: number;
+	/**
+	 * How long a commit is held for the desktop app's key file to appear before it is refused.
+	 * The app writes the file as it starts, and an approved action can reach the runtime first.
+	 * The default is `KEY_FILE_WAIT_MS`; set to 0 to never wait (tests).
+	 */
+	keyFileWaitMs?: number;
 	/** The computer's name on the start page (default: its host name). */
 	computerName?: string;
 	/** Make the profile recognisable (theme colour, name, start page). Default true. */
@@ -130,6 +136,13 @@ const KEPT_TTL_MS = 24 * 60 * 60_000;
 const LENT_TTL_MS = 60 * 60_000;
 /** A tab is lent for at most this long from the approval that lent it, however often it is used. */
 const LENT_MAX_MS = 8 * 60 * 60_000;
+/**
+ * How long the runtime waits for the desktop app's key file to appear when an approved action
+ * reaches it first. The app writes the file as it starts; the key is read fresh at every check
+ * (never re-read from the environment: it is fixed for the process).
+ */
+const KEY_FILE_WAIT_MS = 2_000;
+const KEY_FILE_POLL_MS = 250;
 
 interface Entry {
 	line: string;
@@ -1822,7 +1835,7 @@ export class BrowserSession {
 			const klass = element?.metaUnknown ? "commit" : classified.class;
 			const grant = approvals?.find((g) => g.index === index);
 			if (klass === "commit") {
-				const refusal = this.checkApproval(actionDigest(action, ctx), grant);
+				const refusal = await this.checkApproval(actionDigest(action, ctx), grant);
 				if (refusal) return refusal;
 				// Spent before it runs: an approval that ran once (or half ran) is never run again.
 				this.spend(grant!);
@@ -1906,7 +1919,7 @@ export class BrowserSession {
 		const title = clean(await safeTitle(page), 300);
 		const url = stripUserUrl(page.url());
 		const grant = approvals?.find((g) => g.index === index);
-		const refusal = this.checkApproval(
+		const refusal = await this.checkApproval(
 			actionDigest(
 				{ type: "use_tab", tab: tabId },
 				{ currentUrl: "", tab: { id: tabId, url, title } }
@@ -1935,10 +1948,10 @@ export class BrowserSession {
 	 * The runtime's half of ADR 0116 §4: a commit runs only with a grant that Cerea signed, that has
 	 * not expired and that was issued for exactly this action as the page is now.
 	 */
-	private checkApproval(
+	private async checkApproval(
 		digest: string,
 		grant: ApprovalGrant | undefined
-	): ActionResult | undefined {
+	): Promise<ActionResult | undefined> {
 		if (!grant) {
 			return {
 				ok: false,
@@ -1947,14 +1960,30 @@ export class BrowserSession {
 					"This action needs the user's approval first (it submits, spends, sends, deletes or leaves the site).",
 			};
 		}
-		const key = readKey({ keyFile: this.options.keyFile });
-		const verdict: GrantCheck = checkGrant(grant, digest, key);
+		let key = readKey({ keyFile: this.options.keyFile });
+		let verdict: GrantCheck = checkGrant(grant, digest, key);
+		if (verdict === "no_key" && (this.options.connect || this.options.connectFile)) {
+			// The desktop app writes the key file as it starts, and an approved action can reach
+			// this runtime before the file exists: wait a bounded time for it, then check once more.
+			const waitMs = this.options.keyFileWaitMs ?? KEY_FILE_WAIT_MS;
+			const deadline = Date.now() + waitMs;
+			while (Date.now() < deadline) {
+				await sleep(KEY_FILE_POLL_MS);
+				key = readKey({ keyFile: this.options.keyFile });
+				if (key) break;
+			}
+			verdict = checkGrant(grant, digest, key);
+		}
 		if (verdict === "no_key") {
+			// The desktop app runs this runtime over CDP (--connect-file) with its own key-file; the
+			// app, not galopin, is what has to be told nothing is set up. The computer path is galopin's.
 			return {
 				ok: false,
 				refused: "approval_required",
 				error:
-					"This runtime has no approval key, so it cannot accept approvals. Run `galopin browser enable` again.",
+					this.options.connect || this.options.connectFile
+						? "The app could not set up approvals for its browser; see the app's log."
+						: "This computer's browser has no approval key yet; Cerea hands it over the first time the browser is used; if this keeps happening, restart galopin.",
 			};
 		}
 		if (verdict === "exp_too_far") {

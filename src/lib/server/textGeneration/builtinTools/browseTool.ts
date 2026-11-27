@@ -178,7 +178,7 @@ function cardStatus(result: BrowseResult): MessageBrowseUpdate["status"] {
  * step count (those go to the logs and the card's details only).
  */
 export function modelFacingResult(result: BrowseResult): Record<string, unknown> {
-	const { stopped_reason, stop_detail, steps: _steps, hint, ...rest } = result;
+	const { stopped_reason, stop_detail, stop_note, steps: _steps, hint, ...rest } = result;
 	void _steps;
 	return {
 		...rest,
@@ -189,6 +189,9 @@ export function modelFacingResult(result: BrowseResult): Record<string, unknown>
 						"Tell the user in plain words what stopped the task. Do not mention internal codes or step counts.",
 				}
 			: {}),
+		// The runtime's own words for why an approval was refused (for example: the app's browser
+		// has no key yet): how the user is told what to do next.
+		...(stop_note ? { stop_note } : {}),
 		...(hint ? { tell_the_user_also: hint } : {}),
 	};
 }
@@ -460,6 +463,7 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 			const ending: {
 				finalUrl?: string;
 				stoppedReason?: string;
+				stopNote?: string;
 				leftOpen?: string;
 				pageChanged?: boolean;
 			} = {};
@@ -477,6 +481,7 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 					steps: [...steps.values()].slice(-MAX_STEPS_SHOWN),
 					...(ending.finalUrl ? { finalUrl: ending.finalUrl } : {}),
 					...(ending.stoppedReason ? { stoppedReason: ending.stoppedReason } : {}),
+					...(ending.stopNote ? { stopNote: ending.stopNote } : {}),
 					...(ending.leftOpen !== undefined ? { leftOpen: ending.leftOpen } : {}),
 					...(ending.pageChanged ? { pageChanged: true } : {}),
 				};
@@ -588,6 +593,7 @@ export function createBrowseTool(params: BrowseToolParams): NestedAgentBuiltinTo
 			waitingOn = undefined;
 			ending.finalUrl = result.final_url || undefined;
 			ending.stoppedReason = result.stopped_reason;
+			ending.stopNote = result.stop_note;
 			emit();
 			logger.info(
 				{

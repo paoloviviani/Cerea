@@ -221,6 +221,39 @@ describe("browse: the chat model's tool", () => {
 		});
 	});
 
+	it("shows the runtime's own stop note, on the card and to the chat model, when an approval is refused", async () => {
+		const runtime = new FakeBrowserRuntime(pages());
+		const t = build({
+			script: [callTurn("act", { actions: [{ type: "click", ref: "e1" }] }), answerTurn("never")],
+			runtime,
+		});
+		runtime.act = async () => ({
+			results: [
+				{
+					ok: false,
+					refused: "approval_required",
+					error:
+						"This computer's browser has no approval key yet; Cerea hands it over the first time the browser is used; if this keeps happening, restart galopin.",
+				} as never,
+			],
+			url: "https://shop.example.com/cart",
+			title: "Your cart",
+		});
+		const out = await t.tool.execute({ goal: "pay" }, t.ctx);
+		const body = JSON.parse((out as { resultText: string }).resultText);
+		expect(body.stop_note).toBe(
+			"This computer's browser has no approval key yet; Cerea hands it over the first time the browser is used; if this keeps happening, restart galopin."
+		);
+		expect(body.stopped).toMatch(/approval could not be applied/);
+		expect(body).not.toHaveProperty("stopped_reason");
+		expect(browseUpdates(t.updates).at(-1)).toMatchObject({
+			status: "stopped",
+			stoppedReason: "approval_refused",
+			stopNote:
+				"This computer's browser has no approval key yet; Cerea hands it over the first time the browser is used; if this keeps happening, restart galopin.",
+		});
+	});
+
 	it("runs on the browser model when one is set, else the chat's", async () => {
 		const own = build({
 			script: [answerTurn("ok")],

@@ -179,6 +179,20 @@ export class FakeBrowserRuntime implements BrowserRuntime {
 		};
 	}
 
+	/**
+	 * The browser starts over for a second task on the same runtime: the current page is a blank
+	 * one again. The spent grant ids are kept, as they are in the real runtime across tasks, so a
+	 * grant id that is reused across tasks is refused as "already used".
+	 */
+	resetToBlank(blankId = "blank"): void {
+		const page = this.pages.get(blankId);
+		if (!page) throw new Error(`No such page ${blankId}`);
+		this.currentId = blankId;
+		this.current = page;
+		this.baseline = new Map();
+		this.baselineUrl = "";
+	}
+
 	/** A bot check appears on the current page (tests). */
 	raiseChallenge(kind: string): void {
 		this.current.challenge = { kind };
