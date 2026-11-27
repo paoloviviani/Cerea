@@ -44,6 +44,7 @@ import { readCreds } from "./pairing.ts";
 import { notPairedMessage, refreshProfile, setupRefusal, type GuardDeps } from "./profileGuard.ts";
 import { guardCerea, mayOpenExternally, NavChain, UI_CSP, type GuardState } from "./navGuard.ts";
 import { resolveUiFile, UI_ORIGIN } from "./uiProtocol.ts";
+import { homeUrl } from "../shared/home.ts";
 import { cappedFetch, iconFetcher } from "./probeFetch.ts";
 import {
 	activeProfile,
@@ -758,7 +759,8 @@ const handlers: { [C in Channel]: Handler<C> } = {
 	"browser:open": ({ url }) => panel?.openForUser(url),
 	"browser:tab": ({ action, id }) =>
 		action === "activate" ? panel?.activate(id) : panel?.close(id),
-	"browser:nav": ({ action }) => panel?.navigate(action),
+	"browser:nav": ({ action }) =>
+		panel?.navigate(action, cur() ? homeUrl(cur()!.server.address) : undefined),
 	"browser:control": ({ mode }) => control.set(mode),
 	"app:state": () => appState(),
 	"app:login": ({ enabled }) => {
@@ -895,6 +897,13 @@ function setMenu(): void {
 				accelerator: "CmdOrCtrl+Shift+B",
 				enabled: !!cur(),
 				click: () => toggleBrowser(),
+			},
+			{
+				id: "return-to-cerea",
+				label: "Return to Cerea",
+				accelerator: "CmdOrCtrl+Shift+H",
+				enabled: !!cur() && !!ceraeView,
+				click: () => ceraeView?.webContents.focus(),
 			},
 			{ type: "separator" },
 			{ role: "minimize" },
@@ -1247,7 +1256,7 @@ function testHooks(): void {
 			} else if (cmd === "ui") {
 				void win?.webContents
 					.executeJavaScript(
-						`JSON.stringify({title: document.title, bridge: typeof window.cerea?.call, setupHidden: document.getElementById('setup').hidden, panes: [...document.querySelectorAll('section')].filter(s=>!s.hidden).map(s=>s.id)})`
+						`JSON.stringify({title: document.title, bridge: typeof window.cerea?.call, setupHidden: document.getElementById('setup').hidden, panes: [...document.querySelectorAll('section')].filter(s=>!s.hidden).map(s=>s.id), homeHidden: document.getElementById('nav-home')?.hidden ?? null})`
 					)
 					.then((r: string) => process.stdout.write(`UI ${r}\n`));
 			} else if (cmd === "galopin") {

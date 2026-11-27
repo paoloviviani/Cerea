@@ -84,6 +84,14 @@ describe("IPC validation", () => {
 		expect(validate("browser:control", { mode: "user" }).mode).toBe("user");
 	});
 
+	it("validates the browser navigation actions", () => {
+		expect(validate("browser:nav", { action: "back" })).toEqual({ action: "back" });
+		expect(validate("browser:nav", { action: "reload" })).toEqual({ action: "reload" });
+		expect(validate("browser:nav", { action: "home" })).toEqual({ action: "home" });
+		expect(() => validate("browser:nav", { action: "walk" })).toThrow(IpcError);
+		expect(() => validate("browser:nav", { action: "home", url: "https://x/" })).toThrow(IpcError);
+	});
+
 	it("validates the panel changes", () => {
 		expect(validate("panel:set", { open: true, pane: "browser", width: 500.4 })).toEqual({
 			open: true,

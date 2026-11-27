@@ -1,4 +1,5 @@
 import { dedupeLog } from "../shared/dedupe.ts";
+import { homeButtonVisible } from "../shared/home.ts";
 import type { AppState, Calls, GalopinInfo, ServerInfo } from "../shared/ipc.ts";
 
 declare global {
@@ -72,6 +73,9 @@ function render() {
 
 	// browser
 	const b = s.browser;
+	// The Home button: the panel's pages are not home, the profile has a home to go back to.
+	const active = b.tabs.find((t) => t.active);
+	show($("nav-home"), homeButtonVisible(active?.url, s.server?.address));
 	const tabs = $("tabs");
 	tabs.replaceChildren(
 		...b.tabs.map((t) => {
@@ -419,6 +423,7 @@ function wire() {
 		}
 		void call("profile:switch", { id: sel.value }).catch((err) => log(`switch: ${msg(err)}`));
 	};
+	$("nav-home").onclick = () => void call("browser:nav", { action: "home" });
 	$("nav-back").onclick = () => void call("browser:nav", { action: "back" });
 	$("nav-forward").onclick = () => void call("browser:nav", { action: "forward" });
 	$("nav-reload").onclick = () => void call("browser:nav", { action: "reload" });

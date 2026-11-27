@@ -603,6 +603,21 @@ try {
 	step(
 		"take over cuts the runtime off (it sees nothing the user does); hand back shows the pages as the user's tabs"
 	);
+
+	// the Home button navigates the panel back to the profile's home page
+	const uiAway = await hook("ui", "UI");
+	assert.equal(uiAway.homeHidden, false, "the Home button is shown away from home");
+	await hook("uiclick nav-home");
+	await new Promise((r) => setTimeout(r, 1500));
+	const homedTabs = await hook("tabs", "TABS");
+	assert.ok(
+		homedTabs.some((t) => t.active && t.url === `${address}/chat`),
+		`the Home button navigated the active tab home: ${JSON.stringify(homedTabs)}`
+	);
+	const uiHome = await hook("ui", "UI");
+	assert.equal(uiHome.homeHidden, true, "the Home button is hidden at home");
+	step("the Home button navigates the panel back to the profile's home page");
+
 	await call("end_task", {});
 	// The raw clients below stand in for other runtimes, and the bridge refuses a second runtime while
 	// the first has a task: this one is done, so it goes (its connection ends).
