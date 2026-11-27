@@ -42,6 +42,18 @@ func TestDetectUpgradePerCase(t *testing.T) {
 			e.container = func() bool { return true }
 			p.RemoteUpgrade = policy.TerminalDenied
 		}, link.UpgradeInfo{Reason: "docker"}},
+		{"desktop app", func(e *upgradeCapEnv, _ *policy.Policy) { e.desktopApp = true }, link.UpgradeInfo{Reason: "desktop_app"}},
+		{"desktop app on a Mac with the connector app and a LaunchAgent", func(e *upgradeCapEnv, _ *policy.Policy) {
+			e.goos, e.desktopApp = "darwin", true
+			dir := filepath.Join(e.home, "Library", "LaunchAgents")
+			_ = os.MkdirAll(dir, 0o755)
+			_ = os.WriteFile(filepath.Join(dir, "org.cerea.connector.plist"), nil, 0o600)
+			_ = os.WriteFile(filepath.Join(dir, "org.cerea.galopin.plist"), nil, 0o600)
+		}, link.UpgradeInfo{Reason: "desktop_app"}},
+		{"desktop app wins over the opt-out", func(e *upgradeCapEnv, p *policy.Policy) {
+			e.desktopApp = true
+			p.RemoteUpgrade = policy.TerminalDenied
+		}, link.UpgradeInfo{Reason: "desktop_app"}},
 		{"mac connector app", func(e *upgradeCapEnv, _ *policy.Policy) {
 			e.goos = "darwin"
 			dir := filepath.Join(e.home, "Library", "LaunchAgents")
@@ -246,7 +258,7 @@ func TestMachineUpgradeStartsWhenInPlace(t *testing.T) {
 }
 
 func TestMachineUpgradeRefusedWhenNotInPlace(t *testing.T) {
-	for _, reason := range []string{"docker", "mac_app", "foreground", "disabled"} {
+	for _, reason := range []string{"docker", "desktop_app", "mac_app", "foreground", "disabled"} {
 		calls := 0
 		mc := upgradeMachine(t, link.UpgradeInfo{Reason: reason}, func(context.Context) error { calls++; return nil })
 		_, oerr := mc.Handle(context.Background(), "machine.upgrade", json.RawMessage(`{}`))
@@ -310,5 +322,18 @@ func TestSeenUpgradeDenyIsStickyUntilRestart(t *testing.T) {
 	_ = os.Remove(path)
 	if effectiveUpgradePolicy(start, path).RemoteUpgradeAllowed() {
 		t.Fatal("a missing file must not lift a seen deny")
+	}
+}
+
+func TestRealUpgradeCapEnvReadsDesktopApp(t *testing.T) {
+	t.Setenv("CEREA_DESKTOP_APP", "1")
+	if !realUpgradeCapEnv().desktopApp {
+		t.Fatal("CEREA_DESKTOP_APP=1 must read as the desktop app")
+	}
+	for _, v := range []string{"", "0", "true"} {
+		t.Setenv("CEREA_DESKTOP_APP", v)
+		if realUpgradeCapEnv().desktopApp {
+			t.Fatalf("CEREA_DESKTOP_APP=%q must not read as the desktop app", v)
+		}
 	}
 }

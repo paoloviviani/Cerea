@@ -1,6 +1,6 @@
 {
 	"name": "cerea-desktop",
-	"version": "0.1.0",
+	"version": "0.0.0",
 	"private": true,
 	"description": "Cerea desktop app: your Cerea, an embedded browser the chat can drive, and galopin.",
 	"license": "Apache-2.0",
@@ -18,8 +18,10 @@
 		"lint": "prettier --check . && tsc --noEmit",
 		"format": "prettier --write .",
 		"runtime:stage": "node scripts/stage-runtime.mjs",
-		"dist": "npm run build && npm run runtime:stage && electron-builder",
-		"galopin:build": "cd ../agent && go build -o ../desktop/resources/galopin/galopin ."
+		"package": "node scripts/package.mjs",
+		"dist": "npm run build && npm run runtime:stage && node scripts/package.mjs",
+		"check:packaged": "node scripts/check-packaged.mjs",
+		"galopin:build": "node scripts/build-galopin.mjs"
 	},
 	"dependencies": {},
 	"devDependencies": {

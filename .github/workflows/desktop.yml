@@ -12,6 +12,8 @@ on:
       - "browser-runtime/**"
       - "agent/*.go"
       - "agent/internal/**"
+      # The Cerea version the app and its galopin are stamped with (scripts/cerea-version.mjs).
+      - "package.json"
       - ".github/workflows/desktop.yml"
   push:
     branches: [main, feat/desktop-app]
@@ -20,6 +22,7 @@ on:
       - "browser-runtime/**"
       - "agent/*.go"
       - "agent/internal/**"
+      - "package.json"
       - ".github/workflows/desktop.yml"
 
 permissions:
@@ -85,7 +88,23 @@ jobs:
       - run: node scripts/fetch-node.mjs linux x64
       - run: npm run build
       - run: npm run runtime:stage
-      - run: npx electron-builder --linux AppImage deb --publish never
+      # The app's version is the Cerea version (scripts/package.mjs), as galopin's (galopin:build).
+      - run: npm run package -- --linux AppImage deb
+      # What v0.67.0 lacked: playwright-core beside the runtime, run with the packaged Node.
+      - name: Check the package (runtime, playwright-core, versions)
+        run: |
+          set -eu
+          node scripts/check-packaged.mjs release/linux-unpacked/resources
+          V=$(node -p "require('../package.json').version")
+          for f in browser-runtime/cerea-browser.mjs browser-runtime/node_modules/playwright-core/package.json; do
+            dpkg-deb -c "release/cerea-desktop_${V}_amd64.deb" | grep "/opt/Cerea/resources/$f\$" >/dev/null ||
+              { echo "the deb lacks resources/$f"; exit 1; }
+          done
+          x=$(mktemp -d)
+          (cd "$x" && "$GITHUB_WORKSPACE/desktop/release/Cerea-$V.AppImage" --appimage-extract 'resources/browser-runtime/*' >/dev/null)
+          test -f "$x/squashfs-root/resources/browser-runtime/cerea-browser.mjs"
+          test -f "$x/squashfs-root/resources/browser-runtime/node_modules/playwright-core/package.json"
+          echo "deb and AppImage carry the runtime and playwright-core ($V)"
       - uses: actions/upload-artifact@v4
         with:
           name: cerea-desktop-linux
@@ -116,16 +135,27 @@ jobs:
           cache-dependency-path: agent/go.sum
       - run: npm ci
       - name: Build galopin for the target architecture
-        run: |
-          (cd ../agent && GOARCH=${{ matrix.arch == 'x64' && 'amd64' || 'arm64' }} GOOS=darwin CGO_ENABLED=0 \
-            go build -o ../desktop/resources/galopin/galopin .)
+        run: npm run galopin:build
+        env:
+          GOOS: darwin
+          GOARCH: ${{ matrix.arch == 'x64' && 'amd64' || 'arm64' }}
       - run: node scripts/fetch-node.mjs darwin ${{ matrix.arch }}
       - run: npm run build
       - run: npm run runtime:stage
       # Unsigned and not notarised, like the Cerea connector app: no Apple account yet.
-      - run: npx electron-builder --mac zip --${{ matrix.arch }} --publish never
+      - run: npm run package -- --mac zip --${{ matrix.arch }}
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      # The x64 app runs here under Rosetta: its Node and galopin are run, not only listed.
+      - name: Check the package (runtime, playwright-core, versions)
+        run: |
+          set -eu
+          node scripts/check-packaged.mjs "release/${{ matrix.arch == 'x64' && 'mac' || 'mac-arm64' }}/Cerea.app/Contents/Resources"
+          zip=$(ls release/*.zip)
+          for f in browser-runtime/cerea-browser.mjs browser-runtime/node_modules/playwright-core/package.json; do
+            unzip -l "$zip" | grep "Cerea.app/Contents/Resources/$f\$" >/dev/null || { echo "$zip lacks Resources/$f"; exit 1; }
+          done
+          echo "$zip carries the runtime and playwright-core"
       - uses: actions/upload-artifact@v4
         with:
           name: cerea-desktop-macos-${{ matrix.arch }}

@@ -66,6 +66,12 @@ describe("upgradeInstructions", () => {
 		expect(upgradeInstructions({ online: true, agentUpgrade: cap(false, "docker") })).toBe(
 			"docker"
 		);
+		expect(upgradeInstructions({ online: true, agentUpgrade: cap(false, "desktop_app") })).toBe(
+			"desktop_app"
+		);
+		expect(upgradeInstructions({ online: false, agentUpgrade: cap(false, "desktop_app") })).toBe(
+			"desktop_app"
+		);
 		expect(upgradeInstructions({ online: true, agentContainer: true })).toBe("docker");
 		expect(upgradeInstructions({ online: true, agentUpgrade: cap(false, "launchd") })).toBe(
 			"launchd"

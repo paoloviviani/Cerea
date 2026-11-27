@@ -16,9 +16,14 @@ extraResources:
   # Node.js (pinned, checksum-verified at build time), so browser use needs nothing installed.
   - from: resources/node
     to: node
-  # The browser runtime the app runs itself for the chat in its window (ADR 0122).
-  - from: resources/browser-runtime
-    to: browser-runtime
+  # The browser runtime the app runs itself for the chat in its window (ADR 0122), with its
+  # node_modules/playwright-core. Copied from resources/ with a filter, not `from:
+  # resources/browser-runtime`: electron-builder (app-builder-lib 26, util/filter.js) always drops a
+  # node_modules directly under an entry's `from`, whatever the filter, and v0.67.0 shipped without
+  # it. scripts/check-packaged.mjs checks the package in CI.
+  - from: resources
+    to: .
+    filter: ["browser-runtime/**/*"]
 asar: true
 mac:
   category: public.app-category.productivity

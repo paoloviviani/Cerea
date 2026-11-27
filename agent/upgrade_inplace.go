@@ -27,7 +27,13 @@ const (
 	upgradeLaunchd    = "launchd"
 	upgradeForeground = "foreground"
 	upgradeDisabled   = "disabled"
+	// upgradeDesktopApp: the Cerea desktop app runs this galopin (it sets desktopAppEnv) and ships
+	// it; a new app build is its upgrade, and the installer would put a second galopin beside it.
+	upgradeDesktopApp = "desktop_app"
 )
+
+// desktopAppEnv is set to "1" by the Cerea desktop app on every galopin it runs.
+const desktopAppEnv = "CEREA_DESKTOP_APP"
 
 // upgradeCapEnv is everything the capability check reads outside the policy.
 type upgradeCapEnv struct {
@@ -39,6 +45,8 @@ type upgradeCapEnv struct {
 	// userUnitActive: `systemctl --user is-active --quiet galopin.service`, the installer's own
 	// test (unit_active) for whether the user unit runs galopin.
 	userUnitActive func() bool
+	// desktopApp: started by the Cerea desktop app (desktopAppEnv is "1").
+	desktopApp bool
 }
 
 func realUpgradeCapEnv() upgradeCapEnv {
@@ -46,6 +54,7 @@ func realUpgradeCapEnv() upgradeCapEnv {
 	return upgradeCapEnv{
 		goos: runtime.GOOS, home: home, container: inContainer,
 		cgroupFile: "/proc/self/cgroup", lookPath: exec.LookPath,
+		desktopApp: os.Getenv(desktopAppEnv) == "1",
 		userUnitActive: func() bool {
 			return exec.Command("systemctl", "--user", "is-active", "--quiet", "galopin.service").Run() == nil
 		},
@@ -59,13 +68,15 @@ func upgradeCapability(pol policy.Policy) *link.UpgradeInfo {
 }
 
 // detectUpgrade decides, in this order: a container (the image is pulled instead), the Cerea
-// connector app on macOS (its own installer), the owner's opt-out, not running under the
+// desktop app (a new app build carries its galopin), the Cerea connector app on macOS (its own installer), the owner's opt-out, not running under the
 // galopin systemd user unit (the installer's own "inside galopin" test: the unit's cgroup), no
 // systemd-run (the installer cannot detach), else in place.
 func detectUpgrade(env upgradeCapEnv, pol policy.Policy) link.UpgradeInfo {
 	switch {
 	case env.container != nil && env.container():
 		return link.UpgradeInfo{Reason: upgradeDocker}
+	case env.desktopApp:
+		return link.UpgradeInfo{Reason: upgradeDesktopApp}
 	case env.goos == "darwin" && connectorAppInstalled(env.home):
 		return link.UpgradeInfo{Reason: upgradeMacApp}
 	case env.goos == "darwin" && launchdServiceInstalled(env.home):

@@ -411,6 +411,7 @@
 	"code.nav.upgrade_confirm_message": "galopin si riavvia su questo computer, che resta offline per circa un minuto. L'associazione e le impostazioni restano.",
 	"code.nav.upgrade_confirm_title": "Aggiorna galopin",
 	"code.nav.upgrade_confirm_versions": "galopin passa dalla versione {from} alla {to}.",
+	"code.nav.upgrade_desktop_app": "galopin si aggiorna con l'app desktop di Cerea: installa l'ultima versione dalla {#link}pagina delle release{/link}.",
 	"code.nav.upgrade_docker": "Questo computer esegue galopin in un container Docker. Scarica la nuova immagine, ferma e rimuovi il container, poi esegui di nuovo il comando docker della finestra Associa un computer:",
 	"code.nav.upgrade_done": "Aggiornato alla versione {version}.",
 	"code.nav.upgrade_failed": "L'aggiornamento non è stato completato.",

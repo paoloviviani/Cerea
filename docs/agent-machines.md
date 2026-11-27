@@ -446,7 +446,8 @@ where the log is (`<galopin config dir>/backups/upgrade-<date>.log` on that comp
 The button appears only where an in-place upgrade can work: galopin runs as its
 `galopin` systemd user unit, `systemd-run` is available, and the computer has not opted
 out. Everywhere else the card shows the instructions that fit instead: on a Mac with the
-Cerea connector app, upgrade through the app's installer; in Docker, `docker pull` the new
+Cerea connector app, upgrade through the app's installer; in the Cerea desktop app, galopin
+updates with the app: install the latest build from the release page; in Docker, `docker pull` the new
 image and recreate the container; a galopin started by hand (or without `systemd-run`),
 or one that opted out, uses the install command above in a terminal outside galopin; a
 galopin from before this feature reports nothing and also shows the command.
