@@ -407,6 +407,7 @@
 	"code.nav.upgrade_confirm_message": "galopin restarts on this computer and it goes offline for about a minute. Its pairing and settings are kept.",
 	"code.nav.upgrade_confirm_title": "Upgrade galopin",
 	"code.nav.upgrade_confirm_versions": "galopin goes from {from} to {to}.",
+	"code.nav.upgrade_desktop_app": "galopin updates with the Cerea desktop app: install the latest build from the {#link}release page{/link}.",
 	"code.nav.upgrade_docker": "This computer runs galopin in a Docker container. Pull the new image, stop and remove the container, then run the docker command from the Pair a computer dialog again:",
 	"code.nav.upgrade_done": "Updated to {version}.",
 	"code.nav.upgrade_failed": "The upgrade did not complete.",
