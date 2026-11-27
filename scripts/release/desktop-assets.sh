@@ -67,7 +67,11 @@ inflight=$(gh run list -R "$REPO" --workflow desktop.yml --commit "$SHA" --limit
 	-q '[.[]|select(.status!="completed")][0].databaseId // empty' 2>/dev/null) || inflight=""
 if [ -n "$inflight" ]; then
 	echo "desktop: waiting for the desktop build already running on ${SHA:0:8} (run $inflight)" >&2
-	until s=$(gh run view -R "$REPO" "$inflight" --json status -q .status 2>/dev/null) && [ "$s" = completed ]; do sleep 30; done
+	deadline=$(( $(date +%s) + 90*60 ))
+	until s=$(gh run view -R "$REPO" "$inflight" --json status -q .status 2>/dev/null) && [ "$s" = completed ]; do
+		[ "$(date +%s)" -ge "$deadline" ] && stop "the desktop build already running on ${SHA:0:8} (run $inflight) did not finish in 90 minutes"
+		sleep 30
+	done
 fi
 
 run=$(find_run); rc=$?
@@ -84,7 +88,11 @@ if [ $rc -ne 0 ] || [ -z "$run" ]; then
 		[ -n "$run" ] && break
 	done
 	[ -n "$run" ] || stop "the dispatched desktop run did not appear"
-	until s=$(gh run view -R "$REPO" "$run" --json status,conclusion -q '.status+" "+.conclusion' 2>/dev/null) && [[ $s == completed* ]]; do sleep 30; done
+	deadline=$(( $(date +%s) + 90*60 ))
+	until s=$(gh run view -R "$REPO" "$run" --json status,conclusion -q '.status+" "+.conclusion' 2>/dev/null) && [[ $s == completed* ]]; do
+		[ "$(date +%s)" -ge "$deadline" ] && stop "the dispatched desktop run (run $run) did not finish in 90 minutes"
+		sleep 30
+	done
 	[[ $s == *success ]] || stop "desktop build failed: gh run view -R $REPO $run --log-failed"
 fi
 echo "desktop: using run $run (desktop app $V)"

@@ -23,6 +23,15 @@ import { ensurePrivateDir } from "./bridgeServer.ts";
 
 const sha256 = (file: string) => createHash("sha256").update(readFileSync(file)).digest("hex");
 
+/**
+ * The marker of a galopin that comes with the Cerea desktop app, written next to the stable copy.
+ * A galopin the app starts carries the CEREA_DESKTOP_APP=1 env var, but one the app installed as a
+ * service (launchd or systemd starts that one) has no such env var; the marker is how it is known.
+ * Without it the service-installed galopin would report an in-place upgrade, and the installer
+ * would overwrite the copy the app holds.
+ */
+export const DESKTOP_APP_MARKER = ".cerea-desktop-app";
+
 export function stableDir(userData: string): string {
 	return join(userData, "bin");
 }
@@ -58,6 +67,11 @@ export function ensureStableGalopin(opts: {
 		renameSync(tmp, target);
 	}
 	chmodSync(target, 0o700);
+	writeFileSync(
+		join(dir, DESKTOP_APP_MARKER),
+		"This galopin comes with the Cerea desktop app; install a new app build instead.\n",
+		{ mode: 0o600 }
+	);
 	return target;
 }
 

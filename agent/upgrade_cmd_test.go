@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -111,5 +112,51 @@ func TestUpgradeFetchRefusesCrossOriginAndDowngradingRedirects(t *testing.T) {
 	}
 	if err := sameOriginRedirects(base)(&http.Request{URL: base}, make([]*http.Request, 5)); err == nil {
 		t.Fatal("more than five hops must be refused")
+	}
+}
+
+func TestUpgradeRefusesADesktopAppGalopin(t *testing.T) {
+	t.Setenv("CEREA_DESKTOP_APP", "")
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "galopin")
+	if err := os.WriteFile(exe, []byte("fake"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, desktopAppMarker), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var ran []string
+	env, _ := fakeUpgradeEnv(true, "#!/bin/sh\n", &ran)
+	env.exe = func() (string, error) { return exe, nil }
+	err := upgradeFrom(context.Background(), env, "https://c.example", false, false, false, "x")
+	if err == nil {
+		t.Fatal("a desktop app galopin must refuse the upgrade")
+	}
+	if !strings.Contains(err.Error(), "this galopin comes with the Cerea desktop app; install a new app build instead") {
+		t.Fatalf("got %v", err)
+	}
+	if len(ran) != 0 {
+		t.Fatalf("must not fetch or run anything: %v", ran)
+	}
+	// --show is refused too: the same message, nothing printed
+	if err := upgradeFrom(context.Background(), env, "https://c.example", false, false, true, "x"); err == nil {
+		t.Fatal("--show must be refused the same way")
+	}
+	// through --yes: the refusal does not depend on the answer
+	if err := upgradeFrom(context.Background(), env, "https://c.example", true, false, false, "x"); err == nil {
+		t.Fatal("--yes must be refused the same way")
+	}
+}
+
+func TestUpgradeWithEnvVarRefuses(t *testing.T) {
+	t.Setenv("CEREA_DESKTOP_APP", "1")
+	var ran []string
+	env, _ := fakeUpgradeEnv(true, "#!/bin/sh\n", &ran)
+	err := upgradeFrom(context.Background(), env, "https://c.example", false, false, false, "x")
+	if err == nil {
+		t.Fatal("a galopin the app started (the env var) must refuse the upgrade")
+	}
+	if len(ran) != 0 {
+		t.Fatalf("must not fetch or run anything: %v", ran)
 	}
 }

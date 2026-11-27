@@ -17,7 +17,7 @@ const res = spawnSync(
 		join(root, "resources", "galopin", "galopin"),
 		".",
 	],
-	{ cwd: join(root, "..", "agent"), stdio: "inherit", env: { CGO_ENABLED: "0", ...process.env } }
+	{ cwd: join(root, "..", "agent"), stdio: "inherit", env: { ...process.env, CGO_ENABLED: "0" } }
 );
 if (res.status !== 0) process.exit(res.status ?? 1);
 console.log(`built galopin ${version} -> resources/galopin/galopin`);

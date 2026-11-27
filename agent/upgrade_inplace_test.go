@@ -337,3 +337,71 @@ func TestRealUpgradeCapEnvReadsDesktopApp(t *testing.T) {
 		}
 	}
 }
+
+func TestDesktopAppDetect(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "galopin")
+	if err := os.WriteFile(exe, []byte("fake"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// no marker beside the executable: the env var alone decides
+	if desktopAppDetect("", exe) {
+		t.Fatal("no marker beside the executable must not read as the desktop app")
+	}
+	if !desktopAppDetect("1", exe) {
+		t.Fatal("CEREA_DESKTOP_APP=1 must read as the desktop app")
+	}
+	if desktopAppDetect("0", exe) {
+		t.Fatal("CEREA_DESKTOP_APP=0 must not read as the desktop app")
+	}
+	// the marker beside the executable is enough
+	if err := os.WriteFile(filepath.Join(dir, desktopAppMarker), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !desktopAppDetect("", exe) {
+		t.Fatal("a marker beside the executable must read as the desktop app")
+	}
+	if !desktopAppDetect("0", exe) {
+		t.Fatal("the marker beside the executable must read as the desktop app even with CEREA_DESKTOP_APP=0")
+	}
+	// through a symlink: the marker sits beside the resolved executable
+	link := filepath.Join(t.TempDir(), "galopin")
+	if err := os.Symlink(exe, link); err != nil {
+		t.Fatal(err)
+	}
+	if !desktopAppDetect("", link) {
+		t.Fatal("the marker beside the resolved executable must read as the desktop app")
+	}
+	// a symlink to an executable beside no marker: not the app
+	other := filepath.Join(t.TempDir(), "galopin")
+	if err := os.WriteFile(other, []byte("fake"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link2 := filepath.Join(t.TempDir(), "galopin")
+	if err := os.Symlink(other, link2); err != nil {
+		t.Fatal(err)
+	}
+	if desktopAppDetect("", link2) {
+		t.Fatal("no marker beside the resolved executable must not read as the desktop app")
+	}
+}
+
+func TestRealUpgradeCapEnvReadsMarkerBesideExecutable(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "galopin")
+	if err := os.WriteFile(exe, []byte("fake"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { osExecutable = os.Executable }()
+	osExecutable = func() (string, error) { return exe, nil }
+	t.Setenv("CEREA_DESKTOP_APP", "")
+	if realUpgradeCapEnv().desktopApp {
+		t.Fatal("no marker beside the executable must not read as the desktop app")
+	}
+	if err := os.WriteFile(filepath.Join(dir, desktopAppMarker), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !realUpgradeCapEnv().desktopApp {
+		t.Fatal("the marker beside the executable must read as the desktop app")
+	}
+}

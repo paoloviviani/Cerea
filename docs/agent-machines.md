@@ -450,7 +450,10 @@ Cerea connector app, upgrade through the app's installer; in the Cerea desktop a
 updates with the app: install the latest build from the release page; in Docker, `docker pull` the new
 image and recreate the container; a galopin started by hand (or without `systemd-run`),
 or one that opted out, uses the install command above in a terminal outside galopin; a
-galopin from before this feature reports nothing and also shows the command.
+galopin from before this feature reports nothing and also shows the command. The app's
+galopin is recognized by a marker file beside it (`.cerea-desktop-app`, written next to the stable
+copy), so one it installed as a service is shown the app's instructions, not the button; the same
+marker makes `galopin upgrade` refuse the installer.
 
 The button is a **remote code path**: it makes the computer download and run the installer
 Cerea serves, which is what you would paste by hand. It is on by default, **except** on a

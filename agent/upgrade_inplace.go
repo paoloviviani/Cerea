@@ -15,6 +15,9 @@ import (
 	"galopin/internal/policy"
 )
 
+// osExecutable is os.Executable; a test replaces it to point at a marker's directory.
+var osExecutable = os.Executable
+
 // In-place upgrade (PROTOCOL.md §6 machine.upgrade): Cerea's Upgrade button asks galopin to
 // run the same path as `galopin upgrade --yes`. That path only survives galopin's own restart
 // when the installer can detach through `systemd-run --user` (galopinUpgrade.sh,
@@ -27,13 +30,38 @@ const (
 	upgradeLaunchd    = "launchd"
 	upgradeForeground = "foreground"
 	upgradeDisabled   = "disabled"
-	// upgradeDesktopApp: the Cerea desktop app runs this galopin (it sets desktopAppEnv) and ships
-	// it; a new app build is its upgrade, and the installer would put a second galopin beside it.
+	// upgradeDesktopApp: the Cerea desktop app runs this galopin and ships it; a new app build is
+	// its upgrade, and the installer would put a second galopin beside it.
 	upgradeDesktopApp = "desktop_app"
 )
 
 // desktopAppEnv is set to "1" by the Cerea desktop app on every galopin it runs.
 const desktopAppEnv = "CEREA_DESKTOP_APP"
+
+// desktopAppMarker is the file the Cerea desktop app writes next to the galopin it ships (beside the
+// stable copy). A galopin the app runs carries the env var, but a galopin the app installed as a
+// service -- which the app did not start -- has no env var; the marker is how it is known.
+const desktopAppMarker = ".cerea-desktop-app"
+
+// desktopAppNextTo: is the marker file beside exe (the symlink chain resolved)?
+func desktopAppNextTo(exe string) bool {
+	if exe == "" {
+		return false
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	_, err := os.Stat(filepath.Join(filepath.Dir(exe), desktopAppMarker))
+	return err == nil
+}
+
+// desktopAppDetect: the env var the app sets, OR the marker file beside the executable.
+func desktopAppDetect(envVar, exe string) bool {
+	if envVar == "1" {
+		return true
+	}
+	return desktopAppNextTo(exe)
+}
 
 // upgradeCapEnv is everything the capability check reads outside the policy.
 type upgradeCapEnv struct {
@@ -45,16 +73,21 @@ type upgradeCapEnv struct {
 	// userUnitActive: `systemctl --user is-active --quiet galopin.service`, the installer's own
 	// test (unit_active) for whether the user unit runs galopin.
 	userUnitActive func() bool
-	// desktopApp: started by the Cerea desktop app (desktopAppEnv is "1").
+	// desktopApp: the Cerea desktop app runs this galopin (the env var is "1", or the marker
+	// file sits beside the executable).
 	desktopApp bool
 }
 
 func realUpgradeCapEnv() upgradeCapEnv {
 	home, _ := os.UserHomeDir()
+	exe, err := osExecutable()
+	if err != nil {
+		exe = ""
+	}
 	return upgradeCapEnv{
 		goos: runtime.GOOS, home: home, container: inContainer,
 		cgroupFile: "/proc/self/cgroup", lookPath: exec.LookPath,
-		desktopApp: os.Getenv(desktopAppEnv) == "1",
+		desktopApp: desktopAppDetect(os.Getenv(desktopAppEnv), exe),
 		userUnitActive: func() bool {
 			return exec.Command("systemctl", "--user", "is-active", "--quiet", "galopin.service").Run() == nil
 		},

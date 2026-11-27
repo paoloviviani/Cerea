@@ -16,6 +16,7 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
+	DESKTOP_APP_MARKER,
 	ensureStableGalopin,
 	migrateGalopinPaths,
 	quotePath,
@@ -57,7 +58,23 @@ describe("the stable copy of galopin", () => {
 		writeFileSync(p, "planted");
 		ensureStableGalopin({ bundled, userData: ud });
 		expect(sha(p)).toBe(sha(bundled));
-		expect(readdirTmp(join(ud, "bin"))).toEqual(["galopin"]); // no temporary file left
+		expect(readdirTmp(join(ud, "bin"))).toEqual([DESKTOP_APP_MARKER, "galopin"]); // no temporary file left
+	});
+
+	it("writes the desktop-app marker beside the stable copy", () => {
+		const ud = mkdtempSync(join(tmpdir(), "ud-"));
+		const bundled = fakeBundled("#!/bin/sh\necho one\n");
+		const p = ensureStableGalopin({ bundled, userData: ud });
+		const marker = join(ud, "bin", DESKTOP_APP_MARKER);
+		expect(existsSync(marker)).toBe(true); // beside the galopin, as the app writes it
+		expect(statSync(marker).mode & 0o777).toBe(0o600);
+		// the same marker is kept when the copy is made again, and a tampered copy is replaced
+		const ino = statSync(p).ino;
+		writeFileSync(p, "planted");
+		ensureStableGalopin({ bundled, userData: ud });
+		expect(statSync(p).ino).not.toBe(ino);
+		expect(existsSync(marker)).toBe(true);
+		expect(sha(p)).toBe(sha(bundled));
 	});
 
 	it("refuses a directory that is a link, or open to other users it cannot close", () => {
@@ -208,7 +225,11 @@ describe("leftover temporary copies", () => {
 		writeFileSync(join(ud, "bin", ".galopin-999-1"), "another");
 		writeFileSync(join(ud, "bin", "keep-me"), "not ours to remove");
 		ensureStableGalopin({ bundled, userData: ud });
-		expect(readdirSync(join(ud, "bin")).sort()).toEqual(["galopin", "keep-me"]);
+		expect(readdirSync(join(ud, "bin")).sort()).toEqual([
+			".cerea-desktop-app",
+			"galopin",
+			"keep-me",
+		]);
 	});
 });
 

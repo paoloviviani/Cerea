@@ -9,7 +9,7 @@ release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
 - **Desktop app: the browser works again.** The v0.67.0 builds shipped without a part the app's browser needs (`playwright-core`), so a browser task failed at once with "Cannot find package 'playwright-core'". The builds include it again, and every build is now checked for it before it is published. Download the new build from the release page.
 - **Desktop app: the app and its galopin carry the Cerea version.** The app reported 0.1.0 in every release, and its galopin did too, so Cerea always listed that computer as outdated. Both now report the Cerea version they were built from, and the download files are named with it (`Cerea-Desktop-PREVIEW-0.67.1-…`).
-- **Cerea no longer offers the terminal upgrade for the desktop app's galopin.** That command would install a second galopin beside the app's. The Agents panel now says galopin updates with the Cerea desktop app and links to the release page.
+- **Cerea no longer offers the terminal upgrade for the desktop app's galopin.** That command would install a second galopin beside the app's. The Agents panel now says galopin updates with the Cerea desktop app and links to the release page. `galopin upgrade` refuses the same command ("this galopin comes with the Cerea desktop app; install a new app build instead"), and the app writes a marker file beside its stable copy (`.cerea-desktop-app`), so a galopin the app installed as a service -- which the app did not start -- is recognized too: it reports `desktop_app`, not an in-place upgrade.
 
 ## v0.67.0 — 2026-11-27
 

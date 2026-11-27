@@ -149,7 +149,9 @@ profile's `--creds`. galopin cannot tell expired from revoked in that message, s
 
 The bundled galopin is copied to `<userData>/bin/galopin` (a 0700 directory and file, checked against
 the bundled binary's hash and made again when they differ: a new app version, or a copy that was
-changed) and **every** galopin command the app runs goes through that copy, on every platform. Why:
+changed) and **every** galopin command the app runs goes through that copy, on every platform. Beside
+the copy, the app writes a marker file (`.cerea-desktop-app`) that galopin reads to know it comes with
+the app, so one it installed as a service (which the app did not start) is recognized too. Why:
 `galopin setup` and `galopin service install` record the path of the galopin that wrote them
 (`os.Executable()`), and an AppImage runs from `/tmp/.mount_<random>`, which is gone when the app
 quits and can be recreated by another local user, so a shim or a login service would run whatever
@@ -377,8 +379,11 @@ endpoint file> --key-file <userData>/winbrowser/<id>/approval-key --state-dir ..
 - **galopin knows it is the app's.** The app sets `CEREA_DESKTOP_APP=1` on every galopin it runs
   (`galopinEnv`), and galopin then reports `hello.agent.upgrade.reason` `"desktop_app"` (PROTOCOL.md):
   Cerea shows "galopin updates with the Cerea desktop app" with a link to the releases and no install
-  command, which would put a second galopin beside the app's. A `galopin service` the app installed
-  runs without it (launchd or systemd starts that one).
+  command, which would put a second galopin beside the app's. A `galopin service` the app installed runs
+  without the env var (launchd or systemd starts that one); the app instead writes a marker file next
+  to the stable copy (`<userData>/bin/.cerea-desktop-app`, written every start), and galopin reads the
+  marker beside the executable, so the service-installed galopin reports `desktop_app` and refuses the
+  installer too ("this galopin comes with the Cerea desktop app; install a new app build instead").
 - **Same state as the CLI.** It uses galopin's normal config directory (`~/.config/galopin`,
   `~/Library/Application Support/galopin`), so a user with the CLI keeps one pairing. Tests set
   `HOME` and `XDG_CONFIG_HOME` to a temp directory.

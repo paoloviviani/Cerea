@@ -25,6 +25,7 @@
 	},
 	"dependencies": {},
 	"devDependencies": {
+		"@electron/asar": "3.4.1",
 		"@types/node": "^24.0.0",
 		"electron": "45.3.0",
 		"electron-builder": "26.8.1",
