@@ -467,8 +467,12 @@ endpoint file> --key-file <userData>/winbrowser/<id>/approval-key --state-dir ..
   scripted navigation to another origin opens in the system browser (http, https, mailto only).
   The one exception is sign-in: a server-side **redirect** that starts on the server's origin may
   take the window to the identity provider (https, or loopback http) and between its redirects and
-  back, for 10 minutes; a click on that page cannot leave for a third site. The browser panel loads
-  http(s) and `about:blank` only (also enforced by the runtime's own routes).
+  back, for 10 minutes; a click on that page cannot leave for a third site. The source of each
+  chain is tracked by the view (`NavChain`) — the URL the view was loaded at, then every allowed
+  hop, never the view's own URL, which is empty while the first load's redirects are still running
+  (a first load that starts on the server 302s straight to the identity provider is followed through,
+  not cancelled). The browser panel loads http(s) and `about:blank` only (also enforced by the
+  runtime's own routes).
 - **Separate sessions**: the Cerea window uses `persist:cerea`, the browser panel
   `persist:cerea-browser`. Cookies and storage are not shared.
 - **Permission handlers**: the panel denies every permission request and check; the Cerea window
