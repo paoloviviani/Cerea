@@ -25,23 +25,29 @@ if [ $# -gt 0 ]; then
 else
 	TAG=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$REPO/releases/latest" | sed 's#.*/tag/##')
 fi
-case "$TAG" in
-v[0-9]*.[0-9]*.[0-9]*) ;;
-*)
+printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || {
 	echo "not a release tag: $TAG (expected vX.Y.Z)" >&2
 	exit 1
-	;;
-esac
+}
 V=${TAG#v}
 
-case "$(uname -m)" in
+# A Terminal running under Rosetta reports x86_64: ask the hardware, so an Apple-chip Mac gets its
+# own build.
+MACHINE=$(uname -m)
+[ "$(sysctl -n hw.optional.arm64 2>/dev/null || true)" = 1 ] && MACHINE=arm64
+case "$MACHINE" in
 arm64) ARCH=apple-silicon ;;
 x86_64) ARCH=intel ;;
 *)
-	echo "unsupported Mac: $(uname -m)" >&2
+	echo "unsupported Mac: $MACHINE" >&2
 	exit 1
 	;;
 esac
+
+[ -w /Applications ] || {
+	echo "/Applications is not writable for $(id -un): run this from an administrator account (or with sudo)" >&2
+	exit 1
+}
 
 ZIP="Cerea-Desktop-PREVIEW-$V-macos-$ARCH.zip"
 SUMS="Cerea-Desktop-PREVIEW-$V-SHA256SUMS.txt"
@@ -67,17 +73,24 @@ ditto -x -k "$TMP/$ZIP" "$TMP/app"
 	exit 1
 }
 
-# Quit a running Cerea so its files can be replaced; it stops its galopin and starts it again.
-osascript -e 'quit app "Cerea"' >/dev/null 2>&1 || true
-i=0
-while pgrep -xq Cerea && [ $i -lt 20 ]; do
-	sleep 1
-	i=$((i + 1))
-done
+# Copy first, beside the old app, so a failure never leaves a half-removed Cerea.
+NEW=/Applications/.Cerea.app.new
+rm -rf "$NEW"
+ditto "$TMP/app/Cerea.app" "$NEW"
+xattr -dr com.apple.quarantine "$NEW" 2>/dev/null || true
+
+# Quit a running Cerea so it can be replaced; it stops its galopin and starts it again.
+if pgrep -xq Cerea; then
+	osascript -e 'quit app "Cerea"' >/dev/null 2>&1 || true
+	i=0
+	while pgrep -xq Cerea && [ $i -lt 20 ]; do
+		sleep 1
+		i=$((i + 1))
+	done
+fi
 
 rm -rf "$APP"
-ditto "$TMP/app/Cerea.app" "$APP"
-xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
+mv "$NEW" "$APP"
 
 echo "Installed Cerea $V in /Applications."
 open "$APP"
