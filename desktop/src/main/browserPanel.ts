@@ -343,9 +343,17 @@ export class BrowserPanel implements TargetHost {
 			.catch(() => {}); // at the tab cap there is nothing to open
 	}
 
-	navigate(action: "back" | "forward" | "reload"): void {
+	navigate(action: "back" | "forward" | "reload" | "home", homeUrl?: string): void {
 		const tab = this.activeId ? this.tabs.get(this.activeId) : undefined;
 		if (!tab) return;
+		if (action === "home") {
+			// The Home button: the active page goes back to the profile's home page. The runtime
+			// still sees what it sees, and a hidden page takes focus back to the chat.
+			if (!homeUrl || guardPanel(homeUrl) !== "allow") return;
+			if (tab.page.wc.getURL() === homeUrl) return;
+			void tab.page.wc.loadURL(homeUrl).catch(() => {});
+			return;
+		}
 		const nav = tab.page.wc.navigationHistory;
 		if (action === "back" && nav.canGoBack()) nav.goBack();
 		else if (action === "forward" && nav.canGoForward()) nav.goForward();

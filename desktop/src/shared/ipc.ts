@@ -40,7 +40,7 @@ export interface Calls {
 	"panel:set": { open?: boolean; pane?: Pane; width?: number };
 	"browser:open": { url: string };
 	"browser:tab": { action: "activate" | "close"; id: string };
-	"browser:nav": { action: "back" | "forward" | "reload" };
+	"browser:nav": { action: "back" | "forward" | "reload" | "home" };
 	"browser:control": { mode: "agent" | "user" };
 	"app:open-cerea": undefined;
 	"app:state": undefined;
@@ -276,7 +276,9 @@ export function validate<C extends Channel>(channel: C, raw: unknown): Calls[C] 
 		}
 		case "browser:nav": {
 			const o = obj(["action"]);
-			return out({ action: oneOf(o.action, ["back", "forward", "reload"] as const, "action") });
+			return out({
+				action: oneOf(o.action, ["back", "forward", "reload", "home"] as const, "action"),
+			});
 		}
 		case "browser:control": {
 			const o = obj(["mode"]);
