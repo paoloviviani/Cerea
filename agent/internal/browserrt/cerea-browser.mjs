@@ -1,4 +1,4 @@
-// cerea-browser runtime 0.1.0; source-hash: e6939ffa2167bfeced740a5bdfc4073e0c202cbfb471c301689eabf586787117
+// cerea-browser runtime 0.1.0; source-hash: 485279566cd54432b41c8de60b7f4f8609191d2e50818abebbf2b4371dc71497
 // inlined: @hono/node-server@2.1.8 @modelcontextprotocol/sdk@1.32.2 ajv@8.20.0 ajv-formats@3.0.1 content-type@1.0.5 fast-deep-equal@3.1.3 fast-uri@3.1.9 hono@4.13.18 json-schema-traverse@1.0.0 tldts@7.4.26 zod@3.25.76 zod-to-json-schema@3.25.2
 import { createRequire as __cr } from "node:module";
 const require = __cr(import.meta.url);
@@ -25008,7 +25008,7 @@ url: about:blank
     }
     let key = readKey({ keyFile: this.options.keyFile });
     let verdict = checkGrant(grant, digest, key);
-    if (verdict === "no_key" && (this.options.connect || this.options.connectFile)) {
+    if (verdict === "no_key" && this.options.keyFile) {
       const waitMs = this.options.keyFileWaitMs ?? KEY_FILE_WAIT_MS;
       const deadline = Date.now() + waitMs;
       while (Date.now() < deadline) {
@@ -25022,7 +25022,7 @@ url: about:blank
       return {
         ok: false,
         refused: "approval_required",
-        error: this.options.connect || this.options.connectFile ? "The app could not set up approvals for its browser; see the app's log." : "This computer's browser has no approval key yet; Cerea hands it over the first time the browser is used; if this keeps happening, restart galopin."
+        error: this.options.connect || this.options.connectFile ? "The app could not set up approvals for its browser: sign out of Cerea in the app, then sign in again. The app's log says why." : "This computer's browser has no approval key yet; Cerea hands it over the first time the browser is used; if this keeps happening, restart galopin."
       };
     }
     if (verdict === "exp_too_far") {

@@ -112,11 +112,9 @@ describe("signed grants", () => {
 		const keyless = await rig();
 		try {
 			const snap2 = await keyless.goto("/form");
-			// The app path, so the wait applies: the file appears 300 ms after the action starts.
+			// The wait applies to a key file: the file appears 300 ms after the action starts.
 			const lateKey = `${keyless.profile}/approval-key`;
 			(keyless.session as unknown as { options: { keyFile?: string } }).options.keyFile = lateKey;
-			(keyless.session as unknown as { options: { connectFile?: string } }).options.connectFile =
-				"/nonexistent/app-key";
 			const act2 = { type: "click" as const, ref: keyless.ref(snap2, "button", "Save") };
 			setTimeout(() => {
 				void writeFile(lateKey, TEST_KEY.toString("base64url"), { mode: 0o600 });
