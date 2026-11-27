@@ -510,7 +510,14 @@ function registerWindowBrowserIpc(): void {
 		);
 	};
 	ipcMain.on("winbrowser:available", (e) => {
-		e.returnValue = allowed(e) && !!windowBrowser?.available;
+		const ok = allowed(e) && !!windowBrowser?.available;
+		if (!ok)
+			line(
+				`[window browser] the page asked for the app's browser and was told no: ${
+					!windowBrowser ? "no window browser for this profile" : windowBrowser.unavailableWhy
+				}`
+			);
+		e.returnValue = ok;
 	});
 	ipcMain.on("winbrowser:send", (e, json: unknown) => {
 		if (allowed(e)) windowBrowser?.handleFromPage(json);

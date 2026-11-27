@@ -439,9 +439,22 @@ export class WindowBrowser {
 		return !!this.mcp && !this.mcp.closed;
 	}
 
+	/** Why the app cannot run a browser for this profile, or nothing when it can. */
+	get unavailableWhy(): string {
+		if (this.disposed) return "the window browser was disposed";
+		if (!this.deps.runtime)
+			return "the browser runtime is not in the app bundle (a packaging or installation problem)";
+		if (!this.deps.endpointFile())
+			return "the panel's endpoint file does not exist for this profile";
+		return "";
+	}
+
 	/** Starts the runtime (with no approval key: nothing commit-class runs until the server sends one). */
 	start(): void {
-		if (!this.available) return;
+		if (!this.available) {
+			this.deps.log(`[window browser] not available: ${this.unavailableWhy}`);
+			return;
+		}
 		try {
 			ensurePrivateDir(this.deps.dir, this.deps.uid ?? process.getuid?.() ?? 0);
 			rmSync(this.keyFile(), { force: true });
