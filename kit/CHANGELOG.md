@@ -5,6 +5,15 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.67.3 — 2026-11-27
+
+Pins: Cerea `0.67.3` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.34.1`, opencode `2.4.1`.
+**To update:** `cd ~/cerea/kit && sh get-kit.sh --upgrade --version v0.67.3` (or `git pull`), then `./configure --check`, then
+`docker compose pull && docker compose up -d`. **Desktop app (Macs: required for browsing):** `curl -fsSL https://github.com/paoloviviani/Cerea/releases/latest/download/Cerea-Desktop-PREVIEW-install-macos.sh | sh`, or download the build from this release. Nothing to do on computers.
+
+- **Desktop app on macOS: the app's browser works.** On every Mac, browsing failed with "The browser panel of the Cerea desktop app is not reachable", with the panel open, both in the app's own browser and through galopin. The panel's connection lived under "Application Support", and the browser driver turned the space in that name into `%20` and looked in a folder that does not exist. The connection now lives in a folder without spaces. Linux was not affected.
+- **Desktop app: says why its browser is unavailable.** When the app cannot offer its own browser, its log (galopin tab → Advanced) now names the reason in a `[window browser]` line instead of staying silent.
+
 ## v0.67.2 — 2026-11-27
 
 Pins: Cerea `0.67.2` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.34.1`, opencode `2.4.1`.
