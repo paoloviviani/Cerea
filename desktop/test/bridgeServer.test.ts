@@ -261,14 +261,26 @@ describe("where the bridge socket goes", () => {
 			501,
 			"/var/folders/xy/T"
 		);
-		expect(p).toBe("/var/folders/xy/T/cerea-desktop-501/cdp.sock");
+		expect(p).toMatch(/^\/var\/folders\/xy\/T\/cerea-desktop-501-[0-9a-f]{8}\/cdp\.sock$/);
 		expect(p).not.toContain(" ");
 	});
 	it("falls back to /tmp when the temporary directory is not URL-safe either", () => {
-		expect(socketPathFor("/a b/run", 7, "/c d/T")).toBe("/tmp/cerea-desktop-7/cdp.sock");
+		expect(socketPathFor("/a b/run", 7, "/c d/T")).toMatch(
+			/^\/tmp\/cerea-desktop-7-[0-9a-f]{8}\/cdp\.sock$/
+		);
 	});
 	it("leaves a run directory too long for a Unix socket", () => {
-		expect(socketPathFor(`/${"x".repeat(100)}/run`, 7, "/t")).toBe("/t/cerea-desktop-7/cdp.sock");
+		expect(socketPathFor(`/${"x".repeat(100)}/run`, 7, "/t")).toMatch(
+			/^\/t\/cerea-desktop-7-[0-9a-f]{8}\/cdp\.sock$/
+		);
+	});
+	it("two app instances with their own data never share a fallback socket", () => {
+		const a = socketPathFor("/Users/u/Library/Application Support/cerea-desktop/run", 501, "/T");
+		const b = socketPathFor("/Users/u/dev data/run", 501, "/T");
+		expect(a).not.toBe(b);
+		expect(socketPathFor("/Users/u/Library/Application Support/cerea-desktop/run", 501, "/T")).toBe(
+			a
+		);
 	});
 	it("a socket in a directory with a space is reached through the endpoint it advertises", async () => {
 		const base = mkdtempSync(join(tmpdir(), "with space-"));
