@@ -10,9 +10,16 @@ What it is: the Cerea chat in its own window, beside a browser panel the assista
 | `Cerea-Desktop-PREVIEW-@V@-macos-intel.zip` | Intel Macs |
 | `Cerea-Desktop-PREVIEW-@V@-linux-x86_64.AppImage` | Linux, any distribution (`chmod +x`, then run it) |
 | `cerea-desktop-preview_@V@_amd64.deb` | Debian and Ubuntu |
+| `Cerea-Desktop-PREVIEW-install-macos.sh` | installs or updates the app on a Mac (below) |
 | `Cerea-Desktop-PREVIEW-@V@-SHA256SUMS.txt` | checksums |
 
-**On a Mac:** unzip, move `Cerea.app` to Applications. Because the preview is unsigned, macOS blocks it the first time: open it once, then **System Settings → Privacy & Security → Open Anyway** (or run `xattr -dr com.apple.quarantine /Applications/Cerea.app`).
+**On a Mac, the quick way:** run this in Terminal. It downloads the build for your Mac's chip from this release, checks its checksum, replaces `/Applications/Cerea.app` (your profiles and pairings are kept), clears the quarantine flag so macOS does not ask before the first start, and opens the app. Run it again to update.
+
+```sh
+curl -fsSL https://github.com/paoloviviani/Cerea/releases/download/v@V@/Cerea-Desktop-PREVIEW-install-macos.sh | sh -s -- v@V@
+```
+
+**On a Mac, by hand:** unzip, move `Cerea.app` to Applications. Because the preview is unsigned, macOS blocks it the first time: open it once, then **System Settings → Privacy & Security → Open Anyway** (or run `xattr -dr com.apple.quarantine /Applications/Cerea.app`).
 
 **First start:** type your server's address (just the site, for example `chat.example.org`); the app finds the chat and shows what it found before saving. Add more servers under **Profiles**. If you use the browser panel, run **Set up browser** once per profile.
 
