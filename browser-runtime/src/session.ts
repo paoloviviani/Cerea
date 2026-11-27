@@ -1962,10 +1962,9 @@ export class BrowserSession {
 		}
 		let key = readKey({ keyFile: this.options.keyFile });
 		let verdict: GrantCheck = checkGrant(grant, digest, key);
-		if (verdict === "no_key" && this.options.keyFile) {
+		if (verdict === "no_key" && (this.options.connect || this.options.connectFile)) {
 			// The desktop app writes the key file as it starts, and an approved action can reach
 			// this runtime before the file exists: wait a bounded time for it, then check once more.
-			// The environment key is fixed for the process, so it is never re-read.
 			const waitMs = this.options.keyFileWaitMs ?? KEY_FILE_WAIT_MS;
 			const deadline = Date.now() + waitMs;
 			while (Date.now() < deadline) {
@@ -1983,7 +1982,7 @@ export class BrowserSession {
 				refused: "approval_required",
 				error:
 					this.options.connect || this.options.connectFile
-						? "The app could not set up approvals for its browser: sign out of Cerea in the app, then sign in again. The app's log says why."
+						? "The app could not set up approvals for its browser; see the app's log."
 						: "This computer's browser has no approval key yet; Cerea hands it over the first time the browser is used; if this keeps happening, restart galopin.",
 			};
 		}
