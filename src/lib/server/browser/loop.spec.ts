@@ -148,7 +148,13 @@ function setup(opts: {
 	approver?: Approver;
 	deps?: Partial<LoopDeps>;
 }) {
-	const runtime = new FakeBrowserRuntime(shop(), opts.start ?? "home");
+	// A test that passes its own clock passes it to the runtime too: a grant made on that clock is
+	// then verified against it, the way a real runtime verifies a grant with its own clock.
+	const runtime = new FakeBrowserRuntime(
+		shop(),
+		opts.start ?? "home",
+		opts.deps?.now ? { now: opts.deps.now } : undefined
+	);
 	const model = scriptedModel(opts.script);
 	const steps = new Map<number, LoopStep>();
 	const waits: Array<string | null> = [];
@@ -247,6 +253,75 @@ describe("runBrowseLoop: the ordinary run", () => {
 		);
 		expect(asked).not.toHaveBeenCalled();
 		expect(runtime.url).toBe("https://shop.example.com/");
+	});
+
+	describe("the first navigation's approval id", () => {
+		it("gives a fresh id for every task, even on the same first host", async () => {
+			// Two tasks starting from an empty page onto the same site: the runtime spends every
+			// non-site: grant id, so a grant id that was the same for both tasks would be refused
+			// on the second one ("already used"), and the page would never leave the blank start.
+			const ids: string[] = [];
+			for (let i = 0; i < 2; i += 1) {
+				const pages = shop();
+				pages.push({ id: "blank", url: "about:blank", title: "", elements: [] });
+				const runtime = new FakeBrowserRuntime(pages, "blank", { spendGrants: true });
+				const model = scriptedModel([answerTurn("ok")]);
+				const asked = vi.fn();
+				await runBrowseLoop(
+					{ goal: "x y z", startUrl: "https://shop.example.com/" },
+					{
+						runtime,
+						grantKey: FAKE_BROWSER_KEY,
+						complete: model.complete,
+						approve: async (ask) => {
+							asked(ask);
+							return { verdict: "denied" };
+						},
+						rules: { allow: [], deny: [] },
+						ceiling: "ask",
+						budgets,
+					}
+				);
+				expect(asked).not.toHaveBeenCalled();
+				expect(runtime.url).toBe("https://shop.example.com/");
+				const actCall = runtime.calls.find((c) => c.tool === "act");
+				const grants = actCall?.args.approvals as Array<{ id: string }> | undefined;
+				expect(grants?.[0]?.id).toMatch(/^start:shop\.example\.com:[0-9a-f-]{36}$/);
+				ids.push(grants?.[0]?.id ?? "");
+			}
+			expect(ids[0]).not.toBe(ids[1]);
+		});
+
+		it("lets a second task start even when the first spent its grant on a runtime that remembers spent ids", async () => {
+			// The owner's failure: one browser, several tasks, the second task's approval refused
+			// as "already used" because the id was the same for every task.
+			const pages = shop();
+			pages.push({ id: "blank", url: "about:blank", title: "", elements: [] });
+			const runtime = new FakeBrowserRuntime(pages, "blank", { spendGrants: true });
+			const model = scriptedModel([answerTurn("ok")]);
+			const deps = {
+				runtime,
+				grantKey: FAKE_BROWSER_KEY,
+				complete: model.complete,
+				approve: async () => ({ verdict: "denied" as const }),
+				rules: { allow: [], deny: [] },
+				ceiling: "ask" as const,
+				budgets,
+			};
+			await runBrowseLoop({ goal: "x y z", startUrl: "https://shop.example.com/" }, deps);
+			expect(runtime.url).toBe("https://shop.example.com/");
+			// A second task on the same browser, starting from a fresh blank page again: the
+			// runtime lands it on a page, not back on the first task's page.
+			runtime.resetToBlank();
+			await runBrowseLoop({ goal: "x y z", startUrl: "https://shop.example.com/" }, deps);
+			expect(runtime.url).toBe("https://shop.example.com/");
+			const acts = runtime.calls.filter((c) => c.tool === "act");
+			const grantIds = acts.flatMap((c) =>
+				((c.args.approvals as Array<{ id: string }> | undefined) ?? []).map((g) => g.id)
+			);
+			expect(grantIds).toHaveLength(2);
+			expect(grantIds[0]).not.toBe(grantIds[1]);
+		});
 	});
 
 	it("maps what it read onto the output schema in the sub-agent, not the runtime", async () => {
@@ -1812,5 +1887,188 @@ describe("runBrowseLoop: the user takes the browser over", () => {
 		const result = await runBrowseLoop({ goal: "x" }, deps);
 		expect(result.result).toBe("ok");
 		expect(driving).toEqual([]);
+	});
+});
+
+describe("a refused approval stops the task", () => {
+	const refuses =
+		(r: { refused: string; error: string }, url = "https://shop.example.com/cart") =>
+		async () => ({
+			results: [{ ok: false, refused: r.refused, error: r.error } as never],
+			url,
+			title: "Your cart",
+		});
+
+	it("stops at the first 'already used' refusal, with the runtime's words as the stop note, and asks once", async () => {
+		const ap = approveAll();
+		const { deps, runtime } = setup({
+			start: "cart",
+			script: [callTurn("act", { actions: [{ type: "click", ref: "e1" }] }), answerTurn("never")],
+			approver: ap.approve,
+		});
+		runtime.act = refuses({
+			refused: "approval_mismatch",
+			error: "This approval was already used for an earlier action.",
+		});
+		const result = await runBrowseLoop({ goal: "pay the cart" }, deps);
+		expect(result.stopped_reason).toBe("approval_refused");
+		expect(result.stop_note).toBe("This approval was already used for an earlier action.");
+		// The approval was asked once and never again.
+		expect(ap.asks).toHaveLength(1);
+	});
+
+	it("stops at the first 'no approval key' refusal, with the runtime's words as the stop note", async () => {
+		const ap = approveAll();
+		const { deps, runtime } = setup({
+			start: "cart",
+			script: [callTurn("act", { actions: [{ type: "click", ref: "e1" }] }), answerTurn("never")],
+			approver: ap.approve,
+		});
+		runtime.act = refuses({
+			refused: "approval_required",
+			error:
+				"This computer's browser has no approval key yet; Cerea hands it over the first time the browser is used; if this keeps happening, restart galopin.",
+		});
+		const result = await runBrowseLoop({ goal: "pay the cart" }, deps);
+		expect(result.stopped_reason).toBe("approval_refused");
+		expect(result.stop_note).toBe(
+			"This computer's browser has no approval key yet; Cerea hands it over the first time the browser is used; if this keeps happening, restart galopin."
+		);
+		expect(ap.asks).toHaveLength(1);
+	});
+
+	it("stops at the app's no-key refusal too, with the runtime's words as the stop note", async () => {
+		const ap = approveAll();
+		const { deps, runtime } = setup({
+			start: "cart",
+			script: [callTurn("act", { actions: [{ type: "click", ref: "e1" }] }), answerTurn("never")],
+			approver: ap.approve,
+		});
+		runtime.act = refuses({
+			refused: "approval_required",
+			error:
+				"The app could not set up approvals for its browser: sign out of Cerea in the app, then sign in again. The app's log says why.",
+		});
+		const result = await runBrowseLoop({ goal: "pay the cart" }, deps);
+		expect(result.stopped_reason).toBe("approval_refused");
+		expect(result.stop_note).toBe(
+			"The app could not set up approvals for its browser: sign out of Cerea in the app, then sign in again. The app's log says why."
+		);
+		expect(ap.asks).toHaveLength(1);
+	});
+
+	it("stops at a bad signature, and at an expiry that is out of this computer's clock", async () => {
+		for (const [refused, error] of [
+			["approval_mismatch", "The approval's signature is not valid."],
+			["approval_mismatch", "The approval's expiry is too far ahead for this computer's clock."],
+		] as const) {
+			const { deps, runtime } = setup({
+				start: "cart",
+				script: [callTurn("act", { actions: [{ type: "click", ref: "e1" }] }), answerTurn("never")],
+			});
+			runtime.act = refuses({ refused, error });
+			const result = await runBrowseLoop({ goal: "pay the cart" }, deps);
+			expect(result.stopped_reason).toBe("approval_refused");
+			expect(result.stop_note).toBe(error);
+		}
+	});
+
+	it("asks once more for an expired approval, and continues when the action runs again", async () => {
+		const ap = approveAll();
+		const { deps, runtime } = setup({
+			start: "cart",
+			script: [
+				callTurn("act", { actions: [{ type: "click", ref: "e1" }] }),
+				answerTurn("Order placed."),
+			],
+			approver: ap.approve,
+		});
+		const realAct = runtime.act.bind(runtime);
+		let refusals = 1;
+		runtime.act = async (actions, grants) => {
+			if (refusals > 0) {
+				refusals -= 1;
+				return {
+					results: [
+						{
+							ok: false,
+							refused: "approval_expired",
+							error: "The approval has expired. Ask again.",
+						} as never,
+					],
+					url: "https://shop.example.com/cart",
+					title: "Your cart",
+				};
+			}
+			return realAct(actions, grants);
+		};
+		const result = await runBrowseLoop({ goal: "pay the cart" }, deps);
+		// The ask, then the one fresh ask on the page as it is now.
+		expect(ap.asks).toHaveLength(2);
+		expect(result.final_url).toBe("https://shop.example.com/thanks");
+		expect(result.stopped_reason).toBeUndefined();
+	});
+
+	it("asks once more for a digest mismatch (the page moved under the approval), and stops if it is refused again", async () => {
+		const ap = approveAll();
+		const { deps, runtime } = setup({
+			start: "cart",
+			script: [callTurn("act", { actions: [{ type: "click", ref: "e1" }] }), answerTurn("never")],
+			approver: ap.approve,
+		});
+		runtime.act = refuses({
+			refused: "approval_mismatch",
+			error:
+				"The approval does not match this action as the page is now (the page or the control changed).",
+		});
+		const result = await runBrowseLoop({ goal: "pay the cart" }, deps);
+		expect(ap.asks).toHaveLength(2);
+		expect(result.stopped_reason).toBe("approval_refused");
+		expect(result.stop_note).toContain("does not match");
+	});
+
+	it("stops when the fresh approval is refused by the user, without retrying further", async () => {
+		let count = 0;
+		const ap = {
+			approve: async () => {
+				count += 1;
+				return count === 1
+					? { verdict: "approved" as const, id: "a1" }
+					: { verdict: "denied" as const };
+			},
+			askFor: () => [] as never[],
+		};
+		const { deps, runtime } = setup({
+			start: "cart",
+			script: [
+				callTurn("act", { actions: [{ type: "click", ref: "e1" }] }),
+				answerTurn("I could not pay."),
+			],
+			approver: ap.approve,
+		});
+		runtime.act = refuses({
+			refused: "approval_expired",
+			error: "The approval has expired. Ask again.",
+		});
+		const result = await runBrowseLoop({ goal: "pay the cart" }, deps);
+		expect(count).toBe(2);
+		// The refusal path is the task's existing denied path, not a second stop.
+		expect(result.stopped_reason).toBeUndefined();
+	});
+
+	it("does not ask again after a failure that is not an approval refusal", async () => {
+		const ap = approveAll();
+		const { deps, runtime } = setup({
+			start: "cart",
+			script: [callTurn("act", { actions: [{ type: "click", ref: "e1" }] }), answerTurn("done")],
+			approver: ap.approve,
+		});
+		runtime.act = async () => ({
+			results: [{ ok: false, error: "a stale ref on the page" } as never],
+			url: "https://shop.example.com/cart",
+			title: "Your cart",
+		});
+		await runBrowseLoop({ goal: "pay the cart" }, deps);
+		expect(ap.asks).toHaveLength(1);
 	});
 });

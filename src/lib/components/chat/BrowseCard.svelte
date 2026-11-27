@@ -78,6 +78,13 @@
 	const stopNote = $derived.by(() => {
 		const reason = update.stoppedReason;
 		if (!reason) return undefined;
+		// The runtime's own words for why an approval was refused: the one thing that can say what
+		// went wrong in a way the user can act on. It comes after our own sentence; the plain i18n
+		// note is the fallback when the runtime said nothing.
+		if (reason === "approval_refused") {
+			const ours = m["chat.browse.stopped.approval_refused"]();
+			return update.stopNote ? `${ours} ${update.stopNote}` : ours;
+		}
 		const notes: Record<string, string> = {
 			max_steps: m["chat.browse.stopped.max_steps"](),
 			max_tokens: m["chat.browse.stopped.max_tokens"](),

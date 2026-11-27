@@ -71,8 +71,10 @@ func (mc *machine) startConnectors(stateDir, mcpPath string) *mcpconn.Hub {
 		StateDir: stateDir,
 		Lookup:   os.LookupEnv,
 		Logf:     logf,
-		// The browser runtime's approval key (PROTOCOL.md §10.7).
+		// The browser runtime's approval key (PROTOCOL.md §10.7): refreshed when the runtime
+		// starts, and again before the first action of a task runs under it.
 		BeforeStart: mc.browserBeforeStart(stateDir),
+		BeforeCall:  mc.browserKeyReady(stateDir),
 		// The browser runtime owns one profile, so it is one process: Chromium refuses a second
 		// on the same profile. Cerea keeps one channel per server open anyway.
 		ServerLimits: map[string]int{browserConnectorName: 1},

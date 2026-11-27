@@ -457,6 +457,12 @@ export interface MessageBrowseUpdate {
 	/** The page the browser ended on. */
 	finalUrl?: string;
 	stoppedReason?: string;
+	/**
+	 * The runtime's own words for why an approval was refused, verbatim: the card shows it instead
+	 * of the plain reason, because it is the one thing that can say what went wrong so a user can
+	 * act on it.
+	 */
+	stopNote?: string;
 	/** The title of the page left open for the user when the task ended. */
 	leftOpen?: string;
 	/** The task continued on a page the previous task left open, and that page had changed. */

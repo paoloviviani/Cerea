@@ -1912,6 +1912,7 @@
 	"chat.browse.stopped.model_error": "Il modello di navigazione non è riuscito.",
 	"chat.browse.stopped.denied": "Un sito o un'azione era vietato.",
 	"chat.browse.stopped.verification": "Una verifica nel browser non è stata completata.",
+	"chat.browse.stopped.approval_refused": "L'approvazione per questa azione non è stata applicata.",
 	"chat.browse.left_open": "Lasciata aperta: {title}",
 	"chat.browse.where_window": "Eseguito nel browser di questa app",
 	"chat.browse.where_computer": "Eseguito su {computer}",

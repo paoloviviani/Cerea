@@ -2025,6 +2025,7 @@
 	"chat.browse.stopped.model_error": "[Ťȟé ƀŕóŵśíńǧ ḿóďéľ ƒáíľéď.]",
 	"chat.browse.stopped.denied": "[Á śíťé óŕ áćťíóń ŵáś óƒƒ ľíḿíťś.]",
 	"chat.browse.stopped.verification": "[Á ǚéŕíƒíćáťíóń íń ťȟé ƀŕóŵśéŕ ŵáś ńóť ćóḿþľéťéď.]",
+	"chat.browse.stopped.approval_refused": "[Ťȟé áþþŕóǚáľ ƒóŕ ťȟíś áćťíóń ćóúľď ńóť ƀé áþþľíéď.]",
 	"chat.browse.left_open": "[Ĺéƒť óþéń: {title}]",
 	"chat.browse.where_window": "[Ŕúńś íń ťȟíś áþþ'ś ƀŕóŵśéŕ]",
 	"chat.browse.where_computer": "[Ŕúńś óń {computer}]",

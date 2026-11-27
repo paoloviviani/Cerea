@@ -36,6 +36,11 @@ type Config struct {
 	// answer refuses the open with that error.
 	BeforeStart func(ctx context.Context, e *Entry) *OpenError
 
+	// BeforeCall runs before a tools/call to a stdio server is forwarded (galopin uses it to make
+	// sure the browser runtime has its approval key before an action runs under one). A non-nil
+	// answer is only logged; the call goes on, and the server refuses what it cannot do.
+	BeforeCall func(ctx context.Context, e *Entry, tool string) *OpenError
+
 	// KeepAlive names servers that outlive their channel: no idle stop, and when
 	// the link goes down the process is kept for KeepAliveGrace and re-attached
 	// to the next channel opened for it (the browser runtime: its Chrome window

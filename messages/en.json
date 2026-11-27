@@ -1885,6 +1885,7 @@
 	"chat.browse.stopped.model_error": "The browsing model failed.",
 	"chat.browse.stopped.denied": "A site or action was off limits.",
 	"chat.browse.stopped.verification": "A verification in the browser was not completed.",
+	"chat.browse.stopped.approval_refused": "The approval for this action could not be applied.",
 	"chat.browse.left_open": "Left open: {title}",
 	"chat.browse.where_window": "Runs in this app's browser",
 	"chat.browse.where_computer": "Runs on {computer}",

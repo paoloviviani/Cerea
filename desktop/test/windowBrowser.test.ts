@@ -517,6 +517,104 @@ describe("WindowBrowser", () => {
 		expect(existsSync(join(dir, "approval-key"))).toBe(false);
 		await wb.dispose();
 	});
+	describe("no key: a log line that says why", () => {
+		it("logs why when the profile names no cookie", async () => {
+			const logs: string[] = [];
+			const { wb, dir } = make({ log: (l) => logs.push(l), cookieName: () => undefined });
+			wb.start();
+			wb.handleFromPage(announce());
+			await vi.waitFor(() =>
+				expect(logs).toContain(
+					"[window browser] no key: no cookie name from the server's enroll.json"
+				)
+			);
+			expect(existsSync(join(dir, "approval-key"))).toBe(false);
+			await wb.dispose();
+		});
+		it("logs why when no cookie of that name is found", async () => {
+			const logs: string[] = [];
+			const { wb, dir } = make({ log: (l) => logs.push(l), readCookies: async () => [] });
+			wb.start();
+			wb.handleFromPage(announce());
+			await vi.waitFor(() =>
+				expect(logs).toContain("[window browser] no key: no cookie named hf-chat found")
+			);
+			expect(existsSync(join(dir, "approval-key"))).toBe(false);
+			await wb.dispose();
+		});
+		it("logs why when a second cookie of that name exists", async () => {
+			const logs: string[] = [];
+			const { wb, dir } = make({
+				log: (l) => logs.push(l),
+				readCookies: async () => [
+					sessionCookie({ value: "real" }),
+					sessionCookie({ value: "page" }),
+				],
+			});
+			wb.start();
+			wb.handleFromPage(announce());
+			await vi.waitFor(() =>
+				expect(logs).toContain(
+					"[window browser] no key: more than one cookie named hf-chat found (2)"
+				)
+			);
+			expect(existsSync(join(dir, "approval-key"))).toBe(false);
+			await wb.dispose();
+		});
+		it("logs which checks fail, never the cookie's value, for a cookie that does not pass", async () => {
+			const logs: string[] = [];
+			const { wb, dir } = make({
+				log: (l) => logs.push(l),
+				readCookies: async () => [
+					sessionCookie({ value: "page-chosen", httpOnly: false, secure: false }),
+				],
+			});
+			wb.start();
+			wb.handleFromPage(announce());
+			await vi.waitFor(() =>
+				expect(logs).toContain(
+					"[window browser] no key: cookie hf-chat does not pass the server-cookie check: httpOnly, secure"
+				)
+			);
+			expect(logs.join("\n")).not.toContain("page-chosen");
+			expect(existsSync(join(dir, "approval-key"))).toBe(false);
+			await wb.dispose();
+		});
+		it("names every failing check when there are several", async () => {
+			const logs: string[] = [];
+			const { wb } = make({
+				log: (l) => logs.push(l),
+				readCookies: async () => [
+					sessionCookie({
+						value: "v",
+						httpOnly: false,
+						secure: false,
+						hostOnly: false,
+						domain: "other.example",
+						path: "/chat",
+					}),
+				],
+			});
+			wb.start();
+			wb.handleFromPage(announce());
+			await vi.waitFor(() =>
+				expect(logs).toContain(
+					"[window browser] no key: cookie hf-chat does not pass the server-cookie check: httpOnly, secure, hostOnly, domain, path"
+				)
+			);
+			await wb.dispose();
+		});
+		it("logs no no-key line when a key is written", async () => {
+			const logs: string[] = [];
+			const { wb, dir } = make({ log: (l) => logs.push(l) });
+			wb.start();
+			wb.handleFromPage(announce());
+			await vi.waitFor(() => expect(existsSync(join(dir, "approval-key"))).toBe(true));
+			expect(logs.filter((l) => l.includes("no key"))).toEqual([]);
+			await wb.dispose();
+		});
+	});
+
 	it("reads the cookie the profile named, never one the page names; none named means no key", async () => {
 		const asked: string[] = [];
 		const { wb, dir } = make({

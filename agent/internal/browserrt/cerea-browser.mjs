@@ -1,4 +1,4 @@
-// cerea-browser runtime 0.1.0; source-hash: 7b2d98a264ebb1cd2fef857a111a0c3895a10d36311cd1f65784b2fb3fadc5a8
+// cerea-browser runtime 0.1.0; source-hash: e6939ffa2167bfeced740a5bdfc4073e0c202cbfb471c301689eabf586787117
 // inlined: @hono/node-server@2.1.8 @modelcontextprotocol/sdk@1.32.2 ajv@8.20.0 ajv-formats@3.0.1 content-type@1.0.5 fast-deep-equal@3.1.3 fast-uri@3.1.9 hono@4.13.18 json-schema-traverse@1.0.0 tldts@7.4.26 zod@3.25.76 zod-to-json-schema@3.25.2
 import { createRequire as __cr } from "node:module";
 const require = __cr(import.meta.url);
@@ -23559,6 +23559,8 @@ var DEFAULT_IDLE_MS = 10 * 6e4;
 var KEPT_TTL_MS = 24 * 60 * 6e4;
 var LENT_TTL_MS = 60 * 6e4;
 var LENT_MAX_MS = 8 * 60 * 6e4;
+var KEY_FILE_WAIT_MS = 2e3;
+var KEY_FILE_POLL_MS = 250;
 var MIME_BY_EXTENSION = {
   csv: "text/csv",
   pdf: "application/pdf",
@@ -24909,7 +24911,7 @@ url: about:blank
       const klass = element?.metaUnknown ? "commit" : classified.class;
       const grant = approvals?.find((g) => g.index === index);
       if (klass === "commit") {
-        const refusal = this.checkApproval(actionDigest(action, ctx), grant);
+        const refusal = await this.checkApproval(actionDigest(action, ctx), grant);
         if (refusal) return refusal;
         this.spend(grant);
       }
@@ -24969,7 +24971,7 @@ url: about:blank
     const title = clean(await safeTitle(page), 300);
     const url = stripUserUrl(page.url());
     const grant = approvals?.find((g) => g.index === index);
-    const refusal = this.checkApproval(
+    const refusal = await this.checkApproval(
       actionDigest(
         { type: "use_tab", tab: tabId },
         { currentUrl: "", tab: { id: tabId, url, title } }
@@ -24996,7 +24998,7 @@ url: about:blank
    * The runtime's half of ADR 0116 §4: a commit runs only with a grant that Cerea signed, that has
    * not expired and that was issued for exactly this action as the page is now.
    */
-  checkApproval(digest, grant) {
+  async checkApproval(digest, grant) {
     if (!grant) {
       return {
         ok: false,
@@ -25004,13 +25006,23 @@ url: about:blank
         error: "This action needs the user's approval first (it submits, spends, sends, deletes or leaves the site)."
       };
     }
-    const key = readKey({ keyFile: this.options.keyFile });
-    const verdict = checkGrant(grant, digest, key);
+    let key = readKey({ keyFile: this.options.keyFile });
+    let verdict = checkGrant(grant, digest, key);
+    if (verdict === "no_key" && (this.options.connect || this.options.connectFile)) {
+      const waitMs = this.options.keyFileWaitMs ?? KEY_FILE_WAIT_MS;
+      const deadline = Date.now() + waitMs;
+      while (Date.now() < deadline) {
+        await sleep(KEY_FILE_POLL_MS);
+        key = readKey({ keyFile: this.options.keyFile });
+        if (key) break;
+      }
+      verdict = checkGrant(grant, digest, key);
+    }
     if (verdict === "no_key") {
       return {
         ok: false,
         refused: "approval_required",
-        error: "This runtime has no approval key, so it cannot accept approvals. Run `galopin browser enable` again."
+        error: this.options.connect || this.options.connectFile ? "The app could not set up approvals for its browser; see the app's log." : "This computer's browser has no approval key yet; Cerea hands it over the first time the browser is used; if this keeps happening, restart galopin."
       };
     }
     if (verdict === "exp_too_far") {

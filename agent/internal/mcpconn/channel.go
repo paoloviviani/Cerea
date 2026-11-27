@@ -315,6 +315,11 @@ func (c *channel) fromClient(raw []byte) {
 		switch h.Method {
 		case "tools/call":
 			tool := h.Params.Name
+			if c.hub.cfg.BeforeCall != nil && c.entry.Transport == TransportStdio {
+				if oerr := c.hub.cfg.BeforeCall(context.Background(), c.entry, tool); oerr != nil {
+					c.logf("connectors: %s: %s", c.entry.Name, oerr.Message)
+				}
+			}
 			if c.entry.AllowedTools != nil && !contains(c.entry.AllowedTools, tool) {
 				c.hub.cfg.Audit(c.entry.Name, tool, "refused")
 				if h.hasID() {

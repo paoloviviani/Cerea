@@ -352,19 +352,27 @@ export interface SessionCookie {
 }
 
 /**
+ * The checks a cookie must pass to be the server's session cookie, by name, or an empty list when
+ * it passes them all. The cookie's value is never part of the answer, and never logged.
+ */
+export function cookieCheckFailures(c: SessionCookie, host: string, https: boolean): string[] {
+	const failures: string[] = [];
+	if (!c.value) failures.push("value");
+	if (!c.httpOnly) failures.push("httpOnly");
+	if (https && !c.secure) failures.push("secure");
+	if (!c.hostOnly) failures.push("hostOnly");
+	if (c.domain.replace(/^\./, "").toLowerCase() !== host.toLowerCase()) failures.push("domain");
+	if (c.path !== "/") failures.push("path");
+	return failures;
+}
+
+/**
  * Whether a cookie can be the server's session cookie: set by the server itself for exactly its own
  * host (no `Domain=` attribute, so a sibling host or a parent domain cannot have planted it) at the
  * root path, HttpOnly, and Secure on https. Anything else is a cookie somebody else could have set.
  */
 export function isServerSessionCookie(c: SessionCookie, host: string, https: boolean): boolean {
-	return (
-		!!c.value &&
-		c.httpOnly &&
-		(!https || c.secure) &&
-		c.hostOnly &&
-		c.domain.replace(/^\./, "").toLowerCase() === host.toLowerCase() &&
-		c.path === "/"
-	);
+	return cookieCheckFailures(c, host, https).length === 0;
 }
 
 export interface WindowBrowserDeps {
@@ -547,24 +555,40 @@ export class WindowBrowser {
 			rmSync(this.keyFile(), { force: true });
 			const wait = this.deps.keyWaitMs ?? 10_000;
 			const name = await bounded(this.deps.cookieName(), wait, "the cookie name");
-			if (!name || stale()) return;
+			if (!name) {
+				this.deps.log("[window browser] no key: no cookie name from the server's enroll.json");
+				return;
+			}
+			if (stale()) return;
 			const found = await bounded(this.deps.readCookies(name), wait, "the cookie jar");
-			const only = found.length === 1 ? found[0] : undefined;
-			if (!only || !isServerSessionCookie(only, this.deps.host, this.deps.https)) {
-				if (found.length > 0)
-					this.deps.log(
-						"[window browser] no key: the session cookie is not the server's own HttpOnly, host-only, Secure cookie at the root path."
-					);
+			if (stale()) return;
+			if (found.length === 0) {
+				this.deps.log(`[window browser] no key: no cookie named ${name} found`);
+				return;
+			}
+			if (found.length > 1) {
+				this.deps.log(
+					`[window browser] no key: more than one cookie named ${name} found (${found.length})`
+				);
+				return;
+			}
+			const failures = cookieCheckFailures(found[0], this.deps.host, this.deps.https);
+			if (failures.length > 0) {
+				// Never the cookie's value: the failures are names of checks, not of a secret.
+				this.deps.log(
+					`[window browser] no key: cookie ${name} does not pass the server-cookie check: ${failures.join(", ")}`
+				);
 				return;
 			}
 			if (stale()) return;
 			ensurePrivateDir(this.deps.dir, this.deps.uid ?? process.getuid?.() ?? 0);
 			writeEndpointFile(
 				this.keyFile(),
-				`${windowGrantKey(only.value, windowId).toString("base64url")}\n`
+				`${windowGrantKey(found[0].value, windowId).toString("base64url")}\n`
 			);
 		} catch (err) {
-			this.deps.log(`[window browser] the key was not stored: ${String(err)}`);
+			// Something went wrong before the key was written: that is a no-key case too.
+			this.deps.log(`[window browser] no key: ${err instanceof Error ? err.message : String(err)}`);
 		}
 	}
 

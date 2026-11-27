@@ -232,6 +232,32 @@ describe("the browse card", () => {
 		expect(q(baseElement, "browse-stop-note")?.textContent).toContain("browser in this app");
 	});
 
+	it("shows the runtime's own words for why an approval was refused, after our sentence", async () => {
+		const { baseElement } = render(BrowseCard, {
+			update: state({
+				status: "stopped",
+				stoppedReason: "approval_refused",
+				stopNote: "This runtime has no approval key, so it cannot accept approvals.",
+			}),
+			loading: false,
+		});
+		click(baseElement.querySelector("button[aria-expanded]"));
+		await new Promise((r) => setTimeout(r, 30));
+		expect(q(baseElement, "browse-stop-note")?.textContent).toContain(
+			"could not be applied. This runtime has no approval key"
+		);
+	});
+
+	it("falls back to the plain note when the runtime said nothing", async () => {
+		const { baseElement } = render(BrowseCard, {
+			update: state({ status: "stopped", stoppedReason: "approval_refused" }),
+			loading: false,
+		});
+		click(baseElement.querySelector("button[aria-expanded]"));
+		await new Promise((r) => setTimeout(r, 30));
+		expect(q(baseElement, "browse-stop-note")?.textContent).toContain("could not be applied");
+	});
+
 	it("a second driver that was refused says another task is using the browser", async () => {
 		const { baseElement } = render(BrowseCard, {
 			update: state({ status: "stopped", stoppedReason: "busy", where: { kind: "window" } }),
