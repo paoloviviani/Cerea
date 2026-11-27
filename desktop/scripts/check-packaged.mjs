@@ -7,7 +7,7 @@
 // the app does (windowBrowser.ts), and fails on any missing module.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { cereaVersion } from "./cerea-version.mjs";
@@ -56,7 +56,7 @@ assert.equal(shipped, pinned, "the packaged playwright-core is not the version t
 
 // Run from a copy outside the source tree: release/ sits under desktop/, whose own node_modules
 // would otherwise resolve playwright-core for a package that lacks it.
-const copy = mkdtempSync(join(tmpdir(), "cerea-packaged-"));
+const copy = realpathSync(mkdtempSync(join(tmpdir(), "cerea-packaged-")));
 process.on("exit", () => rmSync(copy, { recursive: true, force: true }));
 for (const d of ["browser-runtime", "node"]) {
 	cpSync(join(res, d), join(copy, d), { recursive: true, verbatimSymlinks: true });
@@ -84,7 +84,7 @@ const imported = run(
 	{ cwd: crt }
 ).trim();
 assert.ok(imported.startsWith(crt), `playwright-core resolved outside the package: ${imported}`);
-console.log(`ok   the packaged node imports ${imported.slice(copy.length + 1)}`);
+console.log(`ok   the packaged node imports ${imported.slice(crt.length + 1)}`);
 
 // The app and its galopin carry the Cerea version.
 const galopinVersion = run(galopin, ["version"]).trim();
