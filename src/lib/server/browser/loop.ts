@@ -1146,9 +1146,11 @@ async function runInner(
 			}
 
 			// The task's own first move: the runtime cannot know it is the first, so it gets a
-			// grant, bound to the action as the runtime classifies it (a new site).
+			// grant, bound to the action as the runtime classifies it (a new site). The id is a
+			// fresh one per use: the runtime spends every non-`site:` id, so an id that is
+			// the same for every task would be refused on the second one.
 			if (!approvedBy && first && action.type === "navigate") {
-				approvedBy = `start:${classification.targetHost ?? "start"}`;
+				approvedBy = `start:${classification.targetHost ?? "start"}:${randomUUID()}`;
 			}
 			if (approvedBy) {
 				issued.add(approvedBy);
