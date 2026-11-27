@@ -5,6 +5,15 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## v0.67.2 — 2026-11-27
+
+Pins: Cerea `0.67.2` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.34.1`, opencode `2.4.1`.
+**To update:** `cd ~/cerea/kit && sh get-kit.sh --upgrade --version v0.67.2` (or `git pull`), then `./configure --check`, then
+`docker compose pull && docker compose up -d`. **Desktop app:** download the new build from this release. **On computers:** update galopin (the Upgrade button, or the usual command).
+
+- **Desktop app: the first sign-in stays in the app.** On a server whose identity provider is on another host (GitLab, Google, Entra, Keycloak on its own domain), adding the server used to open the provider's sign-in in the system browser and leave the app blank. The app now follows the whole sign-in chain itself; the rules are unchanged (only the server's own provider, only https, nothing else).
+- **Browser use: an approval is never reused, and a refused one stops the task.** A browser task's first navigation approval was named the same for every task, so the second task to a site was refused for a spent approval and the card kept asking the same question until you cancelled. Approvals are now unique per task. When the browser refuses an action you approved, the task stops with the browser's reason on the card instead of asking again (an expired approval, or a page that moved, gets one fresh ask). The desktop app logs why it could not set up approvals, and galopin fetches its key before a task's first approved action.
+- **Desktop app: a Home button in the browser panel.** The panel's toolbar gains Home: it goes back to the chat of that profile from anywhere (the Pystino console included), and hides itself at home. The Window menu has "Return to Cerea" (Ctrl/⌘+Shift+H).
 ## Unreleased
 
 - **Desktop app: a one-line installer for Macs.** Every release now carries `Cerea-Desktop-PREVIEW-install-macos.sh`: `curl -fsSL https://github.com/paoloviviani/Cerea/releases/latest/download/Cerea-Desktop-PREVIEW-install-macos.sh | sh` downloads the build for the Mac's chip, checks its checksum, installs it in Applications (profiles and pairings kept) and clears the quarantine flag, so macOS does not ask before the first start. Run it again to update.
