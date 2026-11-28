@@ -5,9 +5,14 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
-## Unreleased
+## v0.67.4 — 2026-11-28
 
-- **Desktop app: signing in through an upstream provider stays in the app.** A server whose identity provider signs you in through another one (GitLab through Microsoft, say) used to hand the second hop to the system browser and leave the app blank. During the sign-in the app now follows the provider's own redirects to up to three further providers (https only, within the same 10 minutes); a click on those pages still cannot open a new site in the app.
+Pins: Cerea `0.67.4` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.34.1`, opencode `2.4.1`.
+**To update:** `cd ~/cerea/kit && sh get-kit.sh --upgrade --version v0.67.4` (or `git pull`), then `./configure --check`, then
+`docker compose pull && docker compose up -d`. **Desktop app:** `curl -fsSL https://github.com/paoloviviani/Cerea/releases/latest/download/Cerea-Desktop-PREVIEW-install-macos.sh | sh` on a Mac, or download the build from this release. Nothing to do on computers.
+
+- **Desktop app: signing in through an upstream provider stays in the app.** A server whose identity provider signs you in through another one (GitLab through Microsoft, say) used to hand the second hop to the system browser and leave the app blank. During the sign-in the app now follows the provider's own redirects to up to three further providers (https only, within the same 10 minutes); a click on those pages still cannot open a new site in the app. A sign-in step the app does not follow is written to its log (`[sign-in]`).
+- **Desktop app: tested the way Macs run it.** The desktop smoke test now uses a data folder with a space in its name, a Cerea under `/chat` added by its bare address, and the real renderer sandbox, so a break like v0.67.2's can no longer pass CI.
 
 ## v0.67.3 — 2026-11-27
 
