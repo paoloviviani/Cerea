@@ -2,8 +2,12 @@
  * Where each web view may go. The Cerea window may load the chosen server's origin and nothing
  * else; a link to anywhere else opens in the system browser. The one exception is signing in: a
  * server-side redirect that starts on the server's origin may take the window to the identity
- * provider (https only) and back, and nothing the user clicks on that page can leave it for a
- * third site. The browser panel loads http(s) pages only.
+ * provider (https only) and back. While that sign-in is live (10 minutes from the first hop, never
+ * extended), the provider may hand over to providers upstream of it (GitLab signing in through
+ * Microsoft, say), but only by a server-side redirect from the page the window is on, https only,
+ * and at most `MAX_UPSTREAM` origins beyond the provider. A click or a script on any of those pages
+ * moves only between origins the sign-in already reached; a new one opens in the system browser.
+ * The browser panel loads http(s) pages only.
  */
 
 export type Decision = "allow" | "external" | "deny";
@@ -13,11 +17,16 @@ export interface GuardState {
 	origin: string;
 	/** The identity provider's origin from the server's sign-in settings: the only other origin a redirect may reach. */
 	idp?: string;
-	/** Set while the window is on an identity provider reached by a redirect from the server. */
-	excursion?: { origin: string; since: number };
+	/**
+	 * Set while the window is signing in: the origin it is on now, when the sign-in started (the
+	 * first redirect to the provider), and every origin the sign-in reached, the provider first.
+	 */
+	excursion?: { origin: string; since: number; chain?: string[] };
 }
 
 const EXCURSION_MS = 10 * 60 * 1000;
+/** How many origins beyond the server's own provider a sign-in may reach (upstream providers). */
+export const MAX_UPSTREAM = 3;
 
 function parse(url: string): URL | undefined {
 	try {
@@ -90,16 +99,41 @@ export function guardCerea(
 	const f = parse(from);
 	const live =
 		state.excursion && now - state.excursion.since < EXCURSION_MS ? state.excursion : undefined;
-	// Only the server's own identity provider is reachable, and only by a redirect: a provider
-	// upstream of it is not (an administrator will be able to list more hops later).
-	if (kind === "redirect" && f && secureOrLoopback(u) && state.idp && u.origin === state.idp) {
-		if (f.origin === state.origin)
-			return { decision: "allow", excursion: { origin: u.origin, since: now } };
-		if (live && f.origin === live.origin)
-			return { decision: "allow", excursion: { origin: u.origin, since: live.since } };
+	const reached = live ? (live.chain ?? [live.origin]) : [];
+	// The sign-in starts with a redirect from the server to its own identity provider (a fresh
+	// sign-in, so a fresh clock).
+	if (
+		kind === "redirect" &&
+		f &&
+		f.origin === state.origin &&
+		secureOrLoopback(u) &&
+		state.idp &&
+		u.origin === state.idp
+	) {
+		return {
+			decision: "allow",
+			excursion: { origin: u.origin, since: now, chain: [u.origin] },
+		};
 	}
-	if (kind === "navigate" && live && f && f.origin === live.origin && u.origin === live.origin) {
-		return { decision: "allow" };
+	// Everything else needs a live sign-in, and starts from the page the window is on.
+	if (!live || !f || f.origin !== live.origin) return { decision: "external" };
+	// Between origins the sign-in already reached: by redirect, or by a click or a script (the
+	// upstream provider posting its answer back to the server's provider).
+	if (reached.includes(u.origin) && (kind === "redirect" || secureOrLoopback(u))) {
+		return {
+			decision: "allow",
+			...(u.origin === live.origin
+				? {}
+				: { excursion: { origin: u.origin, since: live.since, chain: reached } }),
+		};
+	}
+	// A new origin: only by a server-side redirect, https only, and within the cap. The clock is
+	// the one the sign-in started with.
+	if (kind === "redirect" && secureOrLoopback(u) && reached.length < 1 + MAX_UPSTREAM) {
+		return {
+			decision: "allow",
+			excursion: { origin: u.origin, since: live.since, chain: [...reached, u.origin] },
+		};
 	}
 	return { decision: "external" };
 }

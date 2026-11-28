@@ -138,16 +138,33 @@ const fake2 = http.createServer((req, res) => {
 await new Promise((r) => fake2.listen(0, "127.0.0.1", r));
 const address2 = `http://127.0.0.1:${fake2.address().port}`;
 
-// A fake identity provider and a stand-in Cerea whose first load 302s straight to it: the
-// app must stay in its own window through the whole chain (the sign-in regression).
-const fakeIdp = http.createServer((req, res) => {
+// A fake identity provider that signs in through a fake upstream one (GitLab through Microsoft),
+// and a stand-in Cerea whose first load 302s straight to it: the app must stay in its own window
+// through the whole chain, there and back (the sign-in regressions).
+const fakeUpstream = http.createServer((req, res) => {
 	const send = (type, body) => (res.setHeader("content-type", type), res.end(body));
 	if (req.url?.startsWith("/authorize"))
+		// The upstream provider's answer goes back to the server's provider by a script (a form post
+		// in real life): a navigation, not a redirect.
 		send(
 			"text/html",
-			"<!doctype html><title>Fake IdP page</title><h1>Sign in at the fake IdP</h1>"
+			`<!doctype html><title>Fake upstream page</title><h1>Sign in upstream</h1>
+<script>setTimeout(() => { location.href = ${JSON.stringify(`${idpAddress}/callback?code=up`)}; }, 1500);</script>`
 		);
-	else send("text/html", "<!doctype html><title>Fake IdP</title>");
+	else send("text/html", "<!doctype html><title>Fake upstream</title>");
+});
+await new Promise((r) => fakeUpstream.listen(0, "127.0.0.1", r));
+const upstreamAddress = `http://127.0.0.1:${fakeUpstream.address().port}`;
+let address3 = "";
+const fakeIdp = http.createServer((req, res) => {
+	const send = (type, body) => (res.setHeader("content-type", type), res.end(body));
+	if (req.url?.startsWith("/authorize")) {
+		res.writeHead(302, { location: `${upstreamAddress}/authorize?client=idp` });
+		res.end();
+	} else if (req.url?.startsWith("/callback")) {
+		res.writeHead(302, { location: `${address3}/signed-in` });
+		res.end();
+	} else send("text/html", "<!doctype html><title>Fake IdP</title>");
 });
 await new Promise((r) => fakeIdp.listen(0, "127.0.0.1", r));
 const idpAddress = `http://127.0.0.1:${fakeIdp.address().port}`;
@@ -171,10 +188,12 @@ const fakeRedirect = http.createServer((req, res) => {
 	} else if (req.url === "/login") {
 		res.writeHead(302, { location: `${idpAddress}/authorize?client=smoke` });
 		res.end();
-	} else send("text/html", "<!doctype html><title>Redirect Cerea</title>");
+	} else if (req.url === "/signed-in")
+		send("text/html", "<!doctype html><title>Signed in at Redirect Cerea</title>");
+	else send("text/html", "<!doctype html><title>Redirect Cerea</title>");
 });
 await new Promise((r) => fakeRedirect.listen(0, "127.0.0.1", r));
-const address3 = `http://127.0.0.1:${fakeRedirect.address().port}`;
+address3 = `http://127.0.0.1:${fakeRedirect.address().port}`;
 
 const fx = await startFixtures();
 const galopinBin = join(root, "resources", "galopin", "galopin");
@@ -843,26 +862,35 @@ try {
 		assert.equal(added3.length, 3, JSON.stringify(added3));
 		assert.equal(added3[2].name, "Redirect Cerea");
 		assert.equal(added3[2].active, true, "adding the profile switches to it");
-		let excursion;
-		for (let i = 0; i < 60; i++) {
-			const c = await hook("cerea", "CEREA");
-			if (String(c.url ?? "").startsWith(idpAddress)) {
-				excursion = c;
-				break;
+		const until = async (pred, what) => {
+			let c;
+			for (let i = 0; i < 80; i++) {
+				c = await hook("cerea", "CEREA");
+				if (pred(c)) return c;
+				await new Promise((r) => setTimeout(r, 250));
 			}
-			await new Promise((r) => setTimeout(r, 250));
-		}
-		assert.ok(
-			excursion,
-			`the Cerea view reached the identity provider: ${JSON.stringify(excursion)}`
+			assert.fail(`${what}: the Cerea view is at ${JSON.stringify(c)}`);
+		};
+		// server -> provider -> upstream provider (a third origin, by the provider's redirect)
+		const upstream = await until(
+			(c) => String(c.url ?? "").startsWith(upstreamAddress),
+			"the Cerea view reached the upstream provider through the server's provider"
 		);
-		assert.match(excursion.title, /Fake IdP/);
+		assert.match(upstream.title, /Fake upstream page/);
+		// upstream -> provider (by a script) -> server (by a redirect): home, signed in
+		const home = await until(
+			(c) => c.url === `${address3}/signed-in`,
+			"the sign-in came back to the server in the app window"
+		);
+		assert.match(home.title, /Signed in at Redirect Cerea/);
 		const back3 = await hook("switchprofile 0", "PROFILES");
 		assert.equal(back3[0].active, true);
 		await new Promise((r) => setTimeout(r, 2000));
 		const backCereA = await hook("cerea", "CEREA");
 		assert.equal(backCereA.url, `${address}/`);
-		step("first sign-in: a first load that 302s to the identity provider stays in the app window");
+		step(
+			"first sign-in: server, provider, upstream provider and back, all in the app window"
+		);
 	}
 
 	// 4. idle energy: the runtime goes away, then CPU is measured visible and hidden
@@ -899,5 +927,6 @@ try {
 	fake2.close();
 	fakeRedirect.close();
 	fakeIdp.close();
+	fakeUpstream.close();
 }
 process.exit(failed ? 1 : 0);

@@ -496,8 +496,13 @@ data:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 
   identity provider and not a frame); the panel denies all.
 - **Sign-in excursion**: the Cerea window may follow a server-side redirect only to the
   **identity provider the server names** (`issuer` in `enroll.json`, stored with the server), and
-  back; a provider upstream of it is not reachable (an administrator-configured list of extra hops
-  can come later).
+  back. While that sign-in is live (10 minutes from the first hop, never extended by later hops),
+  the provider may hand over to providers upstream of it (GitLab signing in through Microsoft): a
+  new origin only by a **server-side redirect** from the page the window is on, https only, at
+  most `MAX_UPSTREAM` (3) origins beyond the provider. A click or script on those pages moves only
+  between origins the sign-in already reached (an upstream provider posting its answer back);
+  anything new opens in the system browser, window-open always does. None of these pages gets
+  the browser bridge or a permission (both are for the server's origin only). `navGuard.ts`.
 - **Fuses**: `runAsNode`, node options and inspect arguments off; cookie encryption on; the file
   protocol's extra privileges off; asar integrity and `onlyLoadAppFromAsar` on; the ad-hoc Darwin
   signature reset for the unsigned arm64 build. No DevTools or View menu in a packaged app.
@@ -616,8 +621,6 @@ path stays unchanged for agents and other computers.
 
 ## Still open
 
-- An administrator-configured list of extra sign-in hops (federated identity providers upstream
-  of the server's own), if a deployment needs one.
 - Re-measure idle CPU on a real Mac (and on battery); the figures here are Xvfb.
 - After a take-over the task's page is the user's tab and asks for approval to use: acceptable, or
   should hand-back re-adopt it without asking?

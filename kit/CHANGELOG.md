@@ -5,6 +5,10 @@ convention: newest first, one section per release, dated, with the pins it
 shipped. Since the kit moved into the Cerea repository (see Unreleased), a
 release is a Cerea tag `vX.Y.Z` and this file lives at `kit/CHANGELOG.md`.
 
+## Unreleased
+
+- **Desktop app: signing in through an upstream provider stays in the app.** A server whose identity provider signs you in through another one (GitLab through Microsoft, say) used to hand the second hop to the system browser and leave the app blank. During the sign-in the app now follows the provider's own redirects to up to three further providers (https only, within the same 10 minutes); a click on those pages still cannot open a new site in the app.
+
 ## v0.67.3 — 2026-11-27
 
 Pins: Cerea `0.67.3` (chat, `cerea-documents`, `galopin`, `cerea-sandbox`, `cerea-sandbox-python`), Pystino `0.34.1`, opencode `2.4.1`.
