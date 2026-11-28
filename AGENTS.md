@@ -201,6 +201,35 @@ lint` (or `npx prettier --check` on the files you changed), the server tests
   back with a throwaway container (`docker run --rm -v $PWD:/x alpine chown -R
 $(id -u):$(id -g) /x`).
 
+### Debugging a failure only a user can see
+
+A bug that happens on a user's machine and not in CI is found by reproducing
+it, not by asking for more evidence. Each rule below was skipped once, and a day
+went on theories while the fix was a single line.
+
+- **Reproduce before you ask again.** Ask for a log at most once. An empty log
+  is a finding: that path is silent, so find out why in the code and make it
+  log, then reproduce here.
+- **Trace the whole chain before naming a cause.** Write down every hop from
+  the user's action to the failure and mark each one _tested_, _read_ or
+  _assumed_. Name a cause only when the hop it sits on is tested. For the
+  desktop app's own browser: server switch → the page's bridge (preload origin
+  and base path) → ticket → window socket → the turn's `windowId` → target
+  choice → the app's runtime → bridge socket → panel.
+- **An error message names a symptom, not a component.** Grep the string and
+  list every place that raises it before blaming one. "The browser panel … is
+  not reachable" comes from the app's own runtime and from galopin's alike.
+- **Know what CI does not run.** The desktop smoke runs on Linux under Xvfb.
+  Since C181 it uses a data path with a space, a server under `/chat` and the
+  real renderer sandbox. It still runs no macOS app (the Mac package is only
+  file-checked) and no real identity provider. A bug only a Mac user sees lives
+  in that gap: rebuild the user's conditions here (their path shapes, base
+  path, sandbox, versions) before theorising.
+- **Two hypotheses that do not hold: stop.** Go back to the chain. Do not send
+  the user a workaround or a release for a cause nobody has reproduced.
+- **When the user says a component is not involved, treat it as a
+  constraint.** Check it in the code, and do not steer them back to it.
+
 ### Running a Single Test
 
 ```bash
