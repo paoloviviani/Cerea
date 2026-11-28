@@ -502,7 +502,12 @@ data:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 
   most `MAX_UPSTREAM` (3) origins beyond the provider. A click or script on those pages moves only
   between origins the sign-in already reached (an upstream provider posting its answer back);
   anything new opens in the system browser, window-open always does. None of these pages gets
-  the browser bridge or a permission (both are for the server's origin only). `navGuard.ts`.
+  the browser bridge or a permission (both are for the server's origin only). Only the main
+  frame's redirects count (`NavChain.redirect`): a frame cannot use up a hop, move the chain or
+  start a sign-in. The real bound is "where the providers will redirect": an open redirect on a
+  provider can show up to three sites of its choosing in the window for the rest of the 10
+  minutes (no bridge, no permission, but no address bar either). A step the app does not follow
+  writes a `[sign-in]` line in the app's log. `navGuard.ts`.
 - **Fuses**: `runAsNode`, node options and inspect arguments off; cookie encryption on; the file
   protocol's extra privileges off; asar integrity and `onlyLoadAppFromAsar` on; the ad-hoc Darwin
   signature reset for the unsigned arm64 build. No DevTools or View menu in a packaged app.

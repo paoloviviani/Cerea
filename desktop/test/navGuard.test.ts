@@ -269,6 +269,38 @@ describe("signing in through an upstream provider (GitLab, then Microsoft)", () 
 		).toBe("external");
 	});
 
+	it("ignores a frame's redirects: no hop used, the chain stays on the page, no sign-in started", () => {
+		const { guard, chain } = setup();
+		const apply = (r: ReturnType<typeof chain.handle> | undefined) => {
+			if (r?.excursion !== undefined) guard.excursion = r.excursion ?? undefined;
+		};
+		// a frame of the server's login page that redirects to the provider starts nothing
+		expect(chain.redirect(guard, `${gitlab}/oauth/authorize`, false)).toBeUndefined();
+		expect(guard.excursion).toBeUndefined();
+		apply(chain.redirect(guard, `${gitlab}/oauth/authorize`, true));
+		const source = chain.source();
+		// a frame on the provider's page redirecting somewhere new uses up nothing and moves nothing
+		for (let i = 0; i < 5; i++)
+			expect(chain.redirect(guard, `https://frame${i}.example/`, false)).toBeUndefined();
+		expect(chain.source()).toBe(source);
+		expect(guard.excursion?.chain).toEqual([gitlab]);
+		expect(guard.excursion?.origin).toBe(gitlab);
+		// the main frame still goes on as before
+		const r = chain.redirect(guard, `${ms}/authorize`, true);
+		apply(r);
+		expect(r?.decision).toBe("allow");
+	});
+
+	it("refuses a redirect from a reached origin the window is no longer on", () => {
+		const { guard, step } = setup();
+		step("redirect", `${gitlab}/oauth/authorize`);
+		step("redirect", `${ms}/authorize`);
+		// the window is on Microsoft now: a redirect claimed from GitLab adds nothing new
+		expect(
+			guardCerea(guard, "redirect", "https://new.example/", `${gitlab}/somewhere`).decision
+		).toBe("external");
+	});
+
 	it("does not let an upstream provider start a sign-in on its own", () => {
 		const guard: GuardState = { origin: server, idp: gitlab };
 		expect(guardCerea(guard, "redirect", `${ms}/authorize`, `${server}/chat/login`).decision).toBe(
