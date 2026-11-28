@@ -65,8 +65,11 @@ jobs:
           sudo apt-get install -y -qq xvfb libgtk-3-0t64 libnss3 libasound2t64 libgbm1 >/dev/null
           # The real renderer sandbox, as every installed app runs: Chromium's setuid helper must be
           # root-owned with mode 4755, and the smoke refuses to run without it here.
-          # (require("electron") downloads the binary on first use; the helper sits beside it.)
+          # require("electron") downloads the binary on first use (printing a line, so that call's
+          # output is not the path); the helper sits beside the binary.
+          node -e 'require("electron")' >/dev/null
           helper="$(dirname "$(node -p 'require("electron")')")/chrome-sandbox"
+          test -f "$helper"
           sudo chown root:root "$helper"
           sudo chmod 4755 "$helper"
           SMOKE_IDLE_SECONDS=20 SMOKE_REQUIRE_SANDBOX=1 xvfb-run -a node scripts/smoke.mjs
