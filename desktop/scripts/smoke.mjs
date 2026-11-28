@@ -6,7 +6,7 @@
 //   IDLE_BUDGET_PERCENT  the hidden-window average CPU must stay under this (default 1)
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, statSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -30,7 +30,10 @@ const { StdioClientTransport } = await import(
 );
 const { startFixtures } = await import(join(rtDir, "test", "fixtures.ts"));
 
-const tmp = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), "cerea-desktop-smoke-"));
+// A space in the app's data path, as on every Mac ("Application Support"): v0.67.2 shipped a
+// browser that could not reach its own panel there. Not in TMPDIR itself: xvfb-run keeps its X
+// authority file there and cannot take a space.
+const tmp = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), "cerea desktop smoke-"));
 const home = join(tmp, "home");
 const userData = join(tmp, "userdata");
 mkdirSync(home, { recursive: true });
@@ -195,6 +198,42 @@ const fakeRedirect = http.createServer((req, res) => {
 await new Promise((r) => fakeRedirect.listen(0, "127.0.0.1", r));
 address3 = `http://127.0.0.1:${fakeRedirect.address().port}`;
 
+// A stand-in Cerea that lives under /chat, as the kit deploys it: the profile is added by its
+// bare site (the app finds /chat), and the page under /chat must get the app's browser bridge.
+const chatStates = [];
+const fakeChat = http.createServer((req, res) => {
+	const send = (type, body) => (res.setHeader("content-type", type), res.end(body));
+	if (req.url === "/chat/galopin/enroll.json")
+		send(
+			"application/json",
+			JSON.stringify({
+				issuer: "https://idp4.example.org",
+				gateway: "https://llm4.example.org",
+				clientId: "opencode-enrollment",
+				sessionCookie: "hf-chat",
+			})
+		);
+	else if (req.url === "/chat/manifest.webmanifest")
+		send("application/manifest+json", JSON.stringify({ name: "Chat-path Cerea", icons: [] }));
+	else if (req.url === "/chat/smoke/state" && req.method === "POST") {
+		let body = "";
+		req.on("data", (c) => (body += c));
+		req.on("end", () => (chatStates.push(JSON.parse(body)), res.end("ok")));
+	} else if (req.url === "/chat" || req.url?.startsWith("/chat/") || req.url === "/outside")
+		(res.setHeader("set-cookie", "hf-chat=chat-path-secret; HttpOnly; Path=/chat"),
+			send(
+				"text/html",
+				`<!doctype html><title>Chat-path Cerea</title><script>
+const b = window.cereaDesktop && window.cereaDesktop.browser;
+fetch('/chat/smoke/state', { method: 'POST', body: JSON.stringify({ path: location.pathname, exposed: !!b, available: !!(b && b.available) }) })
+  .then(() => { if (location.pathname !== '/outside') location.href = '/outside'; });
+</script>`
+			));
+	else ((res.statusCode = 404), res.end("not here"));
+});
+await new Promise((r) => fakeChat.listen(0, "127.0.0.1", r));
+const address4 = `http://127.0.0.1:${fakeChat.address().port}`;
+
 const fx = await startFixtures();
 const galopinBin = join(root, "resources", "galopin", "galopin");
 const env = {
@@ -206,9 +245,23 @@ const env = {
 	...(existsSync(galopinBin) ? { GALOPIN_BIN: galopinBin } : {}),
 };
 const electron = join(root, "node_modules", ".bin", "electron");
+// The real renderer sandbox (what every installed app runs with) when Chromium's setuid helper is
+// set up (CI does: root-owned, mode 4755); otherwise, on a developer box, --no-sandbox.
+const sandboxHelper = join(root, "node_modules", "electron", "dist", "chrome-sandbox");
+const sandboxed = (() => {
+	try {
+		const st = statSync(sandboxHelper);
+		return st.uid === 0 && (st.mode & 0o4000) !== 0;
+	} catch {
+		return false;
+	}
+})();
+if (process.env.SMOKE_REQUIRE_SANDBOX === "1" && !sandboxed)
+	throw new Error(`SMOKE_REQUIRE_SANDBOX=1, but ${sandboxHelper} is not root-owned with mode 4755`);
+console.log(sandboxed ? "renderer sandbox: on" : "renderer sandbox: off (--no-sandbox)");
 const app = spawn(
 	electron,
-	[".", "--no-sandbox", "--disable-gpu", "--force-device-scale-factor=1"],
+	[".", ...(sandboxed ? [] : ["--no-sandbox"]), "--disable-gpu", "--force-device-scale-factor=1"],
 	{
 		cwd: root,
 		env,
@@ -889,6 +942,31 @@ try {
 		const backCereA = await hook("cerea", "CEREA");
 		assert.equal(backCereA.url, `${address}/`);
 		step("first sign-in: server, provider, upstream provider and back, all in the app window");
+		// 3c. a Cerea under /chat, added by its bare site: stored with /chat, and the page there gets
+		// the app's own browser (the bridge's origin and base-path checks, end to end)
+		const added4 = await hook(`addprofile ${address4}`, "PROFILES");
+		assert.ok(Array.isArray(added4), JSON.stringify(added4));
+		const p4 = added4[added4.length - 1];
+		assert.equal(p4.active, true, "adding the profile switches to it");
+		assert.equal(p4.address, `${address4}/chat`, "the profile is stored with its base path");
+		for (let i = 0; i < 60 && chatStates.length < 2; i++)
+			await new Promise((r) => setTimeout(r, 250));
+		assert.deepEqual(
+			chatStates[0],
+			{ path: "/chat/", exposed: true, available: true },
+			"the page under /chat gets the app's browser"
+		);
+		// the same server outside the base path (the page went there itself): no bridge
+		assert.deepEqual(
+			chatStates[1],
+			{ path: "/outside", exposed: false, available: false },
+			"a page of the same server outside /chat gets no bridge"
+		);
+		const wb4 = await hook("winbrowser", "WINBROWSER");
+		assert.equal(wb4.available, true, "the app can run a browser for the /chat profile");
+		await hook("switchprofile 0", "PROFILES");
+		await new Promise((r) => setTimeout(r, 1500));
+		step("a Cerea under /chat, added by its bare site, gets the app's own browser");
 	}
 
 	// 4. idle energy: the runtime goes away, then CPU is measured visible and hidden
@@ -926,5 +1004,6 @@ try {
 	fakeRedirect.close();
 	fakeIdp.close();
 	fakeUpstream.close();
+	fakeChat.close();
 }
 process.exit(failed ? 1 : 0);
