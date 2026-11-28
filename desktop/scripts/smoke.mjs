@@ -9,7 +9,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, statSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
 
 const SMOKE_WINDOW = "smokewindow".padEnd(32, "0");
@@ -247,7 +247,11 @@ const env = {
 const electron = join(root, "node_modules", ".bin", "electron");
 // The real renderer sandbox (what every installed app runs with) when Chromium's setuid helper is
 // set up (CI does: root-owned, mode 4755); otherwise, on a developer box, --no-sandbox.
-const sandboxHelper = join(root, "node_modules", "electron", "dist", "chrome-sandbox");
+// require("electron") is the binary's path (downloading it on first use); the helper is beside it.
+const sandboxHelper = join(
+	dirname(createRequire(join(root, "package.json"))("electron")),
+	"chrome-sandbox"
+);
 const sandboxed = (() => {
 	try {
 		const st = statSync(sandboxHelper);
