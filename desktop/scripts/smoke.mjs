@@ -888,9 +888,7 @@ try {
 		await new Promise((r) => setTimeout(r, 2000));
 		const backCereA = await hook("cerea", "CEREA");
 		assert.equal(backCereA.url, `${address}/`);
-		step(
-			"first sign-in: server, provider, upstream provider and back, all in the app window"
-		);
+		step("first sign-in: server, provider, upstream provider and back, all in the app window");
 	}
 
 	// 4. idle energy: the runtime goes away, then CPU is measured visible and hidden

@@ -301,16 +301,34 @@ function makeCereaView(profile: Profile): WebContentsView {
 	const apply = (r: ReturnType<typeof guardCerea>) => {
 		if (r.excursion !== undefined) guard.excursion = r.excursion ?? undefined;
 	};
+	// A sign-in step the app does not follow is said in the log: the window stays on the provider's
+	// page and the system browser opens, which alone does not say why.
+	const refusedDuringSignIn = (kind: string, url: string) => {
+		if (!guard.excursion) return;
+		let where = "";
+		try {
+			where = new URL(url).origin;
+		} catch {
+			where = "an address that is not a web page";
+		}
+		line(
+			`[sign-in] a ${kind} to ${where} is not followed in the app (a new site by a click, an insecure one, more than the allowed providers, or after 10 minutes): it opens in the system browser`
+		);
+	};
 	wc.on("will-navigate", (e, url) => {
 		const r = chain.handle(guard, "navigate", url);
+		if (r.decision !== "allow") refusedDuringSignIn("click", url);
 		apply(r);
 		if (r.decision !== "allow") {
 			e.preventDefault();
 			if (r.decision === "external" && mayOpenExternally(url)) void shell.openExternal(url);
 		}
 	});
-	wc.on("will-redirect", (e, url) => {
-		const r = chain.handle(guard, "redirect", url);
+	wc.on("will-redirect", (e, url, _inPlace, isMainFrame) => {
+		// Only the main frame's redirects are the window's (`NavChain.redirect`).
+		const r = chain.redirect(guard, url, isMainFrame);
+		if (!r) return;
+		if (r.decision !== "allow") refusedDuringSignIn("redirect", url);
 		apply(r);
 		if (r.decision !== "allow") {
 			e.preventDefault();

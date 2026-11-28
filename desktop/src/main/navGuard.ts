@@ -65,6 +65,21 @@ export class NavChain {
 		return this.from;
 	}
 
+	/**
+	 * A redirect, as `will-redirect` reports it: only the main frame's count. A frame's redirect is
+	 * the frame's business (the guard does not stop it, nor open it outside): it must neither use up
+	 * a sign-in hop, nor move the chain away from the page the window is on, nor start a sign-in
+	 * from a frame of the server's login page. Undefined for a frame.
+	 */
+	redirect(
+		state: GuardState,
+		url: string,
+		isMainFrame: boolean,
+		now = Date.now()
+	): ReturnType<typeof guardCerea> | undefined {
+		return isMainFrame ? this.handle(state, "redirect", url, now) : undefined;
+	}
+
 	/** The guard decision for a navigation to `url`, and the chain's new source when allowed. */
 	handle(
 		state: GuardState,
